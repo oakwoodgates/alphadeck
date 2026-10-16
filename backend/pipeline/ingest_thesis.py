@@ -48,7 +48,9 @@ from ingest.edgar.form4 import existing_accessions, ingest_form4
 from ingest.edgar.form8k import ingest_form8k
 from ingest.edgar.schedule13 import ingest_schedule13
 from ingest.edgar.submissions import (
-    delisting_date,
+    DelistingFiling,
+    delisting_filings,
+    edgar_tickers,
     fetch_submissions,
     form4_doc_url,
     form4_filings,
@@ -125,14 +127,22 @@ class NameResult:
     # samples has a sampler that has never worked and must be. Nor derivable from the leg's result — an
     # unsamplable fund RAISES, and that is precisely the name to report.
     fund_shares_tracked: bool = False
-    # THE DELISTING DATE (G5b) — the classification fact that tells a STOPPED price tape apart from a feed
-    # gap: the filing date of this name's most recent SEC delisting form (25 / 25-NSE / 15-12B / 15-12G,
-    # `submissions.delisting_date`), or None when it has filed none. A stopped tape WITH one is a name that
-    # legitimately CLOSED (delisted / acquired / deregistered) — its tape correctly ended, so the monitor
-    # marks it "closed", not "stale — repair" (`pipeline/tape_health.py`). A FACT, not a judgment (the
-    # judgment — is the tape stale AND is this a close? — is `pipeline.daily`'s, against the run's asof).
-    # Read from the SAME cached submissions the Form 4 leg fetched, so it costs zero extra network.
-    delisted_at: date | None = None
+    # THE STOP-CLASSIFICATION FACTS (G5b, reshaped by T1) — what tells a STOPPED price tape apart: a name
+    # that legitimately CLOSED (delisted / acquired / deregistered — its tape correctly ended), a RENAME the
+    # vendor now prices under another symbol, or a plain feed gap. Three FACTS, no judgment here (the
+    # judgment — is the tape stale, and if so which of the three? — is `pipeline.daily`'s, against the run's
+    # asof, via `pipeline/tape_health.classify_stop`):
+    # - `delisting_filings`: EVERY SEC delisting form this company filed (25 / 25-NSE / 15-12B / 15-12G,
+    #   `submissions.delisting_filings`), newest first. ALL of them, not the latest: which one (if any)
+    #   explains a stop depends on the tape's last bar — VRME's 2025 warrant delisting is why.
+    # - `edgar_tickers`: EDGAR's CURRENT symbol list (`submissions.edgar_tickers`); `()` = EDGAR lists none,
+    #   None = not read (no CIK, or the read failed). The rename guard's input; display only, never adopted.
+    # - `price_symbol`: the master's vendor-symbol override (#252), so the guard can see the symbol we
+    #   actually price under (KYOCY is priced as KYOAY, which EDGAR lists). Identity, copied off the master.
+    # Read from the SAME cached submissions the Form 4 leg fetched, so they cost zero extra network.
+    delisting_filings: tuple[DelistingFiling, ...] = ()
+    edgar_tickers: tuple[str, ...] | None = None
+    price_symbol: str | None = None
     # O1 — the SAME failures as ``error``, kept STRUCTURED: one ``(leg, message)`` pair per leg that raised
     # (``form4`` / ``form8k`` / ``schedule13`` / ``price`` / ``fund_shares``; ``master`` for an id missing
     # from the tenant master). ``error`` stays the joined string every existing reader uses (and the R2
@@ -388,20 +398,23 @@ def ingest_thesis(
             tape_edge = latest_bar_date(conn, sec.id, tenant_id=thesis.tenant_id)
         except Exception as e:  # noqa: BLE001 — a monitor read never costs a name its result
             print(f"  warn: {sec.ticker or sec.id} tape-edge read failed: {e}")
-        # THE DELISTING DATE (G5b) — read the name's most recent SEC delisting form (25/25-NSE/15-12B/
-        # 15-12G) from its submissions so a STOPPED tape can be told apart from a feed gap. FREE on a daily
-        # pass: the Form 4 leg above already fetched + cached this CIK's submissions, so this is a cache-hit
-        # disk read + a list comprehension, exactly like the 8-K / 13D legs (a cache hit never touches the
-        # network or the freeze counter). Gated on `sec.cik` — a name with no CIK has no submissions and so
-        # no delisting form (the Form 4 leg's own guard). Its OWN try, degrade to None: this is a monitor
-        # read feeding a classification, so a fault must never cost a name its result, and None is the SAFE
-        # default — a name without positive delisting evidence stays the loud "stale — repair", never the
-        # quiet "closed" (erring toward visible, #7/#9). NOT judged here — `pipeline.daily` decides whether a
-        # stale tape with this date is a close, so this unit still needs no `asof`.
-        delisted_at: date | None = None
+        # THE STOP-CLASSIFICATION FACTS (G5b/T1) — every SEC delisting form (25/25-NSE/15-12B/15-12G) and
+        # EDGAR's current ticker list, from the name's submissions, so a STOPPED tape can be told apart:
+        # closed, renamed, or a feed gap. FREE on a daily pass: the Form 4 leg above already fetched +
+        # cached this CIK's submissions, so this is a cache-hit disk read + two list walks, exactly like the
+        # 8-K / 13D legs (a cache hit never touches the network or the freeze counter). Gated on `sec.cik` —
+        # a name with no CIK has no submissions (the Form 4 leg's own guard). Its OWN try, degrade to the
+        # empty defaults: this is a monitor read feeding a classification, so a fault must never cost a name
+        # its result, and "no evidence" is the SAFE default — a name without positive delisting evidence
+        # stays the loud "stale — repair", never the quiet "closed" (erring toward visible, #7/#9). NOT
+        # judged here — `pipeline.daily` classifies a stale tape from these, so this unit needs no `asof`.
+        delisting: tuple[DelistingFiling, ...] = ()
+        listed: tuple[str, ...] | None = None
         if sec.cik:
             try:
-                delisted_at = delisting_date(fetch_submissions(client, sec.cik))
+                subs = fetch_submissions(client, sec.cik)
+                delisting = delisting_filings(subs)
+                listed = edgar_tickers(subs)
             except Exception as e:  # noqa: BLE001 — a monitor read never costs a name its result
                 print(f"  warn: {sec.ticker or sec.id} delisting read failed: {e}")
         fs_appended, fs_reversioned = 0, 0
@@ -457,7 +470,9 @@ def ingest_thesis(
                 tape_edge=tape_edge,
                 fund_shares_edge=fund_shares_edge,
                 fund_shares_tracked=fund_shares_tracked,
-                delisted_at=delisted_at,
+                delisting_filings=delisting,
+                edgar_tickers=listed,
+                price_symbol=sec.price_symbol,
                 leg_errors=tuple(leg_errs),
             )
         )

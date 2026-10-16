@@ -704,17 +704,18 @@ def test_a_FAILED_price_leg_still_reports_the_stored_edge(db, security_id, monke
 # --- G5b: the DELISTING date — the fact that tells a CLOSED name from a feed gap ----------------------
 
 
-def test_name_result_carries_the_DELISTING_date_from_submissions(db, security_id, monkeypatch):
-    """G5b — ingest_thesis reads the name's most recent SEC delisting form (25/25-NSE/15-12B/15-12G) from
-    its submissions and reports it as delisted_at, the fact the monitor uses to tell a CLOSED name (delisted
-    / acquired / deregistered) from a feed gap. Read from the SAME submissions the Form 4 leg fetched, so
-    it costs zero extra network."""
+def test_name_result_carries_EVERY_delisting_filing_and_the_EDGAR_tickers(
+    db, security_id, monkeypatch
+):
+    """G5b/T1 — ingest_thesis reports ALL the name's SEC delisting forms (25/25-NSE/15-12B/15-12G), newest
+    first, plus EDGAR's current ticker list and the master's price_symbol: the facts the monitor classifies
+    a stopped tape from (closed / renamed / feed gap). ALL the forms, not the latest — which one explains a
+    stop depends on the tape's last bar. Read from the SAME submissions the Form 4 leg fetched, so it costs
+    zero extra network."""
     monkeypatch.setattr(IT, "EdgarClient", _FakeClient)
-    monkeypatch.setattr(
-        IT,
-        "fetch_submissions",
-        lambda client, cik: _subs(("ACC-1",), delistings=[("25-NSE", "2026-06-20")]),
-    )
+    subs = _subs(("ACC-1",), delistings=[("25-NSE", "2026-06-20"), ("25", "2021-01-29")])
+    subs["tickers"] = ["NEWCO"]
+    monkeypatch.setattr(IT, "fetch_submissions", lambda client, cik: subs)
     monkeypatch.setattr(
         IT, "YahooPriceSource", lambda: _FakePriceSource(lambda t: _bars([date(2026, 6, 15)]))
     )
@@ -722,18 +723,24 @@ def test_name_result_carries_the_DELISTING_date_from_submissions(db, security_id
 
     results = IT.ingest_thesis(db, tid, allow_live=False)
 
-    assert results[0].delisted_at == date(2026, 6, 20)
+    assert [(f.form, f.filed) for f in results[0].delisting_filings] == [
+        ("25-NSE", date(2026, 6, 20)),
+        ("25", date(2021, 1, 29)),
+    ]
+    assert results[0].edgar_tickers == ("NEWCO",)
+    assert results[0].price_symbol is None  # the fixture master row has no vendor-symbol override
 
 
-def test_name_result_delisted_at_is_NONE_for_a_live_name(db, security_id, monkeypatch):
-    """A listed name with no delisting form → delisted_at None, so its stopped tape (if any) stays a feed
-    gap to repair rather than being mis-marked closed."""
+def test_name_result_has_NO_delisting_filings_for_a_live_name(db, security_id, monkeypatch):
+    """A listed name with no delisting form → (), so its stopped tape (if any) stays a feed gap to repair
+    rather than being mis-marked closed; a doc with no `tickers` key reads as EDGAR listing none."""
     _patch(monkeypatch, accessions=("ACC-1",), bar_dates=(date(2026, 6, 15),))
     tid = _make_thesis(db, [("DEVCO", security_id)])
 
     results = IT.ingest_thesis(db, tid, allow_live=False)
 
-    assert results[0].delisted_at is None
+    assert results[0].delisting_filings == ()
+    assert results[0].edgar_tickers == ()
 
 
 # --- F1: the FUND-SHARES edge, the twin of the tape edge ---------------------------------------------

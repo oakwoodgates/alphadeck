@@ -756,12 +756,34 @@ Recorded here where a builder of the pager/scheduler will hit them; the full acc
   repair. Only ETF sleeves are judged: an equity has no samples, and a `null` edge means **stale** to the
   rule, so an ungated monitor would report every equity in every basket. One rule, one dedup, two
   thresholds; the prose for each feed lives once in `domain/feed_kinds.py`.
+  **A stopped price tape is classified closed, renamed, or a feed gap** (G5b, tightened by T1 2026-10-16;
+  `pipeline/tape_health.classify_stop`, derive-on-read from the submissions the Form 4 leg already cached —
+  zero extra fetches, nothing persisted):
+  - **closed** (quiet, never pages) only when a SEC delisting form (25 / 25-NSE / 15-12B / 15-12G) was
+    filed within `[last bar − tape_closed_before_days, last bar + tape_closed_after_days]` (defaults 30 / 45)
+    and on or before the as-of, **and** EDGAR lists no different ticker for the company. `closed_at` is the
+    filing nearest the last bar. A never-priced name has no last bar, so it can never be closed this way.
+  - **renamed** — a loud repair row marked "renamed — EDGAR lists X": EDGAR's current `tickers` holds
+    neither the master `ticker` nor `price_symbol` (membership, never `tickers[0]`). Display only; nothing
+    adopts the symbol.
+  - otherwise a plain **stale — repair** row.
+
+  The G5b rule it replaced closed a stopped tape on ANY delisting form ever filed, dated by the newest.
+  MEASURED 2026-10-16 on prod: that labeled VRME "closed" off a 2025-06-23 Form 25-NSE for its
+  **warrants**, 470 days before its common stock's tape stopped (the company had become OpenWorld, OPNW);
+  192 of 675 still-trading basket names carry some delisting form, and every one would have been silenced
+  the night its tape stopped. Under the proximity rule the 8 genuine closes stay closed (nearest form within
+  [−7, +13] days of the last bar), VRME / HLLK / BRR / BTAI become renamed repair rows, and **7** of the 192
+  would still read closed if their tape stopped tonight, each on a 25-NSE filed in the last 30 days (ACHR,
+  ARBE, BKKT, IONQ, KTTA, PDYN, VSTD). All 7 still trade, so those 25-NSEs presumably removed some other
+  class (not verified — the forms were not opened); checking WHICH class a Form 25 removed is the unbuilt
+  Q6, and it is what would close this residual. A name reclassified closed → repair is news: the
+  newly-stale diff leaves closed rows out of its baseline, so it pages **once**.
   **Still open by design:** the repair is the
   operator's (set the vendor symbol override for a tape; check fund/ticker/source for a sleeve), because an
   automatic rename-follower could file another company's tape under a member — worse than a visible gap
-  (#4/#6). Also
-  still open: the monitor cannot distinguish a rename from a genuine delisting (it reports the fact, not the
-  diagnosis).
+  (#4/#6). The ratifiable rename recommendation (plan T2) and treating a closed name's price 404 as expected
+  (T3) are not built.
 
 ## The count-the-table idempotency discipline (the load-bearing test pattern)
 

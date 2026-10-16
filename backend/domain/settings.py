@@ -174,6 +174,18 @@ class Settings(BaseSettings):
     # deliberately NOT injected by docker-compose — one fewer always-present fallback to keep in step with
     # this default.
     tape_stale_days: int = 5
+    # T1 — the CLOSED-TAPE PROXIMITY window: a stopped price tape reads "closed — stopped trading" (quiet,
+    # never pages) only when a SEC delisting form (25 / 25-NSE / 15-12B / 15-12G) was filed within this many
+    # CALENDAR days BEFORE / AFTER its last bar (and EDGAR lists no different ticker for the company —
+    # pipeline/tape_health.classify_stop). Any other stopped tape stays the loud stale-repair row. MEASURED
+    # 2026-10-16 on prod: the 8 genuine closes each had their nearest form within [-7, +13] days, while VRME
+    # was labeled closed off a WARRANT delisting filed 470 days before its common stock's tape stopped. 30
+    # before (a Form 25 is filed ahead of the removal) and 45 after (the Form 15 deregistration follows,
+    # sometimes weeks later) leave headroom on both sides without reaching a season away. A negative value
+    # reads as 0. Read via the env_prefix (ALPHADECK_TAPE_CLOSED_BEFORE_DAYS / _AFTER_DAYS); NOT injected by
+    # docker-compose. The defaults are pinned equal to tape_health's DEFAULT_CLOSED_* by a test.
+    tape_closed_before_days: int = 30
+    tape_closed_after_days: int = 45
     # F1 — the FUND-SHARES RECENCY threshold: the same rule for the OTHER per-name feed (an ETF sleeve's
     # shares-outstanding sample, which the flow read is built on), with its own number because the cadences
     # differ. MEASURED on dev 2026-09-13 from the stored samples: the primary source (Polygon) states the

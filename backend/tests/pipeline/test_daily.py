@@ -24,6 +24,7 @@ from domain.feed_kinds import StaleFeedLabel
 from domain.settings import get_settings
 from ingest.edgar.client import RECURRING_CACHE_TTL_S
 from ingest.edgar.form4 import ingest_form4
+from ingest.edgar.submissions import DelistingFiling
 from notify import ArmedName, LogNotifier
 from pipeline import cron_run_log, daily
 from pipeline.cron_run_log import write_cron_run_log
@@ -1010,9 +1011,17 @@ def _nr(**kw) -> NameResult:
     return NameResult(**{**base, **kw})
 
 
-def _stale(ticker, *, edge=None, sid=None, kind="price", closed_at=None):
+def _stale(
+    ticker, *, edge=None, sid=None, kind="price", closed_at=None, renamed=False, edgar_tickers=None
+):
     return daily.StaleTape(
-        ticker=ticker, security_id=sid or uuid.uuid4(), edge=edge, kind=kind, closed_at=closed_at
+        ticker=ticker,
+        security_id=sid or uuid.uuid4(),
+        edge=edge,
+        kind=kind,
+        closed_at=closed_at,
+        renamed=renamed,
+        edgar_tickers=edgar_tickers,
     )
 
 
@@ -1077,26 +1086,69 @@ def test_run_daily_tape_monitor_is_OFF_at_stale_days_zero(db, monkeypatch):
     assert out[0].tape_stale == ()  # the price monitor is off; the name is not an ETF sleeve either
 
 
-def test_run_daily_classifies_a_DELISTED_stale_tape_as_CLOSED(db, monkeypatch):
-    """G5b — a stopped tape whose name has a SEC delisting form (carried on NameResult.delisted_at) is
-    reclassified CLOSED by run_daily: still reported (never dropped, #9), but carrying closed_at so the
-    panel renders it quietly and it does not page. A stopped tape with no delisting form stays a plain
-    stale-repair row — the two are told apart deterministically by the form, never a guess (#3)."""
+def _delisting(form: str, filed: date) -> DelistingFiling:
+    return DelistingFiling(form=form, filed=filed, accession=f"ACC-{form}-{filed}")
+
+
+def test_run_daily_classifies_a_stale_tape_CLOSED_RENAMED_or_REPAIR(db, monkeypatch):
+    """G5b/T1 — run_daily classifies each stopped tape from the EDGAR facts on its NameResult, with the
+    proximity window from Settings: a delisting form 2 days after the last bar on a company EDGAR lists
+    none → CLOSED (still reported, never dropped, #9); an OLD form (400 days before) on a company EDGAR
+    lists under another symbol → a RENAMED repair row (the VRME shape); no evidence → a plain repair row.
+    Told apart deterministically by the forms and the EDGAR list, never a guess (#3)."""
+    edge = _ASOF - timedelta(days=40)
     closed = _nr(
         ticker="GONE",
-        tape_edge=_ASOF - timedelta(days=40),
-        delisted_at=_ASOF - timedelta(days=38),
+        tape_edge=edge,
+        delisting_filings=(_delisting("25-NSE", edge + timedelta(days=2)),),
+        edgar_tickers=(),
     )
-    repair = _nr(ticker="DEAD", tape_edge=_ASOF - timedelta(days=40))  # delisted_at defaults None
-    monkeypatch.setattr(daily, "ingest_thesis", _ingest_returning([closed, repair]))
+    renamed = _nr(
+        ticker="OLDSYM",
+        tape_edge=edge,
+        delisting_filings=(_delisting("25-NSE", edge - timedelta(days=400)),),
+        edgar_tickers=("NEWSYM",),
+    )
+    repair = _nr(ticker="DEAD", tape_edge=edge)  # no EDGAR facts at all
+    monkeypatch.setattr(daily, "ingest_thesis", _ingest_returning([closed, renamed, repair]))
     _thesis(db, "T")
 
     out = daily.run_daily(db, asof=_ASOF, allow_live=True)
 
     rows = {s.ticker: s for s in out[0].tape_stale}
-    assert rows["GONE"].closed is True and rows["GONE"].closed_at == _ASOF - timedelta(days=38)
-    assert rows["DEAD"].closed is False and rows["DEAD"].closed_at is None
-    assert set(rows) == {"GONE", "DEAD"}  # the closed name is NOT dropped from the inventory (#9)
+    assert rows["GONE"].closed is True and rows["GONE"].closed_at == edge + timedelta(days=2)
+    assert rows["OLDSYM"].closed is False and rows["OLDSYM"].renamed is True
+    assert rows["OLDSYM"].edgar_tickers == ("NEWSYM",)
+    assert rows["DEAD"].closed is False and rows["DEAD"].renamed is False
+    assert set(rows) == {"GONE", "OLDSYM", "DEAD"}  # nothing dropped from the inventory (#9)
+
+
+def test_run_daily_reads_the_proximity_window_from_SETTINGS(db, monkeypatch):
+    """The window is a setting, not a constant: a form filed 40 days after the last bar is NOT a close
+    with the AFTER side set to 30, and IS one at the default 45."""
+    edge = _ASOF - timedelta(days=60)
+    gone = _nr(
+        ticker="GONE",
+        tape_edge=edge,
+        delisting_filings=(_delisting("15-12G", edge + timedelta(days=40)),),
+        edgar_tickers=(),
+    )
+    monkeypatch.setattr(daily, "ingest_thesis", _ingest_returning([gone]))
+    _thesis(db, "T")
+
+    def _settings(after):
+        return SimpleNamespace(
+            tape_stale_days=5,
+            fund_shares_stale_days=0,
+            tape_closed_before_days=30,
+            tape_closed_after_days=after,
+            image_sha=None,
+        )
+
+    monkeypatch.setattr(daily, "get_settings", lambda: _settings(30))
+    assert daily.run_daily(db, asof=_ASOF, allow_live=True)[0].tape_stale[0].closed is False
+    monkeypatch.setattr(daily, "get_settings", lambda: _settings(45))
+    assert daily.run_daily(db, asof=_ASOF, allow_live=True)[0].tape_stale[0].closed is True
 
 
 def test_assess_health_pages_a_NEWLY_stale_tape_and_names_it():
@@ -1202,6 +1254,43 @@ def test_pass_does_NOT_page_a_CLOSED_delisted_tape(monkeypatch, tmp_path):
     assert out.tape_stale_new == (StaleFeedLabel(kind="price", label="REPAIR"),)
 
 
+def test_pass_pages_ONCE_when_a_CLOSED_tape_is_RECLASSIFIED_as_a_repair(monkeypatch, tmp_path):
+    """T1 — the VRME night. Pass 1 (the old rule) wrote VRME as CLOSED, so it never paged. Pass 2 (the
+    proximity rule) reclassifies the same security as a renamed REPAIR row: that is news the operator was
+    never told, so it must page — exactly ONCE. Pass 3 sees the same repair row and stays quiet. Keyed on
+    kind + security_id through the REAL artifact writer: without the baseline skipping closed rows, pass
+    1's silenced row would count as "already told" and the reclassification would never page.
+    """
+    vrme, other = uuid.uuid4(), uuid.uuid4()
+    seen: list[tuple[str, ...]] = []
+    real_assess = daily.assess_health
+
+    def _assess(results, **kw):
+        seen.append(tuple(x.label for x in (kw.get("tape_stale_new") or ())))
+        return real_assess(results, **kw)
+
+    _prime_pass(monkeypatch)
+    monkeypatch.setattr(cron_run_log, "_DEFAULT_CRON_RUNS", tmp_path)
+    monkeypatch.setattr(daily, "write_cron_run_log", cron_run_log.write_cron_run_log)  # REAL writer
+    monkeypatch.setattr(daily, "assess_health", _assess)
+
+    def _pass(stale):
+        monkeypatch.setattr(daily, "run_daily", lambda conn, **k: _thesis_result_with(stale))
+        return daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
+
+    known = _stale("KNOWN", sid=other)  # a repair row present every night: never re-pages
+    _pass([known, _stale("VRME", sid=vrme, closed_at=date(2025, 6, 23))])
+    renamed = _stale("VRME", sid=vrme, renamed=True, edgar_tickers=("OPNW",))
+    out2 = _pass([known, renamed])
+    out3 = _pass([known, renamed])
+
+    assert seen[0] == ("KNOWN",)  # night 1: VRME was (wrongly) closed — silent
+    assert seen[1] == ("VRME",)  # night 2: reclassified → news, paged once
+    assert seen[2] == ()  # night 3: the same repair row — quiet
+    assert out2.tape_stale_new == (StaleFeedLabel(kind="price", label="VRME"),)
+    assert out3.tape_stale_new == ()
+
+
 def test_pass_pages_the_SAME_security_again_when_its_OTHER_feed_stops(monkeypatch, tmp_path):
     """F1, the reason the diff key carries the KIND: one name's price tape dies, and later its fund-shares
     sampling dies too. The second is news the operator has not been told, with a different repair — keyed
@@ -1296,6 +1385,26 @@ def test_report_prints_a_CLOSED_tape_in_the_QUIET_block_not_the_loud_stale_one(c
     assert "GONE" not in loud
     # ...it is in the quiet closed block, with its delisting date
     assert "closed tapes" in out and "GONE: last bar 2026-04-01 · delisting filed 2026-04-03" in out
+
+
+def test_report_marks_a_RENAMED_repair_row_with_EDGARs_symbols(capsys):
+    """T1 — a renamed row stays in the LOUD stale block (it is a repair) and names where EDGAR lists the
+    company now, so the operator's next step is on the line; a plain repair row carries no marker.
+    """
+    renamed = _stale("VRME", edge=date(2026, 10, 6), renamed=True, edgar_tickers=("OPNW",))
+    plain = _stale("WONDF", edge=None, edgar_tickers=())
+    daily._report(
+        [
+            daily.ThesisRunResult(
+                thesis_id=uuid.uuid4(), name="T", recorded=True, tape_stale=(renamed, plain)
+            )
+        ]
+    )
+    out = capsys.readouterr().out
+    assert "STALE PRICE TAPES" in out
+    assert "VRME: last bar 2026-10-06 · renamed — EDGAR lists OPNW" in out
+    assert "WONDF: last bar never\n" in out  # no marker on a plain repair row
+    assert "closed tapes" not in out
 
 
 # --- F2: the transition baseline is the record AT OR BEFORE this as-of (no same-day re-notify) --------
@@ -1536,7 +1645,13 @@ def test_run_daily_fund_monitor_is_OFF_at_its_OWN_zero(db, monkeypatch):
     monkeypatch.setattr(
         daily,
         "get_settings",
-        lambda: SimpleNamespace(tape_stale_days=5, fund_shares_stale_days=0, image_sha=None),
+        lambda: SimpleNamespace(
+            tape_stale_days=5,
+            fund_shares_stale_days=0,
+            tape_closed_before_days=30,  # T1 — the price monitor reads its proximity window too
+            tape_closed_after_days=45,
+            image_sha=None,
+        ),
     )
     _thesis(db, "T")
 

@@ -11,9 +11,14 @@ from __future__ import annotations
 import uuid
 from datetime import date, timedelta
 
+from domain.settings import Settings
+from ingest.edgar.submissions import DelistingFiling, delisting_filings, edgar_tickers
 from pipeline.ingest_thesis import NameResult
 from pipeline.tape_health import (
+    DEFAULT_CLOSED_AFTER_DAYS,
+    DEFAULT_CLOSED_BEFORE_DAYS,
     StaleTape,
+    classify_stop,
     is_tape_stale,
     stale_fund_shares,
     stale_label,
@@ -236,58 +241,329 @@ def test_a_stale_tape_defaults_to_the_PRICE_kind():
     assert StaleTape(ticker="AAA", security_id=uuid.uuid4(), edge=None).kind == "price"
 
 
-# --- G5b: the DELISTING classification — a stale tape WITH a delisting form reads CLOSED --------------
+# --- G5b/T1: the stop classification — CLOSED only on a delisting form NEAR the last bar, and no rename -
+#
+# The fixtures below are REAL shapes, MEASURED from prod's cached EDGAR submissions on 2026-10-16: each
+# name's actual `tickers` list and its actual delisting-form rows (form, filing date, accession), with the
+# tape edge its stored price tape actually stops at. They go through the REAL parsers
+# (`delisting_filings`, `edgar_tickers`) and the REAL collector (`stale_tapes`), so nothing is shaped to
+# the classifier. Where a case needs a stop that has not happened (a still-trading multi-symbol name), the
+# test says so: it states the rule's contract on that name's real EDGAR record with a hypothetical edge.
+
+_TONIGHT = date(
+    2026, 10, 15
+)  # the asof of the 2026-10-16 02:30 UTC pass the measurements come from
 
 
-def test_a_stale_tape_WITH_a_delisting_date_reads_CLOSED():
-    """A stopped tape whose name has a SEC delisting form (carried on NameResult.delisted_at) is a name that
-    CLOSED — delisted / acquired / deregistered — not a feed gap to repair. The row carries closed_at (the
-    form's filing date) and reads `closed`, so the panel can render it quietly and the page can skip it.
+def _edgar(tickers: list[str], rows: list[tuple[str, str, str]]) -> dict:
+    """A submissions JSON in EDGAR's real shape: ``tickers`` plus the parallel, reverse-chrono
+    ``filings.recent`` arrays, one row per (form, filingDate, accession). A 10-Q filler row is appended so
+    every fixture also proves the walk FILTERS to the delisting forms."""
+    rows = sorted(rows, key=lambda r: r[1], reverse=True) + [("10-Q", "2024-11-12", "FILLER-10Q")]
+    return {
+        "tickers": tickers,
+        "filings": {
+            "recent": {
+                "form": [r[0] for r in rows],
+                "filingDate": [r[1] for r in rows],
+                "accessionNumber": [r[2] for r in rows],
+                "primaryDocument": ["primary_doc.xml"] * len(rows),
+            }
+        },
+    }
+
+
+def _member(subs: dict, *, ticker: str, edge: date | None, price_symbol: str | None = None):
+    """A NameResult carrying exactly what ``ingest_thesis`` carries for a name: its edge, its master
+    ticker / price_symbol, and the two EDGAR facts parsed from its submissions."""
+    return _name(
+        ticker=ticker,
+        tape_edge=edge,
+        price_symbol=price_symbol,
+        delisting_filings=delisting_filings(subs),
+        edgar_tickers=edgar_tickers(subs),
+    )
+
+
+def _classify(subs: dict, *, ticker: str, edge: date | None, price_symbol: str | None = None):
+    out = stale_tapes(
+        [_member(subs, ticker=ticker, edge=edge, price_symbol=price_symbol)],
+        asof=_TONIGHT,
+        stale_days=5,
+    )
+    assert (
+        len(out) == 1
+    )  # every case here IS a stopped tape — the classification never drops it (#9)
+    return out[0]
+
+
+# VRME (VerifyMe, Nasdaq): traded 82K-1.36M shares/day through 2026-10-06, then stopped. Its one delisting
+# form is Nasdaq's 25-NSE for the WARRANTS ("Warrant expiring 6/23/2025"); the common stock became
+# OpenWorld (OPNW) in a 2026-09-30 reverse merger + 1-for-10 reverse split.
+VRME = _edgar(["OPNW"], [("25-NSE", "2025-06-23", "0001354457-25-000562")])
+# AVNS: a genuine close — the 25-NSE 3 days after the last bar, the 15-12G 13 days after, EDGAR lists none.
+AVNS = _edgar(
+    [],
+    [
+        ("25-NSE", "2026-07-27", "0000876661-26-000646"),
+        ("15-12G", "2026-08-06", "0001606498-26-000120"),
+    ],
+)
+# QRVO: a genuine close whose EDGAR record still lists QRVO (the 15-12G landed 2026-10-15).
+QRVO = _edgar(
+    ["QRVO"],
+    [
+        ("25-NSE", "2026-10-05", "0001354457-26-000942"),
+        ("15-12G", "2026-10-15", "0001104659-26-116241"),
+    ],
+)
+# XOMA: three forms around a 2026-07-21 last bar — two 25-NSE before it, the 15-12G after.
+XOMA = _edgar(
+    [],
+    [
+        ("25-NSE", "2026-07-14", "0001354457-26-000691"),
+        ("25-NSE", "2026-07-16", "0001354457-26-000697"),
+        ("15-12G", "2026-07-27", "0001193125-26-318235"),
+    ],
+)
+# GTLS: the closing pair sits on its 2026-07-16 last bar, beside a 2021 Form 25 and a 2025-12-15 25-NSE.
+GTLS = _edgar(
+    [],
+    [
+        ("25", "2021-01-29", "0001193125-21-022712"),
+        ("25-NSE", "2025-12-15", "0000876661-25-000969"),
+        ("25-NSE", "2026-07-16", "0000876661-26-000623"),
+        ("15-12G", "2026-07-29", "0001193125-26-322203"),
+    ],
+)
+WONDF = _edgar([], [])  # never priced; files no US delisting form; EDGAR lists no ticker
+HLLK = _edgar(["SDCO"], [])  # renamed: EDGAR lists SDCO
+BRR = _edgar(["SVIA", "SVIAW"], [])  # renamed: EDGAR lists the new common + its warrant
+# Still-trading multi-symbol / vendor-symbol names (their REAL EDGAR records; the stops are hypothetical).
+KYOCY = _edgar(
+    ["KYOCF", "KYOAY"], [("25", "2018-06-15", "0001193125-18-193509")]
+)  # priced as KYOAY
+ABBNY = _edgar(["ABLZF", "ABBNY"], [("25", "2023-05-12", "0001104659-23-059601")])
+WELPM = _edgar(["WELPP", "WELPM"], [])
+PRTC = _edgar(["PTCHF", "PRTCY"], [("25", "2026-05-11", "0001193125-26-216746")])  # priced as PRTCY
+FDCT = _edgar(["FDCT"], [])  # priced as FDCTD (the vendor's symbol), EDGAR keeps FDCT
+
+
+def test_VRME_a_WARRANT_delisting_470_days_before_the_edge_plus_a_new_EDGAR_ticker_is_a_RENAMED_repair():
+    """THE BUG. The old rule took the newest delisting form EVER filed and labeled VRME "closed — delisting
+    filed 2025-06-23", silencing a common stock that traded through 2026-10-06. The form is 470 days
+    before the edge (outside any proximity window) AND EDGAR now lists OPNW, so it is a loud repair row
+    marked renamed, naming the symbol — never closed."""
+    edge = date(2026, 10, 6)
+    assert (edge - date(2025, 6, 23)).days == 470  # pin the measured gap
+    row = _classify(VRME, ticker="VRME", edge=edge)
+    assert row.closed is False and row.closed_at is None
+    assert row.renamed is True and row.edgar_tickers == ("OPNW",)
+
+
+def test_VRME_stays_a_repair_on_PROXIMITY_alone_even_without_the_rename_guard():
+    """The two rules are independent locks: with no EDGAR ticker list at all (unread), the 470-day-old
+    warrant form still cannot close the tape — proximity alone keeps VRME loud."""
+    out = stale_tapes(
+        [
+            _name(
+                ticker="VRME",
+                tape_edge=date(2026, 10, 6),
+                delisting_filings=delisting_filings(VRME),
+                edgar_tickers=None,
+            )
+        ],
+        asof=_TONIGHT,
+        stale_days=5,
+    )
+    assert out[0].closed is False and out[0].renamed is False
+
+
+def test_a_GENUINE_close_with_its_forms_3_and_13_days_after_the_edge_reads_CLOSED():
+    """AVNS: tickers [] and its 25-NSE / 15-12G 3 and 13 days after the last bar → closed, dated by the
+    filing NEAREST the edge (the 25-NSE)."""
+    row = _classify(AVNS, ticker="AVNS", edge=date(2026, 7, 24))
+    assert row.closed is True and row.closed_at == date(2026, 7, 27)
+    assert row.renamed is False and row.edgar_tickers == ()
+
+
+def test_a_close_whose_EDGAR_record_still_lists_OUR_ticker_reads_CLOSED():
+    """QRVO: the form sits on the last bar and EDGAR still lists QRVO — our own symbol, so the rename guard
+    does not fire and the tape is closed."""
+    row = _classify(QRVO, ticker="QRVO", edge=date(2026, 10, 5))
+    assert row.closed is True and row.closed_at == date(2026, 10, 5) and row.renamed is False
+
+
+def test_the_filing_NEAREST_the_edge_dates_the_close_on_either_side():
+    """XOMA: 25-NSEs 7 and 5 days before a 2026-07-21 last bar, the 15-12G 6 days after → the 07-16 25-NSE
+    (5 days) is nearest. GTLS: the 2021 and 2025 forms are outside the window and never chosen."""
+    assert _classify(XOMA, ticker="XOMA", edge=date(2026, 7, 21)).closed_at == date(2026, 7, 16)
+    assert _classify(GTLS, ticker="GTLS", edge=date(2026, 7, 16)).closed_at == date(2026, 7, 16)
+
+
+def test_a_NEVER_priced_name_can_never_be_closed_by_proximity():
+    """WONDF: no edge (never priced), no tickers, no forms → a plain stale-repair row. Without a last bar
+    there is nothing for a form to be near, so even a delisting form would not close it."""
+    row = _classify(WONDF, ticker="WONDF", edge=None)
+    assert row.closed is False and row.renamed is False and row.edge is None
+    with_form = _edgar([], [("15-12G", "2026-10-01", "HYPOTHETICAL")])
+    assert _classify(with_form, ticker="WONDF", edge=None).closed is False
+
+
+def test_RENAMED_starving_names_are_repair_rows_that_name_EDGARs_symbols():
+    """HLLK (EDGAR lists SDCO) and BRR (SVIA + its warrant) — the rename-starved shape: no delisting form,
+    EDGAR lists a different symbol, so the repair row says where the company trades now."""
+    hllk = _classify(HLLK, ticker="HLLK", edge=date(2026, 9, 24))
+    brr = _classify(BRR, ticker="BRR", edge=date(2026, 9, 28))
+    assert (hllk.renamed, hllk.edgar_tickers, hllk.closed) == (True, ("SDCO",), False)
+    assert (brr.renamed, brr.edgar_tickers, brr.closed) == (True, ("SVIA", "SVIAW"), False)
+
+
+def test_the_RENAME_guard_beats_a_proximate_delisting_form():
+    """A Nasdaq exit to OTC under a new symbol (BTAI → BTAIQ is the shape) files a 25-NSE right at the edge,
+    yet the company still trades: the guard runs first, so the row is a renamed repair, never closed.
+    Contract test — direct inputs; BTAI's own cached record carries no delisting form."""
+    subs = _edgar(["BTAIQ"], [("25-NSE", "2026-10-09", "HYPOTHETICAL")])
+    row = _classify(subs, ticker="BTAI", edge=date(2026, 10, 8))
+    assert row.renamed is True and row.closed is False and row.edgar_tickers == ("BTAIQ",)
+
+
+def test_MULTI_symbol_and_VENDOR_symbol_names_are_NOT_flagged_renamed():
+    """MEMBERSHIP, never tickers[0]: EDGAR lists every class side by side. KYOCY is priced as KYOAY (EDGAR's
+    SECOND symbol), ABBNY is EDGAR's second, WELPM its second, PRTC is priced as PRTCY, FDCT's vendor symbol
+    is FDCTD while EDGAR keeps FDCT. A tickers[0] read would flag four of the five (MEASURED on prod too:
+    ABBNY, KYOCY, PRTC, WELPM). Hypothetical stops on the names' REAL EDGAR records (all five trade
+    today)."""
+    edge = date(2026, 10, 6)
+    cases = [
+        (KYOCY, "KYOCY", "KYOAY"),
+        (ABBNY, "ABBNY", None),
+        (WELPM, "WELPM", None),
+        (PRTC, "PRTC", "PRTCY"),
+        (FDCT, "FDCT", "FDCTD"),
+    ]
+    for subs, ticker, ps in cases:
+        row = _classify(subs, ticker=ticker, edge=edge, price_symbol=ps)
+        assert row.renamed is False, ticker
+    # ...and the first-element read the rule refuses WOULD have mis-flagged four of them
+    first_elem_flags = [
+        ticker
+        for subs, ticker, ps in cases
+        if edgar_tickers(subs)[0] not in {s for s in (ticker, ps) if s}
+    ]
+    assert first_elem_flags == ["KYOCY", "ABBNY", "WELPM", "PRTC"]
+
+
+def test_a_stale_unrenamed_name_with_only_an_OLD_form_stays_a_REPAIR_row():
+    """The 192-name class: a still-listed company with an old, unrelated delisting form (ABBNY's 2023 Form
+    25, KYOCY's 2018 one). If its tape stopped tonight it is a feed gap — loud, not closed, not renamed.
     """
-    dead = _name(ticker="GONE", tape_edge=date(2026, 4, 1), delisted_at=date(2026, 4, 3))
-    out = stale_tapes([dead], asof=_ASOF, stale_days=5)
-    assert len(out) == 1
-    assert out[0].closed is True and out[0].closed_at == date(2026, 4, 3)
+    for subs, ticker, ps in [(ABBNY, "ABBNY", None), (KYOCY, "KYOCY", "KYOAY")]:
+        row = _classify(subs, ticker=ticker, edge=date(2026, 10, 6), price_symbol=ps)
+        assert (row.closed, row.renamed) == (False, False), ticker
 
 
-def test_a_stale_tape_WITHOUT_a_delisting_date_stays_a_REPAIR_row():
-    """The healthy common case: a stopped tape with no delisting form is a feed gap to repair — closed_at
-    None, `closed` False — so it keeps the loud 'stale — repair' treatment."""
-    dead = _name(ticker="DEAD", tape_edge=date(2026, 4, 1))  # delisted_at defaults None
-    out = stale_tapes([dead], asof=_ASOF, stale_days=5)
-    assert len(out) == 1 and out[0].closed is False and out[0].closed_at is None
+def test_the_window_edges_are_INCLUSIVE_and_settable():
+    """Defaults [edge − 30, edge + 45], inclusive; one day past either side is not a close. Both sides are
+    parameters (the nightly pass passes the Settings values)."""
+    edge = date(2026, 8, 1)
+
+    def closed(filed: date, **kw) -> bool:
+        f = DelistingFiling(form="25-NSE", filed=filed, accession="A")
+        return (
+            classify_stop(
+                edge=edge,
+                filings=[f],
+                edgar_tickers=(),
+                ticker="X",
+                price_symbol=None,
+                asof=_TONIGHT,
+                **kw,
+            ).closed_at
+            is not None
+        )
+
+    assert closed(edge - timedelta(days=30)) and not closed(edge - timedelta(days=31))
+    assert closed(edge + timedelta(days=45)) and not closed(edge + timedelta(days=46))
+    assert closed(edge - timedelta(days=31), before_days=31)  # the dial moves the boundary
+    assert not closed(edge + timedelta(days=1), after_days=-5)  # a negative side reads as 0
+    assert closed(edge, after_days=-5, before_days=-5)  # ...the edge day itself still counts
+
+
+def test_a_filing_dated_AFTER_the_runs_asof_is_not_evidence_for_that_night():
+    """#1 — a past-asof pass (a catch-up) reads today's cached submissions; a form filed after that night
+    could not have been known then, so it cannot close that night's tape."""
+    f = DelistingFiling(form="15-12G", filed=date(2026, 10, 15), accession="A")
+    c = classify_stop(
+        edge=date(2026, 10, 5),
+        filings=[f],
+        edgar_tickers=(),
+        ticker="X",
+        price_symbol=None,
+        asof=date(2026, 10, 14),
+    )
+    assert c.closed_at is None
+
+
+def test_the_window_defaults_match_the_SETTINGS_defaults():
+    """Two homes for one number (the pure module cannot read Settings) — pinned so they cannot drift."""
+    fields = Settings.model_fields  # the declared defaults, independent of the process env
+    assert (
+        (
+            fields["tape_closed_before_days"].default,
+            fields["tape_closed_after_days"].default,
+        )
+        == (
+            DEFAULT_CLOSED_BEFORE_DAYS,
+            DEFAULT_CLOSED_AFTER_DAYS,
+        )
+        == (30, 45)
+    )
+
+
+def test_no_EDGAR_facts_at_all_reads_as_a_plain_REPAIR_row():
+    """No CIK / a failed submissions read → no filings, tickers None: the LOUD reading, never the quiet
+    one (the safe default, #7/#9)."""
+    row = stale_tapes([_name(ticker="DEAD", tape_edge=date(2026, 4, 1))], asof=_ASOF, stale_days=5)[
+        0
+    ]
+    assert (row.closed, row.renamed, row.edgar_tickers) == (False, False, None)
 
 
 def test_a_CLOSED_name_is_never_dropped_from_the_inventory():
     """#9 — recall is sacred: the marker only RECLASSIFIES, it never removes the name from the monitor. A
     stale+closed name is still emitted, with its real edge, exactly like any other stale row."""
-    dead = _name(ticker="GONE", tape_edge=date(2026, 4, 1), delisted_at=date(2026, 4, 3))
-    out = stale_tapes([dead], asof=_ASOF, stale_days=5)
-    assert [s.ticker for s in out] == ["GONE"] and out[0].edge == date(2026, 4, 1)
+    row = _classify(AVNS, ticker="AVNS", edge=date(2026, 7, 24))
+    assert row.ticker == "AVNS" and row.edge == date(2026, 7, 24) and row.closed
 
 
-def test_a_FRESH_tape_with_a_delisting_date_is_NOT_emitted():
-    """A name with a delisting form but a still-fresh tape is not reported at all — there is nothing to mark
-    until the tape actually stops, so an active name is never nagged."""
-    fresh = _name(ticker="STILLON", tape_edge=_ASOF, delisted_at=date(2026, 4, 3))
-    assert stale_tapes([fresh], asof=_ASOF, stale_days=5) == ()
+def test_a_FRESH_tape_with_a_delisting_form_or_a_new_EDGAR_ticker_is_NOT_emitted():
+    """Nothing to mark until the tape actually stops: a still-priced name (CTGL/AIXC — renamed in EDGAR but
+    still priced today, plan T2's territory) is never emitted, so an active name is never nagged."""
+    fresh = [
+        _member(QRVO, ticker="QRVO", edge=_TONIGHT),
+        _member(_edgar(["SKTG"], []), ticker="CTGL", edge=_TONIGHT),
+    ]
+    assert stale_tapes(fresh, asof=_TONIGHT, stale_days=5) == ()
 
 
-def test_the_FUND_SHARES_feed_is_never_classified_closed():
-    """Delisting is a LISTING (price) event: a stopped fund-shares sample is never marked closed by this
-    mechanism even if the sleeve's issuer filed a delisting form, so its own repair advice is never
-    suppressed. closed_at stays None on every fund-shares row."""
+def test_the_FUND_SHARES_feed_is_never_classified_closed_or_renamed():
+    """Delisting and renames are LISTING (price) events: a stopped fund-shares sample is never marked by
+    this mechanism even if the sleeve's issuer filed a delisting form near the edge, so its own repair
+    advice is never suppressed."""
     sleeve = _name(
         ticker="ETF",
         fund_shares_tracked=True,
-        fund_shares_edge=date(2026, 4, 1),
-        delisted_at=date(2026, 4, 3),
+        fund_shares_edge=date(2026, 7, 24),
+        delisting_filings=delisting_filings(AVNS),
+        edgar_tickers=("OTHER",),
     )
-    out = stale_fund_shares([sleeve], asof=_ASOF, stale_days=7)
-    assert len(out) == 1 and out[0].closed is False and out[0].closed_at is None
+    out = stale_fund_shares([sleeve], asof=_TONIGHT, stale_days=7)
+    assert len(out) == 1 and out[0].closed is False and out[0].renamed is False
 
 
-def test_a_StaleTape_defaults_to_NOT_closed():
-    """A row built without closed_at (every pre-G5b row, and every fund-shares row) is a plain
+def test_a_StaleTape_defaults_to_NOT_closed_and_NOT_renamed():
+    """A row built without the classification (every pre-G5b row, and every fund-shares row) is a plain
     stale-repair tape."""
-    assert StaleTape(ticker="AAA", security_id=uuid.uuid4(), edge=None).closed is False
+    row = StaleTape(ticker="AAA", security_id=uuid.uuid4(), edge=None)
+    assert row.closed is False and row.renamed is False and row.edgar_tickers is None

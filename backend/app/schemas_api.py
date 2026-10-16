@@ -1781,13 +1781,20 @@ class AdminStaleTapeOut(BaseModel):
     written before fund shares were monitored reads ``price``. ``ticker`` may be ``null``; the row still
     renders by ``security_id`` and is never dropped (#9).
 
-    ``closed_at`` (G5b) distinguishes a delisting from a feed gap: when set (a ``price`` row only), it is
-    the filing date of the name's SEC delisting form (25 / 25-NSE / 15-12B / 15-12G) and the name has
-    legitimately stopped trading — delisted, acquired, or deregistered — so its tape correctly ENDED and
-    needs no repair. The panel renders such a row QUIETLY as "closed — stopped trading <date>", distinct
-    from the loud "stale — repair" rows, and it never pages as newly-stale (#7/WB#3). ``null`` (the common
-    case, and every ``fund_shares`` row) means a feed gap the operator repairs. The name is never dropped
-    from the monitor (#9) — the marker only reclassifies its stopped tape."""
+    ``closed_at`` (G5b/T1) distinguishes a delisting from a feed gap: when set (a ``price`` row only), it
+    is the filing date of the SEC delisting form (25 / 25-NSE / 15-12B / 15-12G) filed NEAR the tape's last
+    bar, on a company EDGAR no longer lists under a different symbol, and the name has legitimately stopped
+    trading — delisted, acquired, or deregistered — so its tape correctly ENDED and needs no repair. The
+    panel renders such a row QUIETLY as "closed — stopped trading <date>", distinct from the loud "stale —
+    repair" rows, and it never pages as newly-stale (#7/WB#3). ``null`` (the common case, and every
+    ``fund_shares`` row) means a feed gap the operator repairs. The name is never dropped from the monitor
+    (#9) — the marker only reclassifies its stopped tape.
+
+    ``renamed`` (T1) marks a REPAIR row whose company EDGAR still lists, under symbols that include neither
+    the master ticker nor its vendor price symbol — a rename the price feed has not followed; the panel
+    reads "renamed — EDGAR lists <edgar_tickers>". ``edgar_tickers`` is EDGAR's current symbol list as read
+    by that pass (``[]`` = EDGAR lists none, ``null`` = not read). Both are display only: nothing adopts the
+    symbol (setting the vendor price symbol stays the operator's repair)."""
 
     security_id: UUID
     ticker: str | None = None
@@ -1795,6 +1802,8 @@ class AdminStaleTapeOut(BaseModel):
     thesis: str
     kind: str = "price"
     closed_at: date | None = None
+    renamed: bool = False
+    edgar_tickers: list[str] | None = None
 
 
 class AdminTapeOut(BaseModel):

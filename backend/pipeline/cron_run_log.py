@@ -104,8 +104,10 @@ def build_run_payload(
       (`previous_stale_tapes`, below) — keyed on `kind` + `security_id`, never the ticker, because a
       ticker-less name must still be able to page, a ticker changing under a name is half of why the monitor
       exists, and one name can be stale on both feeds at once with a different repair for each. `closed_at`
-      (G5b) is the delisting-form date when the stopped tape is a name that CLOSED (delisted / acquired /
-      deregistered), so the panel renders it quietly and the newly-stale page skips it (#7/WB#3);
+      (G5b/T1) is the date of the delisting form filed near the tape's last bar when the stopped tape is a
+      name that CLOSED (delisted / acquired / deregistered), so the panel renders it quietly and the
+      newly-stale page skips it (#7/WB#3); `renamed` + `edgar_tickers` (T1) mark a repair row whose company
+      EDGAR lists under other symbols, for display;
     - `tape_stale_new` is that diff's OUTPUT for the night ({kind, label} entries — the label being the
       ticker, or the id when ticker-less), so the admin history re-derives the same per-feed page this run
       emitted;
@@ -233,6 +235,13 @@ def build_run_payload(
                         "edge": s.edge.isoformat() if s.edge else None,
                         "kind": s.kind,
                         "closed_at": s.closed_at.isoformat() if s.closed_at else None,
+                        # T1 — a REPAIR row whose company EDGAR lists under other symbols (the rename-
+                        # starved shape), plus EDGAR's list as read this pass (null = not read). Display
+                        # only; readers use `.get` so an older artifact reads not-renamed / null.
+                        "renamed": s.renamed,
+                        "edgar_tickers": (
+                            list(s.edgar_tickers) if s.edgar_tickers is not None else None
+                        ),
                     }
                     for s in r.tape_stale
                 ],
@@ -399,8 +408,10 @@ def already_ran_live(asof: date, *, run_at: time, tz: tzinfo, base_dir: Path | N
 
 
 def previous_stale_tapes(*, base_dir: Path | None = None) -> set[str] | None:
-    """The set of ``"<kind>:<security_id>"`` keys whose feed was STALE on the most recent pass that actually
-    EVALUATED recency — the baseline the current pass diffs against so only NEWLY stale feeds page (G5a/F1).
+    """The set of ``"<kind>:<security_id>"`` keys whose feed was STALE — and NOT classified closed — on the
+    most recent pass that actually EVALUATED recency: the baseline the current pass diffs against so only
+    NEWLY stale feeds page (G5a/F1). Closed rows are left out on purpose (T1): they never paged, so a name
+    reclassified closed → repair must read as news and page once.
 
     ``None`` (distinct from an empty set!) = **no evaluated live artifact exists yet** — the first pass after
     this monitor deployed, or a run home with nothing in it. The caller treats that as "everything currently
@@ -431,7 +442,13 @@ def previous_stale_tapes(*, base_dir: Path | None = None) -> set[str] | None:
             if not isinstance(t, dict):
                 continue
             for s in t.get("tape_stale") or []:
-                if isinstance(s, dict) and s.get("security_id"):
+                # T1 — a CLOSED row (`closed_at` set) is NOT in the baseline: it never paged, so the
+                # operator was never told about it as a feed gap. The current side of the diff excludes
+                # closed rows too (`run_daily_pass`), so a name RECLASSIFIED closed → repair finds no
+                # matching key here and pages ONCE as newly stale — VRME's shape, the first night the
+                # proximity rule ships. Without this skip, its silenced night would count as "already
+                # told" and the reclassification would never page.
+                if isinstance(s, dict) and s.get("security_id") and not s.get("closed_at"):
                     out.add(f"{feed_kind(s.get('kind')).key}:{s['security_id']}")
         return out
     return None

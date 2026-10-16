@@ -136,6 +136,16 @@ and never confirm on price.
   the previous evaluated pass, keyed on the security (not the ticker), so a handful of known-dead tapes do not
   re-page every night. The **first** evaluated pass after this shipped pages the whole current inventory once,
   on purpose.
+- **Closed vs renamed vs a feed gap** (G5b/T1). A stopped tape whose company filed a SEC delisting form
+  (25 / 25-NSE / 15-12B / 15-12G) **near its last bar** (−30 / +45 calendar days by default,
+  `ALPHADECK_TAPE_CLOSED_BEFORE_DAYS` / `_AFTER_DAYS`), on a company EDGAR no longer lists under a different
+  symbol, renders in a separate **quiet** "closed" block — "stopped trading <date>", the date being the form
+  nearest the last bar — and never pages: there is nothing to repair. A stopped tape whose company EDGAR
+  lists under symbols that include neither the master ticker nor its `price_symbol` stays a loud repair row
+  marked **"renamed — EDGAR lists X"**: the symbol to point the price leg at, shown, never adopted for you.
+  Everything else is a plain repair row. A form filed at some other time does not close a tape (a company
+  files these for any listed class — VRME's 2025 warrant removal once silenced its common stock in 2026),
+  and a never-priced name can never read closed. A name that moves from closed back to repair pages once.
 - **The repair is yours, and it is data, not code:** check each listed name for a ticker rename or a
   delisting, then set the vendor symbol override on the security master (`security_master.price_symbol`, the
   OTC fix's seam). The next nightly pass re-pulls the two-year window under the new symbol, appends the

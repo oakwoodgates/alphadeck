@@ -544,6 +544,64 @@ def test_status_tape_marks_a_CLOSED_delisted_row_with_its_date(client, cron_runs
     assert tape["newly_stale"] == ["DEAD"]  # the closed name never pages
 
 
+def test_status_tape_carries_the_RENAMED_marker_and_EDGARs_tickers(client, cron_runs_dir):
+    """T1 — a renamed repair row rides the wire with `renamed: true` and EDGAR's current symbols, so the
+    panel can read "renamed — EDGAR lists OPNW"; a plain repair row reads not-renamed."""
+    _artifact(
+        asof=_MON,
+        at=datetime(2026, 7, 20, 22, 30, tzinfo=timezone.utc),
+        results=[
+            ThesisRunResult(
+                thesis_id=uuid.uuid4(),
+                name="T",
+                recorded=True,
+                edgar_fetches=88,
+                tape_stale=(
+                    StaleTape(
+                        ticker="VRME",
+                        security_id=uuid.uuid4(),
+                        edge=date(2026, 7, 10),
+                        renamed=True,
+                        edgar_tickers=("OPNW",),
+                    ),
+                    _stale_row("DEAD", edge=date(2026, 6, 30)),
+                ),
+            )
+        ],
+        tape_evaluated=True,
+    )
+    rows = {r["ticker"]: r for r in client.get("/admin/status").json()["tape"]["stale"]}
+    assert rows["VRME"]["renamed"] is True and rows["VRME"]["edgar_tickers"] == ["OPNW"]
+    assert rows["VRME"]["closed_at"] is None  # a renamed row is a REPAIR row, never closed
+    assert rows["DEAD"]["renamed"] is False and rows["DEAD"]["edgar_tickers"] is None
+
+
+def test_status_tape_reads_a_PRE_T1_row_as_NOT_renamed(client, cron_runs_dir):
+    """An artifact written before T1 has no `renamed` / `edgar_tickers` keys: it must read clean, as a
+    plain repair row (`.get`), never raise and blank the panel."""
+    path = _artifact(
+        asof=_MON,
+        at=datetime(2026, 7, 20, 22, 30, tzinfo=timezone.utc),
+        results=[
+            ThesisRunResult(
+                thesis_id=uuid.uuid4(),
+                name="T",
+                recorded=True,
+                edgar_fetches=88,
+                tape_stale=(_stale_row("OLD", edge=date(2026, 6, 30)),),
+            )
+        ],
+        tape_evaluated=True,
+    )
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    for row in doc["theses"][0]["tape_stale"]:
+        del row["renamed"], row["edgar_tickers"]
+    path.write_text(json.dumps(doc), encoding="utf-8")
+
+    (row,) = client.get("/admin/status").json()["tape"]["stale"]
+    assert row["ticker"] == "OLD" and row["renamed"] is False and row["edgar_tickers"] is None
+
+
 def test_status_tape_DEDUPS_a_security_held_by_two_theses(client, cron_runs_dir):
     """One dead tape is ONE row even when two theses hold the name — the same dedup the page and the CLI
     summary apply. Otherwise the panel's count would measure holders, not dead tapes."""
