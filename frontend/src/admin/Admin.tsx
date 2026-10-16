@@ -82,6 +82,15 @@ function StaleFeedBlock({
         {rows.map((t) => (
           <li key={`${t.kind}:${t.security_id}`}>
             <b>{t.ticker ?? t.security_id}</b> — last {edgeNoun} {t.edge ?? "never"} · {t.thesis}
+            {/* T1 — a rename-starved tape: EDGAR lists the company under other symbols. Shown so the
+                repair is on the row (point the price symbol at the new listing); never adopted. Only
+                on the minority that carries it — a marker true of every row would be noise (WB#3). */}
+            {t.renamed && (
+              <span data-testid="adm-renamed">
+                {" "}
+                · renamed — EDGAR lists {(t.edgar_tickers ?? []).join(", ") || "another symbol"}
+              </span>
+            )}
           </li>
         ))}
       </ul>
@@ -90,8 +99,9 @@ function StaleFeedBlock({
   );
 }
 
-/** The CLOSED tapes (G5b) — names that stopped trading (delisted / acquired / deregistered), detected
- *  deterministically from a SEC delisting form (Form 25 / 25-NSE / 15-12B / 15-12G). QUIET on purpose (no
+/** The CLOSED tapes (G5b/T1) — names that stopped trading (delisted / acquired / deregistered), detected
+ *  deterministically from a SEC delisting form (Form 25 / 25-NSE / 15-12B / 15-12G) filed NEAR the tape's
+ *  last bar, on a company EDGAR no longer lists under a different symbol. QUIET on purpose (no
  *  `adm-loud`, muted text): a closed tape is an EXPECTED event, not a feed gap — its price tape correctly
  *  ends and needs no repair, so shouting it would be noise (honest loudness, #7/WB#3). It is still SHOWN,
  *  never dropped (#9): the operator sees which names left the market and when. Each row names the name, when
@@ -102,7 +112,8 @@ function ClosedTapeBlock({ rows }: { rows: AdminStaleTapeOut[] }) {
     <div className="adm-stale adm-closed" data-testid="adm-closed-tapes">
       <div className="adm-line adm-quiet">
         <b>{rows.length}</b> price tape(s) closed — the name stopped trading (delisted, acquired, or
-        deregistered per a SEC filing), so the tape correctly ends and needs no repair
+        deregistered per a SEC delisting form filed near its last bar), so the tape correctly ends and
+        needs no repair
       </div>
       <ul className="adm-problems">
         {rows.map((t) => (

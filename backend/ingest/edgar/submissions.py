@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from typing import Any
 
@@ -143,44 +144,94 @@ def form4_filings(submissions: dict[str, Any]) -> list[dict[str, str]]:
     return filings_of(submissions, "4")
 
 
-# The SEC DELISTING forms — the deterministic "this name stopped trading" tell (#3, never an LLM, never a
-# guess). Form 25 / 25-NSE = notification of REMOVAL FROM LISTING (the exchange or issuer files it around
-# the delisting); Form 15-12B (exchange-listed) / 15-12G (OTC/other) = DEREGISTRATION / suspension of the
-# reporting duty, filed after. A name that files any of these has legitimately left the market: its price
-# tape correctly ENDS, and the tape monitor must read it "closed — stopped trading", never "stale — repair"
-# (a feed gap the operator fixes with security_master.price_symbol). MEASURED in the 2026-09-11 stale-tape
-# triage: one of these landed within days of every one of the six real tape ends.
+# The SEC DELISTING forms — the deterministic EVIDENCE a stopped tape may be a close (#3, never an LLM,
+# never a guess). Form 25 / 25-NSE = notification of REMOVAL FROM LISTING (the exchange or issuer files it
+# around the delisting); Form 15-12B (exchange-listed) / 15-12G (OTC/other) = DEREGISTRATION / suspension of
+# the reporting duty, filed after. MEASURED in the 2026-09-11 stale-tape triage, and again on 2026-10-16
+# across the 8 genuine closes on prod: one of these landed within [-7, +13] days of every real tape end.
+#
+# A form ON FILE is not, by itself, a close (T1, 2026-10-16). A company files these for ANY of its listed
+# classes, at any point in its life: VerifyMe (VRME) carried a 2025-06-23 Form 25-NSE that removed its
+# WARRANTS, then kept trading its common stock for 15 more months. 192 of the 675 still-trading names among
+# prod's 688 basket members carry one, so "any form ever filed" would have silenced any of them the night
+# its tape stopped. That is why this module only REPORTS the filings (``delisting_filings``)
+# and the judgment — is one filed near the tape's last bar, and does EDGAR still list our symbol? — lives
+# in ``pipeline/tape_health.py`` beside the edge it needs.
 DELISTING_FORMS = frozenset({"25-NSE", "25", "15-12B", "15-12G"})
 
 
-def delisting_date(submissions: dict[str, Any]) -> date | None:
-    """The most recent SEC DELISTING-form filing date in a submissions JSON, or ``None`` when the company
-    has filed none.
+@dataclass(frozen=True)
+class DelistingFiling:
+    """One SEC delisting-form filing (a member of ``DELISTING_FORMS``): the form type, its FILING date
+    (valid-time straight from EDGAR, #1), the accession, and the primary document.
 
-    Deterministic (#3): the classification comes from the SEC form itself (``DELISTING_FORMS``), never a
-    model's reading, the master's ``status`` heuristic, or a guess. The date is the form's FILING date —
-    valid-time straight from EDGAR (#1 no-lookahead), the honest "removed from listing / deregistered
-    around here" marker. A stopped price tape WITH one of these is a name that CLOSED (delisted / acquired
-    / deregistered); WITHOUT one it is a feed gap to repair.
+    ``accession`` + ``primary_doc`` ride along so the filing stays citable (#6 — a "closed" row can name the
+    exact document behind it) and so a later check can open the document itself. The Form 25 names the
+    security CLASS being removed (common stock vs warrants vs a preferred series), which is the one thing
+    the filing date cannot tell apart; that check is not built (plan Q6), and this record is shaped so it
+    can be added without changing the walk."""
 
-    Reads the SAME ``filings.recent`` arrays every other leg walks (``filings_of``), so during a daily pass
-    it costs ZERO extra fetches — the submissions doc is already cached by the Form 4 leg. MOST RECENT
-    (max filed) on purpose: a name that de/re/de-listed carries several, and the latest is the current
-    closure. ISO date strings compare lexicographically = chronologically, so ``max`` is the newest.
-    Tolerates a sparse/old doc (missing keys, a malformed date) — returns ``None``, never raises.
+    form: str
+    filed: date
+    accession: str
+    primary_doc: str = ""
+
+
+def delisting_filings(submissions: dict[str, Any]) -> tuple[DelistingFiling, ...]:
+    """EVERY SEC delisting-form filing in a submissions JSON, newest first — ``()`` when there are none.
+
+    Deterministic (#3): the evidence is the SEC form itself (``DELISTING_FORMS``), never a model's reading,
+    the master's ``status`` heuristic, or a guess. This function deliberately does NOT pick one: which
+    filing (if any) explains a stopped tape depends on the tape's LAST BAR, which only the monitor has
+    (``pipeline.tape_health.classify_stop`` keeps the one nearest the edge, inside a window). Returning a
+    single "most recent ever" date is exactly how a 2025 warrant delisting came to label a common stock that
+    stopped in 2026 as "closed" (VRME).
+
+    Reads the SAME ``filings.recent`` arrays every other leg walks, so during a daily pass it costs ZERO
+    extra fetches: the Form 4 leg has already cached the submissions doc. ONE walk in EDGAR's own
+    (reverse-chrono) row order, then a stable sort on the filing date, so the result is newest first and a
+    same-day tie keeps EDGAR's order whatever the form. Tolerates a sparse/old doc: missing keys read as no
+    filings, and a row with a blank or malformed date is SKIPPED, never guessed and never a crash.
     """
-    filed = [
-        f["filed"]
-        for form in DELISTING_FORMS
-        for f in filings_of(submissions, form)
-        if f.get("filed")
-    ]
-    if not filed:
-        return None
-    try:
-        return date.fromisoformat(max(filed))
-    except ValueError:  # a malformed filing date -> abstain (never a guess, never a crash)
-        return None
+    recent = submissions.get("filings", {}).get("recent", {})
+    forms = recent.get("form", [])
+    accns = recent.get("accessionNumber", [])
+    docs = recent.get("primaryDocument", [])
+    dates = recent.get("filingDate", [])
+    out: list[DelistingFiling] = []
+    for i, form in enumerate(forms):
+        if form not in DELISTING_FORMS:
+            continue
+        try:
+            filed = date.fromisoformat(dates[i] if i < len(dates) else "")
+        except (
+            TypeError,
+            ValueError,
+        ):  # blank/malformed -> not evidence (never a guess, never a raise)
+            continue
+        out.append(
+            DelistingFiling(
+                form=form,
+                filed=filed,
+                accession=accns[i] if i < len(accns) else "",
+                primary_doc=docs[i] if i < len(docs) else "",
+            )
+        )
+    out.sort(key=lambda d: d.filed, reverse=True)
+    return tuple(out)
+
+
+def edgar_tickers(submissions: dict[str, Any]) -> tuple[str, ...]:
+    """The company's CURRENT trading symbols as EDGAR lists them (the submissions ``tickers`` array),
+    stripped and upper-cased, in EDGAR's order — ``()`` when EDGAR lists none (or the key is absent).
+
+    Identity, never a fact (#1/#3 govern numbers). The tape monitor's RENAME guard reads it as MEMBERSHIP
+    (does the list hold our ``ticker`` or our ``price_symbol``?), never ``tickers[0]``: EDGAR lists every
+    current class side by side (``['KYOCF', 'KYOAY']``, ``['ABLZF', 'ABBNY']``, ``['WELPP', 'WELPM']``), so
+    a first-element read mis-flags a name priced under its second symbol. ``()`` is honest absence: a
+    delisted / deregistered company typically lists none (7 of the 8 genuine closes measured on prod
+    2026-10-16), so an empty list is never read as a rename."""
+    return tuple(t for t in (str(x).strip().upper() for x in submissions.get("tickers") or []) if t)
 
 
 def _acceptance_map(arrays: dict[str, Any]) -> dict[str, str]:

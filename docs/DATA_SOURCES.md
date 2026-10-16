@@ -258,10 +258,16 @@ the ingest cannot tell that from "this name had a quiet year". Two classes, one 
   overlap (splices measured clean). Teaching the resolver to follow renames **automatically** is deliberately
   **not built**: a wrong auto-resolve files ANOTHER company's tape under the member, which is far worse than a
   visible gap (`INVARIANTS.md` #4/#6) — it needs the operator's explicit call.
-- **Not every stopped tape is a rename.** A genuine **delisting** (EDGAR Form 25-NSE / 15-12G) also ends the
-  series, and correctly: there is nothing to repair, the name is simply no longer priced. The monitor cannot
-  tell the two apart — it reports the *fact* that the tape stopped and leaves the diagnosis to the operator,
-  which is why a known-dead tape pages only once rather than every night.
+- **Not every stopped tape is a rename.** A genuine **delisting** (EDGAR Form 25 / 25-NSE / 15-12B /
+  15-12G) also ends the series, and correctly: there is nothing to repair, the name is simply no longer
+  priced. The monitor tells the two apart from EDGAR alone (G5b/T1, `pipeline/tape_health.classify_stop`):
+  **closed** only when a delisting form was filed near the tape's last bar (default window −30 / +45
+  calendar days) **and** EDGAR's current `tickers` is empty or still holds our symbol; **renamed** when EDGAR
+  lists the company under symbols that include neither our `ticker` nor `price_symbol` (a loud repair row
+  naming EDGAR's list — the operator still sets `price_symbol`, nothing adopts it). A form on file at some
+  other time is not a close: a company files these for ANY listed class, and VRME's 2025 warrant 25-NSE
+  once labeled its still-trading common stock "closed". The residual the window cannot catch is a 25-NSE
+  for another class filed within weeks of a stop (the unbuilt Form 25 class check). See `FEED_LOOP.md`.
 
 ### The ETF fund-shares sampler stops the same silent way `[MONITORED, F1; repair is manual]`
 

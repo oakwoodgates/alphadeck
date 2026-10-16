@@ -415,9 +415,17 @@ def test_fail_open_returns_none_never_raises(tmp_path):
 # --- G5a: the price-tape monitor's durable record + the newly-stale baseline --------------------------
 
 
-def _st(ticker, *, sid=None, edge=None, kind="price", closed_at=None):
+def _st(
+    ticker, *, sid=None, edge=None, kind="price", closed_at=None, renamed=False, edgar_tickers=None
+):
     return StaleTape(
-        ticker=ticker, security_id=sid or uuid4(), edge=edge, kind=kind, closed_at=closed_at
+        ticker=ticker,
+        security_id=sid or uuid4(),
+        edge=edge,
+        kind=kind,
+        closed_at=closed_at,
+        renamed=renamed,
+        edgar_tickers=edgar_tickers,
     )
 
 
@@ -435,7 +443,15 @@ def test_payload_carries_the_per_thesis_STALE_TAPES_and_the_run_level_keys(tmp_p
             _st(None, edge=None),
             _st("ETF1", sid=fund_sid, edge=date(2026, 6, 2), kind="fund_shares"),
             # G5b — a CLOSED (delisted) row carries its delisting-form date so the panel renders it quietly
-            _st("GONE", sid=closed_sid, edge=date(2026, 6, 3), closed_at=date(2026, 6, 5)),
+            _st(
+                "GONE",
+                sid=closed_sid,
+                edge=date(2026, 6, 3),
+                closed_at=date(2026, 6, 5),
+                edgar_tickers=(),
+            ),
+            # T1 — a RENAMED repair row carries the marker and EDGAR's current symbols
+            _st("VRME", edge=date(2026, 6, 4), renamed=True, edgar_tickers=("OPNW",)),
         ),
     )
     path = write_cron_run_log(
@@ -465,12 +481,18 @@ def test_payload_carries_the_per_thesis_STALE_TAPES_and_the_run_level_keys(tmp_p
         "edge": "2026-06-01",
         "kind": "price",
         "closed_at": None,  # G5b — a plain feed-gap row: not closed
+        "renamed": False,  # T1 — ...and not renamed
+        "edgar_tickers": None,  # T1 — EDGAR's list not read for this row (null, not [])
     }
     assert rows[1]["ticker"] is None and rows[1]["edge"] is None  # a ticker-less, never-priced name
     assert rows[2]["kind"] == "fund_shares" and rows[2]["edge"] == "2026-06-02"
     # G5b — the CLOSED row serializes its delisting-form date, so the panel reads "closed — stopped
     # trading <date>" instead of the loud "stale — repair"
     assert rows[3]["ticker"] == "GONE" and rows[3]["closed_at"] == "2026-06-05"
+    assert rows[3]["edgar_tickers"] == []  # EDGAR read, and lists none
+    # T1 — the renamed repair row: marker + EDGAR's symbols, not closed
+    assert rows[4]["ticker"] == "VRME" and rows[4]["renamed"] is True
+    assert rows[4]["edgar_tickers"] == ["OPNW"] and rows[4]["closed_at"] is None
 
 
 def test_payload_records_a_DISABLED_monitors_threshold_as_zero(tmp_path):
@@ -563,6 +585,33 @@ def test_previous_stale_tapes_returns_the_security_IDS_of_the_newest_evaluated_p
         tape_evaluated=True,
     )
     assert previous_stale_tapes(base_dir=tmp_path) == set()
+
+
+def test_previous_stale_tapes_LEAVES_OUT_closed_rows_so_a_reclassification_is_news(tmp_path):
+    """T1 — a CLOSED row never paged, so it must not sit in the baseline as "already told": the night a
+    name is reclassified closed → repair (VRME's, the first pass under the proximity rule), its key is
+    absent here and the diff pages it once. A renamed REPAIR row IS in the baseline like any repair row,
+    so it never re-pages."""
+    repair, closed, renamed = uuid4(), uuid4(), uuid4()
+    write_cron_run_log(
+        [
+            _thesis_result(
+                recorded=True,
+                tape_stale=(
+                    _st("DEAD", sid=repair),
+                    _st("GONE", sid=closed, closed_at=date(2025, 6, 23)),
+                    _st("HLLK", sid=renamed, renamed=True, edgar_tickers=("SDCO",)),
+                ),
+            )
+        ],
+        asof=_JUL17,
+        allow_live=True,
+        started_at=_NIGHT_JUL17,
+        finished_at=_END,
+        base_dir=tmp_path,
+        tape_evaluated=True,
+    )
+    assert previous_stale_tapes(base_dir=tmp_path) == {f"price:{repair}", f"price:{renamed}"}
 
 
 def test_previous_stale_tapes_SKIPS_a_no_live_artifact(tmp_path):

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 from pathlib import Path
 
 from ingest.edgar.submissions import (
+    DelistingFiling,
     acceptance_times,
-    delisting_date,
+    delisting_filings,
+    edgar_tickers,
     filings_of,
     form4_doc_url,
     form4_filings,
@@ -408,44 +411,82 @@ def test_parse_identity_filer_forms_sparse_doc_abstains():
     assert ident.files_domestic_forms is False
 
 
-# --- delisting_date: the deterministic "this name stopped trading" tell (G5b, tape monitor) ------------
+# --- delisting_filings + edgar_tickers: the stop-classification FACTS (G5b/T1, tape monitor) ----------
 
 
-def test_delisting_date_is_NONE_when_no_delisting_form():
-    """A live, listed name files none of the delisting forms → None, so a stopped tape (if any) stays a
-    feed gap to repair rather than being mis-marked closed. A sparse/old doc → None too, never a crash.
+def test_delisting_filings_is_EMPTY_when_no_delisting_form():
+    """A live, listed name files none of the delisting forms → (), so a stopped tape (if any) stays a feed
+    gap to repair rather than being mis-marked closed. A sparse/old doc → () too, never a crash."""
+    assert delisting_filings(_recent(["10-K", "8-K", "4", "DEF 14A"])) == ()
+    assert delisting_filings({}) == ()
+
+
+def test_delisting_filings_reads_VRMEs_real_warrant_25_NSE_with_its_FILING_date_and_accession():
+    """The real row behind the VRME bug, MEASURED from prod's cached submissions (2026-10-16): Nasdaq's
+    Form 25-NSE for the WARRANTS, accession 0001354457-25-000562, filed 2025-06-23. The walk reports it
+    faithfully — form, FILING date (valid-time from EDGAR, #1), accession, primary doc — and judges
+    nothing: whether it explains a stopped tape is the monitor's call against the tape's last bar.
     """
-    assert delisting_date(_recent(["10-K", "8-K", "4", "DEF 14A"])) is None
-    assert delisting_date({}) is None
+    subs = {
+        "tickers": ["OPNW"],
+        "filings": {
+            "recent": {
+                "form": ["8-K", "25-NSE"],
+                "accessionNumber": ["FILLER-8K", "0001354457-25-000562"],
+                "primaryDocument": ["f8k.htm", "primary_doc.xml"],
+                "filingDate": ["2026-10-01", "2025-06-23"],
+            }
+        },
+    }
+    assert delisting_filings(subs) == (
+        DelistingFiling(
+            form="25-NSE",
+            filed=date(2025, 6, 23),
+            accession="0001354457-25-000562",
+            primary_doc="primary_doc.xml",
+        ),
+    )
 
 
-def test_delisting_date_reads_a_form_25_by_its_FILING_date():
-    """Form 25-NSE (removal from listing) → the delisting date is its FILING date (valid-time from EDGAR,
-    #1 no-lookahead), not today's date."""
-    from datetime import date
-
-    subs = _recent_dated([("25-NSE", "2026-08-20"), ("8-K", "2026-08-19")])
-    assert delisting_date(subs) == date(2026, 8, 20)
-
-
-def test_delisting_date_recognizes_every_delisting_form_type():
+def test_delisting_filings_recognizes_every_delisting_form_type():
     """All four SEC delisting forms count — 25 / 25-NSE (removal from listing) and 15-12B / 15-12G
-    (deregistration) — both classes of the deterministic tell (#3, never an LLM)."""
-    from datetime import date
-
+    (deregistration) — the deterministic evidence (#3, never an LLM)."""
     for form in ("25", "25-NSE", "15-12B", "15-12G"):
-        assert delisting_date(_recent_dated([(form, "2026-07-01")])) == date(2026, 7, 1)
+        got = delisting_filings(_recent_dated([(form, "2026-07-01")]))
+        assert [(f.form, f.filed) for f in got] == [(form, date(2026, 7, 1))]
 
 
-def test_delisting_date_picks_the_MOST_RECENT_across_forms():
-    """A name that de/re/de-listed carries several delisting filings — the LATEST is the current closure
-    (a Form 25 followed weeks later by a Form 15). Max across the form types, deterministically."""
-    from datetime import date
+def test_delisting_filings_returns_ALL_of_them_newest_first():
+    """No single pick here: a company can carry a closing pair beside old, unrelated forms (GTLS's real
+    record: a 2021 Form 25, a 2025-12 25-NSE, then the 2026-07 25-NSE + 15-12G). Every one is returned,
+    newest first, so the monitor can choose by proximity to the tape's last bar."""
+    subs = _recent_dated(
+        [
+            ("15-12G", "2026-07-29"),
+            ("25-NSE", "2026-07-16"),
+            ("10-Q", "2026-05-01"),
+            ("25-NSE", "2025-12-15"),
+            ("25", "2021-01-29"),
+        ]
+    )
+    assert [(f.form, f.filed.isoformat()) for f in delisting_filings(subs)] == [
+        ("15-12G", "2026-07-29"),
+        ("25-NSE", "2026-07-16"),
+        ("25-NSE", "2025-12-15"),
+        ("25", "2021-01-29"),
+    ]
 
-    subs = _recent_dated([("25-NSE", "2026-08-20"), ("15-12B", "2026-09-05")])
-    assert delisting_date(subs) == date(2026, 9, 5)
+
+def test_delisting_filings_SKIPS_a_malformed_filing_date():
+    """A blank or malformed filing date is not evidence: that row is skipped (never guessed), the rest
+    still read, and nothing raises inside the nightly ingest loop."""
+    subs = _recent_dated([("25", "not-a-date"), ("15-12G", ""), ("25-NSE", "2026-07-01")])
+    assert [f.filed for f in delisting_filings(subs)] == [date(2026, 7, 1)]
 
 
-def test_delisting_date_tolerates_a_malformed_filing_date():
-    """A malformed filing date → abstain (None), never a crash inside the nightly ingest loop."""
-    assert delisting_date(_recent_dated([("25", "not-a-date")])) is None
+def test_edgar_tickers_reads_the_CURRENT_list_in_EDGARs_order():
+    """EDGAR's ``tickers`` array, stripped + upper-cased, order kept (the real multi-class shape:
+    ['KYOCF', 'KYOAY']). Absent / empty → () — honest absence, never a rename."""
+    assert edgar_tickers({"tickers": ["KYOCF", " kyoay ", ""]}) == ("KYOCF", "KYOAY")
+    assert edgar_tickers({"tickers": []}) == ()
+    assert edgar_tickers({}) == ()

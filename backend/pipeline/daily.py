@@ -306,7 +306,13 @@ def run_daily(
             s = get_settings()
             rows: tuple[StaleTape, ...] = ()
             if s.tape_stale_days > 0:
-                rows += stale_tapes(res.ingested, asof=asof, stale_days=s.tape_stale_days)
+                rows += stale_tapes(
+                    res.ingested,
+                    asof=asof,
+                    stale_days=s.tape_stale_days,
+                    closed_before_days=s.tape_closed_before_days,
+                    closed_after_days=s.tape_closed_after_days,
+                )
             if s.fund_shares_stale_days > 0:
                 rows += stale_fund_shares(
                     res.ingested, asof=asof, stale_days=s.fund_shares_stale_days
@@ -770,7 +776,9 @@ def _run_daily_pass_locked(
         # / deregistered) NEVER pages as newly-stale: it is not a feed gap to repair and paging "set the
         # vendor price symbol" for it would be wrong (#7/WB#3 — a page true of an expected event is noise).
         # It stays in each thesis's `tape_stale` (so the panel renders it quietly as "closed" and #9 holds
-        # — never dropped from the monitor); only the loud NEWLY-STALE page skips it.
+        # — never dropped from the monitor); only the loud NEWLY-STALE page skips it. T1 — the baseline
+        # (`previous_stale_tapes`) skips closed rows too, so a name RECLASSIFIED closed → repair (VRME, whose
+        # "closed" rested on a 2025 warrant delisting) is absent from it and pages ONCE, as the news it is.
         current = {
             f"{s.kind}:{s.security_id}": s for r in results for s in r.tape_stale if not s.closed
         }
@@ -1001,10 +1009,20 @@ def _report(
             continue
         print(f"STALE {kind.noun.upper()}S ({kind.advice}):")
         for s in rows:
-            print(f"  {s.label}: last {kind.edge_noun} {s.edge.isoformat() if s.edge else 'never'}")
+            # T1 — a renamed row names the symbol(s) EDGAR lists now: the operator's next step, shown,
+            # never adopted (no price_symbol write — that is the unbuilt recommender's, with a ratify).
+            renamed = (
+                f" · renamed — EDGAR lists {', '.join(s.edgar_tickers or ())}" if s.renamed else ""
+            )
+            print(
+                f"  {s.label}: last {kind.edge_noun} {s.edge.isoformat() if s.edge else 'never'}"
+                f"{renamed}"
+            )
     closed = [s for s in stale.values() if s.closed]
     if closed:
-        print("closed tapes (stopped trading — delisted/acquired/deregistered, no repair needed):")
+        print(
+            "closed tapes (stopped trading — a delisting form filed near the last bar, no repair needed):"
+        )
         for s in closed:
             edge = s.edge.isoformat() if s.edge else "never"
             print(f"  {s.label}: last bar {edge} · delisting filed {s.closed_at.isoformat()}")

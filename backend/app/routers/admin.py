@@ -291,6 +291,14 @@ def _tape_out(payloads: list[dict]) -> AdminTapeOut | None:
                         closed_at=(
                             date.fromisoformat(s["closed_at"]) if s.get("closed_at") else None
                         ),
+                        # T1 — the rename marker + EDGAR's current symbols, display only (an older
+                        # artifact lacks both keys and reads not-renamed / null).
+                        renamed=bool(s.get("renamed")),
+                        edgar_tickers=(
+                            [str(x) for x in s["edgar_tickers"]]
+                            if isinstance(s.get("edgar_tickers"), list)
+                            else None
+                        ),
                     )
                 except Exception:  # noqa: BLE001 — skip a malformed row, never blank the panel
                     continue
@@ -478,9 +486,11 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
     name whose stored EOD tape or fund-shares sampling has stopped, each row naming which feed, read from
     the newest run artifact that evaluated recency — ``null`` until a pass has looked. A stale feed is a
     FEED gap, not a cron fault, so it never changes ``cron.status``. A row whose ``closed_at`` is set (G5b)
-    is a name that CLOSED — delisted / acquired / deregistered per a SEC delisting form — so its tape
-    correctly ended and needs no repair; it stays on the panel (never dropped, #9) but renders quietly as
-    "closed" and never pages. ``cron.alarms`` are the status-level alarms (Phase 1B) that make the verdict
+    is a name that CLOSED — delisted / acquired / deregistered per a SEC delisting form filed near its last
+    bar — so its tape correctly ended and needs no repair; it stays on the panel (never dropped, #9) but
+    renders quietly as "closed" and never pages. A row with ``renamed`` set (T1) is a repair row whose
+    company EDGAR lists under other symbols (``edgar_tickers``). ``cron.alarms`` are the status-level
+    alarms (Phase 1B) that make the verdict
     ``unhealthy`` though no single run failed: the cron's ``code_sha`` unknown or different from this
     backend's (``backend_sha`` / ``cron_sha``), the last live pass paging through the LOG notifier or
     running without a User-Agent, and the newest unlabeled DB dump older than the schedule-aware backup

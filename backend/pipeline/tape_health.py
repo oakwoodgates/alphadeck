@@ -58,33 +58,78 @@ the symbol resolver to renames automatically is a separate, unbuilt decision: a 
 file ANOTHER company's tape under this member, which is worse than a visible gap (#4/#6). See
 ``docs/ADMIN.md`` + ``docs/DATA_SOURCES.md``.
 
-DELISTED vs FEED-GAP (G5b — the "closed" classification). Not every stopped price tape is a feed gap to
-repair: a name that DELISTED / was acquired / deregistered legitimately stopped trading, and its tape
-correctly ends. Nagging the operator to "set the vendor price symbol" for such a name is wrong — there is
-nothing to repair. The DETERMINISTIC tell (#3, never an LLM, never the master's ``status`` heuristic) is a
-SEC delisting form — Form 25 / 25-NSE (removal from listing) or 15-12B / 15-12G (deregistration) — read
-from the name's submissions (``ingest.edgar.submissions.delisting_date``) and carried as
-``NameResult.delisted_at``. A stale tape WITH one is classified CLOSED (``StaleTape.closed_at`` set to the
-delisting form's filing date, #1 valid-time); WITHOUT one it stays a plain stale-repair row, exactly as
-before. A closed name is NEVER dropped from the roster, the monitor, or the panel (#9) — the marker only
+DELISTED vs FEED-GAP (G5b, tightened by T1 — the "closed" classification, ``classify_stop``). Not every
+stopped price tape is a feed gap to repair: a name that DELISTED / was acquired / deregistered
+legitimately stopped trading, and its tape correctly ends. Nagging the operator to "set the vendor price
+symbol" for such a name is wrong — there is nothing to repair. But the reverse error is WORSE: a real feed
+gap mislabeled "closed" is SILENCED — it renders quietly and never pages — so the classification has to
+earn the quiet treatment, and anything short of that evidence stays the loud repair row (#9: never silence
+a name; #7/WB#3: the quiet is reserved for the expected event). A stopped tape is CLOSED only when BOTH:
+
+1. **Proximity.** A SEC delisting form — Form 25 / 25-NSE (removal from listing) or 15-12B / 15-12G
+   (deregistration), deterministic (#3, never an LLM, never the master's ``status`` heuristic) — was
+   filed inside ``[last bar − tape_closed_before_days, last bar + tape_closed_after_days]`` (defaults 30 /
+   45, ``Settings``) and on or before the run's ``asof`` (a filing the night could not have seen is not
+   evidence for it, #1). ``closed_at`` is that filing's date; with several inside the window, the one
+   NEAREST the last bar wins (a tie goes to the later filing). A form on file at some OTHER time is not a
+   close: VRME carried a 2025-06-23 Form 25-NSE that removed its WARRANTS, kept trading its common stock
+   for 15 months, and was labeled "closed" off it the night that stock's tape stopped (it had become
+   OpenWorld/OPNW). MEASURED 2026-10-16 on prod: the 8 genuine closes all have their nearest delisting
+   form within [−7, +13] days of their last bar, while 192 of the 675 still-trading names among prod's 688
+   basket members carry SOME delisting form — every one of which the old "any form, ever" rule would have
+   silenced the night its tape stopped (7 still would under this rule if their tape stopped tonight, each
+   on a 25-NSE filed in the last 30 days: the residual a Form 25 class check would close). A name that has NEVER been priced (``edge`` is None) has no last bar to be near, so it can
+   never be closed by proximity; it stays a stale-repair row.
+2. **No rename.** EDGAR's current ``tickers`` list (``submissions.edgar_tickers``) is EMPTY, or holds the
+   master ``ticker`` or ``price_symbol``. When EDGAR lists symbols and NEITHER of ours is among them, the
+   company is still listed under a different symbol: the stopped tape is a rename-starved feed, so the row
+   is a stale-REPAIR row marked ``renamed`` and carries EDGAR's list for display ("renamed — EDGAR lists
+   OPNW"), never closed — even if a delisting form sits right at the edge (BTAI's Nasdaq exit to OTC as
+   BTAIQ is the shape). MEMBERSHIP, never ``tickers[0]``: EDGAR lists every class side by side
+   (``['KYOCF', 'KYOAY']``), so a first-element read would mis-flag a name priced under its second symbol.
+   MEASURED 2026-10-16 across prod's 688 basket members (all cached): the rule flags exactly HLLK, CTGL,
+   BTAI, AIXC, BRR and VRME, with 0 false positives (WELPM, PRTC/PRTCY, FDCT/FDCTD, KYOCY/KYOAY and ABBNY
+   all pass); a ``tickers[0]`` read would ALSO have flagged ABBNY, KYOCY, PRTC and WELPM.
+
+The marker is DISPLAY-only: nothing here writes ``price_symbol`` or adopts the EDGAR symbol (a wrong
+adoption would file another company's tape under the member, #4/#6). The recommender that would propose
+an adoption for the operator to ratify is a separate, unbuilt step (plan T2), as are a check of WHICH
+security class a Form 25 removed (Q6) and treating a closed name's price 404 as expected (T3).
+``classify_stop`` takes plain inputs so each can land as its own argument without reshaping the rest.
+
+A closed name is NEVER dropped from the roster, the monitor, or the panel (#9) — the marker only
 RECLASSIFIES the stopped tape, and it is EXPECTED so it renders quietly and does not page as newly-stale
-(#7/WB#3). This is a DERIVE-ON-READ classification (nothing persisted, reversible by construction): every
-pass re-reads the cached submissions, so if a detection is ever wrong the fix is code, never a stored row
-to clear.
+(#7/WB#3). A name that moves the other way, closed → stale-repair (VRME the first night this ships), is
+news: the newly-stale diff counts only NON-closed rows on both sides (``cron_run_log.previous_stale_tapes``),
+so it pages exactly once. This is a DERIVE-ON-READ classification (nothing persisted, reversible by
+construction): every pass re-reads the cached submissions, so if a detection is ever wrong the fix is code,
+never a stored row to clear.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import date
+from functools import partial
 from typing import TYPE_CHECKING
 from uuid import UUID
 
 from domain.feed_kinds import FUND_SHARES, PRICE, FeedKind, feed_kind
 
 if TYPE_CHECKING:  # avoid importing the ingest module at import time (keeps the layering one-way)
+    from ingest.edgar.submissions import DelistingFiling
     from pipeline.ingest_thesis import NameResult
+
+# The proximity window's defaults, in calendar days around the tape's last bar (``classify_stop``). The
+# ``Settings`` fields ``tape_closed_before_days`` / ``tape_closed_after_days`` carry the live values and a
+# test pins them equal to these. BEFORE = 30: a Form 25 is filed ahead of the removal (it takes effect ten
+# days after filing, and an exchange can file well before the last session). AFTER = 45: the Form 15
+# deregistration follows the delisting, and SEC processing can lag it by weeks. MEASURED 2026-10-16 on the
+# 8 genuine closes on prod: nearest form within [−7, +13] days, so both windows leave real headroom while
+# still excluding a stray form filed a season (or, for VRME's warrants, 15 months) away.
+DEFAULT_CLOSED_BEFORE_DAYS = 30
+DEFAULT_CLOSED_AFTER_DAYS = 45
 
 
 def stale_label(ticker: str | None, security_id: object) -> str:
@@ -110,20 +155,28 @@ class StaleTape:
     ``kind`` defaults to ``price`` because that is what it means everywhere it is absent — the rows written
     before this field existed are price rows (see ``feed_kind``'s fail-soft note).
 
-    ``closed_at`` (G5b) is the DELISTING classification: the filing date of the name's SEC delisting form
-    (25 / 25-NSE / 15-12B / 15-12G) when this stopped tape belongs to a name that CLOSED — delisted,
-    acquired, deregistered — else ``None``. ``None`` = a feed gap to REPAIR (a rename the vendor priced
-    under a new symbol; the fix is ``security_master.price_symbol``); a date = the tape correctly ENDED
-    and the name stopped trading around then. A closed tape is EXPECTED, so it renders quietly and does NOT
-    page as newly-stale (#7/WB#3), but it is NEVER dropped from the inventory or the monitor (#9) — the
-    marker only RECLASSIFIES the row. Only ever set on a PRICE row (delisting is a listing event); the
-    fund-shares feed never carries it."""
+    ``closed_at`` (G5b/T1) is the DELISTING classification: the filing date of the SEC delisting form
+    (25 / 25-NSE / 15-12B / 15-12G) that explains this stopped tape — filed near its last bar, on a name
+    EDGAR no longer lists under a different symbol (``classify_stop``) — else ``None``. ``None`` = a feed
+    gap to REPAIR (the fix is ``security_master.price_symbol``); a date = the tape correctly ENDED and the
+    name stopped trading around then. A closed tape is EXPECTED, so it renders quietly and does NOT page as
+    newly-stale (#7/WB#3), but it is NEVER dropped from the inventory or the monitor (#9) — the marker only
+    RECLASSIFIES the row. Only ever set on a PRICE row (delisting is a listing event); the fund-shares feed
+    never carries it.
+
+    ``renamed`` (T1) marks a REPAIR row whose company EDGAR still lists, under symbols that include neither
+    the master ``ticker`` nor ``price_symbol`` — the rename-starved shape, so the advice is "point the
+    price symbol at the new listing". Never set together with ``closed_at``. ``edgar_tickers`` is EDGAR's
+    current list as read this pass (``()`` = EDGAR lists none, ``None`` = not read: no CIK, or the
+    submissions read failed); DISPLAY only — nothing adopts it."""
 
     ticker: str | None
     security_id: UUID
     edge: date | None
     kind: str = PRICE.key
     closed_at: date | None = None
+    renamed: bool = False
+    edgar_tickers: tuple[str, ...] | None = None
 
     @property
     def label(self) -> str:
@@ -136,10 +189,64 @@ class StaleTape:
 
     @property
     def closed(self) -> bool:
-        """Did this stopped tape stop because the name CLOSED (a delisting form on file), rather than a
-        feed gap to repair? A closed tape renders quietly and never pages as newly-stale (#7/WB#3); a
-        non-closed one stays the loud "stale — repair" row."""
+        """Did this stopped tape stop because the name CLOSED (a delisting form filed near its last bar, no
+        rename), rather than a feed gap to repair? A closed tape renders quietly and never pages as
+        newly-stale (#7/WB#3); a non-closed one stays the loud "stale — repair" row."""
         return self.closed_at is not None
+
+
+@dataclass(frozen=True)
+class StopClassification:
+    """What ``classify_stop`` concluded about ONE name's stopped tape — the three fields it lends to a
+    ``StaleTape``. The default (nothing set) is the plain stale-repair reading, which is also what every
+    fund-shares row and every row with no EDGAR evidence gets: the LOUD reading is the default and the
+    quiet one has to be earned."""
+
+    closed_at: date | None = None
+    renamed: bool = False
+    edgar_tickers: tuple[str, ...] | None = None
+
+
+UNCLASSIFIED = StopClassification()
+
+
+def classify_stop(
+    *,
+    edge: date | None,
+    filings: Iterable[DelistingFiling],
+    edgar_tickers: tuple[str, ...] | None,
+    ticker: str | None,
+    price_symbol: str | None,
+    asof: date,
+    before_days: int = DEFAULT_CLOSED_BEFORE_DAYS,
+    after_days: int = DEFAULT_CLOSED_AFTER_DAYS,
+) -> StopClassification:
+    """Is this stopped price tape a CLOSE, a RENAME, or a plain feed gap? Pure; the caller has already
+    judged the tape stale (see the module docstring for the rule and the measurements behind it).
+
+    1. RENAME guard first: EDGAR lists one or more current symbols and NEITHER ``ticker`` nor
+       ``price_symbol`` is among them (case-insensitive MEMBERSHIP, never ``tickers[0]``) → a repair row
+       marked ``renamed``, never closed, whatever the forms say. An empty or unread list never fires it.
+    2. PROXIMITY: among the delisting filings filed in ``[edge − before_days, edge + after_days]`` and on
+       or before ``asof``, the one nearest ``edge`` (a tie goes to the later filing) closes the tape, and
+       ``closed_at`` is its filing date. No last bar (``edge`` is None) → nothing to be near → not closed.
+    3. Otherwise a plain repair row.
+
+    ``edgar_tickers`` rides onto the result in every case (display only). A negative window reads as 0
+    (only a form filed on the edge day itself counts on that side) — never an error inside the nightly
+    loop."""
+    listed = edgar_tickers
+    ours = {s.strip().upper() for s in (ticker, price_symbol) if s and s.strip()}
+    if listed and not ours.intersection(t.strip().upper() for t in listed):
+        return StopClassification(renamed=True, edgar_tickers=listed)
+    if edge is None:
+        return StopClassification(edgar_tickers=listed)
+    before, after = max(0, before_days), max(0, after_days)
+    near = [f for f in filings if f.filed <= asof and -before <= (f.filed - edge).days <= after]
+    if not near:
+        return StopClassification(edgar_tickers=listed)
+    best = min(near, key=lambda f: (abs((f.filed - edge).days), -f.filed.toordinal()))
+    return StopClassification(closed_at=best.filed, edgar_tickers=listed)
 
 
 def is_tape_stale(edge: date | None, *, asof: date, stale_days: int) -> bool:
@@ -160,21 +267,21 @@ def is_tape_stale(edge: date | None, *, asof: date, stale_days: int) -> bool:
 
 
 def _stale(
-    rows: Iterable[tuple[UUID, str | None, date | None, date | None]],
+    rows: Iterable[tuple[UUID, str | None, date | None, Callable[[], StopClassification] | None]],
     *,
     kind: FeedKind,
     asof: date,
     stale_days: int,
 ) -> tuple[StaleTape, ...]:
-    """The shared judgment + dedup, over ``(security_id, ticker, edge, closed_at)`` tuples. ONE
+    """The shared judgment + dedup, over ``(security_id, ticker, edge, classify)`` tuples. ONE
     implementation for every feed kind — the per-kind public functions below are just the field adapters,
     so a second feed can never acquire a second definition of "stale" or a second dedup rule.
 
-    ``closed_at`` (G5b) is the delisting classification for a PRICE row (the price adapter passes the name's
-    delisting-form date; the fund-shares adapter always passes ``None`` — delisting is a listing event). It
-    rides onto the emitted ``StaleTape`` so a stopped tape can render "closed — stopped trading <date>"
-    instead of the loud "stale — repair". It is only ever meaningful on an emitted (stale) row: a name with
-    a delisting form but a still-FRESH tape is not emitted at all (nothing to mark until the tape stops).
+    ``classify`` (G5b/T1) is a zero-argument callable returning the stopped tape's ``StopClassification``
+    (closed / renamed / plain repair) for a PRICE row, or ``None`` (the fund-shares adapter — delisting is a
+    listing event). It is called ONLY for a row already judged stale, so the classification can never mark
+    a live tape: a name with a delisting form or a renamed EDGAR listing but a still-FRESH tape is not
+    emitted at all (nothing to mark until the tape stops).
 
     The dedup is load-bearing, not tidiness: a name the draft placed in N value-chain links is N
     ``basket_member`` rows with the SAME ``security_id``, so ``ingest_thesis`` returns N ``NameResult``s for
@@ -185,25 +292,33 @@ def _stale(
     FIRST-SEEN order preserved."""
     out: list[StaleTape] = []
     seen: set[UUID] = set()
-    for security_id, ticker, edge, closed_at in rows:
+    for security_id, ticker, edge, classify in rows:
         if security_id in seen:
             continue
         seen.add(security_id)
         if is_tape_stale(edge, asof=asof, stale_days=stale_days):
+            c = classify() if classify is not None else UNCLASSIFIED
             out.append(
                 StaleTape(
                     ticker=ticker,
                     security_id=security_id,
                     edge=edge,
                     kind=kind.key,
-                    closed_at=closed_at,
+                    closed_at=c.closed_at,
+                    renamed=c.renamed,
+                    edgar_tickers=c.edgar_tickers,
                 )
             )
     return tuple(out)
 
 
 def stale_tapes(
-    results: Iterable[NameResult], *, asof: date, stale_days: int
+    results: Iterable[NameResult],
+    *,
+    asof: date,
+    stale_days: int,
+    closed_before_days: int = DEFAULT_CLOSED_BEFORE_DAYS,
+    closed_after_days: int = DEFAULT_CLOSED_AFTER_DAYS,
 ) -> tuple[StaleTape, ...]:
     """The stale PRICE tapes among one thesis's per-name ingest results (see ``_stale`` for the dedup).
 
@@ -212,12 +327,32 @@ def stale_tapes(
     failing and dead shows up as both (the error on its own result, the stale tape here), never silently
     one or the other.
 
-    ``r.delisted_at`` (G5b) rides onto each row as ``closed_at``: a stopped tape whose name has a SEC
-    delisting form on file is a name that CLOSED, so it renders "closed — stopped trading <date>" and does
-    not page, rather than the loud "stale — repair". A ``None`` delisting date (the healthy common case)
-    keeps the row a plain stale-repair one."""
+    Each stale row is then CLASSIFIED (``classify_stop``) from the EDGAR facts the ingest carried on the
+    result — ``r.delisting_filings`` and ``r.edgar_tickers`` — against the name's own ``ticker`` /
+    ``price_symbol`` and the proximity window (``closed_before_days`` / ``closed_after_days``; the nightly
+    pass passes the ``Settings`` values). CLOSED renders "closed — stopped trading <date>" and does not
+    page; RENAMED and plain rows stay the loud "stale — repair", the renamed one naming EDGAR's symbols. No
+    EDGAR facts at all (no CIK, a failed read) → the plain repair reading, never the quiet one."""
     return _stale(
-        ((r.security_id, r.ticker, r.tape_edge, r.delisted_at) for r in results),
+        (
+            (
+                r.security_id,
+                r.ticker,
+                r.tape_edge,
+                partial(
+                    classify_stop,
+                    edge=r.tape_edge,
+                    filings=r.delisting_filings,
+                    edgar_tickers=r.edgar_tickers,
+                    ticker=r.ticker,
+                    price_symbol=r.price_symbol,
+                    asof=asof,
+                    before_days=closed_before_days,
+                    after_days=closed_after_days,
+                ),
+            )
+            for r in results
+        ),
         kind=PRICE,
         asof=asof,
         stale_days=stale_days,
@@ -240,9 +375,10 @@ def stale_fund_shares(
     a price tape gets a bar every session, while a sleeve's sample carries the source page's own stated
     as-of date, which measurably lags the pull by up to two days on the fallback leg.
 
-    ``closed_at`` is always ``None`` here (the fourth tuple element): delisting is a LISTING event and the
-    "closed" classification is a price-tape concept, so a stopped fund-shares sample is never marked closed
-    by this mechanism — it stays a stale-repair row (its own repair: a fund/ticker/source check)."""
+    No classifier here (the fourth tuple element is ``None``): delisting and renames are LISTING events and
+    the "closed" / "renamed" classification is a price-tape concept, so a stopped fund-shares sample is
+    never marked by this mechanism — it stays a plain stale-repair row (its own repair: a fund/ticker/source
+    check)."""
     return _stale(
         (
             (r.security_id, r.ticker, r.fund_shares_edge, None)

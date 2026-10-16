@@ -116,6 +116,27 @@ const TAPE_WITH_CLOSED = {
   newly_stale: ["AAA"],
 };
 
+// T1 — the panel carrying a RENAMED repair row (EDGAR lists the company under another symbol, the VRME →
+// OPNW shape) beside a plain feed-gap row. Both are loud repair rows; only the renamed one names EDGAR's
+// symbols, and neither is in the quiet closed block.
+const TAPE_WITH_RENAMED = {
+  ...TAPE_TWO_STALE,
+  stale: [
+    TAPE_TWO_STALE.stale[0], // AAA — a plain feed gap (renamed absent)
+    {
+      security_id: "55555555-5555-5555-5555-555555555555",
+      ticker: "VRME" as string | null,
+      edge: "2026-10-06" as string | null,
+      thesis: "Thesis One",
+      kind: "price",
+      closed_at: null as string | null,
+      renamed: true,
+      edgar_tickers: ["OPNW"] as string[] | null,
+    },
+  ],
+  newly_stale: ["VRME"],
+};
+
 const STATUS_CURRENT = {
   record: {
     edge: "2026-07-17",
@@ -415,6 +436,19 @@ describe("Admin — honest loudness on the freshness widget", () => {
   it("no closed block when no tape is closed (honest loudness — an expected event, shown only when present)", () => {
     h.status = { ...h.status, data: { ...STATUS_CURRENT, tape: TAPE_TWO_STALE } };
     renderAdmin();
+    expect(screen.queryByTestId("adm-closed-tapes")).toBeNull();
+  });
+
+  it("a RENAMED stale tape stays in the loud repair block and names EDGAR's symbols (T1)", () => {
+    h.status = { ...h.status, data: { ...STATUS_CURRENT, tape: TAPE_WITH_RENAMED } };
+    renderAdmin();
+
+    const tapes = screen.getByTestId("adm-stale-tapes");
+    expect(tapes.textContent).toContain("VRME");
+    expect(tapes.textContent).toContain("renamed — EDGAR lists OPNW");
+    // the marker rides ONLY the renamed row — a plain repair row carries none (WB#3)
+    expect(screen.getAllByTestId("adm-renamed")).toHaveLength(1);
+    // a renamed row is a REPAIR row, never the quiet closed block
     expect(screen.queryByTestId("adm-closed-tapes")).toBeNull();
   });
 });
