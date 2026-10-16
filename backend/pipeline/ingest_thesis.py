@@ -133,6 +133,12 @@ class NameResult:
     # judgment — is the tape stale AND is this a close? — is `pipeline.daily`'s, against the run's asof).
     # Read from the SAME cached submissions the Form 4 leg fetched, so it costs zero extra network.
     delisted_at: date | None = None
+    # O1 — the SAME failures as ``error``, kept STRUCTURED: one ``(leg, message)`` pair per leg that raised
+    # (``form4`` / ``form8k`` / ``schedule13`` / ``price`` / ``fund_shares``; ``master`` for an id missing
+    # from the tenant master). ``error`` stays the joined string every existing reader uses (and the R2
+    # recording gate counts) — this field changes no behavior; it exists so the cron's run-of-record can
+    # persist each reason by leg and page only the NEWLY failing ones (``pipeline/name_errors.py``).
+    leg_errors: tuple[tuple[str, str], ...] = ()
 
 
 def _tolerable_filing_error(e: Exception) -> bool:
@@ -305,9 +311,21 @@ def ingest_thesis(
         sec = master.get(conn, m.security_id, tenant_id=thesis.tenant_id)
         if sec is None:
             # a placed id not in this tenant's master (shouldn't happen post-promote-guard) — report it
-            results.append(NameResult(m.ticker, m.security_id, 0, 0, "not in tenant master"))
+            results.append(
+                NameResult(
+                    m.ticker,
+                    m.security_id,
+                    0,
+                    0,
+                    "not in tenant master",
+                    leg_errors=(("master", "not in tenant master"),),
+                )
+            )
             continue
+        # each failed leg is captured TWICE on purpose: the joined `errs` string is the existing
+        # `NameResult.error` (unchanged); `leg_errs` keeps the same failures by leg for the run artifact (O1)
         errs: list[str] = []
+        leg_errs: list[tuple[str, str]] = []
         f4 = 0
         f4_skipped = 0
         f4_txn_rejected = 0
@@ -321,6 +339,7 @@ def ingest_thesis(
         ) as e:  # noqa: BLE001 — fail-visible: capture, roll back this leg, keep going
             conn.rollback()
             errs.append(f"form4: {e}")
+            leg_errs.append(("form4", str(e)))
         f8k_appended, f8k_reversioned = 0, 0
         try:
             f8k_appended, f8k_reversioned = _form8k_leg(
@@ -330,6 +349,7 @@ def ingest_thesis(
         except Exception as e:  # noqa: BLE001 — same per-leg isolation as the form4 leg
             conn.rollback()
             errs.append(f"form8k: {e}")
+            leg_errs.append(("form8k", str(e)))
         s13_appended, s13_reversioned, s13_skipped = 0, 0, 0
         try:
             s13_appended, s13_reversioned, s13_skipped = _schedule13_leg(
@@ -339,6 +359,7 @@ def ingest_thesis(
         except Exception as e:  # noqa: BLE001 — same per-leg isolation as the form4 leg
             conn.rollback()
             errs.append(f"schedule13: {e}")
+            leg_errs.append(("schedule13", str(e)))
         px_appended, px_reversioned = 0, 0
         try:
             bars = ingest_bars_for_security(
@@ -354,6 +375,7 @@ def ingest_thesis(
         except Exception as e:  # noqa: BLE001
             conn.rollback()
             errs.append(f"price: {e}")
+            leg_errs.append(("price", str(e)))
         # THE TAPE EDGE (G5a) — read AFTER the price leg so an appended tail counts, and OUTSIDE its
         # try/except so a name whose price leg FAILED still reports where its stored tape actually ends (a
         # failing name and a dead tape are different facts; the monitor must see both). Its OWN try: this is
@@ -397,6 +419,7 @@ def ingest_thesis(
         except Exception as e:  # noqa: BLE001 — fail-visible: a fund with no samplable source is a
             conn.rollback()  # captured error on ITS NameResult, never a silent omission (#7/#9)
             errs.append(f"fund_shares: {e}")
+            leg_errs.append(("fund_shares", str(e)))
         # THE FUND-SHARES EDGE (F1) — the tape-edge read's twin, placed AFTER the fund-shares leg for the
         # same reason: a sample appended by this pass must count, or a healthy sleeve would read one pass
         # stale forever. GATED on `fund_shares_applies`, which is load-bearing twice over: it keeps ~500
@@ -435,6 +458,7 @@ def ingest_thesis(
                 fund_shares_edge=fund_shares_edge,
                 fund_shares_tracked=fund_shares_tracked,
                 delisted_at=delisted_at,
+                leg_errors=tuple(leg_errs),
             )
         )
     return results

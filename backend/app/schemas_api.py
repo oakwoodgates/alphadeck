@@ -1603,6 +1603,37 @@ class BackupJobStatus(BaseModel):
 # --- Admin ops surface (Slice 1): freshness/health READS + the explicit "run now" trigger ---
 
 
+class AdminAuditCheckOut(BaseModel):
+    """One check of a pass's nightly SELF-AUDIT (V1, ``pipeline/self_audit.py``), as the artifact recorded
+    it. ``ok`` is ``true`` (checked, holds), ``false`` (checked, FAILS — it paged and makes the verdict
+    ``unhealthy``) or ``null`` (NOT APPLICABLE to that pass — e.g. a daytime manual pass cannot leave the
+    night's on-time row; never read as a pass). ``detail`` is plain English with counts and short ids, never
+    a thesis name."""
+
+    check: str
+    ok: bool | None = None
+    detail: str = ""
+
+
+class AdminRunEnvOut(BaseModel):
+    """The NON-SECRET environment a pass ran under (I2), as its artifact recorded it: the clock config as
+    values (``tz`` = the container ``TZ``, ``market_tz``, ``run_at`` = the sidecar's ``RUN_AT``,
+    ``cron_at`` = ``Settings.cron_run_at``) and every secret or delivery switch as a set/unset BOOLEAN only —
+    no secret value is ever written. ``notifier`` is the class that carried the pass's pages
+    (``SlackNotifier`` / ``LogNotifier``). Every field is optional so a partial or future artifact parses.
+    """
+
+    tz: str | None = None
+    market_tz: str | None = None
+    run_at: str | None = None
+    cron_at: str | None = None
+    user_agent_set: bool | None = None
+    slack_webhook_set: bool | None = None
+    polygon_api_key_set: bool | None = None
+    heartbeat_url_set: bool | None = None
+    notifier: str | None = None
+
+
 class AdminRunOut(BaseModel):
     """One daily pass, as the run-of-record artifact recorded it (``pipeline/cron_run_log.py`` — the
     field names are the ARTIFACT's, not inventions): counts + outcomes only, value-free. ``healthy`` /
@@ -1615,7 +1646,15 @@ class AdminRunOut(BaseModel):
     recording-gate signal); ``ran_at`` is the artifact's ``started_at`` (UTC ISO). ``catch_up`` = a
     ``--catch-up`` pass (the sidecar's boot / late-wake catch-up): its ~0 EDGAR fetches are expected
     (it runs inside the cache TTL), so the freeze check is skipped for that row; an artifact written
-    before the key existed reads ``False``."""
+    before the key existed reads ``False``.
+
+    Phase 1B (each ``null`` / empty on an artifact written before it existed — never an alarm by absence):
+    ``code_sha`` / ``config_hash`` / ``run_kind`` + ``env`` are the pass's RUN IDENTITY and non-secret env
+    fingerprint (I1/I2); ``audit`` is its nightly SELF-AUDIT (V1) — a failed check is a ``problems`` line
+    and makes ``healthy`` false; ``name_errors_new`` are the ``"<ticker> (<leg>)"`` labels of names whose
+    ingest leg started failing that night (O1 — a ``problems`` line with the benign marker: the thesis
+    still recorded) and ``name_errors_known`` the quiet count of names failing the same way as the pass
+    before."""
 
     ran_at: str
     finished_at: str
@@ -1632,6 +1671,13 @@ class AdminRunOut(BaseModel):
     healthy: bool
     problems: list[str] = []
     catch_up: bool
+    code_sha: str | None = None
+    config_hash: str | None = None
+    run_kind: str | None = None
+    env: AdminRunEnvOut | None = None
+    audit: list[AdminAuditCheckOut] = []
+    name_errors_new: list[str] = []
+    name_errors_known: int = 0
 
 
 class AdminRecordOut(BaseModel):
@@ -1676,10 +1722,21 @@ class AdminCronOut(BaseModel):
     ``--no-live`` dev run is NOT unhealthy. ``never_ran`` = no run artifact at all (quiet). ``gappy`` =
     the edge is current and the last run clean, but the recent window has a night with NO call-of-record
     (a wrong-day fire) — as loud as ``stale``. Priority: never_ran > unhealthy > stale > gappy > healthy.
-    """
+
+    ``alarms`` (Phase 1B) are the STATUS-level alarms that are not one run's health, each a plain-English
+    line, and any of them makes the verdict ``unhealthy`` (they are listed even under ``never_ran``): the
+    cron's last pass ran with an UNKNOWN ``code_sha``; the cron's sha differs from this backend's own (an
+    image left stale by a partial rebuild) or the backend's own is unknown — compared only for a cron pass
+    that started after this backend process did, so a full deploy does not read ``unhealthy`` until the
+    night's pass confirms it; the last live pass paged
+    through the LOG notifier (``SLACK_WEBHOOK_URL`` unset — a bad night pages nobody) or ran with
+    ``ALPHADECK_USER_AGENT`` unset; the newest unlabeled DB dump is older than
+    ``ALPHADECK_BACKUP_STALE_HOURS`` in schedule time (B4 — only on a stack whose run history shows the cron
+    sidecar, where a nightly dump is expected). ``[]`` on a clean stack."""
 
     status: Literal["healthy", "stale", "never_ran", "unhealthy", "gappy"]
     detail: str
+    alarms: list[str] = []
 
 
 class AdminStaleTapeOut(BaseModel):
@@ -1746,13 +1803,20 @@ class AdminStatusOut(BaseModel):
     newest DB snapshot + the feed-freshness panel. READ-ONLY — the endpoint owns no tables and writes
     nothing (test-proved; the ``last_backup`` join is a pure directory read, and ``tape`` is read from
     the run artifacts). ``last_backup`` is ``None`` = the quiet "no snapshots yet" state; ``tape`` is
-    ``None`` until a pass has evaluated feed recency (the quiet "not looked yet" state)."""
+    ``None`` until a pass has evaluated feed recency (the quiet "not looked yet" state).
+
+    ``backend_sha`` is this backend's OWN ``Settings.image_sha`` (``null`` = built without ``GIT_SHA``) and
+    ``cron_sha`` the ``code_sha`` the newest CRON-kind run artifact recorded (``null`` = unknown, or no
+    cron pass has recorded its identity yet) — the pair the identity alarm compares (I1). The latest
+    self-audit rides ``last_run.audit``."""
 
     record: AdminRecordOut
     last_run: AdminRunOut | None = None
     cron: AdminCronOut
     last_backup: BackupOut | None = None
     tape: AdminTapeOut | None = None
+    backend_sha: str | None = None
+    cron_sha: str | None = None
 
 
 class AdminRunsOut(BaseModel):

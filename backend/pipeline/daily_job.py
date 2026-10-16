@@ -12,9 +12,12 @@ slot to claim (``DailyRunInFlight`` → HTTP 409 at the route) — a double-clic
 stack a second live-EDGAR pass. Single-process is authoritative for the same reason as the drafter
 (uvicorn is pinned to ``--workers 1``; ``assert_single_worker`` refuses env-driven scaling at boot).
 
-KNOWN LIMITATION (accepted, decision #10): the guard is in-process — it cannot see the cron SIDECAR's
-own run in a separate container. An overlap is wasteful, never corrupting: the pass is idempotent
-end-to-end (incremental ingest + ``record_if_changed``).
+THE CROSS-PROCESS HALF (C1, 2026-10-16): this slot is in-process — it cannot see the cron SIDECAR's run in
+its own container (decision #10 accepted that as "wasteful, never corrupting", but MEASURED overlaps on
+09-01 and 09-09 double-appended through ``record_if_changed``'s unlocked read-compare-append). The pass
+itself now holds a Postgres session-level advisory lock for its whole run (``pipeline/run_lock.py``), and
+the route probes it first, so a click while ANY process runs a pass is a 409 too. This slot stays as the
+in-process double-click guard.
 
 The in-memory ``result`` is a CONVENIENCE copy for the poll — the durable record is what the pass itself
 writes (the calls log + the run-of-record artifact). A restart wipes the registry: an in-flight poll then

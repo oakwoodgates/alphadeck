@@ -29,3 +29,20 @@ def current_tenant_id() -> UUID:
 def connect() -> psycopg.Connection:
     """Open a psycopg connection with dict rows. The caller owns the transaction (commit/rollback)."""
     return psycopg.connect(database_url(), row_factory=dict_row)
+
+
+def set_statement_timeout(conn: psycopg.Connection, seconds: float) -> None:
+    """Set the SESSION's ``statement_timeout`` (C2) — any single statement on ``conn`` running longer than
+    ``seconds`` is canceled by the server (``QueryCanceled``) instead of hanging its caller. ``seconds <= 0``
+    leaves the server default (no ceiling).
+
+    SESSION-level and COMMITTED here, on purpose: ``SET`` is transactional in Postgres, so a ``SET`` left in
+    an open transaction would be UNDONE by the caller's first ``rollback()`` (and the daily loop rolls back
+    on every per-thesis error). Committing right after makes the ceiling stick for the life of the session.
+    ``set_config`` rather than ``SET`` because psycopg binds parameters server-side and ``SET`` takes none.
+    Call it on a FRESH connection (it commits whatever transaction is open)."""
+    if seconds <= 0:
+        return
+    conn.execute("SELECT set_config('statement_timeout', %s, false)", (f"{int(seconds * 1000)}",))
+    if not conn.autocommit:
+        conn.commit()

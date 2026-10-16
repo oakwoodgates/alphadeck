@@ -1007,7 +1007,11 @@ export interface paths {
          *     FEED gap, not a cron fault, so it never changes ``cron.status``. A row whose ``closed_at`` is set (G5b)
          *     is a name that CLOSED — delisted / acquired / deregistered per a SEC delisting form — so its tape
          *     correctly ended and needs no repair; it stays on the panel (never dropped, #9) but renders quietly as
-         *     "closed" and never pages.
+         *     "closed" and never pages. ``cron.alarms`` are the status-level alarms (Phase 1B) that make the verdict
+         *     ``unhealthy`` though no single run failed: the cron's ``code_sha`` unknown or different from this
+         *     backend's (``backend_sha`` / ``cron_sha``), the last live pass paging through the LOG notifier or
+         *     running without a User-Agent, and the newest unlabeled DB dump older than the schedule-aware backup
+         *     window. ``last_run.audit`` is the latest pass's nightly self-audit; a failed check is a run problem.
          */
         get: operations["get_admin_status_admin_status_get"];
         put?: never;
@@ -1056,11 +1060,14 @@ export interface paths {
          *     load, mount, or poll (cost is the operator's to spend; the pass does a LIVE EDGAR pull and can run
          *     ~65 minutes cold). Runs the cron's EXACT unit (``run_daily_pass``): live ingest + call-of-record +
          *     the run-log artifact + the health page — a manual run lands in the run history like the nightly
-         *     one. **409** when a run is already in progress (the single-slot in-process guard; a double-click
-         *     can never stack a second pass). Safe to re-click once finished: the pass is idempotent
-         *     (``record_if_changed`` appends nothing on unchanged facts). KNOWN LIMITATION (accepted): the guard
-         *     cannot see the cron SIDECAR's own run in its separate container — an overlap is wasteful, never
-         *     corrupting. The job opens its OWN DB connection (it outlives this request).
+         *     one. **409** when a run is already in progress ANYWHERE: another process (the cron sidecar, a hand
+         *     ``pipeline.daily``, a ``pipeline.backfill``) holding the cross-process call-of-record lock, or this
+         *     process's own single slot (a double-click can never stack a second pass). The lock is probed here and
+         *     then taken for real by the pass itself, which holds it start to finish; a pass that loses the race to
+         *     another process in between fails VISIBLY on the poll ("already running"), never runs alongside it.
+         *     **503** when the database cannot be reached to check. Safe to re-click once finished: the pass is
+         *     idempotent (``record_if_changed`` appends nothing on unchanged facts). The job opens its OWN DB
+         *     connection (it outlives this request).
          */
         post: operations["start_run_daily_admin_run_daily_post"];
         delete?: never;
@@ -1397,6 +1404,25 @@ export interface components {
             ingested: string;
         };
         /**
+         * AdminAuditCheckOut
+         * @description One check of a pass's nightly SELF-AUDIT (V1, ``pipeline/self_audit.py``), as the artifact recorded
+         *     it. ``ok`` is ``true`` (checked, holds), ``false`` (checked, FAILS — it paged and makes the verdict
+         *     ``unhealthy``) or ``null`` (NOT APPLICABLE to that pass — e.g. a daytime manual pass cannot leave the
+         *     night's on-time row; never read as a pass). ``detail`` is plain English with counts and short ids, never
+         *     a thesis name.
+         */
+        AdminAuditCheckOut: {
+            /** Check */
+            check: string;
+            /** Ok */
+            ok?: boolean | null;
+            /**
+             * Detail
+             * @default
+             */
+            detail: string;
+        };
+        /**
          * AdminCronOut
          * @description The one-word cron verdict + a plain-English detail. ``unhealthy`` (the LAST run froze / errored /
          *     withheld on total ingest failure / failed to refresh the benchmark tape) is deliberately its own
@@ -1405,6 +1431,17 @@ export interface components {
          *     ``--no-live`` dev run is NOT unhealthy. ``never_ran`` = no run artifact at all (quiet). ``gappy`` =
          *     the edge is current and the last run clean, but the recent window has a night with NO call-of-record
          *     (a wrong-day fire) — as loud as ``stale``. Priority: never_ran > unhealthy > stale > gappy > healthy.
+         *
+         *     ``alarms`` (Phase 1B) are the STATUS-level alarms that are not one run's health, each a plain-English
+         *     line, and any of them makes the verdict ``unhealthy`` (they are listed even under ``never_ran``): the
+         *     cron's last pass ran with an UNKNOWN ``code_sha``; the cron's sha differs from this backend's own (an
+         *     image left stale by a partial rebuild) or the backend's own is unknown — compared only for a cron pass
+         *     that started after this backend process did, so a full deploy does not read ``unhealthy`` until the
+         *     night's pass confirms it; the last live pass paged
+         *     through the LOG notifier (``SLACK_WEBHOOK_URL`` unset — a bad night pages nobody) or ran with
+         *     ``ALPHADECK_USER_AGENT`` unset; the newest unlabeled DB dump is older than
+         *     ``ALPHADECK_BACKUP_STALE_HOURS`` in schedule time (B4 — only on a stack whose run history shows the cron
+         *     sidecar, where a nightly dump is expected). ``[]`` on a clean stack.
          */
         AdminCronOut: {
             /**
@@ -1414,6 +1451,11 @@ export interface components {
             status: "healthy" | "stale" | "never_ran" | "unhealthy" | "gappy";
             /** Detail */
             detail: string;
+            /**
+             * Alarms
+             * @default []
+             */
+            alarms: string[];
         };
         /**
          * AdminRecordOut
@@ -1469,6 +1511,34 @@ export interface components {
             window_days: number;
         };
         /**
+         * AdminRunEnvOut
+         * @description The NON-SECRET environment a pass ran under (I2), as its artifact recorded it: the clock config as
+         *     values (``tz`` = the container ``TZ``, ``market_tz``, ``run_at`` = the sidecar's ``RUN_AT``,
+         *     ``cron_at`` = ``Settings.cron_run_at``) and every secret or delivery switch as a set/unset BOOLEAN only —
+         *     no secret value is ever written. ``notifier`` is the class that carried the pass's pages
+         *     (``SlackNotifier`` / ``LogNotifier``). Every field is optional so a partial or future artifact parses.
+         */
+        AdminRunEnvOut: {
+            /** Tz */
+            tz?: string | null;
+            /** Market Tz */
+            market_tz?: string | null;
+            /** Run At */
+            run_at?: string | null;
+            /** Cron At */
+            cron_at?: string | null;
+            /** User Agent Set */
+            user_agent_set?: boolean | null;
+            /** Slack Webhook Set */
+            slack_webhook_set?: boolean | null;
+            /** Polygon Api Key Set */
+            polygon_api_key_set?: boolean | null;
+            /** Heartbeat Url Set */
+            heartbeat_url_set?: boolean | null;
+            /** Notifier */
+            notifier?: string | null;
+        };
+        /**
          * AdminRunJobRef
          * @description The 202 kick-off body — the daily pass started as a background JOB (a cold pass runs ~65 min;
          *     held open it would 504 at the proxy). Poll ``GET /admin/run-daily/jobs/{job_id}`` for the result.
@@ -1515,6 +1585,14 @@ export interface components {
          *     ``--catch-up`` pass (the sidecar's boot / late-wake catch-up): its ~0 EDGAR fetches are expected
          *     (it runs inside the cache TTL), so the freeze check is skipped for that row; an artifact written
          *     before the key existed reads ``False``.
+         *
+         *     Phase 1B (each ``null`` / empty on an artifact written before it existed — never an alarm by absence):
+         *     ``code_sha`` / ``config_hash`` / ``run_kind`` + ``env`` are the pass's RUN IDENTITY and non-secret env
+         *     fingerprint (I1/I2); ``audit`` is its nightly SELF-AUDIT (V1) — a failed check is a ``problems`` line
+         *     and makes ``healthy`` false; ``name_errors_new`` are the ``"<ticker> (<leg>)"`` labels of names whose
+         *     ingest leg started failing that night (O1 — a ``problems`` line with the benign marker: the thesis
+         *     still recorded) and ``name_errors_known`` the quiet count of names failing the same way as the pass
+         *     before.
          */
         AdminRunOut: {
             /** Ran At */
@@ -1553,6 +1631,28 @@ export interface components {
             problems: string[];
             /** Catch Up */
             catch_up: boolean;
+            /** Code Sha */
+            code_sha?: string | null;
+            /** Config Hash */
+            config_hash?: string | null;
+            /** Run Kind */
+            run_kind?: string | null;
+            env?: components["schemas"]["AdminRunEnvOut"] | null;
+            /**
+             * Audit
+             * @default []
+             */
+            audit: components["schemas"]["AdminAuditCheckOut"][];
+            /**
+             * Name Errors New
+             * @default []
+             */
+            name_errors_new: string[];
+            /**
+             * Name Errors Known
+             * @default 0
+             */
+            name_errors_known: number;
         };
         /**
          * AdminRunsOut
@@ -1616,6 +1716,11 @@ export interface components {
          *     nothing (test-proved; the ``last_backup`` join is a pure directory read, and ``tape`` is read from
          *     the run artifacts). ``last_backup`` is ``None`` = the quiet "no snapshots yet" state; ``tape`` is
          *     ``None`` until a pass has evaluated feed recency (the quiet "not looked yet" state).
+         *
+         *     ``backend_sha`` is this backend's OWN ``Settings.image_sha`` (``null`` = built without ``GIT_SHA``) and
+         *     ``cron_sha`` the ``code_sha`` the newest CRON-kind run artifact recorded (``null`` = unknown, or no
+         *     cron pass has recorded its identity yet) — the pair the identity alarm compares (I1). The latest
+         *     self-audit rides ``last_run.audit``.
          */
         AdminStatusOut: {
             record: components["schemas"]["AdminRecordOut"];
@@ -1623,6 +1728,10 @@ export interface components {
             cron: components["schemas"]["AdminCronOut"];
             last_backup?: components["schemas"]["BackupOut"] | null;
             tape?: components["schemas"]["AdminTapeOut"] | null;
+            /** Backend Sha */
+            backend_sha?: string | null;
+            /** Cron Sha */
+            cron_sha?: string | null;
         };
         /**
          * AdminTapeOut

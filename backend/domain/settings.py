@@ -214,6 +214,26 @@ class Settings(BaseSettings):
     backup_keep: int = 7
     # pg_dump wall ceiling — a hang becomes a LOUD failed job rather than a held slot.
     backup_timeout_s: float = 300.0
+    # B4 — the BACKUP-AGE alarm (/admin/status): the newest UNLABELED dump may be at most this many hours
+    # old, measured SCHEDULE-AWARE like the record edge — the nightly dump rides the weekday pass, so the
+    # clock that matters is "since the last scheduled night's RUN_AT", never raw wall time (a Friday dump
+    # read on Sunday is current, not 60 h stale). Concretely: the dump for the last expected night is due
+    # by that night's RUN_AT + (this - 24) h, i.e. ~6 h after a 22:30 pass at the default — Monday's dump
+    # missing reads as an alarm from Tuesday ~04:30 ET. 0 disables the alarm. ALPHADECK_BACKUP_STALE_HOURS.
+    backup_stale_hours: float = 30.0
+
+    # --- C2 — the DB statement ceiling for the daily pass's connections ---
+    # A stuck statement (a lock wait, a runaway read) used to hang the whole pass with no artifact and no
+    # page: the loop is sequential, so one blocked SELECT froze every thesis after it. Every connection
+    # `run_daily_pass` opens (the per-thesis loop, the refresh/sweep/radar legs, the self-audit) sets this
+    # as its session `statement_timeout`, so such a statement raises instead — inside the per-thesis /
+    # per-leg isolation that already turns an exception into a captured, paged error. MEASURED headroom:
+    # no per-statement timing exists in the cron logs or artifacts, so the ceiling is sized off the measured
+    # board/cockpit profile (docs/temp/board-cockpit-perf-2026-09-02: the slowest single read 151 ms, a
+    # whole call assembly 0.55–8.3 s) — 300 s is ~2,000x the slowest measured statement and ~36x the
+    # slowest whole call, yet well under the sidecar's whole-pass ceiling, so a stuck statement fails
+    # VISIBLY inside the pass before the pass itself is killed. 0 disables. ALPHADECK_CRON_STATEMENT_TIMEOUT_S.
+    cron_statement_timeout_s: float = 300.0
 
     # --- Run loader (the saved-draft-run picker, workbench/run_loader) — the modular off-switch ---
     # A dev/test cost-saver: load a saved draft-run artifact (data/draft_runs/) back into the editable workbench

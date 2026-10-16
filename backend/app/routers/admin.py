@@ -19,7 +19,7 @@ Auth stays deferred project-wide (these routes ride the same tenancy seam as the
 
 from __future__ import annotations
 
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta, timezone, tzinfo
 from uuid import UUID
 
 import psycopg
@@ -27,8 +27,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.deps import get_conn
 from app.schemas_api import (
+    AdminAuditCheckOut,
     AdminCronOut,
     AdminRecordOut,
+    AdminRunEnvOut,
     AdminRunJobRef,
     AdminRunJobStatus,
     AdminRunOut,
@@ -52,6 +54,7 @@ from pipeline.backup_job import get_job as get_backup_job
 from pipeline.cron_run_log import build_run_payload, list_run_logs
 from pipeline.daily import ThesisRunResult, assess_health, run_daily_pass
 from pipeline.daily_job import DailyRunInFlight, get_job, start_daily_job
+from pipeline.run_lock import probe_pass_lock
 from pipeline.schedule import (
     expected_runs_behind,
     last_expected_asof,
@@ -83,6 +86,9 @@ def _problems(health: HealthEvent | None) -> list[str]:
     if health is None:
         return []
     out: list[str] = []
+    # H3 — never on an artifact (a crashed pass writes none); kept in step with the label anyway
+    if health.crashed:
+        out.append(f"PASS CRASHED — {health.crashed}")
     if health.frozen:
         out.append(
             f"FROZEN — 0 EDGAR fetches across {health.theses} theses (the cache never refreshed)"
@@ -98,6 +104,15 @@ def _problems(health: HealthEvent | None) -> list[str]:
     if health.benchmark_errors:
         out.append(
             f"{health.benchmark_errors} benchmark refresh error(s) — benchmark_rs read a stale tape"
+        )
+    # V1 — a FAILED self-audit check is a real alarm (the night's record is not what the pass claims)
+    out.extend(f"SELF-AUDIT FAILED — {line}" for line in health.audit_failed)
+    # O1 — a newly failing name is BENIGN for the verdict (the thesis still recorded; `ingest_fresh` marks
+    # the row) but it shows on the run row and it paged; the known-failing ones are a quiet count, not here
+    if health.name_errors_new:
+        out.append(
+            f"{len(health.name_errors_new)} name(s) newly failing to ingest: "
+            f"{', '.join(health.name_errors_new)} — the thesis still recorded, {_BENIGN_MARK} in this run"
         )
     if health.withheld_no_live:
         out.append(
@@ -151,6 +166,25 @@ def _admin_run_out(payload: dict) -> AdminRunOut:
         )
         for x in (payload.get("tape_stale_new") or ())
     )
+    # Phase 1B — every new key read with .get (the rule above): an artifact written before it reads as "not
+    # recorded", never as an alarm and never as an unparseable row.
+    name_errors_new = tuple(
+        f"{e.get('ticker') or e.get('security_id')} ({e.get('leg')})"
+        for e in (payload.get("name_errors_new") or ())
+        if isinstance(e, dict)
+    )
+    audit = [
+        AdminAuditCheckOut(
+            check=str(a.get("check") or ""),
+            ok=a.get("ok") if isinstance(a.get("ok"), bool) else None,
+            detail=str(a.get("detail") or ""),
+        )
+        for a in (payload.get("audit") or ())
+        if isinstance(a, dict)
+    ]
+    audit_failed = tuple(f"{a.check}: {a.detail}" for a in audit if a.ok is False)
+    env_raw = payload.get("env")
+    env = AdminRunEnvOut.model_validate(env_raw) if isinstance(env_raw, dict) else None
     results = [
         ThesisRunResult(
             thesis_id=UUID(t["id"]),
@@ -171,6 +205,8 @@ def _admin_run_out(payload: dict) -> AdminRunOut:
         benchmark_errors=benchmark_errors,
         benchmark_leg_failed=benchmark_leg_failed,
         tape_stale_new=tape_stale_new,
+        name_errors_new=name_errors_new,
+        audit_failed=audit_failed,
     )
     summary = payload["summary"]
     return AdminRunOut(
@@ -189,6 +225,15 @@ def _admin_run_out(payload: dict) -> AdminRunOut:
         healthy=health is None,
         problems=_problems(health),
         catch_up=catch_up,
+        code_sha=payload.get("code_sha") if isinstance(payload.get("code_sha"), str) else None,
+        config_hash=(
+            payload.get("config_hash") if isinstance(payload.get("config_hash"), str) else None
+        ),
+        run_kind=payload.get("run_kind") if isinstance(payload.get("run_kind"), str) else None,
+        env=env,
+        audit=audit,
+        name_errors_new=list(name_errors_new),
+        name_errors_known=int(payload.get("name_errors_known") or 0),
     )
 
 
@@ -268,6 +313,133 @@ def _tape_out(payloads: list[dict]) -> AdminTapeOut | None:
     return None
 
 
+def _short_sha(sha: str) -> str:
+    return sha[:12]
+
+
+# When THIS backend process started — the seam the sha comparison reads (tests pin it).
+_PROCESS_STARTED_AT = datetime.now(timezone.utc)
+
+
+def _backend_started_at() -> datetime:
+    return _PROCESS_STARTED_AT
+
+
+def _started(doc: dict) -> datetime | None:
+    try:
+        s = datetime.fromisoformat(str(doc["started_at"]))
+    except (KeyError, TypeError, ValueError):
+        return None
+    return s if s.tzinfo is not None else None
+
+
+def _identity_alarms(payloads: list[dict], backend_sha: str | None) -> tuple[list[str], str | None]:
+    """I1/I2 — the run-IDENTITY alarms, read off the run artifacts (no DB): returns ``(alarms, cron_sha)``.
+
+    Two artifacts are consulted, both newest-first and both ONLY if they carry the Phase-1B keys (an
+    artifact written before them is "not recorded" — never an alarm by absence, or every deploy would
+    page until the first new pass):
+    - the newest CRON-kind pass (``run_kind == "cron"``) — its ``code_sha`` must be KNOWN (84 cron rows
+      carried a NULL sha 09-18..09-28, MEASURED) and must EQUAL this backend's own ``image_sha`` (a partial
+      rebuild leaves one image stale: the cron ran 2f3cdfa while the backend ran 9cd6862, MEASURED
+      2026-10-16). A backend whose own sha is unknown cannot confirm the match and says so. The two shas
+      are compared ONLY when that cron pass started AFTER this backend process did: a pass from before the
+      backend's (re)start says nothing about whether the cron image was rebuilt alongside it, and comparing
+      anyway would paint every full deploy ``unhealthy`` until the night's pass — a false alarm on the
+      common case. A backend-only rebuild (the measured failure) is caught by the very next cron pass;
+    - the newest LIVE pass that recorded an ``env`` (any kind) — a ``LogNotifier`` there means a bad night
+      pages NOBODY (``SLACK_WEBHOOK_URL`` unset), and ``user_agent_set: false`` means it could not fetch
+      EDGAR at all. Read off the pass, not this process, because the cron sidecar's environment is the one
+      that matters at 22:30 and this backend cannot see it any other way."""
+    alarms: list[str] = []
+    cron_doc = next((d for d in payloads if d.get("run_kind") == "cron" and "code_sha" in d), None)
+    cron_sha: str | None = None
+    if cron_doc is not None:
+        raw = cron_doc.get("code_sha")
+        cron_sha = raw if isinstance(raw, str) and raw.strip() else None
+        when = f"asof {cron_doc.get('asof')}"
+        started = _started(cron_doc)
+        comparable = started is not None and started >= _backend_started_at()
+        if cron_sha is None:
+            alarms.append(
+                f"the cron's last pass ({when}) ran with code_sha UNKNOWN — its image was built without "
+                "GIT_SHA, so its rows carry NULL code_sha (rebuild with GIT_SHA=$(git rev-parse HEAD))"
+            )
+        elif not comparable:
+            pass  # the pass predates this backend's start — the next cron pass confirms the match
+        elif backend_sha is None:
+            alarms.append(
+                f"this backend's own code_sha is UNKNOWN (built without GIT_SHA) — the cron runs "
+                f"{_short_sha(cron_sha)} and the match cannot be confirmed"
+            )
+        elif cron_sha != backend_sha:
+            alarms.append(
+                f"the cron runs {_short_sha(cron_sha)} but the backend runs {_short_sha(backend_sha)} — "
+                "one image is stale; rebuild it from the same commit"
+            )
+    env_doc = next(
+        (d for d in payloads if d.get("mode") == "live" and isinstance(d.get("env"), dict)), None
+    )
+    if env_doc is not None:
+        env = env_doc["env"]
+        kind = env_doc.get("run_kind") or "unknown-kind"
+        when = f"asof {env_doc.get('asof')}, {kind}"
+        if env.get("notifier") == "LogNotifier":
+            alarms.append(
+                f"the last live pass ({when}) paged through the LOG notifier — SLACK_WEBHOOK_URL is "
+                "unset, so a bad night pages nobody"
+            )
+        if env.get("user_agent_set") is False:
+            alarms.append(
+                f"the last live pass ({when}) ran with ALPHADECK_USER_AGENT unset — every EDGAR pull "
+                "is refused without it"
+            )
+    return alarms, cron_sha
+
+
+def _backup_alarm(
+    backups: list[BackupInfo],
+    payloads: list[dict],
+    *,
+    now: datetime,
+    run_at: time,
+    tz: tzinfo,
+    stale_hours: float,
+) -> str | None:
+    """B4 — the BACKUP-AGE alarm, SCHEDULE-AWARE like the record edge: the nightly dump rides the weekday
+    pass, so the clock is "since the last scheduled night's RUN_AT", never raw wall time (a Friday dump read
+    on Sunday is current). The night whose dump is DUE is ``last_expected_asof(now - (stale_hours - 24h))``
+    — at the default 30 h that gives a pass ~6 h after its RUN_AT to leave a dump — and the newest UNLABELED
+    dump must be at/after that night's RUN_AT. A labeled dump is a deliberate recovery point, not the nightly
+    net, so it never satisfies this. ``None`` = no alarm.
+
+    Only on a stack whose run history shows the CRON sidecar (a ``run_kind == "cron"`` artifact): the
+    nightly dump is the sidecar's job, so a stack without one (dev — cron OFF) expects none, and its
+    snapshots are the operator's to take. ``stale_hours <= 0`` disables the alarm. Pure over its inputs.
+    """
+    if stale_hours <= 0 or not any(d.get("run_kind") == "cron" for d in payloads):
+        return None
+    if now.tzinfo is None:  # the clock seam may be pinned naive in a test — read it as market time
+        now = now.replace(tzinfo=tz)
+    grace = timedelta(hours=max(stale_hours - 24.0, 0.0))
+    due_night = last_expected_asof(now - grace, run_at)
+    due_at = datetime.combine(due_night, run_at, tzinfo=tz)
+    newest = next((b for b in backups if not b.labeled), None)
+    if newest is None:
+        return (
+            f"no nightly backup exists — the cron runs here but no unlabeled DB dump is on disk "
+            f"(one was due after the {due_night.isoformat()} pass)"
+        )
+    if newest.created_at >= due_at:
+        return None
+    age_h = (now - newest.created_at).total_seconds() / 3600
+    return (
+        f"the newest nightly backup ({newest.name}) is {age_h:.0f} h old — no dump since the "
+        f"{due_night.isoformat()} pass (due within {stale_hours:g} h of the previous one); the nightly "
+        "backup is failing or not running"
+    )
+
+
 def _backup_out(info: BackupInfo) -> BackupOut:
     """One pipeline-layer ``BackupInfo`` -> the wire row (value-free: name, size, created_at, labeled).
     Shared by the create job's result, the list endpoint, and the status ``last_backup`` join."""
@@ -308,7 +480,11 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
     FEED gap, not a cron fault, so it never changes ``cron.status``. A row whose ``closed_at`` is set (G5b)
     is a name that CLOSED — delisted / acquired / deregistered per a SEC delisting form — so its tape
     correctly ended and needs no repair; it stays on the panel (never dropped, #9) but renders quietly as
-    "closed" and never pages.
+    "closed" and never pages. ``cron.alarms`` are the status-level alarms (Phase 1B) that make the verdict
+    ``unhealthy`` though no single run failed: the cron's ``code_sha`` unknown or different from this
+    backend's (``backend_sha`` / ``cron_sha``), the last live pass paging through the LOG notifier or
+    running without a User-Agent, and the newest unlabeled DB dump older than the schedule-aware backup
+    window. ``last_run.audit`` is the latest pass's nightly self-audit; a failed check is a run problem.
     """
     run_at = _run_at()
     now = _now()
@@ -375,22 +551,49 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
         except Exception:  # noqa: BLE001 — a malformed artifact is skipped, never a failed status
             continue
 
+    # The newest DB snapshot (honest visibility — the page shows the last-snapshot age). A pure directory
+    # read (list_backups is skip-unreadable fail-open); None = the quiet "no snapshots yet" state. Writes
+    # nothing, so the test_admin_reads_write_NOTHING gate still holds (no table is touched).
+    backups = list_backups()
+    last_backup = _backup_out(backups[0]) if backups else None
+
+    # Phase 1B — the STATUS-level alarms (not one run's health): the run identity (I1/I2) and the backup
+    # age (B4). Both read files only (the artifacts + the backups dir), so the surface still writes nothing.
+    settings = get_settings()
+    backend_sha = settings.image_sha
+    status_alarms, cron_sha = _identity_alarms(payloads, backend_sha)
+    backup_alarm = _backup_alarm(
+        backups,
+        payloads,
+        now=now,
+        run_at=run_at,
+        tz=tz,
+        stale_hours=settings.backup_stale_hours,
+    )
+    if backup_alarm:
+        status_alarms.append(backup_alarm)
+
     if last_run is None:
         cron = AdminCronOut(
             status="never_ran",
             detail="no daily run has been recorded yet — run one below, or bring the cron sidecar up",
+            alarms=status_alarms,
         )
     else:
-        # the REAL alarms (frozen / total ingest failure / errors) — the benign notes excluded (a hand-run
-        # dev pass, and a newly stale price tape, which is a FEED gap not a cron fault), so neither paints
-        # the cron unhealthy (honest loudness; the stale tape lives on the freshness panel instead)
-        alarms = [p for p in last_run.problems if _BENIGN_MARK not in p]
-        if alarms:
-            cron = AdminCronOut(
-                status="unhealthy",
-                detail=f"last run (asof {last_run.asof.isoformat()}, {last_run.mode}) needs "
-                "attention: " + "; ".join(alarms),
-            )
+        # the REAL alarms (frozen / total ingest failure / errors / a failed self-audit) — the benign notes
+        # excluded (a hand-run dev pass, a newly stale price tape — a FEED gap — and a newly failing name,
+        # whose thesis still recorded), so none paints the cron unhealthy (honest loudness; the stale tape
+        # lives on the freshness panel instead) — PLUS the status-level identity / backup alarms above
+        run_alarms = [p for p in last_run.problems if _BENIGN_MARK not in p]
+        if run_alarms or status_alarms:
+            parts = []
+            if run_alarms:
+                parts.append(
+                    f"last run (asof {last_run.asof.isoformat()}, {last_run.mode}) needs "
+                    "attention: " + "; ".join(run_alarms)
+                )
+            parts.extend(status_alarms)
+            cron = AdminCronOut(status="unhealthy", detail="; ".join(parts), alarms=status_alarms)
         elif stale:
             cron = AdminCronOut(
                 status="stale",
@@ -424,12 +627,6 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
                 f"{edge.isoformat() if edge else 'not begun yet'}",
             )
 
-    # The newest DB snapshot (honest visibility — the page shows the last-snapshot age). A pure directory
-    # read (list_backups is skip-unreadable fail-open); None = the quiet "no snapshots yet" state. Writes
-    # nothing, so the test_admin_reads_write_NOTHING gate still holds (no table is touched).
-    backups = list_backups()
-    last_backup = _backup_out(backups[0]) if backups else None
-
     # G5a — the price-tape panel, from the artifacts ALREADY read above (no second read, no DB query): the
     # "is it watched?" view for prices. None until a pass has evaluated recency.
     tape = _tape_out(payloads)
@@ -451,6 +648,8 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
         cron=cron,
         last_backup=last_backup,
         tape=tape,
+        backend_sha=backend_sha,
+        cron_sha=cron_sha,
     )
 
 
@@ -477,30 +676,34 @@ def start_run_daily() -> AdminRunJobRef:
     load, mount, or poll (cost is the operator's to spend; the pass does a LIVE EDGAR pull and can run
     ~65 minutes cold). Runs the cron's EXACT unit (``run_daily_pass``): live ingest + call-of-record +
     the run-log artifact + the health page — a manual run lands in the run history like the nightly
-    one. **409** when a run is already in progress (the single-slot in-process guard; a double-click
-    can never stack a second pass). Safe to re-click once finished: the pass is idempotent
-    (``record_if_changed`` appends nothing on unchanged facts). KNOWN LIMITATION (accepted): the guard
-    cannot see the cron SIDECAR's own run in its separate container — an overlap is wasteful, never
-    corrupting. The job opens its OWN DB connection (it outlives this request)."""
+    one. **409** when a run is already in progress ANYWHERE: another process (the cron sidecar, a hand
+    ``pipeline.daily``, a ``pipeline.backfill``) holding the cross-process call-of-record lock, or this
+    process's own single slot (a double-click can never stack a second pass). The lock is probed here and
+    then taken for real by the pass itself, which holds it start to finish; a pass that loses the race to
+    another process in between fails VISIBLY on the poll ("already running"), never runs alongside it.
+    **503** when the database cannot be reached to check. Safe to re-click once finished: the pass is
+    idempotent (``record_if_changed`` appends nothing on unchanged facts). The job opens its OWN DB
+    connection (it outlives this request)."""
+    try:
+        holder = probe_pass_lock()
+    except Exception as exc:  # noqa: BLE001 — an unreachable DB is a visible 503, never a 500
+        raise HTTPException(
+            status_code=503,
+            detail=f"cannot check the daily-run lock — the database is unreachable: {exc}",
+        ) from exc
+    if holder is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"a daily run is already in progress in another process (held by {holder})",
+        )
 
     def _run() -> AdminRunOut:
-        outcome = run_daily_pass()  # asof=today, live — the cron's exact unit of work
-        payload = build_run_payload(
-            outcome.results,
-            asof=outcome.asof,
-            allow_live=outcome.allow_live,
-            started_at=outcome.started_at,
-            finished_at=outcome.finished_at,
-            # G4 — carried off the outcome, or this poll payload would report a healthy run over the
-            # benchmark fault the SAME pass wrote into its artifact and paged about. G5a rides along for
-            # the same reason (the stale diff is computed once, inside the pass).
-            benchmark_errors=outcome.benchmark_errors,
-            benchmark_leg_failed=outcome.benchmark_leg_failed,
-            tape_evaluated=outcome.tape_evaluated,
-            tape_stale_new=outcome.tape_stale_new,
-            tape_stale_days=outcome.tape_stale_days,
-            fund_shares_stale_days=outcome.fund_shares_stale_days,
-        )
+        # asof=today, live — the cron's exact unit of work (it takes the run lock itself)
+        outcome = run_daily_pass()
+        # ONE mapping off the outcome (`payload_kwargs`), so this poll payload can never disagree with the
+        # artifact the SAME pass wrote — G4's benchmark counts, G5a's stale diff, and Phase 1B's identity /
+        # name errors / audit all ride it, each computed once inside the pass.
+        payload = build_run_payload(outcome.results, **outcome.payload_kwargs())
         return _admin_run_out(payload)
 
     try:

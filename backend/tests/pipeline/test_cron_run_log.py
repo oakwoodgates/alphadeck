@@ -750,3 +750,151 @@ def test_the_recorded_test_is_ANDed_with_the_RUN_AT_cutoff_not_a_replacement(tmp
         tmp_path, [_thesis_result(recorded=True)], asof=sep9, at=_utc(2026, 9, 9, 9, 15)
     )
     assert already_ran_live(sep9, run_at=_RUN_AT, tz=_NY, base_dir=tmp_path) is False
+
+
+# --- O1: the per-name errors on the artifact + the newly-failing baseline -----------------------------
+
+
+def test_payload_persists_WHY_each_name_errored_by_leg(tmp_path):
+    """The count (`names_errored`) used to be ALL the artifact kept; the reasons were gone by morning. Now
+    each thesis carries one row per failed LEG, keyed on the security (the ticker can change under it).
+    """
+    sid = uuid4()
+    bad = _name(
+        ticker="HLLK",
+        security_id=sid,
+        error="price: 404; form4: parse",
+        leg_errors=(("price", "HTTP 404 Not Found"), ("form4", "parse")),
+    )
+    path = write_cron_run_log(
+        [_thesis_result(recorded=True, ingested=[bad, _name(ticker="OK")])],
+        asof=_JUL17,
+        allow_live=True,
+        started_at=_START,
+        finished_at=_END,
+        base_dir=tmp_path,
+    )
+    t = _read(path)["theses"][0]
+    assert t["names_errored"] == 1  # the count is unchanged
+    assert t["name_errors"] == [
+        {"security_id": str(sid), "ticker": "HLLK", "leg": "price", "error": "HTTP 404 Not Found"},
+        {"security_id": str(sid), "ticker": "HLLK", "leg": "form4", "error": "parse"},
+    ]
+
+
+def test_a_name_with_only_the_joined_error_is_REPORTED_under_the_ingest_leg(tmp_path):
+    """No silent drop (#9): a NameResult that carries `error` but no structured legs still yields a row."""
+    path = write_cron_run_log(
+        [_thesis_result(recorded=True, ingested=[_name(ticker="X", error="boom")])],
+        asof=_JUL17,
+        allow_live=True,
+        started_at=_START,
+        finished_at=_END,
+        base_dir=tmp_path,
+    )
+    (row,) = _read(path)["theses"][0]["name_errors"]
+    assert row["leg"] == "ingest" and row["error"] == "boom"
+
+
+def test_a_long_multiline_error_is_CLIPPED_to_one_line(tmp_path):
+    from pipeline.name_errors import MAX_ERROR_CHARS
+
+    msg = "line one\nline two " + "x" * 1000
+    path = write_cron_run_log(
+        [_thesis_result(ingested=[_name(error="e", leg_errors=(("price", msg),))])],
+        asof=_JUL17,
+        allow_live=True,
+        started_at=_START,
+        finished_at=_END,
+        base_dir=tmp_path,
+    )
+    err = _read(path)["theses"][0]["name_errors"][0]["error"]
+    assert "\n" not in err and len(err) <= MAX_ERROR_CHARS and err.startswith("line one line two")
+
+
+def test_previous_name_errors_NONE_before_any_evaluated_pass_then_the_KEYS(tmp_path):
+    """NONE (the first pass after O1 deploys pages the inventory once) vs a set of `security_id:leg` keys.
+    A live artifact that predates O1 (no `name_errors_evaluated`) is not a baseline — read as "nothing
+    errored" it would re-page every known-dead name; a --no-live pass is never a baseline either."""
+    from pipeline.cron_run_log import previous_name_errors
+
+    assert previous_name_errors(base_dir=tmp_path) is None
+    sid = uuid4()
+    failing = [
+        _thesis_result(
+            recorded=True,
+            ingested=[_name(security_id=sid, error="e", leg_errors=(("price", "404"),))],
+        )
+    ]
+    write_cron_run_log(  # a PRE-O1 live pass (the key defaults False)
+        failing,
+        asof=_JUL17,
+        allow_live=True,
+        started_at=_START,
+        finished_at=_END,
+        base_dir=tmp_path,
+    )
+    assert previous_name_errors(base_dir=tmp_path) is None
+    write_cron_run_log(  # an evaluated live pass
+        failing,
+        asof=_JUL17,
+        allow_live=True,
+        started_at=_utc(2026, 7, 18, 22, 30),
+        finished_at=_END,
+        base_dir=tmp_path,
+        name_errors_evaluated=True,
+    )
+    assert previous_name_errors(base_dir=tmp_path) == {f"{sid}:price"}
+    write_cron_run_log(  # a NEWER no-live pass — skipped as a baseline
+        [_thesis_result(withheld_reason="no-live")],
+        asof=_JUL17,
+        allow_live=False,
+        started_at=_utc(2026, 7, 19, 22, 30),
+        finished_at=_END,
+        base_dir=tmp_path,
+        name_errors_evaluated=False,
+    )
+    assert previous_name_errors(base_dir=tmp_path) == {f"{sid}:price"}
+
+
+# --- I1/I2 + V1: the identity, the env fingerprint and the audit ride the artifact --------------------
+
+
+def test_payload_carries_the_RUN_IDENTITY_env_and_AUDIT(tmp_path):
+    from pipeline.name_errors import NameIngestError
+    from pipeline.self_audit import AuditResult
+
+    sid = uuid4()
+    path = write_cron_run_log(
+        [_thesis_result(recorded=True)],
+        asof=_JUL17,
+        allow_live=True,
+        started_at=_START,
+        finished_at=_END,
+        base_dir=tmp_path,
+        code_sha="2f3cdfa",
+        config_hash="ab" * 32,
+        run_kind="cron",
+        env={"tz": "America/New_York", "user_agent_set": True, "notifier": "SlackNotifier"},
+        name_errors_evaluated=True,
+        name_errors_new=(NameIngestError(sid, "WONDF", "price", "no data"),),
+        name_errors_known=5,
+        audit=(AuditResult("code_sha_known", True, "code_sha 2f3cdfa"),),
+    )
+    doc = _read(path)
+    assert (doc["code_sha"], doc["config_hash"], doc["run_kind"]) == ("2f3cdfa", "ab" * 32, "cron")
+    assert doc["env"]["notifier"] == "SlackNotifier"
+    assert doc["name_errors_new"] == [{"security_id": str(sid), "ticker": "WONDF", "leg": "price"}]
+    assert doc["name_errors_known"] == 5
+    assert doc["audit"] == [{"check": "code_sha_known", "ok": True, "detail": "code_sha 2f3cdfa"}]
+
+
+def test_payload_identity_DEFAULTS_are_honest_nulls(tmp_path):
+    """Nothing fabricated: a caller that did not supply the identity writes nulls, never a guess."""
+    doc = _read(
+        write_cron_run_log(
+            [], asof=_JUL17, allow_live=True, started_at=_START, finished_at=_END, base_dir=tmp_path
+        )
+    )
+    assert doc["code_sha"] is None and doc["run_kind"] is None and doc["env"] is None
+    assert doc["audit"] == [] and doc["name_errors_new"] == []

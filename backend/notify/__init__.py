@@ -125,6 +125,21 @@ class HealthEvent:
     # fix is not a fund-shares tape's). NEWLY stale only — a known-dead feed must not re-page nightly. It
     # pages, but it is NOT a cron alarm: the run worked, the FEED has a gap to repair (see the label).
     tape_stale_new: tuple[StaleFeedLabel, ...] = ()
+    # H3 — the pass itself DIED: an unhandled exception escaped ``run_daily_pass`` (the DB unreachable at
+    # connect, a bug outside the per-thesis isolation). The exception's type + a clipped first line — no
+    # artifact was written, so this page is the only record the pass leaves. The loudest alarm; it rides
+    # alone (the counts above are all zero: nothing was assessed).
+    crashed: str | None = None
+    # O1 — names whose ingest LEG started failing tonight (absent from the previous evaluated pass's
+    # errors), each a ``"<ticker or id> (<leg>)"`` label — never a thesis name. NEWLY failing only, like
+    # ``tape_stale_new``: the known-failing names (a renamed / closed / never-priced name errors every
+    # night) collapse to a quiet count in the printed report and must not re-page forever. A name error is
+    # not a cron fault (the thesis still recorded; ``ingest_fresh`` marks the row), so the Admin verdict
+    # renders it with the benign marker.
+    name_errors_new: tuple[str, ...] = ()
+    # V1 — the nightly self-audit's FAILED checks, each ``"<check>: <detail>"`` (counts / ids, never thesis
+    # names). A real alarm: the audit failing means the pass did not leave the night the record it claims.
+    audit_failed: tuple[str, ...] = ()
 
     @property
     def withheld(self) -> int:
@@ -134,6 +149,11 @@ class HealthEvent:
     def label(self) -> str:
         bits: list[str] = []
         # alarms first, benign last — the reader should see the real problem before the dev-run note
+        if self.crashed:
+            bits.append(
+                f"PASS CRASHED — {self.crashed} (no run artifact; the night may have NO record — "
+                "check the run history, then re-run or backfill)"
+            )
         if self.frozen:
             bits.append(
                 f"FROZEN — 0 EDGAR fetches across {self.theses} theses (the cache never refreshed)"
@@ -148,6 +168,15 @@ class HealthEvent:
         if self.benchmark_errors:
             bits.append(
                 f"{self.benchmark_errors} benchmark refresh error(s) — benchmark_rs read a stale tape"
+            )
+        # V1 — the self-audit is an alarm (the night's record is not what the pass claims)
+        if self.audit_failed:
+            bits.append(f"SELF-AUDIT FAILED — {'; '.join(self.audit_failed)}")
+        # O1 — benign-class: the thesis recorded; a name's leg needs a look (see the run artifact)
+        if self.name_errors_new:
+            bits.append(
+                f"{len(self.name_errors_new)} name(s) NEWLY failing to ingest: "
+                f"{', '.join(self.name_errors_new)} — the thesis still recorded, not a cron error"
             )
         if self.withheld_no_live:
             bits.append(

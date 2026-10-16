@@ -254,6 +254,41 @@ def test_one_bad_name_does_not_abort_and_is_reported(db, security_id, monkeypatc
     assert _counts(db) == (2 * _F4_PER_ACCESSION, 1)
 
 
+def test_a_failed_leg_is_ALSO_captured_STRUCTURED_by_leg(db, security_id, monkeypatch):
+    """O1 — the same failure the joined `error` string carries, kept as `(leg, message)` pairs so the cron
+    artifact can persist WHY a name errored, by leg. A clean name carries none; `error` is unchanged (the
+    recording gate and every existing reader still read it)."""
+    bad = _add_master(db, ticker="BADCO", cik="0007654321")
+
+    def eod(ticker, allow_live=False):
+        if ticker == "BADCO":
+            raise RuntimeError("yahoo 404 Not Found")
+        return _bars([date(2026, 6, 15)])
+
+    _patch(monkeypatch, accessions=("ACC-1",), eod_fn=eod)
+    tid = _make_thesis(db, [("DEVCO", security_id), ("BADCO", bad)])
+
+    by = {r.ticker: r for r in IT.ingest_thesis(db, tid, allow_live=False)}
+
+    assert by["DEVCO"].leg_errors == ()
+    assert by["BADCO"].leg_errors == (("price", "yahoo 404 Not Found"),)
+    assert by["BADCO"].error == "price: yahoo 404 Not Found"  # the joined string, unchanged
+
+
+def test_an_id_missing_from_the_master_is_captured_under_the_MASTER_leg(db, monkeypatch):
+    """A placed id that lives in ANOTHER tenant's master (the FK allows it; the tenant read does not)."""
+    provision_tenant(db, "o1-master-leg", tenant_id=_ALT_TENANT)
+    db.commit()
+    ghost = _add_master(db, ticker="GHOST", cik="0009999997", tenant=_ALT_TENANT)
+    _patch(monkeypatch)
+    tid = _make_thesis(db, [("GHOST", ghost)])  # the thesis is in the DEFAULT tenant
+
+    (only,) = IT.ingest_thesis(db, tid, allow_live=False)
+
+    assert only.error == "not in tenant master"
+    assert only.leg_errors == (("master", "not in tenant master"),)
+
+
 def test_no_lookahead_recorded_at_is_now(db, security_id, monkeypatch):
     """Facts are ingested with recorded_at=now (never backdated), so an as-of read pinned at an earlier
     transaction time cannot see them — the replay/no-lookahead guarantee."""

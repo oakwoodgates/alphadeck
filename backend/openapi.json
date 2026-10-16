@@ -1907,7 +1907,7 @@
           "admin"
         ],
         "summary": "Get Admin Status",
-        "description": "The freshness + health summary the admin page opens on \u2014 READ-ONLY (writes nothing, owns no\ntables). ``record`` measures the calls-log edge against the last EXPECTED Mon-Fri+RUN_AT run\n(container-local clock; a Friday edge on a Monday morning is CURRENT \u2014 never a weekend false\nalarm); ``edge: null`` is the quiet \"record has never begun\" state. ``last_run`` is the newest\nreadable run-of-record artifact. ``cron.status`` is the one-word verdict: ``never_ran`` (no\nartifact), ``unhealthy`` (the last run froze / errored / totally failed / could not refresh the\nshared benchmark tape \u2014 as loud as stale, so a bad run can't hide behind green), ``stale`` (the\nrecord missed an expected run), ``gappy`` (the edge is current but a night inside the last\n``ALPHADECK_ADMIN_MISSED_WINDOW`` scheduled runs has no call-of-record recorded at/after that night's\n``RUN_AT`` \u2014 a run that fired on the wrong day, or failed after a daytime pass; the edge check alone\ncannot see either), else ``healthy``. ``record.missed_asofs`` lists the holes (empty on a clean\nwindow) and ``record.daytime_only_asofs`` names the subset whose only row is a pre-``RUN_AT`` one.\n``tape`` is the FEED freshness panel (G5a price tapes \u00b7 F1 ETF fund shares): every basket\nname whose stored EOD tape or fund-shares sampling has stopped, each row naming which feed, read from\nthe newest run artifact that evaluated recency \u2014 ``null`` until a pass has looked. A stale feed is a\nFEED gap, not a cron fault, so it never changes ``cron.status``. A row whose ``closed_at`` is set (G5b)\nis a name that CLOSED \u2014 delisted / acquired / deregistered per a SEC delisting form \u2014 so its tape\ncorrectly ended and needs no repair; it stays on the panel (never dropped, #9) but renders quietly as\n\"closed\" and never pages.",
+        "description": "The freshness + health summary the admin page opens on \u2014 READ-ONLY (writes nothing, owns no\ntables). ``record`` measures the calls-log edge against the last EXPECTED Mon-Fri+RUN_AT run\n(container-local clock; a Friday edge on a Monday morning is CURRENT \u2014 never a weekend false\nalarm); ``edge: null`` is the quiet \"record has never begun\" state. ``last_run`` is the newest\nreadable run-of-record artifact. ``cron.status`` is the one-word verdict: ``never_ran`` (no\nartifact), ``unhealthy`` (the last run froze / errored / totally failed / could not refresh the\nshared benchmark tape \u2014 as loud as stale, so a bad run can't hide behind green), ``stale`` (the\nrecord missed an expected run), ``gappy`` (the edge is current but a night inside the last\n``ALPHADECK_ADMIN_MISSED_WINDOW`` scheduled runs has no call-of-record recorded at/after that night's\n``RUN_AT`` \u2014 a run that fired on the wrong day, or failed after a daytime pass; the edge check alone\ncannot see either), else ``healthy``. ``record.missed_asofs`` lists the holes (empty on a clean\nwindow) and ``record.daytime_only_asofs`` names the subset whose only row is a pre-``RUN_AT`` one.\n``tape`` is the FEED freshness panel (G5a price tapes \u00b7 F1 ETF fund shares): every basket\nname whose stored EOD tape or fund-shares sampling has stopped, each row naming which feed, read from\nthe newest run artifact that evaluated recency \u2014 ``null`` until a pass has looked. A stale feed is a\nFEED gap, not a cron fault, so it never changes ``cron.status``. A row whose ``closed_at`` is set (G5b)\nis a name that CLOSED \u2014 delisted / acquired / deregistered per a SEC delisting form \u2014 so its tape\ncorrectly ended and needs no repair; it stays on the panel (never dropped, #9) but renders quietly as\n\"closed\" and never pages. ``cron.alarms`` are the status-level alarms (Phase 1B) that make the verdict\n``unhealthy`` though no single run failed: the cron's ``code_sha`` unknown or different from this\nbackend's (``backend_sha`` / ``cron_sha``), the last live pass paging through the LOG notifier or\nrunning without a User-Agent, and the newest unlabeled DB dump older than the schedule-aware backup\nwindow. ``last_run.audit`` is the latest pass's nightly self-audit; a failed check is a run problem.",
         "operationId": "get_admin_status_admin_status_get",
         "responses": {
           "200": {
@@ -1977,7 +1977,7 @@
           "admin"
         ],
         "summary": "Start Run Daily",
-        "description": "KICK OFF the full daily pass as a background JOB and return immediately (**202** + ``job_id``);\npoll ``GET /admin/run-daily/jobs/{job_id}``. Fires ONLY on this explicit request \u2014 never on a page\nload, mount, or poll (cost is the operator's to spend; the pass does a LIVE EDGAR pull and can run\n~65 minutes cold). Runs the cron's EXACT unit (``run_daily_pass``): live ingest + call-of-record +\nthe run-log artifact + the health page \u2014 a manual run lands in the run history like the nightly\none. **409** when a run is already in progress (the single-slot in-process guard; a double-click\ncan never stack a second pass). Safe to re-click once finished: the pass is idempotent\n(``record_if_changed`` appends nothing on unchanged facts). KNOWN LIMITATION (accepted): the guard\ncannot see the cron SIDECAR's own run in its separate container \u2014 an overlap is wasteful, never\ncorrupting. The job opens its OWN DB connection (it outlives this request).",
+        "description": "KICK OFF the full daily pass as a background JOB and return immediately (**202** + ``job_id``);\npoll ``GET /admin/run-daily/jobs/{job_id}``. Fires ONLY on this explicit request \u2014 never on a page\nload, mount, or poll (cost is the operator's to spend; the pass does a LIVE EDGAR pull and can run\n~65 minutes cold). Runs the cron's EXACT unit (``run_daily_pass``): live ingest + call-of-record +\nthe run-log artifact + the health page \u2014 a manual run lands in the run history like the nightly\none. **409** when a run is already in progress ANYWHERE: another process (the cron sidecar, a hand\n``pipeline.daily``, a ``pipeline.backfill``) holding the cross-process call-of-record lock, or this\nprocess's own single slot (a double-click can never stack a second pass). The lock is probed here and\nthen taken for real by the pass itself, which holds it start to finish; a pass that loses the race to\nanother process in between fails VISIBLY on the poll (\"already running\"), never runs alongside it.\n**503** when the database cannot be reached to check. Safe to re-click once finished: the pass is\nidempotent (``record_if_changed`` appends nothing on unchanged facts). The job opens its OWN DB\nconnection (it outlives this request).",
         "operationId": "start_run_daily_admin_run_daily_post",
         "responses": {
           "202": {
@@ -2557,6 +2557,36 @@
         "title": "ActivistStakeOut",
         "description": "One stored 13D/G-family filing about the episode's security (Slice B) \u2014 an overlay chip /\nledger row.\n\n``d`` = ``valid_from`` = ``filed`` (knowability \u2014 never the in-document event date). ``form`` is\nverbatim, BOTH naming eras (``SC 13D`` / ``SCHEDULE 13D`` / amendments / the 13G family).\nUnresolved identity ships null and the row is KEPT (#9): ``filer_name`` / ``filer_cik`` ``None``\n= identity unresolved; ``pct_owned`` ``None`` = pre-structured era / unparsed. 13G rows ride too \u2014\nthe fire policy (13D-family originals only) lives in the detector; the FE mirrors it as display\nweight (13G-family grayed-passive), never as an omission. ``url`` is the EDGAR filing-index URL\n(#6). Both time axes are asof-capped (no-lookahead #1)."
       },
+      "AdminAuditCheckOut": {
+        "properties": {
+          "check": {
+            "type": "string",
+            "title": "Check"
+          },
+          "ok": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ok"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "check"
+        ],
+        "title": "AdminAuditCheckOut",
+        "description": "One check of a pass's nightly SELF-AUDIT (V1, ``pipeline/self_audit.py``), as the artifact recorded\nit. ``ok`` is ``true`` (checked, holds), ``false`` (checked, FAILS \u2014 it paged and makes the verdict\n``unhealthy``) or ``null`` (NOT APPLICABLE to that pass \u2014 e.g. a daytime manual pass cannot leave the\nnight's on-time row; never read as a pass). ``detail`` is plain English with counts and short ids, never\na thesis name."
+      },
       "AdminCronOut": {
         "properties": {
           "status": {
@@ -2573,6 +2603,14 @@
           "detail": {
             "type": "string",
             "title": "Detail"
+          },
+          "alarms": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Alarms",
+            "default": []
           }
         },
         "type": "object",
@@ -2581,7 +2619,7 @@
           "detail"
         ],
         "title": "AdminCronOut",
-        "description": "The one-word cron verdict + a plain-English detail. ``unhealthy`` (the LAST run froze / errored /\nwithheld on total ingest failure / failed to refresh the benchmark tape) is deliberately its own\nLOUD state, peer to ``stale`` \u2014 a bad run\nmust read as loud as a missing one, never hide behind green (the R1 freeze lesson). A benign\n``--no-live`` dev run is NOT unhealthy. ``never_ran`` = no run artifact at all (quiet). ``gappy`` =\nthe edge is current and the last run clean, but the recent window has a night with NO call-of-record\n(a wrong-day fire) \u2014 as loud as ``stale``. Priority: never_ran > unhealthy > stale > gappy > healthy."
+        "description": "The one-word cron verdict + a plain-English detail. ``unhealthy`` (the LAST run froze / errored /\nwithheld on total ingest failure / failed to refresh the benchmark tape) is deliberately its own\nLOUD state, peer to ``stale`` \u2014 a bad run\nmust read as loud as a missing one, never hide behind green (the R1 freeze lesson). A benign\n``--no-live`` dev run is NOT unhealthy. ``never_ran`` = no run artifact at all (quiet). ``gappy`` =\nthe edge is current and the last run clean, but the recent window has a night with NO call-of-record\n(a wrong-day fire) \u2014 as loud as ``stale``. Priority: never_ran > unhealthy > stale > gappy > healthy.\n\n``alarms`` (Phase 1B) are the STATUS-level alarms that are not one run's health, each a plain-English\nline, and any of them makes the verdict ``unhealthy`` (they are listed even under ``never_ran``): the\ncron's last pass ran with an UNKNOWN ``code_sha``; the cron's sha differs from this backend's own (an\nimage left stale by a partial rebuild) or the backend's own is unknown \u2014 compared only for a cron pass\nthat started after this backend process did, so a full deploy does not read ``unhealthy`` until the\nnight's pass confirms it; the last live pass paged\nthrough the LOG notifier (``SLACK_WEBHOOK_URL`` unset \u2014 a bad night pages nobody) or ran with\n``ALPHADECK_USER_AGENT`` unset; the newest unlabeled DB dump is older than\n``ALPHADECK_BACKUP_STALE_HOURS`` in schedule time (B4 \u2014 only on a stack whose run history shows the cron\nsidecar, where a nightly dump is expected). ``[]`` on a clean stack."
       },
       "AdminRecordOut": {
         "properties": {
@@ -2666,6 +2704,112 @@
         ],
         "title": "AdminRecordOut",
         "description": "The record's freshness vs the LAST EXPECTED scheduled run \u2014 never raw ``today - edge``: a\nFriday edge on a Monday morning is CURRENT (no run was due yet), the same edge Monday night is 1\nbehind (stale). ``edge is None`` = the record has never begun \u2014 a QUIET state (``days_behind``\nNone, ``stale`` False), never an alarm on a fresh install.\n\n``stale`` / ``days_behind`` are the EDGE check (MAX(asof) vs the last expected run) and keep exactly\nthat meaning. ``missed`` / ``missed_asofs`` are the HOLE check: the scheduled weekdays in the last\n``window_days`` scheduled runs (ending at ``expected_asof``, never before the record began) with no\ncall-of-record \u2014 a run that fired on the wrong day advances the edge right over the night it skipped,\ninvisible to the edge check. ``[]`` / ``0`` on a clean window.\n\n**COVERED means a post-``RUN_AT`` row (G2c).** A night counts as recorded only if some call-of-record\nfor that as-of was ``recorded_at`` at or after that night's ``RUN_AT`` in market time. Mere existence\nwas too weak: a pre-open \"Run daily now\" writes a row for today's as-of off the PRIOR session's bars,\nso a night whose post-close pass then failed used to read as covered. ``daytime_only_asofs`` names the\nas-ofs whose ONLY row is such a daytime one \u2014 every one of them also appears in ``missed_asofs``, and\nthe detail marks them, because \"nothing ran\" and \"something ran, but not after the close\" call for\ndifferent responses. A next-morning catch-up row is recorded after the cutoff and correctly covers the\nnight; a ``reconstructed`` row (``pipeline.backfill``) covers it too, unchanged and deliberate."
+      },
+      "AdminRunEnvOut": {
+        "properties": {
+          "tz": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tz"
+          },
+          "market_tz": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Market Tz"
+          },
+          "run_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run At"
+          },
+          "cron_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cron At"
+          },
+          "user_agent_set": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Agent Set"
+          },
+          "slack_webhook_set": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slack Webhook Set"
+          },
+          "polygon_api_key_set": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Polygon Api Key Set"
+          },
+          "heartbeat_url_set": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Heartbeat Url Set"
+          },
+          "notifier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notifier"
+          }
+        },
+        "type": "object",
+        "title": "AdminRunEnvOut",
+        "description": "The NON-SECRET environment a pass ran under (I2), as its artifact recorded it: the clock config as\nvalues (``tz`` = the container ``TZ``, ``market_tz``, ``run_at`` = the sidecar's ``RUN_AT``,\n``cron_at`` = ``Settings.cron_run_at``) and every secret or delivery switch as a set/unset BOOLEAN only \u2014\nno secret value is ever written. ``notifier`` is the class that carried the pass's pages\n(``SlackNotifier`` / ``LogNotifier``). Every field is optional so a partial or future artifact parses."
       },
       "AdminRunJobRef": {
         "properties": {
@@ -2802,6 +2946,70 @@
           "catch_up": {
             "type": "boolean",
             "title": "Catch Up"
+          },
+          "code_sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code Sha"
+          },
+          "config_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config Hash"
+          },
+          "run_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Kind"
+          },
+          "env": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdminRunEnvOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "audit": {
+            "items": {
+              "$ref": "#/components/schemas/AdminAuditCheckOut"
+            },
+            "type": "array",
+            "title": "Audit",
+            "default": []
+          },
+          "name_errors_new": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Name Errors New",
+            "default": []
+          },
+          "name_errors_known": {
+            "type": "integer",
+            "title": "Name Errors Known",
+            "default": 0
           }
         },
         "type": "object",
@@ -2822,7 +3030,7 @@
           "catch_up"
         ],
         "title": "AdminRunOut",
-        "description": "One daily pass, as the run-of-record artifact recorded it (``pipeline/cron_run_log.py`` \u2014 the\nfield names are the ARTIFACT's, not inventions): counts + outcomes only, value-free. ``healthy`` /\n``problems`` are ``assess_health`` re-read from the same numbers, so the freeze detector\n(``edgar_fetches == 0`` on a live run), withheld calls, thesis errors, and a failed BENCHMARK\nrefresh (the shared SPY/IWM tape ``benchmark_rs`` reads \u2014 a fail-open passenger leg whose faults\nused to reach stdout only) surface on every row \u2014 a bad run can never hide behind a green\nhistory. The benchmark counts live on the artifact for exactly that reason; a row written before\nthey existed reads clean, never broken. ``mode`` is ``\"live\" | \"no-live\"`` (the R2\nrecording-gate signal); ``ran_at`` is the artifact's ``started_at`` (UTC ISO). ``catch_up`` = a\n``--catch-up`` pass (the sidecar's boot / late-wake catch-up): its ~0 EDGAR fetches are expected\n(it runs inside the cache TTL), so the freeze check is skipped for that row; an artifact written\nbefore the key existed reads ``False``."
+        "description": "One daily pass, as the run-of-record artifact recorded it (``pipeline/cron_run_log.py`` \u2014 the\nfield names are the ARTIFACT's, not inventions): counts + outcomes only, value-free. ``healthy`` /\n``problems`` are ``assess_health`` re-read from the same numbers, so the freeze detector\n(``edgar_fetches == 0`` on a live run), withheld calls, thesis errors, and a failed BENCHMARK\nrefresh (the shared SPY/IWM tape ``benchmark_rs`` reads \u2014 a fail-open passenger leg whose faults\nused to reach stdout only) surface on every row \u2014 a bad run can never hide behind a green\nhistory. The benchmark counts live on the artifact for exactly that reason; a row written before\nthey existed reads clean, never broken. ``mode`` is ``\"live\" | \"no-live\"`` (the R2\nrecording-gate signal); ``ran_at`` is the artifact's ``started_at`` (UTC ISO). ``catch_up`` = a\n``--catch-up`` pass (the sidecar's boot / late-wake catch-up): its ~0 EDGAR fetches are expected\n(it runs inside the cache TTL), so the freeze check is skipped for that row; an artifact written\nbefore the key existed reads ``False``.\n\nPhase 1B (each ``null`` / empty on an artifact written before it existed \u2014 never an alarm by absence):\n``code_sha`` / ``config_hash`` / ``run_kind`` + ``env`` are the pass's RUN IDENTITY and non-secret env\nfingerprint (I1/I2); ``audit`` is its nightly SELF-AUDIT (V1) \u2014 a failed check is a ``problems`` line\nand makes ``healthy`` false; ``name_errors_new`` are the ``\"<ticker> (<leg>)\"`` labels of names whose\ningest leg started failing that night (O1 \u2014 a ``problems`` line with the benign marker: the thesis\nstill recorded) and ``name_errors_known`` the quiet count of names failing the same way as the pass\nbefore."
       },
       "AdminRunsOut": {
         "properties": {
@@ -2936,6 +3144,28 @@
                 "type": "null"
               }
             ]
+          },
+          "backend_sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Backend Sha"
+          },
+          "cron_sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cron Sha"
           }
         },
         "type": "object",
@@ -2944,7 +3174,7 @@
           "cron"
         ],
         "title": "AdminStatusOut",
-        "description": "The admin page's one-GET summary: record freshness + the newest run + the cron verdict + the\nnewest DB snapshot + the feed-freshness panel. READ-ONLY \u2014 the endpoint owns no tables and writes\nnothing (test-proved; the ``last_backup`` join is a pure directory read, and ``tape`` is read from\nthe run artifacts). ``last_backup`` is ``None`` = the quiet \"no snapshots yet\" state; ``tape`` is\n``None`` until a pass has evaluated feed recency (the quiet \"not looked yet\" state)."
+        "description": "The admin page's one-GET summary: record freshness + the newest run + the cron verdict + the\nnewest DB snapshot + the feed-freshness panel. READ-ONLY \u2014 the endpoint owns no tables and writes\nnothing (test-proved; the ``last_backup`` join is a pure directory read, and ``tape`` is read from\nthe run artifacts). ``last_backup`` is ``None`` = the quiet \"no snapshots yet\" state; ``tape`` is\n``None`` until a pass has evaluated feed recency (the quiet \"not looked yet\" state).\n\n``backend_sha`` is this backend's OWN ``Settings.image_sha`` (``null`` = built without ``GIT_SHA``) and\n``cron_sha`` the ``code_sha`` the newest CRON-kind run artifact recorded (``null`` = unknown, or no\ncron pass has recorded its identity yet) \u2014 the pair the identity alarm compares (I1). The latest\nself-audit rides ``last_run.audit``."
       },
       "AdminTapeOut": {
         "properties": {
