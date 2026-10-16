@@ -317,7 +317,8 @@ The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
   **every** thesis withheld or errored recorded nothing, so the retry runs too (that is G2b, below). The
   guard also covers the narrow case of a pass that wrote its artifact and then died after recording.
   The retry sits before the in-loop catch-up window closes and before the nightly backup, so both
-  still run after it. Exactly ONE retry — a second failure is logged and the loop moves on.
+  still run after it. Exactly ONE retry — a second failure is logged, paged from the shell (H3, below), and
+  the loop moves on.
 - **A sleep-loop, not a cron daemon (deliberate).** `backend/scripts/daily_cron.sh` waits until `RUN_AT` in
   the container's `TZ` — in **short slices (`SLICE_S`, default 60 s), re-reading the wall clock between
   them** rather than one long `sleep` (why: two bullets down) — skips weekends (markets closed → an
@@ -404,6 +405,51 @@ The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
   failed run plus a 20-minute retry). Exercised under dash in a `--network none` container with a stubbed
   `python` (the `CRON_EXIT_AFTER_BOOT=1` seam runs just the boot block) and with the real probe against
   real psycopg — refused, unresolvable, and a black-holed listener the 5 s connect timeout cut off.
+- **Every pass is bounded (C2, 2026-10-16)** `[BUILT]`. Each `python -m pipeline.daily` the script fires
+  (the scheduled run, its retry, the boot catch-up and its retry, every catch-up night) runs under
+  `timeout -k 60 "$RUN_TIMEOUT_S"` (env, default **5400 s** = 90 min; compose passes
+  `ALPHADECK_CRON_RUN_TIMEOUT_S`). A hung pass used to hold the loop forever: no exit code, so no retry, no
+  page and no artifact, with every later night queued behind it. A timeout is exit 124 (logged as
+  `TIMED OUT`), one more non-zero exit, so it takes the same retry → page path as any failure. The default
+  is ~1.4× the worst measured cold pass (~65 min; a normal night is 7–15 min), so a night that onboards many
+  cold names at once can still exceed it; the retry then resumes ahead, since the ingest is incremental.
+- **A night that failed for good pages from the shell, with no DB (H3, 2026-10-16)** `[BUILT]`. R4 pages
+  from *inside* a finished pass, so a pass that died or never connected had no voice. MEASURED: the 10-12
+  run killed at 22:42 (a WSL auto-update) and the 10-01 boot catch-up lost to the cold-start race both paged
+  nothing. Now the script runs `python -m notify.page --asof D --reason "…"` when the scheduled run's ONE
+  retry fails, when the boot catch-up's retry fails, when a catch-up night fails (it has no retry, so its
+  one attempt is final), and when a backup fails. `notify/page.py` imports nothing from `db` (a test pins
+  it in a fresh interpreter), never raises, always exits 0, and sends a `HealthEvent` subclass through
+  R4's own `get_notifier().notify_health`: Slack when `SLACK_WEBHOOK_URL` is set, else the LogNotifier's
+  `CRON HEALTH` line. If even the notifier cannot be built (a malformed env value makes `get_settings()`
+  raise), a stdlib POST to the raw webhook keeps the page alive. The reason is the script's own words, a
+  date and an exit code; no thesis name can ride it. The script wraps the call in `timeout`, too. It
+  covers every failure the **shell outlives**: a crashed or OOM-killed pass, a DB gone mid-run, a hang the
+  C2 timeout stops, a boot that cannot reach the DB (10-01). A box that dies whole, as on 10-12 (the VM
+  itself was killed), takes the shell with it; only the external heartbeat (next bullet) reports that.
+- **An external heartbeat, pushed by the shell (H2, 2026-10-16)** `[BUILT — inert until configured]`.
+  Nothing inside the box can report the box's own absence (MEASURED: no heartbeat code existed, and every
+  outage so far lasted until a human launched Docker). Two optional env vars, both empty by default, where
+  empty means a silent no-op:
+  - **`HEARTBEAT_URL`**: a bare `curl -fsS -m 10 --retry 3` GET after a cron pass exits 0 for the night
+    that is the **last expected as-of at that instant**: the scheduled run or its retry, the boot catch-up
+    or its retry, or a catch-up night. The ping always means "the last expected night is recorded", so a
+    pass that lands an *older* night (target Tue finishing after Wed's `RUN_AT`) logs `heartbeat held` and
+    the newest night's catch-up pings instead. A `--catch-up` that no-ops exits 0 because its night already
+    recorded, so it pings too. Just before the scheduled run the shell also pings `HEARTBEAT_URL/start`
+    (healthchecks.io's start signal), so a hang reads "started, never finished".
+  - **`HEARTBEAT_BACKUP_URL`**: pinged when `pipeline.backup` exits 0 (a fresh snapshot exists, dumped now
+    or still under the boot's age gate).
+  The **shell** sends them, not the app, so a broken import cannot fake a success. They never fire from the
+  Admin "Run daily now" (it runs in the backend) or on `--no-live` (the script never passes it). A failed
+  ping is one log line; no URL is ever logged (a ping URL is a credential). The suggested check is
+  healthchecks.io on a `30 22 * * 1-5` America/New_York schedule with ~2 h grace (see `.env.example`).
+  Creating the account is the operator's step (plan Phase 0).
+- **Logs that survive a crash (O3, 2026-10-16)** `[BUILT]`. The backend image sets `PYTHONUNBUFFERED=1`,
+  and compose caps the json-file log of backend, cron and frontend at 50 MB × 5. MEASURED before: the
+  passes' output arrived in 60–75-line bursts about 12 min late, the buffered tail was lost when the 10-12
+  run was killed, and the log had no cap. (Postgres is left uncapped for now: changing its logging config
+  would make the next `up` recreate the database container.)
 - No `ANTHROPIC_API_KEY` (the ingest + call engine are deterministic — no LLM on this path).
 
 ### Backfilling a missed night — `pipeline.backfill`  `[BUILT]`
@@ -492,6 +538,20 @@ happened to exist. So a snapshot is now a one-click safety net — and a nightly
 - **Nightly, in the cron sidecar.** `scripts/daily_cron.sh` runs `python -m pipeline.backup` right after the
   scheduled `pipeline.daily` (weekday branch), fail-open (a failed backup never kills the loop). It is
   deliberately **not** folded into `run_daily_pass`, so a manual "Run daily now" does not also dump.
+- **And on boot, by age (M3, 2026-10-16).** The nightly dump rode only a weekday-target wake, so a night
+  the sidecar caught up at **boot** got no snapshot (MEASURED: none for about 4 days around 10-12). The
+  boot block now ends with `python -m pipeline.backup --if-older-than-h 20`: it dumps only when the newest
+  **unlabeled** snapshot is at least 20 h old (or there is none) and otherwise prints `backup: skipped — …`
+  and exits 0. A normal boot (last night's dump is hours old) adds nothing, and a crash-looping container
+  dumps about once a day instead of on every restart. The in-loop dump stays **unconditional** on purpose:
+  it captures the run that just finished, and no earlier dump holds that. Gating it too would let any boot
+  that dumped in the ~4 h before `RUN_AT` (the prior night's dump turns 20 h old around 18:45) skip that
+  night's post-run dump. The harness showed exactly that: a boot dump at 03:22 turned the 03:24 run's dump
+  into a "0.0 h old" no-op. The in-loop dump now also runs after a weekend-target wake whose catch-up
+  recorded a weekday (a suspend spanning the weekend), which got none before. A failed backup now pages
+  (H3) and a successful one pings `HEARTBEAT_BACKUP_URL` (H2). Retention is unchanged: a gated dump is a
+  `run_backup` and prunes the same way, and a skip prunes nothing. `fresh_snapshot` is the pure gate; a
+  labeled dump never satisfies it, and a future-dated one fails toward dumping.
 - **Retention = keep-last-N, labeled EXEMPT.** After a *successful* dump the newest `ALPHADECK_BACKUP_KEEP`
   (default **7**) UNLABELED snapshots are kept and older unlabeled ones pruned (each prune logged); a
   **labeled** dump (created with a `label`, e.g. `pre-migration`) is never auto-deleted. A **failed** dump
@@ -555,7 +615,12 @@ Recorded here where a builder of the pager/scheduler will hit them; the full acc
   built for exactly this. Fix when built: count *completions*, or carry a failure tally beside the attempt
   count, and let the freeze verdict read the former. Note this gap **compounds** with the false-positive above —
   the same number is unreliable in both directions.
-- **A missing run doesn't page (dead-man's switch) — STILL OPEN.** `restart: unless-stopped` restarts the
+- **A missing run doesn't page (dead-man's switch) — BUILT (H2, 2026-10-16), inert until the operator
+  creates the check.** The sidecar now pings `HEARTBEAT_URL` from the shell once the last expected night is
+  recorded (the sidecar section), so an outside service alerts when the ping does not come: a host that
+  stays off, a sidecar that never boots, a `docker compose stop` nobody undid. Until `HEARTBEAT_URL` is set
+  it is a silent no-op and the history below still describes prod. The original account:
+  `restart: unless-stopped` restarts the
   sidecar on crash/daemon-restart but **NOT** after a deliberate `docker compose stop`. R4 fires from *inside*
   a run, so a run that never happens produces no results → no run log → no page — byte-identical to a healthy
   silent night. R6 covers the crash/reboot case and the late-wake catch-up (A) covers a sidecar that sleeps
@@ -590,8 +655,21 @@ Recorded here where a builder of the pager/scheduler will hit them; the full acc
   retries a failed catch-up once, and catches up any night the boot block itself crossed (the R6 bullet in
   the sidecar section). **Still open, by design:** a DB still down after `DB_WAIT_S` + `RETRY_DELAY_S`
   (~25 min by default) loses the boot's night under the same one-retry rule as the scheduled run (an
-  operator re-run that night, else `pipeline.backfill`, is the tool), and a night the boot block catches up gets no nightly dump — the
-  backup still rides only the in-loop wake, as it always has for boot catch-ups.
+  operator re-run that night, else `pipeline.backfill`, is the tool), but since H3 that loss now **pages**
+  instead of only logging. *(The other half, "a night the boot block catches up gets no nightly dump", is
+  CLOSED by M3, 2026-10-16: the boot block ends with an age-gated dump; see "Backups & restore".)*
+- **A pass that died, hung, or never connected paged nothing — CLOSED while the box stays up (H3 + C2,
+  2026-10-16).** R4's `HealthEvent` pages from inside a pass that finished, so the 10-12 run killed at
+  22:42 (a WSL auto-update) and the 10-01 boot catch-up lost to the cold-start race both went unpaged
+  (MEASURED), and a pass that hung would have held the loop with no exit code at all. Now every pass is
+  bounded by `RUN_TIMEOUT_S`, and the shell pages through the DB-free `python -m notify.page` when a night
+  or a backup fails for good (the sidecar section), which covers the 10-01 shape. **Still open:** the
+  10-12 shape, a box that dies whole, takes the shell with it, so no in-band page can fire; that is the
+  external heartbeat's (above), which alerts only once the operator configures it. The page also needs the
+  `notify` package importable. The in-process half, a wrapper so an unhandled exception inside
+  `run_daily_pass` pages before it re-raises, is a separate change.
+- **The cron's log was buffered and uncapped — CLOSED (O3, 2026-10-16).** `PYTHONUNBUFFERED=1` in the
+  image and a 50 MB × 5 json-file cap on backend, cron and frontend (the sidecar section).
 - **A per-name feed that silently ENDED — MONITORED (G5a price tapes · F1 fund shares), the repair still
   manual.** Zero rows appended with no error is what a dead feed and a market holiday both look like, so a
   rename-starved name could sit dark

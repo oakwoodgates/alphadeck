@@ -21,6 +21,15 @@ Retention (VISIBLE pruning, never silent loss): after a SUCCESSFUL dump, keep th
 (named) dump is EXEMPT — a deliberate recovery point like ``pre-shares-backfill`` is never auto-deleted.
 A FAILED dump never prunes (it must never shrink the safety net), and the atomic ``tmp -> os.replace``
 means a crashed dump never appears in the list. Every prune is logged.
+
+The AGE GATE (M3, 2026-10-16): ``--if-older-than-h H`` dumps only when the newest UNLABELED snapshot is at
+least H hours old (or there is none), and otherwise prints one no-op line and exits 0. The cron sidecar
+calls it on boot, after its catch-up. MEASURED: the nightly dump rode only the in-loop wake, so a night the
+sidecar caught up at BOOT got no dump, and around 10-12 there was none for about 4 days. The gate lets the
+boot dump without a crash-looping container dumping on every restart (at H=20, about one a day). The
+in-loop nightly stays ungated on purpose: it must capture the run that just finished, which no earlier
+dump holds (``scripts/daily_cron.sh``, M3). Retention is untouched: a gated dump IS a ``run_backup`` and
+prunes the same way, and a skip prunes nothing.
 """
 
 from __future__ import annotations
@@ -32,7 +41,7 @@ import re
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from db.session import database_url as _database_url
@@ -189,6 +198,25 @@ def list_backups(*, base_dir: Path | None = None) -> list[BackupInfo]:
     return out
 
 
+def fresh_snapshot(
+    max_age_h: float, *, base_dir: Path | None = None, now: datetime | None = None
+) -> BackupInfo | None:
+    """The M3 age gate, PURE over the dir listing: the newest UNLABELED snapshot when it is younger than
+    ``max_age_h`` hours (a dump is NOT due), else ``None`` (due: no unlabeled snapshot exists, or the newest
+    one is at least that old). Age is read from the filename timestamp, the same ``created_at`` the list and
+    the Admin "last snapshot" age show. A LABELED dump never counts: it is a deliberate recovery point outside
+    the rolling window, not the nightly. A FUTURE-dated newest snapshot (the clock went backwards) counts as
+    not fresh, so the gate fails toward dumping, never toward a silent skip.
+    """
+    now = now or datetime.now(timezone.utc)
+    for info in list_backups(base_dir=base_dir):  # newest-first
+        if info.labeled:
+            continue
+        age = now - info.created_at
+        return info if timedelta(0) <= age < timedelta(hours=max_age_h) else None
+    return None
+
+
 def _prune(base_dir: Path, keep: int) -> list[str]:
     """Keep the newest ``keep`` UNLABELED snapshots; delete the older unlabeled ones; return the deleted
     names. PURE over the dir. LABELED dumps are EXEMPT (a deliberate recovery point is never auto-deleted),
@@ -214,18 +242,40 @@ def _prune(base_dir: Path, keep: int) -> list[str]:
 
 
 def main(argv: list[str] | None = None) -> None:
-    """``python -m pipeline.backup [--label X]`` — the nightly + ad-hoc snapshot CLI (the cron sidecar
-    invokes it fail-open). Restore stays a deliberate CLI act, documented in the module docstring.
+    """``python -m pipeline.backup [--label X | --if-older-than-h H]`` — the nightly + ad-hoc snapshot CLI
+    (the cron sidecar invokes it fail-open: age-gated on boot, ungated after each weekday wake). Restore stays
+    a deliberate CLI act, documented in the module docstring.
     """
     p = argparse.ArgumentParser(
         description="Create a pg_dump snapshot of the database (the operator DB-snapshot / nightly backup)."
     )
-    p.add_argument(
+    mode = p.add_mutually_exclusive_group()
+    mode.add_argument(
         "--label",
         default=None,
         help="name a prune-EXEMPT snapshot (e.g. pre-migration) — omit for a rolling nightly dump",
     )
+    mode.add_argument(
+        "--if-older-than-h",
+        type=float,
+        default=None,
+        metavar="H",
+        help="M3 age gate: dump ONLY if the newest UNLABELED snapshot is at least H hours old (or there "
+        "is none); otherwise print a no-op line and exit 0 — the cron sidecar's boot call",
+    )
     args = p.parse_args(argv)
+    if args.if_older_than_h is not None:
+        now = datetime.now(timezone.utc)
+        h = args.if_older_than_h
+        fresh = fresh_snapshot(h, now=now)
+        if fresh is not None:
+            age_h = (now - fresh.created_at).total_seconds() / 3600
+            print(
+                f"backup: skipped — the newest unlabeled snapshot {fresh.name} is {age_h:.1f} h old "
+                f"(< {h:g} h)"
+            )
+            return
+        print(f"backup: due — no unlabeled snapshot younger than {h:g} h")
     result = run_backup(label=args.label)
     tail = f" · pruned {len(result.pruned)}" if result.pruned else ""
     print(f"backup: wrote {result.name} ({result.bytes} bytes){tail}")

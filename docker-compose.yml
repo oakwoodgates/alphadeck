@@ -5,6 +5,18 @@
 # same project name (alphadeck) and the pgdata volume, so the data is the same either way.
 name: alphadeck
 
+# O3 (2026-10-16) — a CAP on each container's log. The default json-file driver keeps every line forever
+# (MEASURED: no cap was set), so the file only ever grew. 50 MB x 5 rotated files = at most 250 MB per
+# container, the oldest file dropped first; `docker logs` still reads across all five. Shared by backend,
+# cron and frontend via the YAML anchor. Postgres is deliberately left out: changing its logging config
+# makes the next `up` RECREATE the database container (a restart for nothing); add it with a planned
+# restart.
+x-capped-logs: &capped-logs
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "5"
+
 services:
   postgres:
     image: postgres:16
@@ -130,6 +142,7 @@ services:
     # INITIAL `up`, not restarts, so on a reboot the backend can beat postgres; the restart policy
     # retries until postgres is up and the healthcheck passes.
     restart: unless-stopped
+    logging: *capped-logs # O3 — the capped json-file log (top of file)
 
   # The daily call-of-record cron — "the platform feeds itself" (M2d). ON BY DEFAULT: it comes up with the
   # normal `docker compose up`, so the platform notifies itself with no extra command to remember. (Local dev
@@ -175,9 +188,21 @@ services:
       # firing anyway (seconds) — restart policies ignore depends_on, so after a daemon restart this sidecar
       # boots in the same second as Postgres (the 2026-10-01 cold start). Numeric fallback, same reason.
       DB_WAIT_S: ${ALPHADECK_CRON_DB_WAIT_S:-300}
+      # C2 — the most one `pipeline.daily` pass may run before the script's `timeout` stops it (seconds), so
+      # a hung pass cannot freeze the loop; a timeout is a failed run like any other (the retry, then a
+      # page). Default 90 min, ~1.4x the worst measured cold pass. Numeric fallback, same reason as above.
+      RUN_TIMEOUT_S: ${ALPHADECK_CRON_RUN_TIMEOUT_S:-5400}
+      # H2 — the EXTERNAL heartbeat (a push model: the box pings out, the service alerts when a ping does
+      # not come). HEARTBEAT_URL is pinged by the SHELL once the last expected night is recorded (plus
+      # `/start` just before the scheduled run); HEARTBEAT_BACKUP_URL once a fresh backup exists. Both
+      # OPTIONAL and empty by default: empty is a silent no-op (no ping, no log line). Bare GETs that carry
+      # no thesis names. Treat both as secrets in `.env`: anyone holding one can fake the heartbeat.
+      HEARTBEAT_URL: ${HEARTBEAT_URL:-}
+      HEARTBEAT_BACKUP_URL: ${HEARTBEAT_BACKUP_URL:-}
       # No ANTHROPIC_API_KEY: ingest + the call engine are deterministic — no LLM on this path.
-      # The notify delivery channel — this is the AUTOMATED path that fires the daily -> armed push. Unset ->
-      # LogNotifier (transitions logged, not delivered); set SLACK_WEBHOOK_URL in `.env` to push to Slack.
+      # The notify delivery channel — this is the AUTOMATED path that fires the daily -> armed push, and (H3)
+      # the shell's failure page (`python -m notify.page`) when a night or a backup fails for good. Unset ->
+      # LogNotifier (logged, not delivered); set SLACK_WEBHOOK_URL in `.env` to push to Slack.
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
     depends_on:
       backend:
@@ -191,6 +216,9 @@ services:
       - ./data/backups:/data/backups
     command: ["sh", "/app/scripts/daily_cron.sh"]
     restart: unless-stopped
+    # O3 — the capped json-file log (top of file). This one matters most: the nightly record's forensics
+    # live here, and it was the log that lost its tail at the 10-12 kill (that half is PYTHONUNBUFFERED).
+    logging: *capped-logs
 
   frontend:
     build: ./frontend
@@ -200,6 +228,7 @@ services:
     ports:
       - "8080:80" # the app
     restart: unless-stopped # match the rest of the stack — the SPA comes back after a reboot too
+    logging: *capped-logs # O3 — the capped json-file log (top of file)
 
 volumes:
   pgdata:

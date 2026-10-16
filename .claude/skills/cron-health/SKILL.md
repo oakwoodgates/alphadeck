@@ -33,6 +33,10 @@ surfaces) + `docs/POSTMORTEM_CRON_FREEZE_2026-07.md` (what a freeze looks like).
    errored counts, and whether the run happened at all.
 3. **No run at all → is the sidecar up?** `docker compose -f docker-compose.yml -f docker-compose.prod.yml ps cron` +
    `docker compose -f docker-compose.yml -f docker-compose.prod.yml logs --tail 50 cron`.
+   The shell logs its own failure signals (2026-10-16): grep that log for
+   `PAGING` (a night or backup that failed for good — H3), `TIMED OUT` (a pass
+   stopped at `RUN_TIMEOUT_S` — C2), `heartbeat` (`sent` / `held` / `FAILED` — H2)
+   and `backup:` (`wrote` / `skipped` — the boot's age gate, M3).
 4. **Runs happen but data looks frozen → suspect cache freshness** (the 2026-07
    failure shape): mutable EDGAR prefixes refresh on a key-classed 12h TTL — check
    a stale-looking name's newest insider fact date against EDGAR's actual filings
