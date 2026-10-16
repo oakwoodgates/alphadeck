@@ -80,7 +80,7 @@ alphadeck/
 └── backend/                        # Python: FastAPI + Pydantic + psycopg
     ├── pyproject.toml              # deps (incl. anthropic) + ruff/black/pytest cfg
     ├── Dockerfile                  # the FastAPI image (python:3.11-slim + tzdata, for the cron sidecar's explicit TZ)
-    ├── scripts/daily_cron.sh       # M2: the cron sidecar's sleep-loop trigger (sleeps to US-close, fires pipeline.daily)
+    ├── scripts/daily_cron.sh       # M2: the cron sidecar's sleep-loop trigger (sleeps to US-close, fires pipeline.daily; bounds, retries, pages, heartbeats, backs up)
     ├── domain/                     # THE SPINE — Pydantic schemas (the backend↔frontend contract)
     │   ├── base.py                 #   DomainModel (extra="forbid")
     │   ├── enums.py                #   State/Verdict/Grade/Role/Kind · Archetype · Authorship (drafted/operator) · TermTier (signal/broad) · InstrumentKind (the ETF-sleeve instrument type)
@@ -113,7 +113,8 @@ alphadeck/
     │   ├── draft_run_log.py        #   the DISCOVER run-of-record: one WRITE-ONLY JSON per completed draft job (data/draft_runs/; fail-open, never a read path)
     │   ├── run_loader.py           #   the read-only reader behind the RunPicker (list / read a saved draft run)
     │   └── triage_store.py         #   the TRIAGE prune-session store: one mutable JSON blob per thesis (resumable operator working state)
-    ├── notify/                     # the notify seam: TransitionEvent + Notifier protocol + LogNotifier (delivery = one adapter, deferred)
+    ├── notify/                     # the notify seam: TransitionEvent / HealthEvent + Notifier protocol + LogNotifier / SlackNotifier
+    │   └── page.py                 #   H3: the cron shell's DB-free failure page (`python -m notify.page`; never raises, exits 0)
     ├── calls/                      # THE CALL-ASSEMBLER (the product) — pure + golden-tested
     │   └── assembler.py · grading.py · confidence.py · counter_case.py
     ├── signals/                    # detectors — pure f(point_in_time_data) -> SignalEvent | None

@@ -79,6 +79,56 @@
 #   22:20 whose block ends past 22:30) gets a `--catch-up` pass before the loop anchors — the loop would
 #   otherwise compute `next` = tomorrow and drop tonight. Forward from the boot target only, so still never
 #   an older hole.
+# - BOUNDS EVERY PASS (C2, 2026-10-16). Each `python -m pipeline.daily` below runs through `run_pass`, under
+#   `timeout -k 60 "$RUN_TIMEOUT_S"` (default 5400 s = 90 min). A hung pass (a black-holed socket mid-run, a
+#   stuck lock) used to hold the loop forever: no exit code, so no retry, no page, no artifact, and every
+#   later night queued behind it. A timeout is just a non-zero exit (124, logged as TIMED OUT), so it flows
+#   into the SAME retry, page and heartbeat logic as any other failure. The bound is ~1.4x the worst
+#   MEASURED cold pass (~65 min; a normal night is 7-15 min): a night that adds many cold names at once can
+#   still exceed it, and then the retry (the ingest is incremental, so it resumes ahead) lands the night.
+# - PAGES A NIGHT THAT FAILED FOR GOOD, WITH NO DB (H3, 2026-10-16). R4's HealthEvent pages from INSIDE a
+#   finished pass, so a pass that died or never connected had no voice: MEASURED, the 10-12 run killed at
+#   22:42 (a WSL auto-update took the VM down) and the 10-01 boot catch-up lost to the cold-start race both
+#   paged nothing. Now the shell calls `python -m notify.page --asof D --reason ...` (`page`, below) when
+#   the scheduled run's ONE retry fails, when the boot catch-up's retry fails, when a catch-up night fails
+#   (it has no retry, so its one attempt is final), and when the backup fails. The CLI imports no DB, never
+#   raises, always exits 0, and sends through R4's own notifier (Slack when SLACK_WEBHOOK_URL is set, else a
+#   loud log line). The reason is this script's words plus a date and an exit code, never a thesis name.
+#   It covers every failure the SHELL outlives (a crashed or OOM-killed pass, a DB gone mid-run, a hang the
+#   timeout stops, the 10-01 boot); a box that dies whole, as on 10-12, takes this shell with it, and only
+#   the external heartbeat (next bullet) can report that.
+# - PINGS AN EXTERNAL HEARTBEAT WHEN THE LAST EXPECTED NIGHT IS RECORDED (H2, 2026-10-16). Nothing inside
+#   the box can report the box's own absence (a host that stays off, a sidecar that never boots). MEASURED:
+#   no heartbeat code existed, and every outage so far lasted until a human launched Docker. So the SHELL,
+#   not the app, sends a bare `curl -fsS -m 10 --retry 3` GET to HEARTBEAT_URL (`beat_if_current`) after a
+#   cron pass exits 0 for the night that is the LAST EXPECTED as-of at that instant: the scheduled run or
+#   its retry, the boot catch-up or its retry, or a catch-up night. The ping means "the last expected night
+#   is recorded", so a pass that lands an OLDER night (target Tue finishing after Wed's RUN_AT) holds the
+#   ping until the catch-up of the newest night lands. A `--catch-up` that no-ops exits 0 because its night
+#   already recorded, so it pings too. The external service (healthchecks.io, a Mon-Fri ET schedule with a
+#   ~2 h grace) alerts when the ping does not come. Just before the scheduled run the shell also pings
+#   HEARTBEAT_URL/start (healthchecks.io's convention), so a hang reads "started, never finished".
+#   HEARTBEAT_BACKUP_URL gets a ping when `pipeline.backup` exits 0 (a fresh snapshot exists, dumped now
+#   or still under the age gate). Never from the Admin "Run daily now" (that runs in the backend, not here)
+#   and never on `--no-live` (this script never passes it). Both URLs are optional: unset is a silent
+#   no-op. A failed ping is one log line and never blocks the loop; no URL is ever logged (a ping URL is
+#   a credential).
+# - BACKS UP ON BOOT BY AGE, AND AFTER EVERY WAKE THAT RAN A NIGHT (M3, 2026-10-16). The nightly dump rode only
+#   a weekday-target wake, so a night caught up at BOOT got no snapshot (MEASURED: none for ~4 days around
+#   10-12). Now the boot block ends with `pipeline.backup --if-older-than-h "$BACKUP_MAX_AGE_H"` (default
+#   20; `snapshot ... gated`): it dumps only when the newest unlabeled snapshot is at least that old, else
+#   it prints a no-op line, so the normal boot (last night's dump is hours old) adds nothing and a
+#   crash-looping container dumps about once a day instead of on every restart. The in-loop dump stays
+#   UNCONDITIONAL, deliberately: its job is to capture the run that just finished, and no earlier dump can
+#   stand in for that. Gating it too would let any boot that dumped in the ~4 h before RUN_AT (the prior
+#   night's dump is 20 h old by ~18:45) skip that night's post-run dump, leaving the night out of every
+#   snapshot for another day (MEASURED under dash with a stubbed pass: a boot dump at 03:22 turned the 03:24
+#   run's dump into a "0.0 h old" no-op). A wake whose target is a weekend now dumps too when its catch-up
+#   covered a weekday (a suspend spanning the weekend), which got none before. Retention is
+#   pipeline.backup's, unchanged.
+# - LOGS LAND AS THEY HAPPEN (O3, 2026-10-16). The image sets PYTHONUNBUFFERED=1 and compose caps the
+#   json-file log (50 MB x 5). MEASURED before: the passes' output arrived in 60-75-line bursts ~12 min late
+#   and the tail was lost when the 10-12 run was killed; the log had no cap.
 # - The as-of dates come from this shell's `date` in the container TZ, which compose pins to the market TZ
 #   (the same "today" `market_today()` derives) — keep those two in step.
 # - Inherits the container env directly (DATABASE_URL / ALPHADECK_USER_AGENT / TZ), so unlike a cron daemon
@@ -88,9 +138,10 @@
 # - POSIX sh (the image's /bin/sh is dash) + GNU `date -d`. The schedule math below is pure over its
 #   arguments (no ambient clock) and mirrors pipeline/schedule.py — keep the two in step; to exercise it by
 #   hand, paste the functions into a shell with RUN_AT set and `python` stubbed (`python() { echo "$@"; }`).
-#   To run JUST the boot block (the DB wait, the catch-up, its retry, the crossed-RUN_AT catch-up) and exit
-#   before the loop, set CRON_EXIT_AFTER_BOOT=1 with a stub `python` first on PATH and small DB_WAIT_S /
-#   DB_POLL_S / RETRY_DELAY_S / SLICE_S — a test seam only; compose never sets it.
+#   To run JUST the boot block (the DB wait, the catch-up, its retry, the crossed-RUN_AT catch-up, the boot
+#   backup) and exit before the loop, set CRON_EXIT_AFTER_BOOT=1 with a stub `python` first on PATH and small
+#   DB_WAIT_S / DB_POLL_S / RETRY_DELAY_S / SLICE_S / RUN_TIMEOUT_S — a test seam only; compose never sets
+#   it. A stub `curl` on PATH (and a HEARTBEAT_URL) exercises the heartbeat the same way.
 set -u
 
 RUN_AT="${RUN_AT:-22:30}"
@@ -114,6 +165,18 @@ DB_WAIT_S="${DB_WAIT_S:-300}"
 [ "${DB_WAIT_S}" -ge 1 ] 2>/dev/null || DB_WAIT_S=300
 DB_POLL_S="${DB_POLL_S:-5}"
 [ "${DB_POLL_S}" -ge 1 ] 2>/dev/null || DB_POLL_S=5
+# C2 — the most one `pipeline.daily` pass may run before `timeout` stops it (seconds; see the header). 90
+# minutes by default, ~1.4x the worst measured cold pass. Same non-numeric / non-positive guard as SLICE_S.
+RUN_TIMEOUT_S="${RUN_TIMEOUT_S:-5400}"
+[ "${RUN_TIMEOUT_S}" -ge 1 ] 2>/dev/null || RUN_TIMEOUT_S=5400
+# M3 — the BOOT backup's age gate (hours): dump only when the newest unlabeled snapshot is at least this old.
+# A script default like DB_POLL_S (not in compose), tunable only to exercise the gate by hand. Same guard.
+BACKUP_MAX_AGE_H="${BACKUP_MAX_AGE_H:-20}"
+[ "${BACKUP_MAX_AGE_H}" -ge 1 ] 2>/dev/null || BACKUP_MAX_AGE_H=20
+# H2 — the external heartbeat's ping URLs. Both optional: unset or empty is a silent no-op (no ping, no log
+# line), which is the state until the operator creates the heartbeat account.
+HEARTBEAT_URL="${HEARTBEAT_URL:-}"
+HEARTBEAT_BACKUP_URL="${HEARTBEAT_BACKUP_URL:-}"
 
 # --- schedule math (pure over their arguments; GNU date) ------------------------------------------------
 
@@ -162,11 +225,19 @@ catch_up_days() {
 # catch_up_between TARGET LAST_EXPECTED [WHY] -> a `--catch-up` pass for each day catch_up_days lists (the
 # nights the sleep ALSO skipped, or that became expected while the boot block ran). Each day is its own log
 # line + its own fail-open invocation; `--catch-up` is a no-op when a live pass for that as-of already ran
-# (the R3 run log is the memory). WHY labels the log line (default "late wake", the in-loop caller).
+# (the R3 run log is the memory). WHY labels the log line (default "late wake", the in-loop caller). A
+# catch-up night has no retry, so a failed one is final: it pages (H3). One that lands pings the heartbeat
+# when it is the last expected night (H2).
 catch_up_between() {
   for _cb in $(catch_up_days "$1" "$2"); do
     echo "daily-cron: ${3:-late wake} — catching up ${_cb}"
-    python -m pipeline.daily --run-kind cron --catch-up --asof "${_cb}" || echo "daily-cron: catch-up ${_cb} FAILED (continuing)"
+    if run_pass --run-kind cron --catch-up --asof "${_cb}"; then
+      beat_if_current "${_cb}"
+    else
+      _cb_rc=$?
+      echo "daily-cron: catch-up ${_cb} FAILED (exit ${_cb_rc}) (continuing)"
+      page "${_cb}" "the ${3:-late wake} catch-up FAILED (exit ${_cb_rc}); the night may have no call-of-record"
+    fi
   done
 }
 
@@ -233,9 +304,93 @@ wait_for_db() {
   done
 }
 
+# --- the failure signals: the bounded pass, the page, the heartbeat, the age-gated backup ----------------
+
+# run_pass ARGS... -> `python -m pipeline.daily ARGS...` under `timeout` (C2; see the header), returning its
+# exit status. 124 means the bound stopped it, logged here so the caller's FAILED line has a cause; with
+# `-k 60`, a pass that outlives the TERM is KILLed a minute later (137). The callers' retry / page / ping
+# logic reads the status exactly as before: a timeout is one more non-zero exit.
+run_pass() {
+  timeout -k 60 "${RUN_TIMEOUT_S}" python -m pipeline.daily "$@"
+  _rp_rc=$?
+  case "${_rp_rc}" in
+    124) echo "daily-cron: pass TIMED OUT after ${RUN_TIMEOUT_S}s and was stopped (pipeline.daily $*)" ;;
+    137) echo "daily-cron: pass was KILLED (SIGKILL: the timeout's -k, or the OOM killer) (pipeline.daily $*)" ;;
+  esac
+  return "${_rp_rc}"
+}
+
+# page ASOF REASON -> the in-band failure page (H3; see the header): `python -m notify.page`, which needs no
+# DB, never raises and exits 0. Bounded by `timeout` and fail-open, so a page that cannot run costs one log
+# line, never a stalled loop (the external heartbeat is the backstop for that case).
+page() {
+  echo "daily-cron: PAGING — ${1}: ${2}"
+  timeout -k 10 120 python -m notify.page --asof "$1" --reason "$2" \
+    || echo "daily-cron: the failure page did not run cleanly (exit $?) (continuing)"
+}
+
+# ping_url URL WHAT -> ONE best-effort GET (H2): `curl -fsS -m 10 --retry 3`, so at most about 50 s even
+# when the service is unreachable (MEASURED offline: 4 attempts, ~7 s, on a DNS failure). Logs one line
+# either way, naming WHAT and curl's LAST error line (the retries repeat it) but never the URL (a ping URL
+# is a credential: anyone holding it can fake the heartbeat). Never fails its caller.
+ping_url() {
+  if _pu_err=$(curl -fsS -m 10 --retry 3 -o /dev/null "$1" 2>&1); then
+    echo "daily-cron: heartbeat sent — ${2}"
+  else
+    echo "daily-cron: heartbeat FAILED — ${2} ($(printf '%s\n' "${_pu_err}" | tail -n 1)) (continuing)"
+  fi
+}
+
+# beat_if_current ASOF -> the success ping, sent only when ASOF is the LAST EXPECTED as-of right now, so the
+# ping always means "the last expected night is recorded" (see the header). A pass that landed an older
+# night holds it, and the catch-up of the newest night pings instead. Silent when HEARTBEAT_URL is unset.
+beat_if_current() {
+  [ -n "${HEARTBEAT_URL}" ] || return 0
+  _bc_last=$(last_expected_asof "$(date +%s)")
+  if [ "$1" = "${_bc_last}" ]; then
+    ping_url "${HEARTBEAT_URL}" "night $1 recorded"
+  else
+    echo "daily-cron: heartbeat held — $1 recorded, but the last expected night is ${_bc_last}"
+  fi
+}
+
+# beat_start ASOF -> HEARTBEAT_URL/start just before the scheduled run (healthchecks.io's start signal: a run
+# that starts and never reports success alerts after the grace, and the dashboard shows the run's duration).
+# Silent when HEARTBEAT_URL is unset.
+beat_start() {
+  [ -n "${HEARTBEAT_URL}" ] || return 0
+  ping_url "${HEARTBEAT_URL%/}/start" "run $1 started"
+}
+
+# snapshot ASOF WHERE [gated] -> one `python -m pipeline.backup` (Slice 4 / M3; see the header). With `gated`
+# (the boot) it passes `--if-older-than-h BACKUP_MAX_AGE_H`, so it dumps only when the newest unlabeled
+# snapshot is at least that old and otherwise prints a no-op line; without it (the in-loop wake) it always
+# dumps. Exit 0 means a fresh snapshot exists either way, so it pings HEARTBEAT_BACKUP_URL; a failure pages,
+# naming ASOF (the night it ran after) and WHERE (boot / nightly). Fail-open: never kills the loop.
+snapshot() {
+  _sn_gate=""
+  [ "${3:-}" = gated ] && _sn_gate="--if-older-than-h ${BACKUP_MAX_AGE_H}"
+  # _sn_gate is split on purpose: empty, or the flag plus its (guarded, numeric) value
+  if python -m pipeline.backup ${_sn_gate}; then
+    if [ -n "${HEARTBEAT_BACKUP_URL}" ]; then
+      ping_url "${HEARTBEAT_BACKUP_URL}" "backup fresh"
+    fi
+  else
+    _sn_rc=$?
+    echo "daily-cron: ${2} backup FAILED (exit ${_sn_rc}) (continuing)"
+    page "$1" "the ${2} DB backup FAILED (exit ${_sn_rc}); there may be no fresh snapshot"
+  fi
+}
+
 # --- the trigger ------------------------------------------------------------------------------------------
 
 echo "daily-cron: scheduled for ${RUN_AT} (${TZ:-UTC}), Mon-Fri — the daily CLI is idempotent + force-refreshes"
+# the failure signals' state, in one line the deploy check can read (on/off only: the URLs are credentials)
+_hb_run=off
+[ -n "${HEARTBEAT_URL}" ] && _hb_run=on
+_hb_bk=off
+[ -n "${HEARTBEAT_BACKUP_URL}" ] && _hb_bk=on
+echo "daily-cron: each pass bounded at ${RUN_TIMEOUT_S}s · heartbeat ${_hb_run} · backup heartbeat ${_hb_bk} · boot backup age gate ${BACKUP_MAX_AGE_H}h"
 
 # R6 — CATCH-UP ON BOOT, for the LAST EXPECTED night. A rebuild/restart AFTER today's RUN_AT re-anchors the
 # loop to TOMORROW and would silently skip tonight (Flag 6 — every `docker compose up` after the close dropped
@@ -258,18 +413,25 @@ echo "daily-cron: booted $(date) — catch-up for the last expected night ${_boo
 # WAIT FOR THE DB FIRST (2026-10-01 — the cold-start race in the header): on a daemon restart this sidecar
 # boots in the same second as Postgres, and the old block fired straight into `Connection refused`.
 wait_for_db "boot catch-up ${_boot_target}"
-if python -m pipeline.daily --run-kind cron --catch-up --asof "${_boot_target}"; then
-  :
+if run_pass --run-kind cron --catch-up --asof "${_boot_target}"; then
+  beat_if_current "${_boot_target}" # recorded now, or already (a no-op): either way the night is in
 else
   # The scheduled run's G2a retry, given to the boot too: a boot catch-up that failed used to be the end
   # of that night (the loop re-anchors to the next RUN_AT and nothing re-tries a past night). ONE retry,
   # RETRY_DELAY_S later through wait_until; still `--catch-up`, so a no-op if the night recorded meanwhile
   # (an operator's "Run daily now", or a pass that died after recording).
-  echo "daily-cron: boot catch-up ${_boot_target} FAILED — ONE retry in ${RETRY_DELAY_S}s (a no-op if the night recorded anyway)"
+  _rc=$?
+  echo "daily-cron: boot catch-up ${_boot_target} FAILED (exit ${_rc}) — ONE retry in ${RETRY_DELAY_S}s (a no-op if the night recorded anyway)"
   wait_until "$(( $(date +%s) + RETRY_DELAY_S ))"
   echo "daily-cron: $(date) — retrying boot catch-up ${_boot_target} (--catch-up)"
-  python -m pipeline.daily --run-kind cron --catch-up --asof "${_boot_target}" \
-    || echo "daily-cron: boot catch-up retry ${_boot_target} FAILED (continuing to the schedule)"
+  if run_pass --run-kind cron --catch-up --asof "${_boot_target}"; then
+    beat_if_current "${_boot_target}"
+  else
+    # H3 — the boot's night failed for good: page it from here, since no pass lived to (the 10-01 shape)
+    _rc=$?
+    echo "daily-cron: boot catch-up retry ${_boot_target} FAILED (exit ${_rc}) (continuing to the schedule)"
+    page "${_boot_target}" "the boot catch-up and its ONE retry both FAILED (last exit ${_rc}); the night may have no call-of-record"
+  fi
 fi
 # THE NIGHTS THE BOOT BLOCK ITSELF CROSSED. The wait + the catch-up + its retry can run for many minutes,
 # and the loop below anchors on the clock it finds: a block that ends past today's RUN_AT on a weekday gets
@@ -277,6 +439,11 @@ fi
 # every weekday strictly after the boot target up to the last expected as-of NOW — exactly the nights that
 # became expected during the block (empty on almost every boot), never an older one.
 catch_up_between "${_boot_target}" "$(last_expected_asof "$(date +%s)")" "boot block crossed ${RUN_AT}"
+# M3 — THE BOOT'S SNAPSHOT, after the catch-up so it holds the night just landed. The nightly dump used to
+# ride only the in-loop wake, so a night caught up here got none (MEASURED: ~4 days without a dump around
+# 10-12). Age-gated, so the normal boot (last night's dump is hours old) is a no-op line, and a
+# crash-looping container cannot dump on every restart.
+snapshot "${_boot_target}" "boot" gated
 if [ "${CRON_EXIT_AFTER_BOOT:-}" = 1 ]; then
   # the test seam (header): stop before the infinite loop so the boot block can be exercised on its own
   echo "daily-cron: CRON_EXIT_AFTER_BOOT=1 — exiting before the schedule loop"
@@ -305,10 +472,12 @@ while :; do
     # RUN_AT costs up to DB_WAIT_S of delay instead of a failed run and a RETRY_DELAY_S retry
     wait_for_db "scheduled run ${target}"
     echo "daily-cron: $(date) — running pipeline.daily --asof ${target}"
+    beat_start "${target}" # H2 — "started"; the success ping below (or a catch-up's) closes it
     # the SCHEDULED run always fires (no --catch-up): it re-versions even if an operator hand-ran that day
-    if python -m pipeline.daily --run-kind cron --asof "${target}"; then
-      :
+    if run_pass --run-kind cron --asof "${target}"; then
+      beat_if_current "${target}"
     else
+      _rc=$? # the failed run's exit status, read first (any later command resets $?)
       # G2a — RETRY ONCE. A scheduled run that fails used to be the end of the night: the loop caught the
       # non-zero exit, logged it, and waited for tomorrow, so a transient fault (a DB restart mid-run, a
       # vendor 5xx, a network blip) cost that night's call-of-record outright — and with a daytime row on
@@ -321,8 +490,9 @@ while :; do
       # reaching this branch already means a re-run is the right move; per-thesis errors page through R4
       # instead of pausing the loop for nothing. Two shapes land here, and both resolve correctly without
       # the shell knowing which it hit:
-      #   - the pass CRASHED before writing its artifact (DB unreachable at connect, killed mid-run)
-      #     -> no artifact -> the guard finds nothing -> the retry runs the night in full;
+      #   - the pass CRASHED before writing its artifact (DB unreachable at connect, killed mid-run,
+      #     stopped by the C2 timeout) -> no artifact -> the guard finds nothing -> the retry runs the
+      #     night in full;
       #   - the pass COMPLETED with EVERY thesis withheld/errored -> nothing recorded -> the guard lets the
       #     retry run (that is 2b; before it, this artifact would have blocked even a boot catch-up).
       # --catch-up STAYS the guard regardless — belt-and-suspenders for the narrow case of a pass that
@@ -330,11 +500,17 @@ while :; do
       # STARTED at/after tonight's RUN_AT already RECORDED for some thesis (cron_run_log.already_ran_live).
       # wait_until, not sleep: the same monotonic-clock reason as the schedule wait (a suspended host does
       # not advance `sleep`'s clock, so a raw sleep could overshoot by the whole suspend).
-      echo "daily-cron: run FAILED — ONE retry in ${RETRY_DELAY_S}s (a no-op if the night recorded anyway)"
+      echo "daily-cron: run FAILED (exit ${_rc}) — ONE retry in ${RETRY_DELAY_S}s (a no-op if the night recorded anyway)"
       wait_until "$(( $(date +%s) + RETRY_DELAY_S ))"
       echo "daily-cron: $(date) — retrying ${target} (--catch-up)"
-      python -m pipeline.daily --run-kind cron --catch-up --asof "${target}" \
-        || echo "daily-cron: retry ${target} FAILED (continuing to the next day)"
+      if run_pass --run-kind cron --catch-up --asof "${target}"; then
+        beat_if_current "${target}"
+      else
+        # H3 — the night failed for good: page it from here, since no pass lived to say so
+        _rc=$?
+        echo "daily-cron: retry ${target} FAILED (exit ${_rc}) (continuing to the next day)"
+        page "${target}" "the scheduled run and its ONE retry both FAILED (last exit ${_rc}); the night may have no call-of-record"
+      fi
     fi
   else
     echo "daily-cron: $(date) — weekend (asof ${target}), no scheduled run"
@@ -345,12 +521,15 @@ while :; do
   # crossed the next RUN_AT (case F in the header) lost that night — the window did not include it yet, and
   # the loop then re-anchored `next` past it. `woke` stays for the LATE WAKE line only.
   after=$(date +%s)
-  catch_up_between "${target}" "$(last_expected_asof "${after}")"
-  if is_weekday "${target}"; then
+  _last=$(last_expected_asof "${after}")
+  catch_up_between "${target}" "${_last}"
+  if is_weekday "${target}" || [ -n "$(catch_up_days "${target}" "${_last}")" ]; then
     # Slice 4 — a nightly DB snapshot right after the daily pass, ONCE PER WAKE (not per catch-up day),
     # fail-open (a failed backup never kills the loop). Deliberately in the SCHEDULING layer, NOT folded
     # into run_daily_pass (so the manual "Run daily now" button does not also dump). Retention
-    # (keep-last-N, labeled exempt) is pipeline.backup's.
-    python -m pipeline.backup || echo "daily-cron: nightly backup FAILED (continuing)"
+    # (keep-last-N, labeled exempt) is pipeline.backup's. UNCONDITIONAL, unlike the boot's: it captures
+    # the run that just finished, which no earlier dump holds (M3 in the header). It also runs after a
+    # weekend-target wake whose catch-up covered a weekday (M3), and a failure now pages (H3).
+    snapshot "${target}" "nightly"
   fi
 done
