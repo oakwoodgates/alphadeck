@@ -1735,7 +1735,7 @@
           "scoreboard"
         ],
         "summary": "Get Scoreboard",
-        "description": "The Scoreboard (SCORE): the call-of-record scored as-of ``asof`` \u2014 a READ-ONLY pass over\nthe immutable calls log, the operator-decision log, and realized asof-capped prices. The\nRECORD is the scoring source, never a recompute (replay re-derives history; this holds the\nplatform to what it actually said). Aggregate metrics judge only matured, non-censored\nepisodes and gate below ``min_n`` \u2014 an instrument, not a claim, until n accrues.",
+        "description": "The Scoreboard (SCORE): the call-of-record scored as-of ``asof`` \u2014 a READ-ONLY pass over\nthe immutable calls log, the operator-decision log, and realized asof-capped prices. The\nRECORD is the scoring source, never a recompute (replay re-derives history; this holds the\nplatform to what it actually said). Aggregate metrics judge only matured, non-censored\nepisodes and gate below ``min_n`` \u2014 an instrument, not a claim, until n accrues.\n\nTwo kinds of recorded row are set aside before scoring: reconstructed rows (always), and rows\nannotated as phantom arms (by the annotated-night policy, which ``include_annotated`` overrides\nper request). Both readings are available; nothing is deleted either way.",
         "operationId": "get_scoreboard_scoreboard_get",
         "parameters": [
           {
@@ -1761,6 +1761,24 @@
               "title": "Include Archived"
             },
             "description": "archived theses ride the record by default (archiving stops accrual, never erases the record); false is the explicit, reversible filter"
+          },
+          {
+            "name": "include_annotated",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "the annotated-night reading: true = score rows annotated `exclude` (phantom arms) as before; false = set them aside like reconstructed rows; omitted = the server setting (ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED, default: set aside). The response's summary.annotated_policy names the reading used",
+              "title": "Include Annotated"
+            },
+            "description": "the annotated-night reading: true = score rows annotated `exclude` (phantom arms) as before; false = set them aside like reconstructed rows; omitted = the server setting (ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED, default: set aside). The response's summary.annotated_policy names the reading used"
           }
         ],
         "responses": {
@@ -3221,6 +3239,53 @@
         ],
         "title": "AdminTapeOut",
         "description": "The FEED freshness panel (G5a price tapes \u00b7 F1 ETF fund shares), read from the newest run artifact\nthat actually EVALUATED recency \u2014 not a fresh DB scan, so this surface still owns no tables. ``asof`` /\n``ran_at`` say which pass produced it (the answer is \"as of last night\", which is the right\ngranularity for a nightly feed).\n\n``stale_days`` and ``fund_shares_stale_days`` are the thresholds **that pass judged under**, read off\nits artifact rather than live, so the number shown always describes the list shown even if the setting\nchanged in between; each feed has its own because their cadences differ (a price tape gets a bar every\nsession, while a sleeve's sample carries the source page's own stated as-of date). ``0`` means that\nfeed's monitor was disabled for the pass.\n\n``stale`` is the full current inventory, one row per feed per security (a name placed in several\nvalue-chain links appears once; a name stale on both feeds appears once per feed, since the repairs\ndiffer \u2014 each row's ``kind`` says which). A row with ``closed_at`` set is a name that CLOSED (delisted /\nacquired / deregistered), G5b \u2014 it stays in this inventory (never dropped, #9) but renders quietly and\nis absent from ``newly_stale``. ``newly_stale`` are the display labels that PAGED that night \u2014 the diff\nagainst the previous evaluated pass, so a known-dead feed does not re-page forever, and a closed tape\n(an expected event, not a feed gap) is never in it (#7/WB#3)."
+      },
+      "AnnotatedNightOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Reasons",
+            "default": []
+          },
+          "rules": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Rules",
+            "default": []
+          },
+          "n_rows": {
+            "type": "integer",
+            "title": "N Rows",
+            "default": 1
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "thesis_name",
+          "asof"
+        ],
+        "title": "AnnotatedNightOut",
+        "description": "One phantom-arm night (D3b): a (thesis, as-of) whose recorded row carries an ACTIVE ``exclude``\nannotation \u2014 under the default reading it is set aside like a reconstructed night; under the\n``include_annotated`` reading it is scored. ``reasons`` are the annotation tokens (e.g.\n``stale_comparative_revenue``), ``rules`` the code identities that judged it\n(``d3a-first-knowability@<sha>``), ``n_rows`` the annotated rows on the night."
       },
       "Authorship": {
         "type": "string",
@@ -8211,6 +8276,17 @@
             ],
             "title": "Run Identity Note"
           },
+          "annotation_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Annotation Note"
+          },
           "verdict": {
             "anyOf": [
               {
@@ -9066,6 +9142,23 @@
             },
             "type": "array",
             "title": "Reconstructed Nights",
+            "default": []
+          },
+          "annotated_policy": {
+            "type": "string",
+            "enum": [
+              "excluded",
+              "included"
+            ],
+            "title": "Annotated Policy",
+            "default": "excluded"
+          },
+          "annotated_nights": {
+            "items": {
+              "$ref": "#/components/schemas/AnnotatedNightOut"
+            },
+            "type": "array",
+            "title": "Annotated Nights",
             "default": []
           },
           "record_edge": {

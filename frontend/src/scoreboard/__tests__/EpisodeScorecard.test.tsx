@@ -286,6 +286,18 @@ describe("EpisodeScorecard — honest loudness on thin data", () => {
     expect(line?.getAttribute("title")).toContain("run_kind: manual");
   });
 
+  // D3b: the annotation caption — quiet, server-composed, and absent unless an annotation touches the run.
+  it("renders no annotation caption on a clean episode, and the server's caption verbatim when present", () => {
+    const clean = renderCard(<EpisodeScorecard ep={MATURED} />);
+    expect(clean.container.querySelector(".sc-annot")).toBeNull();
+    clean.unmount();
+    const note =
+      "annotated · 2026-09-16: D3a: verdict core_entry → starter_entry; armed −DELL " +
+      "(a stale-dated comparative revenue quarter; still scored)";
+    const { container } = renderCard(<EpisodeScorecard ep={ep({ annotation_note: note })} />);
+    expect(container.querySelector(".sc-annot")).toHaveTextContent(note);
+  });
+
   it("still armed reads 'still armed', not a dangling arrow", () => {
     renderCard(<EpisodeScorecard ep={ep({ dearm_date: null })} />);
     expect(screen.getByText(/Jul 10 → still armed/)).toBeInTheDocument();

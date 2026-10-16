@@ -9,10 +9,10 @@ from db.session import DEFAULT_TENANT_ID
 from domain.enums import State
 from replay.metrics import MIN_N, compute_metrics
 from replay.schema import CallSnapshot
-from repositories import calls_repo
+from repositories import call_annotations_repo, calls_repo
 from scoreboard.prices import PgRealizedPrices
 from scoreboard.record import scoreboard_records
-from scoreboard.schema import ScoreboardResult, ScoreboardSummary
+from scoreboard.schema import AnnotatedNight, ScoreboardResult, ScoreboardSummary
 
 # The full assembly: the record walk + replay's claim-tied metric set over ELIGIBLE outcomes only —
 # matured (the episode's own exit_by elapsed; a running return must never drift inside a metric
@@ -96,11 +96,18 @@ def assemble_scoreboard(
     asof: date,
     include_archived: bool = True,
     known_at: datetime | None = None,
+    exclude_annotated: bool | None = None,
 ) -> ScoreboardResult:
     """The Scoreboard, assembled: every thesis's scored record + the aggregate metric summary.
-    Read-only end to end (compute-on-read; the walk and the metric pass write nothing)."""
+    Read-only end to end (compute-on-read; the walk and the metric pass write nothing).
+    ``exclude_annotated`` is the D3b annotated-night read policy (None = the setting) — resolved once by
+    ``scoreboard_records`` and reported back on the summary (``annotated_policy``)."""
     result, timelines, single_name = scoreboard_records(
-        conn, asof, include_archived=include_archived, known_at=known_at
+        conn,
+        asof,
+        include_archived=include_archived,
+        known_at=known_at,
+        exclude_annotated=exclude_annotated,
     )
     eligible = [
         e.outcome
@@ -162,5 +169,13 @@ def assemble_scoreboard(
         # scoreboard/record.py): one ledger-wide read, capped at asof, so a scrubbed view names only
         # nights it can see; a night with an honest row beside a reconstruction is scored, not listed
         reconstructed_nights=calls_repo.reconstructed_asofs(conn, upto=asof),
+        # D3b — WHICH reading this is, and the phantom-arm nights it concerns (active `exclude`
+        # annotations, asof-capped, ledger-wide — the reconstructed list's scope). Listed in BOTH
+        # readings: the banner says "set aside" under one and "included" under the other.
+        annotated_policy="excluded" if result.exclude_annotated else "included",
+        annotated_nights=[
+            AnnotatedNight(**n.model_dump())
+            for n in call_annotations_repo.active_nights(conn, action="exclude", upto=asof)
+        ],
     )
     return result

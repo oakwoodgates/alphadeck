@@ -882,6 +882,10 @@ export interface paths {
          *     RECORD is the scoring source, never a recompute (replay re-derives history; this holds the
          *     platform to what it actually said). Aggregate metrics judge only matured, non-censored
          *     episodes and gate below ``min_n`` — an instrument, not a claim, until n accrues.
+         *
+         *     Two kinds of recorded row are set aside before scoring: reconstructed rows (always), and rows
+         *     annotated as phantom arms (by the annotated-night policy, which ``include_annotated`` overrides
+         *     per request). Both readings are available; nothing is deleted either way.
          */
         get: operations["get_scoreboard_scoreboard_get"];
         put?: never;
@@ -1779,6 +1783,43 @@ export interface components {
              * @default []
              */
             newly_stale: string[];
+        };
+        /**
+         * AnnotatedNightOut
+         * @description One phantom-arm night (D3b): a (thesis, as-of) whose recorded row carries an ACTIVE ``exclude``
+         *     annotation — under the default reading it is set aside like a reconstructed night; under the
+         *     ``include_annotated`` reading it is scored. ``reasons`` are the annotation tokens (e.g.
+         *     ``stale_comparative_revenue``), ``rules`` the code identities that judged it
+         *     (``d3a-first-knowability@<sha>``), ``n_rows`` the annotated rows on the night.
+         */
+        AnnotatedNightOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Reasons
+             * @default []
+             */
+            reasons: string[];
+            /**
+             * Rules
+             * @default []
+             */
+            rules: string[];
+            /**
+             * N Rows
+             * @default 1
+             */
+            n_rows: number;
         };
         /**
          * Authorship
@@ -4237,6 +4278,8 @@ export interface components {
             arm_run_kind?: string | null;
             /** Run Identity Note */
             run_identity_note?: string | null;
+            /** Annotation Note */
+            annotation_note?: string | null;
             verdict?: components["schemas"]["Verdict"] | null;
             entry_grade?: components["schemas"]["Grade"] | null;
             conviction_grade?: components["schemas"]["Grade"] | null;
@@ -4616,6 +4659,17 @@ export interface components {
              * @default []
              */
             reconstructed_nights: string[];
+            /**
+             * Annotated Policy
+             * @default excluded
+             * @enum {string}
+             */
+            annotated_policy: "excluded" | "included";
+            /**
+             * Annotated Nights
+             * @default []
+             */
+            annotated_nights: components["schemas"]["AnnotatedNightOut"][];
             /** Record Edge */
             record_edge: string | null;
             /**
@@ -6423,6 +6477,8 @@ export interface operations {
                 asof: string;
                 /** @description archived theses ride the record by default (archiving stops accrual, never erases the record); false is the explicit, reversible filter */
                 include_archived?: boolean;
+                /** @description the annotated-night reading: true = score rows annotated `exclude` (phantom arms) as before; false = set them aside like reconstructed rows; omitted = the server setting (ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED, default: set aside). The response's summary.annotated_policy names the reading used */
+                include_annotated?: boolean | null;
             };
             header?: never;
             path?: never;

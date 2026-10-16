@@ -175,6 +175,12 @@ export function EpisodeScorecard({
         </div>
       )}
 
+      {/* The annotation caption (D3b) — QUIET, and rendered only when an annotation actually touches this
+          run: a `note` (the arm stands and is scored; the D3a rule changed its composition that night) or
+          a phantom-arm night scored only because this view includes annotated nights. Server-composed,
+          rendered verbatim (the run-identity precedent); a clean episode carries no line at all. */}
+      {ep.annotation_note && <div className="sc-annot">{ep.annotation_note}</div>}
+
       {/* Lens 1 — The move (provenance: closes the "show the prices" gap). */}
       <section className="sc-lens">
         <div className="sc-h">The move</div>

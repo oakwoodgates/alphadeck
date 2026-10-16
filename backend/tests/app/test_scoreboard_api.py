@@ -9,7 +9,7 @@ from app.routers import scoreboard
 from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
 from domain.enums import Grade
-from repositories import thesis_repo
+from repositories import call_annotations_repo, thesis_repo
 from tests.calls.factories import (
     breakdown_event,
     breakout_event,
@@ -632,3 +632,76 @@ def test_a_legacy_row_carries_NULLS_and_NO_note_on_the_wire(client, db, security
     assert ep["arm_code_sha"] is None
     assert ep["arm_run_kind"] is None
     assert ep["run_identity_note"] is None
+
+
+# --- D3b: the annotated-night READ POLICY over the wire --------------------------------------------------
+
+
+def _ep_of(payload: dict) -> dict:
+    (ep,) = [e for t in payload["theses"] for e in t["episodes"]]
+    return ep
+
+
+def _db_counts(db) -> tuple[int, int]:
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT (SELECT count(*) FROM calls) AS c, (SELECT count(*) FROM call_annotation) AS a"
+        )
+        r = cur.fetchone()
+        return (r["c"], r["a"])
+
+
+def test_include_annotated_is_a_tri_state_reading_and_the_get_writes_nothing(
+    client, db, security_id
+):
+    """A warming night, then two armed nights; the FIRST armed night's row gets an ACTIVE exclude (the
+    phantom-arm judgment — the contract under test is the READ POLICY, so the annotation is a direct input
+    here; the real-phantom end-to-end is tests/pipeline/test_annotate_phantom_arms.py). Default and
+    ``include_annotated=false`` set it aside (the episode opens on the next honest arm); ``=true`` scores it
+    exactly as before the annotation; the nights are listed under both readings; no read writes."""
+    thesis = persist_thesis(db, security_id)
+    conv, conf = keys_fired(security_id, date(2026, 7, 10), conv_liveness=120, conf_liveness=120)
+    record_day(db, thesis, [conv], date(2026, 7, 9))  # warming: the arm below is not censored
+    record_day(db, thesis, [conv, conf], date(2026, 7, 10))  # the night that gets annotated
+    record_day(db, thesis, [conv, conf], date(2026, 7, 13))  # still armed (never annotated)
+    bar(db, security_id, date(2026, 7, 10), 100.0)
+    bar(db, security_id, date(2026, 7, 13), 103.0)
+    plain = client.get("/scoreboard", params={"asof": ASOF}).json()
+    assert plain["summary"]["annotated_nights"] == []  # nothing annotated: the quiet default
+    assert _ep_of(plain)["arm_date"] == "2026-07-10" and _ep_of(plain)["annotation_note"] is None
+
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT id FROM calls WHERE thesis_id = %s AND asof = '2026-07-10'", (thesis.id,)
+        )
+        cid = cur.fetchone()["id"]
+    call_annotations_repo.append_annotation(
+        db,
+        cid,
+        action="exclude",
+        reason="stale_comparative_revenue",
+        rule="d3a-first-knowability@t",
+    )
+    db.commit()
+    before = _db_counts(db)
+
+    default = client.get("/scoreboard", params={"asof": ASOF}).json()  # the setting: set aside
+    explicit = client.get("/scoreboard", params={"asof": ASOF, "include_annotated": "false"}).json()
+    included = client.get("/scoreboard", params={"asof": ASOF, "include_annotated": "true"}).json()
+
+    for view in (default, explicit):
+        assert view["summary"]["annotated_policy"] == "excluded"
+        assert _ep_of(view)["arm_date"] == "2026-07-13"  # the annotated night opens nothing
+    nights = default["summary"]["annotated_nights"]
+    assert [(n["thesis_name"], n["asof"], n["reasons"]) for n in nights] == [
+        (thesis.name, "2026-07-10", ["stale_comparative_revenue"])
+    ]
+    assert included["summary"]["annotated_policy"] == "included"
+    assert included["summary"]["annotated_nights"] == nights  # listed under BOTH readings
+    inc = _ep_of(included)
+    # scored again, identically to the pre-annotation record (only the quiet caption differs)
+    assert {k: v for k, v in inc.items() if k != "annotation_note"} == {
+        k: v for k, v in _ep_of(plain).items() if k != "annotation_note"
+    }
+    assert "phantom-arm night(s) 2026-07-10" in inc["annotation_note"]
+    assert _db_counts(db) == before  # every read wrote nothing

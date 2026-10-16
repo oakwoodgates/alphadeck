@@ -260,6 +260,15 @@ stamped a fresh "policy" on every cron night.
   prior-row report, the freshness reads, the decision log's stance — keeps the default and sees every row.
   (`tests/scoreboard/test_record.py`, `tests/repositories/test_calls_repo.py`,
   `tests/db/test_migration_0042_reconstructed.py`.) See `SCOREBOARD.md`, `FEED_LOOP.md`.
+- *Also honored by (the annotated row — D3b, migration 0045):* a JUDGMENT about an honest row (a phantom arm
+  under D3a's dating fix) lives in the append-only `call_annotation` side table, never on the row — `calls`
+  is not touched, not even under a trigger disable. The Scoreboard drops rows with an ACTIVE `exclude` by
+  READ POLICY (`Settings.scoreboard_exclude_annotated`, overridable per request with `include_annotated`),
+  BEFORE the per-as-of dedup exactly like the reconstructed filter; flipping the policy or appending a revoke
+  restores the pre-annotation reading byte-for-byte. Every other reader keeps the default and sees every row.
+  The annotator's D3a-off re-assembly is a diagnostic view that lives only in the CLI — no live-path switch.
+  (`tests/pipeline/test_annotate_phantom_arms.py`, `tests/repositories/test_call_annotations_repo.py`,
+  `tests/db/test_migration_0045_call_annotation.py`.) See `SCOREBOARD.md`, `FEED_LOOP.md`.
 - *CLOSED — "today" is a DOMAIN fact, not an ambient one.* Inside the assembler `asof` is always a
   parameter (above). But at the **edges** that choose the `asof` for a run, "today" was derived from
   `date.today()`, which reads the process's **ambient timezone**. **This bit in production:** a manual

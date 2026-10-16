@@ -8,11 +8,13 @@ import psycopg
 from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard, TriggerRef
 from domain.enums import Kind, State
+from domain.settings import get_settings
 from domain.thesis import Thesis
 from replay.episodes import derive_episodes
 from replay.schema import CallSnapshot, Episode, MemberRow
 from replay.scoring import score_episode
 from repositories import calls_repo, decisions_repo, thesis_repo
+from repositories.call_annotations_repo import CallAnnotation
 from scoreboard import provenance
 from scoreboard.decisions import attach_operator_track
 from scoreboard.prices import PgRealizedPrices, market_tape_edge
@@ -39,18 +41,52 @@ from scoreboard.schema import ScoreboardResult, ScoredEpisode, ThesisRecord, Tra
 # survive with a later (honest) arm date, 56 drop (armed only on reconstructed rows), 2 drop (the
 # thesis did not exist). A gap left by the exclusion reads exactly like a cron gap: the record last
 # spoke on the prior HONEST row.
+#
+# ANNOTATED ROWS — the SECOND filter, and a POLICY rather than a fact (D3b, migration 0045). An honest row
+# can still be WRONG: before D3a the fundamentals read dated a re-reported comparative quarter at its later
+# filing, so some nightly arms rested only on a year-old revenue inflection (phantom arms). The operator
+# decided (Q2) to set them aside REVERSIBLY: ``pipeline.annotate_phantom_arms`` appends an ``exclude``
+# annotation beside each such row (``call_annotation`` — the row itself is never touched), and under the
+# policy (``Settings.scoreboard_exclude_annotated``, default on; the request's ``include_annotated``
+# overrides it) every record read below ALSO drops rows carrying an active ``exclude`` — at the same place
+# and the same way as the reconstructed filter: inside the WHERE, BEFORE the per-as-of dedup, applied to
+# ``latest_for_thesis`` AND the ingest-health and run-identity peer reads so all three still describe ONE
+# winning row. Consequences, identical to the reconstructed rule: an excluded night reads like a cron gap
+# (the record last spoke on the prior row), and a night with an excluded row and another honest row scores
+# the other row. Flipping the policy (or revoking the annotation) re-scores the record exactly as before
+# D3b; nothing is deleted. ``note`` annotations never filter — they ride the episode drawer as a caption.
+
+
+def resolve_exclude_annotated(exclude_annotated: bool | None = None) -> bool:
+    """The Scoreboard's annotated-night read policy for ONE read (D3b): an explicit bool wins (the
+    request's ``include_annotated`` override, inverted by the router), ``None`` = the configured
+    ``Settings.scoreboard_exclude_annotated``. One resolution per request, threaded down, so every read in
+    that request applies the same policy."""
+    if exclude_annotated is None:
+        return get_settings().scoreboard_exclude_annotated
+    return exclude_annotated
 
 
 def thesis_timeline(
-    conn: psycopg.Connection, thesis_id: UUID, asof: date
+    conn: psycopg.Connection,
+    thesis_id: UUID,
+    asof: date,
+    *,
+    exclude_annotated: bool | None = None,
 ) -> tuple[list[CallSnapshot], dict[date, CallCard]]:
     """The thesis's HONEST call-of-record timeline up to ``asof``, ascending, plus the cards by as-of
     (for trigger enrichment). ``latest_for_thesis`` dedups to the final card per as-of — its own
     docstring: the read a scoreboard wants — with reconstructed rows EXCLUDED before that dedup (the
-    header rule: a reconstructed row never defines an episode boundary)."""
+    header rule: a reconstructed row never defines an episode boundary), and — under the annotated-night
+    policy (``resolve_exclude_annotated``) — rows carrying an active ``exclude`` annotation too."""
     cards = [
         c
-        for c in calls_repo.latest_for_thesis(conn, thesis_id, include_reconstructed=False)
+        for c in calls_repo.latest_for_thesis(
+            conn,
+            thesis_id,
+            include_reconstructed=False,
+            exclude_annotated=resolve_exclude_annotated(exclude_annotated),
+        )
         if c.asof <= asof
     ]
     cards.reverse()  # newest-first -> ascending
@@ -160,6 +196,52 @@ def _transitions(snaps: list[CallSnapshot], ep: Episode) -> list[Transition]:
     return out
 
 
+# the reason tokens the annotator writes -> the caption's words (an unknown token reads as itself)
+_REASON_WORDS = {"stale_comparative_revenue": "a stale-dated comparative revenue quarter"}
+
+
+def _annotation_note(
+    by_asof: dict[date, list[CallAnnotation]], ep: Episode, *, exclude_annotated: bool
+) -> str | None:
+    """The episode drawer's QUIET annotation caption (D3b) — composed from the ACTIVE annotations on the
+    WINNING rows across the run ``[arm_date, dearm_date or last_armed_date]`` (``_risk_events``' closed
+    interval), filtered to the ones that touch THIS member (``detail.affected_security_ids``; a row without
+    that list is shown rather than guessed away). ``None`` when nothing applies — a clean episode carries
+    no line (honest loudness). Two shapes:
+
+    - a ``note``: the arm stands and is scored; the rule only changed its composition on that night.
+    - an ``exclude`` on a reading that INCLUDES annotated nights: the night is a phantom arm the default
+      reading sets aside — said so the operator knows this episode's number depends on the reading.
+
+    Backend-authored copy, one authority (the ``ingest_note`` / ``run_identity_note`` precedent)."""
+    walk_end = ep.dearm_date or ep.last_armed_date
+    notes: list[tuple[date, CallAnnotation]] = []
+    excluded: list[date] = []
+    for d in sorted(x for x in by_asof if ep.arm_date <= x <= walk_end):
+        for a in by_asof[d]:
+            affected = (a.detail or {}).get("affected_security_ids")
+            if isinstance(affected, list) and str(ep.security_id) not in {str(x) for x in affected}:
+                continue
+            if a.action == "exclude" and not exclude_annotated:
+                excluded.append(d)
+            elif a.action == "note":
+                notes.append((d, a))
+    parts: list[str] = []
+    if excluded:
+        days = ", ".join(str(d) for d in sorted(set(excluded)))
+        parts.append(
+            f"phantom-arm night(s) {days} — annotated exclude; scored here only because this reading "
+            "includes annotated nights"
+        )
+    for d, a in notes:
+        summary = (a.detail or {}).get("summary")
+        why = _REASON_WORDS.get(a.reason, a.reason.replace("_", " "))
+        parts.append(f"{d}: {summary or 'composition changed'} ({why}; still scored)")
+    if not parts:
+        return None
+    return "annotated · " + " · ".join(parts)
+
+
 def _warming_since(snaps: list[CallSnapshot]) -> date | None:
     """The start of the OPEN warming-with-conviction run at the record edge — the withheld window
     accruing right now (the honest launch-state signal for a thesis with zero episodes)."""
@@ -180,9 +262,13 @@ def derive_thesis_record(
     known_at: datetime | None = None,
     market_edge: date | None = None,
     basket_size: int | None = None,
+    exclude_annotated: bool | None = None,
 ) -> tuple[ThesisRecord, list[CallSnapshot]]:
     """One thesis's record scored as-of: episodes from the log, outcomes against asof-capped prices,
     plus the record-honesty flags. Returns the snapshots too (SB2 feeds them to the metric set).
+    ``exclude_annotated`` is the D3b read policy (``resolve_exclude_annotated``: None = the setting),
+    resolved ONCE here and applied to every record read below, so the timeline, the ingest stamps, the run
+    identity and the annotation caption all describe the same winning rows.
 
     - ``status``: open iff the run reached the record edge un-dearmed (``dearm_date is None``).
     - ``matured``: the episode's own ``exit_by`` elapsed (<= asof) — judged only at its deadline.
@@ -193,7 +279,8 @@ def derive_thesis_record(
       falls back to the LIVE ``thesis`` count (the direct-call default, e.g. unit tests). The live
       roster would misreport a past-as-of.
     """
-    snaps, cards_by_asof = thesis_timeline(conn, thesis.id, asof)
+    exclude = resolve_exclude_annotated(exclude_annotated)
+    snaps, cards_by_asof = thesis_timeline(conn, thesis.id, asof, exclude_annotated=exclude)
     record = ThesisRecord(
         thesis_id=thesis.id,
         tenant_id=thesis.tenant_id,
@@ -230,7 +317,9 @@ def derive_thesis_record(
         # accession. The flags segment/annotate only; ``score_episode``'s inputs are untouched.
         # the SAME honest filter as thesis_timeline, so the stamp belongs to the row that was scored
         health = (
-            calls_repo.ingest_health_for_thesis(conn, thesis.id, include_reconstructed=False)
+            calls_repo.ingest_health_for_thesis(
+                conn, thesis.id, include_reconstructed=False, exclude_annotated=exclude
+            )
             if episodes
             else {}
         )
@@ -238,7 +327,18 @@ def derive_thesis_record(
         # therefore the same winning row) as `health` and `thesis_timeline` above, so the caption on an
         # episode always describes the run that produced the card being scored.
         identity = (
-            calls_repo.run_identity_for_thesis(conn, thesis.id, include_reconstructed=False)
+            calls_repo.run_identity_for_thesis(
+                conn, thesis.id, include_reconstructed=False, exclude_annotated=exclude
+            )
+            if episodes
+            else {}
+        )
+        # D3b — the ACTIVE annotations on the SAME winning rows (the third peer read on the one rule),
+        # for the drawer's quiet caption only; nothing scored reads it.
+        annotations = (
+            calls_repo.annotations_for_thesis(
+                conn, thesis.id, include_reconstructed=False, exclude_annotated=exclude
+            )
             if episodes
             else {}
         )
@@ -273,6 +373,7 @@ def derive_thesis_record(
                     arm_code_sha=ident.code_sha if ident else None,
                     arm_run_kind=ident.run_kind if ident else None,
                     run_identity_note=provenance.run_identity_note(ident),
+                    annotation_note=_annotation_note(annotations, ep, exclude_annotated=exclude),
                     triggers_at_arm=trigs,
                     # Slice C — composed ONLY for the one opaque token (the others self-explain, #7);
                     # dict lookups over the cards already in hand, no new queries.
@@ -306,6 +407,7 @@ def scoreboard_records(
     *,
     include_archived: bool = True,
     known_at: datetime | None = None,
+    exclude_annotated: bool | None = None,
 ) -> tuple[ScoreboardResult, dict[UUID, list[CallSnapshot]], dict[UUID, UUID]]:
     """Every thesis's record scored as-of (archived INCLUDED by default — the record is not erased
     by archiving; it just stops accruing). Per-thesis fault isolation: an unreadable historical card
@@ -314,8 +416,13 @@ def scoreboard_records(
 
     Returns ``(result, timelines, single_name_security)`` — the last is thesis_id -> its sole
     resolved member's security_id (replay's ``_single_name_security`` shape, computed here where the
-    loaded theses are in scope), the unit the withheld-arm metric can price."""
-    result = ScoreboardResult(asof=asof)
+    loaded theses are in scope), the unit the withheld-arm metric can price.
+
+    ``exclude_annotated`` (D3b): the annotated-night policy, resolved ONCE for the whole request
+    (``resolve_exclude_annotated``) and stamped on the result (``exclude_annotated``), so every thesis is
+    read under the same reading and the response can say which one it is."""
+    exclude = resolve_exclude_annotated(exclude_annotated)
+    result = ScoreboardResult(asof=asof, exclude_annotated=exclude)
     timelines: dict[UUID, list[CallSnapshot]] = {}
     single_name: dict[UUID, UUID] = {}
     # The market tape edge (``truncated``'s second leg) is per TENANT, not per thesis or per episode,
@@ -346,6 +453,7 @@ def scoreboard_records(
                 known_at=known_at,
                 market_edge=market_edges[thesis.tenant_id],
                 basket_size=pit_basket_size,
+                exclude_annotated=exclude,
             )
             timelines[thesis.id] = snaps
         except Exception as e:  # noqa: BLE001 — one thesis's bad card never blanks the Scoreboard

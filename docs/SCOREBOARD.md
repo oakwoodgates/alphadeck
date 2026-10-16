@@ -70,6 +70,55 @@ replay's job (`docs/REPLAY.md` — the historical twin); attribution's source is
   thesis did not exist); August 7, a reconstructed night, had been the single largest arm date on the
   whole ledger. Pre-creation rows are additionally deletable by the operator
   (`pipeline.repair_reconstructed_precreation`, dry-run by default; `docs/FEED_LOOP.md`).
+- **Phantom-arm (annotated) nights are set aside by a READ POLICY — reversibly (D3b).** An honest row can
+  still be wrong. Before D3a (#390) the fundamentals read dated a re-reported comparative revenue quarter at
+  its LATER filing, so some nightly arms rested only on a year-old inflection re-fired as fresh — phantom
+  arms. The operator decided (Q2, 2026-10-16) to annotate them and exclude them from scoring, built so the
+  decision can be flipped at any time. The mechanics mirror the reconstructed rule exactly, with one
+  difference: reconstructed is a FACT about a row (always filtered), annotated is a JUDGMENT (filtered by
+  policy).
+  - **The annotation, never an edit.** `pipeline.annotate_phantom_arms` appends rows to `call_annotation`
+    (migration 0045 — append-only, the `no_update` trigger) beside the `calls` row; `calls` is never touched.
+    `exclude` = a phantom arm (the row armed, and with D3a's dating the same night is not armed); `note` =
+    the arm stands but D3a changes its composition (verdict / headline / armed set) — it stays scored and
+    shows only as a quiet caption in the episode drawer; `revoke` = withdraws one earlier annotation. A row is
+    annotated ONLY for what D3a changes: the CLI re-assembles each honest row twice at its own `(asof,
+    known_at = recorded_at)`, D3a off and D3a on, and a row whose D3a-off re-assembly does not reproduce the
+    recorded state, verdict and armed set is DRIFT — reported, never annotated (`docs/FEED_LOOP.md`
+    §"Annotating phantom arms").
+  - **The policy.** `Settings.scoreboard_exclude_annotated` (env `ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED`,
+    default `true`): rows carrying an ACTIVE `exclude` are dropped from `thesis_timeline`, the ingest-health
+    stamp and the run-identity read — inside the WHERE, BEFORE the per-as-of dedup
+    (`calls_repo._annotated_clause` beside `_reconstructed_clause`), so all three still describe one winning
+    row. As with reconstructed rows, an excluded night reads like a cron gap (the record last spoke on the
+    prior row), and a night with another honest row is scored from it. `note`s never filter.
+  - **Both readings, side by side.** `GET /scoreboard?include_annotated=true` scores the annotated rows
+    (exactly as before D3b), `=false` sets them aside, omitted = the setting; the summary says which reading
+    it is (`annotated_policy: "excluded" | "included"`) and lists the nights either way (`annotated_nights`:
+    thesis, as-of, reason, rule). The ledger renders one quiet line — "N phantom-arm nights set aside · not
+    scored" (or "… included in this reading · scored") with the nights on hover — and an **include annotated
+    nights** toggle that flips the reading for that view; the next click returns to the default. Rendered
+    only when some night is annotated. `python -m scoreboard.run --include-annotated` is the CLI twin.
+  - **Reversing it.** Globally: flip the setting (`ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED=false`) and the
+    record scores every annotated row again — byte-identical to the pre-annotation reading
+    (`tests/pipeline/test_annotate_phantom_arms.py` pins it). Per row: `python -m
+    pipeline.annotate_phantom_arms --revoke <annotation-id> --reason "…" --apply` (or `--revoke-all`)
+    appends a revoke; a revoke sticks across re-runs of the annotator (a (call, action) its rule family
+    already judged is never judged again). Nothing is deleted either way.
+  - **Named limitation — the exclusion is ROW-level (the thesis-night), never member-level.** A night where
+    D3a removes SOME armed members but the thesis stays armed is a `note`: the row stays scored, so those
+    members' arm episodes stay on the ledger and in the metrics, marked only by the drawer caption. MEASURED
+    (prod dry-run): 82 of the 106 notes drop at least one armed member — 147 member-nights over 18 (thesis,
+    member) pairs (e.g. AI Memory & Storage's DELL / HPE / NLST before 2026-10-14). Setting those aside
+    would need an episode-level filter — a separate operator decision, not built.
+  - **Name the reading when quoting.** Any Scoreboard number quoted outside the app (e.g. in the expansion
+    talks) must say which policy produced it — "phantom-arm nights excluded" or "included" — because the two
+    readings differ by design. The API carries `annotated_policy` on every response for exactly this.
+  - MEASURED (prod dry-run, 2026-10-16, read-only): 630 honest rows → 7 `exclude` (AI Memory & Storage
+    2026-10-14/15, Nuclear Buildout 2026-10-14/15, Digital Asset Treasury Complex 2026-09-15/16 and
+    2026-10-05), 106 `note`, 103 drift (all pre-2026-09-15 rows re-assembled on the LIVE roster; none of them
+    a would-be exclusion), 414 unchanged. Nothing was applied; `--apply` on prod is the operator's call after
+    a backup.
 
 ## The scoring unit and its flags
 
