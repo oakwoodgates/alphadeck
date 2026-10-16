@@ -69,20 +69,25 @@ def _num(x: object) -> float | None:
     return None if x is None else float(x)  # numeric columns arrive as Decimal; fresh bars as float
 
 
+def _moved(fresh: dict, stored: dict, field: str) -> bool:
+    """Did ONE bar field move beyond float noise? Both absent = unchanged; one absent = moved; else
+    ``math.isclose`` at rel_tol 1e-9 (repr/Decimal round-trip jitter is ~1e-12). The single tolerance
+    rule shared by ``_restated`` and the Q3 benchmark repair (``pipeline.repair_benchmark_bars``).
+    """
+    a, b = _num(fresh.get(field)), _num(stored.get(field))
+    if a is None and b is None:
+        return False
+    if a is None or b is None:
+        return True
+    return not math.isclose(a, b, rel_tol=1e-9, abs_tol=1e-9)
+
+
 def _restated(fresh: dict, stored: dict) -> bool:
     """A restatement = close or volume moved beyond float noise. A split re-base moves both ~10×;
     repr/Decimal round-trip jitter is ~1e-12 — rel_tol 1e-9 separates them cleanly. Close + volume
     are the fields the detectors read (the breakout close, the volume-confirmation gate); OHL cannot
     be re-based without close moving, so they don't need their own compare."""
-    for field in ("close", "volume"):
-        a, b = _num(fresh.get(field)), _num(stored.get(field))
-        if a is None and b is None:
-            continue
-        if a is None or b is None:
-            return True
-        if not math.isclose(a, b, rel_tol=1e-9, abs_tol=1e-9):
-            return True
-    return False
+    return any(_moved(fresh, stored, field) for field in ("close", "volume"))
 
 
 def ingest_bars_for_security(

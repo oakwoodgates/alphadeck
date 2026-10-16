@@ -37,9 +37,9 @@ Both paths share the rest:
   a NEW version stamped ``now`` (never backdated — a correction is news, and a backdated one would collide
   with a backdated original), and an unseen date inside the window backfills with the path's own stamp.
   Bars OLDER than the window are deliberately left alone — re-versioning those is the operator's call
-  (Q3: the 08-25/08-27 frozen closes, and the nightly volumes the vendor revised after 22:30), never a
-  nightly side effect. ``plan_benchmark_bars`` is the pure planner (what each pass would write), so a
-  read-only dry run can show exactly that against a live store.
+  (Q3: the 08-25/08-27 frozen closes — ``pipeline.repair_benchmark_bars`` — and the nightly volumes the
+  vendor revised after 22:30), never a nightly side effect. ``plan_benchmark_bars`` is the pure planner
+  (what each pass would write), so a read-only dry run can show exactly that against a live store.
 - **Fail-visible** — one benchmark's error never aborts the other (each commits or rolls back alone).
 
     python -m pipeline.ingest_benchmarks                 # one-shot backfill, live (needs ALPHADECK_USER_AGENT), ~5y

@@ -217,6 +217,23 @@ there). The **replay/backtest** read no benchmark bar at all (`ReplayPointInTime
 run pins one `known_at` after every nightly ingest; a public-clock mirror rewrites `fact_price_eod`'s
 `recorded_at` to the bar date. Already-stored nightly bars keep their backdated stamps (no rewrite).
 
+**Q3 — the one-off repair of the frozen bars (`pipeline/repair_benchmark_bars.py`, 2026-10-16).** The
+operator approved re-versioning exactly the two frozen days, SPY + IWM 2026-08-25 and 2026-08-27 (4 bars);
+the other SPY/IWM bars that differ from the vendor (small, upward volume-only revisions after the 22:30
+pull) stay as stored. `python -m pipeline.repair_benchmark_bars --dates 2026-08-25,2026-08-27` is a
+**dry run by default** (read-only connection, no lock, nothing written: it prints each stored version next
+to the vendor's current bar); `--apply` appends. The shape is D1's restatement: the vendor bar comes through
+the `PriceSource` seam live with `force_refresh` (into a throwaway cache dir, so the shared price cache is
+untouched); a bar that differs in any OHLCV field under the `_restated` tolerance gets the vendor's whole bar
+as a NEW version through `ingest_prices` (`valid_from = d`, `recorded_at = db_now`, an INSERT, one
+transaction); a matching bar, a date with no vendor bar, and a date with no stored bar append nothing.
+Re-applying appends zero, and a read pinned before the repair still sees the frozen close. The guard takes
+only the `securities.benchmarks` rows and only the dates passed, and refuses an empty list, a weekend, today
+or later, and an unsettled session (exit 2). `--apply` holds the call-of-record lock (exit 75 when it is
+held) and writes its provenance to `data/repairs/`. **It re-records no call:** the benchmark tape feeds only
+the display-only RS column (`benchmark_prices` is called only from `signals/display/relative_strength.py`;
+no basket member is a benchmark row). Run `--apply` on prod after a labeled backup.
+
 ## The daily cron — `pipeline/daily.py`  `[BUILT #71]`
 
 `run_daily(conn, *, asof=today, known_at=now, allow_live=True, force_refresh=True, notifier=None, …)`.

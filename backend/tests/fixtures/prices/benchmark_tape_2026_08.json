@@ -1,5 +1,5 @@
 {
- "_provenance": "REAL data, extracted read-only on 2026-10-16. `final` = the vendor's chart payload for the named sessions, cut from prod /data/price_cache/<T>.yahoo.json (the nightly force-refresh pull of 2026-10-15 22:30 ET). `midsession_2026_08_25` = the same payload cut at 2026-08-25, whose LAST element carries the OHLCV that the 2026-08-25 market-hours pass stored in prod fact_price_eod (its only version until now; the final close was 765.909973 SPY / 299.230011 IWM). That element keeps the session's own timestamp (13:30 UTC) \u2014 the guard reads only its date. `thanksgiving_2025` = SPY 2025-11-24..12-01: no bar on the 11-27 holiday, the 11-28 half-day (13:00 ET close) bar present. `SPY.stored_prod_2026_08` = the rows prod fact_price_eod held for SPY 2026-08-20..08-28 (one version each, recorded_at = the bar date 00:00 UTC \u2014 the nightly leg's backdated stamp): the 08-25/08-27 closes frozen intraday, and the nightly volumes the vendor revised after the 22:30 pull.",
+ "_provenance": "REAL data, extracted read-only on 2026-10-16. `final` = the vendor's chart payload for the named sessions, cut from prod /data/price_cache/<T>.yahoo.json (the nightly force-refresh pull of 2026-10-15 22:30 ET). `midsession_2026_08_25` = the same payload cut at 2026-08-25, whose LAST element carries the OHLCV that the 2026-08-25 market-hours pass stored in prod fact_price_eod (its only version until now; the final close was 765.909973 SPY / 299.230011 IWM). That element keeps the session's own timestamp (13:30 UTC) \u2014 the guard reads only its date. `thanksgiving_2025` = SPY 2025-11-24..12-01: no bar on the 11-27 holiday, the 11-28 half-day (13:00 ET close) bar present. `SPY.stored_prod_2026_08` = the rows prod fact_price_eod held for SPY 2026-08-20..08-28 (one version each, recorded_at = the bar date 00:00 UTC \u2014 the nightly leg's backdated stamp): the 08-25/08-27 closes frozen intraday, and the nightly volumes the vendor revised after the 22:30 pull. `IWM.stored_prod_2026_08` (added for the Q3 repair, extracted read-only from prod fact_price_eod on 2026-10-16) = the same for IWM 2026-08-20..08-28: one version each, recorded_at = the bar date 00:00 UTC, the 08-25/08-27 closes frozen intraday (298.665009 / 299.559998 against the vendor's final 299.230011 / 299.809998).",
  "SPY": {
   "final": {
    "chart": {
@@ -476,6 +476,71 @@
     ],
     "error": null
    }
-  }
+  },
+  "stored_prod_2026_08": [
+   {
+    "d": "2026-08-20",
+    "open": 299.269989013672,
+    "high": 300.040008544922,
+    "low": 297.040008544922,
+    "close": 297.670013427734,
+    "volume": 21638700,
+    "recorded_at": "2026-08-20T00:00:00+00:00"
+   },
+   {
+    "d": "2026-08-21",
+    "open": 299.850006103516,
+    "high": 300.329986572266,
+    "low": 298.170013427734,
+    "close": 299.959991455078,
+    "volume": 22933800,
+    "recorded_at": "2026-08-21T00:00:00+00:00"
+   },
+   {
+    "d": "2026-08-24",
+    "open": 299.549987792969,
+    "high": 299.739990234375,
+    "low": 297.399993896484,
+    "close": 297.970001220703,
+    "volume": 12853800,
+    "recorded_at": "2026-08-24T00:00:00+00:00"
+   },
+   {
+    "d": "2026-08-25",
+    "open": 299.600006103516,
+    "high": 299.769989013672,
+    "low": 297.970001220703,
+    "close": 298.665008544922,
+    "volume": 8425444,
+    "recorded_at": "2026-08-25T00:00:00+00:00"
+   },
+   {
+    "d": "2026-08-26",
+    "open": 298.640014648438,
+    "high": 299.950012207031,
+    "low": 298.130004882812,
+    "close": 298.929992675781,
+    "volume": 10530600,
+    "recorded_at": "2026-08-26T00:00:00+00:00"
+   },
+   {
+    "d": "2026-08-27",
+    "open": 298.769989013672,
+    "high": 300.315002441406,
+    "low": 298.140014648438,
+    "close": 299.559997558594,
+    "volume": 9550950,
+    "recorded_at": "2026-08-27T00:00:00+00:00"
+   },
+   {
+    "d": "2026-08-28",
+    "open": 299.700012207031,
+    "high": 300.390014648438,
+    "low": 295.670013427734,
+    "close": 295.75,
+    "volume": 19052800,
+    "recorded_at": "2026-08-28T00:00:00+00:00"
+   }
+  ]
  }
 }
