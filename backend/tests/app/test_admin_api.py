@@ -93,8 +93,10 @@ def _artifact(
     tape_stale_new: tuple[StaleFeedLabel, ...] = (),
     tape_stale_days: int = 5,
     fund_shares_stale_days: int = 7,
+    **phase_1b,
 ):
-    """Write a run-of-record artifact through the REAL writer (into the conftest-redirected tmp home)."""
+    """Write a run-of-record artifact through the REAL writer (into the conftest-redirected tmp home).
+    ``phase_1b`` passes the identity / env / name-error / audit keys straight to the writer."""
     results = results if results is not None else [_tr(recorded=True, edgar_fetches=88)]
     path = write_cron_run_log(
         results,
@@ -109,6 +111,7 @@ def _artifact(
         tape_stale_new=tape_stale_new,
         tape_stale_days=tape_stale_days,
         fund_shares_stale_days=fund_shares_stale_days,
+        **phase_1b,
     )
     assert path is not None
     return path
@@ -970,3 +973,331 @@ def test_an_artifact_WITHOUT_the_FUND_keys_still_parses_and_reads_as_price(clien
     assert tape["stale"][0]["kind"] == "price" and tape["stale"][0]["security_id"] == str(a)
     assert tape["stale_days"] == 5 and tape["fund_shares_stale_days"] == 7  # the live defaults
     assert tape["newly_stale"] == ["AAA"]
+
+
+# --- Phase 1B: the identity / env alarms (I1/I2), the backup-age alarm (B4), the audit (V1), O1, C1 ----
+
+_SHA = "2f3cdfa0aaaabbbbccccdddd0000111122223333"
+_OTHER_SHA = "9cd6862bbbbccccddddeeee1111222233334444"
+# a realistic, CLEAN env fingerprint (what `daily.env_fingerprint` writes on a configured prod pass)
+_GOOD_ENV = {
+    "tz": "America/New_York",
+    "market_tz": "America/New_York",
+    "run_at": "22:30",
+    "cron_at": "22:30",
+    "user_agent_set": True,
+    "slack_webhook_set": True,
+    "polygon_api_key_set": True,
+    "heartbeat_url_set": True,
+    "notifier": "SlackNotifier",
+}
+
+
+@pytest.fixture
+def backend_sha(monkeypatch):
+    """This backend's OWN image sha (Settings.image_sha) — the half of the mismatch check the router
+    reads from itself."""
+    monkeypatch.setenv("ALPHADECK_IMAGE_SHA", _SHA)
+    get_settings.cache_clear()
+    yield _SHA
+    get_settings.cache_clear()
+
+
+def _friday_record(db, monkeypatch):
+    """A CURRENT record read on Monday morning (the Friday edge — `healthy` absent any alarm), with this
+    backend process started BEFORE Friday night's cron pass (so the sha comparison applies)."""
+    _no_network(monkeypatch)
+    _thesis(db, "T")
+    daily.run_daily(db, asof=_FRI, allow_live=True)
+    _pin(monkeypatch, datetime(2026, 7, 20, 9, 0))
+    monkeypatch.setattr(
+        admin, "_backend_started_at", lambda: datetime(2026, 7, 1, tzinfo=timezone.utc)
+    )
+
+
+def _cron_artifact(**kw):
+    """A cron-kind pass artifact for Friday night, carrying the Phase-1B identity keys."""
+    kw.setdefault("run_kind", "cron")
+    kw.setdefault("code_sha", _SHA)
+    kw.setdefault("env", dict(_GOOD_ENV))
+    return _artifact(asof=_FRI, at=datetime(2026, 7, 18, 2, 31, tzinfo=timezone.utc), **kw)
+
+
+def _dump(backups_dir, utc_stamp: str, label: str | None = None):
+    """A real snapshot listing entry — `list_backups` dates a dump by its filename timestamp (UTC)."""
+    backups_dir.mkdir(parents=True, exist_ok=True)
+    name = f"alphadeck-{utc_stamp}" + (f"-{label}" if label else "") + ".sql"
+    (backups_dir / name).write_text("-- dump\n", encoding="utf-8")
+    return name
+
+
+def test_status_a_CLEAN_identity_raises_NO_alarm(client, db, monkeypatch, backend_sha, backups_dir):
+    """The positive control: the cron's sha matches the backend's, Slack + UA are set, and Friday night's
+    dump is on disk — healthy, `alarms` empty, both shas on the wire."""
+    _friday_record(db, monkeypatch)
+    _cron_artifact()
+    _dump(backups_dir, "20260718T031000")  # Fri 23:10 ET
+    body = client.get("/admin/status").json()
+    assert body["cron"]["status"] == "healthy", body["cron"]
+    assert body["cron"]["alarms"] == []
+    assert body["backend_sha"] == _SHA and body["cron_sha"] == _SHA
+    assert body["last_run"]["run_kind"] == "cron" and body["last_run"]["code_sha"] == _SHA
+    assert body["last_run"]["env"]["notifier"] == "SlackNotifier"
+
+
+def test_status_alarms_when_the_CRON_pass_ran_with_an_UNKNOWN_sha(
+    client, db, monkeypatch, backend_sha, backups_dir
+):
+    """84 cron rows carried a NULL sha (MEASURED 09-18..09-28) — the night it happens is now loud."""
+    _friday_record(db, monkeypatch)
+    _cron_artifact(code_sha=None)
+    _dump(backups_dir, "20260718T031000")
+    body = client.get("/admin/status").json()
+    assert body["cron"]["status"] == "unhealthy"
+    (alarm,) = body["cron"]["alarms"]
+    assert "code_sha UNKNOWN" in alarm and "GIT_SHA" in alarm
+    assert alarm in body["cron"]["detail"]
+    assert body["cron_sha"] is None
+
+
+def test_status_alarms_when_the_cron_and_backend_SHAS_DIFFER(
+    client, db, monkeypatch, backend_sha, backups_dir
+):
+    """MEASURED 2026-10-16: the cron ran 2f3cdfa while the backend ran 9cd6862 — one image left stale."""
+    _friday_record(db, monkeypatch)
+    _cron_artifact(code_sha=_OTHER_SHA)
+    _dump(backups_dir, "20260718T031000")
+    body = client.get("/admin/status").json()
+    assert body["cron"]["status"] == "unhealthy"
+    (alarm,) = body["cron"]["alarms"]
+    assert f"the cron runs {_OTHER_SHA[:12]} but the backend runs {_SHA[:12]}" in alarm
+    assert (body["cron_sha"], body["backend_sha"]) == (_OTHER_SHA, _SHA)
+
+
+def test_a_cron_pass_from_BEFORE_this_backend_started_is_not_compared(
+    client, db, monkeypatch, backend_sha, backups_dir
+):
+    """The full-deploy case: both images rebuilt at 14:00, the cron's last artifact is still last night's
+    (old sha). That pass says nothing about the cron's CURRENT image, so no mismatch alarm until the next
+    cron pass — which is when a backend-only rebuild (the measured failure) gets caught."""
+    _friday_record(db, monkeypatch)
+    monkeypatch.setattr(
+        admin, "_backend_started_at", lambda: datetime(2026, 7, 20, 8, 0, tzinfo=timezone.utc)
+    )  # the backend (re)started Monday — AFTER Friday night's cron pass
+    _cron_artifact(code_sha=_OTHER_SHA)
+    _dump(backups_dir, "20260718T031000")
+    body = client.get("/admin/status").json()
+    assert body["cron"]["alarms"] == [] and body["cron"]["status"] == "healthy"
+    assert body["cron_sha"] == _OTHER_SHA  # still reported — just not judged yet
+
+
+def test_status_alarms_when_the_BACKEND_sha_is_unknown(client, db, monkeypatch, backups_dir):
+    monkeypatch.delenv("ALPHADECK_IMAGE_SHA", raising=False)
+    get_settings.cache_clear()
+    try:
+        _friday_record(db, monkeypatch)
+        _cron_artifact()
+        _dump(backups_dir, "20260718T031000")
+        body = client.get("/admin/status").json()
+    finally:
+        get_settings.cache_clear()
+    assert body["cron"]["status"] == "unhealthy"
+    assert any("backend's own code_sha is UNKNOWN" in a for a in body["cron"]["alarms"])
+
+
+def test_status_alarms_on_the_LOG_notifier_and_an_UNSET_user_agent(
+    client, db, monkeypatch, backend_sha, backups_dir
+):
+    """A live pass that paged into the log pages NOBODY; one with no User-Agent fetched no EDGAR at all."""
+    _friday_record(db, monkeypatch)
+    _cron_artifact(env={**_GOOD_ENV, "notifier": "LogNotifier", "user_agent_set": False})
+    _dump(backups_dir, "20260718T031000")
+    body = client.get("/admin/status").json()
+    assert body["cron"]["status"] == "unhealthy"
+    alarms = " | ".join(body["cron"]["alarms"])
+    assert "LOG notifier" in alarms and "SLACK_WEBHOOK_URL is unset" in alarms
+    assert "ALPHADECK_USER_AGENT unset" in alarms
+
+
+def test_status_an_artifact_WITHOUT_the_identity_keys_raises_no_identity_alarm(
+    client, db, monkeypatch
+):
+    """Every artifact written before Phase 1B lacks run_kind / env — "not recorded", never an alarm by
+    absence (or the deploy itself would page until the first new pass)."""
+    _friday_record(db, monkeypatch)
+    path = _artifact(asof=_FRI, at=datetime(2026, 7, 18, 2, 31, tzinfo=timezone.utc))
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    for k in ("code_sha", "config_hash", "run_kind", "env", "audit", "name_errors_new"):
+        doc.pop(k, None)
+    path.write_text(json.dumps(doc), encoding="utf-8")
+    body = client.get("/admin/status").json()
+    assert body["cron"]["status"] == "healthy" and body["cron"]["alarms"] == []
+    assert body["last_run"]["code_sha"] is None and body["last_run"]["audit"] == []
+
+
+# --- B4: the backup-age alarm, schedule-aware ---------------------------------------------------------
+
+
+def test_backup_alarm_is_SCHEDULE_AWARE_a_friday_dump_is_current_all_weekend(
+    client, db, monkeypatch, backend_sha, backups_dir
+):
+    """The nightly dump rides the weekday pass: Friday 23:10's dump is current on Sunday (60 h of WALL
+    time, 0 of schedule time) and still on Monday morning; by Tuesday 05:00 Monday night's dump is due
+    and missing — the alarm."""
+    _friday_record(db, monkeypatch)
+    _cron_artifact()
+    _dump(backups_dir, "20260718T031000")  # Fri 2026-07-17 23:10 ET
+    _pin(monkeypatch, datetime(2026, 7, 19, 12, 0))  # Sunday noon
+    assert client.get("/admin/status").json()["cron"]["alarms"] == []
+    _pin(monkeypatch, datetime(2026, 7, 20, 9, 0))  # Monday morning
+    assert client.get("/admin/status").json()["cron"]["alarms"] == []
+    _pin(monkeypatch, datetime(2026, 7, 21, 5, 0))  # Tuesday 05:00 — Monday night's dump is missing
+    body = client.get("/admin/status").json()
+    assert body["cron"]["status"] == "unhealthy"
+    assert any(
+        "newest nightly backup" in a and "2026-07-20 pass" in a for a in body["cron"]["alarms"]
+    )
+
+
+def test_backup_alarm_clears_once_the_due_night_has_a_dump(
+    client, db, monkeypatch, backend_sha, backups_dir
+):
+    _friday_record(db, monkeypatch)
+    _cron_artifact()
+    _dump(backups_dir, "20260718T031000")  # Friday's
+    _dump(backups_dir, "20260721T031000")  # Monday 2026-07-20 23:10 ET
+    _pin(monkeypatch, datetime(2026, 7, 21, 5, 0))
+    alarms = client.get("/admin/status").json()["cron"]["alarms"]
+    assert not any("backup" in a for a in alarms)
+
+
+def test_backup_alarm_a_LABELED_dump_never_satisfies_the_nightly_net(
+    client, db, monkeypatch, backend_sha, backups_dir
+):
+    """A labeled dump is a deliberate recovery point, not the nightly net — with only labeled dumps on
+    disk there is NO nightly backup, and the alarm says so."""
+    _friday_record(db, monkeypatch)
+    _cron_artifact()
+    _dump(backups_dir, "20260718T031000", label="pre-migration")
+    body = client.get("/admin/status").json()
+    assert any("no nightly backup exists" in a for a in body["cron"]["alarms"])
+
+
+def test_backup_alarm_is_OFF_on_a_stack_without_the_cron_sidecar(
+    client, db, monkeypatch, backups_dir
+):
+    """Dev runs with the cron OFF — no cron-kind artifact in its history — so no nightly dump is expected
+    there and an old snapshot is not an alarm."""
+    _friday_record(db, monkeypatch)
+    _artifact(asof=_FRI, at=datetime(2026, 7, 18, 2, 31, tzinfo=timezone.utc), run_kind="manual")
+    _dump(backups_dir, "20260101T031000")  # ancient
+    _pin(monkeypatch, datetime(2026, 7, 21, 5, 0))
+    assert not any("backup" in a for a in client.get("/admin/status").json()["cron"]["alarms"])
+
+
+# --- V1 + O1 on the run row ---------------------------------------------------------------------------
+
+
+def test_a_FAILED_self_audit_is_an_alarm_and_a_not_applicable_one_is_not(client, db, monkeypatch):
+    from pipeline.self_audit import AuditResult
+
+    _friday_record(db, monkeypatch)
+    _artifact(
+        asof=_FRI,
+        at=datetime(2026, 7, 18, 2, 31, tzinfo=timezone.utc),
+        audit=(
+            AuditResult("on_time_rows", False, "2 of 12 active theses have NO on-time row"),
+            AuditResult("code_sha_known", None, "not applicable — a --no-live pass"),
+        ),
+    )
+    body = client.get("/admin/status").json()
+    assert body["cron"]["status"] == "unhealthy"
+    assert any(
+        "SELF-AUDIT FAILED — on_time_rows: 2 of 12" in p for p in body["last_run"]["problems"]
+    )
+    assert [a["ok"] for a in body["last_run"]["audit"]] == [False, None]  # null = n/a, never a pass
+    assert not any("code_sha_known" in p for p in body["last_run"]["problems"])
+
+
+def test_NEW_name_errors_show_on_the_run_but_do_NOT_make_the_cron_unhealthy(
+    client, db, monkeypatch
+):
+    from pipeline.name_errors import NameIngestError
+
+    _friday_record(db, monkeypatch)
+    _artifact(
+        asof=_FRI,
+        at=datetime(2026, 7, 18, 2, 31, tzinfo=timezone.utc),
+        name_errors_evaluated=True,
+        name_errors_new=(NameIngestError(uuid.uuid4(), "WONDF", "price", "no data"),),
+        name_errors_known=5,
+    )
+    body = client.get("/admin/status").json()
+    assert (
+        body["cron"]["status"] == "healthy"
+    )  # the thesis recorded — a name's leg is not a cron fault
+    assert body["last_run"]["name_errors_new"] == ["WONDF (price)"]
+    assert body["last_run"]["name_errors_known"] == 5
+    assert any("newly failing to ingest: WONDF (price)" in p for p in body["last_run"]["problems"])
+    hist = client.get("/admin/runs").json()["runs"][0]
+    assert hist["name_errors_new"] == ["WONDF (price)"]
+
+
+# --- C1: the Admin "Run daily now" sees ANOTHER PROCESS's pass --------------------------------------------
+
+
+def _spawn_lock_holder(holder: str):
+    """A real second OS process holding the call-of-record lock until its stdin closes."""
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    code = (
+        "import sys\n"
+        "from pipeline.run_lock import acquire_pass_lock\n"
+        "lock = acquire_pass_lock(holder=sys.argv[1])\n"
+        "print('held', flush=True)\n"
+        "sys.stdin.read()\n"
+        "lock.release()\n"
+    )
+    proc = subprocess.Popen(
+        [sys.executable, "-c", code, holder],
+        cwd=Path(__file__).resolve().parents[2],
+        env={**os.environ},
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    assert proc.stdout.readline().strip() == "held"
+    return proc
+
+
+def test_run_daily_409_when_ANOTHER_PROCESS_holds_the_run_lock(client, db, monkeypatch):
+    """The in-process slot could never see the cron sidecar's pass in its own container (the 09-01 /
+    09-09 overlaps). Now a click while another process holds the lock is a 409 naming the holder — and no
+    job is started, so the in-process slot stays free."""
+    started = []
+    monkeypatch.setattr(admin, "start_daily_job", lambda run: started.append(run) or "x")
+    proc = _spawn_lock_holder("cron")
+    try:
+        r = client.post("/admin/run-daily")
+        assert r.status_code == 409
+        assert "another process" in r.json()["detail"]
+        assert "alphadeck-pass:cron" in r.json()["detail"]
+        assert started == []  # no job, no pass
+    finally:
+        proc.stdin.close()
+        proc.wait(timeout=30)
+    from pipeline.run_lock import probe_pass_lock
+
+    assert probe_pass_lock() is None  # the holder's exit released it
+
+
+def test_run_daily_503_when_the_lock_cannot_be_checked(client, monkeypatch):
+    def _down():
+        raise ConnectionRefusedError("connection refused")
+
+    monkeypatch.setattr(admin, "probe_pass_lock", _down)
+    r = client.post("/admin/run-daily")
+    assert r.status_code == 503 and "unreachable" in r.json()["detail"]

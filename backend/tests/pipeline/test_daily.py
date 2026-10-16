@@ -7,6 +7,7 @@ dedups on read, so a duplicate append hides behind a correct read while the tabl
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -23,7 +24,7 @@ from domain.feed_kinds import StaleFeedLabel
 from domain.settings import get_settings
 from ingest.edgar.client import RECURRING_CACHE_TTL_S
 from ingest.edgar.form4 import ingest_form4
-from notify import ArmedName
+from notify import ArmedName, LogNotifier
 from pipeline import cron_run_log, daily
 from pipeline.cron_run_log import write_cron_run_log
 from pipeline.ingest_thesis import NameResult
@@ -35,6 +36,22 @@ _XML = (Path(__file__).resolve().parents[1] / "fixtures" / "edgar" / "form4_samp
     encoding="utf-8"
 )
 _ASOF = date(2026, 6, 10)
+
+
+class _FakeLock:
+    """Stands in for a held call-of-record lock (C1) in THIS file, so the pass / CLI tests here stay
+    DB-free where they were before the lock existed. The REAL lock — concurrency, release on close, the
+    exit code, the Admin 409 — is proved against Postgres in ``tests/pipeline/test_run_lock.py``."""
+
+    released = False
+
+    def release(self):
+        self.released = True
+
+
+@pytest.fixture(autouse=True)
+def _fake_run_lock(monkeypatch):
+    monkeypatch.setattr(daily, "acquire_pass_lock", lambda **kw: _FakeLock())
 
 
 def _no_network(monkeypatch):
@@ -635,8 +652,19 @@ def _prime_pass(monkeypatch, *, bench_raises=False, fund_raises=False, sweep_rai
     calls = {"benchmarks": 0, "fundamentals": 0, "run_daily": 0, "shell_sweep": 0, "spac_radar": 0}
     seen: dict[str, dict] = {}  # last-seen kwargs per leg
 
-    monkeypatch.setattr(daily, "connect", lambda: SimpleNamespace(close=lambda: None))
+    # a fake connection: `close` for the legs, `execute` / `commit` / `autocommit` for the C2 session
+    # statement_timeout `_pass_connect` sets on every connection the pass opens
+    monkeypatch.setattr(
+        daily,
+        "connect",
+        lambda: SimpleNamespace(
+            close=lambda: None, execute=lambda *a, **k: None, commit=lambda: None, autocommit=False
+        ),
+    )
     monkeypatch.setattr(daily, "write_cron_run_log", lambda *a, **k: None)  # fail-open, no file I/O
+    # the V1 self-audit reads the calls TABLE — DB-free here; its checks are proved on a real DB in
+    # tests/pipeline/test_self_audit.py
+    monkeypatch.setattr(daily, "run_audit", lambda ctx, *a, **k: [])
 
     def _radar(conn, **k):
         order.append("spac_radar")
@@ -1703,3 +1731,411 @@ def test_report_is_SILENT_about_rejections_on_an_ordinary_night(capsys):
         ]
     )
     assert "REJECTED" not in capsys.readouterr().out
+
+
+# --- O1: per-name errors — persisted, diffed against the last evaluated pass, NEW ones paged -----------
+
+
+def _erroring(sid, ticker, *legs):
+    """A name whose listed legs FAILED, in the exact shape `ingest_thesis` builds (joined `error` +
+    structured `leg_errors`)."""
+    pairs = tuple((leg, f"{leg} failed for {ticker}") for leg in legs)
+    return _nr(
+        ticker=ticker,
+        security_id=sid,
+        error="; ".join(f"{leg}: {msg}" for leg, msg in pairs),
+        leg_errors=pairs,
+    )
+
+
+def test_pass_pages_NEWLY_failing_names_and_collapses_the_KNOWN_ones(monkeypatch, tmp_path, capsys):
+    """THE O1 DIFF, across three passes through the REAL artifact writer: pass 1 (no baseline yet) pages the
+    whole inventory ONCE; pass 2 with the SAME failures pages NOTHING and prints them as one quiet count;
+    pass 3 adds a NEW failing LEG on a known name plus a new name — and pages exactly those two. Keyed on
+    `security_id:leg`, so the same ids are reused across passes."""
+    hllk, gtls, newco = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    pages: list[tuple[str, ...]] = []
+    real_assess = daily.assess_health
+
+    def _assess(results, **kw):
+        pages.append(tuple(kw.get("name_errors_new") or ()))
+        return real_assess(results, **kw)
+
+    _prime_pass(monkeypatch)
+    monkeypatch.setattr(cron_run_log, "_DEFAULT_CRON_RUNS", tmp_path)
+    monkeypatch.setattr(daily, "write_cron_run_log", cron_run_log.write_cron_run_log)  # REAL writer
+    monkeypatch.setattr(daily, "assess_health", _assess)
+
+    def _pass(names):
+        res = [
+            daily.ThesisRunResult(thesis_id=uuid.uuid4(), name="T", recorded=True, ingested=names)
+        ]
+        monkeypatch.setattr(daily, "run_daily", lambda conn, **k: res)
+        out = daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
+        daily._report(
+            out.results,
+            name_errors_new=out.name_errors_new,
+            name_errors_known=out.name_errors_known,
+            name_errors_evaluated=out.name_errors_evaluated,
+        )
+        return out, capsys.readouterr().out
+
+    out1, text1 = _pass([_erroring(hllk, "HLLK", "price"), _erroring(gtls, "GTLS", "price")])
+    out2, text2 = _pass([_erroring(hllk, "HLLK", "price"), _erroring(gtls, "GTLS", "price")])
+    out3, text3 = _pass(
+        [
+            _erroring(hllk, "HLLK", "price", "form4"),  # a NEW leg on a known name
+            _erroring(gtls, "GTLS", "price"),
+            _erroring(newco, "NEWCO", "fund_shares"),
+        ]
+    )
+
+    assert set(pages[0]) == {
+        "GTLS (price)",
+        "HLLK (price)",
+    }  # first evaluated pass: the inventory, once
+    assert pages[1] == ()  # the same failures the next night: silent
+    assert set(pages[2]) == {"HLLK (form4)", "NEWCO (fund_shares)"}  # only the genuinely new
+    assert (out2.name_errors_known, out3.name_errors_known) == (2, 2)
+    # stdout: loud per-name lines for the new ones (with the reason), ONE quiet count for the known
+    assert "NAME ERRORS — NEWLY FAILING" in text1 and "HLLK (price): price failed for HLLK" in text1
+    assert "NAME ERRORS" not in text2 and "2 known name error(s)" in text2
+    assert "NEWCO (fund_shares): fund_shares failed for NEWCO" in text3
+    assert "2 known name error(s)" in text3
+    # the artifact holds every reason, per thesis, and the run-level diff
+    doc = json.loads(sorted(tmp_path.glob("*.json"))[-1].read_text(encoding="utf-8"))
+    assert doc["name_errors_evaluated"] is True and doc["name_errors_known"] == 2
+    assert {e["leg"] for e in doc["theses"][0]["name_errors"]} == {"price", "form4", "fund_shares"}
+
+
+def test_a_name_held_by_TWO_theses_is_ONE_error_row_in_the_diff(monkeypatch, tmp_path):
+    sid = uuid.uuid4()
+    _prime_pass(monkeypatch)
+    monkeypatch.setattr(cron_run_log, "_DEFAULT_CRON_RUNS", tmp_path)
+    res = [
+        daily.ThesisRunResult(
+            thesis_id=uuid.uuid4(), name=n, recorded=True, ingested=[_erroring(sid, "DUP", "price")]
+        )
+        for n in ("T1", "T2")
+    ]
+    monkeypatch.setattr(daily, "run_daily", lambda conn, **k: res)
+    out = daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
+    assert [e.label for e in out.name_errors_new] == ["DUP (price)"]
+
+
+def test_a_NO_LIVE_pass_does_not_evaluate_name_errors(monkeypatch, tmp_path):
+    _prime_pass(monkeypatch)
+    res = [
+        daily.ThesisRunResult(
+            thesis_id=uuid.uuid4(),
+            name="T",
+            withheld_reason="no-live",
+            ingested=[_erroring(uuid.uuid4(), "X", "price")],
+        )
+    ]
+    monkeypatch.setattr(daily, "run_daily", lambda conn, **k: res)
+    out = daily.run_daily_pass(asof=_ASOF, allow_live=False, notifier=_Silent())
+    assert out.name_errors_evaluated is False and out.name_errors_new == ()
+
+
+def test_report_on_a_NO_LIVE_pass_prints_its_name_errors_UNDIFFED_and_quiet(capsys):
+    daily._report(
+        [
+            daily.ThesisRunResult(
+                thesis_id=uuid.uuid4(),
+                name="T",
+                withheld_reason="no-live",
+                ingested=[_erroring(uuid.uuid4(), "X", "price")],
+            )
+        ],
+        name_errors_evaluated=False,
+    )
+    out = capsys.readouterr().out
+    assert "1 name error(s) — not diffed" in out and "NAME ERRORS" not in out
+
+
+def test_main_RE_CHECKS_the_catch_up_guard_UNDER_the_lock(monkeypatch, capsys):
+    """The TOCTOU close: a pass that finished between the first guard read and the lock has written the
+    night's artifact — the re-check under the lock turns a redundant full pass into the no-op it is.
+    """
+    answers = iter([False, True])  # not yet ran ... then, under the lock, it has
+    monkeypatch.setattr(daily, "already_ran_live", lambda asof, **kw: next(answers))
+    lock = _FakeLock()
+    monkeypatch.setattr(daily, "acquire_pass_lock", lambda **kw: lock)
+
+    def _never(**kw):
+        raise AssertionError("the pass ran although the night had just been recorded")
+
+    monkeypatch.setattr(daily, "run_daily_pass", _never)
+    daily.main(["--catch-up", "--asof", "2026-09-08"])
+    assert "catch-up is a no-op" in capsys.readouterr().out
+    assert lock.released  # and the lock it took is released
+
+
+def test_the_name_error_PAGE_names_tickers_and_legs_never_a_thesis():
+    h = daily.assess_health(
+        [daily.ThesisRunResult(thesis_id=uuid.uuid4(), name="Secret Thesis Name", recorded=True)],
+        asof=_ASOF,
+        allow_live=True,
+        freeze_check=False,
+        name_errors_new=("HLLK (price)",),
+    )
+    assert h is not None and "1 name(s) NEWLY failing to ingest: HLLK (price)" in h.label
+    assert "Secret Thesis Name" not in h.label
+    assert "not a cron error" in h.label  # benign-class: the thesis recorded
+
+
+# --- I1/I2: the run identity + the NON-SECRET env fingerprint ------------------------------------------
+
+
+def test_env_fingerprint_records_SET_or_UNSET_and_NEVER_a_secret_value():
+    secrets = {
+        "ALPHADECK_USER_AGENT": "Operator Name operator-secret@example.com",
+        "SLACK_WEBHOOK_URL": "https://hooks.slack.com/services/T000/B000/SECRETTOKEN",
+        "POLYGON_API_KEY": "pk_live_SECRETKEY",
+        "HEARTBEAT_URL": "https://hc-ping.com/secret-uuid-1234",
+    }
+    settings = get_settings().model_copy(
+        update={
+            "user_agent": secrets["ALPHADECK_USER_AGENT"],
+            "slack_webhook_url": secrets["SLACK_WEBHOOK_URL"],
+            "polygon_api_key": secrets["POLYGON_API_KEY"],
+            "market_tz": "America/New_York",
+            "cron_run_at": "22:30",
+        }
+    )
+    environ = {"TZ": "America/New_York", "RUN_AT": "22:30", **secrets}
+
+    class SlackNotifier:  # the fingerprint records the CLASS NAME in use
+        pass
+
+    fp = daily.env_fingerprint(SlackNotifier(), environ=environ, settings=settings)
+
+    assert fp == {
+        "tz": "America/New_York",
+        "market_tz": "America/New_York",
+        "run_at": "22:30",
+        "cron_at": "22:30",
+        "user_agent_set": True,
+        "slack_webhook_set": True,
+        "polygon_api_key_set": True,
+        "heartbeat_url_set": True,
+        "notifier": "SlackNotifier",
+    }
+    blob = json.dumps(fp)
+    for value in secrets.values():
+        assert value not in blob
+    for fragment in ("SECRET", "secret", "hooks.slack", "hc-ping", "pk_live", "@example"):
+        assert fragment not in blob
+
+    bare = daily.env_fingerprint(
+        LogNotifier(),
+        environ={},
+        settings=settings.model_copy(
+            update={"user_agent": "  ", "slack_webhook_url": None, "polygon_api_key": None}
+        ),
+    )
+    assert bare["user_agent_set"] is False  # a blank UA is UNSET (the /health rule)
+    assert bare["slack_webhook_set"] is False and bare["heartbeat_url_set"] is False
+    assert bare["notifier"] == "LogNotifier" and bare["tz"] is None
+
+
+def test_the_PASS_writes_its_identity_and_env_onto_the_artifact(monkeypatch, tmp_path):
+    _prime_pass(monkeypatch)
+    monkeypatch.setattr(cron_run_log, "_DEFAULT_CRON_RUNS", tmp_path)
+    monkeypatch.setattr(daily, "write_cron_run_log", cron_run_log.write_cron_run_log)  # REAL writer
+    monkeypatch.setenv("ALPHADECK_IMAGE_SHA", "2f3cdfa0123456789")
+    get_settings.cache_clear()
+    try:
+        out = daily.run_daily_pass(
+            asof=_ASOF, allow_live=True, notifier=LogNotifier(), run_kind="cron"
+        )
+    finally:
+        get_settings.cache_clear()
+    doc = json.loads(next(tmp_path.glob("*.json")).read_text(encoding="utf-8"))
+    assert doc["code_sha"] == "2f3cdfa0123456789" == out.code_sha
+    assert doc["config_hash"] == config_hash(
+        DEFAULT_CONFIG
+    )  # the same hash run_daily stamps on rows
+    assert doc["run_kind"] == "cron"
+    assert doc["env"]["notifier"] == "LogNotifier"
+    assert set(doc["env"]) >= {"tz", "market_tz", "run_at", "user_agent_set", "slack_webhook_set"}
+
+
+# --- H3: an unhandled exception pages ONCE, then re-raises the ORIGINAL ------------------------------
+
+
+class _Pager:
+    def __init__(self, *, raises: BaseException | None = None):
+        self.health = []
+        self._raises = raises
+
+    def notify(self, event):  # pragma: no cover
+        pass
+
+    def notify_spac_status(self, event):  # pragma: no cover
+        pass
+
+    def notify_health(self, event):
+        self.health.append(event)
+        if self._raises is not None:
+            raise self._raises
+
+
+def test_HealthEvent_still_constructs_WITHOUT_the_phase_1b_fields():
+    """Every field Phase 1B added to HealthEvent has a default, so a caller (or a subclass — Phase 1A's
+    `notify/page.py` RunFailurePage) that predates them constructs it unchanged and reads clean."""
+    from dataclasses import dataclass
+
+    from notify import HealthEvent
+
+    base = dict(
+        asof=_ASOF,
+        theses=0,
+        withheld_no_live=0,
+        withheld_failure=0,
+        errored=0,
+        edgar_fetches=0,
+        frozen=False,
+    )
+    h = HealthEvent(**base)
+    assert (h.crashed, h.name_errors_new, h.audit_failed) == (None, (), ())
+
+    @dataclass(frozen=True)
+    class _Sub(HealthEvent):
+        pass
+
+    assert _Sub(**base).crashed is None
+
+
+def test_an_unhandled_exception_PAGES_once_and_RE_RAISES_the_original(monkeypatch):
+    _prime_pass(monkeypatch)
+    boom = RuntimeError("the loop exploded\nsecond line")
+
+    def _explode(conn, **k):
+        raise boom
+
+    monkeypatch.setattr(daily, "run_daily", _explode)
+    pager = _Pager()
+    with pytest.raises(RuntimeError) as exc:
+        daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=pager)
+    assert exc.value is boom  # the ORIGINAL exception, unchanged
+    assert len(pager.health) == 1
+    page = pager.health[0]
+    assert page.crashed == "RuntimeError: the loop exploded second line"
+    assert "PASS CRASHED" in page.label and page.asof == _ASOF
+
+
+def test_the_crash_page_can_NEVER_mask_the_original_exception(monkeypatch):
+    """Fail-open: a notifier that itself raises (a Slack adapter bug, an outage that escaped) must not
+    replace the exception being reported — the caller still sees the pass's own error."""
+    _prime_pass(monkeypatch)
+    boom = ValueError("the real problem")
+    monkeypatch.setattr(daily, "run_daily", lambda conn, **k: (_ for _ in ()).throw(boom))
+    pager = _Pager(raises=RuntimeError("the pager broke too"))
+    with pytest.raises(ValueError) as exc:
+        daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=pager)
+    assert exc.value is boom
+    assert len(pager.health) == 1  # it tried, once
+
+
+def test_a_LOCK_REFUSAL_is_not_a_crash_and_does_not_page(monkeypatch):
+    _prime_pass(monkeypatch)
+
+    def _held(**kw):
+        raise daily.PassAlreadyRunning("pid 1 (alphadeck-pass:cron)")
+
+    monkeypatch.setattr(daily, "acquire_pass_lock", _held)
+    pager = _Pager()
+    with pytest.raises(daily.PassAlreadyRunning):
+        daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=pager)
+    assert pager.health == []
+
+
+def test_main_PAGES_when_the_lock_cannot_be_taken_for_a_DB_reason(monkeypatch):
+    """main takes the lock itself (to re-check the catch-up guard under it), so a DB that is down at that
+    point must page there too — the pass never starts, and this is the only record it leaves."""
+    pager = _Pager()
+    monkeypatch.setattr(daily, "get_notifier", lambda: pager)
+
+    def _db_down(**kw):
+        raise ConnectionRefusedError("connection refused")
+
+    monkeypatch.setattr(daily, "acquire_pass_lock", _db_down)
+    with pytest.raises(ConnectionRefusedError):
+        daily.main(["--asof", _ASOF.isoformat()])
+    assert [p.crashed for p in pager.health] == ["ConnectionRefusedError: connection refused"]
+
+
+# --- C2: the statement_timeout on every connection the pass opens --------------------------------------
+
+
+def _show_timeout(conn) -> str:
+    with conn.cursor() as cur:
+        cur.execute("SHOW statement_timeout")
+        return cur.fetchone()["statement_timeout"]
+
+
+def test_pass_connections_carry_the_DEFAULT_statement_timeout(db):
+    conn = daily._pass_connect()
+    try:
+        assert get_settings().cron_statement_timeout_s == 300.0
+        assert _show_timeout(conn) == "5min"
+    finally:
+        conn.close()
+
+
+def test_the_statement_timeout_CANCELS_a_stuck_statement_and_survives_a_ROLLBACK(db, monkeypatch):
+    """The point of C2: a statement that runs past the ceiling raises instead of hanging the pass — and the
+    ceiling survives the per-thesis rollback the loop does after an error (a SET left inside an open
+    transaction would have been rolled back with it)."""
+    import psycopg
+
+    monkeypatch.setenv("ALPHADECK_CRON_STATEMENT_TIMEOUT_S", "0.25")
+    get_settings.cache_clear()
+    try:
+        conn = daily._pass_connect()
+    finally:
+        get_settings.cache_clear()
+    try:
+        assert _show_timeout(conn) == "250ms"
+        with pytest.raises(psycopg.errors.QueryCanceled):
+            conn.execute("SELECT pg_sleep(3)")
+        conn.rollback()  # what run_daily does after a per-thesis failure
+        assert _show_timeout(conn) == "250ms"  # still bound
+    finally:
+        conn.close()
+
+
+def test_a_ZERO_statement_timeout_leaves_the_server_default(db, monkeypatch):
+    monkeypatch.setenv("ALPHADECK_CRON_STATEMENT_TIMEOUT_S", "0")
+    get_settings.cache_clear()
+    try:
+        conn = daily._pass_connect()
+    finally:
+        get_settings.cache_clear()
+    try:
+        assert _show_timeout(conn) == "0"
+    finally:
+        conn.close()
+
+
+def test_EVERY_connection_the_pass_opens_gets_the_ceiling(monkeypatch):
+    """Wiring: each connect() inside run_daily_pass (the two refresh legs, the loop, the sweep, the radar)
+    is followed by the statement_timeout call on THAT connection — none bypasses `_pass_connect`."""
+    _prime_pass(monkeypatch)
+    opened, bound = [], []
+
+    def _connect():
+        c = SimpleNamespace(close=lambda: None, execute=lambda *a, **k: None, commit=lambda: None)
+        opened.append(c)
+        return c
+
+    monkeypatch.setattr(daily, "connect", _connect)
+    monkeypatch.setattr(daily, "set_statement_timeout", lambda conn, s: bound.append((conn, s)))
+    daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
+    assert (
+        len(opened) == 5
+    )  # benchmarks, fundamentals, the per-thesis loop, shell sweep, SPAC radar
+    assert [c for c, _ in bound] == opened
+    assert {s for _, s in bound} == {get_settings().cron_statement_timeout_s}

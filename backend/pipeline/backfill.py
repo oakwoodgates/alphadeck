@@ -55,6 +55,10 @@ Discipline (``daily.run_daily``'s, minus everything that is not a recompute):
 - **Provenance, write-only, fail-open** — one JSON per invocation under ``data/backfills/``
   (``pipeline/backfill_log.py``), skips included. It is NOT a cron run artifact: ``already_ran_live`` stays
   False for the night. A ``--dry-run`` writes NOTHING — neither a row nor an artifact.
+- **One writer at a time (C1).** A real (non-dry) run takes the SAME cross-process call-of-record lock
+  as the nightly pass (``pipeline/run_lock.py``) for its whole write: a backfill and a daily pass never run
+  ``record_if_changed`` against each other. Another holder refuses the run before any row is written: one
+  loud line, exit ``EXIT_ALREADY_RUNNING`` (75). A ``--dry-run`` writes nothing and takes no lock.
 - **Refusals, all loud (exit 2), all BEFORE a connection is opened:** ``asof >= market_today()`` (tonight is
   the cron's job); a naive ``--known-at`` (a wrong zone shifts real answers invisibly); a ``known_at``
   earlier than the as-of day begins (a pin before the night cannot see the night); ``next-run`` with no
@@ -79,6 +83,7 @@ from domain.settings import get_settings
 from pipeline.backfill_log import write_backfill_log
 from pipeline.call_for_thesis import call_for_thesis
 from pipeline.cron_run_log import list_run_logs
+from pipeline.run_lock import EXIT_ALREADY_RUNNING, PassAlreadyRunning, acquire_pass_lock
 from repositories import calls_repo, thesis_repo
 
 NEXT_RUN = "next-run"  # the --known-at literal that resolves the pin from the cron run log
@@ -291,15 +296,25 @@ def run_backfill_pass(
 ) -> BackfillPassOutcome:
     """The backfill's FULL unit of work: connect → ``run_backfill`` → write the provenance artifact
     (fail-open; SKIPPED on a dry run — a dry run writes nothing anywhere). ``main`` keeps the CLI concerns
-    only (args, the refusals, the printed report + exit code)."""
+    only (args, the refusals, the printed report + exit code).
+
+    C1 — a real run holds the cross-process call-of-record lock (``pipeline/run_lock.py``) for the whole
+    write, the same one the nightly pass holds; ``PassAlreadyRunning`` propagates before any row is
+    written (``main`` turns it into one loud line + exit 75). A dry run writes nothing, so it takes none.
+    """
     started_at = datetime.now(timezone.utc)
-    conn = connect()
+    lock = None if dry_run else acquire_pass_lock(holder="backfill")
     try:
-        results = run_backfill(
-            conn, asof=asof, known_at=known_at, thesis_id=thesis_id, dry_run=dry_run
-        )
+        conn = connect()
+        try:
+            results = run_backfill(
+                conn, asof=asof, known_at=known_at, thesis_id=thesis_id, dry_run=dry_run
+            )
+        finally:
+            conn.close()
     finally:
-        conn.close()
+        if lock is not None:
+            lock.release()
     finished_at = datetime.now(timezone.utc)
     log_path = None
     if not dry_run:
@@ -445,6 +460,12 @@ def main(argv: list[str] | None = None) -> None:
         )
     except LookupError as exc:
         p.error(str(exc))
+    except PassAlreadyRunning as exc:
+        print(
+            f"backfill: ALREADY RUNNING — {exc}. Nothing was written; re-run once it finishes "
+            f"(exit {EXIT_ALREADY_RUNNING})"
+        )
+        raise SystemExit(EXIT_ALREADY_RUNNING) from None
     if outcome.log_path is not None:
         print(f"provenance: {outcome.log_path}")
     if _report(outcome.results, dry_run=args.dry_run):

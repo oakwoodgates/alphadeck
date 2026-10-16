@@ -30,40 +30,138 @@ Discipline:
 
 EXIT CODE (the contract a wrapper reads): **0 when the night has a call-of-record** for at least one
 thesis — including a healthy-quiet night where nothing changed, a partial night where some theses errored,
-an empty roster, and a deliberate ``--no-live`` pass. **Non-zero ONLY when the night has no record at
-all** (the pass crashed, or every thesis was withheld/errored for a real reason). The sidecar's one retry
-fires on that, so the code answers "does tonight have a record?", never "did anything go wrong" — errors
-are reported through the printed summary and the R4 health page. See ``_failed_to_record``.
+an empty roster, and a deliberate ``--no-live`` pass. **1 ONLY when the night has no record at all** (the
+pass crashed, or every thesis was withheld/errored for a real reason). The sidecar's one retry fires on
+that, so the code answers "does tonight have a record?", never "did anything go wrong" — errors are
+reported through the printed summary and the R4 health page. See ``_failed_to_record``.
+**75 (C1, ``run_lock.EXIT_ALREADY_RUNNING``) when this invocation did not run at all** because another pass
+or a backfill holds the cross-process call-of-record lock: one loud line, no rows, no artifact. It is
+neither 0 (this invocation produced no record, and the holder may be a pre-``RUN_AT`` pass that does not
+count for the night) nor 1 (this is not a failure of the night — the running pass is making its record).
+A wrapper that retries any non-zero exit (the sidecar does) retries it once, later, under ``--catch-up`` —
+a no-op if the running pass recorded the night, exactly right if it did not.
 """
 
 from __future__ import annotations
 
 import argparse
 import logging
+import os
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timezone, tzinfo
 from pathlib import Path
 from uuid import UUID
 
 import psycopg
 
-from db.session import connect
+from db.session import connect, set_statement_timeout
 from domain.config import DEFAULT_CONFIG, config_hash
 from domain.enums import State
 from domain.feed_kinds import FEED_KINDS, StaleFeedLabel, feed_kind
 from domain.market_time import market_today, market_tz
-from domain.settings import get_settings
+from domain.settings import Settings, get_settings
 from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
 from notify import ArmedName, HealthEvent, Notifier, TransitionEvent, get_notifier
 from pipeline.call_for_thesis import call_for_thesis
-from pipeline.cron_run_log import already_ran_live, previous_stale_tapes, write_cron_run_log
+from pipeline.cron_run_log import (
+    already_ran_live,
+    previous_name_errors,
+    previous_stale_tapes,
+    write_cron_run_log,
+)
 from pipeline.ingest_thesis import NameResult, ingest_thesis
+from pipeline.name_errors import NameIngestError, dedup_name_errors, name_errors_of
+from pipeline.run_lock import (
+    EXIT_ALREADY_RUNNING,
+    PassAlreadyRunning,
+    PassLock,
+    acquire_pass_lock,
+)
 from pipeline.schedule import parse_run_at
+from pipeline.self_audit import AuditContext, AuditResult, failed_labels, run_audit
 from pipeline.tape_health import StaleTape, stale_fund_shares, stale_tapes
 from repositories import calls_repo, thesis_repo
 from securities import master
 
 _log = logging.getLogger(__name__)
+
+
+def _pass_connect() -> psycopg.Connection:
+    """A DB connection for the daily PASS — ``connect()`` plus the C2 session ``statement_timeout``
+    (``Settings.cron_statement_timeout_s``), so a lock wait or a stuck read raises inside the pass's
+    per-thesis / per-leg isolation instead of hanging the whole sequential loop (no artifact, no page)
+    until the sidecar's wall-clock kill. EVERY connection ``run_daily_pass`` opens comes from here (the
+    loop, the refresh / sweep / radar legs, the self-audit); ``run_daily`` itself takes its connection as a
+    parameter and is unchanged. ``connect()`` FIRST, so an unreachable DB raises the connect error itself.
+    """
+    conn = connect()
+    try:
+        set_statement_timeout(conn, get_settings().cron_statement_timeout_s)
+    except BaseException:
+        conn.close()
+        raise
+    return conn
+
+
+def _is_set(v: object) -> bool:
+    return isinstance(v, str) and bool(v.strip())
+
+
+def env_fingerprint(
+    notifier: Notifier,
+    *,
+    environ: Mapping[str, str] | None = None,
+    settings: Settings | None = None,
+) -> dict:
+    """I2 — the NON-SECRET environment the pass ran under, for the run-of-record artifact. The clock config
+    as VALUES (``TZ`` / the market zone / the shell's ``RUN_AT`` / ``Settings.cron_run_at`` — none is a
+    secret, and a drift between them is exactly what this exists to show) and every secret or delivery
+    switch as a set/unset BOOLEAN only (the User-Agent, the Slack webhook, the Polygon key, the heartbeat
+    URL) — **a value is never written**. ``notifier`` is the class actually in use: ``LogNotifier`` on a
+    live pass means a bad night pages nobody. ``environ`` / ``settings`` are injectable for tests.
+    """
+    env = os.environ if environ is None else environ
+    s = settings or get_settings()
+    return {
+        "tz": env.get("TZ"),
+        "market_tz": s.market_tz,
+        "run_at": env.get("RUN_AT"),
+        "cron_at": s.cron_run_at,
+        "user_agent_set": _is_set(s.user_agent),
+        "slack_webhook_set": _is_set(s.slack_webhook_url),
+        "polygon_api_key_set": _is_set(s.polygon_api_key),
+        "heartbeat_url_set": _is_set(env.get("HEARTBEAT_URL")),
+        "notifier": type(notifier).__name__,
+    }
+
+
+def _crash_label(exc: BaseException) -> str:
+    """``"<ExceptionType>: <first line, clipped>"`` — the H3 page's description of the crash. Clipped so a
+    long driver message cannot flood the page; one line so it reads in Slack."""
+    msg = " ".join(str(exc).split())[:200]
+    return f"{type(exc).__name__}: {msg}" if msg else type(exc).__name__
+
+
+def _page_crash(notifier: Notifier, asof: date | None, exc: BaseException) -> None:
+    """H3 — send ONE health page for a pass that died on an unhandled exception, then return so the caller
+    re-raises the ORIGINAL. FAIL-OPEN by contract: nothing raised in here (a notifier bug, a Slack outage,
+    even a second interrupt) may replace or mask the exception being reported."""
+    try:
+        notifier.notify_health(
+            HealthEvent(
+                asof=asof or datetime.now(timezone.utc).date(),
+                theses=0,
+                withheld_no_live=0,
+                withheld_failure=0,
+                errored=0,
+                edgar_fetches=0,
+                frozen=False,
+                crashed=_crash_label(exc),
+            )
+        )
+    except BaseException:  # noqa: BLE001 — the page can never mask the original exception
+        _log.exception("the crash page itself failed (fail-open — re-raising the original)")
 
 
 @dataclass
@@ -345,6 +443,8 @@ def assess_health(
     benchmark_errors: int = 0,
     benchmark_leg_failed: bool = False,
     tape_stale_new: tuple[StaleFeedLabel, ...] = (),
+    name_errors_new: tuple[str, ...] = (),
+    audit_failed: tuple[str, ...] = (),
 ) -> HealthEvent | None:
     """R4 — the run's pageable health, or None when the run was clean (loudness marks the exception). Unhealthy
     = a FREEZE (a live run whose EDGAR fetches summed to ZERO across present theses — the R1 cache-never-
@@ -378,6 +478,15 @@ def assess_health(
     CRON: the run did its job, the FEED has a gap the operator repairs (the vendor price symbol for a tape;
     a fund/ticker/source check for a sleeve) — so ``app/routers/admin.py::_problems`` renders it with the
     benign marker and the one-word cron verdict stays about the cron.
+
+    O1 — ``name_errors_new`` are the ``"<ticker or id> (<leg>)"`` labels of names whose ingest leg started
+    failing since the previous evaluated live pass (the diff lives in ``run_daily_pass``, passed IN like the
+    stale-tape diff). Newly failing only — the known-failing names collapse to a quiet count in the printed
+    report — and benign-class like a stale feed: the thesis still recorded.
+
+    V1 — ``audit_failed`` are the self-audit's FAILED checks (``self_audit.failed_labels``). A real alarm:
+    the pass did not leave the night the record it claims (a thesis with no on-time row, an unknown
+    ``code_sha``, a thesis it started and never finished). A not-applicable check never reaches here.
     """
     theses = len(results)
     # split withheld by its ACTUAL reason — a --no-live dev run is benign, a total failure is an alarm; a page
@@ -395,6 +504,8 @@ def assess_health(
         or benchmark_errors
         or benchmark_leg_failed
         or tape_stale_new
+        or name_errors_new
+        or audit_failed
     ):
         return None  # healthy — no page
     return HealthEvent(
@@ -408,6 +519,8 @@ def assess_health(
         benchmark_errors=benchmark_errors,
         benchmark_leg_failed=benchmark_leg_failed,
         tape_stale_new=tape_stale_new,
+        name_errors_new=tuple(name_errors_new),
+        audit_failed=tuple(audit_failed),
     )
 
 
@@ -444,6 +557,44 @@ class DailyPassOutcome:
     tape_stale_new: tuple[StaleFeedLabel, ...] = ()
     tape_stale_days: int = 0
     fund_shares_stale_days: int = 0
+    # I1/I2 — the run identity + the non-secret env fingerprint (``env_fingerprint``) the artifact carries
+    code_sha: str | None = None
+    config_hash: str | None = None
+    run_kind: str | None = None
+    env: dict | None = None
+    # O1 — the per-name error diff, computed ONCE in the pass (the artifact and the Admin poll payload must
+    # agree): was it evaluated (a live pass), the NEWLY failing (security, leg) rows, the known-failing count
+    name_errors_evaluated: bool = False
+    name_errors_new: tuple[NameIngestError, ...] = ()
+    name_errors_known: int = 0
+    # V1 — the self-audit's results (``pipeline/self_audit.py``)
+    audit: tuple[AuditResult, ...] = ()
+
+    def payload_kwargs(self) -> dict:
+        """Every run-level field ``cron_run_log.build_run_payload`` / ``write_cron_run_log`` take, from this
+        outcome — ONE mapping, so the artifact the pass writes and the payload the Admin "Run daily now"
+        poll rebuilds cannot drift by a forgotten keyword (G4/G5a each had to be threaded twice)."""
+        return {
+            "asof": self.asof,
+            "allow_live": self.allow_live,
+            "started_at": self.started_at,
+            "finished_at": self.finished_at,
+            "catch_up": self.catch_up,
+            "benchmark_errors": self.benchmark_errors,
+            "benchmark_leg_failed": self.benchmark_leg_failed,
+            "tape_evaluated": self.tape_evaluated,
+            "tape_stale_new": self.tape_stale_new,
+            "tape_stale_days": self.tape_stale_days,
+            "fund_shares_stale_days": self.fund_shares_stale_days,
+            "code_sha": self.code_sha,
+            "config_hash": self.config_hash,
+            "run_kind": self.run_kind,
+            "env": self.env,
+            "name_errors_evaluated": self.name_errors_evaluated,
+            "name_errors_new": self.name_errors_new,
+            "name_errors_known": self.name_errors_known,
+            "audit": self.audit,
+        }
 
 
 def run_daily_pass(
@@ -453,10 +604,61 @@ def run_daily_pass(
     notifier: Notifier | None = None,
     catch_up: bool = False,
     run_kind: str = "manual",
+    run_lock: PassLock | None = None,
 ) -> DailyPassOutcome:
-    """The cron's FULL unit of work as ONE callable: connect → ``run_daily`` → write the run-of-record
-    artifact (R3, fail-open) → emit the health page (R4). Extracted from ``main`` UNCHANGED so the admin
-    "Run daily now" trigger fires the exact pass the nightly cron does — a manual run writes the same
+    """The cron's FULL unit of work, under the cross-process call-of-record lock and the crash page.
+
+    C1 — THE LOCK. The whole pass — the refresh pre-legs, the per-thesis loop, the artifact, the post-legs —
+    runs while this process holds the session-level advisory lock (``pipeline/run_lock.py``), so two passes
+    (the sidecar and the Admin button, a hand ``docker exec`` and a retry, a pass and a backfill) can never
+    run ``record_if_changed``'s read-compare-append against each other. ``run_lock`` = a lock the CALLER
+    already took (``main`` takes it first so it can re-check the ``--catch-up`` guard under it); ownership
+    TRANSFERS — this function releases it when the pass ends, however it ends. ``None`` = take it here.
+    Another holder raises ``PassAlreadyRunning`` before anything runs: nothing is written and nothing is
+    paged (a refusal is not a crash — the running pass pages its own night).
+
+    H3 — THE CRASH PAGE. Any other exception escaping the pass (an unreachable DB at connect, a bug outside
+    the per-thesis isolation) sends ONE health page through ``notifier`` (``HealthEvent.crashed``) and is
+    then re-raised UNCHANGED — the page is fail-open (``_page_crash``), so it can never mask the original.
+    A crashed pass writes no artifact, so this page is the only record it leaves (the shell's own page and
+    the external heartbeat cover a process that is KILLED, where no Python runs at all)."""
+    notifier = notifier or get_notifier()
+    lock = run_lock
+    resolved_asof = asof
+    try:
+        resolved_asof = asof or market_today()
+        if lock is None:
+            lock = acquire_pass_lock(holder=run_kind)
+        return _run_daily_pass_locked(
+            asof=resolved_asof,
+            allow_live=allow_live,
+            notifier=notifier,
+            catch_up=catch_up,
+            run_kind=run_kind,
+        )
+    except PassAlreadyRunning:
+        raise  # a refusal, not a crash — nothing ran, nothing to page
+    except BaseException as exc:
+        if not isinstance(exc, (SystemExit, GeneratorExit)):
+            _page_crash(notifier, resolved_asof, exc)
+        raise
+    finally:
+        if lock is not None:
+            lock.release()
+
+
+def _run_daily_pass_locked(
+    *,
+    asof: date,
+    allow_live: bool,
+    notifier: Notifier,
+    catch_up: bool,
+    run_kind: str,
+) -> DailyPassOutcome:
+    """The pass BODY, run by ``run_daily_pass`` while it holds the call-of-record lock (C1) and inside its
+    crash page (H3). The cron's FULL unit of work as ONE callable: connect → ``run_daily`` → write the
+    run-of-record artifact (R3, fail-open) → emit the health page (R4). Extracted from ``main`` UNCHANGED
+    so the admin "Run daily now" trigger fires the exact pass the nightly cron does — a manual run writes the same
     artifact (it shows in the run history) and pages through the same health seam. ``main`` keeps the CLI
     concerns only (args, the R6 catch-up guard, the printed report + exit code).
 
@@ -472,9 +674,12 @@ def run_daily_pass(
     ``run_kind`` (0044) passes straight to ``run_daily`` and is stamped on every recorded row. It DEFAULTS to
     ``"manual"``, which is exactly right for this function's two non-CLI callers: the Admin "Run daily now"
     button is an operator-kicked run and should say so. Only ``main`` (via ``--run-kind``) and therefore only
-    the sidecar can stamp ``"cron"``."""
-    asof = asof or market_today()
-    notifier = notifier or get_notifier()
+    the sidecar can stamp ``"cron"``.
+
+    I1/I2 / O1 / V1 (Phase 1B) — after the per-thesis loop the pass also stamps its run identity + env
+    fingerprint, diffs the per-name ingest errors against the previous evaluated pass, and runs the
+    self-audit; all three ride the artifact (``DailyPassOutcome.payload_kwargs``) and the R4 page. Every
+    connection it opens carries the C2 ``statement_timeout`` (``_pass_connect``)."""
     started_at = datetime.now(timezone.utc)
     # G4 — the benchmark leg's outcome, initialized CLEAN so a --no-live pass (which skips the leg) reports
     # nothing to page. `benchmark_errors` counts individual benchmark pulls that failed; the separate
@@ -497,7 +702,7 @@ def run_daily_pass(
             # force_refresh=True: the recurring path MUST bypass a stale cache HIT and re-pull fresh SPY/IWM
             # bars — else the tape freezes and benchmark_rs degrades silently (the #72 lesson; the same
             # reason run_daily force-refreshes ingest_thesis).
-            bench_conn = connect()
+            bench_conn = _pass_connect()
             try:
                 bench_results = ingest_benchmarks(bench_conn, allow_live=True, force_refresh=True)
             finally:
@@ -517,7 +722,7 @@ def run_daily_pass(
             # NO force_refresh/ttl flag: EDGAR cache freshness is key-classed / default-refresh
             # (companyfacts re-fetches on a 12h TTL when allow_live), NOT a per-call boolean (the #196
             # lesson — "the boolean wearing a timedelta" is how the ~11-day insider freeze happened).
-            fund_conn = connect()
+            fund_conn = _pass_connect()
             try:
                 fund_results = ingest_fundamentals(fund_conn, allow_live=True)
             finally:
@@ -529,7 +734,7 @@ def run_daily_pass(
                 print(f"  fundamentals refresh ERROR: {err}")
         except Exception as e:  # noqa: BLE001 — a refresh leg is a passenger, never the driver
             print(f"WARNING: fundamentals refresh leg failed: {e}")
-    conn = connect()
+    conn = _pass_connect()
     try:
         results = run_daily(
             conn, asof=asof, allow_live=allow_live, notifier=notifier, run_kind=run_kind
@@ -574,14 +779,59 @@ def run_daily_pass(
         tape_stale_new = tuple(
             StaleFeedLabel(kind=current[k].kind, label=current[k].label) for k in new_keys
         )
-    # R3 — the cron's run-of-record, so the next freeze is noticed by the platform, not by eye. Written
-    # AFTER the run from the collected results (write-only, no DB); fail-open, so it never fails the cron.
-    log_path = write_cron_run_log(
-        results,
+    # O1 — THE NEWLY-FAILING NAME DIFF, the stale-tape diff's twin and computed in the same place for the
+    # same reason (before this run's artifact exists, or it would be its own baseline). Keyed on
+    # `security_id:leg` (`pipeline/name_errors.py`): the ticker can change under a name, and the error TEXT
+    # can embed a URL or retry count that would read as "new" every night. Deduped across theses — one dead
+    # leg is one row. `previous_name_errors()` is None before any evaluated artifact exists (the first pass
+    # after this deploys), which pages the current inventory ONCE; thereafter only a newly-failing
+    # (name, leg) pages and the known ones collapse to a quiet count (`_report`). A --no-live pass's errors
+    # are cache misses, not tonight's feed: it records its rows but is not evaluated (never a baseline).
+    name_errors_evaluated = allow_live
+    name_errors_new: tuple[NameIngestError, ...] = ()
+    name_errors_known = 0
+    if name_errors_evaluated:
+        current_errors = dedup_name_errors(name_errors_of(x for r in results for x in r.ingested))
+        prior_errors = previous_name_errors()
+        new_error_keys = (
+            sorted(current_errors)
+            if prior_errors is None
+            else sorted(set(current_errors) - prior_errors)
+        )
+        name_errors_new = tuple(current_errors[k] for k in new_error_keys)
+        name_errors_known = len(current_errors) - len(name_errors_new)
+    # I1/I2 — THE RUN IDENTITY on the artifact: the same sha / cfg hash / run kind `run_daily` stamped on
+    # every row it wrote (the identical expressions — `run_daily` holds its cfg local as DEFAULT_CONFIG and
+    # reads `image_sha` the same way), plus the non-secret env fingerprint the Admin page alarms on.
+    code_sha = settings.image_sha
+    cfg_hash = config_hash(DEFAULT_CONFIG)
+    env = env_fingerprint(notifier)
+    # V1 — THE SELF-AUDIT, after the loop committed and before the artifact is written (its results ride
+    # the artifact). It reads the TABLE through its own read-only connection (`_pass_connect`, so it carries
+    # the statement ceiling too). Building the context can fail on a malformed RUN_AT / market zone — that
+    # is reported as a FAILED audit, never a silently absent one, and never a failed pass.
+    try:
+        audit_ctx = AuditContext(
+            asof=asof,
+            started_at=started_at,
+            allow_live=allow_live,
+            run_kind=run_kind,
+            code_sha=code_sha,
+            results=results,
+            run_at=parse_run_at(settings.cron_run_at),
+            tz=market_tz(),
+            connect=_pass_connect,
+        )
+        audit: tuple[AuditResult, ...] = tuple(run_audit(audit_ctx))
+    except Exception as e:  # noqa: BLE001 — a broken audit is an alarm, never a failed pass
+        audit = (AuditResult("audit", False, f"the self-audit could not start: {_crash_label(e)}"),)
+    outcome = DailyPassOutcome(
+        results=results,
         asof=asof,
         allow_live=allow_live,
         started_at=started_at,
         finished_at=finished_at,
+        log_path=None,
         catch_up=catch_up,
         benchmark_errors=benchmark_errors,
         benchmark_leg_failed=benchmark_leg_failed,
@@ -589,7 +839,18 @@ def run_daily_pass(
         tape_stale_new=tape_stale_new,
         tape_stale_days=tape_stale_days,
         fund_shares_stale_days=fund_shares_stale_days,
+        code_sha=code_sha,
+        config_hash=cfg_hash,
+        run_kind=run_kind,
+        env=env,
+        name_errors_evaluated=name_errors_evaluated,
+        name_errors_new=name_errors_new,
+        name_errors_known=name_errors_known,
+        audit=audit,
     )
+    # R3 — the cron's run-of-record, so the next freeze is noticed by the platform, not by eye. Written
+    # AFTER the run from the collected results (write-only, no DB); fail-open, so it never fails the cron.
+    outcome.log_path = write_cron_run_log(results, **outcome.payload_kwargs())
     # R4 — the DURABLE page: a freeze / withheld / errored run alerts through the notifier (Slack when
     # configured, else a loud log line). Healthy runs are silent. This is what makes the platform notice its
     # own blindness — the gap that let R1 hide 11+ days. Fail-open (notify_health never raises). A catch-up
@@ -604,6 +865,9 @@ def run_daily_pass(
         benchmark_errors=benchmark_errors,
         benchmark_leg_failed=benchmark_leg_failed,
         tape_stale_new=tape_stale_new,
+        # O1 + V1 — the newly-failing names and the failed audit checks page through the SAME event
+        name_errors_new=tuple(e.label for e in name_errors_new),
+        audit_failed=failed_labels(audit),
     )
     if health is not None:
         notifier.notify_health(health)
@@ -621,7 +885,7 @@ def run_daily_pass(
         try:
             from radar.shell_sweep import run_shell_sweep
 
-            sweep_conn = connect()
+            sweep_conn = _pass_connect()
             try:
                 sw = run_shell_sweep(sweep_conn, allow_live=True, reenrich=(asof.weekday() == 0))
             finally:
@@ -643,7 +907,7 @@ def run_daily_pass(
         try:
             from radar.spac import run_spac_radar
 
-            radar_conn = connect()
+            radar_conn = _pass_connect()
             try:
                 rr = run_spac_radar(
                     radar_conn, until=asof, days=3, allow_live=True, notifier=notifier
@@ -655,30 +919,29 @@ def run_daily_pass(
                 print(f"  SPAC radar ERROR: {err}")
         except Exception as e:  # noqa: BLE001 — the radar is a passenger, never the driver
             print(f"WARNING: SPAC radar leg failed: {e}")
-    return DailyPassOutcome(
-        results=results,
-        asof=asof,
-        allow_live=allow_live,
-        started_at=started_at,
-        finished_at=finished_at,
-        log_path=log_path,
-        catch_up=catch_up,
-        benchmark_errors=benchmark_errors,
-        benchmark_leg_failed=benchmark_leg_failed,
-        tape_evaluated=tape_evaluated,
-        tape_stale_new=tape_stale_new,
-        tape_stale_days=tape_stale_days,
-        fund_shares_stale_days=fund_shares_stale_days,
-    )
+    return outcome
 
 
-def _report(results: list[ThesisRunResult]) -> int:
+def _report(
+    results: list[ThesisRunResult],
+    *,
+    name_errors_new: tuple[NameIngestError, ...] = (),
+    name_errors_known: int = 0,
+    name_errors_evaluated: bool = True,
+) -> int:
     """Print a per-thesis summary; return the number of theses that ERRORED.
 
     That count is still printed and still pages (``assess_health`` -> ``HealthEvent.errored``), but it is
     no longer the process exit signal — ``_failed_to_record`` (below) is. A night that recorded 11 of 12
     theses is a night with a call-of-record, and exiting non-zero for it made the sidecar sleep 20 minutes
-    and fire a retry the guard then no-opped (F4)."""
+    and fire a retry the guard then no-opped (F4).
+
+    O1 — the per-name ingest errors, split by NOVELTY (the pass computed the diff; ``DailyPassOutcome``):
+    one LOUD line per newly failing (name, leg) with its reason, and ONE quiet line counting the known ones
+    (the same names and legs as the last evaluated pass — a renamed / closed / never-priced name errors every
+    night, and re-printing those forever would bury the new one). A pass that did not evaluate (``--no-live``)
+    prints its error count quietly, undiffed. The full reasons live in the run artifact either way.
+    """
     appended = sum(1 for r in results if r.recorded)
     unchanged = sum(1 for r in results if r.recorded is False)
     withheld = [r for r in results if r.withheld_reason]
@@ -745,6 +1008,27 @@ def _report(results: list[ThesisRunResult]) -> int:
         for s in closed:
             edge = s.edge.isoformat() if s.edge else "never"
             print(f"  {s.label}: last bar {edge} · delisting filed {s.closed_at.isoformat()}")
+    # O1 — NEW name errors loud (uppercase header, one line each with the reason), KNOWN ones one quiet
+    # count (lowercase — the closed-tape block's casing convention); nothing at all on a clean night.
+    if name_errors_new:
+        print(
+            "NAME ERRORS — NEWLY FAILING since the last pass (the thesis still recorded; reasons also "
+            "in the run artifact):"
+        )
+        for e in name_errors_new:
+            print(f"  {e.label}: {e.error}")
+    if name_errors_evaluated and name_errors_known:
+        print(
+            f"{name_errors_known} known name error(s) — the same names and legs as the last pass "
+            "(quiet; reasons in the run artifact)"
+        )
+    if not name_errors_evaluated:
+        undiffed = len(dedup_name_errors(name_errors_of(x for r in results for x in r.ingested)))
+        if undiffed:
+            print(
+                f"{undiffed} name error(s) — not diffed (a --no-live pass is never a baseline); "
+                "reasons in the run artifact"
+            )
     wh = f" · {len(withheld)} withheld" if withheld else ""  # loud only when it happens
     print(
         f"done: {len(results)} theses · {appended} appended · {unchanged} unchanged{wh} · "
@@ -786,6 +1070,14 @@ def _failed_to_record(results: list[ThesisRunResult]) -> bool:
     ``--catch-up`` guard has to work from. The two must agree on the same pass; a test pins it. They are
     separate functions on purpose (different inputs, different fail-open directions: the guard errs toward
     RUNNING on a damaged artifact, this errs toward exit 0 on an empty roster).
+
+    THE THIRD CODE — 75 (C1, ``run_lock.EXIT_ALREADY_RUNNING``, EX_TEMPFAIL) — never comes from here: ``main``
+    exits 75 BEFORE any pass runs when another process holds the call-of-record lock. It must never be 0 —
+    the sidecar reads 0 as "the night recorded" and pings the external heartbeat on it, while the holder may
+    still fail — and it is not 1 either (this invocation produced nothing; the night is the holder's to
+    record). Like 1, it takes the sidecar's single ``--catch-up`` retry: a no-op if the holder recorded the
+    night, a real pass if it did not. ``pipeline.backfill`` exits 75 on the same refusal; the Admin
+    "Run daily now" answers 409.
     """
     if not results:
         return False  # (1) nothing to record
@@ -794,6 +1086,21 @@ def _failed_to_record(results: list[ThesisRunResult]) -> bool:
     if all(r.withheld_reason == "no-live" for r in results):
         return False  # (3) a deliberate cache-only pass withholds by design
     return True  # (4) theses existed, nothing recorded, and not by request
+
+
+def _catch_up_is_noop(asof: date) -> bool:
+    """The R6 ``--catch-up`` guard, with its config read HERE (the guard itself is pure): True — and the
+    no-op line printed — when a live pass for ``asof`` that started at/after that night's ``RUN_AT``
+    already recorded."""
+    run_at: time = parse_run_at(get_settings().cron_run_at)
+    tz: tzinfo = market_tz()
+    if already_ran_live(asof, run_at=run_at, tz=tz):
+        print(
+            f"daily-cron: a live pass for {asof} started at/after {run_at:%H:%M} {tz.key} "
+            "already ran — catch-up is a no-op"
+        )
+        return True
+    return False
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -826,6 +1133,7 @@ def main(argv: list[str] | None = None) -> None:
     args = p.parse_args(argv)
     asof = date.fromisoformat(args.asof) if args.asof else market_today()
     allow_live = not args.no_live
+    notifier = get_notifier()
 
     # R6 — catch-up guard: a `--catch-up` invocation is a no-op when a LIVE pass for this asof that STARTED
     # at/after that night's RUN_AT already ran. The sidecar fires `--catch-up` on boot for the last expected
@@ -835,20 +1143,47 @@ def main(argv: list[str] | None = None) -> None:
     # run never satisfies it, and neither does a pre-open Admin "Run daily now" for the same asof (it ran on
     # the prior session's bars — it lacks the night's close), so neither can suppress the real catch-up. The
     # guard is pure; the config it needs (RUN_AT + the market zone) is supplied HERE, never read inside it.
-    if args.catch_up:
-        run_at = parse_run_at(get_settings().cron_run_at)
-        tz = market_tz()
-        if already_ran_live(asof, run_at=run_at, tz=tz):
-            print(
-                f"daily-cron: a live pass for {asof} started at/after {run_at:%H:%M} {tz.key} "
-                "already ran — catch-up is a no-op"
-            )
-            return
+    if args.catch_up and _catch_up_is_noop(asof):
+        return
 
-    outcome = run_daily_pass(
-        asof=asof, allow_live=allow_live, catch_up=args.catch_up, run_kind=args.run_kind
-    )
-    _report(outcome.results)  # the per-thesis summary + the errored count, printed either way
+    # C1 — THE CROSS-PROCESS LOCK, taken HERE (before the pass) so the catch-up guard can be re-checked
+    # UNDER it. A second invocation never queues: it prints one loud line, writes nothing (no calls row, no
+    # artifact), pages nothing (the running pass pages its own night) and exits EXIT_ALREADY_RUNNING (75 —
+    # see the module docstring). Any OTHER failure to take the lock (the DB unreachable) is a crash: ONE
+    # health page (H3), then the original exception propagates (exit 1 — the night has no record).
+    try:
+        lock = acquire_pass_lock(holder=args.run_kind)
+    except PassAlreadyRunning as exc:
+        print(
+            f"daily-cron: ALREADY RUNNING — {exc}. This invocation wrote NOTHING (no call-of-record, no "
+            f"run artifact) and exits {EXIT_ALREADY_RUNNING}; the running pass owns the night"
+        )
+        raise SystemExit(EXIT_ALREADY_RUNNING) from None
+    except BaseException as exc:
+        _page_crash(notifier, asof, exc)
+        raise
+    try:
+        # the TOCTOU re-check: a pass that finished (and released) between the guard above and the lock
+        # has already written the night's artifact — re-reading it now turns a redundant full pass into the
+        # no-op it should be. Cheap (a directory read), and only on --catch-up.
+        if args.catch_up and _catch_up_is_noop(asof):
+            return
+        outcome = run_daily_pass(
+            asof=asof,
+            allow_live=allow_live,
+            notifier=notifier,
+            catch_up=args.catch_up,
+            run_kind=args.run_kind,
+            run_lock=lock,  # ownership transfers: run_daily_pass releases it when the pass ends
+        )
+    finally:
+        lock.release()  # idempotent — a no-op after the pass released it; the backstop if it never ran
+    _report(
+        outcome.results,
+        name_errors_new=outcome.name_errors_new,
+        name_errors_known=outcome.name_errors_known,
+        name_errors_evaluated=outcome.name_errors_evaluated,
+    )  # the per-thesis summary + the errored count, printed either way
     # F4 — WHAT A NON-ZERO EXIT MEANS TO A WRAPPER: this night has NO call-of-record at all (the pass
     # crashed, or every thesis was withheld/errored for a real reason). It no longer means "some thesis
     # errored": the sidecar retries on this code, and a 20-minute pause plus a guard no-op bought nothing

@@ -290,6 +290,34 @@ facts appends **nothing**; a genuine change (Incubating→Warming→Armed, `conf
 (triggers / members / a member's own triggers / provenance) or jsonb/IEEE repr noise can't **flap** it into a
 false re-append. (The CallCard has no wall-clock field, so the no-change case is deterministic.)
 
+**One writer at a time — the cross-process run lock (C1, 2026-10-16).** Read-compare-append is only
+idempotent when nothing else appends in between, and two passes DID overlap (MEASURED 09-01 and 09-09: the
+sidecar's late pass and an Admin click, 17 rows for one night across 12 theses). `run_daily_pass` now holds a
+Postgres **session-level** advisory lock (`pipeline/run_lock.py`, key `(0x41444B, 1)` — `classid 4277323` in
+`pg_locks`) on a dedicated autocommit connection for the WHOLE pass (pre-legs, loop, artifact, post-legs);
+`pipeline.backfill` takes the same lock for a real (non-dry) run. Session-level means a killed pass's lock
+dies with its connection — no stale lock can block the next night. A second pass never queues: it prints
+`ALREADY RUNNING — … held by pid N (alphadeck-pass:<kind>, …)`, writes nothing, pages nothing, and the CLI
+**exits 75** (`EXIT_ALREADY_RUNNING`) — distinct from 0 (it produced no record) and 1 (the night is not
+failed; the holder is making its record). `main` takes the lock itself and re-checks the `--catch-up` guard
+under it. The Admin button probes it (409 naming the holder). **Not covered:** the Workbench's on-promote
+ingest (facts only, never `calls`) takes no lock — under an overlap with the cron it can append duplicate
+identical fact versions (the bitemporal read dedups them; the table grows), unchanged from before.
+
+**What the pass now leaves behind (Phase 1B).** Beyond the counts, the run-of-record artifact carries:
+the **run identity** (`code_sha`, `config_hash`, `run_kind`) and a **non-secret env fingerprint** (`TZ`, the
+market zone, `RUN_AT` / `cron_at` as values; the User-Agent, Slack webhook, Polygon key and heartbeat URL as
+**set/unset booleans only**; the notifier class) — the Admin page alarms on an unknown or mismatched sha, the
+LOG notifier and an unset UA; **per-name ingest errors** by leg (`name_errors`), diffed against the previous
+live pass so only NEWLY failing (security, leg) pairs print loud and page, the known ones collapsing to one
+quiet count; and the **self-audit** (`audit`, `pipeline/self_audit.py`), whose failures page. Every
+connection the pass opens sets a session **`statement_timeout`** (`ALPHADECK_CRON_STATEMENT_TIMEOUT_S`,
+default 300 s — sized ~2,000x the slowest measured single read, 151 ms; 0 disables), so a lock wait or a
+stuck read raises inside the per-thesis isolation instead of hanging the loop. And an **unhandled exception**
+in the pass sends ONE health page (`PASS CRASHED — <type>: <message>`) before it re-raises — fail-open, it
+can never mask the original. (A process that is KILLED runs no Python at all; the sidecar's own page and the
+external heartbeat cover that.)
+
 ## The scheduling sidecar — the `cron` service + `scripts/daily_cron.sh`  `[BUILT #73]`
 
 The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
@@ -319,6 +347,11 @@ The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
   The retry sits before the in-loop catch-up window closes and before the nightly backup, so both
   still run after it. Exactly ONE retry — a second failure is logged, paged from the shell (H3, below), and
   the loop moves on.
+  **Exit 75 (C1, 2026-10-16) = "did not run — another pass holds the run lock"** (the Admin button, a hand
+  `pipeline.daily`, a backfill). The shell treats it as non-zero, so it takes the same single retry under
+  `--catch-up`: a no-op if the holder recorded the night after `RUN_AT`, a real pass if the holder was a
+  pre-`RUN_AT` one that does not count for the night. (The shell's log line still reads `run FAILED` for it
+  until the sidecar script learns the code.)
 - **A sleep-loop, not a cron daemon (deliberate).** `backend/scripts/daily_cron.sh` waits until `RUN_AT` in
   the container's `TZ` — in **short slices (`SLICE_S`, default 60 s), re-reading the wall clock between
   them** rather than one long `sleep` (why: two bullets down) — skips weekends (markets closed → an
