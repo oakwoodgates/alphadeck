@@ -130,7 +130,11 @@ The lifecycle is a **loop**, not a ratchet: `Incubating → Warming → Armed �
 > series alone (never concept-shopping past an honest "no creep", never mixing concepts). A single step ≥
 > `share_creep_pair_ceiling_pct` is a split/recap/XBRL-scale artifact — a structural event, declined, not
 > creep; a one-off jump with flat neighbors (a discrete explained raise) is declined by strict positivity.
-> Freshness is detector-enforced on the newest print's `filed` (`share_creep_liveness_days`). Grade-blind
+> Freshness is detector-enforced on the newest print's `filed` (`share_creep_liveness_days`) — its FIRST
+> knowability (D3a, the same `knowable_from` read as `revenue_acceleration`): every 10-Q re-reports the prior
+> fiscal year-end balance sheet, so an unchanged count re-reported as a comparative neither refreshes the series
+> nor re-dates its provenance (MEASURED at 2026-10-15: 87 → 87 events, 4 anchors re-dated earlier, 0 arms changed — the
+> signal is sub-veto). Grade-blind
 > like dilution (no grade, no `dearm_grade`); the flat `share_creep_score` (0.50) sits **strictly below
 > `risk_block_severity` (0.70)** — counter-case + a setup-strength haircut, sub-veto, pinned by test.
 > **Named recall holes (#9):** FPIs/ADRs (annual 20-F cadence), fresh IPOs, and dual-class filers whose
@@ -231,6 +235,24 @@ only *coincide* for insider buys, which is exactly why the two conviction source
   2026-08-15 — an absolute **acceleration** floor (`revenue_accel_min_accel` = **2pp**), so a sub-2pp wiggle
   (UNH re-accelerated ~0.4pp — noise, not a genuine re-acceleration) never mints a CORE. Knowability from the filing's
   `filed` date (#1); reads companyfacts via `fact_fundamentals` (migration 0036).
+  **Knowability is FIRST knowability (D3a, operator-approved 2026-10-16).** Every 10-Q re-reports the year-ago
+  quarter as its comparative, and the ingest stores that as a new version dated at the LATER filing; dated by the
+  latest version, a year-old inflection re-fired as fresh for another 180 days. The as-of read now annotates each
+  fundamentals row with `knowable_from` / `knowable_accession` — the earliest knowable date (and filing) in the
+  trailing run of value-identical versions ending at the picked one, counting only versions visible at
+  `(asof, known_at)`; a version's own knowable date is `max(valid_from, the market date of recorded_at)` — and the
+  detector's fire date, liveness anchor and provenance accession all come from it. Equality is exact on the stored
+  number, so a genuine restatement (a changed value) is new knowledge at its own filing and still fires from there;
+  firing only on a filing's own newest quarter (rule (c)) is a separate, deferred policy call. When several live
+  inflections share one knowability date, the NEWEST period is cited (tie-break (d)). Example — GEV: Q1-2025 revenue
+  of $8,032M was first filed 2025-04-23 and re-reported unchanged in the 2026-04-22 10-Q; the 2026-10-01 Nuclear
+  Buildout card cited "Q1 ending 2025-03-31" dated 2026-04-22. Now Q1-2025 dates at 2025-04-23 (long lapsed), and
+  GEV stays armed on its genuine Q1-2026 inflection (YoY +16% after +4%), first filed in that same 2026-04-22 10-Q.
+  MEASURED on prod at 2026-10-15: 101 → 74 live revenue triggers (27 lapse, 11 re-cite a genuine newer quarter, 3
+  remaining fire off restated values — one of them, VREOD's 48,063,010 → 48,100,000, a rounding-only change: the
+  named residual of exact equality); AI Memory & Storage (DELL/HPE/NLST) and Nuclear Buildout (CEG) leave Armed,
+  and Rainbow Rush / The Everything Exchange each lose one armed member (ENSC / CME). Replay applies the identical
+  rule (one shared pure function, parity-gated).
 - **`volume_breakout` `[built]` — the CONFIRMATION grade (Key 2).** VOLUME grades it: volume-backed
   (vol ≥ `breakout_volume_mult` × base avg) = `core`; a momentum thrust on weak volume arms but `flip`.
   **Grade-down** (ratified 2026-08-15, `breakout_weak_close_grade_down`): a volume-backed breakout that

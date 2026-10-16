@@ -17,6 +17,16 @@ detector rule here (core), and its number is a DETERMINISTIC companyfacts parse 
 (#3). Provenance = the inflection quarter's 10-Q/10-K accession (#6). Fire-date-anchored at that quarter's
 ``filed`` date (not the period end) — the honest knowability (#1).
 
+``filed`` is the quarter's FIRST knowability (D3a, ``db.bitemporal.first_knowable_versions``): the date the
+as-of read's ``knowable_from`` gives — the earliest filing in the trailing run of value-identical versions —
+NOT the picked version's ``valid_from``. Each 10-Q re-reports the year-ago quarter as its comparative, so
+the latest version of an old quarter is dated at the NEXT year's filing; anchoring on that re-fired a
+year-old inflection as fresh for another 180 days (GEV: Q1-2025 revenue $8,032M, first filed 2025-04-23,
+re-reported 2026-04-22 — the 2026-10-01 card cited Q1-2025 dated 2026-04-22). The event date, the liveness
+anchor and the provenance accession all come from the first-knowable version. A genuinely restated value is
+new knowledge at its own filing and still fires from there. When several live inflections share one filing
+date, the NEWEST ``period_end`` is the one cited (D3a tie-break (d)).
+
 Honesty (#9/#3): a missing quarter, a non-positive YoY base, or a gap in the series -> the detector DECLINES
 (returns None), never fabricates. It reads ``fundamentals_facts`` via the point-in-time view, so it runs
 identically live and in replay (A.1).
@@ -32,6 +42,7 @@ from datetime import date, timedelta
 from typing import Any
 from uuid import UUID
 
+from db.bitemporal import KNOWABLE_FROM, KNOWABLE_SOURCE
 from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.enums import CatalystType, Grade, Kind, Role
 from domain.signal import SignalEvent
@@ -70,7 +81,8 @@ _QUARTER_MAX_GAP_DAYS = (
 @dataclass(frozen=True)
 class _Q:
     """One as-of quarterly revenue point the detector reasons over (already deduped to the latest version per
-    period_end by the bitemporal read). ``filed`` = the knowability/fire date."""
+    period_end by the bitemporal read). ``filed`` = the knowability/fire date — the value's FIRST knowability
+    (the read's ``knowable_from``), and ``accession`` the filing that first made it knowable."""
 
     period_end: date
     value: float
@@ -81,20 +93,25 @@ class _Q:
 
 def _quarters(rows: list[dict[str, Any]]) -> list[_Q]:
     """The revenue points from the as-of fundamentals rows, sorted by period_end. Non-revenue metric keys
-    (a future §2.4 margin/FCF row) and any row missing value/period_end/filed are skipped."""
+    (a future §2.4 margin/FCF row) and any row missing value/period_end are skipped.
+
+    ``knowable_from`` / ``knowable_accession`` are READ STRICTLY (a KeyError, never a fallback to
+    ``valid_from``): the as-of reader always sets them, so a row without them came from a reader that skipped
+    the first-knowability walk — the exact path that re-dated stale comparatives — and must fail loud rather
+    than quietly date a re-reported quarter at its latest filing."""
     out: list[_Q] = []
     for r in rows:
         if r.get("metric_key") != _REVENUE_METRIC:
             continue
-        val, pe, vf = r.get("value"), r.get("period_end"), r.get("valid_from")
-        if val is None or pe is None or vf is None:
+        val, pe = r.get("value"), r.get("period_end")
+        if val is None or pe is None:
             continue
         out.append(
             _Q(
                 period_end=pe,
                 value=float(val),
-                filed=vf,
-                accession=r.get("accession") or "",
+                filed=r[KNOWABLE_FROM],
+                accession=r[KNOWABLE_SOURCE] or "",
                 fiscal_period=r.get("fiscal_period"),
             )
         )
@@ -198,7 +215,9 @@ def score(
         hits.append((q, infl))
     if not hits:
         return None
-    q, infl = max(hits, key=lambda h: h[0].filed)  # the most recent live inflection
+    # the most recent live inflection; when several share one filing date, the NEWEST period is the one that
+    # filing reported (D3a tie-break (d) — ``max`` on ``filed`` alone kept the first, i.e. OLDEST, period)
+    q, infl = max(hits, key=lambda h: (h[0].filed, h[0].period_end))
     label = (
         f"Revenue growth re-accelerated — YoY {infl.g_q:+.0%} (up from {infl.g_prev:+.0%}); "
         f"quarterly acceleration flipped positive at the {q.fiscal_period or 'quarter'} ending {q.period_end}"

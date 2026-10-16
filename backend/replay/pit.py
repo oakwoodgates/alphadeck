@@ -22,7 +22,12 @@ if importlib.util.find_spec("pandas") is None:  # only when pandas is genuinely 
 
 import duckdb
 
-from db.bitemporal import _FACT_IDENTITY, knowability_expr
+from db.bitemporal import (
+    _FACT_IDENTITY,
+    first_knowable_versions,
+    has_first_knowability,
+    knowability_expr,
+)
 from db.session import DEFAULT_TENANT_ID
 from replay.export import FACT_TABLES, read_mirror_manifest
 from signals.base import window_prices
@@ -170,9 +175,38 @@ class ReplayPointInTimeData:
         gate). ONE source of truth (knowability_expr), so both engines revert in lockstep."""
         return knowability_expr(table)
 
+    def _read_versions(
+        self, table: str, where: str, params: list[Any], partition: list[str]
+    ) -> list[dict[str, Any]]:
+        """The D3a first-knowability read — the twin of ``db.bitemporal``'s branch: EVERY visible version
+        under the SAME gate (no ``QUALIFY``), picked + annotated by the SAME pure
+        ``first_knowable_versions``, so the mirror cannot drift from Postgres. The registry floor (never
+        derived for these tables today) is applied AFTER the pick, to the picked ``valid_from`` — a SQL floor
+        could cut the history the run walks (``db.bitemporal.as_of_many``'s rule, mirrored)."""
+        ident = ", ".join(partition)
+        query = (
+            f"SELECT * FROM {table} WHERE {where} "
+            f"AND valid_from <= ? AND {self._gate(table)} <= ? "
+            f"ORDER BY {ident}, recorded_at, id"
+        )
+        res = self.con.execute(query, [*params, self.asof, self.known_at])
+        cols = [d[0] for d in res.description]
+        rows = first_knowable_versions(table, cols, res.fetchall(), partition)
+        lower = self._lower(table)
+        if lower is not None:
+            rows = [r for r in rows if r["valid_from"] >= lower]
+        return self._decode(table, rows)
+
     def _read_scoped(self, table: str, scope_col: str, scope_id: UUID) -> list[dict[str, Any]]:
         """The per-scope as-of read — one security (or one thesis). The pre-B5a query, plus the optional
         registry floor and the explicit ORDER BY."""
+        if has_first_knowability(table):
+            return self._read_versions(
+                table,
+                f"tenant_id = ? AND {scope_col} = ?",
+                [str(self.tenant_id), str(scope_id)],
+                list(_FACT_IDENTITY[table]),
+            )
         ident = ", ".join(_FACT_IDENTITY[table])  # identity cols (trusted whitelist)
         lower = self._lower(table)
         floor = " AND valid_from >= ?" if lower is not None else ""
@@ -196,10 +230,25 @@ class ReplayPointInTimeData:
         ``db.bitemporal.as_of_many``: same gate, same per-security partition, same ``recorded_at DESC,
         id DESC`` tiebreak, same optional floor, and an entry for EVERY requested id (``[]`` when it has
         no rows, so "nothing on file" is memoized and never re-queried)."""
+        placeholders = ", ".join("?" for _ in self._basket)
+        if has_first_knowability(table):
+            rows = self._read_versions(
+                table,
+                f"tenant_id = ? AND security_id IN ({placeholders})",
+                [str(self.tenant_id), *[str(s) for s in self._basket]],
+                _partition_cols(table),
+            )
+            grouped: dict[UUID, list[dict[str, Any]]] = {sid: [] for sid in self._basket}
+            for row in rows:
+                sid = self._sid_by_text.get(str(row["security_id"]))
+                if sid is not None:  # an id outside the basket cannot appear, but never guess
+                    grouped[sid].append(row)
+            for sid, sid_rows in grouped.items():
+                self._memo[(table, sid)] = sid_rows
+            return
         ident = ", ".join(_partition_cols(table))
         lower = self._lower(table)
         floor = " AND valid_from >= ?" if lower is not None else ""
-        placeholders = ", ".join("?" for _ in self._basket)
         query = (
             f"SELECT * FROM {table} "
             f"WHERE tenant_id = ? AND security_id IN ({placeholders}) "
@@ -263,7 +312,9 @@ class ReplayPointInTimeData:
     def fundamentals_facts(self, security_id: UUID) -> list[dict[str, Any]]:
         """The mirror twin of ``PointInTimeData.fundamentals_facts`` (§2.2) — the same as-of quarterly
         series over the DuckDB/Parquet mirror, so the revenue-acceleration detector runs identically in
-        replay (A.1: everything the live path reads, replay must read). Parity-gated row-for-row."""
+        replay (A.1: everything the live path reads, replay must read). Parity-gated row-for-row, the D3a
+        ``knowable_from`` / ``knowable_accession`` annotation included (the SAME pure function computes it
+        on both engines — ``_read_versions``)."""
         return self._as_of("fact_fundamentals", "security_id", security_id)
 
     def corporate_event_facts(self, security_id: UUID) -> list[dict[str, Any]]:

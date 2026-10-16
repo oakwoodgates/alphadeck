@@ -11,6 +11,8 @@ from datetime import date
 from types import SimpleNamespace
 from uuid import uuid4
 
+import pytest
+
 from domain.config import DEFAULT_CONFIG
 from domain.enums import CatalystType, Grade, Kind, Role
 from signals import revenue_acceleration as ra
@@ -46,12 +48,17 @@ _REV = {
 
 
 def _row(period_end: date, value: float, *, accn: str = "acc") -> dict:
+    """One as-of row as the PIT returns it. One version per quarter here, so each quarter was first
+    knowable at its own filing (the D3a ``knowable_*`` keys equal ``valid_from`` / ``accession``).
+    """
     return {
         "metric_key": "revenue",
         "period_end": period_end,
         "value": value,
         "valid_from": _FILED[period_end],
         "accession": f"{accn}-{period_end.isoformat()}",
+        "knowable_from": _FILED[period_end],
+        "knowable_accession": f"{accn}-{period_end.isoformat()}",
         "fiscal_period": "Q4" if period_end.month == 12 else "Q?",
         "fiscal_year": period_end.year,
     }
@@ -132,6 +139,8 @@ def test_ignores_non_revenue_metric_rows():
             "value": 0.6,
             "valid_from": _FIRE_FILED,
             "accession": "margin",
+            "knowable_from": _FIRE_FILED,
+            "knowable_accession": "margin",
             "fiscal_period": "Q4",
             "fiscal_year": 2023,
         }
@@ -181,3 +190,71 @@ def test_sub_threshold_acceleration_fires_once_the_floor_is_lowered():
     }
     ev = ra.score(_series(rev), _SID, date(2024, 3, 1), CallConfig(revenue_accel_min_accel=0.0))
     assert ev is not None and ev.grade is Grade.CORE
+
+
+# --- D3a: first knowability + the tie-break (pure contract tests, direct inputs) -----------------------
+
+
+def test_anchors_on_first_knowability_not_the_picked_versions_valid_from():
+    """The fire quarter re-reported UNCHANGED a year later (its next-year comparative): the picked version's
+    ``valid_from`` moves to 2025-02-14, its ``knowable_from`` stays 2024-02-15. At 2025-03-01 the inflection
+    is 380 days old — not live — so the detector declines; dated by ``valid_from`` it would re-fire.
+    """
+    rows = _series()
+    fire = next(r for r in rows if r["period_end"] == date(2023, 12, 31))
+    fire["valid_from"], fire["accession"] = date(2025, 2, 14), "acc-comparative"
+    assert ra.score(rows, _SID, date(2025, 3, 1), DEFAULT_CONFIG) is None
+    # inside its own window it fires, dated AND cited at the first-knowable filing
+    ev = ra.score(rows, _SID, date(2024, 3, 1), DEFAULT_CONFIG)
+    assert ev is not None and ev.asof == _FIRE_FILED
+    assert ev.provenance[0].ref == f"acc-{date(2023, 12, 31).isoformat()}"
+
+
+def test_a_row_without_first_knowability_fails_loud():
+    """A reader that skipped the first-knowability walk is the path that re-dated stale comparatives; the
+    detector refuses its rows (a KeyError) rather than quietly falling back to ``valid_from``."""
+    rows = _series()
+    for r in rows:
+        r.pop("knowable_from")
+    with pytest.raises(KeyError, match="knowable_from"):
+        ra.score(rows, _SID, date(2024, 3, 1), DEFAULT_CONFIG)
+
+
+def test_tie_break_cites_the_newest_period_when_inflections_share_a_filing_date():
+    """GEV's real revenue as the pre-D3a read dated it at 2026-10-01: Q1-2025 ($8,032M) carried its
+    2026-04-22 comparative's date, the SAME date as the genuine Q1-2026 ($9,339M) — two live inflections on
+    one date. ``max`` on the date alone returned the first, OLDER one (the card's "Q1 ending 2025-03-31");
+    the tie-break cites the newest period that filing reported."""
+    gev = [  # (period_end, revenue $M, the date the pre-D3a read gave it)
+        (date(2023, 3, 31), 6822, date(2024, 4, 30)),
+        (date(2023, 6, 30), 8119, date(2024, 7, 24)),
+        (date(2023, 9, 30), 8253, date(2024, 10, 23)),
+        (date(2023, 12, 31), 10045, date(2026, 1, 29)),
+        (date(2024, 3, 31), 7260, date(2025, 4, 23)),
+        (date(2024, 6, 30), 8204, date(2025, 7, 23)),
+        (date(2024, 9, 30), 8913, date(2025, 10, 22)),
+        (date(2024, 12, 31), 10559, date(2026, 1, 29)),
+        (date(2025, 3, 31), 8032, date(2026, 4, 22)),
+        (date(2025, 6, 30), 9111, date(2026, 7, 22)),
+        (date(2025, 9, 30), 9969, date(2025, 10, 22)),
+        (date(2025, 12, 31), 10956, date(2026, 1, 29)),
+        (date(2026, 3, 31), 9339, date(2026, 4, 22)),
+        (date(2026, 6, 30), 11104, date(2026, 7, 22)),
+    ]
+    rows = [
+        {
+            "metric_key": "revenue",
+            "period_end": pe,
+            "value": v * 1_000_000,
+            "valid_from": d,
+            "accession": f"accn-{d.isoformat()}",
+            "knowable_from": d,
+            "knowable_accession": f"accn-{d.isoformat()}",
+            "fiscal_period": f"Q{(pe.month - 1) // 3 + 1}",  # GEV's fiscal year is the calendar year
+        }
+        for pe, v, d in gev
+    ]
+    ev = ra.score(rows, _SID, date(2026, 10, 1), DEFAULT_CONFIG)
+    assert ev is not None and ev.asof == date(2026, 4, 22)
+    assert "ending 2026-03-31" in ev.label
+    assert ev.provenance[0].detail["period_end"] == "2026-03-31"

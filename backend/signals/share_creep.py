@@ -42,7 +42,10 @@ Freshness is DETECTOR-ENFORCED (the assembler never ages risk signals): the chai
 a point whose ``filed`` is within ``share_creep_liveness_days`` of asof, so a gone-dark series drops
 out of the re-derived stream and replay stays honest. Fire-date-anchored at the newest point's
 ``filed`` (the honest knowability, #1); provenance carries every window point's accession + count and
-the computation summary (#6).
+the computation summary (#6). ``filed`` / accession are each point's FIRST knowability (D3a — the as-of
+read's ``knowable_from`` / ``knowable_accession``): every 10-Q re-reports the prior fiscal year-end
+balance sheet, so the latest VERSION of an old count is dated at a later filing; that comparative is not
+a fresh print and must not anchor freshness.
 
 MASTER SWITCH (``share_creep_enabled``) — **DEFAULT ON since the operator flip of 2026-08-19**, on the
 sig-lab pass (shipped OFF behind the insider_sell / corporate-pair precedent). Measured safe on real
@@ -59,6 +62,7 @@ from datetime import date
 from typing import Any
 from uuid import UUID
 
+from db.bitemporal import KNOWABLE_FROM, KNOWABLE_SOURCE
 from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.enums import Kind, Role
 from domain.signal import SignalEvent
@@ -93,7 +97,10 @@ _QUARTER_MAX_GAP_DAYS = 130
 @dataclass(frozen=True)
 class _P:
     """One as-of share-count instant (already the latest version per period_end via the bitemporal
-    read — a restatement supersedes). ``filed`` = the knowability / freshness-anchor date."""
+    read — a restatement supersedes). ``filed`` = the knowability / freshness-anchor date — the count's
+    FIRST knowability (the read's ``knowable_from``, D3a), and ``accession`` the filing that first made it
+    knowable. A balance-sheet count re-reported unchanged as the next 10-Q's comparative is not a fresh
+    print, so it can no longer keep a gone-dark series looking fresh."""
 
     period_end: date
     value: float
@@ -104,20 +111,29 @@ class _P:
 def _points(rows: list[dict[str, Any]], metric_key: str) -> list[_P]:
     """The share-count points for ONE concept from the as-of fundamentals rows, sorted by period_end.
     Other metric keys (revenue, the sibling share concepts) are skipped; a row missing
-    value/period_end/valid_from — or a non-positive count (a literal 0-share XBRL row: garbage that
+    value/period_end — or a non-positive count (a literal 0-share XBRL row: garbage that
     can never be an honest ratio base, #3) — is skipped. The INGEST stores such rows regardless (the
-    tape is honest); this screen is the detector's read-side cut."""
+    tape is honest); this screen is the detector's read-side cut. ``knowable_from`` /
+    ``knowable_accession`` are read STRICTLY, never falling back to ``valid_from`` (the revenue
+    detector's rule: a row without them skipped the first-knowability walk and must fail loud)."""
     out: list[_P] = []
     for r in rows:
         if r.get("metric_key") != metric_key:
             continue
-        val, pe, vf = r.get("value"), r.get("period_end"), r.get("valid_from")
-        if val is None or pe is None or vf is None:
+        val, pe = r.get("value"), r.get("period_end")
+        if val is None or pe is None:
             continue
         v = float(val)
         if v <= 0:
             continue
-        out.append(_P(period_end=pe, value=v, filed=vf, accession=r.get("accession") or ""))
+        out.append(
+            _P(
+                period_end=pe,
+                value=v,
+                filed=r[KNOWABLE_FROM],
+                accession=r[KNOWABLE_SOURCE] or "",
+            )
+        )
     out.sort(key=lambda p: p.period_end)
     return out
 
