@@ -21,6 +21,12 @@ implementation means the invariants can't fork:
   the latest, so the series snaps to the new basis within one pass, price AND volume). A replay with a
   ``known_at`` BEFORE the re-version still sees the old basis — transaction-time honesty, exactly what
   the bitemporal store exists for. The mixed-basis window is at most one cron tick.
+- **Settled bars only (D2)** — the fresh pull goes through ``settle.withhold_unsettled`` FIRST, so a bar
+  for a session that has not closed and settled (today's, before ``Settings.price_settle_time``) is
+  neither appended nor allowed to re-version a stored bar. An Admin "Run daily now" in market hours, a
+  daytime boot catch-up, or a Workbench pull mid-session therefore stores yesterday's close and nothing of
+  today; the next settled pass appends today's bar as an ordinary tail bar (withholding never loses one).
+  ``BarsResult.withheld`` carries the count so the pass can say so ONCE, quietly.
 
 Price bars are FEED data (like Form 4s), not operator-ratified facts — the recommend→confirm seam does
 not apply to them; what they feed (the market cap) stays display until the operator acts.
@@ -30,12 +36,14 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from uuid import UUID
 
 import psycopg
 
 from domain.security import Security
 from ingest.prices.eod_loader import ingest_prices, latest_bar_date, stored_bars
+from ingest.prices.settle import withhold_unsettled
 from ingest.prices.source import PriceSource, YahooPriceSource
 
 
@@ -43,10 +51,14 @@ from ingest.prices.source import PriceSource, YahooPriceSource
 class BarsResult:
     """The price leg's receipt: ``appended`` = bars newer than the latest stored (the incremental
     tail); ``reversioned`` = overlap bars re-stored because the source RESTATED them (a split
-    re-base) or backfilled a hole — the exceptional path, surfaced loudly only when nonzero."""
+    re-base) or backfilled a hole — the exceptional path, surfaced loudly only when nonzero;
+    ``withheld`` = fresh bars NOT stored because their session had not settled (D2 — today's bar on a
+    pass before the settle time; written by the next settled pass). Not part of ``total``: nothing landed.
+    """
 
     appended: int
     reversioned: int
+    withheld: int = 0
 
     @property
     def total(self) -> int:
@@ -81,15 +93,21 @@ def ingest_bars_for_security(
     allow_live: bool = True,
     force_refresh: bool = False,
     source: PriceSource | None = None,
+    now: datetime | None = None,
 ) -> BarsResult:
     """Ingest this security's EOD bars: the incremental tail (newer than the latest stored bar) plus
     the RE-VERSION pass over the overlap (restated bars get a new version; see the module docstring).
     Reads bars through the injected ``PriceSource`` (the seam); ``force_refresh`` makes the recurring
     path bypass a stale cache hit. A ticker-less security contributes no bars. Idempotent by
     construction: a second run over the same fresh series appends the tail (now empty) and finds no
-    overlap diffs — COUNT-the-table guarded. The caller owns the transaction."""
+    overlap diffs — COUNT-the-table guarded. The caller owns the transaction.
+
+    ``now`` (an AWARE instant; default the UTC wall clock) is the settle guard's clock — the only thing
+    it drives: bars whose session has not settled by ``now`` are withheld (D2). ``recorded_at`` still
+    comes from the DB default ``now()``, unchanged."""
     if not sec.ticker:
         return BarsResult(0, 0)
+    now = now or datetime.now(timezone.utc)
     src = source or YahooPriceSource()
     # Price under the RESOLVED vendor symbol when set (FDCT's history lives under FDCTD: 251 bars vs 16),
     # else the canonical SEC ticker. ``price_symbol`` is stored ONLY when it differs (migration 0032), and
@@ -97,7 +115,11 @@ def ingest_bars_for_security(
     # ticker guard above still holds. The bars land under the same ``security_id`` regardless of which
     # symbol fetched them, so the detectors simply start seeing the fuller history (no call-path touch).
     price_symbol = sec.price_symbol or sec.ticker
-    fresh = src.get_bars(price_symbol, allow_live=allow_live, force_refresh=force_refresh)
+    # D2 — settled bars only, BEFORE the tail/overlap split: an in-progress bar must neither append nor
+    # re-version a stored one (a legacy intraday version of today stays until a settled pass restates it)
+    fresh, withheld = withhold_unsettled(
+        src.get_bars(price_symbol, allow_live=allow_live, force_refresh=force_refresh), now=now
+    )
     last = latest_bar_date(conn, sec.id, tenant_id=tenant_id)
 
     appended = ingest_prices(
@@ -123,4 +145,4 @@ def ingest_bars_for_security(
             ]
             reversioned = ingest_prices(conn, sec.id, restated, tenant_id=tenant_id)
 
-    return BarsResult(appended, reversioned)
+    return BarsResult(appended, reversioned, withheld)

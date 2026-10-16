@@ -30,6 +30,7 @@ wrong var). ``env_file`` is deliberately NOT enabled — nothing reads a ``.env`
 
 from __future__ import annotations
 
+from datetime import time
 from functools import lru_cache
 
 from pydantic import AliasChoices, Field, field_validator
@@ -199,6 +200,33 @@ class Settings(BaseSettings):
     # 0 DISABLES it independently of the price monitor. Read via the env_prefix
     # (ALPHADECK_FUND_SHARES_STALE_DAYS); like its sibling, NOT injected by docker-compose.
     fund_shares_stale_days: int = 7
+    # D2 — THE SETTLE TIME: the market-time wall clock (``market_tz``) after which a session's EOD bar counts
+    # as a CLOSE. A bar dated ``d`` is stored only once ``now >= d at this time`` (``ingest/prices/settle.py``),
+    # on every price write (thesis names, benchmarks, the Workbench pull), so an Admin "Run daily now" in
+    # market hours or a daytime boot catch-up can never freeze an in-progress bar as a close. MEASURED on prod
+    # 2026-10-16 (first versions recorded on the bar's own ET date, then compared with any later version
+    # within 4 days): 1,835 of the 1,896 bars first stored 09:00-14:59 ET later moved their CLOSE (median
+    # ~0.7-1.0% — in-progress values), while every hour measured AFTER the close sat at 3-12% (17:xx 73/632,
+    # 18:xx 4/88, 20:xx 25/230, 21:xx 22/284, 22:xx 733/15,907, 23:xx 103/3,205) with no trend between 17:00
+    # and midnight — that residual is vendor revision, which the restatement compare re-versions. So the
+    # guard's job is to exclude the SESSION, and the data does not pick a finer hour: 18:00 is a 2 h margin
+    # past the 16:00 close (5 h past a 13:00 half-day close) and 4.5 h before the 22:30 RUN_AT, so the
+    # scheduled pass (and any evening re-run or post-midnight catch-up) always stores its night's bar. Calendar-free by
+    # design: a holiday has no vendor bar to withhold, and a half-day bar is merely held until 18:00 too
+    # (conservative — never a loss: the next pass appends it). "HH:MM", read via the env_prefix
+    # (ALPHADECK_PRICE_SETTLE_TIME); a malformed value fails LOUD at settings load.
+    price_settle_time: time = time(18, 0)
+    # D1 — the BENCHMARK RESTATEMENT WINDOW: how many of the vendor's most recent (settled) SESSIONS the
+    # SPY/IWM leg re-compares against the stored bars, appending a new version where the vendor revised one
+    # (the thesis path's `_restated` compare, unchanged). Limited on purpose — the older stored bars that
+    # differ (the 2026-08-25/08-27 intraday-frozen closes, and the nightly volumes the vendor revised after
+    # 22:30) are a separate repair awaiting the operator's decision (Q3), never folded into a nightly pass.
+    # MEASURED on prod 2026-10-16: of the thesis tape's 14,341 re-versions recorded within 10 weekdays of
+    # their bar date, 14,144 landed within 3 and only 24-36 at each weekday-lag from 4 to 10 (roughly half
+    # of them split re-bases), so a window whose oldest compared bar sits 4 sessions behind the newest holds
+    # the settle class. (Older re-versions — split re-bases, T6's jitter on old bars — are not its job.)
+    # 0 disables. Read via the env_prefix (ALPHADECK_BENCHMARK_RESTATE_WINDOW).
+    benchmark_restate_window: int = 5
 
     # --- The trading-day clock (domain/market_time.py) — the zone "today" is computed in ---
     # "Today" is a DOMAIN fact, not an environment fact (INVARIANTS.md §6): `date.today()` read the

@@ -70,7 +70,7 @@ from pipeline.cron_run_log import (
     previous_stale_tapes,
     write_cron_run_log,
 )
-from pipeline.ingest_thesis import NameResult, ingest_thesis
+from pipeline.ingest_thesis import NameResult, ingest_thesis, print_withheld_line
 from pipeline.name_errors import NameIngestError, dedup_name_errors, name_errors_of
 from pipeline.run_lock import (
     EXIT_ALREADY_RUNNING,
@@ -716,7 +716,14 @@ def _run_daily_pass_locked(
             bench_bars = sum(r.bars_appended for r in bench_results)
             bench_errs = [r.error for r in bench_results if r.error]
             benchmark_errors = len(bench_errs)  # G4 — carried to the artifact + the health page
-            print(f"benchmarks refresh: +{bench_bars} bars, {len(bench_results)} benchmarks")
+            # D1/D2 — in-window restatements and unsettled (today's in-progress) bars, only when nonzero
+            bench_rs = sum(r.bars_restated for r in bench_results)
+            bench_wh = sum(r.bars_withheld for r in bench_results)
+            rs = f", {bench_rs} restated" if bench_rs else ""
+            wh = f", {bench_wh} unsettled bar(s) withheld" if bench_wh else ""
+            print(
+                f"benchmarks refresh: +{bench_bars} bars{rs}{wh}, {len(bench_results)} benchmarks"
+            )
             for err in bench_errs:  # loud only when nonzero (loudness marks the exception)
                 print(f"  benchmarks refresh ERROR: {err}")
         except Exception as e:  # noqa: BLE001 — a refresh leg is a passenger, never the driver
@@ -1047,6 +1054,8 @@ def _report(
                 f"{undiffed} name error(s) — not diffed (a --no-live pass is never a baseline); "
                 "reasons in the run artifact"
             )
+    # D2 — names whose in-progress bar was withheld (session not yet settled): ONE quiet line, deduped
+    print_withheld_line(x for r in results for x in r.ingested)
     wh = f" · {len(withheld)} withheld" if withheld else ""  # loud only when it happens
     print(
         f"done: {len(results)} theses · {appended} appended · {unchanged} unchanged{wh} · "

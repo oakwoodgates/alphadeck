@@ -855,6 +855,8 @@ def test_pass_benchmarks_FORCE_REFRESH_but_fundamentals_carries_NO_flag(monkeypa
     # benchmarks: the recurring fetch force-refreshes past a stale cache hit
     assert seen["benchmarks"].get("force_refresh") is True
     assert seen["benchmarks"].get("allow_live") is True
+    # D1: the recurring leg never asks for the one-shot backfill's backdated stamp (recorded_at = now)
+    assert not seen["benchmarks"].get("historical_backfill", False)
 
     # fundamentals: NO per-call freshness flag (key-classed / default-refresh), just allow_live
     assert "force_refresh" not in seen["fundamentals"]
@@ -969,8 +971,8 @@ def test_pass_counts_INDIVIDUAL_benchmark_errors_without_failing_the_leg(monkeyp
     monkeypatch.setattr(
         "pipeline.ingest_benchmarks.ingest_benchmarks",
         lambda conn, **k: [
-            SimpleNamespace(bars_appended=3, error=None),
-            SimpleNamespace(bars_appended=0, error="yahoo 502"),
+            SimpleNamespace(bars_appended=3, error=None, bars_restated=0, bars_withheld=0),
+            SimpleNamespace(bars_appended=0, error="yahoo 502", bars_restated=0, bars_withheld=0),
         ],
     )
     seen_health: dict = {}
@@ -1846,6 +1848,52 @@ def test_report_is_SILENT_about_rejections_on_an_ordinary_night(capsys):
         ]
     )
     assert "REJECTED" not in capsys.readouterr().out
+
+
+# --- D2: today's in-progress bars withheld — ONE quiet line, deduped across theses --------------------
+
+
+def test_report_counts_withheld_bars_in_ONE_quiet_line_deduped_across_theses(capsys):
+    """A daytime pass withholds today's bar for every priced name. That is an expected state the next
+    settled pass resolves, so it gets ONE lowercase count line — never a line per name — and a name held
+    by two theses counts once."""
+    shared = uuid.uuid4()
+
+    def held(sid):
+        return NameResult(
+            ticker="T",
+            security_id=sid,
+            form4_appended=0,
+            price_bars_appended=0,
+            price_bars_withheld=1,
+        )
+
+    daily._report(
+        [
+            daily.ThesisRunResult(
+                thesis_id=uuid.uuid4(), name="T1", recorded=True, ingested=[held(shared)]
+            ),
+            daily.ThesisRunResult(
+                thesis_id=uuid.uuid4(),
+                name="T2",
+                recorded=True,
+                ingested=[held(shared), held(uuid.uuid4())],
+            ),
+        ]
+    )
+    lines = [ln for ln in capsys.readouterr().out.splitlines() if "withheld" in ln]
+    assert len(lines) == 1 and lines[0].startswith("2 name(s): today's in-progress bar withheld")
+
+
+def test_report_is_SILENT_about_withholding_after_the_settle_time(capsys):
+    daily._report(
+        [
+            daily.ThesisRunResult(
+                thesis_id=uuid.uuid4(), name="T1", recorded=True, ingested=[_name_result()]
+            )
+        ]
+    )
+    assert "in-progress bar withheld" not in capsys.readouterr().out
 
 
 # --- O1: per-name errors — persisted, diffed against the last evaluated pass, NEW ones paged -----------

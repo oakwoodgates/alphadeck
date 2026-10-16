@@ -130,6 +130,15 @@ replay stays honest.
   backdated** — and the daily cron pins `asof=today` / `known_at=now` (a live read), so a fact ingested today
   is invisible to an as-of read pinned at an earlier transaction time (`tests/pipeline/test_ingest_thesis.py`,
   the no-lookahead test). See `FEED_LOOP.md`.
+- *Also honored by (D1 + D2, 2026-10-16 — the price write path):* the nightly SPY/IWM leg used to reuse the
+  one-shot backfill's stamp (`recorded_at = D 00:00 UTC`, ~26.5 h before ingest), and a daytime pass stored the
+  vendor's in-progress bar as a close. Now the RECURRING benchmark path stamps `recorded_at = now` from the
+  database clock (only the historical-backfill CLI backdates first versions), a correction is always stamped
+  `now`, and every price write withholds a bar until its session settles (`ingest/prices/settle.py`,
+  `Settings.price_settle_time`). *Enforced by:* `tests/pipeline/test_ingest_benchmarks.py` (a bar ingested
+  22:35 ET on D is visible to the asof-D call and the scrub-back cap, invisible before 22:35 and to asof < D;
+  the window-bounded restatement; count-the-table) and `tests/ingest/test_price_settle*.py`. See `FEED_LOOP.md`
+  §Settled closes.
 - *Also honored by (the SERVE path — the scrub-back cap):* the gate COLUMN being right is not enough; the
   PIN must move. `GET /theses/{id}/call`, `/display-signals`, and `/workbench/…/scored` recompute through
   a `PointInTimeData` whose `known_at` defaults to `now`, so for a past `asof` the `recorded_at` half of the

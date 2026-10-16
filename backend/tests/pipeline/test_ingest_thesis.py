@@ -5,6 +5,7 @@ read, so a duplicate append would hide behind correct reads while the table sile
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -587,6 +588,61 @@ def test_report_omits_backfill_segment_when_zero(capsys):
     out = capsys.readouterr().out
     assert "+3 bars" in out and "backfilled" not in out
     assert "+3 price bars" in out  # total = 3 + 0
+    assert "withheld" not in out  # D2: no withheld line on a settled pass
+
+
+# --- D2: the settle guard through the per-thesis ingest ----------------------------------------------
+
+
+def test_a_daytime_ingest_withholds_todays_bar_quietly_and_the_evening_pass_stores_it(
+    db, security_id, monkeypatch, capsys
+):
+    """``ingest_thesis(now=...)`` threads the settle clock to the price leg. At 12:07 ET on 2026-08-25 the
+    vendor payload's last bar is the session so far (REAL: SPY's 765.27, from
+    ``tests/fixtures/prices/benchmark_tape_2026_08.json``) — the prior sessions land, today's is withheld,
+    and the CLI summary says so in ONE quiet line. The 22:35 ET pass stores the final bar. Count the table.
+    """
+    from zoneinfo import ZoneInfo
+
+    from ingest.prices.eod_loader import parse_yahoo_chart
+
+    et = ZoneInfo("America/New_York")
+    fx = json.loads(
+        (
+            Path(__file__).resolve().parents[1]
+            / "fixtures"
+            / "prices"
+            / "benchmark_tape_2026_08.json"
+        ).read_text(encoding="utf-8")
+    )
+    payload = fx["SPY"]["midsession_2026_08_25"]
+    _patch(monkeypatch, eod_fn=lambda ticker: parse_yahoo_chart(payload))
+    tid = _make_thesis(db, [("DEVCO", security_id)])
+
+    (day,) = IT.ingest_thesis(
+        db, tid, allow_live=False, now=datetime(2026, 8, 25, 12, 7, tzinfo=et)
+    )
+
+    assert (day.price_bars_appended, day.price_bars_withheld) == (3, 1)
+    assert _counts(db)[1] == 3
+    IT._report([day])
+    lines = [ln for ln in capsys.readouterr().out.splitlines() if "withheld" in ln]
+    assert lines == [
+        "1 name(s): today's in-progress bar withheld — the session settles at 18:00 market time; "
+        "the next pass after that stores it"
+    ]
+
+    final = fx["SPY"]["final"]
+    _patch(
+        monkeypatch,
+        eod_fn=lambda ticker: [r for r in parse_yahoo_chart(final) if r["d"] <= date(2026, 8, 25)],
+    )
+    (night,) = IT.ingest_thesis(
+        db, tid, allow_live=False, now=datetime(2026, 8, 25, 22, 35, tzinfo=et)
+    )
+
+    assert (night.price_bars_appended, night.price_bars_withheld) == (1, 0)
+    assert _counts(db)[1] == 4
 
 
 # --- G1: the three filing legs share ONE submissions fetch per company (the recurring TTL) ------------
