@@ -183,7 +183,13 @@ def ingest_prices_backfill(
     for the LIVE incremental ingest, which learns a bar today): a one-shot deep backfill of years-old
     tape must backdate ``recorded_at`` to the bar date, or a lockstep replay pinned in the past is blind
     to every historical bar (the "no-backfill trap", repo memory). Reuses ``ingest_prices`` per bar so
-    the exact column mapping (OHLCV + ``valid_from = d``) stays in one place."""
+    the exact column mapping (OHLCV + ``valid_from = d``) stays in one place.
+
+    ONE-SHOT ONLY (D1, 2026-10-16): its sole production caller is the explicit historical-backfill CLI
+    (``python -m pipeline.ingest_benchmarks`` → ``historical_backfill=True``). A RECURRING path must never
+    use it — the nightly benchmark leg once did, which stamped every nightly SPY/IWM bar ~26.5 h before
+    it was ingested; it now stamps ``now``. And never for a CORRECTION: a later version of a bar is news
+    learned now, and a backdated one would collide with a backdated original on the unique key."""
     count = 0
     for r in rows:
         d = r["d"]

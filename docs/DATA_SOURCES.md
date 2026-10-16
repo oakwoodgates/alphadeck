@@ -194,6 +194,23 @@ The EOD price source feeds `volume_breakout` (Key 2) and the Workbench market-ca
   order-of-magnitude cliff in close or volume). This is a **property of the Yahoo adapter**, not an assumption
   baked into the system. *(Re-basing-on-split is universal to adjusted feeds — e.g. Tiingo's docs likewise say
   re-download when `splitFactor != 1`.)*
+- **The stored close is `quote.close` — split-adjusted, NOT dividend-adjusted.** MEASURED on prod
+  2026-10-16: the stored SPY and IWM closes equal the vendor's current `quote.close` on 1,252 of the 1,254
+  overlapping dates each, and `adjclose` on only 20–23 (the dates after the last dividend, where the two
+  coincide). The two mismatches are the intraday-frozen 2026-08-25 / 08-27 closes (below) — no dividend drift.
+- **The vendor's daily bar is not final in-session, and its volume keeps settling after the evening.**
+  Mid-session the "today" bar is the session so far; and even at the 22:30 pull the day's VOLUME is not
+  final — MEASURED on prod 2026-10-16: of the 43 sessions 2026-08-14..10-14, the stored volume differs from
+  the vendor's current one on 38 for SPY and 32 for IWM, always upward (+0.05% to +3.2%, ignoring the two
+  frozen bars), while every stored bar before 08-14 matches exactly; the closes match apart from the two
+  frozen bars. So **no bar is stored before its session settles** (D2, `Settings.price_settle_time` = 18:00
+  market time, `ingest/prices/settle.py` — the evidence for the hour is on the setting), and post-settle
+  revisions are re-versioned by the restatement compare (thesis names: the whole overlap; SPY/IWM: the
+  newest `Settings.benchmark_restate_window` = 5 sessions). Detail: `FEED_LOOP.md` §Settled closes.
+- **The benchmark tape's two stamps (D1).** The nightly SPY/IWM leg stamps `recorded_at = now` like every
+  other live price bar; only the one-shot historical backfill CLI (`python -m pipeline.ingest_benchmarks`)
+  backdates first versions to their bar date (the replay contract for deep history). Before 2026-10-16 the
+  nightly leg backdated too (`recorded_at = D 00:00 UTC`), so the stored nightly bars carry that stamp.
 - **Cache behavior.** Cache-first on disk (`data/price_cache/`) for dev and the `--no-live` path (re-runs
   reproducible, polite). The **recurring/daily path force-refreshes** (`fetch_eod(force_refresh=True)`): it
   re-pulls live and overwrites the cache, so the daily cron gets NEW bars instead of a frozen cache hit. A

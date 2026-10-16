@@ -163,6 +163,58 @@ page keeps its `--catch-up` exemption (see "Known gaps").
 standalone `python -m pipeline.ingest_thesis`) keep it too. Consequence for the operator: **"Run daily now"
 is safe at any hour**.
 
+## Settled closes, honest stamps — the price write path (D1 + D2, 2026-10-16)  `[BUILT]`
+
+Freshness (above) makes a pass SEE the current bars. Two older faults made some passes WRITE wrong ones.
+
+**D2 — no in-progress bar is ever stored as a close.** A daytime pass — the Admin "Run daily now" in market
+hours, or a boot catch-up after a daytime cold start (one fired at 12:07 ET on 2026-10-14) — pulled the
+vendor's "today" bar, which is the session *so far*, and stored it as if it were final (MEASURED in the
+review: 1,065 partial bars and 38 same-day call rows from mid-session runs, 2026-07-16 → 08-27). Now every
+price write — the thesis price leg (`ingest_bars_for_security`: the per-thesis ingest, the cron, the
+Workbench pull) and the SPY/IWM leg — first passes the fresh pull through `ingest/prices/settle.py`
+`withhold_unsettled`: a bar dated `d` is stored only once `now >= d at Settings.price_settle_time`
+(**18:00 market time**, env `ALPHADECK_PRICE_SETTLE_TIME`). One comparison, no trading calendar:
+- a **prior day's** bar is always settled, so a **post-midnight catch-up** (market_today is already the next
+  day, pre-open) still stores the previous session; the **22:30 RUN_AT** is 4.5 h past the settle time, so
+  the scheduled pass always stores its own night's bar;
+- **today's** bar is withheld before 18:00, and a withheld bar is dropped from BOTH the tail and the
+  restatement compare (an in-progress value can neither append nor re-version a stored bar);
+- a **future-dated** bar is never settled; a **holiday** has no vendor bar, so nothing to withhold; a
+  **half-day** bar (13:00 close) is held until 18:00 too — conservative, never a loss.
+- **Withholding never loses a bar**: the tail is "newer than the latest STORED bar", so the next settled
+  pass appends it as an ordinary new bar. The pass says so ONCE, quietly — `N name(s): today's in-progress
+  bar withheld …` (deduped across theses), and the benchmark line's `, N unsettled bar(s) withheld`.
+
+*Why 18:00 (MEASURED on prod, read-only, 2026-10-16 — every first version recorded on its bar's own ET date,
+checked against any later version within 4 days):* of the 1,896 bars first stored 09:00–14:59 ET, **1,835
+later moved their close** (median ~0.7–1.0% — in-progress values); first stored 17:00–17:59, 73/632
+(11.5%); 18:00–18:59, 4/88 (4.5%); 22:00–22:59, 733/15,907 (4.6%). 18:00 is where the not-final rate falls
+to the nightly cron's own residual — the vendor revisions the restatement compare already re-versions.
+
+**D1 — the benchmark leg's honest transaction time + a bounded restatement.** `pipeline/ingest_benchmarks.py`
+was written as a ONE-SHOT historical backfill (`valid_from = recorded_at = the bar date` — the replay
+contract for deep history) and the nightly leg reused it, so every nightly SPY/IWM bar claimed
+`recorded_at = D 00:00 UTC`: ~26.5 h before it was ingested, before its own session opened. With no
+re-version pass either, the two market-hours bars it froze (SPY 2026-08-25 765.27 vs a final 765.91; 08-27
+770.82 vs 771.10; IWM the same two days) were the only versions ever held. Now:
+- the **recurring path** (the nightly leg, and any pass through `run_daily_pass`) stamps `recorded_at = now`
+  from the **database clock** (`db_now`, the one-clock rule); only the **CLI** (`python -m
+  pipeline.ingest_benchmarks` → `historical_backfill=True`) backdates, for deep history;
+- the thesis path's restatement compare (`_restated`, tolerance unchanged) runs over the vendor's newest
+  **`Settings.benchmark_restate_window` = 5 settled sessions**: a revised stored bar gets a NEW version
+  stamped `now` (never backdated, on either path); an in-window date the store lacks is filled. **Older bars
+  are never re-versioned by a pass** — that is the operator's Q3 repair.
+
+*The visibility contract, checked against every reader:* the bar for D, ingested ~22:35 ET on D, is inside
+the night's own call (`known_at = db_now`, later), the serve-path scrub-back (`serve_known_at` →
+`known_at_for_asof(D)`, the end of D's MARKET day) and a backfilled night's `--known-at next-run`, and
+outside every read with `asof < D` (`valid_from = D`) and any read pinned before 22:35 (the old stamp leaked
+there). The **replay/backtest** read no benchmark bar at all (`ReplayPointInTimeData` has no
+`benchmark_prices` — RS is a display signal), and even the mirror's clocks would not care: a record-clock
+run pins one `known_at` after every nightly ingest; a public-clock mirror rewrites `fact_price_eod`'s
+`recorded_at` to the bar date. Already-stored nightly bars keep their backdated stamps (no rewrite).
+
 ## The daily cron — `pipeline/daily.py`  `[BUILT #71]`
 
 `run_daily(conn, *, asof=today, known_at=now, allow_live=True, force_refresh=True, notifier=None, …)`.

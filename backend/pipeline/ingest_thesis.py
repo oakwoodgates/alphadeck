@@ -34,15 +34,16 @@ from __future__ import annotations
 
 import argparse
 import xml.etree.ElementTree as ET
-from collections.abc import Collection
+from collections.abc import Collection, Iterable
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from uuid import UUID
 
 import psycopg
 
 from db.session import connect
 from domain.security import Security
+from domain.settings import get_settings
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.form4 import existing_accessions, ingest_form4
 from ingest.edgar.form8k import ingest_form8k
@@ -93,6 +94,10 @@ class NameResult:
     # overlap bars re-stored because the source RESTATED them (a split re-base; source-strategy A) —
     # the exceptional path, reported loudly only when nonzero
     price_bars_reversioned: int = 0
+    # D2 — fresh bars NOT stored because their session had not settled (today's in-progress bar on a pass
+    # before `Settings.price_settle_time`); the next settled pass appends them. Summed into ONE quiet count
+    # line per run, never one line per name.
+    price_bars_withheld: int = 0
     # the fund-shares leg (ETF net flow, F2): a non-ETF member always contributes 0; a restated
     # same-day count is a new VERSION (reversioned) — loud only when nonzero
     fund_shares_appended: int = 0
@@ -276,6 +281,7 @@ def ingest_thesis(
     edgar_client: EdgarClient | None = None,
     fund_source: FundSharesSource | None = None,
     only_security_ids: Collection[UUID] | None = None,
+    now: datetime | None = None,
 ) -> list[NameResult]:
     """Ingest insider + price facts — and, for an ETF sleeve, a fund shares-outstanding sample — for
     each RESOLVED basket member of ``thesis_id``.
@@ -296,8 +302,10 @@ def ingest_thesis(
     ``pipeline.daily``'s call (``pipeline/tape_health.py``).
 
     ``force_refresh`` makes the price + fund-shares legs bypass a stale cache hit (the recurring/daily
-    path sets it; see ``eod_loader.fetch_eod``). ``price_source`` is the swappable EOD source (defaults
-    to Yahoo); ``fund_source`` the swappable shares source (defaults to issuer-first + fallback).
+    path sets it; see ``eod_loader.fetch_eod``). ``now`` (AWARE; default the UTC wall clock) is the price
+    leg's SETTLE-guard clock (D2 — ``ingest.prices.settle``): a bar whose session has not settled by then
+    is withheld and counted in ``price_bars_withheld``, never stored. ``price_source`` is the swappable
+    EOD source (defaults to Yahoo); ``fund_source`` the swappable shares source (defaults to issuer-first + fallback).
     ``edgar_client`` lets the caller INJECT the client (else one is constructed) so it can read
     ``client.live_fetches`` afterwards — the daily cron does, to record the freeze-detector count.
 
@@ -370,7 +378,7 @@ def ingest_thesis(
             conn.rollback()
             errs.append(f"schedule13: {e}")
             leg_errs.append(("schedule13", str(e)))
-        px_appended, px_reversioned = 0, 0
+        px_appended, px_reversioned, px_withheld = 0, 0, 0
         try:
             bars = ingest_bars_for_security(
                 conn,
@@ -379,8 +387,13 @@ def ingest_thesis(
                 allow_live=allow_live,
                 force_refresh=force_refresh,
                 source=source,
+                now=now,
             )
-            px_appended, px_reversioned = bars.appended, bars.reversioned
+            px_appended, px_reversioned, px_withheld = (
+                bars.appended,
+                bars.reversioned,
+                bars.withheld,
+            )
             conn.commit()
         except Exception as e:  # noqa: BLE001
             conn.rollback()
@@ -460,6 +473,7 @@ def ingest_thesis(
                 f4_skipped,
                 form4_txn_rejected=f4_txn_rejected,
                 price_bars_reversioned=px_reversioned,
+                price_bars_withheld=px_withheld,
                 fund_shares_appended=fs_appended,
                 fund_shares_reversioned=fs_reversioned,
                 form8k_appended=f8k_appended,
@@ -543,7 +557,20 @@ def _report(results: list[NameResult]) -> int:
         f"done: {len(results)} names, +{total_f4} insider txns, +{total_px} price bars{e8k}{s13}"
         f"{fs}{sk}{rj}, {len(errored)} errored"
     )
+    print_withheld_line(results)
     return len(errored)
+
+
+def print_withheld_line(results: Iterable[NameResult]) -> None:
+    """D2 — ONE quiet line counting the names whose in-progress bar was withheld (their session had not
+    settled), deduped by security; nothing at all when there are none. Lowercase on purpose — it is an
+    expected daytime state that the next settled pass resolves by itself, not news (#7)."""
+    withheld = {r.security_id for r in results if r.price_bars_withheld}
+    if withheld:
+        print(
+            f"{len(withheld)} name(s): today's in-progress bar withheld — the session settles at "
+            f"{get_settings().price_settle_time:%H:%M} market time; the next pass after that stores it"
+        )
 
 
 def main(argv: list[str] | None = None) -> None:
