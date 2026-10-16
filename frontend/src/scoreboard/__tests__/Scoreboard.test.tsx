@@ -14,8 +14,14 @@ const fx: { data: unknown; isLoading: boolean; error: unknown } = {
   data: null,
 };
 
+// every useScoreboard call's arguments, so a test can see which annotated-night READING was asked for
+const scoreboardCalls: unknown[][] = [];
+
 vi.mock("../../api/hooks", () => ({
-  useScoreboard: () => fx,
+  useScoreboard: (...args: unknown[]) => {
+    scoreboardCalls.push(args);
+    return fx;
+  },
   useScoreboardReplay: () => ({ data: null, isLoading: false, error: null }),
   // the drawer's sparkline hook — stubbed no-data so the scorecard renders its quiet "no price path"
   // line (and never reaches real lightweight-charts) when a test opens the drawer
@@ -90,6 +96,9 @@ const PAYLOAD = {
     projected_min_n_date: null,
     // no backfill-reconstructed nights on this ledger (the quiet default)
     reconstructed_nights: [],
+    // D3b — no phantom-arm (annotated) nights either; the server's default reading
+    annotated_policy: "excluded",
+    annotated_nights: [],
     record_began: "2026-07-10",
     banner: "FORWARD RECORD, NOT A CLAIM — record began 2026-07-10; 0 episodes eligible…",
     min_n: 5,
@@ -410,6 +419,45 @@ describe("Scoreboard", () => {
       data: { ...PAYLOAD, summary: { ...PAYLOAD.summary, reconstructed_nights: ["2026-07-08"] } },
     });
     expect(screen.getByText(/1 night reconstructed by a backfill · not scored/)).toBeInTheDocument();
+  });
+
+  it("the phantom-arm line renders only when a night is annotated, names the nights, and toggles the reading", () => {
+    renderBoard(); // no annotated nights: no line, no toggle (a control that can't discriminate)
+    expect(screen.queryByText(/phantom-arm/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "include annotated nights" })).not.toBeInTheDocument();
+
+    const night = (asof: string) => ({
+      thesis_id: "t1",
+      thesis_name: "Nuclear Buildout",
+      asof,
+      reasons: ["stale_comparative_revenue"],
+      rules: ["d3a-first-knowability@abc"],
+      n_rows: 1,
+    });
+    const nights = [night("2026-10-14"), night("2026-10-15")];
+    scoreboardCalls.length = 0;
+    renderBoard({ data: { ...PAYLOAD, summary: { ...PAYLOAD.summary, annotated_nights: nights } } });
+    const line = screen.getByText(/2 phantom-arm nights set aside · not scored/);
+    expect(line.closest("div")).toHaveAttribute(
+      "title",
+      expect.stringContaining("Nuclear Buildout 2026-10-14, Nuclear Buildout 2026-10-15"),
+    );
+    // the first render asks for the server's default reading (no override sent)
+    expect(scoreboardCalls[0]).toEqual(["2026-07-11", true, null]);
+    const toggle = screen.getByRole("button", { name: "include annotated nights" });
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(toggle);
+    // one click asks for the INCLUDE reading
+    expect(scoreboardCalls[scoreboardCalls.length - 1]).toEqual(["2026-07-11", true, true]);
+
+    // the include reading says so, and the toggle reads pressed
+    renderBoard({
+      data: {
+        ...PAYLOAD,
+        summary: { ...PAYLOAD.summary, annotated_nights: [nights[0]], annotated_policy: "included" },
+      },
+    });
+    expect(screen.getByText(/1 phantom-arm night included in this reading · scored/)).toBeInTheDocument();
   });
 
   it("a row click opens the scorecard drawer WITHOUT navigating to the Cockpit", () => {

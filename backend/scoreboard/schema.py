@@ -110,6 +110,11 @@ class ScoredEpisode(BaseModel):
     arm_code_sha: str | None = None
     arm_run_kind: str | None = None  # 'cron' | 'manual' | 'backfill'
     run_identity_note: str | None = None  # backend-authored copy; the FE renders, never composes
+    # D3b (migration 0045) — the QUIET caption from the ACTIVE annotations on this run's winning rows that
+    # touch this member: a `note` (the arm stands, the rule changed its composition — still scored), or an
+    # `exclude` on a reading that INCLUDES annotated nights. None = nothing applies (no line at all).
+    # Caption only: it flags nothing and changes no metric; the exclusion itself is the record read's.
+    annotation_note: str | None = None
     triggers_at_arm: list[TriggerRef] = []  # the WHY, from the arm-date card (invariant #6)
     # Slice C — the run's own record detail, each field composed from the recorded cards (#6) and
     # DEFAULTED on the replay path (CallSnapshot deliberately drops risk_signals/missing — do not
@@ -212,6 +217,21 @@ class ReplaySnapshot(BaseModel):
     theses: list[ReplayThesisHistory] = []
 
 
+class AnnotatedNight(BaseModel):
+    """One (thesis, as-of) carrying at least one ACTIVE ``exclude`` annotation (D3b, migration 0045) — a
+    phantom-arm night under a named rule. The banner's unit, listed whichever reading the response is
+    (``ScoreboardSummary.annotated_policy`` says whether these were dropped or scored)."""
+
+    thesis_id: UUID
+    thesis_name: str
+    asof: date
+    # the annotation reason tokens, distinct (e.g. 'stale_comparative_revenue')
+    reasons: list[str] = []
+    # the code identities that judged it, distinct ('d3a-first-knowability@<sha>')
+    rules: list[str] = []
+    n_rows: int = 1  # annotated calls rows on the night (a re-recorded night can carry two)
+
+
 class ScoreboardSummary(BaseModel):
     """The aggregate layer: replay's claim-tied metric set over ELIGIBLE outcomes only — matured
     (judged at the episode's own exit_by) AND non-censored (the record saw the arm) AND clean-ingest
@@ -235,6 +255,13 @@ class ScoreboardSummary(BaseModel):
     # row is scored from it and is NOT listed. Reported once, quietly — never per row (with the filter
     # in place a reconstructed row produces no ledger row). Empty = every night has an honest row.
     reconstructed_nights: list[date] = []
+    # D3b — the annotated-night READ POLICY this summary was computed under, and the nights it concerns.
+    # "excluded" = rows carrying an active `exclude` annotation (phantom arms) were dropped before the
+    # per-as-of dedup, like reconstructed rows; "included" = they were scored, exactly as before D3b. The
+    # list is the same in both readings (as-ofs <= asof, ledger-wide), so the banner can name the nights
+    # either way and an externally quoted number can say which reading produced it.
+    annotated_policy: Literal["excluded", "included"] = "excluded"
+    annotated_nights: list[AnnotatedNight] = []
 
 
 class ScoreboardResult(BaseModel):
@@ -242,6 +269,8 @@ class ScoreboardResult(BaseModel):
     (``assemble_scoreboard``) — the bare record walk leaves it None."""
 
     asof: date
+    # D3b — the annotated-night policy every record read in this result ran under (resolved once)
+    exclude_annotated: bool = True
     theses: list[ThesisRecord] = []
     n_theses: int = 0
     n_with_record: int = 0

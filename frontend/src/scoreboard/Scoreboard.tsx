@@ -4,6 +4,7 @@ import type { OperatorSpanOut, ScoreboardEpisodeOut, ScoreboardThesisOut } from 
 import { useScoreboard } from "../api/hooks";
 import { Drawer } from "../components/Drawer";
 import { fmtDate } from "../util/format";
+import { annotatedNightsLine, annotatedNightsTitle, nextAnnotatedOverride } from "./annotated";
 import { EpisodeRow } from "./EpisodeRow";
 import { EpisodeScorecard } from "./EpisodeScorecard";
 import {
@@ -173,7 +174,11 @@ function SpanRow({
 }
 
 export function Scoreboard({ header, asof, onSelect }: Props) {
-  const { data, isLoading, error } = useScoreboard(asof);
+  // D3b — the annotated-night READING for this view: null = the server's policy (the default), a bool =
+  // the operator flipped it (include / set aside the phantom-arm nights). Local state like `view`/`sort`
+  // below — no URL param, no browser storage — and one click back to the default (`annotated.ts`).
+  const [annotatedOverride, setAnnotatedOverride] = useState<boolean | null>(null);
+  const { data, isLoading, error } = useScoreboard(asof, true, annotatedOverride);
   // the episode-scorecard drawer's open episode — local state only (no URL param this slice); a
   // click opens it, the drawer's ✕/backdrop/Esc close it, and the ledger underneath never rerenders.
   const [openEp, setOpenEp] = useState<ScoreboardEpisodeOut | null>(null);
@@ -253,6 +258,27 @@ export function Scoreboard({ header, asof, onSelect }: Props) {
               {summary.reconstructed_nights.length}{" "}
               {summary.reconstructed_nights.length === 1 ? "night" : "nights"} reconstructed by a
               backfill · not scored
+            </div>
+          )}
+          {/* the phantom-arm (annotated) nights line — D3b: rows annotated `exclude` (an arm that rested
+              only on a stale-dated comparative revenue quarter) are set aside by the server's READ policy,
+              exactly like reconstructed rows, and named once here. Rendered only when some night is
+              annotated (a control that does not discriminate does not render), with the reading toggle:
+              one click scores them again for this view, the next click returns to the default. Nothing is
+              deleted either way — the line says which reading the numbers below came from. */}
+          {annotatedNightsLine(summary) && (
+            <div className="sb-freshline sb-fresh sb-annotline" title={annotatedNightsTitle(summary)}>
+              {annotatedNightsLine(summary)}{" "}
+              <button
+                type="button"
+                className="sb-filterclear sb-annottoggle"
+                aria-pressed={summary.annotated_policy === "included"}
+                onClick={() =>
+                  setAnnotatedOverride((cur) => nextAnnotatedOverride(cur, summary.annotated_policy))
+                }
+              >
+                include annotated nights
+              </button>
             </div>
           )}
           <div className="sb-counts">

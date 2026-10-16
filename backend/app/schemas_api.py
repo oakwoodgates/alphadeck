@@ -1023,6 +1023,11 @@ class ScoreboardEpisodeOut(BaseModel):
     arm_code_sha: str | None = None
     arm_run_kind: str | None = None  # 'cron' | 'manual' | 'backfill'
     run_identity_note: str | None = None
+    # D3b (migration 0045) — a QUIET, backend-authored caption from the active annotations on this run's
+    # winning rows that touch this member: a `note` (the arm stands, still scored; the rule changed its
+    # composition) or an `exclude` scored only because the reading INCLUDES annotated nights. Null when
+    # nothing applies — a clean episode renders no line. Never a flag, never a metric input.
+    annotation_note: str | None = None
     verdict: Verdict | None = None
     entry_grade: Grade | None = None
     conviction_grade: Grade | None = None
@@ -1095,6 +1100,7 @@ def _scoreboard_episode_out(
         arm_code_sha=e.arm_code_sha,
         arm_run_kind=e.arm_run_kind,
         run_identity_note=e.run_identity_note,
+        annotation_note=e.annotation_note,
         verdict=ep.verdict,
         entry_grade=ep.entry_grade,
         conviction_grade=ep.conviction_grade,
@@ -1194,6 +1200,21 @@ class ScoreboardMetricOut(BaseModel):
     note: str = ""
 
 
+class AnnotatedNightOut(BaseModel):
+    """One phantom-arm night (D3b): a (thesis, as-of) whose recorded row carries an ACTIVE ``exclude``
+    annotation — under the default reading it is set aside like a reconstructed night; under the
+    ``include_annotated`` reading it is scored. ``reasons`` are the annotation tokens (e.g.
+    ``stale_comparative_revenue``), ``rules`` the code identities that judged it
+    (``d3a-first-knowability@<sha>``), ``n_rows`` the annotated rows on the night."""
+
+    thesis_id: UUID
+    thesis_name: str
+    asof: date
+    reasons: list[str] = []
+    rules: list[str] = []
+    n_rows: int = 1
+
+
 class ScoreboardSummaryOut(BaseModel):
     """The aggregate strip: counts + the honesty banner + the gated metric set."""
 
@@ -1225,6 +1246,13 @@ class ScoreboardSummaryOut(BaseModel):
     # night that also carries an honest row is scored from it and is NOT listed; the ones here are
     # named once and quietly, never as a per-row chip. Empty = every night has an honest row.
     reconstructed_nights: list[date] = []
+    # D3b — the annotated-night READ POLICY this response was computed under: "excluded" = phantom-arm rows
+    # (an active `exclude` annotation, migration 0045) were dropped before the per-as-of dedup, exactly like
+    # reconstructed rows; "included" = they were scored, as before D3b. Default = the server setting
+    # (ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED); `?include_annotated=` overrides per request. A number quoted
+    # from this response should name this reading. `annotated_nights` lists the nights either way.
+    annotated_policy: Literal["excluded", "included"] = "excluded"
+    annotated_nights: list[AnnotatedNightOut] = []
     # Record freshness (compute-on-read; the read still writes nothing) — is the call-of-record
     # current NOW, measured against the last EXPECTED Mon-Fri+RUN_AT run (never raw today - edge),
     # exactly like AdminRecordOut. Asof-INDEPENDENT (the record edge + the clock drive it, not the

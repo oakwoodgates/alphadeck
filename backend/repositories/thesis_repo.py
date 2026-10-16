@@ -90,16 +90,31 @@ def snapshot_exists_asof(
     A narrow sibling read rather than a changed ``get_asof`` signature: that function sits on the single
     live assembly funnel (serve / cron / backfill / pipeline.run), and widening its return type to carry a
     label no live caller wants would put a replay-only concern on the live path. THE PREDICATE IS THE SAME
-    ONE, stated once more here and nowhere else: ``taken_at <= COALESCE(known_at, now())``, no lookahead
-    (#1) — a snapshot taken after ``known_at`` is never read, by this or by ``get_asof``. Read-only; the
-    caller owns the transaction."""
+    ONE, stated once more in ``snapshot_taken_at_asof`` (which this delegates to): ``taken_at <=
+    COALESCE(known_at, now())``, no lookahead (#1) — a snapshot taken after ``known_at`` is never read, by
+    this or by ``get_asof``. Read-only; the caller owns the transaction."""
+    return snapshot_taken_at_asof(conn, thesis_id, known_at) is not None
+
+
+def snapshot_taken_at_asof(
+    conn: psycopg.Connection, thesis_id: UUID, known_at: datetime | None
+) -> datetime | None:
+    """WHICH roster snapshot ``get_asof`` reads at ``known_at`` — its ``taken_at`` — or ``None`` when it
+    falls back to the live roster. The label half of ``get_asof`` with the instant attached
+    (``snapshot_exists_asof`` is this ``is not None``): the phantom-arm annotator reports, per re-assembled
+    row, exactly which roster it ran on. The SAME predicate and the SAME pick as ``get_asof`` —
+    ``taken_at <= COALESCE(known_at, now())``, ``ORDER BY taken_at DESC, id DESC`` — so the label can never
+    name a different snapshot than the one the assembly read. Read-only; the caller owns the transaction.
+    """
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT 1 FROM basket_snapshot "
-            "WHERE thesis_id = %s AND taken_at <= COALESCE(%s, now()) LIMIT 1",
+            "SELECT taken_at FROM basket_snapshot "
+            "WHERE thesis_id = %s AND taken_at <= COALESCE(%s, now()) "
+            "ORDER BY taken_at DESC, id DESC LIMIT 1",
             (thesis_id, known_at),
         )
-        return cur.fetchone() is not None
+        row = cur.fetchone()
+    return row["taken_at"] if row is not None else None
 
 
 def basket_size_asof(

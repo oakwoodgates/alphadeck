@@ -8,6 +8,7 @@ import psycopg
 from domain.call import CallCard
 from domain.config import DEFAULT_CONFIG, CallConfig, config_hash
 from domain.settings import get_settings
+from domain.thesis import Thesis
 from pipeline.core import assemble_from_pit
 from repositories import calls_repo, decisions_repo, thesis_repo
 from signals.base import PointInTimeData
@@ -42,6 +43,43 @@ def call_for_thesis(
     backfill assemble here with ``record=False`` and do their own ``record_if_changed`` with their own kind.
     The stamped ``config_hash`` is computed from THIS call's ``cfg``, the same object the assembler below
     runs with, so the fingerprint can never describe a different policy than the one that produced the card.
+
+    It is exactly ``assemble_from_pit(pit, thesis, asof, cfg)`` over ``load_call_inputs(...)`` plus the
+    optional record — the input half is its own function so a DIAGNOSTIC caller can assemble twice over ONE
+    prefetched view (``pipeline.annotate_phantom_arms``); this funnel's behavior is unchanged by that split.
+    """
+    thesis, pit = load_call_inputs(conn, thesis_id, asof, known_at=known_at, cfg=cfg)
+    card = assemble_from_pit(pit, thesis, asof, cfg)
+    if record:
+        calls_repo.append(
+            conn,
+            card,
+            thesis.tenant_id,
+            config_hash=config_hash(cfg),
+            code_sha=get_settings().image_sha,
+            run_kind=run_kind,
+        )
+    return card
+
+
+def load_call_inputs(
+    conn: psycopg.Connection,
+    thesis_id: UUID,
+    asof: date,
+    *,
+    known_at: datetime | None = None,
+    cfg: CallConfig = DEFAULT_CONFIG,
+) -> tuple[Thesis, PointInTimeData]:
+    """The INPUT half of ``call_for_thesis`` — everything the funnel reads before it assembles: the thesis
+    with its roster AS OF ``known_at`` (basket_snapshot), its position as of both axes (the decisions log),
+    and the prefetching point-in-time view over the resolved basket under ``call_bounds(cfg)``. Returns
+    ``(thesis, pit)``; ``assemble_from_pit(pit, thesis, asof, cfg)`` over them IS the call. Raises
+    ``LookupError`` for an unknown thesis.
+
+    Split out (D3b) so ``pipeline.annotate_phantom_arms`` can run its D3a-off and D3a-on re-assemblies over
+    ONE view — the PIT memo makes the second assembly cost no further DB reads — while still reading
+    through exactly this funnel. The live callers (serve, the cron, the backfill, ``pipeline.run``) go
+    through ``call_for_thesis`` and are unchanged.
     """
     # THE ROSTER FEED (F12, the SECOND bitemporal leak): read the basket as it was known at ``known_at``
     # (via basket_snapshot), MIRRORING the position feed just below. ``basket_member`` is full-replace /
@@ -79,14 +117,4 @@ def call_for_thesis(
         basket=basket,
         bounds=call_bounds(cfg),
     )
-    card = assemble_from_pit(pit, thesis, asof, cfg)
-    if record:
-        calls_repo.append(
-            conn,
-            card,
-            thesis.tenant_id,
-            config_hash=config_hash(cfg),
-            code_sha=get_settings().image_sha,
-            run_kind=run_kind,
-        )
-    return card
+    return thesis, pit

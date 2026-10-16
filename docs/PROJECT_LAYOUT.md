@@ -141,12 +141,13 @@ alphadeck/
     │   ├── testdb.py · drop_test_dbs.py   #   the per-worktree test-DB derivation (fail-closed alphadeck_test* guard) + the stale-DB cleanup CLI (#217)
     │   └── migrations/0001…0028    #   …0012 thesis_term_set · 0019 operator_decision · 0021 thesis_exclusion · 0024 insider_issuer_identity · 0025 shares_ads_ratio · 0026 master_instrument_kind · 0027 fact_fund_shares · 0028 master_origin
     ├── repositories/               # the row↔domain seam (raw rows never escape)
-    │   └── mappers.py · thesis_repo.py (get/list_all/upsert + the sole writers: set_term_set/set_catalysts/set_kill_criteria/set_exclusions/set_archived — the structural wipe-guards) · calls_repo.py (append · latest_for_thesis · record_if_changed/_canonical) · decisions_repo.py (the operator-decisions log + the derived position)
+    │   └── mappers.py · thesis_repo.py (get/list_all/upsert + the sole writers: set_term_set/set_catalysts/set_kill_criteria/set_exclusions/set_archived — the structural wipe-guards) · calls_repo.py (append · latest_for_thesis · record_if_changed/_canonical) · call_annotations_repo.py (D3b: the append-only judgments beside `calls` — exclude/note/revoke — and the Scoreboard's annotated-row filter) · decisions_repo.py (the operator-decisions log + the derived position)
     ├── pipeline/                   # thin orchestration / CLIs
     │   ├── call_for_thesis.py · run.py · seed.py · core.py
     │   ├── ingest_thesis.py        #   M2: per-thesis back-half ingest (Form 4 + EOD; incremental, fail-visible)
     │   ├── daily.py · daily_job.py · cron_run_log.py · schedule.py   #   the daily call-of-record cron (ingest → assemble → TRANSITION → recording-GATE → record_if_changed) · the admin "run daily" job · the append-only run-of-record · the Mon–Fri/RUN_AT schedule math [#196–#200]
     │   ├── backup.py · backup_job.py   #   the rolling pg_dump snapshots (keep-N) + the admin "create snapshot" job (#215)
+    │   ├── annotate_phantom_arms.py    #   D3b CLI: re-assemble each honest row D3a-off vs D3a-on at its own known_at; annotate phantom arms (exclude) / composition changes (note), dry-run default
     │   ├── backfill_fund_shares.py     #   CLI: backfill historical ETF fund-shares from Polygon over a range (#237)
     │   ├── populate_master.py      #   the SEC-universe broadener CLI
     │   ├── enrich_identity.py      #   re-enrich master identity from EDGAR submissions (--thesis/--baskets/--universe; the standing backfill for submissions-sourced fields)

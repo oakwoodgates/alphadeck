@@ -73,6 +73,9 @@ def render(result: ScoreboardResult, tickers: dict[UUID, str]) -> str:
         f"theses {result.n_theses} (with record {result.n_with_record}) · "
         f"episodes {result.n_episodes} (open {result.n_open}, matured {result.n_matured}, "
         f"censored {result.n_censored}, ingest-flagged {result.n_ingest_flagged})",
+        "reading: phantom-arm (annotated) nights "
+        + ("SET ASIDE" if result.exclude_annotated else "INCLUDED")
+        + " — D3b; --include-annotated flips it",
     ]
     for t in result.theses:
         lines.append("")
@@ -108,11 +111,20 @@ def main() -> None:
         action="store_true",
         help="drop archived theses (the record includes them by default)",
     )
+    p.add_argument(
+        "--include-annotated",
+        action="store_true",
+        help="score rows annotated as phantom arms (D3b); the default reading follows "
+        "ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED (default: set them aside)",
+    )
     args = p.parse_args()
     conn = connect()
     try:
         result, _, _ = scoreboard_records(
-            conn, date.fromisoformat(args.asof), include_archived=not args.exclude_archived
+            conn,
+            date.fromisoformat(args.asof),
+            include_archived=not args.exclude_archived,
+            exclude_annotated=False if args.include_annotated else None,
         )
         if args.json:
             print(result.model_dump_json(indent=2))

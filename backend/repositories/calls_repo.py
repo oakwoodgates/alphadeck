@@ -10,6 +10,7 @@ from psycopg.types.json import Json
 
 from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard
+from repositories.call_annotations_repo import ACTIVE_SQL, CallAnnotation, excluded_clause
 from repositories.mappers import call_to_row, row_to_call
 
 
@@ -224,8 +225,22 @@ def _reconstructed_clause(include_reconstructed: bool) -> str:
     return "" if include_reconstructed else " AND NOT reconstructed"
 
 
+def _annotated_clause(exclude_annotated: bool) -> str:
+    """The SECOND honest filter (migration 0045, D3b) — ``_reconstructed_clause``'s twin, defined once in
+    ``call_annotations_repo.excluded_clause``: with ``exclude_annotated=True`` a row carrying an ACTIVE
+    ``exclude`` annotation (a phantom arm under a named rule) is dropped BEFORE the per-as-of dedup, inside
+    the WHERE. ``False`` (the default on every read) keeps every row — only the Scoreboard opts in, under
+    its policy (``Settings.scoreboard_exclude_annotated`` / the ``include_annotated`` query param).
+    """
+    return excluded_clause(exclude_annotated)
+
+
 def latest_for_thesis(
-    conn: psycopg.Connection, thesis_id: UUID, *, include_reconstructed: bool = True
+    conn: psycopg.Connection,
+    thesis_id: UUID,
+    *,
+    include_reconstructed: bool = True,
+    exclude_annotated: bool = False,
 ) -> list[CallCard]:
     """The call of record at each ``asof`` — one row per as-of, the latest append wins (a re-run after
     a fact correction supersedes the earlier row), newest as-of first. This is the deduped read a
@@ -237,11 +252,17 @@ def latest_for_thesis(
     ``False``: a reconstructed row (``pipeline.backfill``, 0042) ran on today's basket for a thesis
     that may not have existed, so it never defines an episode boundary — it is reported, not scored.
     The filter runs BEFORE the dedup (see ``_reconstructed_clause``).
+
+    ``exclude_annotated`` (default ``False``: every row, so every existing caller is unchanged) is the D3b
+    read policy: ``True`` also drops rows carrying an ACTIVE ``exclude`` annotation (migration 0045 — a
+    phantom arm under a named rule), BEFORE the same dedup. Only the Scoreboard's record path passes it,
+    and only when its policy says so — flipping the policy re-scores the rows, nothing is ever deleted.
     """
     with conn.cursor() as cur:
         cur.execute(
             "SELECT DISTINCT ON (asof) card FROM calls WHERE thesis_id = %s"
             + _reconstructed_clause(include_reconstructed)
+            + _annotated_clause(exclude_annotated)
             + " ORDER BY asof DESC, seq DESC",
             (thesis_id,),
         )
@@ -268,7 +289,11 @@ def reconstructed_asofs(conn: psycopg.Connection, *, upto: date) -> list[date]:
 
 
 def ingest_health_for_thesis(
-    conn: psycopg.Connection, thesis_id: UUID, *, include_reconstructed: bool = True
+    conn: psycopg.Connection,
+    thesis_id: UUID,
+    *,
+    include_reconstructed: bool = True,
+    exclude_annotated: bool = False,
 ) -> dict[date, tuple[bool | None, int | None]]:
     """The R2b ingest-health stamp of the WINNING row per as-of: asof -> ``(ingest_fresh,
     ingest_errors)`` (migration 0023). The IDENTICAL dedup as ``latest_for_thesis`` (latest append
@@ -279,13 +304,15 @@ def ingest_health_for_thesis(
     only consumer is the Scoreboard's provenance layer; the as-of/scoring reads never branch on it.
     ``include_reconstructed`` mirrors ``latest_for_thesis`` exactly, and the Scoreboard passes the SAME
     value to both — so the stamp read here is the stamp of the row that was actually scored, never
-    a reconstruction's NULL stamp standing in for a nightly row's.
+    a reconstruction's NULL stamp standing in for a nightly row's. ``exclude_annotated`` mirrors
+    ``latest_for_thesis`` the same way (D3b), for the same reason.
     """
     with conn.cursor() as cur:
         cur.execute(
             "SELECT DISTINCT ON (asof) asof, ingest_fresh, ingest_errors FROM calls "
             "WHERE thesis_id = %s"
             + _reconstructed_clause(include_reconstructed)
+            + _annotated_clause(exclude_annotated)
             + " ORDER BY asof DESC, seq DESC",
             (thesis_id,),
         )
@@ -302,7 +329,11 @@ class RunIdentity(NamedTuple):
 
 
 def run_identity_for_thesis(
-    conn: psycopg.Connection, thesis_id: UUID, *, include_reconstructed: bool = True
+    conn: psycopg.Connection,
+    thesis_id: UUID,
+    *,
+    include_reconstructed: bool = True,
+    exclude_annotated: bool = False,
 ) -> dict[date, RunIdentity]:
     """The RUN IDENTITY of the WINNING row per as-of: asof -> ``(config_hash, code_sha, run_kind)``
     (migration 0044) — the policy + code + run-kind fingerprint of the run that recorded that card version.
@@ -317,13 +348,15 @@ def run_identity_for_thesis(
     A separate narrow peer read for the same reason ``ingest_health_for_thesis`` is one: the stamps live
     deliberately OFF the card (a field IN it would fake a change in ``_canonical``), so they cannot ride
     ``latest_for_thesis``'s ``CallCard``. Its only consumer is the Scoreboard's provenance layer; no scoring
-    or as-of read branches on it. Read-only.
+    or as-of read branches on it. Read-only. ``exclude_annotated`` (D3b) mirrors ``latest_for_thesis``
+    exactly, under the same must-match rule.
     """
     with conn.cursor() as cur:
         cur.execute(
             "SELECT DISTINCT ON (asof) asof, config_hash, code_sha, run_kind FROM calls "
             "WHERE thesis_id = %s"
             + _reconstructed_clause(include_reconstructed)
+            + _annotated_clause(exclude_annotated)
             + " ORDER BY asof DESC, seq DESC",
             (thesis_id,),
         )
@@ -331,3 +364,35 @@ def run_identity_for_thesis(
             r["asof"]: RunIdentity(r["config_hash"], r["code_sha"], r["run_kind"])
             for r in cur.fetchall()
         }
+
+
+def annotations_for_thesis(
+    conn: psycopg.Connection,
+    thesis_id: UUID,
+    *,
+    include_reconstructed: bool = True,
+    exclude_annotated: bool = False,
+) -> dict[date, list[CallAnnotation]]:
+    """asof -> the ACTIVE exclude/note annotations (migration 0045, D3b) on the WINNING row of that as-of —
+    the THIRD peer read on the winning-row rule, beside ``ingest_health_for_thesis`` and
+    ``run_identity_for_thesis``: the identical ``DISTINCT ON (asof) ... ORDER BY asof DESC, seq DESC`` pick
+    after the identical filters, so a caption describes the card that was actually scored, never a
+    superseded row's. Under ``exclude_annotated=True`` a winning row can still carry a ``note`` (it stays
+    scored); an ``exclude`` appears here only on a reading that INCLUDES annotated rows. The Scoreboard's
+    episode-caption read; nothing on the scoring path branches on it. Read-only."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "WITH win AS (SELECT DISTINCT ON (asof) id FROM calls WHERE thesis_id = %s"
+            + _reconstructed_clause(include_reconstructed)
+            + _annotated_clause(exclude_annotated)
+            + " ORDER BY asof DESC, seq DESC) "
+            "SELECT a.* FROM win JOIN call_annotation a ON a.call_id = win.id "
+            "WHERE a.action IN ('exclude', 'note') AND "
+            + ACTIVE_SQL
+            + " ORDER BY a.asof, a.created_at, a.id",
+            (thesis_id,),
+        )
+        out: dict[date, list[CallAnnotation]] = {}
+        for r in cur.fetchall():
+            out.setdefault(r["asof"], []).append(CallAnnotation(**r))
+        return out

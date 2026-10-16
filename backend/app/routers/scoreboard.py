@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from app.deps import get_conn, get_current_tenant, get_thesis_or_404
 from app.schemas_api import (
     ActivistStakeOut,
+    AnnotatedNightOut,
     CorporateEventOut,
     InsiderBuyOut,
     InsiderSellOut,
@@ -78,6 +79,13 @@ def get_scoreboard(
         description="archived theses ride the record by default (archiving stops accrual, "
         "never erases the record); false is the explicit, reversible filter",
     ),
+    include_annotated: bool | None = Query(
+        None,
+        description="the annotated-night reading: true = score rows annotated `exclude` (phantom "
+        "arms) as before; false = set them aside like reconstructed rows; omitted = the server "
+        "setting (ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED, default: set aside). The response's "
+        "summary.annotated_policy names the reading used",
+    ),
     conn: psycopg.Connection = Depends(get_conn),
 ) -> ScoreboardResponse:
     """The Scoreboard (SCORE): the call-of-record scored as-of ``asof`` — a READ-ONLY pass over
@@ -85,8 +93,18 @@ def get_scoreboard(
     RECORD is the scoring source, never a recompute (replay re-derives history; this holds the
     platform to what it actually said). Aggregate metrics judge only matured, non-censored
     episodes and gate below ``min_n`` — an instrument, not a claim, until n accrues.
+
+    Two kinds of recorded row are set aside before scoring: reconstructed rows (always), and rows
+    annotated as phantom arms (by the annotated-night policy, which ``include_annotated`` overrides
+    per request). Both readings are available; nothing is deleted either way.
     """
-    result = assemble_scoreboard(conn, asof=asof, include_archived=include_archived)
+    result = assemble_scoreboard(
+        conn,
+        asof=asof,
+        include_archived=include_archived,
+        # None = the server setting; an explicit include_annotated inverts into the exclude policy
+        exclude_annotated=None if include_annotated is None else not include_annotated,
+    )
     theses_out = []
     for t in result.theses:
         # Resolve tickers/CIKs under the THESIS's tenant (the get_call precedent): episode names
@@ -138,6 +156,11 @@ def get_scoreboard(
             n_maturing_30d=summary.n_maturing_30d if summary else 0,
             projected_min_n_date=summary.projected_min_n_date if summary else None,
             reconstructed_nights=summary.reconstructed_nights if summary else [],
+            annotated_policy=summary.annotated_policy if summary else "excluded",
+            annotated_nights=[
+                AnnotatedNightOut(**n.model_dump())
+                for n in (summary.annotated_nights if summary else [])
+            ],
             metrics=[
                 ScoreboardMetricOut(
                     name=m.name,

@@ -235,6 +235,17 @@ class Settings(BaseSettings):
     # VISIBLY inside the pass before the pass itself is killed. 0 disables. ALPHADECK_CRON_STATEMENT_TIMEOUT_S.
     cron_statement_timeout_s: float = 300.0
 
+    # --- D3b — the Scoreboard's ANNOTATED-NIGHT read policy (operator decision Q2, 2026-10-16) ---
+    # `call_annotation` (migration 0045) holds append-only judgments about recorded `calls` rows; an ACTIVE
+    # `exclude` marks a PHANTOM ARM (an arm that rested only on a stale-dated comparative revenue quarter,
+    # the bug D3a fixed). True = the Scoreboard's record read drops those rows BEFORE the per-as-of dedup
+    # (the `calls.reconstructed` precedent) and the banner names the nights; False = they are scored again,
+    # exactly as before D3b. A READ policy, never a write: flipping it re-scores the record and deletes
+    # nothing, so the operator can go back and forth. `GET /scoreboard?include_annotated=` overrides it per
+    # request (true = include, false = exclude), so both readings can be compared without a restart. An
+    # externally quoted Scoreboard number should name the reading it came from. ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED.
+    scoreboard_exclude_annotated: bool = True
+
     # --- Run loader (the saved-draft-run picker, workbench/run_loader) — the modular off-switch ---
     # A dev/test cost-saver: load a saved draft-run artifact (data/draft_runs/) back into the editable workbench
     # instead of paying for a fresh Opus draft. OFF by default (a testing utility, absent in a normal deploy);

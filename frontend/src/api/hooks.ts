@@ -247,6 +247,7 @@ export type ScoreboardThesisOut = components["schemas"]["ScoreboardThesisOut"];
 export type ScoreboardEpisodeOut = components["schemas"]["ScoreboardEpisodeOut"];
 export type TransitionOut = components["schemas"]["TransitionOut"];
 export type ScoreboardMetricOut = components["schemas"]["ScoreboardMetricOut"];
+export type AnnotatedNightOut = components["schemas"]["AnnotatedNightOut"];
 export type EpisodeOperatorOut = components["schemas"]["EpisodeOperatorOut"];
 export type OperatorSpanOut = components["schemas"]["OperatorSpanOut"];
 
@@ -281,13 +282,26 @@ export function useScoreboardReplay() {
 
 // ONE aggregate GET (cross-thesis is the Scoreboard's nature — deliberately not a useCalls-style
 // fan-out). Read-only on the server; archived theses ride by default (the record is not erased).
-export function useScoreboard(asof: string, includeArchived = true) {
+// `includeAnnotated` (D3b) picks the annotated-night READING: null = the server's policy (the param is
+// not sent at all), true = score the phantom-arm nights, false = set them aside. It is part of the key,
+// so both readings cache side by side and flipping back is instant.
+export function useScoreboard(
+  asof: string,
+  includeArchived = true,
+  includeAnnotated: boolean | null = null,
+) {
   return useQuery({
-    queryKey: ["scoreboard", asof, includeArchived] as const,
+    queryKey: ["scoreboard", asof, includeArchived, includeAnnotated] as const,
     enabled: Boolean(asof),
     queryFn: async () => {
       const { data, error } = await api.GET("/scoreboard", {
-        params: { query: { asof, include_archived: includeArchived } },
+        params: {
+          query: {
+            asof,
+            include_archived: includeArchived,
+            ...(includeAnnotated === null ? {} : { include_annotated: includeAnnotated }),
+          },
+        },
       });
       if (error) throw error;
       return data;
