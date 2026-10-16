@@ -188,9 +188,11 @@ Workbench pull) and the SPY/IWM leg — first passes the fresh pull through `ing
 
 *Why 18:00 (MEASURED on prod, read-only, 2026-10-16 — every first version recorded on its bar's own ET date,
 checked against any later version within 4 days):* of the 1,896 bars first stored 09:00–14:59 ET, **1,835
-later moved their close** (median ~0.7–1.0% — in-progress values); first stored 17:00–17:59, 73/632
-(11.5%); 18:00–18:59, 4/88 (4.5%); 22:00–22:59, 733/15,907 (4.6%). 18:00 is where the not-final rate falls
-to the nightly cron's own residual — the vendor revisions the restatement compare already re-versions.
+later moved their close** (median ~0.7–1.0% — in-progress values), while every hour measured after the close
+sat at 3–12% with no trend between 17:00 and midnight (17:xx 73/632, 18:xx 4/88, 20:xx 25/230, 21:xx 22/284,
+22:xx 733/15,907, 23:xx 103/3,205) — vendor revisions, which the restatement compare re-versions. So the
+guard's job is to exclude the SESSION; the data does not pick a finer hour, and 18:00 is a 2 h margin past
+the 16:00 close that still sits 4.5 h before RUN_AT.
 
 **D1 — the benchmark leg's honest transaction time + a bounded restatement.** `pipeline/ingest_benchmarks.py`
 was written as a ONE-SHOT historical backfill (`valid_from = recorded_at = the bar date` — the replay
