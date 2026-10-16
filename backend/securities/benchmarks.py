@@ -41,6 +41,33 @@ BENCHMARKS: dict[str, str] = {
 _SEED_VALID_FROM = date(2000, 1, 1)
 
 
+def _lookup(cur: psycopg.Cursor, tenant_id: UUID, ticker: str) -> UUID | None:
+    """The benchmark row id for ``ticker`` (``instrument_kind='etf'``, newest wins), or ``None``."""
+    cur.execute(
+        "SELECT id FROM security_master "
+        "WHERE tenant_id = %s AND ticker = %s AND instrument_kind = 'etf' "
+        "ORDER BY recorded_at DESC, id DESC LIMIT 1",
+        (tenant_id, ticker),
+    )
+    row = cur.fetchone()
+    return row["id"] if row is not None else None
+
+
+def benchmark_ids(
+    conn: psycopg.Connection, *, tenant_id: UUID = DEFAULT_TENANT_ID
+) -> dict[str, UUID]:
+    """READ-ONLY twin of ``seed_benchmarks``: ``{ticker: security_id}`` for the benchmark rows that
+    already exist (a missing one is simply absent — nothing is inserted). For a caller that must not
+    write the master, e.g. the Q3 repair's dry run (``pipeline.repair_benchmark_bars``)."""
+    out: dict[str, UUID] = {}
+    with conn.cursor() as cur:
+        for ticker in BENCHMARKS:
+            found = _lookup(cur, tenant_id, ticker)
+            if found is not None:
+                out[ticker] = found
+    return out
+
+
 def seed_benchmarks(
     conn: psycopg.Connection,
     *,
@@ -56,15 +83,9 @@ def seed_benchmarks(
     out: dict[str, UUID] = {}
     with conn.cursor() as cur:
         for ticker, name in BENCHMARKS.items():
-            cur.execute(
-                "SELECT id FROM security_master "
-                "WHERE tenant_id = %s AND ticker = %s AND instrument_kind = 'etf' "
-                "ORDER BY recorded_at DESC, id DESC LIMIT 1",
-                (tenant_id, ticker),
-            )
-            row = cur.fetchone()
-            if row is not None:
-                out[ticker] = row["id"]
+            found = _lookup(cur, tenant_id, ticker)
+            if found is not None:
+                out[ticker] = found
                 continue
             sid = uuid4()
             cur.execute(

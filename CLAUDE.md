@@ -214,6 +214,7 @@ python -m pipeline.daily                                 # the cron's unit: refr
 python -m pipeline.backfill --asof 2026-09-08 --known-at next-run --dry-run  # reconstruct a MISSED night's call-of-record with known_at PINNED (no ingest/notify; writes rows marked `reconstructed` = reported, never scored; skips a thesis that did not exist; drop --dry-run to write)
 python -m pipeline.dedup_identical_versions --apply --verify-asof 2026-09-03  # repair (B2): delete byte-identical fact re-versions from the seed pile-up
 python -m pipeline.repair_reconstructed_precreation                          # repair: delete reconstructed call rows dated before their thesis existed — dry-run by default (prints every row); --apply deletes; the operator runs it on prod after a backup
+python -m pipeline.repair_benchmark_bars --dates 2026-08-25,2026-08-27       # repair (Q3): append the vendor's corrected SPY/IWM bars for the EXPLICIT dates only (new versions stamped now, never an UPDATE) — dry-run by default (stored vs vendor per bar); --apply writes + takes the call-of-record lock; the operator runs it on prod after a backup
 pytest -n 6                                              # full suite (~6 min here; xdist per-worker DBs; `-n` needs the dev extra = ensure-venv) — scoped: pytest tests/<area> -n 6 -m "not slow"
 ruff check . ; black --check .                          # lint + format
 

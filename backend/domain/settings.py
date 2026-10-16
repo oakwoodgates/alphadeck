@@ -220,7 +220,8 @@ class Settings(BaseSettings):
     # SPY/IWM leg re-compares against the stored bars, appending a new version where the vendor revised one
     # (the thesis path's `_restated` compare, unchanged). Limited on purpose — the older stored bars that
     # differ (the 2026-08-25/08-27 intraday-frozen closes, and the nightly volumes the vendor revised after
-    # 22:30) are a separate repair awaiting the operator's decision (Q3), never folded into a nightly pass.
+    # 22:30) are never folded into a nightly pass; the two frozen days are the operator's Q3 repair
+    # (`python -m pipeline.repair_benchmark_bars`, explicit dates only).
     # MEASURED on prod 2026-10-16: of the thesis tape's 14,341 re-versions recorded within 10 weekdays of
     # their bar date, 14,144 landed within 3 and only 24-36 at each weekday-lag from 4 to 10 (roughly half
     # of them split re-bases), so a window whose oldest compared bar sits 4 sessions behind the newest holds
