@@ -44,7 +44,11 @@ path** by which the scorer's forward data can reach an as-of call, because:
 equal the live Postgres `as_of` row-for-row (after a value normalizer — numeric→float, timestamptz→UTC, jsonb
 `terms`→dict — over the **full** column set, so a dropped column *fails* the gate). Two no-lookahead mirror
 tests (`test_pit_lookahead.py`) clone the bitemporal honesty tests against the mirror on both axes. Parity +
-both no-lookahead tests green **is** the integrity bar.
+both no-lookahead tests green **is** the integrity bar. The fundamentals read's D3a first-knowability annotation
+(`knowable_from` / `knowable_accession`, `CALL_LOGIC.md` §2) is computed on BOTH engines by one shared pure function
+(`db.bitemporal.first_knowable_versions`) over every visible version, and `test_pit_first_knowability.py` holds the
+mirror to it row-for-row and event-for-event on real version histories, at `known_at` pins between filings as
+well as after them.
 
 ## Determinism pin + the mirror
 

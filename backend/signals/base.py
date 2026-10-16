@@ -239,6 +239,13 @@ class PointInTimeData:
         the period end (no-lookahead, #1). The as-of read dedups to the latest VERSION per (security,
         metric_key, period_end), so a restatement supersedes the original. Rows carry ``metric_key`` /
         ``period_end`` / ``value`` (a general shape so §2.4 adds EPS/margin/FCF as ROWS, not columns).
+
+        **First knowability (D3a).** Each row also carries ``knowable_from`` + ``knowable_accession``
+        (``db.bitemporal.first_knowable_versions``): the date — and the filing — that FIRST made the row's
+        current value knowable, walked back through the value-identical versions visible at this view's
+        ``(asof, known_at)``. A later 10-Q re-reporting the period as its prior-year comparative is a new
+        version with a later ``valid_from``, but not new knowledge; detectors date, cite and age a fact by
+        ``knowable_from``, never by the picked version's ``valid_from``.
         """
         return self._rows("fact_fundamentals", security_id)
 

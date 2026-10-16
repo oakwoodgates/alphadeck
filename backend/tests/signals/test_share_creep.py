@@ -16,14 +16,27 @@ from signals import share_creep
 from tests.calls.factories import ASOF, SID, breakout_event, insider_event, make_thesis
 
 
-def _row(metric: str, period_end: date, value: float, filed: date, accn: str) -> dict:
-    """One as-of fact_fundamentals row as the PIT view returns it (latest version per period_end)."""
+def _row(
+    metric: str,
+    period_end: date,
+    value: float,
+    filed: date,
+    accn: str,
+    *,
+    first_filed: date | None = None,
+    first_accn: str | None = None,
+) -> dict:
+    """One as-of fact_fundamentals row as the PIT view returns it (latest version per period_end, with
+    the D3a first-knowability annotation). A point with no earlier value-identical version was first
+    knowable at its own filing, so ``first_*`` default to ``filed`` / ``accn``."""
     return {
         "metric_key": metric,
         "period_end": period_end,
         "value": value,
         "valid_from": filed,
         "accession": accn,
+        "knowable_from": first_filed or filed,
+        "knowable_accession": first_accn or accn,
     }
 
 
@@ -33,18 +46,32 @@ def _row(metric: str, period_end: date, value: float, filed: date, accn: str) ->
 # on-file: S-3ASR shelves + 424B5 prospectus supplements (accession 0001437749-24-038144, 2024-12-20,
 # is titled "At-the-Market Offering"), ZERO Item-3.02 8-Ks since 2024 — the quiet drip. 23 consecutive
 # rising quarters overall; the trailing five points below rise +13.4% with no step above +6.5%.
+# The FY-end 2025-07-31 count (454,015,855) is the D3a shape, re-MEASURED on prod 2026-10-16: first filed
+# in the 10-K on 2025-09-24 (0001437749-25-029761), then re-reported UNCHANGED as the balance-sheet
+# comparative of every later 10-Q — so its latest version as of 2026-08-17 is the 2026-06-09 10-Q, while
+# its first knowability (the PIT's ``knowable_*``) stays the 10-K.
 _UEC_ASOF = date(2026, 8, 17)
-_UEC_POINTS = [
-    (date(2025, 4, 30), 435_027_962.0, date(2025, 6, 2), "0001437749-25-019033"),
-    (date(2025, 7, 31), 454_015_855.0, date(2026, 6, 9), "0001437749-26-019889"),
-    (date(2025, 10, 31), 483_209_225.0, date(2025, 12, 10), "0001437749-25-037296"),
-    (date(2026, 1, 31), 489_270_002.0, date(2026, 3, 10), "0001437749-26-007413"),
-    (date(2026, 4, 30), 493_317_899.0, date(2026, 6, 9), "0001437749-26-019889"),
+_UEC_POINTS = [  # (period_end, shares, latest filed, latest accn, first filed, first accn)
+    (date(2025, 4, 30), 435_027_962.0, date(2025, 6, 2), "0001437749-25-019033", None, None),
+    (
+        date(2025, 7, 31),
+        454_015_855.0,
+        date(2026, 6, 9),
+        "0001437749-26-019889",
+        date(2025, 9, 24),
+        "0001437749-25-029761",
+    ),
+    (date(2025, 10, 31), 483_209_225.0, date(2025, 12, 10), "0001437749-25-037296", None, None),
+    (date(2026, 1, 31), 489_270_002.0, date(2026, 3, 10), "0001437749-26-007413", None, None),
+    (date(2026, 4, 30), 493_317_899.0, date(2026, 6, 9), "0001437749-26-019889", None, None),
 ]
 
 
 def _uec_rows() -> list[dict]:
-    return [_row("shares_out_xbrl", e, v, f, a) for e, v, f, a in _UEC_POINTS]
+    return [
+        _row("shares_out_xbrl", e, v, f, a, first_filed=ff, first_accn=fa)
+        for e, v, f, a, ff, fa in _UEC_POINTS
+    ]
 
 
 def _drip_rows(
@@ -76,8 +103,11 @@ def test_fires_on_the_uec_sustained_drip():
     assert "+13.4% over 4 quarters" in e.label and "balance-sheet series" in e.label
     assert "largest single-quarter step +6.4%" in e.label
     assert "counter-case input, below the timing-veto threshold" in e.label
-    # provenance: every window point rides, the anchor carries the computation summary (#6)
-    assert [p.ref for p in e.provenance] == [a for _, _, _, a in _UEC_POINTS]
+    # provenance: every window point rides, cited at the filing that FIRST made its count knowable (D3a —
+    # the re-reported FY-end count cites its 10-K, not the later 10-Q comparative), and the anchor carries
+    # the computation summary (#6)
+    assert [p.ref for p in e.provenance] == [fa or a for _, _, _, a, _, fa in _UEC_POINTS]
+    assert e.provenance[1].detail["filed"] == "2025-09-24"
     anchor = e.provenance[-1].detail
     assert anchor["cum_pct"] == round((493_317_899 / 435_027_962 - 1) * 100, 4)
     assert anchor["max_pair_pct"] == round((483_209_225 / 454_015_855 - 1) * 100, 4)

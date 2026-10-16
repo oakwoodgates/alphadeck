@@ -77,6 +77,9 @@ def _series() -> list[dict]:
             "value": v,
             "valid_from": _FILED[pe],
             "accession": f"acc-{pe.isoformat()}",
+            # D3a: one version per quarter, so each was first knowable at its own filing
+            "knowable_from": _FILED[pe],
+            "knowable_accession": f"acc-{pe.isoformat()}",
             "fiscal_period": "Q4" if pe.month == 12 else "Q?",
             "fiscal_year": pe.year,
         }

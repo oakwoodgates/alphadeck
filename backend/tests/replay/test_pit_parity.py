@@ -100,6 +100,13 @@ def _seed_fundamentals(db):
     append_fact(
         db, "fact_fundamentals", _fact(date(2024, 3, 31), 255_000_000, date(2024, 8, 5), "hq1r")
     )
+    # D3a — the GEV shape: next year's Q1 10-Q re-reports the (restated) Q1 UNCHANGED as its prior-year
+    # comparative. A third version, value-identical to the second: the latest pick, first knowable 2024-08-05.
+    append_fact(
+        db,
+        "fact_fundamentals",
+        _fact(date(2024, 3, 31), 255_000_000, date(2025, 5, 5), "hq1c", fp="Q1"),
+    )
 
 
 def _seed_corporate_events(db):
