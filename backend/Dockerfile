@@ -52,6 +52,13 @@ RUN if [ -n "$PIP_EXTRAS" ]; then \
 ARG GIT_SHA=""
 ENV ALPHADECK_IMAGE_SHA=$GIT_SHA
 
+# O3 (2026-10-16) — unbuffered stdout/stderr, so every line a process prints reaches `docker logs` when it
+# is printed. MEASURED without it: the cron's pipeline.daily output (stdout to a pipe = block-buffered)
+# arrived in 60-75-line bursts ~12 min late, and the buffered tail was LOST when the 10-12 run was killed
+# mid-way. The backend gets it too: the same loss on a crash, and a few extra writes cost nothing at this
+# log volume. Placed down here so adding it left the cached apt + pip layers above valid.
+ENV PYTHONUNBUFFERED=1
+
 EXPOSE 8000
 
 # Apply migrations (idempotent) -> seed the HIMS demo (idempotent) -> serve. `exec` hands signals

@@ -208,16 +208,27 @@ then re-run step 1 + step 2.
 - **A cron ENV change needs the container RECREATED, not just rebuilt.** Compose applies a changed
   `environment:` block on recreate, which `up -d --build --no-deps cron` does — but a bare `docker
   restart alphadeck-cron-1` does not. After changing any of the cron service's vars, confirm with
-  `docker exec alphadeck-cron-1 printenv TZ ALPHADECK_MARKET_TZ RUN_AT ALPHADECK_CRON_AT RETRY_DELAY_S DB_WAIT_S`
-  and `docker exec alphadeck-backend-1 printenv TZ ALPHADECK_MARKET_TZ ALPHADECK_CRON_AT`.
+  `docker exec alphadeck-cron-1 printenv TZ ALPHADECK_MARKET_TZ RUN_AT ALPHADECK_CRON_AT RETRY_DELAY_S DB_WAIT_S RUN_TIMEOUT_S PYTHONUNBUFFERED`
+  and `docker exec alphadeck-backend-1 printenv TZ ALPHADECK_MARKET_TZ ALPHADECK_CRON_AT PYTHONUNBUFFERED`.
+  The heartbeat URLs are credentials, so check them as set/unset, never by value:
+  `docker exec alphadeck-cron-1 sh -c 'echo HEARTBEAT_URL=${HEARTBEAT_URL:+set} HEARTBEAT_BACKUP_URL=${HEARTBEAT_BACKUP_URL:+set}'`
+  (an empty value prints nothing after the `=`). The sidecar's second boot line says the same thing:
+  `docker logs alphadeck-cron-1 | grep "each pass bounded"` → `heartbeat on|off · backup heartbeat on|off`.
   The cron service's vars today: `TZ` (the shell's wall clock), **`ALPHADECK_MARKET_TZ`** (the trading-day
   clock — see the timezone note below), `RUN_AT` (the shell's schedule time),
   **`ALPHADECK_CRON_AT`** (the SAME wall time under the name `Settings.cron_run_at` reads, so the
   `--catch-up` guard's cutoff inside that container matches the time the shell fires on — both from the
   one host var `ALPHADECK_CRON_AT`), **`RETRY_DELAY_S`** (`ALPHADECK_CRON_RETRY_DELAY_S`, default
-  1200 s — the wait before the one retry of a failed scheduled run or boot catch-up), and **`DB_WAIT_S`**
+  1200 s — the wait before the one retry of a failed scheduled run or boot catch-up), **`DB_WAIT_S`**
   (`ALPHADECK_CRON_DB_WAIT_S`, default 300 s — the most the boot catch-up and each scheduled run wait for
-  Postgres to accept a connection before firing anyway; see `FEED_LOOP.md` §catch-up on boot).
+  Postgres to accept a connection before firing anyway; see `FEED_LOOP.md` §catch-up on boot),
+  **`RUN_TIMEOUT_S`** (`ALPHADECK_CRON_RUN_TIMEOUT_S`, default 5400 s — the most one `pipeline.daily` pass
+  may run before the script's `timeout` stops it; a timed-out pass is retried, then paged), and the two
+  optional external-heartbeat URLs **`HEARTBEAT_URL`** / **`HEARTBEAT_BACKUP_URL`** (same names in `.env`,
+  empty by default = a silent no-op; see `FEED_LOOP.md` §the scheduling sidecar). `SLACK_WEBHOOK_URL` now
+  also carries the shell's failure page (`python -m notify.page`). `PYTHONUNBUFFERED=1` is baked into the
+  image (not compose), so it needs a rebuild, not a recreate. Compose also caps the backend, cron and
+  frontend logs at 50 MB × 5 (`logging:`), which, like an env change, applies when the container is recreated.
 - **All four timezone readings must print the SAME zone, and they come from ONE host variable.**
   `ALPHADECK_MARKET_TZ` (default `America/New_York`) now feeds both services' container `TZ` *and* the
   `Settings.market_tz` the domain clock reads; `ALPHADECK_TZ` and `ALPHADECK_CRON_TZ` are **retired and

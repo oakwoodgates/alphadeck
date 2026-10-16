@@ -6,11 +6,12 @@ publish so a crashed dump never lists."""
 from __future__ import annotations
 
 import shutil
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
+from domain.settings import get_settings
 from pipeline import backup
 
 
@@ -167,6 +168,125 @@ def test_list_backups_newest_first_and_skips_junk(tmp_path):
 
 def test_list_backups_missing_dir_is_empty(tmp_path):
     assert backup.list_backups(base_dir=tmp_path / "does-not-exist") == []
+
+
+# --- M3: the age gate (fresh_snapshot + --if-older-than-h) ----------------------------------------
+
+
+_NOW = datetime(2026, 10, 16, 3, 0, 0, tzinfo=timezone.utc)
+
+
+def _stamp(hours_ago: float, *, now: datetime = _NOW) -> str:
+    return (now - timedelta(hours=hours_ago)).strftime(backup._TS)
+
+
+def test_fresh_snapshot_none_when_there_is_no_snapshot(tmp_path):
+    assert backup.fresh_snapshot(20, base_dir=tmp_path, now=_NOW) is None
+    assert backup.fresh_snapshot(20, base_dir=tmp_path / "missing", now=_NOW) is None
+
+
+def test_fresh_snapshot_returns_a_young_unlabeled_dump(tmp_path):
+    _seed(tmp_path, _stamp(30), _stamp(2))
+    fresh = backup.fresh_snapshot(20, base_dir=tmp_path, now=_NOW)
+    assert fresh is not None and fresh.name == f"alphadeck-{_stamp(2)}.sql"
+
+
+def test_fresh_snapshot_none_when_the_newest_unlabeled_is_old(tmp_path):
+    _seed(tmp_path, _stamp(30))
+    assert backup.fresh_snapshot(20, base_dir=tmp_path, now=_NOW) is None
+
+
+def test_fresh_snapshot_at_exactly_the_threshold_is_due(tmp_path):
+    _seed(tmp_path, _stamp(20))
+    assert backup.fresh_snapshot(20, base_dir=tmp_path, now=_NOW) is None
+
+
+def test_a_fresh_LABELED_dump_never_satisfies_the_gate(tmp_path):
+    """A labeled dump is a deliberate recovery point outside the rolling window, not the nightly: a
+    pre-migration snapshot an hour ago must not stand in for the rolling dump."""
+    _seed(tmp_path, _stamp(30))
+    (tmp_path / f"alphadeck-{_stamp(1)}-pre-migration.sql").write_text("x", encoding="utf-8")
+    assert backup.fresh_snapshot(20, base_dir=tmp_path, now=_NOW) is None
+
+
+def test_a_future_dated_snapshot_fails_toward_dumping(tmp_path):
+    """The clock went backwards: a dump 'from the future' is not proof of a fresh one."""
+    _seed(tmp_path, _stamp(-5))
+    assert backup.fresh_snapshot(20, base_dir=tmp_path, now=_NOW) is None
+
+
+@pytest.fixture
+def _cli_dir(tmp_path, monkeypatch):
+    """Point the CLI's default dir at tmp_path and swap pg_dump for the fake — the CLI path end to end."""
+    monkeypatch.setattr(backup, "_DEFAULT_BACKUPS", tmp_path)
+    monkeypatch.setattr(backup, "_pg_dump", _fake_dump)
+    return tmp_path
+
+
+def test_cli_gate_skips_when_a_fresh_dump_exists(_cli_dir, capsys):
+    now = datetime.now(timezone.utc)
+    _seed(_cli_dir, _stamp(2, now=now), _stamp(30, now=now))
+    before = sorted(p.name for p in _cli_dir.glob("*.sql"))
+
+    backup.main(["--if-older-than-h", "20"])
+
+    assert sorted(p.name for p in _cli_dir.glob("*.sql")) == before  # no dump, no prune
+    out = capsys.readouterr().out
+    assert "backup: skipped" in out and f"alphadeck-{_stamp(2, now=now)}.sql" in out
+
+
+def test_cli_gate_dumps_when_the_newest_is_old(_cli_dir, capsys):
+    now = datetime.now(timezone.utc)
+    _seed(_cli_dir, _stamp(30, now=now))
+
+    backup.main(["--if-older-than-h", "20"])
+
+    names = [i.name for i in backup.list_backups(base_dir=_cli_dir)]
+    assert len(names) == 2 and names[1] == f"alphadeck-{_stamp(30, now=now)}.sql"
+    out = capsys.readouterr().out
+    assert "backup: due" in out and f"backup: wrote {names[0]}" in out
+
+
+def test_cli_gate_dumps_when_there_is_no_snapshot_at_all(_cli_dir):
+    backup.main(["--if-older-than-h", "20"])
+    assert len(backup.list_backups(base_dir=_cli_dir)) == 1
+
+
+def test_a_gated_dump_retains_exactly_like_an_ungated_one(_cli_dir, monkeypatch):
+    """Retention is untouched: a gated dump IS a run_backup, so it prunes to the same keep-window."""
+    monkeypatch.setenv("ALPHADECK_BACKUP_KEEP", "3")
+    get_settings.cache_clear()
+    try:
+        now = datetime.now(timezone.utc)
+        _seed(_cli_dir, *(_stamp(24 * d, now=now) for d in range(1, 6)))  # 5 old unlabeled
+
+        backup.main(["--if-older-than-h", "20"])
+
+        unlabeled = [i for i in backup.list_backups(base_dir=_cli_dir) if not i.labeled]
+        assert len(unlabeled) == 3  # the new dump + the two newest seeds
+    finally:
+        get_settings.cache_clear()
+
+
+def test_cli_gate_and_label_are_mutually_exclusive(_cli_dir):
+    with pytest.raises(SystemExit) as exc:
+        backup.main(["--label", "pre-migration", "--if-older-than-h", "20"])
+    assert exc.value.code == 2
+    assert list(_cli_dir.glob("*.sql")) == []
+
+
+def test_cli_gate_dump_failure_still_raises(_cli_dir, monkeypatch):
+    """The shell pages on a non-zero exit, so a failed gated dump must still fail LOUD (and never prune)."""
+    now = datetime.now(timezone.utc)
+    _seed(_cli_dir, _stamp(30, now=now))
+
+    def _boom(url: str, dest: Path, *, timeout_s: float) -> None:
+        raise RuntimeError("pg_dump exploded")
+
+    monkeypatch.setattr(backup, "_pg_dump", _boom)
+    with pytest.raises(RuntimeError, match="exploded"):
+        backup.main(["--if-older-than-h", "20"])
+    assert [p.name for p in _cli_dir.glob("*.sql")] == [f"alphadeck-{_stamp(30, now=now)}.sql"]
 
 
 # --- the ONE double-gated real-pg_dump test (binary + DB) -----------------------------------------

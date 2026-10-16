@@ -263,7 +263,9 @@ runner, retention, the host bind, the client version) — this section is the su
   `pre-migration`) is never auto-deleted. A failed dump never prunes (it must not shrink the safety net).
 - **Nightly, too.** `scripts/daily_cron.sh` runs `python -m pipeline.backup` right after the scheduled
   `pipeline.daily` (weekday branch), fail-open — deliberately **not** folded into `run_daily_pass`, so a
-  manual "Run daily now" does not also dump.
+  manual "Run daily now" does not also dump. Since M3 (2026-10-16) the sidecar's boot also runs an
+  age-gated `pipeline.backup --if-older-than-h 20`, so a night caught up at boot gets a snapshot too, and
+  a failed backup pages from the shell (`FEED_LOOP.md` §Backups & restore).
 - **RESTORE is CLI-only — never a button.** A restore is destructive (drop-schema + reload) and belongs in
   human hands. The documented sequence (the one actually used on 2026-07-21):
   `docker exec -i alphadeck-postgres-1 psql -U alphadeck -d alphadeck < ./data/backups/<file>`.
