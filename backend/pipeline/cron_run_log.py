@@ -26,14 +26,17 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Sequence
 from datetime import date, datetime, time, tzinfo
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from domain.feed_kinds import StaleFeedLabel, feed_kind
+from pipeline.name_errors import NameIngestError, name_errors_of
 
 if TYPE_CHECKING:  # avoid importing the pipeline module at import time (keeps the layering one-way)
     from pipeline.daily import ThesisRunResult
+    from pipeline.self_audit import AuditResult
 
 _log = logging.getLogger("alphadeck.cron")
 
@@ -56,6 +59,14 @@ def build_run_payload(
     tape_stale_new: tuple[StaleFeedLabel, ...] = (),
     tape_stale_days: int = 0,
     fund_shares_stale_days: int = 0,
+    code_sha: str | None = None,
+    config_hash: str | None = None,
+    run_kind: str | None = None,
+    env: dict | None = None,
+    name_errors_evaluated: bool = False,
+    name_errors_new: Sequence[NameIngestError] = (),
+    name_errors_known: int = 0,
+    audit: Sequence[AuditResult] = (),
 ) -> dict:
     """The run-of-record payload — PURE (no I/O), extracted from the artifact writer so the admin
     "run now" job can shape its poll result IDENTICALLY to a parsed artifact (one schema, two readers).
@@ -106,6 +117,24 @@ def build_run_payload(
       to say when someone opens the page.
     An artifact written before these keys existed reads as `false` / `[]` / no rows, and its `tape_stale`
     rows read as `price` (`.get` + `feed_kind`, never a raise — a new key must not blank the history).
+
+    I1/I2 — THE RUN IDENTITY + a NON-SECRET env fingerprint. `code_sha` (`Settings.image_sha` — `null` when
+    unknown, never fabricated; the same value stamped on every row the pass wrote), `config_hash` (the
+    CallConfig fingerprint the assembler ran with), `run_kind` (`cron` | `manual`), and `env`: the clock
+    config the pass ran under (`tz`, `market_tz`, `run_at`, `cron_at`), set/unset BOOLEANS for the secrets
+    and switches (`user_agent_set`, `slack_webhook_set`, `polygon_api_key_set`, `heartbeat_url_set`) and
+    the notifier class actually in use. **No secret value is ever written** — only whether it was set. The
+    Admin page reads this to flag an unknown / mismatched sha, a live pass that paged into the log, an
+    unset User-Agent. A pre-I1 artifact lacks the keys and reads as "not recorded", never as an alarm.
+
+    O1 — THE PER-NAME ERRORS. Each thesis carries `name_errors` (`security_id`, `ticker`, `leg`, `error`
+    — one row per failed LEG, `pipeline/name_errors.py`), and the run carries the cross-pass diff the way
+    G5a carries `tape_stale_new`: `name_errors_evaluated` (a LIVE pass — the only kind that is a baseline),
+    `name_errors_new` (the `security_id:leg` keys absent from the previous evaluated pass — what PAGED) and
+    `name_errors_known` (the quiet count of the rest). `previous_name_errors` (below) reads the baseline.
+
+    V1 — THE SELF-AUDIT. `audit` is the `[{check, ok, detail}]` list `pipeline/self_audit.run_audit` left
+    (`ok` null = not applicable to this pass — never a pass); the Admin page re-derives its alarm from it.
     """
     recorded = sum(1 for r in results if r.recorded)
     edgar_fetches = sum(r.edgar_fetches for r in results)
@@ -116,6 +145,20 @@ def build_run_payload(
         "asof": asof.isoformat(),
         "mode": "live" if allow_live else "no-live",  # the R2 recording-gate signal
         "catch_up": catch_up,  # a --catch-up pass: the freeze page is skipped for it (~0 fetches is correct)
+        # I1/I2 — the run identity + the NON-SECRET env fingerprint (booleans for every secret, never a value)
+        "code_sha": code_sha,
+        "config_hash": config_hash,
+        "run_kind": run_kind,
+        "env": dict(env) if env is not None else None,
+        # O1 — the newly-failing diff (the per-thesis rows are under each thesis below)
+        "name_errors_evaluated": name_errors_evaluated,
+        "name_errors_new": [
+            {"security_id": str(e.security_id), "ticker": e.ticker, "leg": e.leg}
+            for e in name_errors_new
+        ],
+        "name_errors_known": name_errors_known,
+        # V1 — the self-audit (ok: true / false / null = not applicable)
+        "audit": [a.to_json() for a in audit],
         # THE FREEZE DETECTOR: total EDGAR network pulls this run. A frozen index and a healthy
         # nothing-filed night both show 0 new facts — this is the number that differs. 0 on a `live`
         # run = the cache never refreshed = a freeze (R4 pages on it); a healthy night is in the hundreds.
@@ -159,6 +202,17 @@ def build_run_payload(
                 "edgar_fetches": r.edgar_fetches,  # per-thesis freeze detector
                 "names_ingested": len(r.ingested),
                 "names_errored": sum(1 for x in r.ingested if x.error),
+                # O1 — WHY each errored name errored, one row per failed leg (the count above kept only
+                # the number; the reasons were discarded). Never a secret: the captured ingest message.
+                "name_errors": [
+                    {
+                        "security_id": str(e.security_id),
+                        "ticker": e.ticker,
+                        "leg": e.leg,
+                        "error": e.error,
+                    }
+                    for e in name_errors_of(r.ingested)
+                ],
                 "form4_appended": sum(x.form4_appended for x in r.ingested),
                 "price_bars_appended": sum(x.price_bars_appended for x in r.ingested),
                 "form4_skipped": sum(x.form4_skipped for x in r.ingested),
@@ -203,6 +257,14 @@ def write_cron_run_log(
     tape_stale_new: tuple[StaleFeedLabel, ...] = (),
     tape_stale_days: int = 0,
     fund_shares_stale_days: int = 0,
+    code_sha: str | None = None,
+    config_hash: str | None = None,
+    run_kind: str | None = None,
+    env: dict | None = None,
+    name_errors_evaluated: bool = False,
+    name_errors_new: Sequence[NameIngestError] = (),
+    name_errors_known: int = 0,
+    audit: Sequence[AuditResult] = (),
 ) -> Path | None:
     """Dump one cron pass (``build_run_payload``, above — the payload's meaning lives there) to
     ``<base>/<utc-timestamp>.json``; return the path (or ``None`` fail-open). The whole write — payload
@@ -222,6 +284,14 @@ def write_cron_run_log(
             tape_stale_new=tape_stale_new,
             tape_stale_days=tape_stale_days,
             fund_shares_stale_days=fund_shares_stale_days,
+            code_sha=code_sha,
+            config_hash=config_hash,
+            run_kind=run_kind,
+            env=env,
+            name_errors_evaluated=name_errors_evaluated,
+            name_errors_new=name_errors_new,
+            name_errors_known=name_errors_known,
+            audit=audit,
         )
         run_dir = base_dir or _DEFAULT_CRON_RUNS
         run_dir.mkdir(parents=True, exist_ok=True)
@@ -363,6 +433,32 @@ def previous_stale_tapes(*, base_dir: Path | None = None) -> set[str] | None:
             for s in t.get("tape_stale") or []:
                 if isinstance(s, dict) and s.get("security_id"):
                     out.add(f"{feed_kind(s.get('kind')).key}:{s['security_id']}")
+        return out
+    return None
+
+
+def previous_name_errors(*, base_dir: Path | None = None) -> set[str] | None:
+    """The ``"<security_id>:<leg>"`` keys of every name that ERRORED on the most recent pass that EVALUATED
+    name errors — the baseline the current pass diffs against so only NEWLY failing names page (O1), the
+    exact twin of ``previous_stale_tapes`` above.
+
+    ``None`` (distinct from an empty set) = no evaluated artifact yet — the first pass after O1 deploys. The
+    caller treats that as "everything currently failing is news", so the known inventory pages ONCE instead
+    of the first night being silent. ``mode == "live"`` AND ``name_errors_evaluated`` are both required: a
+    ``--no-live`` pass's errors are cache misses, not tonight's feed, and an artifact written before O1
+    carries no per-name rows — read as "nothing errored", it would re-page every known-dead name as new.
+    Newest-first, first match wins; fail-open per artifact (a malformed row is skipped). Pure file read.
+    """
+    for doc in list_run_logs(base_dir=base_dir):
+        if doc.get("mode") != "live" or not doc.get("name_errors_evaluated", False):
+            continue
+        out: set[str] = set()
+        for t in doc.get("theses") or []:
+            if not isinstance(t, dict):
+                continue
+            for e in t.get("name_errors") or []:
+                if isinstance(e, dict) and e.get("security_id") and e.get("leg"):
+                    out.add(f"{e['security_id']}:{e['leg']}")
         return out
     return None
 

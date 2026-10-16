@@ -191,7 +191,7 @@ The one-word `cron.status` verdict, plus the last run's counts and any problems:
 | Verdict | Meaning |
 |---|---|
 | `never_ran` | no run-of-record artifact yet — run one below, or bring the `cron` sidecar up |
-| `unhealthy` | the last run **froze / errored / totally failed / could not refresh the benchmark tape** — as loud as `stale`, so a bad run can't hide behind green |
+| `unhealthy` | the last run **froze / errored / totally failed / could not refresh the benchmark tape / failed its self-audit**, or a status-level alarm is up (`cron.alarms`: unknown or mismatched `code_sha`, the LOG notifier, an unset User-Agent, a stale nightly backup) — as loud as `stale`, so a bad run can't hide behind green |
 | `stale` | the record missed an expected scheduled run (freshness above) |
 | `gappy` | the edge is current and the last run clean, but a night inside the last `ALPHADECK_ADMIN_MISSED_WINDOW` scheduled runs has **no call-of-record** — a run fired on the wrong day (the hole check above); the detail names the dates |
 | `healthy` | the last run is clean, the record is current, and the window has no holes |
@@ -218,6 +218,32 @@ the page still pages — but `pipeline.daily` now exits non-zero only when the n
 call-of-record at all, so the sidecar stops pausing 20 minutes to retry a night that recorded 11 of 12.
 A "Run daily now" that errors on a thesis reports exactly as before.
 
+**Phase 1B — "a bad night is never silent" (2026-10-16).** Four more things now reach this card, each read
+from the run artifacts or the backups dir (the surface still writes nothing):
+
+- **The nightly self-audit (V1).** Each pass ends by checking the record it just left
+  (`pipeline/self_audit.py`) and writes `audit: [{check, ok, detail}]` into its artifact; `last_run.audit`
+  shows it. Phase-1 checks: every active thesis has a non-reconstructed row for the as-of recorded at/after
+  that night's `RUN_AT` (counted in the `calls` table), the pass's `code_sha` is known, and every thesis the
+  pass started finished. A **failed** check is an alarm (`SELF-AUDIT FAILED — …` in `problems`, the verdict
+  `unhealthy`, and it paged); `ok: null` is **not applicable** (a daytime or `--no-live` pass) and is never
+  read as a pass.
+- **Per-name ingest errors (O1).** The artifact now keeps WHY each name errored, one row per failed leg.
+  Names whose leg started failing since the previous live pass show as `name_errors_new` and a `problems`
+  line with the **benign** marker (the thesis still recorded — not a cron fault); the known-failing ones are
+  the quiet `name_errors_known` count.
+- **Status-level alarms (`cron.alarms`, I1/I2 + B4)** — each makes the verdict `unhealthy`: the cron's last
+  pass ran with an **unknown `code_sha`**; the cron's sha **differs** from this backend's (`cron_sha` vs
+  `backend_sha` — compared only for a cron pass that started after this backend did, so a full deploy is not
+  a false alarm until the night's pass confirms it); the last live pass paged through the **LOG notifier**
+  (`SLACK_WEBHOOK_URL` unset) or ran with **`ALPHADECK_USER_AGENT` unset**; the **newest unlabeled DB dump is
+  older than `ALPHADECK_BACKUP_STALE_HOURS`** (default 30) in *schedule* time — the dump for the last
+  expected night is due by that night's `RUN_AT` + 6 h, so a Friday dump is current all weekend. The backup
+  alarm applies only on a stack whose run history shows the cron sidecar (dev runs cron OFF). An artifact
+  written before these keys existed raises no alarm by absence.
+- **A crashed pass pages (H3).** An unhandled exception in `run_daily_pass` sends ONE health page
+  (`PASS CRASHED — …`) before it re-raises; such a pass writes no artifact, so this page is its only record.
+
 A **failed benchmark refresh** is one of the alarms (G4). The SPY/IWM tape is a *shared* call-logic input
 (`benchmark_rs`), refreshed by a fail-open passenger leg before the per-thesis loop; its faults used to reach
 stdout only, so a night could produce calls against a **stale** tape and still read green. Two problem lines,
@@ -231,8 +257,11 @@ clean, never broken.
 `POST /admin/run-daily` **kicks a background job** and returns immediately (**202** + `job_id`); poll
 `GET /admin/run-daily/jobs/{job_id}`. It runs the cron's **exact** unit of work (`run_daily_pass` — live
 ingest → call-of-record → the run-log artifact → the health page), so a manual run **lands in the run
-history like the nightly one**. A **409** single-slot guard means a double-click can never stack a second
-pass. It does a **LIVE EDGAR pull** (~2 min warm, up to ~65 min on a cold cache) and is safe to re-click once
+history like the nightly one**. A **409** means a pass is already running **anywhere** (C1, 2026-10-16): the
+pass holds a cross-process Postgres advisory lock for its whole run (`pipeline/run_lock.py`), the route probes
+it before starting a job and names the holder (e.g. `alphadeck-pass:cron`), and the in-process single slot
+still catches a double-click; **503** when the DB cannot be reached to check. (Before C1 the guard could not
+see the sidecar's own pass — the 09-01 / 09-09 overlaps.) It does a **LIVE EDGAR pull** (~2 min warm, up to ~65 min on a cold cache) and is safe to re-click once
 finished — the pass is idempotent (`record_if_changed` appends nothing on unchanged facts). **Safe at any hour
 (G1):** it used to be a morning-only button, because it warmed every company's filing index for up to 12h and
 the night's scheduled pass then served that warm index — blind to the afternoon's filings. The recurring
@@ -263,7 +292,9 @@ runner, retention, the host bind, the client version) — this section is the su
   `pre-migration`) is never auto-deleted. A failed dump never prunes (it must not shrink the safety net).
 - **Nightly, too.** `scripts/daily_cron.sh` runs `python -m pipeline.backup` right after the scheduled
   `pipeline.daily` (weekday branch), fail-open — deliberately **not** folded into `run_daily_pass`, so a
-  manual "Run daily now" does not also dump.
+  manual "Run daily now" does not also dump. Since M3 (2026-10-16) the sidecar's boot also runs an
+  age-gated `pipeline.backup --if-older-than-h 20`, so a night caught up at boot gets a snapshot too, and
+  a failed backup pages from the shell (`FEED_LOOP.md` §Backups & restore).
 - **RESTORE is CLI-only — never a button.** A restore is destructive (drop-schema + reload) and belongs in
   human hands. The documented sequence (the one actually used on 2026-07-21):
   `docker exec -i alphadeck-postgres-1 psql -U alphadeck -d alphadeck < ./data/backups/<file>`.
@@ -282,7 +313,7 @@ the freeze it is adjacent to: `POSTMORTEM_CRON_FREEZE_2026-07.md`.
 |---|---|---|
 | `GET /admin/status` | freshness + cron verdict + last-snapshot age | read-only; the page opens on it |
 | `GET /admin/runs?limit=` | the run-of-record history, newest first | read-only file parse; skip-unreadable |
-| `POST /admin/run-daily` | **202** + `job_id` | the cron's exact unit; 409 single-slot |
+| `POST /admin/run-daily` | **202** + `job_id` | the cron's exact unit; 409 when any process runs a pass (C1 lock) or the slot is busy; 503 DB unreachable |
 | `GET /admin/run-daily/jobs/{job_id}` | job status → run-history row | 404 → "lost from view", never a spinner |
 | `POST /admin/backup` | **202** + `job_id` | read-only `pg_dump`; 409 single-slot |
 | `GET /admin/backup/jobs/{job_id}` | job status → `BackupOut` | 404 → "lost from view" |
