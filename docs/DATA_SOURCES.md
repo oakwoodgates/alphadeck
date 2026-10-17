@@ -77,6 +77,15 @@ and the free proxy is demonstrably inadequate. Default to free + derive.
   another reads the first's cache for the companies it reached last. The Workbench and a standalone
   `python -m pipeline.ingest_thesis` keep the 12h TTL (interactive paths). Offline (`allow_live=False`) the dial
   is inert — a stale hit is still served, so the suite and `--no-live` are unaffected.
+- **A FINISHED day's dated index is immutable too (K1, 2026-10-17).** A `daily-index/` (or `full-index/`)
+  key that names a `YYYYMMDD` date — `daily-index/master.20261015.idx`, the SPAC radar's spine — is cached
+  forever once the date is strictly before TODAY IN MARKET TIME (not UTC: at 22:30 ET the UTC date has
+  already rolled over while tonight's index still grows) AND the cached copy was written at or after
+  06:00 ET on the following day. The second half matters: the radar caches today's index at ~22:45 ET
+  while it is still growing, and freezing that copy when the date turned past would drop every filing
+  indexed later, so an in-day copy is refreshed once more under the TTL and only that later copy is frozen.
+  Today's and future dates, undated keys (the quarterly `full-index/.../master.idx`) and impossible dates
+  stay mutable. Key-classed in `EdgarClient._is_stale`, like `forms/`, for every client.
 - **`companyfacts/*` is FILING-GATED on a recurring client (Q17, 2026-10-17).** This reverses the earlier
   choice that "`ingest_fundamentals` keeps the 12h TTL deliberately (a quarterly series)". That choice saved
   nothing: by 22:30 the 12h clock had always expired, so the nightly fundamentals leg re-pulled every basket

@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import re
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
+from datetime import time as clock_time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+from domain.market_time import market_tz
 from domain.settings import get_settings
 from ingest import CacheMiss
 from ingest.http import RateLimiter, polite_get
@@ -22,6 +25,27 @@ _DEFAULT_CACHE = Path(__file__).resolve().parents[3] / "data" / "edgar_cache"
 # companyfacts=the extract's share counts all froze the same way; forms/<accession>/<doc> is the one
 # genuinely immutable class — an accession's document never changes).
 _IMMUTABLE_PREFIXES = ("forms/",)
+
+# K1 (2026-10-17) — a FINISHED day's EDGAR index is immutable too. A key under `daily-index/` (or
+# `full-index/`) that names a YYYYMMDD date — `daily-index/master.20261015.idx`, the SPAC radar's spine — is
+# cached forever ONCE BOTH hold: the date is strictly before TODAY IN MARKET TIME (never UTC: at 22:30 ET the
+# UTC date has already rolled over, and tonight's index is still growing), and the cached copy was written at
+# or after 06:00 ET on the following day (`_INDEX_FINAL_HOUR`, when EDGAR reopens), i.e. after that day's
+# index could still change. The second condition is load-bearing, not caution: the nightly radar caches
+# TODAY's index at ~22:45 ET while it is still growing, and freezing that copy the moment the date turned
+# "past" would lose every filing indexed after it — so an in-day copy is refreshed once more under the normal
+# TTL, and only that later copy is frozen. Today's and future dates, an undated key (the quarterly
+# `full-index/<yyyy>/QTR<q>/master.idx` still grows) and an impossible date all stay mutable. Same mechanism
+# as `forms/`: decided on the key in `_is_stale`, never a per-call flag.
+_DATED_INDEX = re.compile(r"^(?:daily-index|full-index)/(?:.*[/.])?(\d{8})\.idx$")
+_INDEX_FINAL_HOUR = 6
+
+
+def _now() -> float:
+    """The clock the freshness rules read (one seam, so a test can pin "now" in market time)."""
+    return time.time()
+
+
 _DEFAULT_CACHE_TTL_S = (
     12 * 3600
 )  # < the daily cron period, so the nightly run always sees an expired index
@@ -151,19 +175,43 @@ class EdgarClient:
             subs = None
         if not isinstance(subs, dict):
             subs = None
-        return companyfacts_due(fetched_at=fetched_at, now=time.time(), submissions=subs).due
+        return companyfacts_due(fetched_at=fetched_at, now=_now(), submissions=subs).due
+
+    @staticmethod
+    def _final_dated_index(path: Path, cache_key: str) -> bool:
+        """K1 — is this a dated EDGAR index key for a FINISHED day whose cached copy was written after
+        that day's index stopped changing? (The rule and why both halves: ``_DATED_INDEX`` above.)
+        """
+        m = _DATED_INDEX.match(cache_key)
+        if m is None:
+            return False
+        try:
+            day = datetime.strptime(m.group(1), "%Y%m%d").date()
+        except ValueError:
+            return False  # not a real date -> stays mutable
+        tz = market_tz()
+        today: date = datetime.fromtimestamp(_now(), tz).date()
+        if not day < today:
+            return False  # today's (still growing) or a future date
+        final_at = datetime.combine(
+            day + timedelta(days=1), clock_time(_INDEX_FINAL_HOUR), tzinfo=tz
+        )
+        return path.stat().st_mtime >= final_at.timestamp()
 
     def _is_stale(self, path: Path, cache_key: str) -> bool:
-        """Is this cached key past its freshness? THREE key classes: immutable prefixes are NEVER stale
-        (cache forever); a filing-gated key on a RECURRING client is stale only when the Q17 gate says due;
-        every other prefix is mutable and expires after ``cache_ttl_s``. Default-refresh: an unrecognized
+        """Is this cached key past its freshness? The key classes: immutable prefixes are NEVER stale
+        (cache forever), and neither is a FINISHED day's dated index cached after it finished (K1); a
+        filing-gated key on a RECURRING client is stale only when the Q17 gate says due; every other prefix
+        is mutable and expires after ``cache_ttl_s``. Default-refresh: an unrecognized
         prefix is treated as mutable, so a future endpoint is safe-by-default (staleness never silent).
         """
         if cache_key.startswith(_IMMUTABLE_PREFIXES):
             return False
+        if self._final_dated_index(path, cache_key):
+            return False  # K1 — a finished day's index, cached after it finished
         if self._gated(cache_key):
             return self._gate_due(path.stat().st_mtime, cache_key)
-        return (time.time() - path.stat().st_mtime) > self.cache_ttl_s
+        return (_now() - path.stat().st_mtime) > self.cache_ttl_s
 
     def get_text(self, url: str, cache_key: str) -> str:
         path = self.cache_dir / cache_key
