@@ -17,14 +17,20 @@ Three readers share this module, so each word has ONE definition:
 
 THE WORDS:
 
-- **The on-time window** (``on_time_window`` / ``is_on_time``, the ONE helper the late-row policy L1 will
-  reuse): ``[RUN_AT on D, 06:00 market time on the next weekday after D)`` — from the scheduled fire to the
+- **The on-time window** (``on_time_window`` / ``is_on_time``, the ONE helper M2 and the late-row policy L1
+  share): ``[RUN_AT on D, 06:00 market time on the next weekday after D)`` — from the scheduled fire to the
   next EDGAR open (EDGAR accepts filings from 06:00 ET; anything recorded later can have read a filing the
   night could not have). A Friday night's window runs to Monday 06:00 (the trigger's Mon-Fri calendar —
   holidays are not modeled, the ``pipeline/schedule.py`` choice).
+- **Late** (``is_late`` — L1, operator Q5 = A) = a non-reconstructed row recorded at or after the window's
+  END. The SCOREBOARD never lets one define an episode (``scoreboard/late.py``: dropped before the per-as-of
+  dedup, so an on-time row for the night wins and a late-only night reads as a cron gap — reversible by
+  ``Settings.scoreboard_exclude_late`` / ``?include_late=``), and a Slack push made late says so
+  (``night_timing``, N1).
 - **Covered** (the V1 audit; the base of the Admin check) = the thesis has a NON-reconstructed row for D
-  recorded at or after D's ``RUN_AT`` — WITHOUT the upper bound: a late catch-up row still covers the night
-  until L1 (operator Q5 = A) decides how late rows are treated. A ``reconstructed`` row
+  recorded at or after D's ``RUN_AT`` — WITHOUT the upper bound: a late catch-up row still COVERS the night
+  here (the pass did record it — ``describe`` names it "recorded late"); L1 decides only how the Scoreboard
+  SCORES such a row, not whether the Admin hole check calls the night recorded. A ``reconstructed`` row
   (``pipeline.backfill``) never COVERS — it is reported, never the night's record; a row recorded BEFORE the
   cutoff (a pre-open "Run daily now") never covers — it ran on the prior session's bars.
 - **Resolved** (the Admin partial check — operator decision 2026-10-16) = covered, OR the thesis's gap was
@@ -58,6 +64,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, tzinfo
+from typing import Literal
 from uuid import UUID
 
 import psycopg
@@ -84,7 +91,7 @@ def next_edgar_open(asof: date, tz: tzinfo) -> datetime:
 
 def on_time_window(asof: date, run_at: time, tz: tzinfo) -> tuple[datetime, datetime]:
     """``[start, end)`` — a row for ``asof`` is ON TIME when recorded in it: from that night's ``RUN_AT`` to
-    the next weekday's EDGAR open. THE shared definition (M2 now; the late-row policy L1 next)."""
+    the next weekday's EDGAR open. THE shared definition (M2's catch-up skip; L1's ``is_late``)."""
     return night_cutoff(asof, run_at, tz), next_edgar_open(asof, tz)
 
 
@@ -92,6 +99,36 @@ def is_on_time(recorded_at: datetime, asof: date, *, run_at: time, tz: tzinfo) -
     """Was a row for ``asof`` recorded inside its on-time window? (Reconstructed-ness is the caller's.)"""
     start, end = on_time_window(asof, run_at, tz)
     return start <= recorded_at < end
+
+
+def is_late(recorded_at: datetime, asof: date, *, tz: tzinfo) -> bool:
+    """L1 (operator Q5 = A) — was a row for ``asof`` recorded AT OR AFTER the end of its on-time window, the
+    next weekday's EDGAR open (``on_time_window``'s upper bound, ``next_edgar_open``)? Such a row can have
+    read a filing SEC accepted after the night (MEASURED 2026-10-12: three of the boot catch-up's rows cite
+    Form 4s accepted on 10-13). The lower bound plays no part: a row recorded BEFORE the night's ``RUN_AT``
+    is a daytime row, not a late one. Reconstructed-ness is the caller's (a ``pipeline.backfill`` row is
+    never judged late — it is already set aside on its own marker)."""
+    return recorded_at >= next_edgar_open(asof, tz)
+
+
+NightTiming = Literal["current", "past", "late"]
+
+
+def night_timing(asof: date, at: datetime, *, tz: tzinfo) -> NightTiming:
+    """N1 — how a record made AT ``at`` for night ``asof`` relates to that night, for a push's label:
+
+    - ``"late"``    — at/after the night's on-time window closed (``is_late``): a catch-up or ``--late-ok``
+      pass recording the night after the next EDGAR open (the Scoreboard sets such a row aside, L1);
+    - ``"past"``    — still on time, but ``asof`` is no longer today in market time (a pass that ran past
+      midnight, a pre-open catch-up): worth naming the night the push is about;
+    - ``"current"`` — tonight's night, the normal case (no label).
+
+    PURE (``at`` and ``tz`` injected)."""
+    if is_late(at, asof, tz=tz):
+        return "late"
+    if asof < at.astimezone(tz).date():
+        return "past"
+    return "current"
 
 
 @dataclass(frozen=True)

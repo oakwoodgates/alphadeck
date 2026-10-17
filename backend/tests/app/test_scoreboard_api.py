@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -704,4 +705,49 @@ def test_include_annotated_is_a_tri_state_reading_and_the_get_writes_nothing(
         k: v for k, v in _ep_of(plain).items() if k != "annotation_note"
     }
     assert "phantom-arm night(s) 2026-07-10" in inc["annotation_note"]
+    assert _db_counts(db) == before  # every read wrote nothing
+
+
+# --- L1: the late-night READ POLICY over the wire ---------------------------------------------------------
+
+
+def test_include_late_is_a_tri_state_reading_and_the_get_writes_nothing(client, db, security_id):
+    """Friday 07-10's on-time row arms; a catch-up re-versions the night on MONDAY 07-13 at 09:00 ET — after
+    the window closed at Monday's 06:00 EDGAR open — and its card reads warming. Default and
+    ``include_late=false`` set the late row aside (the on-time arm wins: the episode opens 07-10);
+    ``=true`` scores it exactly as before L1 (the late row wins the dedup: the arm moves to 07-13). The
+    night is listed under both readings with its stamps; no read writes."""
+    ny = ZoneInfo("America/New_York")
+    thesis = persist_thesis(db, security_id)
+    conv, conf = keys_fired(security_id, date(2026, 7, 9), conv_liveness=120, conf_liveness=120)
+    record_day(db, thesis, [conv], date(2026, 7, 9))  # warming, on time
+    record_day(db, thesis, [conv, conf], date(2026, 7, 10))  # armed, on time (22:45 ET)
+    late_at = datetime(2026, 7, 13, 9, 0, tzinfo=ny)
+    record_day(db, thesis, [conv], date(2026, 7, 10), recorded_at=late_at)  # the late re-version
+    record_day(db, thesis, [conv, conf], date(2026, 7, 13))  # armed, on time
+    bar(db, security_id, date(2026, 7, 10), 100.0)
+    bar(db, security_id, date(2026, 7, 13), 103.0)
+    before = _db_counts(db)
+
+    default = client.get("/scoreboard", params={"asof": ASOF}).json()
+    explicit = client.get("/scoreboard", params={"asof": ASOF, "include_late": "false"}).json()
+    included = client.get("/scoreboard", params={"asof": ASOF, "include_late": "true"}).json()
+
+    for view in (default, explicit):
+        assert view["summary"]["late_policy"] == "excluded"
+        assert _ep_of(view)["arm_date"] == "2026-07-10"  # the on-time arm wins its night
+    assert included["summary"]["late_policy"] == "included"
+    assert _ep_of(included)["arm_date"] == "2026-07-13"  # the late row wins the dedup, as before L1
+
+    (night,) = default["summary"]["late_nights"]
+    assert (night["thesis_name"], night["asof"], night["n_rows"]) == (thesis.name, "2026-07-10", 1)
+    assert datetime.fromisoformat(night["recorded_at"]) == late_at
+    assert datetime.fromisoformat(night["edgar_open"]) == datetime(2026, 7, 13, 6, 0, tzinfo=ny)
+    assert datetime.fromisoformat(night["earlier_recorded_at"]) == datetime(
+        2026, 7, 10, 22, 45, tzinfo=ny
+    )
+    assert night["reason"] == "recorded after the next EDGAR open"
+    assert included["summary"]["late_nights"] == default["summary"]["late_nights"]  # BOTH readings
+    # the two readings are independent: the annotated reading is untouched by include_late
+    assert default["summary"]["annotated_policy"] == included["summary"]["annotated_policy"]
     assert _db_counts(db) == before  # every read wrote nothing

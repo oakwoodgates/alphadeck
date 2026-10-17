@@ -13,6 +13,7 @@ from app.schemas_api import (
     CorporateEventOut,
     InsiderBuyOut,
     InsiderSellOut,
+    LateNightOut,
     PriceBar,
     ScoreboardMetricOut,
     ScoreboardPriceWindowOut,
@@ -86,6 +87,14 @@ def get_scoreboard(
         "setting (ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED, default: set aside). The response's "
         "summary.annotated_policy names the reading used",
     ),
+    include_late: bool | None = Query(
+        None,
+        description="the late-night reading: true = score rows recorded after their night's next "
+        "EDGAR open (06:00 ET the next weekday) as before; false = set them aside, so an on-time row "
+        "for the night wins and a late-only night reads like a cron gap; omitted = the server setting "
+        "(ALPHADECK_SCOREBOARD_EXCLUDE_LATE, default: set aside). The response's summary.late_policy "
+        "names the reading used",
+    ),
     conn: psycopg.Connection = Depends(get_conn),
 ) -> ScoreboardResponse:
     """The Scoreboard (SCORE): the call-of-record scored as-of ``asof`` — a READ-ONLY pass over
@@ -94,9 +103,10 @@ def get_scoreboard(
     platform to what it actually said). Aggregate metrics judge only matured, non-censored
     episodes and gate below ``min_n`` — an instrument, not a claim, until n accrues.
 
-    Two kinds of recorded row are set aside before scoring: reconstructed rows (always), and rows
+    Three kinds of recorded row are set aside before scoring: reconstructed rows (always), rows
     annotated as phantom arms (by the annotated-night policy, which ``include_annotated`` overrides
-    per request). Both readings are available; nothing is deleted either way.
+    per request), and rows recorded after their night's next EDGAR open (by the late-night policy,
+    which ``include_late`` overrides per request). Every reading is available; nothing is deleted.
     """
     result = assemble_scoreboard(
         conn,
@@ -104,6 +114,8 @@ def get_scoreboard(
         include_archived=include_archived,
         # None = the server setting; an explicit include_annotated inverts into the exclude policy
         exclude_annotated=None if include_annotated is None else not include_annotated,
+        # L1 — the same tri-state for the late-night reading
+        exclude_late=None if include_late is None else not include_late,
     )
     theses_out = []
     for t in result.theses:
@@ -160,6 +172,10 @@ def get_scoreboard(
             annotated_nights=[
                 AnnotatedNightOut(**n.model_dump())
                 for n in (summary.annotated_nights if summary else [])
+            ],
+            late_policy=summary.late_policy if summary else "excluded",
+            late_nights=[
+                LateNightOut(**n.model_dump()) for n in (summary.late_nights if summary else [])
             ],
             metrics=[
                 ScoreboardMetricOut(

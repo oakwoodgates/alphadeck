@@ -20,9 +20,11 @@ from pipeline import daily
 from pipeline.night_coverage import (
     CallStamp,
     ThesisSpan,
+    is_late,
     is_on_time,
     judge_coverage,
     next_edgar_open,
+    night_timing,
     on_time_theses,
     on_time_window,
     read_night_coverage,
@@ -53,6 +55,40 @@ def test_the_on_time_window_runs_from_RUN_AT_to_the_NEXT_WEEKDAYS_EDGAR_open():
     assert is_on_time(_et(2026, 10, 13, 5, 59, 59), _OCT12, run_at=_RUN_AT, tz=_NY)
     assert not is_on_time(_et(2026, 10, 13, 6, 0), _OCT12, run_at=_RUN_AT, tz=_NY)
     assert not is_on_time(_et(2026, 10, 12, 22, 29, 59), _OCT12, run_at=_RUN_AT, tz=_NY)
+
+
+def test_LATE_is_at_or_after_the_windows_END_only():
+    """L1 — the same window, its upper bound only."""
+    # the measured catch-up: 10-13 17:04 ET for the 10-12 night — ~11 h after the window closed
+    assert is_late(_et(2026, 10, 13, 17, 4), _OCT12, tz=_NY)
+    assert not is_late(_et(2026, 10, 13, 5, 59, 59), _OCT12, tz=_NY)  # 05:59 the next weekday
+    assert is_late(_et(2026, 10, 13, 6, 0), _OCT12, tz=_NY)  # the EDGAR open itself
+    # a DAYTIME row (before RUN_AT) is not late — only the window's END makes a row late
+    assert not is_late(_et(2026, 10, 12, 9, 15), _OCT12, tz=_NY)
+    # Friday's night runs to MONDAY 06:00 — a weekend catch-up is on time
+    fri = date(2026, 10, 16)
+    assert not is_late(_et(2026, 10, 17, 12, 0), fri, tz=_NY)
+    assert not is_late(_et(2026, 10, 19, 5, 59), fri, tz=_NY)
+    assert is_late(_et(2026, 10, 19, 6, 0), fri, tz=_NY)
+    # late = NOT on time, for every row recorded at/after the cutoff (the two words share one window)
+    for stamp in (_et(2026, 10, 12, 22, 30), _et(2026, 10, 13, 5, 59), _et(2026, 10, 13, 6, 0)):
+        assert is_late(stamp, _OCT12, tz=_NY) is not is_on_time(
+            stamp, _OCT12, run_at=_RUN_AT, tz=_NY
+        )
+
+
+def test_night_timing_labels_a_push_current_past_or_late():
+    """N1 — the push label's judgment, stated with direct inputs."""
+    assert night_timing(_OCT12, _et(2026, 10, 12, 22, 41), tz=_NY) == "current"
+    # a pass that ran past midnight is still on time — but the push names the night
+    assert night_timing(_OCT12, _et(2026, 10, 13, 0, 30), tz=_NY) == "past"
+    assert night_timing(_OCT12, _et(2026, 10, 13, 5, 59), tz=_NY) == "past"
+    assert night_timing(_OCT12, _et(2026, 10, 13, 6, 0), tz=_NY) == "late"
+    assert night_timing(_OCT12, _et(2026, 10, 13, 17, 4), tz=_NY) == "late"  # the boot catch-up
+    # judged in MARKET time: 00:30 UTC on 10-13 is still 20:30 ET on 10-12 (tonight)
+    assert night_timing(_OCT12, datetime(2026, 10, 13, 0, 30, tzinfo=timezone.utc), tz=_NY) == (
+        "current"
+    )
 
 
 # --- the judge: the 10-12 night -------------------------------------------------------------------------

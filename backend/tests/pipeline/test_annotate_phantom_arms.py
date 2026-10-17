@@ -267,6 +267,15 @@ def test_a_drift_row_is_never_annotated(db):
 # --- the Scoreboard reads the annotations as a REVERSIBLE policy -----------------------------------------
 
 
+def _scoreboard(db, **kw):
+    """The Scoreboard with the L1 LATE reading pinned OFF. The fixture's rows are written by the real
+    pre-D3a writer at TEST time — after their 2026-10-14/15 nights closed — so every one of them is a LATE
+    row (recorded after the next EDGAR open), which the default reading sets aside before the annotation
+    policy is ever reached. These tests isolate the ANNOTATED reading; the late reading (and how the two
+    compose) is ``tests/scoreboard/test_late_rows.py``'s."""
+    return assemble_scoreboard(db, exclude_late=False, **kw)
+
+
 def _episodes(result) -> list[tuple[str, date]]:
     return [(t.name, e.episode.arm_date) for t in result.theses for e in t.episodes]
 
@@ -278,7 +287,7 @@ def test_scoreboard_sets_the_phantom_nights_aside_and_both_readings_reverse_exac
     """
     thesis, _ = phantom
     asof = _ARM_NIGHTS[-1] + timedelta(days=1)
-    before = assemble_scoreboard(db, asof=asof, exclude_annotated=True)  # nothing annotated yet
+    before = _scoreboard(db, asof=asof, exclude_annotated=True)  # nothing annotated yet
     assert _episodes(before) == [(thesis.name, _ARM_NIGHTS[0])]
     assert before.summary.annotated_nights == []
 
@@ -286,16 +295,14 @@ def test_scoreboard_sets_the_phantom_nights_aside_and_both_readings_reverse_exac
     apa.apply_annotations(db, results, rule="d3a-first-knowability@test")
     db.commit()
 
-    excluded = assemble_scoreboard(db, asof=asof)  # the setting's default: set aside
+    excluded = _scoreboard(db, asof=asof)  # the setting's default: set aside
     assert excluded.summary.annotated_policy == "excluded"
     assert _episodes(excluded) == []
     assert [(n.thesis_name, n.asof, n.reasons) for n in excluded.summary.annotated_nights] == [
         (thesis.name, n, ["stale_comparative_revenue"]) for n in _ARM_NIGHTS
     ]
 
-    included = assemble_scoreboard(
-        db, asof=asof, exclude_annotated=False
-    )  # the include_annotated param
+    included = _scoreboard(db, asof=asof, exclude_annotated=False)  # the include_annotated param
     assert included.summary.annotated_policy == "included"
     _same_record(included, before)
     (ep,) = included.theses[0].episodes
@@ -310,7 +317,7 @@ def test_the_setting_off_scores_the_annotated_nights_as_before(db, phantom, monk
 
     thesis, _ = phantom
     asof = _ARM_NIGHTS[-1] + timedelta(days=1)
-    before = assemble_scoreboard(db, asof=asof, exclude_annotated=False)
+    before = _scoreboard(db, asof=asof, exclude_annotated=False)
     apa.apply_annotations(
         db, apa.classify_rows(db, thesis_id=thesis.id), rule="d3a-first-knowability@t"
     )
@@ -318,7 +325,7 @@ def test_the_setting_off_scores_the_annotated_nights_as_before(db, phantom, monk
     monkeypatch.setenv("ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED", "false")
     get_settings.cache_clear()
     try:
-        off = assemble_scoreboard(db, asof=asof)
+        off = _scoreboard(db, asof=asof)
     finally:
         monkeypatch.delenv("ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED")
         get_settings.cache_clear()
@@ -347,10 +354,10 @@ def test_an_unannotated_night_is_unaffected_by_the_policy(db, phantom):
     )
     db.commit()
     asof = _ARM_NIGHTS[-1] + timedelta(days=1)
-    ex = {t.name + str(t.thesis_id): t for t in assemble_scoreboard(db, asof=asof).theses}
+    ex = {t.name + str(t.thesis_id): t for t in _scoreboard(db, asof=asof).theses}
     inc = {
         t.name + str(t.thesis_id): t
-        for t in assemble_scoreboard(db, asof=asof, exclude_annotated=False).theses
+        for t in _scoreboard(db, asof=asof, exclude_annotated=False).theses
     }
     key = other.name + str(other.id)
     assert [e.model_dump() for e in ex[key].episodes] == [e.model_dump() for e in inc[key].episodes]

@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import date
-from typing import Protocol
+from typing import Literal, Protocol
 from uuid import UUID
 
 from domain.enums import State
@@ -51,6 +51,12 @@ class TransitionEvent:
     from_verdict: str
     to_verdict: str
     armed: tuple[ArmedName, ...] = ()  # populated only on a → armed transition; empty otherwise
+    # N1 — WHEN the push is made relative to its night (``pipeline.night_coverage.night_timing``): "current"
+    # = tonight's night (no label, the normal case); "past" = a past as-of still inside its on-time window
+    # (a pass that ran past midnight); "late" = recorded after the night's next EDGAR open (a catch-up or a
+    # --late-ok pass — the Scoreboard sets such a row aside, L1). Defaulted, so every existing construction
+    # reads as tonight's, unchanged.
+    timing: Literal["current", "past", "late"] = "current"
 
     @property
     def label(self) -> str:
@@ -58,6 +64,16 @@ class TransitionEvent:
         if self.from_verdict != self.to_verdict:
             arrow += f" ({self.from_verdict} → {self.to_verdict})"
         return f"{self.thesis_name}: {arrow}"
+
+    @property
+    def timing_note(self) -> str:
+        """``"(asof 2026-10-12, recorded late)"`` / ``"(asof 2026-10-12)"`` — the night a past or late push
+        is about; ``""`` for tonight's (the push reads exactly as before N1)."""
+        if self.timing == "late":
+            return f"(asof {self.asof}, recorded late)"
+        if self.timing == "past":
+            return f"(asof {self.asof})"
+        return ""
 
 
 @dataclass(frozen=True)
@@ -222,7 +238,9 @@ class LogNotifier:
     """v1: the transition is RECORDED loudly, delivered nowhere (the deferred-delivery adapter)."""
 
     def notify(self, event: TransitionEvent) -> None:
-        _log.warning("TRANSITION %s (asof %s)", event.label, event.asof)
+        # N1 — a late night's log record says so too
+        late = ", recorded late" if event.timing == "late" else ""
+        _log.warning("TRANSITION %s (asof %s%s)", event.label, event.asof, late)
 
     def notify_health(self, event: HealthEvent) -> None:
         # a run-health page is a RECORD (a bad cron night, logged loud); delivery is the Slack adapter's job
@@ -350,8 +368,12 @@ class SlackNotifier:
         """The compact company-level push: line 1 the thesis header (the state move), line 2 the armed
         tickers, line 3 per-company its friendly trigger tail. FALLS BACK to today's exact thesis-only
         header line when no armed name resolved to a ticker (back-compat + graceful degrade — a Slack
-        push never depends on the enrichment having succeeded)."""
+        push never depends on the enrichment having succeeded). N1: a push about a PAST or LATE night names
+        it on the header (``timing_note`` — "(asof 2026-10-12, recorded late)"), so a catch-up's arm is
+        never read as tonight's; tonight's push is unchanged."""
         head = f"🔴 {event.thesis_name} — ARMED ({event.from_state} → {event.to_state})"
+        if event.timing_note:
+            head += f" {event.timing_note}"
         named = [a for a in event.armed if a.ticker]  # only names that resolved to a ticker
         if not named:
             return head  # thesis-only fallback — identical to today's message

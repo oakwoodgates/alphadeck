@@ -883,9 +883,10 @@ export interface paths {
          *     platform to what it actually said). Aggregate metrics judge only matured, non-censored
          *     episodes and gate below ``min_n`` — an instrument, not a claim, until n accrues.
          *
-         *     Two kinds of recorded row are set aside before scoring: reconstructed rows (always), and rows
+         *     Three kinds of recorded row are set aside before scoring: reconstructed rows (always), rows
          *     annotated as phantom arms (by the annotated-night policy, which ``include_annotated`` overrides
-         *     per request). Both readings are available; nothing is deleted either way.
+         *     per request), and rows recorded after their night's next EDGAR open (by the late-night policy,
+         *     which ``include_late`` overrides per request). Every reading is available; nothing is deleted.
          */
         get: operations["get_scoreboard_scoreboard_get"];
         put?: never;
@@ -3702,6 +3703,52 @@ export interface components {
          */
         Kind: "insider" | "catalyst" | "theme_conviction" | "technical_breakout" | "laggard" | "squeeze" | "etf_launch" | "etf_flow" | "dilution_risk" | "breakdown" | "insider_sell" | "corporate_risk" | "activist_stake";
         /**
+         * LateNightOut
+         * @description One late night (L1, operator Q5 = A): a (thesis, as-of) holding a call-of-record recorded at/after
+         *     its night's on-time window closed — the next weekday's 06:00 ET EDGAR open — so it can have read a
+         *     filing SEC accepted after the night. Under the default reading such rows are set aside before the
+         *     per-as-of dedup; under the ``include_late`` reading they are scored. ``recorded_at`` = the first late
+         *     row's stamp, ``edgar_open`` = the window end it missed, ``n_rows`` = late rows on the night,
+         *     ``earlier_recorded_at`` = the stamp of the earlier honest row the late-excluding reading scores instead
+         *     (``null`` = none: the night reads like a cron gap), ``reason`` = the words.
+         */
+        LateNightOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Recorded At
+             * Format: date-time
+             */
+            recorded_at: string;
+            /**
+             * Edgar Open
+             * Format: date-time
+             */
+            edgar_open: string;
+            /**
+             * N Rows
+             * @default 1
+             */
+            n_rows: number;
+            /** Earlier Recorded At */
+            earlier_recorded_at?: string | null;
+            /**
+             * Reason
+             * @default recorded after the next EDGAR open
+             */
+            reason: string;
+        };
+        /**
          * LocatedPassage
          * @description A deterministically-retrieved passage that backs a fact — the evidence put in front of the operator
          *     (or, later, S5). Retrieval only: a keyword/section match, never a model's reading.
@@ -4923,6 +4970,17 @@ export interface components {
              * @default []
              */
             annotated_nights: components["schemas"]["AnnotatedNightOut"][];
+            /**
+             * Late Policy
+             * @default excluded
+             * @enum {string}
+             */
+            late_policy: "excluded" | "included";
+            /**
+             * Late Nights
+             * @default []
+             */
+            late_nights: components["schemas"]["LateNightOut"][];
             /** Record Edge */
             record_edge: string | null;
             /**
@@ -6732,6 +6790,8 @@ export interface operations {
                 include_archived?: boolean;
                 /** @description the annotated-night reading: true = score rows annotated `exclude` (phantom arms) as before; false = set them aside like reconstructed rows; omitted = the server setting (ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED, default: set aside). The response's summary.annotated_policy names the reading used */
                 include_annotated?: boolean | null;
+                /** @description the late-night reading: true = score rows recorded after their night's next EDGAR open (06:00 ET the next weekday) as before; false = set them aside, so an on-time row for the night wins and a late-only night reads like a cron gap; omitted = the server setting (ALPHADECK_SCOREBOARD_EXCLUDE_LATE, default: set aside). The response's summary.late_policy names the reading used */
+                include_late?: boolean | null;
             };
             header?: never;
             path?: never;

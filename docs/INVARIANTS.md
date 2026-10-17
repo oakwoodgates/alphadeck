@@ -282,12 +282,25 @@ stamped a fresh "policy" on every cron night.
   honest on-time call-of-record, and nothing typed by hand may write a scored row for a past night with
   today's knowledge. A `--catch-up` pass skips (no ingest, no write) every thesis already holding a
   non-reconstructed row for the night inside its on-time window — `[RUN_AT, the next weekday's 06:00 ET)`,
-  `pipeline/night_coverage.on_time_window` (MEASURED 10-12: a next-day catch-up re-versioned 4 on-time rows
-  with restated bars and next-day Form 4s); and `pipeline.daily --asof <older than the last expected night>`
+  `pipeline/night_coverage.on_time_window` (MEASURED 10-12: a next-day catch-up re-versioned an on-time row
+  — AI Memory & Storage — with restated bars and next-day Form 4s, and recorded 8 more theses late); and
+  `pipeline.daily --asof <older than the last expected night>`
   is refused (exit 2) unless `--catch-up` / `--late-ok` / `--no-live` — a missed night is
   `pipeline.backfill`'s, pinned and marked reconstructed. Whether a LATE row is scored is the separate
-  late-row policy (L1). (`tests/pipeline/test_killed_runs.py`, `tests/pipeline/test_night_coverage.py`.)
+  late-row policy (L1, next). (`tests/pipeline/test_killed_runs.py`, `tests/pipeline/test_night_coverage.py`.)
   See `FEED_LOOP.md`.
+- *Also honored by (the late row — L1, operator Q5 = A, 2026-10-16):* a non-reconstructed row recorded at or
+  after its night's on-time window closed (the next weekday's 06:00 ET EDGAR open,
+  `pipeline/night_coverage.is_late` — the SAME window as M2's) can have read filings the night could not, so
+  it NEVER defines a Scoreboard episode. The Scoreboard drops late rows by READ POLICY
+  (`Settings.scoreboard_exclude_late`, overridable per request with `include_late`) BEFORE the per-as-of
+  dedup, on all four winning-row reads — so an on-time row for the night wins over a later re-version and a
+  late-only night reads like a cron gap. Lateness is DERIVED from `recorded_at` on every read (no column, no
+  stamp, `calls` untouched); flipping the policy restores the pre-L1 reading exactly. The three filters
+  compose by AND (reconstructed always · annotated by its policy · late by this one). The cron still WRITES
+  late rows (the log records what was said, and when); every other reader sees them. A push for a late night
+  says so (N1). (`tests/scoreboard/test_late_rows.py`, `tests/pipeline/test_night_coverage.py`,
+  `tests/notify/test_slack_notifier.py`.) See `SCOREBOARD.md`, `FEED_LOOP.md`.
 - *CLOSED — "today" is a DOMAIN fact, not an ambient one.* Inside the assembler `asof` is always a
   parameter (above). But at the **edges** that choose the `asof` for a run, "today" was derived from
   `date.today()`, which reads the process's **ambient timezone**. **This bit in production:** a manual

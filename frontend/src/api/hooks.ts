@@ -248,6 +248,7 @@ export type ScoreboardEpisodeOut = components["schemas"]["ScoreboardEpisodeOut"]
 export type TransitionOut = components["schemas"]["TransitionOut"];
 export type ScoreboardMetricOut = components["schemas"]["ScoreboardMetricOut"];
 export type AnnotatedNightOut = components["schemas"]["AnnotatedNightOut"];
+export type LateNightOut = components["schemas"]["LateNightOut"];
 export type EpisodeOperatorOut = components["schemas"]["EpisodeOperatorOut"];
 export type OperatorSpanOut = components["schemas"]["OperatorSpanOut"];
 
@@ -284,14 +285,16 @@ export function useScoreboardReplay() {
 // fan-out). Read-only on the server; archived theses ride by default (the record is not erased).
 // `includeAnnotated` (D3b) picks the annotated-night READING: null = the server's policy (the param is
 // not sent at all), true = score the phantom-arm nights, false = set them aside. It is part of the key,
-// so both readings cache side by side and flipping back is instant.
+// so both readings cache side by side and flipping back is instant. `includeLate` (L1) is the same
+// tri-state for the late-night reading (rows recorded after their night's next EDGAR open).
 export function useScoreboard(
   asof: string,
   includeArchived = true,
   includeAnnotated: boolean | null = null,
+  includeLate: boolean | null = null,
 ) {
   return useQuery({
-    queryKey: ["scoreboard", asof, includeArchived, includeAnnotated] as const,
+    queryKey: ["scoreboard", asof, includeArchived, includeAnnotated, includeLate] as const,
     enabled: Boolean(asof),
     queryFn: async () => {
       const { data, error } = await api.GET("/scoreboard", {
@@ -300,6 +303,7 @@ export function useScoreboard(
             asof,
             include_archived: includeArchived,
             ...(includeAnnotated === null ? {} : { include_annotated: includeAnnotated }),
+            ...(includeLate === null ? {} : { include_late: includeLate }),
           },
         },
       });

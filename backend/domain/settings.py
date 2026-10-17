@@ -293,6 +293,19 @@ class Settings(BaseSettings):
     # externally quoted Scoreboard number should name the reading it came from. ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED.
     scoreboard_exclude_annotated: bool = True
 
+    # --- L1 — the Scoreboard's LATE-NIGHT read policy (operator decision Q5 = A, 2026-10-16) ---
+    # A LATE row = a non-reconstructed call-of-record recorded at/after the END of its night's on-time window,
+    # the next weekday's 06:00 ET EDGAR open (`pipeline.night_coverage.is_late`, M1's shared helper): it can
+    # have read a filing SEC accepted after the night (MEASURED: the 2026-10-12 boot catch-up recorded 9
+    # theses ~18 h late, three citing Form 4s accepted on 10-13). True = the Scoreboard's record read drops
+    # late rows BEFORE the per-as-of dedup (the reconstructed / annotated precedent): an on-time row for the
+    # same night wins, and a late-only night reads like a cron gap; the banner names the nights. False = they
+    # are scored again, exactly as before L1. A READ policy, never a write — flipping it re-scores and
+    # deletes nothing. `GET /scoreboard?include_late=` overrides it per request (true = include, false =
+    # exclude). Composes with the two other filters by AND (reconstructed always, annotated by its own
+    # policy). ALPHADECK_SCOREBOARD_EXCLUDE_LATE.
+    scoreboard_exclude_late: bool = True
+
     # --- Run loader (the saved-draft-run picker, workbench/run_loader) — the modular off-switch ---
     # A dev/test cost-saver: load a saved draft-run artifact (data/draft_runs/) back into the editable workbench
     # instead of paying for a fresh Opus draft. OFF by default (a testing utility, absent in a normal deploy);

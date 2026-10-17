@@ -17,6 +17,7 @@ from repositories import calls_repo, decisions_repo, thesis_repo
 from repositories.call_annotations_repo import CallAnnotation
 from scoreboard import provenance
 from scoreboard.decisions import attach_operator_track
+from scoreboard.late import late_call_ids, resolve_exclude_late
 from scoreboard.prices import PgRealizedPrices, market_tape_edge
 from scoreboard.schema import ScoreboardResult, ScoredEpisode, ThesisRecord, Transition
 
@@ -55,6 +56,17 @@ from scoreboard.schema import ScoreboardResult, ScoredEpisode, ThesisRecord, Tra
 # (the record last spoke on the prior row), and a night with an excluded row and another honest row scores
 # the other row. Flipping the policy (or revoking the annotation) re-scores the record exactly as before
 # D3b; nothing is deleted. ``note`` annotations never filter — they ride the episode drawer as a caption.
+#
+# LATE ROWS — the THIRD filter, a POLICY over a DERIVED fact (L1, operator Q5 = A; ``scoreboard/late.py``).
+# A non-reconstructed row recorded at/after its night's on-time window closed (the next weekday's 06:00 ET
+# EDGAR open, ``pipeline.night_coverage.is_late``) can have read a filing SEC accepted after the night —
+# MEASURED on the 2026-10-12 boot catch-up. Under the policy (``Settings.scoreboard_exclude_late``, default
+# on; the request's ``include_late`` overrides it) every record read below ALSO drops the thesis's late rows
+# — once more at the same place and the same way: inside the WHERE, BEFORE the per-as-of dedup, on all four
+# peer reads. So an on-time row for the night wins over a later late re-version, and a late-only night reads
+# like a cron gap. The three filters compose by AND: a row is scored only if it is not reconstructed, not
+# annotated `exclude` (under that policy), and not late (under this one). Lateness is derived from
+# ``recorded_at`` on every read — nothing is stored, so flipping the policy re-scores exactly as before L1.
 
 
 def resolve_exclude_annotated(exclude_annotated: bool | None = None) -> bool:
@@ -73,12 +85,21 @@ def thesis_timeline(
     asof: date,
     *,
     exclude_annotated: bool | None = None,
+    exclude_late: bool | None = None,
+    late_ids: frozenset[UUID] | None = None,
 ) -> tuple[list[CallSnapshot], dict[date, CallCard]]:
     """The thesis's HONEST call-of-record timeline up to ``asof``, ascending, plus the cards by as-of
     (for trigger enrichment). ``latest_for_thesis`` dedups to the final card per as-of — its own
     docstring: the read a scoreboard wants — with reconstructed rows EXCLUDED before that dedup (the
     header rule: a reconstructed row never defines an episode boundary), and — under the annotated-night
-    policy (``resolve_exclude_annotated``) — rows carrying an active ``exclude`` annotation too."""
+    policy (``resolve_exclude_annotated``) — rows carrying an active ``exclude`` annotation too, and — under
+    the late-night policy (``resolve_exclude_late``) — the thesis's LATE rows too. ``late_ids`` = the late
+    rows already judged by the caller (``derive_thesis_record`` reads them once for all four peer reads);
+    ``None`` = judge them here when the policy excludes."""
+    if late_ids is None:
+        late_ids = (
+            late_call_ids(conn, thesis_id) if resolve_exclude_late(exclude_late) else frozenset()
+        )
     cards = [
         c
         for c in calls_repo.latest_for_thesis(
@@ -86,6 +107,7 @@ def thesis_timeline(
             thesis_id,
             include_reconstructed=False,
             exclude_annotated=resolve_exclude_annotated(exclude_annotated),
+            exclude_call_ids=late_ids,
         )
         if c.asof <= asof
     ]
@@ -263,12 +285,15 @@ def derive_thesis_record(
     market_edge: date | None = None,
     basket_size: int | None = None,
     exclude_annotated: bool | None = None,
+    exclude_late: bool | None = None,
 ) -> tuple[ThesisRecord, list[CallSnapshot]]:
     """One thesis's record scored as-of: episodes from the log, outcomes against asof-capped prices,
     plus the record-honesty flags. Returns the snapshots too (SB2 feeds them to the metric set).
     ``exclude_annotated`` is the D3b read policy (``resolve_exclude_annotated``: None = the setting),
     resolved ONCE here and applied to every record read below, so the timeline, the ingest stamps, the run
-    identity and the annotation caption all describe the same winning rows.
+    identity and the annotation caption all describe the same winning rows. ``exclude_late`` is the L1 read
+    policy (``resolve_exclude_late``), resolved the same way; under it the thesis's late rows are judged
+    ONCE here (``late_call_ids``) and the same ids are dropped from all four reads.
 
     - ``status``: open iff the run reached the record edge un-dearmed (``dearm_date is None``).
     - ``matured``: the episode's own ``exit_by`` elapsed (<= asof) — judged only at its deadline.
@@ -280,7 +305,10 @@ def derive_thesis_record(
       roster would misreport a past-as-of.
     """
     exclude = resolve_exclude_annotated(exclude_annotated)
-    snaps, cards_by_asof = thesis_timeline(conn, thesis.id, asof, exclude_annotated=exclude)
+    late = late_call_ids(conn, thesis.id) if resolve_exclude_late(exclude_late) else frozenset()
+    snaps, cards_by_asof = thesis_timeline(
+        conn, thesis.id, asof, exclude_annotated=exclude, late_ids=late
+    )
     record = ThesisRecord(
         thesis_id=thesis.id,
         tenant_id=thesis.tenant_id,
@@ -318,7 +346,11 @@ def derive_thesis_record(
         # the SAME honest filter as thesis_timeline, so the stamp belongs to the row that was scored
         health = (
             calls_repo.ingest_health_for_thesis(
-                conn, thesis.id, include_reconstructed=False, exclude_annotated=exclude
+                conn,
+                thesis.id,
+                include_reconstructed=False,
+                exclude_annotated=exclude,
+                exclude_call_ids=late,
             )
             if episodes
             else {}
@@ -328,7 +360,11 @@ def derive_thesis_record(
         # episode always describes the run that produced the card being scored.
         identity = (
             calls_repo.run_identity_for_thesis(
-                conn, thesis.id, include_reconstructed=False, exclude_annotated=exclude
+                conn,
+                thesis.id,
+                include_reconstructed=False,
+                exclude_annotated=exclude,
+                exclude_call_ids=late,
             )
             if episodes
             else {}
@@ -337,7 +373,11 @@ def derive_thesis_record(
         # for the drawer's quiet caption only; nothing scored reads it.
         annotations = (
             calls_repo.annotations_for_thesis(
-                conn, thesis.id, include_reconstructed=False, exclude_annotated=exclude
+                conn,
+                thesis.id,
+                include_reconstructed=False,
+                exclude_annotated=exclude,
+                exclude_call_ids=late,
             )
             if episodes
             else {}
@@ -408,6 +448,7 @@ def scoreboard_records(
     include_archived: bool = True,
     known_at: datetime | None = None,
     exclude_annotated: bool | None = None,
+    exclude_late: bool | None = None,
 ) -> tuple[ScoreboardResult, dict[UUID, list[CallSnapshot]], dict[UUID, UUID]]:
     """Every thesis's record scored as-of (archived INCLUDED by default — the record is not erased
     by archiving; it just stops accruing). Per-thesis fault isolation: an unreadable historical card
@@ -420,9 +461,11 @@ def scoreboard_records(
 
     ``exclude_annotated`` (D3b): the annotated-night policy, resolved ONCE for the whole request
     (``resolve_exclude_annotated``) and stamped on the result (``exclude_annotated``), so every thesis is
-    read under the same reading and the response can say which one it is."""
+    read under the same reading and the response can say which one it is. ``exclude_late`` (L1): the
+    late-night policy, resolved once and stamped (``exclude_late``) the same way."""
     exclude = resolve_exclude_annotated(exclude_annotated)
-    result = ScoreboardResult(asof=asof, exclude_annotated=exclude)
+    exclude_late = resolve_exclude_late(exclude_late)
+    result = ScoreboardResult(asof=asof, exclude_annotated=exclude, exclude_late=exclude_late)
     timelines: dict[UUID, list[CallSnapshot]] = {}
     single_name: dict[UUID, UUID] = {}
     # The market tape edge (``truncated``'s second leg) is per TENANT, not per thesis or per episode,
@@ -454,6 +497,7 @@ def scoreboard_records(
                 market_edge=market_edges[thesis.tenant_id],
                 basket_size=pit_basket_size,
                 exclude_annotated=exclude,
+                exclude_late=exclude_late,
             )
             timelines[thesis.id] = snaps
         except Exception as e:  # noqa: BLE001 — one thesis's bad card never blanks the Scoreboard

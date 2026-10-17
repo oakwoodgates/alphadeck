@@ -26,7 +26,7 @@ from tests.calls.factories import (
     insider_event,
     insider_sell_event,
 )
-from tests.scoreboard.helpers import bar, keys_fired
+from tests.scoreboard.helpers import bar, keys_fired, on_time
 from tests.scoreboard.helpers import persist_thesis as _thesis
 from tests.scoreboard.helpers import record_day as _record_day
 
@@ -177,10 +177,12 @@ def test_unreadable_card_is_fault_isolated(db, security_id):
     conv, conf = keys_fired(security_id, date(2026, 6, 1), conv_liveness=30, conf_liveness=10)
     _record_day(db, good, [conv, conf], date(2026, 6, 1))
     with db.cursor() as cur:  # a card recorded under some other (older/newer) CallCard schema
+        # recorded ON TIME (the nightly shape): a row stamped at test time would be LATE (L1) and the
+        # default reading would set it aside before the bad card was ever parsed
         cur.execute(
-            "INSERT INTO calls (tenant_id, thesis_id, asof, state, verdict, card) "
-            "VALUES (%s, %s, %s, 'armed', 'core_entry', '{\"bogus_key\": 1}'::jsonb)",
-            (DEFAULT_TENANT_ID, bad.id, date(2026, 6, 1)),
+            "INSERT INTO calls (tenant_id, thesis_id, asof, state, verdict, card, recorded_at) "
+            "VALUES (%s, %s, %s, 'armed', 'core_entry', '{\"bogus_key\": 1}'::jsonb, %s)",
+            (DEFAULT_TENANT_ID, bad.id, date(2026, 6, 1), on_time(date(2026, 6, 1))),
         )
     db.commit()
 

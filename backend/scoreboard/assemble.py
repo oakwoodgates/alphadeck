@@ -10,6 +10,7 @@ from domain.enums import State
 from replay.metrics import MIN_N, compute_metrics
 from replay.schema import CallSnapshot
 from repositories import call_annotations_repo, calls_repo
+from scoreboard.late import late_nights
 from scoreboard.prices import PgRealizedPrices
 from scoreboard.record import scoreboard_records
 from scoreboard.schema import AnnotatedNight, ScoreboardResult, ScoreboardSummary
@@ -97,17 +98,20 @@ def assemble_scoreboard(
     include_archived: bool = True,
     known_at: datetime | None = None,
     exclude_annotated: bool | None = None,
+    exclude_late: bool | None = None,
 ) -> ScoreboardResult:
     """The Scoreboard, assembled: every thesis's scored record + the aggregate metric summary.
     Read-only end to end (compute-on-read; the walk and the metric pass write nothing).
     ``exclude_annotated`` is the D3b annotated-night read policy (None = the setting) — resolved once by
-    ``scoreboard_records`` and reported back on the summary (``annotated_policy``)."""
+    ``scoreboard_records`` and reported back on the summary (``annotated_policy``); ``exclude_late`` is the
+    L1 late-night read policy, resolved and reported (``late_policy``) the same way."""
     result, timelines, single_name = scoreboard_records(
         conn,
         asof,
         include_archived=include_archived,
         known_at=known_at,
         exclude_annotated=exclude_annotated,
+        exclude_late=exclude_late,
     )
     eligible = [
         e.outcome
@@ -177,5 +181,9 @@ def assemble_scoreboard(
             AnnotatedNight(**n.model_dump())
             for n in call_annotations_repo.active_nights(conn, action="exclude", upto=asof)
         ],
+        # L1 — WHICH late reading this is, and the nights holding a row recorded after the next EDGAR
+        # open (asof-capped, ledger-wide — the same scope). Listed in BOTH readings, like the above.
+        late_policy="excluded" if result.exclude_late else "included",
+        late_nights=late_nights(conn, upto=asof),
     )
     return result

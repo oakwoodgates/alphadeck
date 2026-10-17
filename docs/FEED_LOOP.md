@@ -261,6 +261,9 @@ per-thesis; **archived theses are skipped by the list's default**, the archive s
    compares to that night's own row when one exists, else its predecessor — it can never reach forward.
    It also makes one rule of two: this is the *same* row `record_if_changed` compares against, so
    "unchanged card → no row" and "unchanged card → no page" can no longer disagree within a day.
+   **A push about a past or late night names it (N1, 2026-10-17):** the event carries `timing`
+   (`current` | `past` | `late`, `night_coverage.night_timing` at the push instant), and the Slack header
+   appends "(asof D, recorded late)" / "(asof D)" — so a catch-up's arm is never read as tonight's.
 4. **Append the call-of-record — GATED, and only if it changed** — `calls_repo.record_if_changed`, *unless the
    recording gate withholds it* (below).
 
@@ -317,13 +320,15 @@ per-thesis; **archived theses are skipped by the list's default**, the archive s
   finish" after the run timeout.
 - **A catch-up never re-records an on-time thesis (M2, operator Q4 = "never", 2026-10-16).** MEASURED on
   10-12: the 22:30 pass died after 4 theses recorded on-time rows (22:42–22:43); the next day's 16:57 boot
-  catch-up re-ran ALL 12, and `record_if_changed` appended new versions for the 4 because restated bars (and
-  Form 4s SEC accepted the next day) had changed their cards — so next-day knowledge superseded the honest
-  on-time rows (AI Memory & Storage seq 1334 at 22:42 → seq 1367 at 17:04) and the Scoreboard scores the late
-  ones. Now a `--catch-up` pass for night D reads, once and from the TABLE, every thesis that already holds a
+  catch-up re-ran ALL 12, and `record_if_changed` appended a new version wherever restated bars (and Form 4s
+  SEC accepted the next day) had changed a card — for AI Memory & Storage among the on-time 4 (seq 1334 at
+  22:42 → seq 1367 at 17:04; the other three re-assembled identical cards and appended nothing, re-counted
+  2026-10-17), so next-day knowledge superseded an honest on-time row, and the Scoreboard scored the late
+  ones (L1, below, now sets them aside). Now a `--catch-up` pass for night D reads, once and from the TABLE,
+  every thesis that already holds a
   **non-reconstructed row for D recorded ON TIME** — inside `[D's RUN_AT, 06:00 ET on the next weekday)`, the
-  next EDGAR open (`pipeline/night_coverage.on_time_window`, the ONE helper the late-row policy L1 will
-  reuse) — and **skips that thesis entirely: no ingest, no assemble, no write**. Its per-thesis artifact entry
+  next EDGAR open (`pipeline/night_coverage.on_time_window`, the ONE helper M2 and the late-row policy L1
+  share) — and **skips that thesis entirely: no ingest, no assemble, no write**. Its per-thesis artifact entry
   carries `skipped` with the reason, the summary counts them, and `_report` prints one quiet line. A thesis
   with no on-time row (none at all, a daytime-only row, a reconstructed row, or a LATE row) is processed as
   before. A killed night's catch-up therefore records ONLY the missing theses. A skipped thesis counts as
@@ -331,6 +336,25 @@ per-thesis; **archived theses are skipped by the list's default**, the archive s
   skipped any thesis is never a stale-tape / name-error baseline (its inventory lacks those theses). The
   scheduled run and the Admin button never skip: they re-version on purpose. If the skip read itself fails,
   the catch-up processes every thesis (one loud line) — the pre-M2 behavior, never a silent gap.
+- **A LATE row is recorded, never scored (L1, operator Q5 = A, 2026-10-16).** M2 stops a catch-up from
+  re-versioning an on-time thesis; it still (rightly) records the theses that HAVE no on-time row, and when
+  it runs after the night's window closed — 06:00 ET on the next weekday, `night_coverage.is_late` — those
+  rows are **late**: they can have read filings SEC accepted after the night (the 2026-10-12 catch-up's rows
+  cite three Form 4s accepted on 10-13). The cron writes them exactly as before — the `calls` log is the
+  record of what the platform said, and when — and the Scoreboard's default reading sets them aside BEFORE
+  the per-as-of dedup, so an on-time row for the night wins and a late-only night reads like a cron gap
+  (`docs/SCOREBOARD.md` §"Late-recorded rows"; reversible by `ALPHADECK_SCOREBOARD_EXCLUDE_LATE` /
+  `?include_late=`). Lateness is DERIVED from `recorded_at`, never stamped, so nothing about the write path
+  changes. Three consequences an operator should know: (1) a catch-up that lands after 06:00 the next weekday
+  still repairs the Admin hole (the night is `covered`, "recorded late") but does NOT put the night back on
+  the Scoreboard — the M1 coverage words and the Scoreboard's reading are deliberately different questions;
+  (2) a **Friday** night's window runs to **Monday 06:00**, so a weekend catch-up is on time; (3) a
+  `pipeline.backfill` reconstruction is a separate path (reported, never scored) and is never judged late.
+  The Slack push says so too (**N1**): a transition pushed for a night whose window has closed reads
+  "(asof 2026-10-12, recorded late)" on its header, and one pushed for an earlier night still on time (a
+  pass that ran past midnight) reads "(asof 2026-10-12)" — `TransitionEvent.timing`, judged by
+  `night_coverage.night_timing` at the push instant; tonight's push is unchanged, and the label is
+  fail-open (a clock fault reads as tonight's, never costs the record).
 - **The health pager (R4, #199).** `assess_health` emits a `HealthEvent` through the notify seam
   (Slack via `SLACK_WEBHOOK_URL`, **fail-open**; `LogNotifier` otherwise) when a run is a **FREEZE**
   (`frozen = allow_live and theses > 0 and edgar_fetches == 0`), has **withheld** calls, has **thesis
@@ -943,13 +967,13 @@ Recorded here where a builder of the pager/scheduler will hit them; the full acc
   hole clears and stays visible only as a quiet `reconstructed_nights` count); (c) a night with
   post-`RUN_AT` rows but NO run artifact at all alarms too. And the guard never credits a `running` /
   `crashed` artifact, so the killed night's catch-up runs — recording only the missing theses (M2).
-  **Still open, by design:** a late catch-up row still counts as covering its night here — whether a row
-  recorded after the next 06:00 ET EDGAR open is scored is the late-row policy (L1, operator Q5 = A), a
-  separate slice; the Admin partial line already counts such rows as "recorded late".
-- **A catch-up re-recorded on-time rows with next-day knowledge — CLOSED (M2, 2026-10-16).** See "A
-  catch-up never re-records an on-time thesis" above (10-12: 4 honest on-time rows superseded at 17:04 the
-  next day). The rows already superseded on 10-12 stay in the immutable log; how the Scoreboard treats them
-  is L1's question.
+  **By design:** a late catch-up row still counts as COVERING its night here (the pass did record it; the
+  Admin partial line counts such rows as "recorded late") — but since L1 (operator Q5 = A) the Scoreboard
+  never SCORES it: see "A LATE row is recorded, never scored" above.
+- **A catch-up re-recorded on-time rows with next-day knowledge — CLOSED (M2, 2026-10-16; L1 2026-10-17).**
+  See "A catch-up never re-records an on-time thesis" above (10-12: AI Memory & Storage's honest on-time row
+  superseded at 17:04 the next day, and 8 theses recorded only late). The rows stay in the immutable log;
+  the Scoreboard sets the late ones aside (L1), so the on-time row scores its night again.
 - **A hand-typed `pipeline.daily --asof <past>` wrote a scored row — CLOSED (C3, 2026-10-16).** Refused
   (exit 2) unless `--catch-up` / `--late-ok` / `--no-live`; see "Backfilling a missed night".
 - **The cron's log was buffered and uncapped — CLOSED (O3, 2026-10-16).** `PYTHONUNBUFFERED=1` in the
