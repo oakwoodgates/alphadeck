@@ -56,6 +56,7 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timezone, tzinfo
+from functools import partial
 from pathlib import Path
 from time import perf_counter
 from uuid import UUID
@@ -69,6 +70,7 @@ from domain.feed_kinds import FEED_KINDS, StaleFeedLabel, feed_kind
 from domain.market_time import market_now, market_today, market_tz
 from domain.settings import Settings, get_settings
 from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
+from ingest.edgar.form25 import delisted_class_is_other
 from notify import ArmedName, HealthEvent, Notifier, TransitionEvent, get_notifier
 from pipeline.call_for_thesis import call_for_thesis
 from pipeline.cron_run_log import (
@@ -420,6 +422,9 @@ def run_daily(
                     stale_days=s.tape_stale_days,
                     closed_before_days=s.tape_closed_before_days,
                     closed_after_days=s.tape_closed_after_days,
+                    # Q6 — a Form 25 that removed ANOTHER class (warrants, units ...) is not a close;
+                    # its document is read through this thesis's client (forms/* cache forever)
+                    removes_other_class=partial(delisted_class_is_other, edgar_client),
                 )
             if s.fund_shares_stale_days > 0:
                 rows += stale_fund_shares(

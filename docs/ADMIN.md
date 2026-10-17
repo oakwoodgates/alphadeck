@@ -154,7 +154,11 @@ and never confirm on price.
   marked **"renamed — EDGAR lists X"**: the symbol to point the price leg at, shown, never adopted for you.
   Everything else is a plain repair row. A form filed at some other time does not close a tape (a company
   files these for any listed class — VRME's 2025 warrant removal once silenced its common stock in 2026),
-  and a never-priced name can never read closed. A name that moves from closed back to repair pages once.
+  and a never-priced name can never read closed. **Nor does a Form 25 that removed another class** (Q6): the
+  pass reads each window Form 25's own class line, and one removing warrants, units, rights, notes or
+  preferred is not a close of the common (ACHR's, IONQ's and four other still-trading names' recent 25-NSEs
+  were all warrants). A Form 25 whose class cannot be read still counts, as before, and the cron log says so
+  in a `warn:` line. A name that moves from closed back to repair pages once.
 - **The repair is yours, and it is data, not code:** check each listed name for a ticker rename or a
   delisting, then set the vendor symbol override on the security master (`security_master.price_symbol`, the
   OTC fix's seam). The next nightly pass re-pulls the two-year window under the new symbol, appends the

@@ -22,7 +22,7 @@ from domain.config import DEFAULT_CONFIG, config_hash
 from domain.enums import Grade, Kind, State, Verdict
 from domain.feed_kinds import StaleFeedLabel
 from domain.settings import get_settings
-from ingest.edgar.client import RECURRING_CACHE_TTL_S
+from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
 from ingest.edgar.form4 import ingest_form4
 from ingest.edgar.submissions import DelistingFiling
 from notify import ArmedName, LogNotifier
@@ -1229,6 +1229,64 @@ def test_run_daily_reads_the_proximity_window_from_SETTINGS(db, monkeypatch):
     assert daily.run_daily(db, asof=_ASOF, allow_live=True)[0].tape_stale[0].closed is False
     monkeypatch.setattr(daily, "get_settings", lambda: _settings(45))
     assert daily.run_daily(db, asof=_ASOF, allow_live=True)[0].tape_stale[0].closed is True
+
+
+def test_run_daily_reads_each_window_FORM_25s_CLASS_through_the_THESIS_client(db, monkeypatch):
+    """Q6 — THE WIRING: run_daily hands the stale classification its per-thesis EDGAR client, so a Form 25
+    near a stopped tape is read for its class. REAL rows (prod's cached submissions, 2026-10-17) and the
+    REAL documents (tests/fixtures/edgar/form25_cache — provenance in tests/ingest/test_form25.py), the
+    client pointed at that cache with live pulls OFF: ACHR's 25-NSE removed its WARRANTS, so its stopped
+    tape stays a loud repair row; RMAX's removed its Class A common, so RMAX reads closed. ACHR's stop is a
+    hypothetical one on its real record (it still trades)."""
+    cache = Path(__file__).resolve().parents[1] / "fixtures" / "edgar" / "form25_cache"
+    monkeypatch.setattr(
+        daily, "EdgarClient", lambda **kw: EdgarClient(cache_dir=cache, allow_live=False)
+    )
+    achr = _nr(
+        ticker="ACHR",
+        tape_edge=date(2026, 10, 16),
+        delisting_filings=(
+            DelistingFiling(
+                form="25-NSE",
+                filed=date(2026, 9, 16),
+                accession="0000876661-26-000755",
+                primary_doc="xslF25X02/primary_doc.xml",
+                cik="0001824502",
+            ),
+        ),
+        edgar_tickers=("ACHR",),
+    )
+    rmax = _nr(
+        ticker="RMAX",
+        tape_edge=date(2026, 8, 24),
+        delisting_filings=(
+            DelistingFiling(
+                form="15-12G",
+                filed=date(2026, 9, 4),
+                accession="0001104659-26-105182",
+                primary_doc="tm2623567d11_1512g.htm",
+                cik="0001581091",
+            ),
+            DelistingFiling(
+                form="25-NSE",
+                filed=date(2026, 8, 25),
+                accession="0000876661-26-000703",
+                primary_doc="xslF25X02/primary_doc.xml",
+                cik="0001581091",
+            ),
+        ),
+        edgar_tickers=(),
+    )
+    monkeypatch.setattr(daily, "ingest_thesis", _ingest_returning([achr, rmax]))
+    _thesis(db, "T")
+
+    rows = {
+        s.ticker: s
+        for s in daily.run_daily(db, asof=date(2026, 10, 21), allow_live=True)[0].tape_stale
+    }
+
+    assert rows["ACHR"].closed is False and rows["ACHR"].renamed is False
+    assert rows["RMAX"].closed_at == date(2026, 8, 25)
 
 
 def test_assess_health_pages_a_NEWLY_stale_tape_and_names_it():

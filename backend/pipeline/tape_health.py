@@ -77,9 +77,24 @@ a name; #7/WB#3: the quiet is reserved for the expected event). A stopped tape i
    OpenWorld/OPNW). MEASURED 2026-10-16 on prod: the 8 genuine closes all have their nearest delisting
    form within [−7, +13] days of their last bar, while 192 of the 675 still-trading names among prod's 688
    basket members carry SOME delisting form — every one of which the old "any form, ever" rule would have
-   silenced the night its tape stopped (7 still would under this rule if their tape stopped tonight, each
-   on a 25-NSE filed in the last 30 days: the residual a Form 25 class check would close). A name that has NEVER been priced (``edge`` is None) has no last bar to be near, so it can
-   never be closed by proximity; it stays a stale-repair row.
+   silenced the night its tape stopped. 7 still would under proximity alone if their tape stopped tonight,
+   each on a 25-NSE filed in the last 30 days — the residual the CLASS CHECK below closes. A name that has
+   NEVER been priced (``edge`` is None) has no last bar to be near, so it can never be closed by proximity;
+   it stays a stale-repair row.
+
+   **The Form 25 CLASS CHECK (Q6).** A Form 25 / 25-NSE in the window counts only if its document removes
+   THIS security — the common or ordinary stock, or the ADS for an ADR. One that names ANOTHER class
+   (warrants, units, rights, notes, preferred) is not evidence, and the next-nearest form is tried. The
+   document is read by ``ingest/edgar/form25.py`` (deterministic text, never a model) through the night's
+   EDGAR client, ONLY for a name already judged stale, and is cached forever (``forms/*`` is immutable), so a
+   name pays one fetch per Form 25 the first night it goes stale. An UNKNOWN or unreadable class (a paper
+   filing, a failed fetch, a description the reader does not recognize) still COUNTS — today's reading, the
+   fail-safe — and prints one line saying so. MEASURED 2026-10-17 (prod's cached submissions, each window
+   Form 25 fetched): ACHR, ARBE, BKKT, IONQ, KTTA and PDYN — warrants, every one — no longer read closed;
+   VSTD's 2026-10-09 25-NSE removes its "Class A Common Stock" (a Nasdaq 12d2-2(b) strike), so it still
+   would, correctly; the 8 genuine closes all stay closed (each Form 25 reads "Common Stock" / "Class A
+   common stock"), with one ``closed_at`` moving: XOMA's nearest form was the 2026-07-16 25-NSE removing
+   its PREFERRED depositary shares, so its close now dates from the next-nearest, the 2026-07-27 15-12G.
 2. **No rename.** EDGAR's current ``tickers`` list (``submissions.edgar_tickers``) is EMPTY, or holds the
    master ``ticker`` or ``price_symbol``. When EDGAR lists symbols and NEITHER of ours is among them, the
    company is still listed under a different symbol: the stopped tape is a rename-starved feed, so the row
@@ -97,8 +112,8 @@ adoption for the operator to ratify is ``pipeline/rename_probe.py`` (T2: a night
 EDGAR symbol against our stored tape — a pending recommendation, never applied), and the operator's
 ratifications (Adopt / Set symbol / Acknowledge, each with its Undo) are the Admin price-feed repairs
 (``app/routers/admin_price_feed.py``). A closed name's price 404 — and an acknowledged unpriceable name's —
-counts as EXPECTED (T3, ``pipeline/price_feed.py``). A check of WHICH security class a Form 25 removed
-(Q6) is still unbuilt; ``classify_stop`` takes plain inputs so it can land as its own argument.
+counts as EXPECTED (T3, ``pipeline/price_feed.py``). WHICH security class a Form 25 removed (Q6) is
+``classify_stop``'s injected ``removes_other_class`` hook, so this module stays pure.
 
 UNPRICEABLE (Q8) is the third reading of a stopped price tape, beside closed and renamed: a member with NO
 stored bar at all that neither explains (``is_unpriceable``). It is surfaced loudly (it pages once when new,
@@ -139,6 +154,11 @@ if TYPE_CHECKING:  # avoid importing the ingest module at import time (keeps the
 # still excluding a stray form filed a season (or, for VRME's warrants, 15 months) away.
 DEFAULT_CLOSED_BEFORE_DAYS = 30
 DEFAULT_CLOSED_AFTER_DAYS = 45
+
+# Q6 — the delisting forms whose DOCUMENT names the class removed (the removal-from-listing pair; the
+# 15-12B / 15-12G deregistrations are not read). Kept equal to ``ingest.edgar.form25.FORM_25`` by a test —
+# a local copy so this pure module imports nothing from ``ingest`` at run time.
+FORM_25 = frozenset({"25", "25-NSE"})
 
 
 def stale_label(ticker: str | None, security_id: object) -> str:
@@ -268,8 +288,10 @@ def classify_stop(
     asof: date,
     before_days: int = DEFAULT_CLOSED_BEFORE_DAYS,
     after_days: int = DEFAULT_CLOSED_AFTER_DAYS,
+    removes_other_class: Callable[[DelistingFiling], bool] | None = None,
 ) -> StopClassification:
-    """Is this stopped price tape a CLOSE, a RENAME, or a plain feed gap? Pure; the caller has already
+    """Is this stopped price tape a CLOSE, a RENAME, or a plain feed gap? Pure over its arguments (the one
+    I/O, reading a Form 25's class, is the injected ``removes_other_class``); the caller has already
     judged the tape stale (see the module docstring for the rule and the measurements behind it).
 
     1. RENAME guard first: EDGAR lists one or more current symbols and NEITHER ``ticker`` nor
@@ -278,6 +300,12 @@ def classify_stop(
     2. PROXIMITY: among the delisting filings filed in ``[edge − before_days, edge + after_days]`` and on
        or before ``asof``, the one nearest ``edge`` (a tie goes to the later filing) closes the tape, and
        ``closed_at`` is its filing date. No last bar (``edge`` is None) → nothing to be near → not closed.
+       Q6 — a FORM 25 / 25-NSE candidate counts only if ``removes_other_class(filing)`` is False: one whose
+       document names ANOTHER class (warrants, units, rights, notes, preferred — VRME's warrants) is not
+       evidence this security closed, and the next-nearest candidate is tried. The hook is asked
+       nearest-first and only until a candidate counts, so a stale name pays at most one document read per
+       Form 25 it has to look past. An UNKNOWN class reads False — it counts, exactly as before Q6 (the
+       fail-safe; the hook logs it). ``None`` (no hook) = every candidate counts, the T1 rule.
     3. Otherwise a plain repair row.
 
     ``edgar_tickers`` rides onto the result in every case (display only). A negative window reads as 0
@@ -291,10 +319,11 @@ def classify_stop(
         return StopClassification(edgar_tickers=listed)
     before, after = max(0, before_days), max(0, after_days)
     near = [f for f in filings if f.filed <= asof and -before <= (f.filed - edge).days <= after]
-    if not near:
-        return StopClassification(edgar_tickers=listed)
-    best = min(near, key=lambda f: (abs((f.filed - edge).days), -f.filed.toordinal()))
-    return StopClassification(closed_at=best.filed, edgar_tickers=listed)
+    for f in sorted(near, key=lambda f: (abs((f.filed - edge).days), -f.filed.toordinal())):
+        if removes_other_class is not None and f.form in FORM_25 and removes_other_class(f):
+            continue  # Q6 — this Form 25 removed another class; not evidence THIS security closed
+        return StopClassification(closed_at=f.filed, edgar_tickers=listed)
+    return StopClassification(edgar_tickers=listed)
 
 
 def is_tape_stale(edge: date | None, *, asof: date, stale_days: int) -> bool:
@@ -367,6 +396,7 @@ def stale_tapes(
     stale_days: int,
     closed_before_days: int = DEFAULT_CLOSED_BEFORE_DAYS,
     closed_after_days: int = DEFAULT_CLOSED_AFTER_DAYS,
+    removes_other_class: Callable[[str, DelistingFiling], bool] | None = None,
 ) -> tuple[StaleTape, ...]:
     """The stale PRICE tapes among one thesis's per-name ingest results (see ``_stale`` for the dedup).
 
@@ -380,7 +410,13 @@ def stale_tapes(
     ``price_symbol`` and the proximity window (``closed_before_days`` / ``closed_after_days``; the nightly
     pass passes the ``Settings`` values). CLOSED renders "closed — stopped trading <date>" and does not
     page; RENAMED and plain rows stay the loud "stale — repair", the renamed one naming EDGAR's symbols. No
-    EDGAR facts at all (no CIK, a failed read) → the plain repair reading, never the quiet one."""
+    EDGAR facts at all (no CIK, a failed read) → the plain repair reading, never the quiet one.
+
+    ``removes_other_class`` (Q6) is the Form 25 class check, called as ``(label, filing)`` — the name's
+    display label rides along for the hook's log line. The nightly pass binds it to its EDGAR client
+    (``ingest.edgar.form25.delisted_class_is_other``); it runs only inside ``classify_stop``, which runs
+    only for a row already judged STALE, so a live tape never costs a document read. ``None`` = the T1
+    rule (every Form 25 in the window counts)."""
     return _stale(
         (
             (
@@ -397,6 +433,11 @@ def stale_tapes(
                     asof=asof,
                     before_days=closed_before_days,
                     after_days=closed_after_days,
+                    removes_other_class=(
+                        partial(removes_other_class, stale_label(r.ticker, r.security_id))
+                        if removes_other_class is not None
+                        else None
+                    ),
                 ),
             )
             for r in results

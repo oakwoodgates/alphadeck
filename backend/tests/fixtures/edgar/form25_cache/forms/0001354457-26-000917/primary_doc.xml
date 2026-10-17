@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<notificationOfRemoval>
+
+    <schemaVersion>X0203</schemaVersion>
+
+    <exchange>
+        <cik>0001354457</cik>
+        <entityName>Nasdaq Stock Market LLC</entityName>
+    </exchange>
+
+    <issuer>
+        <cik>0001826681</cik>
+        <entityName>Palladyne AI Corp.</entityName>
+        <fileNumber>001-39897</fileNumber>
+        <address>
+            <street1>360 Wakara Way</street1>
+            <street2></street2>
+            <city>Salt Lake City</city>
+            <stateOrCountryCode>UT</stateOrCountryCode>
+            <stateOrCountry>UTAH</stateOrCountry>
+            <zipCode>84108</zipCode>
+        </address>
+        <telephoneNumber>206-391-0591</telephoneNumber>
+    </issuer>
+
+    <descriptionClassSecurity>Warrant</descriptionClassSecurity>
+
+    <ruleProvision>17 CFR 240.12d2-2(a)(2)</ruleProvision>
+
+    <signatureData>
+        <signatureName>Tara Petta</signatureName>
+        <signatureTitle>AVP</signatureTitle>
+        <signatureDate>2026-09-25</signatureDate>
+    </signatureData>
+</notificationOfRemoval>

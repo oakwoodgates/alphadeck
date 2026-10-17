@@ -1143,12 +1143,21 @@ Recorded here where a builder of the pager/scheduler will hit them; the full acc
   rule, so an ungated monitor would report every equity in every basket. One rule, one dedup, two
   thresholds; the prose for each feed lives once in `domain/feed_kinds.py`.
   **A stopped price tape is classified closed, renamed, or a feed gap** (G5b, tightened by T1 2026-10-16;
-  `pipeline/tape_health.classify_stop`, derive-on-read from the submissions the Form 4 leg already cached —
-  zero extra fetches, nothing persisted):
+  `pipeline/tape_health.classify_stop`, derive-on-read from the submissions the Form 4 leg already cached,
+  plus — for a stale name only — the Form 25 documents in its window; nothing persisted):
   - **closed** (quiet, never pages) only when a SEC delisting form (25 / 25-NSE / 15-12B / 15-12G) was
     filed within `[last bar − tape_closed_before_days, last bar + tape_closed_after_days]` (defaults 30 / 45)
     and on or before the as-of, **and** EDGAR lists no different ticker for the company. `closed_at` is the
-    filing nearest the last bar. A never-priced name has no last bar, so it can never be closed this way.
+    filing nearest the last bar that counts. A never-priced name has no last bar, so it can never be closed
+    this way. **A Form 25 / 25-NSE counts only if it removed THIS security** (Q6, 2026-10-17): its primary
+    document names the class removed, and one naming another class — warrants, units, rights, notes,
+    preferred — is passed over for the next-nearest form. Read by `ingest/edgar/form25.py` (deterministic
+    text: the 25-NSE's `<descriptionClassSecurity>`, or the issuer template's "(Description of class of
+    securities)" line; the LEADING class decides, since every warrant description names the common it
+    converts into) through the night's EDGAR client, only for a name already judged stale, nearest-first
+    and only until a form counts. `forms/*` caches forever, so that is one fetch per Form 25 the first night
+    a name goes stale and a disk read after. An **unknown** class (a paper filing, a failed fetch, an
+    unrecognized description) still counts, exactly as before Q6, and prints one `warn:` line saying so.
   - **renamed** — a loud repair row marked "renamed — EDGAR lists X": EDGAR's current `tickers` holds
     neither the master `ticker` nor `price_symbol` (membership, never `tickers[0]`). Display only; nothing
     adopts the symbol.
@@ -1163,18 +1172,23 @@ Recorded here where a builder of the pager/scheduler will hit them; the full acc
   the night its tape stopped. Under the proximity rule the 8 genuine closes stay closed (nearest form within
   [−7, +13] days of the last bar), VRME / HLLK / BRR / BTAI become renamed repair rows, and **7** of the 192
   would still read closed if their tape stopped tonight, each on a 25-NSE filed in the last 30 days (ACHR,
-  ARBE, BKKT, IONQ, KTTA, PDYN, VSTD). All 7 still trade, so those 25-NSEs presumably removed some other
-  class (not verified — the forms were not opened); checking WHICH class a Form 25 removed is the unbuilt
-  Q6, and it is what would close this residual. A name reclassified closed → repair is news: the
-  newly-stale diff leaves closed rows out of its baseline, so it pages **once**.
+  ARBE, BKKT, IONQ, KTTA, PDYN, VSTD). **Q6 opened those forms** (MEASURED 2026-10-17, each window Form 25
+  fetched through `EdgarClient`): ACHR, ARBE, BKKT, IONQ, KTTA and PDYN each removed **warrants**, so none
+  of them reads closed any more; VSTD's removed its **Class A Common Stock** (a Nasdaq 12d2-2(b) strike),
+  so if its tape stops it still reads closed — correctly. The 8 genuine closes stay closed (every one's
+  Form 25 reads "Common Stock" / "Class A common stock"); one `closed_at` moves — XOMA's nearest form, the
+  2026-07-16 25-NSE, removed its **preferred** depositary shares, so its close now dates from the 2026-07-27
+  15-12G. On a 316-document set of real Form 25s the reader called 228 another class, 81 the common/ADS and
+  7 unknown (all paper filings). A name reclassified closed → repair is news: the newly-stale diff leaves
+  closed rows out of its baseline, so it pages **once**.
   **Still open by design:** the repair is the
   operator's (set the vendor symbol override for a tape; check fund/ticker/source for a sleeve), because an
   automatic rename-follower could file another company's tape under a member — worse than a visible gap
   (#4/#6). **Ratifiable since T2/Q8/T3 (2026-10-17):** a renamed name carries a nightly splice-verified
   successor to Adopt, an unpriceable one can be Set / Acknowledged / removed, and a closed or acknowledged
-  name's vendor 404 is expected — see "The tape monitor, part 3" above. Still unbuilt: Q6 (which security
-  class a Form 25 removed); the existing `--adopt` CLI and the finalize self-heal still write `price_symbol`
-  without a `price_symbol_change` row (an Admin Undo refuses rather than clobber what they wrote).
+  name's vendor 404 is expected — see "The tape monitor, part 3" above. Still unbuilt: the existing
+  `--adopt` CLI and the finalize self-heal still write `price_symbol` without a `price_symbol_change` row (an
+  Admin Undo refuses rather than clobber what they wrote).
 
 ## The count-the-table idempotency discipline (the load-bearing test pattern)
 

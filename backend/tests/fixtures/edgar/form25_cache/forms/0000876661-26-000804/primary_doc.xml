@@ -1,0 +1,34 @@
+<?xml version="1.0"?>
+<notificationOfRemoval>
+
+    <schemaVersion>X0203</schemaVersion>
+
+    <exchange>
+        <cik>0000876661</cik>
+        <entityName>NEW YORK STOCK EXCHANGE LLC</entityName>
+    </exchange>
+
+    <issuer>
+        <cik>0001824920</cik>
+        <entityName>IonQ, Inc.</entityName>
+        <fileNumber>001-39694</fileNumber>
+        <address>
+            <street1>4505 Campus Dr</street1>
+            <city>College Park</city>
+            <stateOrCountryCode>MD</stateOrCountryCode>
+            <stateOrCountry>MARYLAND</stateOrCountry>
+            <zipCode>20740</zipCode>
+        </address>
+        <telephoneNumber>301-298-7997</telephoneNumber>
+    </issuer>
+
+    <descriptionClassSecurity>Redeemable warrants, each whole warrant exercisable for one share of Common Stock, each at an exercise price of $11.50 per share</descriptionClassSecurity>
+
+    <ruleProvision>17 CFR 240.12d2-2(a)(3)</ruleProvision>
+
+    <signatureData>
+        <signatureName>Anthony Sozzi</signatureName>
+        <signatureTitle>Analyst, Market Watch</signatureTitle>
+        <signatureDate>2026-09-30</signatureDate>
+    </signatureData>
+</notificationOfRemoval>

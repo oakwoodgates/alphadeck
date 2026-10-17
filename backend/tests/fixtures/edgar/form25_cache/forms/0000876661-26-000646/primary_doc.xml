@@ -1,0 +1,34 @@
+<?xml version="1.0"?>
+<notificationOfRemoval>
+
+    <schemaVersion>X0203</schemaVersion>
+
+    <exchange>
+        <cik>0000876661</cik>
+        <entityName>NEW YORK STOCK EXCHANGE LLC</entityName>
+    </exchange>
+
+    <issuer>
+        <cik>0001606498</cik>
+        <entityName>AVANOS MEDICAL, INC.</entityName>
+        <fileNumber>001-36440</fileNumber>
+        <address>
+            <street1>5405 Windward Pkwy</street1>
+            <city>Alpharetta</city>
+            <stateOrCountryCode>GA</stateOrCountryCode>
+            <stateOrCountry>GEORGIA</stateOrCountry>
+            <zipCode>30004</zipCode>
+        </address>
+        <telephoneNumber>844-428-2667</telephoneNumber>
+    </issuer>
+
+    <descriptionClassSecurity>Common Stock</descriptionClassSecurity>
+
+    <ruleProvision>17 CFR 240.12d2-2(a)(3)</ruleProvision>
+
+    <signatureData>
+        <signatureName>Anthony Sozzi</signatureName>
+        <signatureTitle>Analyst, Market Watch</signatureTitle>
+        <signatureDate>2026-07-27</signatureDate>
+    </signatureData>
+</notificationOfRemoval>

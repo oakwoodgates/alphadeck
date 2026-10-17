@@ -1,0 +1,65 @@
+<DOCUMENT>
+<TYPE>25
+<SEQUENCE>1
+<FILENAME>form25.txt
+<DESCRIPTION>VOLUNTARY CHANGE IN LISTING FROM AMEX TO NASDAQ
+<TEXT>
+                                  UNITED STATES
+                       SECURITIES AND EXCHANGE COMMISSION
+                             WASHINGTON, D.C. 20549
+
+                                     FORM 25
+
+                   NOTIFICATION OF REMOVAL FROM LISTING AND/OR
+                     REGISTRATION UNDER SECTION 12(B) OF THE
+                         SECURITIES EXCHANGE ACT OF 1934
+
+                           Commission File No. 1-8061
+
+                           FREQUENCY ELECTRONICS, INC.
+             (Exact name of Registrant as specified in its charter)
+
+                             American Stock Exchange
+            (Name of Exchange where security is listed or registered
+
+             Delaware                                    11-1986657
+ (State or other jurisdiction of            (I.R.S. Employer Identification No.)
+  incorporation or organization)
+
+55 CHARLES LINDBERGH BLVD., MITCHEL FIELD, N.Y.             11553
+   (Address of principal executive offices)              (Zip Code)
+
+                          Common Stock, $1.00 par value
+                      (Description of class of securities)
+
+Please place an X in the box to designate the rule provision relied upon to
+strike the class of securities from listing and registration.
+
+__   17CFR 240.12d2-2(a)(1)
+
+__   17CFR 240.12d2-2(a)(2)
+
+__   17CFR 240.12d2-2(a)(3)
+
+__   17CFR 240.12d2-2(a)(4)
+
+__   Pursuant to 17CFR  240.12d2-2(b),  the Exchange has complied with its rules
+     to strike the class of securities from listing and/or withdraw registration
+     on the Exchange.
+
+ X   Pursuant to 17CFR 240.12d2-2(c),  the Issuer has complied with the rules of
+     the Exchange and the  requirements  of 17CFR  240.12d2-2(c)  governing  the
+     voluntary   withdrawal  of  the  class  of  securities   from  listing  and
+     registration on the Exchange.
+
+Pursuant to the requirements of the Securities  Exchange Act of 1934,  Frequency
+Electronics,  Inc.  certifies that it has reasonable  grounds to believe that it
+meets  all of the  requirements  for  filing  the  Form 25 and has  caused  this
+notification  to be signed  on its  behalf by the  undersigned  duly  authorized
+person.
+
+July 24, 2006      By: /s/ Alan Miller     Treasurer and Chief Financial Officer
+-------------          ---------------     -------------------------------------
+    Date                 Alan Miller                      Title
+</TEXT>
+</DOCUMENT>

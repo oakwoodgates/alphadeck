@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<notificationOfRemoval>
+
+    <schemaVersion>X0203</schemaVersion>
+
+    <exchange>
+        <cik>0001354457</cik>
+        <entityName>Nasdaq Stock Market LLC</entityName>
+    </exchange>
+
+    <issuer>
+        <cik>0001898604</cik>
+        <entityName>Vestand Inc.</entityName>
+        <fileNumber>333-262330</fileNumber>
+        <address>
+            <street1>6940 Beach Blvd.</street1>
+            <street2>Suite D-705</street2>
+            <city>Buena Park</city>
+            <stateOrCountryCode>CA</stateOrCountryCode>
+            <stateOrCountry>CALIFORNIA</stateOrCountry>
+            <zipCode>90621</zipCode>
+        </address>
+        <telephoneNumber>2132721780</telephoneNumber>
+    </issuer>
+
+    <descriptionClassSecurity>Class A Common Stock</descriptionClassSecurity>
+
+    <ruleProvision>17 CFR 240.12d2-2(b)</ruleProvision>
+
+    <signatureData>
+        <signatureName>Aravind Menon</signatureName>
+        <signatureTitle>Hearings Advisor</signatureTitle>
+        <signatureDate>2026-10-09</signatureDate>
+    </signatureData>
+</notificationOfRemoval>

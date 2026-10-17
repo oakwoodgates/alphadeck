@@ -163,18 +163,20 @@ DELISTING_FORMS = frozenset({"25-NSE", "25", "15-12B", "15-12G"})
 @dataclass(frozen=True)
 class DelistingFiling:
     """One SEC delisting-form filing (a member of ``DELISTING_FORMS``): the form type, its FILING date
-    (valid-time straight from EDGAR, #1), the accession, and the primary document.
+    (valid-time straight from EDGAR, #1), the accession, the primary document, and the company's CIK.
 
-    ``accession`` + ``primary_doc`` ride along so the filing stays citable (#6 — a "closed" row can name the
-    exact document behind it) and so a later check can open the document itself. The Form 25 names the
-    security CLASS being removed (common stock vs warrants vs a preferred series), which is the one thing
-    the filing date cannot tell apart; that check is not built (plan Q6), and this record is shaped so it
-    can be added without changing the walk."""
+    ``accession`` + ``primary_doc`` + ``cik`` ride along so the filing stays citable (#6 — a "closed" row
+    can name the exact document behind it) and so the record can open its own document: the Archives URL
+    needs the company CIK (``form4_doc_url``). The Form 25 names the security CLASS being removed (common
+    stock vs warrants vs a preferred series), the one thing the filing date cannot tell apart — Q6 reads it
+    (``ingest/edgar/form25.py``) for the tape monitor. ``cik`` is ``""`` when the submissions doc carries
+    none (the record then cannot open its document, and the class reads unknown)."""
 
     form: str
     filed: date
     accession: str
     primary_doc: str = ""
+    cik: str = ""
 
 
 def delisting_filings(submissions: dict[str, Any]) -> tuple[DelistingFiling, ...]:
@@ -198,6 +200,7 @@ def delisting_filings(submissions: dict[str, Any]) -> tuple[DelistingFiling, ...
     accns = recent.get("accessionNumber", [])
     docs = recent.get("primaryDocument", [])
     dates = recent.get("filingDate", [])
+    cik = str(submissions.get("cik") or "").strip()  # Q6 — so the record can open its own document
     out: list[DelistingFiling] = []
     for i, form in enumerate(forms):
         if form not in DELISTING_FORMS:
@@ -215,6 +218,7 @@ def delisting_filings(submissions: dict[str, Any]) -> tuple[DelistingFiling, ...
                 filed=filed,
                 accession=accns[i] if i < len(accns) else "",
                 primary_doc=docs[i] if i < len(docs) else "",
+                cik=cik,
             )
         )
     out.sort(key=lambda d: d.filed, reverse=True)

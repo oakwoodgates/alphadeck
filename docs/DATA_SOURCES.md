@@ -295,8 +295,11 @@ the ingest cannot tell that from "this name had a quiet year". Two classes, one 
   lists the company under symbols that include neither our `ticker` nor `price_symbol` (a loud repair row
   naming EDGAR's list — the operator still sets `price_symbol`, nothing adopts it). A form on file at some
   other time is not a close: a company files these for ANY listed class, and VRME's 2025 warrant 25-NSE
-  once labeled its still-trading common stock "closed". The residual the window cannot catch is a 25-NSE
-  for another class filed within weeks of a stop (the unbuilt Form 25 class check). See `FEED_LOOP.md`.
+  once labeled its still-trading common stock "closed". The residual the window cannot catch — a 25-NSE for
+  another class filed within weeks of a stop — is closed by the **Form 25 class check** `[BUILT, Q6
+  2026-10-17]` (`ingest/edgar/form25.py`): for a stale name only, each window Form 25's primary document is
+  read (one immutable `forms/*` fetch, polite client) and one naming warrants / units / rights / notes /
+  preferred stops counting; an unreadable class still counts. See `FEED_LOOP.md`.
 - **The rename repair is now RATIFIABLE `[BUILT, T2 2026-10-17]` — still never automatic.** Every night a
   renamed tape's EDGAR-listed symbols are **spliced** against our stored tape (`pipeline/rename_probe.py`):
   ONE Yahoo fetch per candidate symbol, into a throwaway temp dir (the shared `data/price_cache` is never
