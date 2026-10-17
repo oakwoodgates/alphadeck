@@ -101,17 +101,17 @@ and the free proxy is demonstrably inadequate. Default to free + derive.
   qualifying row with no date, counts as due. **X8:** a companyfacts 404 writes `<key>.404` and a recurring
   client re-asks on the same gate rather than nightly (a known absence prints as one quiet count). An
   INTERACTIVE client keeps the plain 12h TTL for companyfacts and ignores the 404 marker — the Workbench's
-  freshness is unchanged. **The bound, stated:** the fundamentals leg runs *before* the per-thesis loop
-  re-pulls tonight's indexes, so the gate reads the index the PREVIOUS pass fetched. A filing accepted on day
-  N is in that index at pass N+1, which re-pulls it — one pass later than the old nightly re-pull, which did
-  carry same-day filings (MEASURED: a 10-Q/A accepted 17:02 ET was in that night's companyfacts). A Friday
-  filing therefore reaches Monday's call. Anything the index cannot show (a company whose index stopped
-  refreshing, a form that starts carrying facts later) is re-pulled by the backstop within 6.5 days. The
-  fundamentals rows themselves are stamped at their filing date (R17), not at ingest, so a delayed pull still
-  dates each quarter at its filing — and a recompute of that night (the as-of slider, a backfill) sees the
-  quarter while the recorded call-of-record of that night did not. Simulated on prod's real filing cadence
-  (45 weekday passes, 2026-08-18 → 2026-10-16): ~151 pulls a pass instead of 680, ~0.26 GB instead of
-  1.18 GB.
+  freshness is unchanged. **Same-night, by placement:** the refresh runs PER THESIS inside the nightly
+  loop — right after that thesis's `ingest_thesis` re-pulled its members' submissions indexes at the
+  five-minute recurring TTL, and before its call is assembled — so the gate reads TONIGHT's index and a quarter
+  filed today reaches tonight's call, as the old nightly re-pull did (MEASURED: a 10-Q/A accepted 17:02 ET was
+  in that night's companyfacts). One pass-wide memory keeps it to one pull per company per pass, however many
+  theses (or share classes) hold it. A fundamentals fault is rolled back where it runs and never costs a
+  thesis its record. Anything the index cannot show (a company whose index stopped refreshing, a form that
+  starts carrying facts later) is re-pulled by the backstop within 6.5 days. Simulated on prod's real filing
+  cadence (45 weekday passes, 2026-08-18 → 2026-10-16): ~178 pulls a pass instead of 680 (about 26%), ~0.29 GB
+  instead of 1.18 GB. (The 24 h grace means a name pulled the night of its filing is pulled once more the next
+  night; that second pull is most of the difference from the ~151 a one-pass-late placement would cost.)
 - **The cache PERSISTS across container rebuilds** — the compose stack mounts a named volume (`appdata:/data`,
   backend + the cron sidecar) over the runtime-data home, so `data/edgar_cache/` (and the price/DOE/FIGI/SEC
   caches beside it) survives `docker compose up --build`. Before the volume, every rebuild wiped the cache and

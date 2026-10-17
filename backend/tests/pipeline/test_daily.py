@@ -711,12 +711,13 @@ class _Silent:
         pass
 
 
-def _prime_pass(monkeypatch, *, bench_raises=False, fund_raises=False, sweep_raises=False):
+def _prime_pass(monkeypatch, *, bench_raises=False, sweep_raises=False):
     """Stub run_daily_pass's seams so the refresh + universe legs run DB-free. Returns (order, calls,
     seen): ``order`` is the recorded call sequence (the load-bearing ordering properties), ``calls``
     counts each seam, and ``seen`` captures the kwargs each leg was invoked with — so a test can prove
-    the load-bearing wiring (benchmarks force_refresh=True; fundamentals no per-call flag; the shell
-    sweep's Monday-only reenrich).
+    the load-bearing wiring (benchmarks force_refresh=True; the shell sweep's Monday-only reenrich).
+    The bare fundamentals leg is still stubbed and COUNTED, so a test can prove the pass no longer calls
+    it (Q17 zero-lag: the refresh runs per thesis inside ``run_daily``).
     """
     order: list[str] = []
     calls = {"benchmarks": 0, "fundamentals": 0, "run_daily": 0, "shell_sweep": 0, "spac_radar": 0}
@@ -784,17 +785,15 @@ def _prime_pass(monkeypatch, *, bench_raises=False, fund_raises=False, sweep_rai
     def _fund(conn, **k):
         order.append("fundamentals")
         calls["fundamentals"] += 1
-        seen["fundamentals"] = k  # capture kwargs → assert NO force_refresh / ttl
-        if fund_raises:
-            raise RuntimeError("fundamentals boom")
+        seen["fundamentals"] = k
         return []
 
     monkeypatch.setattr("pipeline.ingest_fundamentals.ingest_fundamentals", _fund)
     return order, calls, seen
 
 
-def test_pass_SKIPS_both_refresh_legs_on_no_live(monkeypatch):
-    # --no-live: a cache-only run can't refresh/record — both legs gated off, but run_daily still runs
+def test_pass_SKIPS_the_refresh_leg_on_no_live(monkeypatch):
+    # --no-live: a cache-only run can't refresh/record — the leg is gated off, but run_daily still runs
     _, calls, _ = _prime_pass(monkeypatch)
     out = daily.run_daily_pass(asof=_ASOF, allow_live=False, notifier=_Silent())
     assert calls["benchmarks"] == 0 and calls["fundamentals"] == 0  # neither invoked
@@ -802,22 +801,24 @@ def test_pass_SKIPS_both_refresh_legs_on_no_live(monkeypatch):
     assert isinstance(out, daily.DailyPassOutcome)
 
 
-def test_pass_RUNS_both_refresh_legs_when_live(monkeypatch):
+def test_pass_RUNS_the_benchmark_leg_and_NO_bare_fundamentals_leg_when_live(monkeypatch):
+    # Q17 zero-lag: the fundamentals refresh moved INTO run_daily (per thesis, after its ingest), so the
+    # pass must not also pull companyfacts up front — that would pull twice, and a pass late
     _, calls, _ = _prime_pass(monkeypatch)
     out = daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
-    assert calls["benchmarks"] == 1 and calls["fundamentals"] == 1  # both invoked exactly once
+    assert calls["benchmarks"] == 1 and calls["fundamentals"] == 0
     assert calls["run_daily"] == 1  # ...and run_daily still runs
     assert isinstance(out, daily.DailyPassOutcome)
 
 
-def test_pass_refresh_legs_run_BEFORE_run_daily(monkeypatch):
-    # THE load-bearing property: fresh data is landed before the per-thesis calls read it. Benchmarks
-    # first, then fundamentals, then run_daily (the spec order).
+def test_pass_refresh_leg_runs_BEFORE_run_daily(monkeypatch):
+    # THE load-bearing property: fresh data is landed before the per-thesis calls read it. (The
+    # fundamentals refresh lands inside run_daily, per thesis, before that thesis's call —
+    # tests/pipeline/test_daily_fundamentals.py.)
     order, _, _ = _prime_pass(monkeypatch)
     daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
     assert order.index("benchmarks") < order.index("run_daily")
-    assert order.index("fundamentals") < order.index("run_daily")
-    assert order.index("benchmarks") < order.index("fundamentals")
+    assert "fundamentals" not in order
 
 
 def test_pass_threads_catch_up_to_the_artifact_and_the_freeze_check(monkeypatch):
@@ -856,45 +857,43 @@ def test_pass_threads_catch_up_to_the_artifact_and_the_freeze_check(monkeypatch)
 
 
 def test_pass_benchmarks_failure_is_FAIL_OPEN(monkeypatch):
-    # a benchmarks fault must NOT skip fundamentals (separate try per leg) and must NOT fail the cron
+    # a benchmarks fault must NOT fail the cron: the per-thesis pass still runs
     _, calls, _ = _prime_pass(monkeypatch, bench_raises=True)
     out = daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())  # must not raise
     assert calls["benchmarks"] == 1  # attempted (then raised inside its own try)
-    assert calls["fundamentals"] == 1  # ...the next leg STILL ran
-    assert calls["run_daily"] == 1  # ...and so did the per-thesis pass
-    assert isinstance(out, daily.DailyPassOutcome)
-
-
-def test_pass_fundamentals_failure_is_FAIL_OPEN(monkeypatch):
-    # symmetric: a fundamentals fault leaves benchmarks + run_daily intact and never fails the cron
-    _, calls, _ = _prime_pass(monkeypatch, fund_raises=True)
-    out = daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())  # must not raise
-    assert calls["benchmarks"] == 1
-    assert calls["fundamentals"] == 1  # attempted (then raised inside its own try)
-    assert calls["run_daily"] == 1
+    assert calls["run_daily"] == 1  # ...and the per-thesis pass STILL ran
     assert isinstance(out, daily.DailyPassOutcome)
 
 
 def test_pass_fundamentals_known_404s_are_ONE_quiet_count_and_fresh_errors_stay_loud(
     monkeypatch, capsys
 ):
-    """X8 at the pass: a name the negative cache answered (``known_absent``) folds into the summary line as a
-    count; any other fundamentals error — including a FRESH 404 — still prints its own ERROR line.
+    """X8 at the pass: the per-thesis refreshes are summarized ONCE after the loop — a name the negative
+    cache answered (``known_absent``) folds into the line as a count; any other fundamentals error —
+    including a FRESH 404 — still prints its own ERROR line.
     """
     from pipeline.ingest_fundamentals import NameResult as FundResult
 
     _prime_pass(monkeypatch)
     sid = uuid.uuid4()
-    monkeypatch.setattr(
-        "pipeline.ingest_fundamentals.ingest_fundamentals",
-        lambda conn, **k: [
-            FundResult("AAA", sid, appended=2),
-            FundResult(
-                "NOCF", sid, error="companyfacts/CIK1.json: (HTTP 404, cached)", known_absent=True
+    res = [
+        daily.ThesisRunResult(
+            thesis_id=uuid.uuid4(),
+            name="T",
+            recorded=True,
+            fundamentals=(
+                FundResult("AAA", sid, appended=2),
+                FundResult(
+                    "NOCF",
+                    sid,
+                    error="companyfacts/CIK1.json: (HTTP 404, cached)",
+                    known_absent=True,
+                ),
+                FundResult("BAD", sid, error="Client error '404 Not Found' for url x"),
             ),
-            FundResult("BAD", sid, error="Client error '404 Not Found' for url x"),
-        ],
-    )
+        )
+    ]
+    monkeypatch.setattr(daily, "run_daily", lambda conn, **k: res)
     daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
     out = capsys.readouterr().out
     assert "fundamentals refresh: +2 quarters, 3 names, 1 known without companyfacts" in out
@@ -944,15 +943,12 @@ def test_pass_shell_sweep_reenriches_on_mondays_only(monkeypatch):
     assert seen["shell_sweep"]["reenrich"] is False
 
 
-def test_pass_benchmarks_FORCE_REFRESH_but_fundamentals_carries_NO_flag(monkeypatch):
-    """The load-bearing freshness KWARGS each leg is written with — the reason both legs read the way they
-    do, asserted where a stub that swallowed `**k` couldn't:
-      - benchmarks MUST be called force_refresh=True (+ allow_live=True): the recurring path bypasses a
-        stale cache HIT and re-pulls fresh SPY/IWM bars, else the tape freezes and benchmark_rs degrades
-        silently (the #72 lesson — the same reason run_daily force-refreshes ingest_thesis).
-      - fundamentals MUST carry NO force_refresh / NO ttl: EDGAR cache freshness is key-classed /
-        default-refresh (companyfacts re-fetches on a 12h TTL when allow_live), NOT a per-call boolean —
-        "the boolean wearing a timedelta" is how the ~11-day insider freeze happened (the #196 decision).
+def test_pass_benchmarks_FORCE_REFRESH(monkeypatch):
+    """The load-bearing freshness KWARGS the benchmark leg is written with, asserted where a stub that
+    swallowed `**k` couldn't: force_refresh=True (+ allow_live=True) — the recurring path bypasses a stale
+    cache HIT and re-pulls fresh SPY/IWM bars, else the tape freezes and benchmark_rs degrades silently (the
+    #72 lesson). (The fundamentals refresh carries no flag at all: it rides the per-thesis RECURRING client,
+    on which companyfacts is filing-gated by key class — tests/pipeline/test_daily_fundamentals.py.)
     """
     _, _, seen = _prime_pass(monkeypatch)
     daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
@@ -962,11 +958,6 @@ def test_pass_benchmarks_FORCE_REFRESH_but_fundamentals_carries_NO_flag(monkeypa
     assert seen["benchmarks"].get("allow_live") is True
     # D1: the recurring leg never asks for the one-shot backfill's backdated stamp (recorded_at = now)
     assert not seen["benchmarks"].get("historical_backfill", False)
-
-    # fundamentals: NO per-call freshness flag (key-classed / default-refresh), just allow_live
-    assert "force_refresh" not in seen["fundamentals"]
-    assert "ttl" not in seen["fundamentals"]
-    assert seen["fundamentals"].get("allow_live") is True
 
 
 # --- G1: the recurring pass builds its EDGAR client with the RECURRING TTL (daytime warmth) ----------
@@ -1039,7 +1030,7 @@ def test_assess_health_stays_silent_when_the_benchmark_legs_were_clean():
 
 
 def test_pass_threads_a_benchmark_FAULT_to_the_artifact_and_the_health_page(monkeypatch):
-    """G4 END TO END in the pass: the benchmarks leg raising is still FAIL-OPEN (fundamentals still runs,
+    """G4 END TO END in the pass: the benchmarks leg raising is still FAIL-OPEN (the loop still runs,
     the pass returns), but the fault now reaches BOTH the run-of-record artifact and assess_health — and
     it is carried on the outcome, which is what the Admin "run now" job rebuilds its payload from.
     """
@@ -2510,7 +2501,7 @@ def test_a_ZERO_statement_timeout_leaves_the_server_default(db, monkeypatch):
 
 
 def test_EVERY_connection_the_pass_opens_gets_the_ceiling(monkeypatch):
-    """Wiring: each connect() inside run_daily_pass (the two refresh legs, the loop, the sweep, the radar)
+    """Wiring: each connect() inside run_daily_pass (the refresh leg, the loop, the sweep, the radar)
     is followed by the statement_timeout call on THAT connection — none bypasses `_pass_connect`."""
     _prime_pass(monkeypatch)
     opened, bound = [], []
@@ -2523,9 +2514,9 @@ def test_EVERY_connection_the_pass_opens_gets_the_ceiling(monkeypatch):
     monkeypatch.setattr(daily, "connect", _connect)
     monkeypatch.setattr(daily, "set_statement_timeout", lambda conn, s: bound.append((conn, s)))
     daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
-    assert (
-        len(opened) == 5
-    )  # benchmarks, fundamentals, the per-thesis loop, shell sweep, SPAC radar
+    # benchmarks, the per-thesis loop (which now also carries the fundamentals refresh), shell sweep,
+    # SPAC radar
+    assert len(opened) == 4
     assert [c for c, _ in bound] == opened
     assert {s for _, s in bound} == {get_settings().cron_statement_timeout_s}
 

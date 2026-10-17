@@ -22,17 +22,27 @@ after the weekly backstop (``ingest/edgar/companyfacts_gate.py``); a known 404 i
 terms (``known_absent`` on the result, counted quietly instead of an ERROR line every night). A name the gate
 leaves alone still RE-PARSES its cached document and appends any version not yet stored, so nothing already
 on disk is skipped.
+
+THE NIGHTLY PATH RUNS PER THESIS (Q17 zero-lag): ``pipeline.daily.run_daily`` calls
+``ingest_fundamentals_for_securities`` for each thesis right AFTER that thesis's ``ingest_thesis`` re-pulled
+its members' submissions indexes, and BEFORE its call is assembled — so the gate reads TONIGHT's index and a
+quarter filed today reaches tonight's call. One ``PassMemo`` spans the pass: a security already handled is
+skipped, and a company (CIK) is pulled at most ONCE (a second share class reads the copy this pass just
+wrote; a failed company repeats its error without a second request) — the 24 h grace would otherwise make a
+name held by two theses due twice in one night.
 """
 
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
+from collections.abc import Iterable
+from dataclasses import dataclass, field
 from uuid import UUID
 
 import psycopg
 
 from db.session import connect
+from domain.security import Security
 from ingest.edgar.client import RECURRING_CACHE_TTL_S, CachedNotFound, EdgarClient
 from ingest.fundamentals import ingest_fundamentals_for_security
 from repositories import thesis_repo
@@ -52,6 +62,62 @@ class NameResult:
     skipped: int = 0
     error: str | None = None
     known_absent: bool = False
+
+
+@dataclass
+class PassMemo:
+    """What one pass has already done (Q17 zero-lag): the securities it handled, and per company (CIK) the
+    outcome of its ONE pull — ``None`` = pulled (the cache now holds tonight's copy), or ``(error,
+    known_absent)`` to repeat for a sibling security without asking again."""
+
+    securities: set[UUID] = field(default_factory=set)
+    companies: dict[int, tuple[str, bool] | None] = field(default_factory=dict)
+
+
+def ingest_fundamentals_for_securities(
+    conn: psycopg.Connection,
+    securities: Iterable[Security],
+    *,
+    client: EdgarClient,
+    tenant_id: UUID,
+    memo: PassMemo | None = None,
+) -> list[NameResult]:
+    """Refresh + store the fundamentals series for each security, per-name fail-visible and committing
+    per name (the caller owns nothing). ``memo`` makes a whole pass pull each company at most once (see the
+    module docstring); a security the memo already holds is skipped (its facts were stored this pass).
+    """
+    memo = memo if memo is not None else PassMemo()
+    results: list[NameResult] = []
+    for sec in securities:
+        if sec.id in memo.securities:
+            continue  # already handled this pass (a name held by two theses)
+        memo.securities.add(sec.id)
+        cik = int(sec.cik) if sec.cik else None
+        reader = client
+        if cik is not None and cik in memo.companies:
+            failed = memo.companies[cik]
+            if failed is not None:  # this company already failed this pass — never a second request
+                results.append(
+                    NameResult(sec.ticker, sec.id, error=failed[0], known_absent=failed[1])
+                )
+                continue
+            # pulled earlier this pass: read the copy just written, never the network again
+            reader = EdgarClient(cache_dir=client.cache_dir, allow_live=False)
+        try:
+            res = ingest_fundamentals_for_security(conn, sec, client=reader, tenant_id=tenant_id)
+            conn.commit()
+            if cik is not None:
+                memo.companies.setdefault(cik, None)
+            results.append(
+                NameResult(sec.ticker, sec.id, appended=res.appended, skipped=res.skipped)
+            )
+        except Exception as e:  # noqa: BLE001 — fail-visible: capture, roll back, keep going
+            conn.rollback()
+            absent = isinstance(e, CachedNotFound)
+            if cik is not None:
+                memo.companies.setdefault(cik, (str(e), absent))
+            results.append(NameResult(sec.ticker, sec.id, error=str(e), known_absent=absent))
+    return results
 
 
 def ingest_fundamentals(
@@ -87,35 +153,22 @@ def ingest_fundamentals(
     else:
         theses = thesis_repo.list_all(conn)
 
-    seen: set[UUID] = set()
+    memo = PassMemo()
     results: list[NameResult] = []
     for thesis in theses:
+        secs: list[Security] = []
         for m in thesis.basket:
-            if m.security_id is None or m.security_id in seen:
+            if m.security_id is None or m.security_id in memo.securities:
                 continue  # unresolved placement, or a name already pulled from another basket
-            seen.add(m.security_id)
             sec = master.get(conn, m.security_id, tenant_id=thesis.tenant_id)
             if sec is None:
+                memo.securities.add(m.security_id)
                 results.append(NameResult(m.ticker, m.security_id, error="not in tenant master"))
                 continue
-            try:
-                res = ingest_fundamentals_for_security(
-                    conn, sec, client=client, tenant_id=thesis.tenant_id
-                )
-                conn.commit()
-                results.append(
-                    NameResult(sec.ticker, sec.id, appended=res.appended, skipped=res.skipped)
-                )
-            except Exception as e:  # noqa: BLE001 — fail-visible: capture, roll back, keep going
-                conn.rollback()
-                results.append(
-                    NameResult(
-                        sec.ticker,
-                        sec.id,
-                        error=str(e),
-                        known_absent=isinstance(e, CachedNotFound),
-                    )
-                )
+            secs.append(sec)
+        results += ingest_fundamentals_for_securities(
+            conn, secs, client=client, tenant_id=thesis.tenant_id, memo=memo
+        )
     return results
 
 

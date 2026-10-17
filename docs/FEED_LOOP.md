@@ -165,12 +165,15 @@ Consequence for the operator: **"Run daily now" is safe at any hour**.
 **…and `companyfacts` is FILING-GATED on the recurring pass (Q17, 2026-10-17)** `[BUILT]`. `ingest_fundamentals`
 used to be the one deliberate exception to the recurring dial, keeping 12h "because the series is quarterly"
 — but by 22:30 the 12h clock had always expired, so the leg re-pulled every basket name's companyfacts every
-night (MEASURED: 680 documents, 1.18 GB). It now builds a recurring client, and on a recurring client the
-`companyfacts/` key class is re-pulled only when uncached, when the company's cached submissions index shows
-a new XBRL-bearing filing since the last pull, or after a 6.5-day backstop; a 404 is negative-cached on the
-same gate (X8). The gate reads the index from disk, so it costs no SEC request — but it reads the index the
-PREVIOUS pass fetched (this leg runs before the per-thesis loop), so a filing accepted today reaches the
-call one pass later than before. The rule, the measured form set and the bound: `DATA_SOURCES.md`
+night (MEASURED: 680 documents, 1.18 GB). On a recurring client the `companyfacts/` key class is now re-pulled
+only when uncached, when the company's cached submissions index shows a new XBRL-bearing filing since the
+last pull, or after a 6.5-day backstop; a 404 is negative-cached on the same gate (X8). The gate reads the
+index from disk, so it costs no SEC request. And the refresh moved INTO the per-thesis loop (step 1b of
+`run_daily`): it runs right after that thesis's ingest re-pulled tonight's submissions indexes and before its
+call is assembled, so a quarter filed today still reaches tonight's call. A pass-wide memory pulls each company
+at most once, and a fundamentals fault is rolled back where it runs — recorded on the thesis's
+`fundamentals_error`, never its `error` — so it never costs the night its record. The pass prints one
+fundamentals summary after the loop. The rule, the measured form set and the cost: `DATA_SOURCES.md`
 §cache-freshness and `ingest/edgar/companyfacts_gate.py`.
 
 ## Settled closes, honest stamps — the price write path (D1 + D2, 2026-10-16)  `[BUILT]`

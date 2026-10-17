@@ -1,13 +1,15 @@
 """The daily call-of-record cron (M2b) — the platform feeding itself.
 
-Before the per-thesis loop, the pass first refreshes the two SHARED call-logic inputs so those calls read
-FRESH data (Band-02): the SPY/IWM benchmark tape (``ingest_benchmarks`` → ``benchmark_rs``) and every
-basket's quarterly revenue (``ingest_fundamentals`` → ``revenue_acceleration``). Both legs live in
-``run_daily_pass`` alongside the SPAC-radar leg and share its discipline — own connection, lazy import,
-``allow_live``-gated, fail-open (a refresh fault is a passenger, it never fails the call cron).
+Before the per-thesis loop, the pass first refreshes the SHARED SPY/IWM benchmark tape so the calls read
+FRESH data (Band-02: ``ingest_benchmarks`` → ``benchmark_rs``). That leg lives in ``run_daily_pass``
+alongside the SPAC-radar leg and shares its discipline — own connection, lazy import, ``allow_live``-gated,
+fail-open (a refresh fault is a passenger, it never fails the call cron).
 
 Once a day, for every thesis (tenant intrinsic per-thesis):
   1. refresh its back-half facts — ``ingest_thesis`` (incremental + fail-visible; M2a);
+  1b. refresh its members' quarterly fundamentals (the ``revenue_acceleration`` / ``share_creep`` inputs)
+     with the FILING-GATED companyfacts pull (Q17), right after step 1 re-pulled the members' submissions
+     indexes, so a quarter filed today reaches tonight's call; fail-open, it never costs the record;
   2. assemble TODAY's call WITHOUT writing — ``call_for_thesis(asof=today, known_at=now, record=False)``;
   3. append the call-of-record ONLY if it changed — ``calls_repo.record_if_changed``.
 
@@ -69,6 +71,7 @@ from domain.enums import State
 from domain.feed_kinds import FEED_KINDS, StaleFeedLabel, feed_kind
 from domain.market_time import market_now, market_today, market_tz
 from domain.settings import Settings, get_settings
+from domain.thesis import Thesis
 from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
 from ingest.edgar.form25 import delisted_class_is_other
 from notify import ArmedName, HealthEvent, Notifier, TransitionEvent, get_notifier
@@ -83,6 +86,8 @@ from pipeline.cron_run_log import (
     write_cron_run_log,
     write_run_start,
 )
+from pipeline.ingest_fundamentals import NameResult as FundamentalsResult
+from pipeline.ingest_fundamentals import PassMemo
 from pipeline.ingest_skips import SkipDiff, diff_skips, known_keys
 from pipeline.ingest_thesis import NameResult, ingest_thesis, print_withheld_line
 from pipeline.name_errors import NameIngestError, dedup_name_errors, name_errors_of
@@ -230,6 +235,59 @@ class ThesisRunResult:
     # names' errors (so they do not spoil `ingest_fresh`) and kept HERE — on the artifact and in one quiet
     # report line — so the excuse stays visible (#9). Empty on a --no-live pass (nothing is classified).
     expected_price_misses: tuple[ExpectedPriceMiss, ...] = ()
+    # Q17 — this thesis's FUNDAMENTALS refresh (step 1b, ``_refresh_fundamentals``): one result per member
+    # it handled (a member another thesis already handled this pass is not repeated), and a thesis-level
+    # failure of that step, if any. Printed as one pass summary; never part of ``error`` — a fundamentals
+    # fault is a passenger and never withholds or fails the call.
+    fundamentals: tuple[FundamentalsResult, ...] = ()
+    fundamentals_error: str | None = None
+
+
+def _refresh_fundamentals(
+    conn: psycopg.Connection,
+    thesis: Thesis,
+    names: list[NameResult],
+    client: EdgarClient,
+    memo: PassMemo,
+) -> list[FundamentalsResult]:
+    """Q17 STEP 1b — the filing-gated companyfacts refresh for the members THIS thesis's ``ingest_thesis``
+    just walked (``names``): their submissions indexes were re-pulled moments ago at the recurring TTL, so
+    the gate (``ingest/edgar/companyfacts_gate.py``) reads TONIGHT's filings, and a 10-Q accepted today is
+    stored before this thesis's call is assembled. ``client`` is that same per-thesis recurring client (its
+    companyfacts pulls count in the thesis's ``edgar_fetches`` — they ARE reaches-out); ``memo`` spans the
+    pass, so a company is pulled at most once however many theses hold it. A name the ingest did not walk
+    (a stubbed or failed ingest) is not refreshed here, and a member missing from the master was already
+    reported by the ingest."""
+    from pipeline.ingest_fundamentals import ingest_fundamentals_for_securities
+
+    secs = []
+    for n in names:
+        if n.security_id in memo.securities:
+            continue
+        sec = master.get(conn, n.security_id, tenant_id=thesis.tenant_id)
+        if sec is not None:
+            secs.append(sec)
+    return ingest_fundamentals_for_securities(
+        conn, secs, client=client, tenant_id=thesis.tenant_id, memo=memo
+    )
+
+
+def _print_fundamentals(results: list[ThesisRunResult]) -> None:
+    """The pass's ONE fundamentals summary (the per-thesis step reports nothing itself): quarters appended,
+    names refreshed, the X8 known-absent count folded into the line, then one ERROR line per real failure —
+    a FRESH 404 included — and one WARNING line per thesis whose whole step failed. Loud only when nonzero.
+    """
+    fund = [f for r in results for f in r.fundamentals]
+    quarters = sum(f.appended for f in fund)
+    known_absent = sum(1 for f in fund if f.error and f.known_absent)
+    errs = [f.error for f in fund if f.error and not f.known_absent]
+    absent = f", {known_absent} known without companyfacts (404, cached)" if known_absent else ""
+    print(f"fundamentals refresh: +{quarters} quarters, {len(fund)} names{absent}")
+    for err in errs:
+        print(f"  fundamentals refresh ERROR: {err}")
+    for r in results:
+        if r.fundamentals_error:
+            print(f"WARNING: {r.name}: fundamentals refresh failed: {r.fundamentals_error}")
 
 
 def _acknowledged_ids(conn: psycopg.Connection) -> set[UUID]:
@@ -345,6 +403,8 @@ def run_daily(
     # Q8/T3 — the operator's acknowledged-unpriceable names, read once (a live pass only: nothing is
     # classified on a --no-live pass, so there is nothing to mark or excuse)
     acknowledged = _acknowledged_ids(conn) if allow_live else set()
+    # Q17 — the fundamentals refresh's pass memory: one companyfacts pull per company per pass
+    fund_memo = PassMemo()
     out: list[ThesisRunResult] = []
     for thesis in thesis_repo.list_all(conn):
         res = ThesisRunResult(thesis_id=thesis.id, name=thesis.name)
@@ -403,6 +463,24 @@ def run_daily(
         except Exception as e:  # noqa: BLE001 — one thesis's ingest never aborts the cron
             conn.rollback()
             res.error = f"ingest: {e}"
+        # (1b) Q17 — THE FUNDAMENTALS REFRESH, HERE and not before the loop: the companyfacts gate keys off
+        # each member's submissions index, and the ingest above JUST re-pulled those at the recurring TTL —
+        # so the gate reads TONIGHT's filings and a quarter accepted today is stored before this thesis's
+        # call is assembled (a pre-loop leg read last night's indexes: one pass late). Live passes only.
+        # FAILURE ISOLATION: the step commits per name and rolls back per name; a fault escaping it is
+        # rolled back here and recorded on `fundamentals_error`, never on `error` — it can never withhold or
+        # fail the call. A rollback HERE discards nothing: every ingest leg above already committed or rolled
+        # back, and the call's own transaction has not begun. (Not a SAVEPOINT: the step commits per name,
+        # which a savepoint forbids — the savepoint trap is a fault INSIDE the call's transaction, and this
+        # step never runs in it.)
+        if allow_live and res.ingested:
+            try:
+                res.fundamentals = tuple(
+                    _refresh_fundamentals(conn, thesis, res.ingested, edgar_client, fund_memo)
+                )
+            except Exception as e:  # noqa: BLE001 — a fundamentals fault is a passenger
+                conn.rollback()
+                res.fundamentals_error = str(e)
         # capture the count even on a thesis-level failure — a mid-ingest raise still made real network
         # pulls, and "0 fetches" must mean the freeze, not "we bailed before the counter was read"
         res.edgar_fetches = edgar_client.live_fetches
@@ -935,16 +1013,17 @@ def _run_daily_pass_locked(
     # nothing to page. `benchmark_errors` counts individual benchmark pulls that failed; the separate
     # `benchmark_leg_failed` marks the leg raising before it produced any per-benchmark result, because "1
     # of 2 benchmarks is stale" and "nothing refreshed at all" are different news and a single count cannot
-    # say which. The fundamentals leg keeps stdout-only reporting: a quarterly series tolerates a day.
+    # say which. The fundamentals refresh runs per thesis inside `run_daily` (Q17) and reports below.
     benchmark_errors = 0
     benchmark_leg_failed = False
     # Band-02 shared-input refresh — run BEFORE run_daily so the per-thesis calls read FRESH data: the
-    # SPY/IWM benchmark tape (benchmark_rs) and each basket's quarterly revenue (revenue_acceleration).
-    # Both legs mirror the SPAC-radar leg below — OWN connection + lazy import + fail-open — and keep their
-    # OWN connections so a refresh can NEVER touch run_daily's per-thesis edgar_fetches freeze counter or
-    # the recording gate. A refresh fault is a passenger, never the driver: print loud, keep going; a
-    # benchmarks fault must not skip fundamentals (separate try per leg). Skipped on --no-live (a cache-only
-    # dev run can't refresh/record; `python -m pipeline.ingest_*` is the manual cache-only path).
+    # SPY/IWM benchmark tape (benchmark_rs). It mirrors the SPAC-radar leg below — OWN connection + lazy
+    # import + fail-open — so a refresh can NEVER touch run_daily's per-thesis edgar_fetches freeze counter
+    # or the recording gate. A refresh fault is a passenger, never the driver: print loud, keep going.
+    # Skipped on --no-live (a cache-only dev run can't refresh/record; `python -m pipeline.ingest_*` is the
+    # manual cache-only path). The quarterly FUNDAMENTALS refresh is NOT here any more (Q17 zero-lag): it
+    # runs per thesis inside `run_daily`, after that thesis's ingest re-pulled tonight's submissions
+    # indexes — before the loop the gate could only read last night's, a pass late.
     if allow_live:
         try:  # (a) benchmarks first
             from pipeline.ingest_benchmarks import ingest_benchmarks
@@ -973,40 +1052,6 @@ def _run_daily_pass_locked(
         except Exception as e:  # noqa: BLE001 — a refresh leg is a passenger, never the driver
             benchmark_leg_failed = True  # G4 — still fail-open for the RUN, but no longer silent
             print(f"WARNING: benchmarks refresh leg failed: {e}")
-        try:  # (b) then fundamentals — bare = every basket
-            from pipeline.ingest_fundamentals import ingest_fundamentals
-
-            # NO force_refresh/ttl flag: EDGAR cache freshness is key-classed, NOT a per-call boolean (the
-            # #196 lesson — "the boolean wearing a timedelta" is how the ~11-day insider freeze happened).
-            # Q17: the leg builds a RECURRING client, on which companyfacts is FILING-GATED — re-pulled on a
-            # new XBRL-bearing filing in the cached submissions index, or the weekly backstop. ORDER NOTE:
-            # this leg runs BEFORE the per-thesis loop re-pulls tonight's indexes, so a filing accepted
-            # today is seen by NEXT pass's gate — one pass later than the old nightly re-pull (the accepted
-            # bound; `docs/DATA_SOURCES.md` §cache-freshness).
-            fund_conn = _pass_connect()
-            try:
-                fund_results = ingest_fundamentals(fund_conn, allow_live=True)
-            finally:
-                fund_conn.close()
-            fund_quarters = sum(r.appended for r in fund_results)
-            # X8 — a known "no companyfacts" (the negative cache answering) is one quiet count, not an
-            # ERROR line per name per night; a FRESH 404 or any other failure stays loud below
-            fund_absent = sum(
-                1 for r in fund_results if r.error and getattr(r, "known_absent", False)
-            )
-            fund_errs = [
-                r.error for r in fund_results if r.error and not getattr(r, "known_absent", False)
-            ]
-            absent = (
-                f", {fund_absent} known without companyfacts (404, cached)" if fund_absent else ""
-            )
-            print(
-                f"fundamentals refresh: +{fund_quarters} quarters, {len(fund_results)} names{absent}"
-            )
-            for err in fund_errs:  # loud only when nonzero
-                print(f"  fundamentals refresh ERROR: {err}")
-        except Exception as e:  # noqa: BLE001 — a refresh leg is a passenger, never the driver
-            print(f"WARNING: fundamentals refresh leg failed: {e}")
     # Q18 — THE SKIPPED-FILING BASELINE, read BEFORE the loop: the filing legs print a line for every
     # filing they skip, and an unstorable filing is re-tried (and re-printed) every pass — MEASURED ~440
     # lines a night, ~73% of the log, all audited as legacy pre-XML Form 4s and owner-filed 13Ds. A filing
@@ -1028,6 +1073,8 @@ def _run_daily_pass_locked(
         )
     finally:
         conn.close()
+    if allow_live:
+        _print_fundamentals(results)
     finished_at = datetime.now(timezone.utc)
     # G5a — THE NEWLY-STALE DIFF, computed BEFORE the artifact is written (ordering is load-bearing: once
     # this run's artifact exists it would be its own "previous" and nothing could ever read as newly stale).
