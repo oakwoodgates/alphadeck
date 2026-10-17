@@ -13,8 +13,11 @@ import pytest
 
 from db.bitemporal import as_of
 from db.session import DEFAULT_TENANT_ID
+from domain.edgar_forms import CORPORATE_EVENT_FORMS, ORDINARY_8K_FORMS, SUCCESSION_8K_FORMS
+from ingest.edgar import succession
 from ingest.edgar.form8k import existing_8k_events, filing_index_url, ingest_form8k
-from ingest.edgar.submissions import form8k_filings, parse_item_codes
+from ingest.edgar.submissions import form8k_filings, name_change_filings, parse_item_codes
+from tests import successor_cik_fixtures as fx
 
 _CIK = "0001234567"
 _KNOWN = datetime(2100, 1, 1, tzinfo=timezone.utc)
@@ -71,7 +74,8 @@ def _subs(rows):
     }
 
 
-def test_form8k_filings_walks_8k_and_amendments_only():
+def test_form8k_filings_walks_the_8k_family_only():
+    """Non-8-K forms (a Form 4, a 10-K) are not on the tape; the 8-K / 8-K/A rows are, items parsed."""
     subs = _subs(
         [
             ("8-K", "ACC-1", "2026-05-01", "1.01,9.01"),
@@ -96,6 +100,93 @@ def test_form8k_filings_tolerates_a_missing_items_array():
     assert form8k_filings(subs) == [
         {"accession": "ACC-1", "form": "8-K", "filed": "2026-05-01", "items": None}
     ]
+
+
+# --- succession reports (8-K12B / 8-K12G3 / 8-K15D5): STORED on the tape (operator, 2026-10-17) -------
+
+
+def test_the_tape_form_set_is_the_one_shared_set():
+    """ONE list: the tape stores the ordinary 8-K family plus the succession reports, and the T7
+    successor reader names the very same succession set object (never a copy that could drift)."""
+    assert ORDINARY_8K_FORMS == {"8-K", "8-K/A"}
+    assert SUCCESSION_8K_FORMS == {
+        "8-K12B",
+        "8-K12B/A",
+        "8-K12G3",
+        "8-K12G3/A",
+        "8-K15D5",
+        "8-K15D5/A",
+    }
+    assert CORPORATE_EVENT_FORMS == ORDINARY_8K_FORMS | SUCCESSION_8K_FORMS
+    assert succession.SUCCESSION_FORMS is SUCCESSION_8K_FORMS
+
+
+def test_form8k_filings_walks_every_form_of_the_shared_set():
+    """The walker's contract over every form string in ``CORPORATE_EVENT_FORMS`` — each one is walked
+    with its form verbatim (so the stored row says which kind it is) — and a string that merely STARTS
+    with "8-K" is not (set membership, never a prefix match)."""
+    forms = sorted(CORPORATE_EVENT_FORMS)
+    rows = [(f, f"ACC-{i}", "2026-05-01", "8.01") for i, f in enumerate(forms)]
+    rows.append(("8-K-NOT-A-FORM", "ACC-NOT", "2026-05-01", "8.01"))
+    walked = form8k_filings(_subs(rows))
+    assert [w["form"] for w in walked] == forms
+    assert "ACC-NOT" not in {w["accession"] for w in walked}
+
+
+def test_form8k_filings_on_the_real_successor_docs_keeps_the_8k12b():
+    """REAL documents (``tests/fixtures/edgar/successor_cik_2026_10.json`` — the successor CIKs'
+    submissions, fetched live 2026-10-17): UROY's 8-K12B 0001493152-26-034947 and REAX's 8-K12B
+    0001104659-26-100334 are now walked with their real items, beside each company's plain 8-Ks; the
+    rest of the doc (S-1, 10-Q, Form 3/4, 13D, S-8, 424B3, ...) still is not."""
+    uroy = form8k_filings(fx.successor_doc("UROY"))
+    assert [(f["form"], f["accession"], f["filed"]) for f in uroy] == [
+        ("8-K", "0001493152-26-042740", "2026-09-15"),
+        ("8-K", "0001493152-26-036666", "2026-08-07"),
+        ("8-K12B", "0001493152-26-034947", "2026-07-28"),
+    ]
+    assert uroy[2]["items"] == [
+        "1.01",
+        "2.01",
+        "2.02",
+        "3.01",
+        "3.02",
+        "3.03",
+        "5.01",
+        "5.02",
+        "5.03",
+        "7.01",
+        "9.01",
+    ]
+    reax = form8k_filings(fx.successor_doc("REAX"))
+    assert [(f["form"], f["accession"], f["filed"]) for f in reax] == [
+        ("8-K", "0001104659-26-103266", "2026-08-28"),
+        ("8-K12B", "0001104659-26-100334", "2026-08-24"),
+    ]
+    assert reax[1]["items"] == [
+        "1.01",
+        "2.01",
+        "2.03",
+        "3.01",
+        "3.03",
+        "5.01",
+        "5.02",
+        "5.03",
+        "8.01",
+        "9.01",
+    ]
+
+
+def test_name_change_evidence_stays_ordinary_8ks_only():
+    """The rename recommender's 5.03 evidence keeps its documented scope: both real 8-K12Bs carry 5.03
+    (the successor's new charter, not a rename), and widening the walker must not turn them into
+    name-change evidence — neither successor doc has an ORDINARY 8-K with 5.03, so the set is empty.
+    """
+    for t in ("UROY", "REAX"):
+        assert any(
+            f["form"] == "8-K12B" and "5.03" in f["items"]
+            for f in form8k_filings(fx.successor_doc(t))
+        )
+        assert name_change_filings(fx.successor_doc(t)) == ()
 
 
 def test_filing_index_url_shape():
@@ -237,3 +328,56 @@ def test_same_scope_same_instant_duplicate_is_refused(db, security_id):
             recorded_at=instant,
         )
     db.rollback()
+
+
+def _successor_security(db, ticker: str) -> uuid.UUID:
+    """A master row for the member AFTER the operator's Adopt: its ticker on the successor CIK (the
+    fixture's real values)."""
+    sid = uuid.uuid4()
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO security_master (id, tenant_id, ticker, cik, valid_from) "
+            "VALUES (%s, %s, %s, %s, %s)",
+            (sid, DEFAULT_TENANT_ID, ticker, fx.successor_cik(ticker), date(2026, 1, 1)),
+        )
+    db.commit()
+    return sid
+
+
+def test_real_succession_report_is_stored_with_its_form_count_the_table(db):
+    """UROY's REAL successor tape through the production path (``form8k_filings`` -> ``ingest_form8k``):
+    the 8-K12B lands as its own row with ``form='8-K12B'``, its real items and its EDGAR index URL; an
+    unchanged re-run appends ZERO rows — verified by COUNTING the table (the as-of read dedups, so a
+    duplicate append would hide behind it)."""
+    sid = _successor_security(db, "UROY")
+    cik = fx.successor_cik("UROY")
+    filings = form8k_filings(fx.successor_doc("UROY"))
+    res = ingest_form8k(db, sid, cik, filings)
+    db.commit()
+    assert (res.appended, res.reversioned) == (3, 0)
+    assert _count(db) == 3
+    rows = {r["accession"]: r for r in _read(db, sid)}
+    s = rows["0001493152-26-034947"]
+    assert s["form"] == "8-K12B"  # the reader can tell a succession report from an ordinary 8-K
+    assert s["valid_from"] == s["filed"] == date(2026, 7, 28)
+    assert s["items"] == filings[2]["items"] and "3.01" in s["items"]
+    assert s["source_ref"] == filing_index_url(cik, "0001493152-26-034947")
+    assert {rows[a]["form"] for a in rows if a != "0001493152-26-034947"} == {"8-K"}
+
+    res2 = ingest_form8k(db, sid, cik, form8k_filings(fx.successor_doc("UROY")))
+    db.commit()
+    assert (res2.appended, res2.reversioned) == (0, 0)
+    assert _count(db) == 3  # the TABLE did not grow
+
+
+def test_real_succession_report_has_no_lookahead_on_either_axis(db):
+    """No-lookahead holds for the new forms exactly as for an 8-K: REAX's 8-K12B (filed 2026-08-24) is
+    invisible to an as-of before its filing date, and to a known_at pinned before the ingest wrote it
+    (``recorded_at`` = the DB's now(), never backdated)."""
+    sid = _successor_security(db, "REAX")
+    ingest_form8k(db, sid, fx.successor_cik("REAX"), form8k_filings(fx.successor_doc("REAX")))
+    db.commit()
+    acc = "0001104659-26-100334"
+    assert acc not in {r["accession"] for r in _read(db, sid, asof=date(2026, 8, 23))}
+    assert acc in {r["accession"] for r in _read(db, sid, asof=date(2026, 8, 24))}
+    assert _read(db, sid, known_at=datetime(2000, 1, 1, tzinfo=timezone.utc)) == []

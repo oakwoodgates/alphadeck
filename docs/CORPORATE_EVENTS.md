@@ -11,10 +11,11 @@
 ## The organizing seam — evidence vs policy
 
 - **EVIDENCE (code, objective):** `fact_corporate_event` (migration 0038) + the per-member ingest
-  leg. One row per (security, 8-K filing): `form` (8-K | 8-K/A), `items text[]`, `accession`,
-  `filed`, `source_ref` (the EDGAR filing-index URL). **Every 8-K is stored with whatever items it
-  carries** — recall-safe (#9): an item outside today's detector cut stays on the tape, so the
-  deferred slices (§below) need no re-ingest.
+  leg. One row per (security, 8-K filing): `form` (8-K | 8-K/A, and since 2026-10-17 a succession
+  report — 8-K12B | 8-K12G3 | 8-K15D5 and their amendments; §succession reports), `items text[]`,
+  `accession`, `filed`, `source_ref` (the EDGAR filing-index URL). **Every 8-K is stored with whatever
+  items it carries** — recall-safe (#9): an item outside today's detector cut stays on the tape, so
+  the deferred slices (§below) need no re-ingest.
 - **CALL-POLICY (config, tunable):** `CallConfig.corporate_event_items` — the item-code →
   (role, grade, type, score, liveness) map, applied on **read** by the detectors, never baked into
   stored rows. Retuning a value re-derives every call with zero data repair; `kind` is derived from
@@ -46,6 +47,45 @@
   idempotent); a stored `items = NULL` filing (EDGAR hadn't classified it yet — stored as NULL,
   never guessed) gets a **new version** when its items resolve. The shared items parser is
   `submissions.parse_item_codes` — one parser, also the SPAC radar's (`spac._items_for`).
+
+## Succession reports — stored, never read (operator decision, 2026-10-17)
+
+A successor issuer's first report — an **8-K12B** (Rule 12g-3, a 12(b) registrant), an **8-K12G3**
+(Rule 12g-3, a 12(g) registrant) or an **8-K15D5** (Rule 15d-5), and their amendments — is filed with
+ordinary 8-K item codes, but there they describe the **reorganization itself**: 3.01 is the listing
+TRANSFER (not a deficiency), 3.02 / 3.03 the share exchange (not a dilutive sale), 5.02 the officers
+carrying over (not a change), 5.03 the new charter. MEASURED on the two real filings T7 found (submissions
+`items`): UROY's 8-K12B `0001493152-26-034947` (2026-07-28) carries 1.01, 2.01, 2.02, 3.01, 3.02, 3.03,
+5.01, 5.02, 5.03, 7.01, 9.01; REAX's `0001104659-26-100334` (2026-08-24) carries 1.01, 2.01, 2.03, 3.01,
+3.03, 5.01, 5.02, 5.03, 8.01, 9.01. Read as events they would fire the live `corporate_risk` (3.01 / 3.02
+at 0.50, inside the 180-day window) and feed the parked `corporate_catalyst` (5.02).
+
+- **STORED (#9).** The filing exists and is evidence a person should be able to see, so
+  `submissions.form8k_filings` walks `domain/edgar_forms.CORPORATE_EVENT_FORMS` — the ordinary
+  `ORDINARY_8K_FORMS` plus `SUCCESSION_8K_FORMS` — and the row keeps its verbatim `form`, which is how
+  any reader tells a succession report from an ordinary 8-K. Same append-if-changed, same natural key,
+  same `valid_from = filed` / `recorded_at = now()` knowability. No migration (the `form` column has
+  been NOT NULL since 0038) and no backfill: every row stored before the widening is an 8-K / 8-K/A.
+- **NEVER READ by a detector — the cut is by FORM, never by item.** `signals/corporate_events.event_facts`
+  drops every succession row, and `live_policy_items` (which both detectors call) reads through it — so a
+  succession report neither fires, arms, vetoes nor rides a signal's provenance, while a plain 8-K
+  carrying the very same items fires exactly as before. A structural rule about what the filing IS, not
+  a policy dial (it is not in `CallConfig`, so `config_hash` does not move). Replay and live share these
+  functions, so the cut has parity by construction (pinned on the real tapes in
+  `tests/replay/test_pit_parity.py::test_succession_8k_parity_stored_on_both_engines_skipped_on_both`).
+  **Any future reader of this tape** (the deferred cadence counter, the uplisting slice) reads through
+  `event_facts` too.
+- **ONE list.** `domain/edgar_forms.py` holds the succession set; the ingest, the detectors and the T7
+  successor-CIK reader (`ingest/edgar/succession.SUCCESSION_FORMS` is the same object) all import it.
+- **Display.** The Scoreboard episode drawer's 8-K family lists every stored filing with its verbatim
+  form as the ledger type and the tooltip title, so a succession report shows as "8-K12B" (no extra
+  label or gray state was added).
+- **The rename recommender's 5.03 evidence** (`submissions.name_change_filings`) keeps reading ordinary
+  8-Ks only — a succession report's 5.03 is the new charter, not a rename.
+- **Golden / parity.** No succession row existed anywhere before this change (no test fixture or seed
+  but the T7 one carries the forms; prod's tape was 60,699 `8-K` + 1,827 `8-K/A`, read-only 2026-10-17),
+  and on a tape with no succession rows `event_facts` is the identity — so no existing detector output
+  or golden moves. The regressions on the real filings: `tests/signals/test_corporate_succession.py`.
 
 ## The two detectors (both read the same tape; `corporate_catalyst` still `[PROPOSED]`-dialed)
 
@@ -152,8 +192,9 @@ catalyst (above).
   32 `3.02`-without-`1.01` dilution names a co-item rule would have missed. Kept here as the record of
   the path not taken.
 - **§3b cadence** (`2.02`/`7.01`/`8.01` trailing counts → `promoter_attention`): a COUNTING
-  detector — must dedupe 8-K/A amendments, and its baseline may want the paginated older
-  submissions pages (`filings.files`) beyond `recent`.
+  detector — must dedupe 8-K/A amendments, must read through `event_facts` (a succession report is not
+  an attention event), and its baseline may want the paginated older submissions pages
+  (`filings.files`) beyond `recent`.
 - **§3c uplisting** (Form 8-A / exchange 8-K → core-eligible catalyst).
 - **`3.03`/`5.03` reverse-split tells** (dilution family).
 - The Workbench catalyst-density meter reading 8-K catalysts; the inline located passage (above).

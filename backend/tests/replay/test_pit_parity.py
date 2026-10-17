@@ -3,10 +3,13 @@ from __future__ import annotations
 import json
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from db.bitemporal import _FACT_IDENTITY, append_fact
 from db.session import DEFAULT_TENANT_ID
+from domain.config import DEFAULT_CONFIG
+from ingest.edgar.form8k import ingest_form8k
+from ingest.edgar.submissions import form8k_filings
 from pipeline.seed import (
     HIMS_SECURITY_ID,
     HIMS_THESIS_ID,
@@ -26,7 +29,9 @@ from pipeline.seed import (
 )
 from replay.export import export_snapshot
 from replay.pit import ReplayPointInTimeData, connect_mirror
+from signals import corporate_catalyst, corporate_risk
 from signals.base import PointInTimeData
+from tests import successor_cik_fixtures as fx
 
 _PIN = datetime(2100, 1, 1, tzinfo=timezone.utc)
 
@@ -328,5 +333,78 @@ def test_replay_pit_matches_postgres_as_of(db, tmp_path):
                     rep.theme_conviction_facts(tid),
                     _FACT_IDENTITY["fact_theme_conviction"],
                 )
+    finally:
+        con.close()
+
+
+def test_succession_8k_parity_stored_on_both_engines_skipped_on_both(db, tmp_path):
+    """Succession reports (operator decision 2026-10-17) — PIT parity on the REAL tapes: UROY's and REAX's
+    successor 8-K tapes (``tests/fixtures/edgar/successor_cik_2026_10.json``, through the production
+    ``form8k_filings`` -> ``ingest_form8k``) round-trip the mirror row-for-row with ``form`` intact (the
+    8-K12B rows included), and both corporate detectors — the SAME functions on both engines, so the form
+    cut cannot diverge — return identical events live and in replay at every as-of: the live risk side
+    silent across both 8-K12Bs' windows, the forced-on trigger side firing only from the plain 8-Ks.
+    """
+    stamped = datetime(
+        2026, 10, 17, 6, 0, tzinfo=timezone.utc
+    )  # one pinned ingest instant (< _PIN)
+    sids = {}
+    with db.cursor() as cur:
+        for t in ("UROY", "REAX"):
+            sids[t] = uuid4()
+            cur.execute(
+                "INSERT INTO security_master (id, tenant_id, ticker, cik, valid_from) "
+                "VALUES (%s, %s, %s, %s, %s)",
+                (sids[t], DEFAULT_TENANT_ID, t, fx.successor_cik(t), date(2026, 1, 1)),
+            )
+    for t, sid in sids.items():
+        ingest_form8k(
+            db,
+            sid,
+            fx.successor_cik(t),
+            form8k_filings(fx.successor_doc(t)),
+            recorded_at=stamped,
+        )
+    db.commit()
+    cat_on = DEFAULT_CONFIG.model_copy(update={"corporate_catalyst_enabled": True})
+
+    export_snapshot(db, tmp_path)
+    con = connect_mirror(tmp_path)
+    try:
+        asofs = (
+            date(2026, 7, 28),  # UROY's 8-K12B filing day
+            date(2026, 8, 7),  # UROY's plain 8-K (5.02)
+            date(2026, 8, 24),  # REAX's 8-K12B filing day
+            date(2026, 8, 28),  # REAX's plain 8-K (5.02)
+            date(2026, 10, 16),
+        )
+        succession_seen = set()
+        fired = 0
+        for asof in asofs:
+            live = PointInTimeData(db, asof=asof, known_at=_PIN)
+            rep = ReplayPointInTimeData(con, asof=asof, known_at=_PIN)
+            for sid in sids.values():
+                live_rows = live.corporate_event_facts(sid)
+                _match(
+                    live_rows,
+                    rep.corporate_event_facts(sid),
+                    _FACT_IDENTITY["fact_corporate_event"],
+                )
+                succession_seen |= {r["accession"] for r in live_rows if r["form"] == "8-K12B"}
+                plain = {r["accession"] for r in live_rows if r["form"] == "8-K"}
+                # the live risk side (switch ON): 3.01 / 3.02 sit only in the 8-K12Bs -> silent, both engines
+                assert corporate_risk.detect(live, sid, asof, DEFAULT_CONFIG) is None
+                assert corporate_risk.detect(rep, sid, asof, DEFAULT_CONFIG) is None
+                live_cat = corporate_catalyst.detect(live, sid, asof, cat_on)
+                rep_cat = corporate_catalyst.detect(rep, sid, asof, cat_on)
+                assert (live_cat is None) == (rep_cat is None)
+                if live_cat is not None:
+                    fired += 1
+                    assert live_cat.model_dump() == rep_cat.model_dump()
+                    assert {p.ref for p in live_cat.provenance} <= plain  # never an 8-K12B
+        assert succession_seen == {"0001493152-26-034947", "0001104659-26-100334"}
+        # UROY's plain 8-K of 08-07 (5.02, 90d) is live at 08-07 / 08-24 / 08-28 / 10-16 and REAX's of
+        # 08-28 at 08-28 / 10-16; neither 8-K12B filing day fires — so the comparison ran on 6 real events.
+        assert fired == 6
     finally:
         con.close()

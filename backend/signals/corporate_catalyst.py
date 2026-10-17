@@ -24,7 +24,8 @@ Selection mirrors ``catalyst_conviction``: the STRONGEST live item fires (prefer
 item, then the most recent filing, then a deterministic accession/item tiebreak); every OTHER live
 trigger item rides the provenance so nothing surfaced is hidden. Liveness is the ITEM's configured
 window anchored on the filing date (an 8-K item code carries no agreement term, so no per-fact
-``horizon_end``).
+``horizon_end``). A succession report (8-K12B / 8-K12G3 / 8-K15D5 — its 5.02 is the officers carrying
+over into the successor) is stored but never read: ``live_policy_items`` drops it by form (2026-10-17).
 
 MASTER SWITCH (``corporate_catalyst_enabled``) — **STILL DEFAULT OFF, and the detector stays PARKED**
 (its S3 sibling ``corporate_risk`` flipped ON 2026-08-17; this side touches the LIVE catalyst family

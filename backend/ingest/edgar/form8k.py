@@ -5,6 +5,13 @@ the Form 4 leg already fetches — the ``items`` array parallels ``accessionNumb
 tape costs ZERO extra document fetches. Store EVERY 8-K with its items, not just the detector cut
 (#9 recall): the deferred cadence/uplisting/reverse-split slices ride this same table, no re-ingest.
 
+The tape's forms are ``domain.edgar_forms.CORPORATE_EVENT_FORMS``: the ordinary 8-K / 8-K/A and — since
+2026-10-17 — a successor issuer's 8-K12B / 8-K12G3 / 8-K15D5 (+ amendments). The ``form`` column (NOT
+NULL since 0038) stores the verbatim form, so a reader tells a succession report from an ordinary 8-K by
+it; the event detectors skip the succession forms (``signals/corporate_events.event_facts``). No
+migration and no backfill: every row stored before the widening is an ordinary 8-K / 8-K/A, as its
+``form`` already says.
+
 Append-if-changed (the SPAC radar's ``record_event_if_changed`` semantics, in the form4-leg shape):
 
 - a NEW accession appends (``appended``);

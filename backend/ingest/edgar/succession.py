@@ -13,9 +13,10 @@ which CIK SEC's own ticker map assigns a symbol to. The judgment (is this member
 ``pipeline/successor_cik.py``; the operator ratifies every re-point (#3). Deterministic, no LLM, no number.
 
 A separate module on purpose: ``submissions.py`` is shared with other in-flight work, and nothing here
-changes what any existing leg reads. In particular ``form8k_filings`` keeps its ``8-K`` / ``8-K/A`` set —
-an 8-K12B is evidence HERE, not an item-code fact on the corporate-event tape (see
-``docs/FEED_LOOP.md`` §successor CIK for the measured reason: its items describe the succession itself).
+changes what any existing leg reads. The succession FORM SET itself lives in ``domain/edgar_forms.py``
+(``SUCCESSION_8K_FORMS``), shared with the 8-K tape: since 2026-10-17 (operator decision)
+``form8k_filings`` STORES these reports on the corporate-event tape too, and the event detectors skip them
+by form — their items describe the succession itself (``docs/CORPORATE_EVENTS.md`` §succession reports).
 """
 
 from __future__ import annotations
@@ -24,14 +25,15 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
+from domain.edgar_forms import SUCCESSION_8K_FORMS
 from domain.settings import get_settings
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.submissions import parse_item_codes
 
-# The SUCCESSOR's first reports. 8-K12B = succession to a 12(b) (exchange-listed) registrant; 8-K12G3 =
-# succession under Rule 12g-3 for a 12(g) registrant; 8-K15D5 = succession to a 15(d) reporting obligation
-# (Rule 15d-5). Amendments ride along. Display evidence only — never a gate (the rule needs none of them).
-SUCCESSION_FORMS = frozenset({"8-K12B", "8-K12B/A", "8-K12G3", "8-K12G3/A", "8-K15D5", "8-K15D5/A"})
+# The SUCCESSOR's first reports (8-K12B / 8-K12G3 / 8-K15D5 + amendments) — the ONE set, defined in
+# ``domain/edgar_forms.py`` and shared with the 8-K tape (stored there, skipped by the event detectors).
+# Here it is display evidence only — never a gate (the rule needs none of them).
+SUCCESSION_FORMS = SUCCESSION_8K_FORMS
 # The PREDECESSOR's deregistration: 15-12B (exchange-listed class), 15-12G (12(g) class), 15-15D (the
 # 15(d) reporting suspension). Amendments ride along. Evidence only.
 DEREGISTRATION_FORMS = frozenset({"15-12B", "15-12B/A", "15-12G", "15-12G/A", "15-15D", "15-15D/A"})
