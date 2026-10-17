@@ -177,6 +177,11 @@ equal-weight **mean = -5.128%**. The same episodes, the same tape, a 4.66 pp gap
 level with the typical basket name and well behind an equal-weight position in it. Neither figure is the
 truth on its own, which is why both ride every draw and both render.
 
+**Re-read after D3a (2026-10-17, MEASURED; see "Re-reading a pass after a correction" below).** The same
+episodes' tape, re-drawn under D3a's first-knowability dating, gives median **-0.45%** and mean **-5.02%**.
+On the tape exported 2026-10-17 it gives **-0.81%** and **-7.28%**. That later move is mostly the forward tape
+growing a month (re-measured horizons), not a changed decision.
+
 Both statistics are taken over the SAME priced members (a name with no tape is in neither, and `n` is the
 denominator both used), so a difference between them is always skew and never a change of arithmetic — the
 symmetric-basket test pins exactly that. **The median costs nothing**: both come off the one list of
@@ -519,6 +524,11 @@ that family went to +infinity:
 | `insider` | 864 | 18.921 pp |
 | `revenue_accel` | 1,246 | 29.453 pp |
 
+These are phase 1's counts, from before D3a. On the same tape, D3a's first-knowability dating takes
+`revenue_accel` to **858** and leaves `insider` at **864**. The widest family flips, so the ceilings above
+would shrink for `revenue_accel` and were not recomputed (MEASURED counts; see "Re-reading a pass after a
+correction").
+
 A flat catalyst curve over the pool is therefore not evidence about the catalyst dial; it is evidence about
 the pool. `--metric-slice ATTR=VALUE` (one curve) and `--ladder-metric-slice DIAL=ATTR=VALUE` (per curve in
 a pass) read a curve on one family, and then **every figure on that curve is the slice's** — `n_episodes`,
@@ -682,6 +692,56 @@ is review-visible rather than trusted to this table.
 
 One measured trap for anyone shortening a horizon: at 90 days UNH legitimately fails to arm, so a sweep whose
 low end asserts "episodes exist" will fail for a correct reason.
+
+## Re-reading a pass after a correction — the D3a re-read (2026-10-17)
+
+A correction to the data or the code (here D3a, #390: fundamentals dated at FIRST knowability, which removed
+"phantom" revenue re-accelerations where a re-reported comparative quarter read as new) leaves every earlier
+conclusion measured on the uncorrected inputs. The re-read re-runs the **same pre-registered measurement**,
+with the same window tiling, pin, clock, K, null seed and production dials (`config_hash 83f0bf5f`). **It is
+a re-measurement, not a new trial:** no dial moves, so `dial_trials` is unchanged. Nothing is promoted.
+
+**The reference.** #384's slice-null tool refuses phase 1 (`20260918T032952Z-public-h5-phase-1-the-convictio`):
+its manifests predate `ThesisEntry.member_ids` (#377), so the null roster cannot be rebuilt. The reference is
+therefore the **baseline point of the H1/H3 pass**, `20260919T015210Z-public-h1-h3-co-first-measureme` (code
+`e339eb9`, mirror `ad8bd98a`, K=20, nine 42-day windows 2025-09-01 → 2026-09-14, pin 2026-09-15T00Z), which
+reproduces phase 1's episodes. Before anything was compared, its nulls were re-drawn and reproduced the
+stored `pooled.json` on 9/9 runs.
+
+**Why four runs, not one.** A fresh re-run mixes three changes: the correction, newer facts, and a forward
+tape that now runs further. A 2×2 of **code** (pre-D3a vs D3a) × **tape** (the reference mirror vs a fresh
+export) separates them, with rosters identical (12/12) in all four:
+
+| run | pass id | code | tape |
+|---|---|---|---|
+| A, the reference | `20260919T015210Z-public-h1-h3-co-first-measureme` | `e339eb9` | `ad8bd98a` |
+| B, D3a only | `20261017T175600Z-public-d3a-reread-old-mirror` | `1c7e3a6` | `ad8bd98a` |
+| C, the re-measurement | `20261017T181800Z-public-d3a-reread-new-mirror` | `1c7e3a6` | `0cef70c9` (prod, 2026-10-17T18:01Z) |
+| D, control | `20261017T183200Z-public-d3a-reread-oldcode-new-mirror` | `e339eb9` | `0cef70c9` |
+
+**A → B is the comparison to quote for D3a's effect,** because D3a is the only thing that changed. D ran
+in a separate store, because the pre-D3a `RunSummary` has no `dial_values` and rewriting the shared
+`index.json` with it would have silently dropped that field from every row. That store was deleted after
+the read; D's figures survive only in the operator's write-up.
+
+**The verdicts (MEASURED, pooled, the `slice_nulls` population):**
+
+| conclusion | verdict | the numbers |
+|---|---|---|
+| `revenue_accel` is the widest family, and revenue re-acceleration × broad breakouts drove basket-wide arming | **WEAKENED** | A → B: **408 episodes disappear, every one carrying a revenue trigger** (406 revenue-keyed); 20 re-timed counterparts appear; 91 shared episodes get a shorter `exit_by`. Revenue-keyed 1,246 → **858**, so it is no longer the widest family (insider **864**). Revenue's share of members in 8+ bursts goes 55.7% → **47.1%** (bursts 45 → 35). Co-arming persists (81.6% → 78.9%). The family still loses to both of its nulls (B: **−2.25 pp** vs timing, **−0.22 pp** vs name). |
+| the book loses to its nulls | **UPHELD** | A → B: actual −4.40% → −3.80%. The gap to the timing null narrows −2.97 → **−2.48 pp**, and to the name null −0.81 → **−0.43 pp**. Per window it beats timing in 2/9 (was 0/9). C (fresh tape): −6.74% vs −4.03% (timing) / −5.43% (name). |
+| insider·core is the only live pocket (scope: `key1_source` × grade) | **UPHELD** | It is the only such family that beats both nulls in all four runs. A +1.59% vs +1.21% / −2.00%; B +2.26% vs +1.55% / −1.86%; C +1.01% vs +0.55% / −3.16%. D3a barely touches it (228 → 229 episodes). It beats the timing null in only **3 of 9** windows in every run, so the edge is name selection, with timing unproven. |
+
+**What the re-read taught:**
+
+- **A correction is a DECISION change, and the tape growing is a MEASUREMENT change.**
+  - D3a reproduced almost exactly on both tapes: −388 vs −385 net episodes, and the same 30 re-timed.
+  - The tape drift changed fewer than 0.5% of episode identities, but it re-measured every episode whose `exit_by` ran past the old edge: 741 of A's 2,615. The scorer reads forward without the pin, because no-lookahead binds the decision, not its measurement.
+  - Quote the two separately.
+- **A pass keeps moving until its horizons mature.** On C, 524 of 2,227 episodes (23.5%) still have `exit_by` beyond the tape's edge, mostly in the last three windows, so a later re-run will differ for that reason alone. C is a current reading, not a final one.
+- **Read a slice's caveat by the 2×2, too.** On the fresh tape the `co_arm_bucket=8+` slice also beats both nulls. It does so under both codes, and never with D3a alone, so that is drift. That slice was never part of the claim; reading it as a new pocket would be a new hypothesis.
+- **The record is not the backtest.** The live record's phantom nights were handled separately by D3b (`call_annotation`: 9 exclude + 107 note). This section re-reads only the backtest.
+- **D3a is rule (a) only.** Rule (c), firing only on a filing's newest quarter, is a separate, deferred policy call and would remove more.
 
 ## Known gaps
 

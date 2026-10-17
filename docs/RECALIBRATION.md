@@ -152,6 +152,19 @@
    evaluate a dial change (it carries no policy fingerprint — that is exactly what the `calls.config_hash` /
    `run_kind` columns exist to fix), and retuning first would be the assume-don't-test move this agenda
    exists to avoid. *(`backend/signals/revenue_acceleration.py`; rules R6/R7 in `docs/CALL_LOGIC.md`.)*
+
+   **Post-D3a (2026-10-17).** Part of this breadth was phantom. Before D3a (#390), the fundamentals read
+   dated a re-reported comparative quarter as new, so a 10-Q could "re-accelerate" on numbers already public.
+   The backtest re-read (`docs/BACKTEST.md`, "Re-reading a pass after a correction") MEASURED it on phase 1's
+   tape:
+   - **408 episodes disappear, all of them carrying a revenue trigger;**
+   - revenue-keyed episodes fall 1,246 → **858**, no longer the widest family (insider **864**);
+   - the family **still loses to both of its nulls**: −2.25 pp vs timing, −0.22 pp vs name.
+
+   The record-side counts above (465 of 969 armed member-nights) predate D3a and were **not** re-measured.
+   The live record's phantom nights carry D3b annotations instead (`call_annotation`: 9 exclude + 107 note,
+   `docs/SCOREBOARD.md`). H1 remains the instrument for the candidate changes; D3a removed phantoms, not the
+   breadth question.
 9. **The recorded `TriggerRef` carries no `type`, so a computed catalyst and a ratified one are
    distinguishable only by a label prefix `[FILED 2026-09-16; behind the re-record churn gate]`.**
    `TriggerRef` (`domain/call.py`) is `{label, kind, grade, event_date, security_id, sources}`. The computed
