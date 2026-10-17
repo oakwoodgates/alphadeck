@@ -127,6 +127,7 @@ alphadeck/
     │   ├── edgar/{client,submissions,form4,converts,extract,fulltext}.py   # SEC client + Form 4 + converts + extractor + fulltext (the EFTS discovery enumerator: discover · classify · parallel under the shared RateLimiter)
     │   ├── edgar/{annual_shares,annual_runway,statement_sources}.py         # the "dark" FPI retrieval (FLAG-only): 20-F/40-F cover shares (+ADS ratio) · statement cash/runway · the primary-doc-vs-EX-99 seam
     │   ├── edgar/nport.py                                        # locate / fetch / parse one fund series' N-PORT holdings (the ETF sleeve)
+    │   ├── edgar/companyfacts_gate.py                            # Q17: when a RECURRING pass re-pulls companyfacts (new XBRL filing / weekly backstop) + the measured form set
     │   ├── funds/{source,polygon,snapshot_loader,ingest_security}.py        # the fund shares-out sampler: the source seam (Polygon primary when keyed → Global X / stockanalysis fallback) · the one incremental, re-versioning, no-lookahead leg
     │   ├── doe/{client,entities,feed}.py                          # the USASpending/DOE automated catalyst feed
     │   ├── prices/{eod_loader,source,ingest_security}.py          # EOD bars (+ latest_bar_date, stored_bars, force_refresh) · the PriceSource seam (Yahoo/Stooq) · the ONE price leg (incremental tail + the RE-VERSION pass)

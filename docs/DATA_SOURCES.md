@@ -74,10 +74,35 @@ and the free proxy is demonstrably inadequate. Default to free + derive.
   the same-pass re-reads free *and* still closes the gap across passes: EDGAR accepts filings 06:00–22:00 ET,
   so nothing can be filed in the five minutes before a 22:30 pass, and no daytime warmth survives five minutes
   (measured: a 20-minute-old key refetches). Accepted residual: a second pass started *within* five minutes of
-  another reads the first's cache for the companies it reached last. `ingest_fundamentals` keeps the 12h TTL
-  **deliberately** (a large document feeding a *quarterly* series — a day's staleness cannot change a call), as
-  do the Workbench and a standalone `python -m pipeline.ingest_thesis`. Offline (`allow_live=False`) the dial is
-  inert — a stale hit is still served, so the suite and `--no-live` are unaffected.
+  another reads the first's cache for the companies it reached last. The Workbench and a standalone
+  `python -m pipeline.ingest_thesis` keep the 12h TTL (interactive paths). Offline (`allow_live=False`) the dial
+  is inert — a stale hit is still served, so the suite and `--no-live` are unaffected.
+- **`companyfacts/*` is FILING-GATED on a recurring client (Q17, 2026-10-17).** This reverses the earlier
+  choice that "`ingest_fundamentals` keeps the 12h TTL deliberately (a quarterly series)". That choice saved
+  nothing: by 22:30 the 12h clock had always expired, so the nightly fundamentals leg re-pulled every basket
+  name's companyfacts (MEASURED 2026-10-17: 680 documents, 1.18 GB) to pick up the ~38 a night that had filed
+  anything. A third key class now sits between immutable and plain-mutable: on a client built with the
+  recurring dial (`EdgarClient.recurring` — the dial is the marker, no second knob), a cached companyfacts is
+  re-pulled only when **(a)** it is not cached, **(b)** the company's cached `submissions/CIK<10>.json` lists a
+  filing ACCEPTED since the companyfacts was fetched (less a 24 h grace for SEC's XBRL processing and clock
+  skew) whose form is in the measured XBRL form set, or **(c)** a 6.5-day backstop has passed. The rule, the
+  form set (every distinct `form` on any fact in prod's 688 cached companyfacts files, plus an `/A` for every
+  base form) and its counts live in `ingest/edgar/companyfacts_gate.py`. The gate reads the index **from disk**
+  (no fetch, no `live_fetches` count), so it adds no SEC request; a missing or unreadable index, or a
+  qualifying row with no date, counts as due. **X8:** a companyfacts 404 writes `<key>.404` and a recurring
+  client re-asks on the same gate rather than nightly (a known absence prints as one quiet count). An
+  INTERACTIVE client keeps the plain 12h TTL for companyfacts and ignores the 404 marker — the Workbench's
+  freshness is unchanged. **The bound, stated:** the fundamentals leg runs *before* the per-thesis loop
+  re-pulls tonight's indexes, so the gate reads the index the PREVIOUS pass fetched. A filing accepted on day
+  N is in that index at pass N+1, which re-pulls it — one pass later than the old nightly re-pull, which did
+  carry same-day filings (MEASURED: a 10-Q/A accepted 17:02 ET was in that night's companyfacts). A Friday
+  filing therefore reaches Monday's call. Anything the index cannot show (a company whose index stopped
+  refreshing, a form that starts carrying facts later) is re-pulled by the backstop within 6.5 days. The
+  fundamentals rows themselves are stamped at their filing date (R17), not at ingest, so a delayed pull still
+  dates each quarter at its filing — and a recompute of that night (the as-of slider, a backfill) sees the
+  quarter while the recorded call-of-record of that night did not. Simulated on prod's real filing cadence
+  (45 weekday passes, 2026-08-18 → 2026-10-16): ~151 pulls a pass instead of 680, ~0.26 GB instead of
+  1.18 GB.
 - **The cache PERSISTS across container rebuilds** — the compose stack mounts a named volume (`appdata:/data`,
   backend + the cron sidecar) over the runtime-data home, so `data/edgar_cache/` (and the price/DOE/FIGI/SEC
   caches beside it) survives `docker compose up --build`. Before the volume, every rebuild wiped the cache and

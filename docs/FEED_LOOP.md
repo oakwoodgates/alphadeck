@@ -159,10 +159,19 @@ nothing can be filed in the five minutes before a 22:30 pass, and no daytime war
 of another reads the first's cache for the companies it reached last — which is exactly why the R4 freeze
 page keeps its `--catch-up` exemption (see "Known gaps").
 
-**`ingest_fundamentals` keeps the 12h TTL deliberately** (companyfacts is a large document feeding a
-*quarterly* series — a day's staleness cannot change a call), and the interactive paths (the Workbench, a
-standalone `python -m pipeline.ingest_thesis`) keep it too. Consequence for the operator: **"Run daily now"
-is safe at any hour**.
+The interactive paths (the Workbench, a standalone `python -m pipeline.ingest_thesis`) keep the 12h TTL.
+Consequence for the operator: **"Run daily now" is safe at any hour**.
+
+**…and `companyfacts` is FILING-GATED on the recurring pass (Q17, 2026-10-17)** `[BUILT]`. `ingest_fundamentals`
+used to be the one deliberate exception to the recurring dial, keeping 12h "because the series is quarterly"
+— but by 22:30 the 12h clock had always expired, so the leg re-pulled every basket name's companyfacts every
+night (MEASURED: 680 documents, 1.18 GB). It now builds a recurring client, and on a recurring client the
+`companyfacts/` key class is re-pulled only when uncached, when the company's cached submissions index shows
+a new XBRL-bearing filing since the last pull, or after a 6.5-day backstop; a 404 is negative-cached on the
+same gate (X8). The gate reads the index from disk, so it costs no SEC request — but it reads the index the
+PREVIOUS pass fetched (this leg runs before the per-thesis loop), so a filing accepted today reaches the
+call one pass later than before. The rule, the measured form set and the bound: `DATA_SOURCES.md`
+§cache-freshness and `ingest/edgar/companyfacts_gate.py`.
 
 ## Settled closes, honest stamps — the price write path (D1 + D2, 2026-10-16)  `[BUILT]`
 

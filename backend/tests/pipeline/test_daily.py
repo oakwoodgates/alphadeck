@@ -875,6 +875,33 @@ def test_pass_fundamentals_failure_is_FAIL_OPEN(monkeypatch):
     assert isinstance(out, daily.DailyPassOutcome)
 
 
+def test_pass_fundamentals_known_404s_are_ONE_quiet_count_and_fresh_errors_stay_loud(
+    monkeypatch, capsys
+):
+    """X8 at the pass: a name the negative cache answered (``known_absent``) folds into the summary line as a
+    count; any other fundamentals error — including a FRESH 404 — still prints its own ERROR line.
+    """
+    from pipeline.ingest_fundamentals import NameResult as FundResult
+
+    _prime_pass(monkeypatch)
+    sid = uuid.uuid4()
+    monkeypatch.setattr(
+        "pipeline.ingest_fundamentals.ingest_fundamentals",
+        lambda conn, **k: [
+            FundResult("AAA", sid, appended=2),
+            FundResult(
+                "NOCF", sid, error="companyfacts/CIK1.json: (HTTP 404, cached)", known_absent=True
+            ),
+            FundResult("BAD", sid, error="Client error '404 Not Found' for url x"),
+        ],
+    )
+    daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
+    out = capsys.readouterr().out
+    assert "fundamentals refresh: +2 quarters, 3 names, 1 known without companyfacts" in out
+    assert "fundamentals refresh ERROR: Client error '404 Not Found'" in out
+    assert "ERROR: companyfacts/CIK1.json" not in out
+
+
 # --- the SPAC shell-sweep leg in run_daily_pass (PR-2): before-radar, fail-open, Monday reenrich ---
 
 

@@ -15,6 +15,13 @@ Fail-visible: each name runs in its own try; a failure (e.g. companyfacts 404 fo
 doesn't serve) is captured into that name's result and the run continues. A security appearing in two
 baskets is pulled ONCE (companyfacts is per-CIK). Advisory back-half data — never an operator-ratified fact,
 but a DETERMINISTIC parse (#3): the number is XBRL, never model-sourced.
+
+Q17 — THE PULL IS GATED ON NEW FILINGS. This leg builds a RECURRING client, so a cached companyfacts is
+re-pulled only when the company's submissions index shows a new XBRL-bearing filing since the last pull, or
+after the weekly backstop (``ingest/edgar/companyfacts_gate.py``); a known 404 is re-asked on the same
+terms (``known_absent`` on the result, counted quietly instead of an ERROR line every night). A name the gate
+leaves alone still RE-PARSES its cached document and appends any version not yet stored, so nothing already
+on disk is skipped.
 """
 
 from __future__ import annotations
@@ -26,7 +33,7 @@ from uuid import UUID
 import psycopg
 
 from db.session import connect
-from ingest.edgar.client import EdgarClient
+from ingest.edgar.client import RECURRING_CACHE_TTL_S, CachedNotFound, EdgarClient
 from ingest.fundamentals import ingest_fundamentals_for_security
 from repositories import thesis_repo
 from securities import master
@@ -34,13 +41,17 @@ from securities import master
 
 @dataclass
 class NameResult:
-    """Per-name outcome — what was appended, what was already stored (idempotency), and any captured error."""
+    """Per-name outcome — what was appended, what was already stored (idempotency), and any captured error.
+    ``known_absent`` marks an error that is the NEGATIVE CACHE answering (X8): data.sec.gov already said 404
+    for this company and nothing it filed since says to re-ask — a known "has no companyfacts", not news.
+    """
 
     ticker: str | None
     security_id: UUID
     appended: int = 0
     skipped: int = 0
     error: str | None = None
+    known_absent: bool = False
 
 
 def ingest_fundamentals(
@@ -55,15 +66,19 @@ def ingest_fundamentals(
     non-archived thesis). Securities are de-duplicated across baskets (one companyfacts pull per CIK).
     Per-name fail-visible + committing on success; the caller owns nothing (this commits per name).
     """
-    # The ONE deliberate exception to the RECURRING TTL (five minutes —
-    # ``ingest.edgar.client.RECURRING_CACHE_TTL_S``, G1): this leg keeps the 12h default.
-    # ``companyfacts/CIK<10>.json`` is a LARGE document and the series it feeds is QUARTERLY, so a day's
-    # staleness cannot change a call — whereas re-pulling every basket name's companyfacts nightly is real
-    # bandwidth for no new information. The legs that enumerate FILINGS (``pipeline.daily``'s per-thesis
-    # client, the SPAC radar, the shell sweep) take the recurring TTL because a day's staleness there hides
-    # a filing. If a future fundamentals signal needs same-day freshness, this is the line to change —
-    # deliberately, not by forgetting.
-    client = edgar_client or EdgarClient(allow_live=allow_live, user_agent=user_agent)
+    # Q17 (2026-10-17) — this leg is now a RECURRING client like every other nightly leg (it used to be the
+    # one deliberate exception, keeping the 12h interactive TTL). That did not save bandwidth: by 22:30 the
+    # 12h clock had always expired, so every basket name's companyfacts was re-pulled every night (MEASURED
+    # 680 documents, 1.18 GB) to pick up the ~38 that had filed something. On a recurring client the
+    # ``companyfacts/`` key class is FILING-GATED instead (``ingest/edgar/companyfacts_gate.py``): re-pulled
+    # when uncached, when the cached submissions index shows a new XBRL-bearing filing since the last pull,
+    # or after a weekly backstop. The gate lives on the key class in the client, so nothing here threads a
+    # flag; the cost of a client built WITHOUT the recurring dial is the old bandwidth, never staleness.
+    # The CLI (``python -m pipeline.ingest_fundamentals``) is this same leg run by hand, so it is gated too;
+    # a name not cached yet (a new basket member) is always pulled.
+    client = edgar_client or EdgarClient(
+        allow_live=allow_live, user_agent=user_agent, cache_ttl_s=RECURRING_CACHE_TTL_S
+    )
     if thesis_id is not None:
         one = thesis_repo.get(conn, thesis_id)
         if one is None:
@@ -93,12 +108,21 @@ def ingest_fundamentals(
                 )
             except Exception as e:  # noqa: BLE001 — fail-visible: capture, roll back, keep going
                 conn.rollback()
-                results.append(NameResult(sec.ticker, sec.id, error=str(e)))
+                results.append(
+                    NameResult(
+                        sec.ticker,
+                        sec.id,
+                        error=str(e),
+                        known_absent=isinstance(e, CachedNotFound),
+                    )
+                )
     return results
 
 
 def _report(results: list[NameResult]) -> int:
-    """Print a per-name summary; return the number that errored (the process exit signal)."""
+    """Print a per-name summary; return the number that errored (the process exit signal). A known-absent
+    name (the X8 negative cache) still counts as errored here — this CLI reports every name it walked.
+    """
     total_new = sum(r.appended for r in results)
     errored = [r for r in results if r.error]
     for r in results:

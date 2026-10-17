@@ -381,7 +381,9 @@ def run_daily(
         # ``forms/*`` keys still cache forever, so the cost is ONE index fetch per company per pass — which
         # the nightly run already paid whenever it ran outside the TTL — and the SEC rate limiter bounds it.
         # ``python -m pipeline.ingest_thesis`` run standalone keeps the 12h default (an operator-initiated,
-        # interactive path); ``ingest_fundamentals`` keeps it deliberately (see its construction site).
+        # interactive path). Since Q17 ``ingest_fundamentals`` builds a recurring client too: on it the
+        # ``companyfacts/`` class is FILING-GATED, keyed off the very submissions index this loop re-pulls
+        # (``ingest/edgar/companyfacts_gate.py``).
         edgar_client = EdgarClient(
             allow_live=allow_live, user_agent=user_agent, cache_ttl_s=RECURRING_CACHE_TTL_S
         )
@@ -966,17 +968,33 @@ def _run_daily_pass_locked(
         try:  # (b) then fundamentals — bare = every basket
             from pipeline.ingest_fundamentals import ingest_fundamentals
 
-            # NO force_refresh/ttl flag: EDGAR cache freshness is key-classed / default-refresh
-            # (companyfacts re-fetches on a 12h TTL when allow_live), NOT a per-call boolean (the #196
-            # lesson — "the boolean wearing a timedelta" is how the ~11-day insider freeze happened).
+            # NO force_refresh/ttl flag: EDGAR cache freshness is key-classed, NOT a per-call boolean (the
+            # #196 lesson — "the boolean wearing a timedelta" is how the ~11-day insider freeze happened).
+            # Q17: the leg builds a RECURRING client, on which companyfacts is FILING-GATED — re-pulled on a
+            # new XBRL-bearing filing in the cached submissions index, or the weekly backstop. ORDER NOTE:
+            # this leg runs BEFORE the per-thesis loop re-pulls tonight's indexes, so a filing accepted
+            # today is seen by NEXT pass's gate — one pass later than the old nightly re-pull (the accepted
+            # bound; `docs/DATA_SOURCES.md` §cache-freshness).
             fund_conn = _pass_connect()
             try:
                 fund_results = ingest_fundamentals(fund_conn, allow_live=True)
             finally:
                 fund_conn.close()
             fund_quarters = sum(r.appended for r in fund_results)
-            fund_errs = [r.error for r in fund_results if r.error]
-            print(f"fundamentals refresh: +{fund_quarters} quarters, {len(fund_results)} names")
+            # X8 — a known "no companyfacts" (the negative cache answering) is one quiet count, not an
+            # ERROR line per name per night; a FRESH 404 or any other failure stays loud below
+            fund_absent = sum(
+                1 for r in fund_results if r.error and getattr(r, "known_absent", False)
+            )
+            fund_errs = [
+                r.error for r in fund_results if r.error and not getattr(r, "known_absent", False)
+            ]
+            absent = (
+                f", {fund_absent} known without companyfacts (404, cached)" if fund_absent else ""
+            )
+            print(
+                f"fundamentals refresh: +{fund_quarters} quarters, {len(fund_results)} names{absent}"
+            )
             for err in fund_errs:  # loud only when nonzero
                 print(f"  fundamentals refresh ERROR: {err}")
         except Exception as e:  # noqa: BLE001 — a refresh leg is a passenger, never the driver
