@@ -24,13 +24,28 @@ surfaces) + `docs/POSTMORTEM_CRON_FREEZE_2026-07.md` (what a freeze looks like).
   record edge before declaring one.
 
 ## Steps
-1. **The verdict first:** `curl http://localhost:8000/admin/status` → `cron.status`
-   (`healthy` / `stale` / `unhealthy`), the **record edge** (calls-log `MAX(asof)`
-   vs the schedule-aware expected edge — weekends don't cry wolf), and the
-   last-snapshot age. `healthy` + current edge → report and stop.
-2. **Not healthy → read the run-of-record:** newest JSON in `data/cron_runs/`
-   (append-only, one per pass) — per-thesis ingest tallies, appended/unchanged/
-   errored counts, and whether the run happened at all.
+1. **The verdict first:** `curl http://localhost:8000/admin/status`:
+   - `cron.status`: `healthy` / `stale` / `unhealthy` / `gappy` / `running`;
+   - `cron.alarms`, which covers code-sha unknown or a cron↔backend mismatch, notifier=log, UA unset, backup age, and a pass that did not finish or crashed;
+   - the **record edge**: calls-log `MAX(asof)` vs the schedule-aware expected edge, so weekends don't cry wolf;
+   - the last-snapshot age.
+
+   Since 2026-10-16 also read:
+   - `record.partial_nights`: a night is covered only when EVERY thesis that existed then has an on-time row, so "4 of 12" shows here;
+   - `record.reconstructed_nights`: backfilled nights, deliberately QUIET;
+   - `unfinished_run`;
+   - `last_run.audit`: the V1 self-audit, one entry per check;
+   - `last_run.name_errors_new`: newly failing names (known ones are a quiet count);
+   - `split_defects`: the T4 split-basis monitor.
+
+   `healthy` with a current edge, no alarms, no partial nights and all audit checks passing → report and stop.
+2. **Not healthy → read the run-of-record:** the newest JSON in `/data/cron_runs/` inside the cron container (`MSYS_NO_PATHCONV=1 docker exec alphadeck-cron-1 ls /data/cron_runs`; append-only, one per pass). It holds:
+   - per-thesis ingest tallies and `name_errors` with reasons;
+   - appended / unchanged / errored / skipped counts;
+   - `code_sha` / `config_hash` / `run_kind` / `env`;
+   - the audit;
+   - `status`: `running` / `finished` / `crashed`. A `running` file that never finished is a pass that was KILLED mid-loop. Its night's catch-up still runs (the guard counts finished passes only) and records only the theses missing an on-time row (M2).
+   - **Out-of-band:** the healthchecks.io heartbeat (`HEARTBEAT_URL`) alerts when the whole box or Docker is down, which no in-box check can see.
 3. **No run at all → is the sidecar up?** `docker compose -f docker-compose.yml -f docker-compose.prod.yml ps cron` +
    `docker compose -f docker-compose.yml -f docker-compose.prod.yml logs --tail 50 cron`.
    The shell logs its own failure signals (2026-10-16): grep that log for
