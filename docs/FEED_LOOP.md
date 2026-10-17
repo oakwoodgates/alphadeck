@@ -1075,6 +1075,11 @@ happened to exist. So a snapshot is now a one-click safety net — and a nightly
   `python -m pipeline.backup --prune-dry-run [--dir D]` dumps nothing and removes nothing: it prints every
   file the next prune would delete, with its size and the rule that selected it, plus the bytes freed (run
   it before a deploy that changes retention, and show the operator the list).
+- **The password never reaches the log or `ps` (2026-10-17).** `pg_dump` used to get the full
+  `DATABASE_URL` on its command line, so the password was in `ps` while a dump ran and in every failure
+  traceback (`CalledProcessError` prints the command). It now gets the URL WITHOUT the password and the
+  password as `PGPASSWORD` in its environment (`_dump_target`; URI userinfo, `?password=` and key=value DSNs
+  alike); every message the backup path raises is redacted and raised without the chained subprocess error.
 - **The host bind is on BOTH services.** `./data/backups:/data/backups` (writable, the `scoreboard_replay`
   idiom minus `:ro`) is bound on `backend` (the button + list) **and** `cron` (the nightly dump), so the two
   share ONE host directory — host-accessible so a dump is copyable off-box. `pg_dump` comes from

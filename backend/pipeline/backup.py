@@ -47,6 +47,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit, urlunsplit
 
 from db.session import database_url as _database_url
 from domain.settings import get_settings
@@ -122,28 +123,89 @@ def _parse_backup_name(name: str) -> tuple[datetime, bool] | None:
     return created_at, labeled
 
 
+# A key=value DSN's password (``password=secret`` / ``password='a b'``) and a URI's userinfo password — the
+# two shapes a libpq connection string can carry one in.
+_DSN_PASSWORD = re.compile(r"(password\s*=\s*)('(?:[^'\\]|\\.)*'|\S+)", re.IGNORECASE)
+_URI_PASSWORD = re.compile(r"(://[^:/@\s]*:)([^@\s]*)(@)")
+
+
+def _dump_target(url: str) -> tuple[str, str | None]:
+    """Split the password OUT of a connection string: ``(the string without it, the password or None)``.
+
+    The password then reaches ``pg_dump`` through ``PGPASSWORD`` in its environment, never on its command
+    line: ``argv`` is world-readable (``ps``, ``/proc/<pid>/cmdline``) and is what ``CalledProcessError`` /
+    ``TimeoutExpired`` print, so a URL there put the password into every failure traceback in the cron log.
+    The environment is readable only by the same user (``/proc/<pid>/environ``) and is printed by nothing.
+    Handles a URI's userinfo (``postgresql://user:pw@host/db``, percent-decoded for ``PGPASSWORD``), a URI
+    ``?password=`` parameter, and a key=value DSN (``host=x password=pw``); anything else passes through.
+    """
+    if "://" in url:
+        parts = urlsplit(url)
+        password: str | None = None
+        netloc = parts.netloc
+        if "@" in netloc:
+            userinfo, hostport = netloc.rsplit("@", 1)
+            if ":" in userinfo:
+                user, raw = userinfo.split(":", 1)
+                password = unquote(raw)
+                netloc = f"{user}@{hostport}"
+        query = parse_qsl(parts.query, keep_blank_values=True)
+        kept = [(k, v) for k, v in query if k.lower() != "password"]
+        if len(kept) != len(query):
+            password = next(v for k, v in query if k.lower() == "password")
+        safe = urlunsplit(parts._replace(netloc=netloc, query=urlencode(kept)))
+        return safe, password
+    m = _DSN_PASSWORD.search(url)
+    if m is None:
+        return url, None
+    raw = m.group(2)
+    password = raw[1:-1].replace("\\'", "'").replace("\\\\", "\\") if raw.startswith("'") else raw
+    return (url[: m.start()] + url[m.end() :]).strip(), password
+
+
+def _redact(text: str, secrets: list[str]) -> str:
+    """``text`` with every credential replaced by ``***``: each known secret (raw and percent-encoded),
+    then — belt and braces — any URI userinfo password or ``password=`` value still in it."""
+    for s in secrets:
+        if s:
+            text = text.replace(s, "***").replace(quote(s, safe=""), "***")
+    text = _URI_PASSWORD.sub(r"\1***\3", text)
+    return _DSN_PASSWORD.sub(r"\1***", text)
+
+
 def _pg_dump(url: str, dest: Path, *, timeout_s: float) -> None:
     """The DB touch — a READ-ONLY ``pg_dump`` subprocess (``--no-owner`` + plain-SQL default, the shape
     that restored cleanly on 2026-07-17). The ONLY seam that shells the binary, so a test injects a fake
     ``dump_runner`` and never needs it. A missing binary / non-zero exit is a LOUD, operator-facing raise
     (the job maps it to a ``failed`` job); the wall ``timeout_s`` turns a hang into a loud failure too.
+
+    CREDENTIALS NEVER REACH THE LOG (2026-10-17). The password goes to ``pg_dump`` as ``PGPASSWORD`` in its
+    environment, not in the ``--dbname`` it is given (``_dump_target``) — so ``ps`` shows the URL without
+    it. Every message raised from here is ``_redact``-ed (pg_dump's own stderr included), and raised ``from
+    None``: the chained ``CalledProcessError`` / ``TimeoutExpired`` would print the command line in the
+    traceback, and with it whatever connection string it carried.
     """
+    safe_url, password = _dump_target(url)
+    secrets = [password] if password else []
+    env = {**os.environ, "PGPASSWORD": password} if password else None
     try:
         subprocess.run(
-            ["pg_dump", "--no-owner", "--dbname", url, "--file", str(dest)],
+            ["pg_dump", "--no-owner", "--dbname", safe_url, "--file", str(dest)],
             check=True,
             capture_output=True,
             text=True,
             timeout=timeout_s,
+            env=env,
         )
-    except FileNotFoundError as exc:
+    except FileNotFoundError:
         raise RuntimeError(
             "pg_dump not found — the image needs postgresql-client-16 (see backend/Dockerfile)"
-        ) from exc
+        ) from None
     except subprocess.CalledProcessError as exc:
-        raise RuntimeError(
-            f"pg_dump failed (exit {exc.returncode}): {(exc.stderr or '').strip()}"
-        ) from exc
+        stderr = _redact((exc.stderr or "").strip(), secrets)
+        raise RuntimeError(f"pg_dump failed (exit {exc.returncode}): {stderr}") from None
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"pg_dump timed out after {timeout_s:g} s") from None
 
 
 def run_backup(

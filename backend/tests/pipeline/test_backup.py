@@ -6,8 +6,11 @@ publish so a crashed dump never lists."""
 from __future__ import annotations
 
 import shutil
+import subprocess
+import traceback
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import quote
 
 import pytest
 
@@ -340,6 +343,120 @@ def test_cli_prune_dry_run_is_exclusive_with_a_dump_mode(tmp_path):
         backup.main(["--prune-dry-run", "--label", "pre-migration", "--dir", str(tmp_path)])
     assert exc.value.code == 2
     assert list(tmp_path.glob("*.sql")) == []
+
+
+# --- credentials never reach the log (2026-10-17) -------------------------------------------------
+
+_SECRET = "s3cr3t-P@ss:w/rd"  # '@', ':' and '/' force the percent-encoded URI form too
+_SECRET_URL = (
+    "postgresql://alphadeck:" + quote(_SECRET, safe="") + "@postgres:5432/alphadeck?sslmode=disable"
+)
+
+
+def _record_run(monkeypatch, *, raise_exc: BaseException | None = None):
+    """Swap ``subprocess.run`` for a recorder: it keeps argv + env, then succeeds or raises ``raise_exc``
+    exactly as the real call would (``CalledProcessError`` / ``TimeoutExpired`` carry the argv)."""
+    seen: dict = {}
+
+    def _run(argv, **kw):
+        seen["argv"], seen["env"] = list(argv), kw.get("env")
+        if raise_exc is not None:
+            if isinstance(raise_exc, subprocess.CalledProcessError):
+                raise subprocess.CalledProcessError(
+                    raise_exc.returncode, argv, output="", stderr=raise_exc.stderr
+                )
+            if isinstance(raise_exc, subprocess.TimeoutExpired):
+                raise subprocess.TimeoutExpired(argv, raise_exc.timeout)
+            raise raise_exc
+        Path(argv[argv.index("--file") + 1]).write_text("-- dump\n", encoding="utf-8")
+
+    monkeypatch.setattr(backup.subprocess, "run", _run)
+    return seen
+
+
+def _all_text(exc: BaseException) -> str:
+    """Everything a traceback of ``exc`` would print — message AND any chained cause/context it shows."""
+    return "".join(traceback.format_exception(exc))
+
+
+def test_the_password_rides_PGPASSWORD_never_the_command_line(tmp_path, monkeypatch):
+    """What ``ps`` would show while the dump runs is argv: the URL there carries user/host/db and NOT the
+    password, which reaches pg_dump through its environment (decoded)."""
+    seen = _record_run(monkeypatch)
+    backup._pg_dump(_SECRET_URL, tmp_path / "x.sql", timeout_s=5)
+    argv = " ".join(seen["argv"])
+    assert _SECRET not in argv and quote(_SECRET, safe="") not in argv
+    assert "postgresql://alphadeck@postgres:5432/alphadeck?sslmode=disable" in seen["argv"]
+    assert seen["env"]["PGPASSWORD"] == _SECRET
+
+
+def test_a_FAILED_pg_dump_never_puts_the_password_in_the_error_or_the_log(
+    tmp_path, monkeypatch, caplog
+):
+    """A forced failure through the ADMIN job path (the one that logs a traceback): neither the job's error
+    text, nor the raised exception with its whole traceback, nor any captured log line holds the password —
+    even when pg_dump's stderr echoes the full connection URL back."""
+    from pipeline import backup_job
+
+    seen = _record_run(
+        monkeypatch,
+        raise_exc=subprocess.CalledProcessError(
+            1,
+            [],
+            stderr=f'pg_dump: error: connection to server failed for "{_SECRET_URL}": FATAL: password '
+            f'authentication failed for user "alphadeck" (password={_SECRET})',
+        ),
+    )
+    with pytest.raises(RuntimeError) as exc:
+        backup.run_backup(base_dir=tmp_path, database_url=_SECRET_URL, now=_NOW)
+    text = _all_text(exc.value)
+    assert "pg_dump failed (exit 1)" in text and "password authentication failed" in text
+    assert _SECRET not in text and quote(_SECRET, safe="") not in text
+    assert _SECRET not in " ".join(seen["argv"])
+
+    backup_job.reset_state()
+    with caplog.at_level("DEBUG"):
+        jid = backup_job.start_backup_job(
+            lambda: backup.run_backup(base_dir=tmp_path, database_url=_SECRET_URL, now=_NOW),
+            executor=lambda job, run: backup_job._run_job(job, run),
+        )
+    job = backup_job.get_job(jid)
+    assert job is not None and job.status == "failed" and "pg_dump failed" in job.error
+    assert _SECRET not in job.error and quote(_SECRET, safe="") not in job.error
+    logged = caplog.text + "".join(
+        "".join(traceback.format_exception(*r.exc_info)) for r in caplog.records if r.exc_info
+    )
+    assert "backup job" in logged and _SECRET not in logged
+    assert quote(_SECRET, safe="") not in logged
+    backup_job.reset_state()
+
+
+def test_a_TIMED_OUT_pg_dump_never_puts_the_password_in_the_error(tmp_path, monkeypatch):
+    _record_run(monkeypatch, raise_exc=subprocess.TimeoutExpired([], 5))
+    with pytest.raises(RuntimeError) as exc:
+        backup._pg_dump(_SECRET_URL, tmp_path / "x.sql", timeout_s=5)
+    text = _all_text(exc.value)
+    assert "timed out after 5 s" in text and _SECRET not in text
+
+
+@pytest.mark.parametrize(
+    "url,want_safe,want_pw",
+    [
+        ("postgresql://u:pw@h:5544/db", "postgresql://u@h:5544/db", "pw"),
+        (
+            "postgresql://u@h/db?password=pw&sslmode=require",
+            "postgresql://u@h/db?sslmode=require",
+            "pw",
+        ),
+        ("postgresql://u@h/db", "postgresql://u@h/db", None),
+        ("host=h user=u password='a b' dbname=db", "host=h user=u  dbname=db", "a b"),
+        ("host=h dbname=db", "host=h dbname=db", None),
+    ],
+)
+def test_the_password_is_split_out_of_every_connection_string_shape(url, want_safe, want_pw):
+    safe, pw = backup._dump_target(url)
+    assert (safe, pw) == (want_safe, want_pw)
+    assert want_pw is None or want_pw not in safe
 
 
 # --- list_backups: newest-first, skip-unreadable fail-open ----------------------------------------
