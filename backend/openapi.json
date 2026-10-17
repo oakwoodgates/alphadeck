@@ -1735,7 +1735,7 @@
           "scoreboard"
         ],
         "summary": "Get Scoreboard",
-        "description": "The Scoreboard (SCORE): the call-of-record scored as-of ``asof`` \u2014 a READ-ONLY pass over\nthe immutable calls log, the operator-decision log, and realized asof-capped prices. The\nRECORD is the scoring source, never a recompute (replay re-derives history; this holds the\nplatform to what it actually said). Aggregate metrics judge only matured, non-censored\nepisodes and gate below ``min_n`` \u2014 an instrument, not a claim, until n accrues.\n\nTwo kinds of recorded row are set aside before scoring: reconstructed rows (always), and rows\nannotated as phantom arms (by the annotated-night policy, which ``include_annotated`` overrides\nper request). Both readings are available; nothing is deleted either way.",
+        "description": "The Scoreboard (SCORE): the call-of-record scored as-of ``asof`` \u2014 a READ-ONLY pass over\nthe immutable calls log, the operator-decision log, and realized asof-capped prices. The\nRECORD is the scoring source, never a recompute (replay re-derives history; this holds the\nplatform to what it actually said). Aggregate metrics judge only matured, non-censored\nepisodes and gate below ``min_n`` \u2014 an instrument, not a claim, until n accrues.\n\nThree kinds of recorded row are set aside before scoring: reconstructed rows (always), rows\nannotated as phantom arms (by the annotated-night policy, which ``include_annotated`` overrides\nper request), and rows recorded after their night's next EDGAR open (by the late-night policy,\nwhich ``include_late`` overrides per request). Every reading is available; nothing is deleted.",
         "operationId": "get_scoreboard_scoreboard_get",
         "parameters": [
           {
@@ -1779,6 +1779,24 @@
               "title": "Include Annotated"
             },
             "description": "the annotated-night reading: true = score rows annotated `exclude` (phantom arms) as before; false = set them aside like reconstructed rows; omitted = the server setting (ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED, default: set aside). The response's summary.annotated_policy names the reading used"
+          },
+          {
+            "name": "include_late",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "the late-night reading: true = score rows recorded after their night's next EDGAR open (06:00 ET the next weekday) as before; false = set them aside, so an on-time row for the night wins and a late-only night reads like a cron gap; omitted = the server setting (ALPHADECK_SCOREBOARD_EXCLUDE_LATE, default: set aside). The response's summary.late_policy names the reading used",
+              "title": "Include Late"
+            },
+            "description": "the late-night reading: true = score rows recorded after their night's next EDGAR open (06:00 ET the next weekday) as before; false = set them aside, so an on-time row for the night wins and a late-only night reads like a cron gap; omitted = the server setting (ALPHADECK_SCOREBOARD_EXCLUDE_LATE, default: set aside). The response's summary.late_policy names the reading used"
           }
         ],
         "responses": {
@@ -6855,6 +6873,66 @@
         "title": "Kind",
         "description": "What produced the signal (extensible)."
       },
+      "LateNightOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "recorded_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Recorded At"
+          },
+          "edgar_open": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Edgar Open"
+          },
+          "n_rows": {
+            "type": "integer",
+            "title": "N Rows",
+            "default": 1
+          },
+          "earlier_recorded_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Earlier Recorded At"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason",
+            "default": "recorded after the next EDGAR open"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "thesis_name",
+          "asof",
+          "recorded_at",
+          "edgar_open"
+        ],
+        "title": "LateNightOut",
+        "description": "One late night (L1, operator Q5 = A): a (thesis, as-of) holding a call-of-record recorded at/after\nits night's on-time window closed \u2014 the next weekday's 06:00 ET EDGAR open \u2014 so it can have read a\nfiling SEC accepted after the night. Under the default reading such rows are set aside before the\nper-as-of dedup; under the ``include_late`` reading they are scored. ``recorded_at`` = the first late\nrow's stamp, ``edgar_open`` = the window end it missed, ``n_rows`` = late rows on the night,\n``earlier_recorded_at`` = the stamp of the earlier honest row the late-excluding reading scores instead\n(``null`` = none: the night reads like a cron gap), ``reason`` = the words."
+      },
       "LocatedPassage": {
         "properties": {
           "kind": {
@@ -9462,6 +9540,23 @@
             },
             "type": "array",
             "title": "Annotated Nights",
+            "default": []
+          },
+          "late_policy": {
+            "type": "string",
+            "enum": [
+              "excluded",
+              "included"
+            ],
+            "title": "Late Policy",
+            "default": "excluded"
+          },
+          "late_nights": {
+            "items": {
+              "$ref": "#/components/schemas/LateNightOut"
+            },
+            "type": "array",
+            "title": "Late Nights",
             "default": []
           },
           "record_edge": {

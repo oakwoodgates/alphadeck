@@ -5,6 +5,7 @@ import { useScoreboard } from "../api/hooks";
 import { Drawer } from "../components/Drawer";
 import { fmtDate } from "../util/format";
 import { annotatedNightsLine, annotatedNightsTitle, nextAnnotatedOverride } from "./annotated";
+import { lateNightsLine, lateNightsTitle, nextLateOverride } from "./late";
 import { EpisodeRow } from "./EpisodeRow";
 import { EpisodeScorecard } from "./EpisodeScorecard";
 import {
@@ -178,7 +179,10 @@ export function Scoreboard({ header, asof, onSelect }: Props) {
   // the operator flipped it (include / set aside the phantom-arm nights). Local state like `view`/`sort`
   // below — no URL param, no browser storage — and one click back to the default (`annotated.ts`).
   const [annotatedOverride, setAnnotatedOverride] = useState<boolean | null>(null);
-  const { data, isLoading, error } = useScoreboard(asof, true, annotatedOverride);
+  // L1 — the late-night READING, the same tri-state (`late.ts`): rows recorded after their night's next
+  // EDGAR open are set aside by default; one click scores them again for this view.
+  const [lateOverride, setLateOverride] = useState<boolean | null>(null);
+  const { data, isLoading, error } = useScoreboard(asof, true, annotatedOverride, lateOverride);
   // the episode-scorecard drawer's open episode — local state only (no URL param this slice); a
   // click opens it, the drawer's ✕/backdrop/Esc close it, and the ledger underneath never rerenders.
   const [openEp, setOpenEp] = useState<ScoreboardEpisodeOut | null>(null);
@@ -278,6 +282,24 @@ export function Scoreboard({ header, asof, onSelect }: Props) {
                 }
               >
                 include annotated nights
+              </button>
+            </div>
+          )}
+          {/* the late-recorded nights line — L1: a row recorded after its night's next EDGAR open (a boot
+              catch-up the next afternoon) is set aside by the server's READ policy, exactly like the two
+              lines above, so an on-time row for the night wins and a night with none reads like a cron gap.
+              Rendered only when some night was recorded late, with the same reading toggle; nothing is
+              deleted either way. */}
+          {lateNightsLine(summary) && (
+            <div className="sb-freshline sb-fresh sb-annotline" title={lateNightsTitle(summary)}>
+              {lateNightsLine(summary)}{" "}
+              <button
+                type="button"
+                className="sb-filterclear sb-annottoggle"
+                aria-pressed={summary.late_policy === "included"}
+                onClick={() => setLateOverride((cur) => nextLateOverride(cur, summary.late_policy))}
+              >
+                include late nights
               </button>
             </div>
           )}

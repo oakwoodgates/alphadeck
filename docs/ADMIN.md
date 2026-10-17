@@ -279,8 +279,9 @@ died at ~22:42 when the host VM went down, 4 of 12 theses had rows, there was no
   restored reads as expected on the nights it sat archived). A thesis created after 22:30 was never in that
   pass's walk and is not owed the night. Each partial night is `{asof, covered, expected,
   reconstructed_only, daytime_only, late}` — `late` counts covered theses whose row landed only after the
-  night's on-time window (the next weekday's 06:00 ET EDGAR open); such rows still cover the night until the
-  late-row policy (L1) says otherwise. The page lists them on the freshness card
+  night's on-time window (the next weekday's 06:00 ET EDGAR open); such rows still COVER the night here (the
+  pass recorded it), while the Scoreboard never SCORES them (the late-row policy L1 — `SCOREBOARD.md`
+  §"Late-recorded rows"). The page lists them on the freshness card
   ("2026-10-12: 4 of 12 theses") only when there is one.
 - **A recorded night with NO run artifact at all** (post-`RUN_AT` rows for a night newer than every
   artifact's as-of) is a `cron.alarms` line too — a pass that recorded and died before its start artifact

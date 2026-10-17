@@ -117,6 +117,12 @@ def main() -> None:
         help="score rows annotated as phantom arms (D3b); the default reading follows "
         "ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED (default: set them aside)",
     )
+    p.add_argument(
+        "--include-late",
+        action="store_true",
+        help="score rows recorded after their night's next EDGAR open (L1); the default reading "
+        "follows ALPHADECK_SCOREBOARD_EXCLUDE_LATE (default: set them aside)",
+    )
     args = p.parse_args()
     conn = connect()
     try:
@@ -125,6 +131,7 @@ def main() -> None:
             date.fromisoformat(args.asof),
             include_archived=not args.exclude_archived,
             exclude_annotated=False if args.include_annotated else None,
+            exclude_late=False if args.include_late else None,
         )
         if args.json:
             print(result.model_dump_json(indent=2))

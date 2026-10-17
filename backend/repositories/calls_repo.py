@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from datetime import date, datetime
 from typing import Any, NamedTuple
 from uuid import UUID
@@ -259,12 +259,55 @@ def _annotated_clause(exclude_annotated: bool) -> str:
     return excluded_clause(exclude_annotated)
 
 
+def _ids_clause(exclude_call_ids: Collection[UUID]) -> tuple[str, tuple]:
+    """The THIRD honest filter (L1 — the late-row reading), in the same place as its two twins: the
+    ``calls`` rows whose ids are given are dropped INSIDE the WHERE, BEFORE the per-as-of dedup, so
+    ``DISTINCT ON`` picks among the remaining rows (an on-time row for the night wins over a later late one;
+    a night whose only rows are dropped reads exactly like a cron gap). Value-free like the rest of this
+    module: WHICH rows are late is the caller's judgment (``scoreboard/late.py``, over
+    ``pipeline.night_coverage.is_late`` — the on-time window needs the market timezone, deploy config that
+    lives outside the repository, the ``recorded_asof_stamps`` precedent). Returns ``(sql, params)``; no ids
+    = ``("", ())`` — every reader that does not opt in sees every row, unchanged."""
+    ids = list(exclude_call_ids)
+    if not ids:
+        return "", ()
+    return " AND NOT (calls.id = ANY(%s))", (ids,)
+
+
+def call_stamps(
+    conn: psycopg.Connection, *, thesis_id: UUID | None = None, upto: date | None = None
+) -> list[dict]:
+    """Every ``calls`` row's ``{id, seq, thesis_id, thesis_name, asof, reconstructed, recorded_at}`` —
+    one thesis's (``thesis_id``) or ledger-wide (all tenants, every thesis: the ``reconstructed_asofs``
+    scope), optionally capped at ``asof <= upto``, ordered ``asof, thesis, seq``. The late-row judgment's
+    input (L1, ``scoreboard/late.py``): every row, never the deduped read — a night can hold an on-time row
+    AND a later late one, and the judge must see both. Stamps only, never the card (cheap at any record
+    size). Value-free and read-only; the window is the caller's."""
+    where, params = ["TRUE"], []
+    if thesis_id is not None:
+        where.append("c.thesis_id = %s")
+        params.append(thesis_id)
+    if upto is not None:
+        where.append("c.asof <= %s")
+        params.append(upto)
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT c.id, c.seq, c.thesis_id, t.name AS thesis_name, c.asof, c.reconstructed, "
+            "c.recorded_at FROM calls c JOIN thesis t ON t.id = c.thesis_id WHERE "
+            + " AND ".join(where)
+            + " ORDER BY c.asof, c.thesis_id, c.seq",
+            params,
+        )
+        return list(cur.fetchall())
+
+
 def latest_for_thesis(
     conn: psycopg.Connection,
     thesis_id: UUID,
     *,
     include_reconstructed: bool = True,
     exclude_annotated: bool = False,
+    exclude_call_ids: Collection[UUID] = (),
 ) -> list[CallCard]:
     """The call of record at each ``asof`` — one row per as-of, the latest append wins (a re-run after
     a fact correction supersedes the earlier row), newest as-of first. This is the deduped read a
@@ -281,14 +324,20 @@ def latest_for_thesis(
     read policy: ``True`` also drops rows carrying an ACTIVE ``exclude`` annotation (migration 0045 — a
     phantom arm under a named rule), BEFORE the same dedup. Only the Scoreboard's record path passes it,
     and only when its policy says so — flipping the policy re-scores the rows, nothing is ever deleted.
+
+    ``exclude_call_ids`` (default empty: every row) is the L1 late-row reading: the Scoreboard passes the
+    ids of the rows recorded after their night's on-time window closed (``scoreboard/late.py``), dropped
+    BEFORE the same dedup (``_ids_clause``) — so an on-time row for the night wins over a later late one.
     """
+    ids_sql, ids_params = _ids_clause(exclude_call_ids)
     with conn.cursor() as cur:
         cur.execute(
             "SELECT DISTINCT ON (asof) card FROM calls WHERE thesis_id = %s"
             + _reconstructed_clause(include_reconstructed)
             + _annotated_clause(exclude_annotated)
+            + ids_sql
             + " ORDER BY asof DESC, seq DESC",
-            (thesis_id,),
+            (thesis_id, *ids_params),
         )
         return [row_to_call(r) for r in cur.fetchall()]
 
@@ -318,6 +367,7 @@ def ingest_health_for_thesis(
     *,
     include_reconstructed: bool = True,
     exclude_annotated: bool = False,
+    exclude_call_ids: Collection[UUID] = (),
 ) -> dict[date, tuple[bool | None, int | None]]:
     """The R2b ingest-health stamp of the WINNING row per as-of: asof -> ``(ingest_fresh,
     ingest_errors)`` (migration 0023). The IDENTICAL dedup as ``latest_for_thesis`` (latest append
@@ -329,16 +379,19 @@ def ingest_health_for_thesis(
     ``include_reconstructed`` mirrors ``latest_for_thesis`` exactly, and the Scoreboard passes the SAME
     value to both — so the stamp read here is the stamp of the row that was actually scored, never
     a reconstruction's NULL stamp standing in for a nightly row's. ``exclude_annotated`` mirrors
-    ``latest_for_thesis`` the same way (D3b), for the same reason.
+    ``latest_for_thesis`` the same way (D3b), and ``exclude_call_ids`` (L1, the late rows) too, for the
+    same reason.
     """
+    ids_sql, ids_params = _ids_clause(exclude_call_ids)
     with conn.cursor() as cur:
         cur.execute(
             "SELECT DISTINCT ON (asof) asof, ingest_fresh, ingest_errors FROM calls "
             "WHERE thesis_id = %s"
             + _reconstructed_clause(include_reconstructed)
             + _annotated_clause(exclude_annotated)
+            + ids_sql
             + " ORDER BY asof DESC, seq DESC",
-            (thesis_id,),
+            (thesis_id, *ids_params),
         )
         return {r["asof"]: (r["ingest_fresh"], r["ingest_errors"]) for r in cur.fetchall()}
 
@@ -358,6 +411,7 @@ def run_identity_for_thesis(
     *,
     include_reconstructed: bool = True,
     exclude_annotated: bool = False,
+    exclude_call_ids: Collection[UUID] = (),
 ) -> dict[date, RunIdentity]:
     """The RUN IDENTITY of the WINNING row per as-of: asof -> ``(config_hash, code_sha, run_kind)``
     (migration 0044) — the policy + code + run-kind fingerprint of the run that recorded that card version.
@@ -372,17 +426,19 @@ def run_identity_for_thesis(
     A separate narrow peer read for the same reason ``ingest_health_for_thesis`` is one: the stamps live
     deliberately OFF the card (a field IN it would fake a change in ``_canonical``), so they cannot ride
     ``latest_for_thesis``'s ``CallCard``. Its only consumer is the Scoreboard's provenance layer; no scoring
-    or as-of read branches on it. Read-only. ``exclude_annotated`` (D3b) mirrors ``latest_for_thesis``
-    exactly, under the same must-match rule.
+    or as-of read branches on it. Read-only. ``exclude_annotated`` (D3b) and ``exclude_call_ids`` (L1, the
+    late rows) mirror ``latest_for_thesis`` exactly, under the same must-match rule.
     """
+    ids_sql, ids_params = _ids_clause(exclude_call_ids)
     with conn.cursor() as cur:
         cur.execute(
             "SELECT DISTINCT ON (asof) asof, config_hash, code_sha, run_kind FROM calls "
             "WHERE thesis_id = %s"
             + _reconstructed_clause(include_reconstructed)
             + _annotated_clause(exclude_annotated)
+            + ids_sql
             + " ORDER BY asof DESC, seq DESC",
-            (thesis_id,),
+            (thesis_id, *ids_params),
         )
         return {
             r["asof"]: RunIdentity(r["config_hash"], r["code_sha"], r["run_kind"])
@@ -396,6 +452,7 @@ def annotations_for_thesis(
     *,
     include_reconstructed: bool = True,
     exclude_annotated: bool = False,
+    exclude_call_ids: Collection[UUID] = (),
 ) -> dict[date, list[CallAnnotation]]:
     """asof -> the ACTIVE exclude/note annotations (migration 0045, D3b) on the WINNING row of that as-of —
     the THIRD peer read on the winning-row rule, beside ``ingest_health_for_thesis`` and
@@ -403,18 +460,21 @@ def annotations_for_thesis(
     after the identical filters, so a caption describes the card that was actually scored, never a
     superseded row's. Under ``exclude_annotated=True`` a winning row can still carry a ``note`` (it stays
     scored); an ``exclude`` appears here only on a reading that INCLUDES annotated rows. The Scoreboard's
-    episode-caption read; nothing on the scoring path branches on it. Read-only."""
+    episode-caption read; nothing on the scoring path branches on it. ``exclude_call_ids`` (L1, the late
+    rows) mirrors ``latest_for_thesis`` under the same must-match rule. Read-only."""
+    ids_sql, ids_params = _ids_clause(exclude_call_ids)
     with conn.cursor() as cur:
         cur.execute(
             "WITH win AS (SELECT DISTINCT ON (asof) id FROM calls WHERE thesis_id = %s"
             + _reconstructed_clause(include_reconstructed)
             + _annotated_clause(exclude_annotated)
+            + ids_sql
             + " ORDER BY asof DESC, seq DESC) "
             "SELECT a.* FROM win JOIN call_annotation a ON a.call_id = win.id "
             "WHERE a.action IN ('exclude', 'note') AND "
             + ACTIVE_SQL
             + " ORDER BY a.asof, a.created_at, a.id",
-            (thesis_id,),
+            (thesis_id, *ids_params),
         )
         out: dict[date, list[CallAnnotation]] = {}
         for r in cur.fetchall():

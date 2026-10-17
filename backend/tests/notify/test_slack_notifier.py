@@ -177,6 +177,65 @@ def test_armed_push_omits_the_tail_line_when_no_member_has_triggers(monkeypatch)
     )
 
 
+# --- (1c) N1 — a push about a PAST or LATE night says so ----------------------------------------------------
+# The measured case: the 2026-10-12 pass died mid-run and the next afternoon's boot catch-up recorded the
+# night ~18 h late; an arm pushed from that catch-up must never read as tonight's.
+
+
+def _timed_event(timing: str, asof: date = date(2026, 10, 12)) -> TransitionEvent:
+    return TransitionEvent(
+        thesis_id=uuid4(),
+        thesis_name="Nuclear Buildout",
+        asof=asof,
+        from_state="warming",
+        to_state="armed",
+        from_verdict="watching",
+        to_verdict="core_entry",
+        armed=(ArmedName("IMSR", ("insider",)),),
+        timing=timing,
+    )
+
+
+def test_a_late_push_names_its_night_and_says_recorded_late(monkeypatch):
+    _enable_slack(monkeypatch)
+    calls = _capture_post(monkeypatch)
+
+    SlackNotifier().notify(_timed_event("late"))
+
+    assert calls[0]["json"]["text"] == (
+        "🔴 Nuclear Buildout — ARMED (warming → armed) (asof 2026-10-12, recorded late)\n"
+        "IMSR armed\n"
+        "IMSR insider buy"
+    )
+
+
+def test_a_past_push_names_its_night_and_tonights_push_is_unchanged(monkeypatch):
+    _enable_slack(monkeypatch)
+    calls = _capture_post(monkeypatch)
+
+    SlackNotifier().notify(_timed_event("past"))
+    SlackNotifier().notify(_timed_event("current"))
+    SlackNotifier().notify(_armed_event(thesis_name="Solo"))  # the default: tonight's night
+
+    head = [c["json"]["text"].split("\n")[0] for c in calls]
+    assert head == [
+        "🔴 Nuclear Buildout — ARMED (warming → armed) (asof 2026-10-12)",
+        "🔴 Nuclear Buildout — ARMED (warming → armed)",  # no label: the push reads as before N1
+        "🔴 Solo — ARMED (warming → armed)",
+    ]
+
+
+def test_the_record_sink_says_recorded_late_too(caplog):
+    import logging
+
+    with caplog.at_level(logging.WARNING):
+        LogNotifier().notify(_timed_event("late"))
+        LogNotifier().notify(_timed_event("current"))
+    msgs = [r.getMessage() for r in caplog.records if "TRANSITION" in r.getMessage()]
+    assert msgs[0].endswith("(asof 2026-10-12, recorded late)")
+    assert msgs[1].endswith("(asof 2026-10-12)")  # the log has always named the as-of
+
+
 # --- (2) no-op on a quiet (non-armed) move -----------------------------------------------------------------
 
 

@@ -1215,6 +1215,25 @@ class AnnotatedNightOut(BaseModel):
     n_rows: int = 1
 
 
+class LateNightOut(BaseModel):
+    """One late night (L1, operator Q5 = A): a (thesis, as-of) holding a call-of-record recorded at/after
+    its night's on-time window closed — the next weekday's 06:00 ET EDGAR open — so it can have read a
+    filing SEC accepted after the night. Under the default reading such rows are set aside before the
+    per-as-of dedup; under the ``include_late`` reading they are scored. ``recorded_at`` = the first late
+    row's stamp, ``edgar_open`` = the window end it missed, ``n_rows`` = late rows on the night,
+    ``earlier_recorded_at`` = the stamp of the earlier honest row the late-excluding reading scores instead
+    (``null`` = none: the night reads like a cron gap), ``reason`` = the words."""
+
+    thesis_id: UUID
+    thesis_name: str
+    asof: date
+    recorded_at: datetime
+    edgar_open: datetime
+    n_rows: int = 1
+    earlier_recorded_at: datetime | None = None
+    reason: str = "recorded after the next EDGAR open"
+
+
 class ScoreboardSummaryOut(BaseModel):
     """The aggregate strip: counts + the honesty banner + the gated metric set."""
 
@@ -1253,6 +1272,13 @@ class ScoreboardSummaryOut(BaseModel):
     # from this response should name this reading. `annotated_nights` lists the nights either way.
     annotated_policy: Literal["excluded", "included"] = "excluded"
     annotated_nights: list[AnnotatedNightOut] = []
+    # L1 — the late-night READ POLICY this response was computed under: "excluded" = rows recorded after
+    # their night's next EDGAR open were dropped before the per-as-of dedup (an on-time row for the night
+    # wins; a late-only night reads like a cron gap); "included" = they were scored, as before L1. Default =
+    # the server setting (ALPHADECK_SCOREBOARD_EXCLUDE_LATE); `?include_late=` overrides per request.
+    # `late_nights` lists the nights either way. Composes with the two filters above by AND.
+    late_policy: Literal["excluded", "included"] = "excluded"
+    late_nights: list[LateNightOut] = []
     # Record freshness (compute-on-read; the read still writes nothing) — is the call-of-record
     # current NOW, measured against the last EXPECTED Mon-Fri+RUN_AT run (never raw today - edge),
     # exactly like AdminRecordOut. Asof-INDEPENDENT (the record edge + the clock drive it, not the

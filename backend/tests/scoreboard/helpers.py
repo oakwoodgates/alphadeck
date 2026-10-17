@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, time
 from uuid import UUID
+from zoneinfo import ZoneInfo
+
+from psycopg.types.json import Json
 
 from calls.assembler import assemble_call
 from db.bitemporal import append_fact
@@ -10,7 +13,8 @@ from db.session import DEFAULT_TENANT_ID
 from domain.config import DEFAULT_CONFIG
 from domain.signal import SignalEvent
 from domain.thesis import BasketMember, Thesis
-from repositories import calls_repo, thesis_repo
+from repositories import thesis_repo
+from repositories.mappers import call_to_row
 from tests.calls.factories import breakout_event, insider_event, make_thesis
 
 # Shared seeding helpers for the Scoreboard tests: a persisted single-name thesis, controlled
@@ -36,6 +40,16 @@ def persist_thesis(db, security_id: UUID, thesis_id: UUID | None = None) -> Thes
     return thesis_repo.get(db, thesis.id)  # reload: tenant_id stamped by the repo
 
 
+_NY = ZoneInfo("America/New_York")
+
+
+def on_time(asof: date) -> datetime:
+    """When the NIGHTLY record for ``asof`` really lands: 15 minutes after that night's 22:30 ET ``RUN_AT``
+    (prod's rows land at ~22:4x) — inside its on-time window, so the L1 late-row reading scores it.
+    """
+    return datetime.combine(asof, time(22, 45), tzinfo=_NY)
+
+
 def record_day(
     db,
     thesis: Thesis,
@@ -48,23 +62,48 @@ def record_day(
     config_hash: str | None = None,
     code_sha: str | None = None,
     run_kind: str | None = None,
-) -> None:
+    recorded_at: datetime | None = None,
+) -> UUID:
     """Assemble + append one call-of-record row, optionally stamped with the run's R2b ingest
     health (migration 0023) — the default (None, None) is the legacy/manual-append shape — and/or
     marked ``reconstructed`` (migration 0042: the row a backfill writes, which the record path
     reports but never scores) — and/or carrying the 0044 RUN IDENTITY (which policy / code / kind of
-    run wrote it; all-None is the legacy shape here too)."""
-    calls_repo.append(
-        db,
-        assemble_call(thesis, events, asof, DEFAULT_CONFIG),
-        ingest_fresh=ingest_fresh,
-        ingest_errors=ingest_errors,
-        reconstructed=reconstructed,
-        config_hash=config_hash,
-        code_sha=code_sha,
-        run_kind=run_kind,
-    )
+    run wrote it; all-None is the legacy shape here too). Returns the row's id.
+
+    ``recorded_at`` defaults to ``on_time(asof)`` — the NIGHTLY row's real shape. Before L1 the helper let
+    the DB stamp ``now()`` (test time, months after a 2026-06 as-of), harmless while nothing read the stamp;
+    under L1 such a row is LATE (recorded after its night's next EDGAR open) and the default Scoreboard
+    reading sets it aside, so a fixture modeling the nightly record has to be recorded on time. Pass an
+    explicit stamp to model a late catch-up row. The row is otherwise exactly what ``calls_repo.append``
+    writes (the repo's own ``call_to_row`` mapper); an explicit INSERT because the ``calls`` log is
+    immutable (the ``no_update`` trigger), so the stamp must be supplied at insert time — the
+    ``tests/repositories/test_calls_repo._insert_call_at`` precedent."""
+    card = assemble_call(thesis, events, asof, DEFAULT_CONFIG)
+    row = call_to_row(card, DEFAULT_TENANT_ID)
+    with db.cursor() as cur:
+        cur.execute(
+            """INSERT INTO calls
+                   (tenant_id, thesis_id, asof, state, verdict, card, ingest_fresh, ingest_errors,
+                    reconstructed, config_hash, code_sha, run_kind, recorded_at)
+               VALUES (%(tenant_id)s, %(thesis_id)s, %(asof)s, %(state)s, %(verdict)s, %(card)s,
+                       %(ingest_fresh)s, %(ingest_errors)s, %(reconstructed)s,
+                       %(config_hash)s, %(code_sha)s, %(run_kind)s, %(recorded_at)s)
+               RETURNING id""",
+            {
+                **row,
+                "card": Json(row["card"]),
+                "ingest_fresh": ingest_fresh,
+                "ingest_errors": ingest_errors,
+                "reconstructed": reconstructed,
+                "config_hash": config_hash,
+                "code_sha": code_sha,
+                "run_kind": run_kind,
+                "recorded_at": recorded_at or on_time(asof),
+            },
+        )
+        call_id = cur.fetchone()["id"]
     db.commit()
+    return call_id
 
 
 def bar(

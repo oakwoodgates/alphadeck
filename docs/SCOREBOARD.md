@@ -119,6 +119,58 @@ replay's job (`docs/REPLAY.md` — the historical twin); attribution's source is
     2026-10-05), 106 `note`, 103 drift (all pre-2026-09-15 rows re-assembled on the LIVE roster; none of them
     a would-be exclusion), 414 unchanged. Nothing was applied; `--apply` on prod is the operator's call after
     a backup.
+- **Late-recorded rows never define an episode — a READ POLICY over a DERIVED fact, reversibly (L1).** A
+  call-of-record recorded after its night closed can have read what the night could not: MEASURED on
+  2026-10-12, the 22:30 pass died after 4 theses, and the next afternoon's boot catch-up recorded the night
+  for 9 theses at 17:04–17:13 ET on 10-13 — ~11 h after the window closed — three of them citing Form 4s SEC
+  accepted on 10-13 (Modern Defense's HEI, Nuclear Buildout's IMSR, The Everything Exchange's API/UXIN). The
+  operator decided (Q5 = A, 2026-10-16) that such a row never defines an episode, with on-time beating late.
+  - **What "late" means.** A NON-reconstructed row whose `recorded_at` is at or after the END of its night's
+    on-time window — 06:00 ET on the next weekday, the EDGAR open (`pipeline.night_coverage.is_late`, the
+    window M2's catch-up skip already uses, so the word has one definition). A Friday night's window runs to
+    Monday 06:00; a pre-`RUN_AT` daytime row is NOT late (only the window's end makes a row late); a
+    reconstructed row is never judged late (it is set aside on its own marker). DERIVED on every read from
+    `recorded_at` — no column, no migration, nothing stamped (`scoreboard/late.py`).
+  - **The policy.** `Settings.scoreboard_exclude_late` (env `ALPHADECK_SCOREBOARD_EXCLUDE_LATE`, default
+    `true`): the thesis's late rows are judged once per thesis (`late_call_ids`) and their ids dropped from
+    all four winning-row peer reads — `thesis_timeline`, the ingest-health stamp, the run identity and the
+    annotation caption — inside the WHERE, BEFORE the per-as-of dedup (`calls_repo._ids_clause` beside the
+    other two clauses). So an on-time row for the same night WINS over a later late re-version (and its
+    stamps caption the episode), and a night whose only rows are late reads exactly like a cron gap: the
+    record last spoke on the prior honest row, and the next honest row opens or closes what changed.
+  - **Both readings, side by side.** `GET /scoreboard?include_late=true` scores the late rows (exactly as
+    before L1), `=false` sets them aside, omitted = the setting; the summary says which reading it is
+    (`late_policy: "excluded" | "included"`) and lists the thesis-nights either way (`late_nights`: thesis,
+    as-of, the first late `recorded_at`, the `edgar_open` it missed, `n_rows`, `earlier_recorded_at` = the
+    earlier honest row the default reading scores instead or `null` = a gap, and the reason "recorded after
+    the next EDGAR open"). The ledger renders one quiet line — "N late-recorded nights · late rows set aside"
+    — with each night, how many hours late, and gap-or-scored-instead on hover, and an **include late
+    nights** toggle (the D3b toggle's twin). `python -m scoreboard.run --include-late` is the CLI twin.
+  - **Reversing it.** Flip the setting (`ALPHADECK_SCOREBOARD_EXCLUDE_LATE=false`) or pass the param: the
+    record scores every late row again, identical to the pre-L1 reading (`tests/scoreboard/test_late_rows.py`
+    pins it against an independent unfiltered read). Nothing is ever deleted or marked.
+  - **How the three filters compose.** By AND: a row is scored only if it is not reconstructed (always), not
+    annotated `exclude` (under its policy) and not late (under this one). Each reading toggles only its own
+    rows, and the two policies are independent (`?include_annotated=` and `?include_late=` combine freely).
+    Lists: `reconstructed_nights` names a night only when EVERY row on it is reconstructed — so a night with a
+    reconstruction AND a late row is named in `late_nights` instead (as a gap); `earlier_recorded_at` is the
+    late judgment's own answer and ignores the annotated filter (a phantom-arm on-time row is set aside by
+    that policy and named in `annotated_nights`).
+  - **Name the reading when quoting** — as with the annotated reading, `late_policy` rides every response.
+  - MEASURED (prod, 2026-10-17, read-only — the branch code through a `PYTHONPATH` overlay on a
+    `default_transaction_read_only` session): **9 late rows in the whole history** (793 rows, 151 of them
+    reconstructed), all from the 2026-10-12 boot catch-up — AI Memory & Storage (seq 1367 at 17:04, which
+    superseded its on-time seq 1334 at 22:42), and 8 late-only nights (Modern Defense, Modern Defense
+    Buildout, Navy Shipbuilding Rebuild, Nuclear Buildout, Rainbow Rush, Small-scale nuclear, The Everything
+    Exchange, UNH). The other three on-time theses that night (DEV, Digital Asset Treasury Complex, HIMS)
+    re-assembled identical cards, so the catch-up appended nothing for them. At asof 2026-10-16 (annotated
+    nights excluded): **325 episodes with late rows set aside vs 328 with them scored**. 3 episodes vanish
+    (Rainbow Rush CYCN and The Everything Exchange MELI, armed ONLY on the late 10-12 row and de-armed 10-13;
+    Nuclear Buildout VST's 10-13 re-arm, because without the late row its 10-09 run never broke), 1 moves
+    (Nuclear Buildout PCG: armed on the late 10-12 row → on the honest 10-13 row), and 7 change shape (VST
+    now runs continuously from 10-09; five de-arms move from the late 10-12 row to 10-13 — Modern Defense
+    TLS/QUCY/MTSI, Rainbow Rush MDCX, The Everything Exchange STUB; YYAI's last armed day becomes 10-09).
+    Every affected episode was already ingest-flagged, so the eligible metric pool (34) is unchanged.
 
 ## The scoring unit and its flags
 

@@ -82,7 +82,7 @@ from pipeline.cron_run_log import (
 )
 from pipeline.ingest_thesis import NameResult, ingest_thesis, print_withheld_line
 from pipeline.name_errors import NameIngestError, dedup_name_errors, name_errors_of
-from pipeline.night_coverage import read_on_time_theses
+from pipeline.night_coverage import NightTiming, night_timing, read_on_time_theses
 from pipeline.run_lock import (
     EXIT_ALREADY_RUNNING,
     PassAlreadyRunning,
@@ -232,6 +232,18 @@ def _catch_up_skip_set(conn: psycopg.Connection, asof: date) -> dict[UUID, datet
             "thesis (an on-time row may be superseded by a late one)"
         )
         return {}
+
+
+def _push_timing(asof: date) -> NightTiming:
+    """N1 — ``night_coverage.night_timing`` for a transition pushed NOW (the market clock): "late" when the
+    night's on-time window has closed (a catch-up / ``--late-ok`` pass), "past" for an earlier night still on
+    time, else "current". FAIL-OPEN: it runs inside the per-thesis ``try`` that rolls the call-of-record back
+    on any exception, so a clock or zone fault here degrades to "current" (the push reads as before N1) and
+    can never cost the night its record."""
+    try:
+        return night_timing(asof, market_now(), tz=market_tz())
+    except Exception:  # noqa: BLE001 — a label never risks the record
+        return "current"
 
 
 def run_daily(
@@ -475,6 +487,8 @@ def run_daily(
                     from_verdict=prior.verdict.value,
                     to_verdict=card.verdict.value,
                     armed=armed_payload,
+                    # N1 — a push about a past or LATE night says so ("asof D, recorded late")
+                    timing=_push_timing(asof),
                 )
                 notifier.notify(evt)
                 res.transition = evt.label

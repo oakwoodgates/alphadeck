@@ -99,6 +99,9 @@ const PAYLOAD = {
     // D3b — no phantom-arm (annotated) nights either; the server's default reading
     annotated_policy: "excluded",
     annotated_nights: [],
+    // L1 — no late-recorded nights either; the server's default reading
+    late_policy: "excluded",
+    late_nights: [],
     record_began: "2026-07-10",
     banner: "FORWARD RECORD, NOT A CLAIM — record began 2026-07-10; 0 episodes eligible…",
     min_n: 5,
@@ -442,13 +445,13 @@ describe("Scoreboard", () => {
       "title",
       expect.stringContaining("Nuclear Buildout 2026-10-14, Nuclear Buildout 2026-10-15"),
     );
-    // the first render asks for the server's default reading (no override sent)
-    expect(scoreboardCalls[0]).toEqual(["2026-07-11", true, null]);
+    // the first render asks for the server's default readings (no override sent: annotated, late)
+    expect(scoreboardCalls[0]).toEqual(["2026-07-11", true, null, null]);
     const toggle = screen.getByRole("button", { name: "include annotated nights" });
     expect(toggle).toHaveAttribute("aria-pressed", "false");
     fireEvent.click(toggle);
-    // one click asks for the INCLUDE reading
-    expect(scoreboardCalls[scoreboardCalls.length - 1]).toEqual(["2026-07-11", true, true]);
+    // one click asks for the INCLUDE reading (the late reading stays the server's)
+    expect(scoreboardCalls[scoreboardCalls.length - 1]).toEqual(["2026-07-11", true, true, null]);
 
     // the include reading says so, and the toggle reads pressed
     renderBoard({
@@ -458,6 +461,47 @@ describe("Scoreboard", () => {
       },
     });
     expect(screen.getByText(/1 phantom-arm night included in this reading · scored/)).toBeInTheDocument();
+  });
+
+  it("the late-recorded line renders only when a night was recorded late, names the nights, and toggles the reading", () => {
+    renderBoard(); // no late nights: no line, no toggle (a control that can't discriminate)
+    expect(screen.queryByText(/late-recorded/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "include late nights" })).not.toBeInTheDocument();
+
+    // the measured 2026-10-12 shape: AI Memory's on-time 22:42 row re-versioned at 17:04 the next day
+    // (an earlier row is scored instead), Modern Defense recorded ONLY by the catch-up (a gap)
+    const night = (thesis_name: string, earlier: string | null) => ({
+      thesis_id: thesis_name,
+      thesis_name,
+      asof: "2026-10-12",
+      recorded_at: "2026-10-13T21:04:00Z", // 17:04 ET
+      edgar_open: "2026-10-13T06:00:00-04:00",
+      n_rows: 1,
+      earlier_recorded_at: earlier,
+      reason: "recorded after the next EDGAR open",
+    });
+    const nights = [night("AI Memory & Storage", "2026-10-13T02:42:00Z"), night("Modern Defense", null)];
+    scoreboardCalls.length = 0;
+    renderBoard({ data: { ...PAYLOAD, summary: { ...PAYLOAD.summary, late_nights: nights } } });
+    const line = screen.getByText(/2 late-recorded nights · late rows set aside/);
+    const title = line.closest("div")?.getAttribute("title") ?? "";
+    expect(title).toContain("AI Memory & Storage 2026-10-12 (+11 h; an earlier row scored instead)");
+    expect(title).toContain("Modern Defense 2026-10-12 (+11 h; no earlier row: a gap)");
+    expect(scoreboardCalls[0]).toEqual(["2026-07-11", true, null, null]);
+    const toggle = screen.getByRole("button", { name: "include late nights" });
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(toggle);
+    // one click asks for the INCLUDE-late reading (the annotated reading stays the server's)
+    expect(scoreboardCalls[scoreboardCalls.length - 1]).toEqual(["2026-07-11", true, null, true]);
+
+    // the include reading says so, and the toggle reads pressed
+    renderBoard({
+      data: {
+        ...PAYLOAD,
+        summary: { ...PAYLOAD.summary, late_nights: [nights[0]], late_policy: "included" },
+      },
+    });
+    expect(screen.getByText(/1 late-recorded night · late rows scored in this reading/)).toBeInTheDocument();
   });
 
   it("a row click opens the scorecard drawer WITHOUT navigating to the Cockpit", () => {

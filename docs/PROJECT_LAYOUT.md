@@ -169,6 +169,7 @@ alphadeck/
     │   ├── decisions.py            #   join the operator decision log → priced take/pass spans (the operator track)
     │   ├── prices.py · overlays.py #   the asof/known_at-capped realized-EOD reader (no-lookahead) · the drawer-chart overlays (rolling SMA + windowed insider buys)
     │   ├── provenance.py           #   the per-episode ingest-honesty flags (freeze-era, thaw lag)
+    │   ├── late.py                 #   L1: judge the LATE rows (recorded after the next EDGAR open) the record reads drop + the banner's late nights
     │   └── artifact.py · replay_snapshot.py   #   write / read the replay-panel JSON snapshot + the CLI that builds it
     ├── replay/                     # the backtest harness — DuckDB + Parquet, point-in-time (REPLAY.md)
     │   └── harness.py · episodes.py · pit.py · export.py · compare.py · metrics.py · scoring.py · schema.py · run.py

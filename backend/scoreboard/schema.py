@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
 
@@ -232,6 +232,29 @@ class AnnotatedNight(BaseModel):
     n_rows: int = 1  # annotated calls rows on the night (a re-recorded night can carry two)
 
 
+class LateNight(BaseModel):
+    """One (thesis, as-of) carrying at least one LATE row (L1, operator Q5 = A): a non-reconstructed
+    call-of-record recorded at/after its night's on-time window closed — the next weekday's 06:00 ET EDGAR
+    open (``pipeline.night_coverage.is_late``). The banner's unit, listed whichever reading the response is
+    (``ScoreboardSummary.late_policy`` says whether these rows were dropped or scored).
+
+    ``earlier_recorded_at`` says what the late-excluding reading scores for the night instead: the stamp of
+    the latest EARLIER non-late, non-reconstructed row (usually the honest on-time row the late one
+    superseded — e.g. AI Memory & Storage's 22:42 row under its 10-13 17:04 re-version), or ``None`` when
+    there is none and the night reads like a cron gap (the record last spoke on the prior honest row). It is
+    the LATE judgment's own answer: it does not apply the annotated filter (a phantom-arm row there is set
+    aside by that policy and named in ``annotated_nights``)."""
+
+    thesis_id: UUID
+    thesis_name: str
+    asof: date
+    recorded_at: datetime  # the FIRST late row's stamp (when the night went late)
+    edgar_open: datetime  # the on-time window's end it missed (market time)
+    n_rows: int = 1  # late rows on the night (a catch-up that re-versioned twice can leave two)
+    earlier_recorded_at: datetime | None = None
+    reason: str = "recorded after the next EDGAR open"
+
+
 class ScoreboardSummary(BaseModel):
     """The aggregate layer: replay's claim-tied metric set over ELIGIBLE outcomes only — matured
     (judged at the episode's own exit_by) AND non-censored (the record saw the arm) AND clean-ingest
@@ -262,6 +285,12 @@ class ScoreboardSummary(BaseModel):
     # either way and an externally quoted number can say which reading produced it.
     annotated_policy: Literal["excluded", "included"] = "excluded"
     annotated_nights: list[AnnotatedNight] = []
+    # L1 — the late-night READ POLICY this summary was computed under, and the nights it concerns.
+    # "excluded" = rows recorded after their night's on-time window closed were dropped before the per-as-of
+    # dedup (an on-time row for the night wins; a late-only night reads like a cron gap); "included" = they
+    # were scored, exactly as before L1. Listed the same in both readings (as-ofs <= asof, ledger-wide).
+    late_policy: Literal["excluded", "included"] = "excluded"
+    late_nights: list[LateNight] = []
 
 
 class ScoreboardResult(BaseModel):
@@ -271,6 +300,8 @@ class ScoreboardResult(BaseModel):
     asof: date
     # D3b — the annotated-night policy every record read in this result ran under (resolved once)
     exclude_annotated: bool = True
+    # L1 — the late-night policy every record read in this result ran under (resolved once)
+    exclude_late: bool = True
     theses: list[ThesisRecord] = []
     n_theses: int = 0
     n_with_record: int = 0

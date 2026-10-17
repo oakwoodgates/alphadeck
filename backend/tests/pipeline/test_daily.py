@@ -286,6 +286,61 @@ def test_daily_armed_enrichment_is_FAIL_OPEN(db, security_id, monkeypatch):
     assert calls_repo.latest_for_thesis(db, tid)[0].state is State.ARMED
 
 
+_NY_TZ = ZoneInfo("America/New_York")
+
+
+@pytest.mark.parametrize(
+    ("now", "timing"),
+    [
+        (datetime(2026, 6, 10, 22, 41, tzinfo=_NY_TZ), "current"),  # tonight's pass
+        (datetime(2026, 6, 11, 0, 30, tzinfo=_NY_TZ), "past"),  # ran past midnight, still on time
+        (datetime(2026, 6, 11, 17, 4, tzinfo=_NY_TZ), "late"),  # a next-afternoon boot catch-up
+    ],
+)
+def test_daily_a_transition_pushed_for_a_past_or_late_night_says_so(
+    db, security_id, monkeypatch, now, timing
+):
+    """N1 — the event is stamped with WHEN it is pushed relative to its night (the market clock at the
+    push, judged by ``night_coverage.night_timing``), so the Slack header can say "(asof D, recorded
+    late)". The call-of-record is written either way."""
+    _no_network(monkeypatch)
+    tid = _thesis(db, "AI Memory", members=[("DEVCO", security_id)])
+    daily.run_daily(db, asof=date(2026, 6, 5), allow_live=True)  # INCUBATING prior
+    monkeypatch.setattr(
+        daily, "call_for_thesis", lambda conn, thid, asof, **k: _armed_card(thid, security_id, asof)
+    )
+    monkeypatch.setattr(daily, "market_now", lambda: now)
+    monkeypatch.setattr(daily, "market_tz", lambda: _NY_TZ)
+    cap = _Capture()
+    by = {r.thesis_id: r for r in daily.run_daily(db, asof=_ASOF, allow_live=True, notifier=cap)}
+
+    (evt,) = cap.events
+    assert evt.to_state == "armed" and evt.timing == timing
+    assert by[tid].recorded is True
+
+
+def test_daily_the_push_timing_is_FAIL_OPEN(db, security_id, monkeypatch):
+    """The label runs inside the per-thesis try that rolls the record back on any exception — a clock or
+    zone fault degrades it to "current" and never costs the night its call-of-record."""
+    _no_network(monkeypatch)
+    tid = _thesis(db, "AI Memory", members=[("DEVCO", security_id)])
+    daily.run_daily(db, asof=date(2026, 6, 5), allow_live=True)
+    monkeypatch.setattr(
+        daily, "call_for_thesis", lambda conn, thid, asof, **k: _armed_card(thid, security_id, asof)
+    )
+
+    def _bad_zone():
+        raise RuntimeError("ALPHADECK_MARKET_TZ could not be resolved")
+
+    monkeypatch.setattr(daily, "market_tz", _bad_zone)
+    cap = _Capture()
+    by = {r.thesis_id: r for r in daily.run_daily(db, asof=_ASOF, allow_live=True, notifier=cap)}
+
+    (evt,) = cap.events
+    assert evt.timing == "current"
+    assert by[tid].recorded is True and len(_calls(db, tid)) == 2
+
+
 def test_daily_one_thesis_failure_does_not_abort_the_rest(db, monkeypatch):
     _no_network(monkeypatch)
     good = _thesis(db, "GOOD")
