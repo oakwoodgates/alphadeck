@@ -39,8 +39,10 @@ WHAT THIS IS, AND IS NOT:
 - **Bounded cost.** ONE request for SEC's ticker map (only on a night some member lists no tickers), plus
   ONE submissions fetch per flagged candidate CIK (two today). The old CIK's evidence is re-read from the
   cache the ingest just filled (a cache-only client — zero requests).
-- **Pages ONCE.** A row whose key (security + successor CIK) was absent from the previous evaluated pass
-  is NEW and pages through the R4 health event; a known row is one quiet report line and stays on Admin.
+- **Pages ONCE.** A row whose key (security + successor CIK) is absent from the carried inventory — each
+  thesis as the newest scanned pass that covered it saw it, a skipped-thesis catch-up included
+  (``carried_successors``) — is NEW and pages through the R4 health event; a known row is one quiet report
+  line and stays on Admin.
 - **Fail-open for the pass, loud for the operator.** Any fault returns ``evaluated=False`` with the
   ``error`` (printed loud, shown on Admin) — never an exception into the cron, never a lost record.
 """
@@ -455,17 +457,13 @@ def keys_of(doc: Mapping) -> set[str]:
     }
 
 
-def is_baseline(doc: Mapping) -> bool:
-    """May this artifact be the diff baseline (and the Admin inventory)? A LIVE, FINISHED (M1), FULL-ROSTER
-    (M2) pass whose scan was ``evaluated`` (a pre-T7 artifact or a failed scan carries no inventory — read as
-    "nothing flagged" it would re-page every known row). (The stale-tape and name-error baselines no longer
-    use the full-roster rule: they carry each thesis forward, ``cron_run_log.carried_inventory``. This scan
-    judges only the ingested members, so a partial catch-up has the same question here — still open.)
+def is_scan_pass(doc: Mapping) -> bool:
+    """May this artifact CONTRIBUTE to the baseline (and the Admin inventory)? A LIVE, FINISHED (M1) pass
+    whose scan was ``evaluated`` (a pre-T7 artifact or a failed scan carries no inventory — read as "nothing
+    flagged" it would re-page every known row). A partial ``--catch-up`` (M2) qualifies too, but only for
+    the theses it covered: WHICH rows count is ``carried_successors``' per-thesis rule, never this test.
     """
-    from pipeline.cron_run_log import (  # lazy: cron_run_log imports this module
-        is_finished,
-        is_full_roster,
-    )
+    from pipeline.cron_run_log import is_finished  # lazy: cron_run_log imports this module
 
     block = doc.get("successor_cik")
     return (
@@ -473,20 +471,100 @@ def is_baseline(doc: Mapping) -> bool:
         and isinstance(block, Mapping)
         and bool(block.get("evaluated"))
         and is_finished(doc)  # type: ignore[arg-type]
-        and is_full_roster(doc)  # type: ignore[arg-type]
     )
 
 
+@dataclass(frozen=True)
+class CarriedSuccessors:
+    """The successor-CIK inventory a baseline reads (``carried_successors``): ``newest`` = the newest pass
+    whose scan ran (the night the inventory is "as of"); ``rows`` = each carried row paired with the pass
+    that wrote it, one per security (the newest pass's row wins), in the order the passes are read.
+    """
+
+    newest: Mapping
+    rows: tuple[tuple[Mapping, Mapping], ...]
+
+    def keys(self) -> set[str]:
+        """The page-once diff keys (``SuccessorRow.key``) of the carried rows."""
+        return {str(r["key"]) for r, _ in self.rows if r.get("key")}
+
+    def source_of(self, security_id: object) -> tuple[Mapping, Mapping] | None:
+        """``(row, the pass that wrote it)`` for one security, or ``None``."""
+        sid = str(security_id)
+        return next(((r, d) for r, d in self.rows if str(r.get("security_id")) == sid), None)
+
+    def as_doc(self) -> dict:
+        """The newest pass's payload with its ``successor_cik.rows`` replaced by the carried rows — the
+        artifact-shaped view the Admin panel walks. Built in memory, never written."""
+        block = self.newest.get("successor_cik")
+        return {
+            **self.newest,
+            "successor_cik": {
+                **(block if isinstance(block, Mapping) else {}),
+                "rows": [r for r, _ in self.rows],
+            },
+        }
+
+
+def _row_theses(row: Mapping) -> set[str]:
+    """The thesis ids a row says hold its member on that pass (``SuccessorRow.theses``). Empty when the row
+    carries none — then it covers no thesis."""
+    return {str(t["id"]) for t in row.get("theses") or [] if isinstance(t, Mapping) and t.get("id")}
+
+
+def carried_successors(payloads: Iterable[Mapping]) -> CarriedSuccessors | None:
+    """THE PER-THESIS CARRY-FORWARD for the successor-CIK rows (2026-10-17) — the rule the page-once diff
+    (``previous_successor_keys``) AND the Admin panel (``admin_price_feed.successor_doc``) read, so the panel
+    lists exactly what the next pass treats as already told. ``payloads`` are parsed artifacts NEWEST-FIRST.
+
+    The scan judges only the members a pass INGESTED, so a ``--catch-up`` that skipped theses (M2) judges
+    none of their members. The old FULL-ROSTER baseline skipped such a pass entirely: a row it first flagged
+    paged there and AGAIN at the next full pass (which diffed against the pass before the catch-up), and a
+    row it saw CLEAR stayed "already told", so its return never paged. Now — the stale-tape / name-error
+    rule, ``cron_run_log.carried_inventory``, applied to these rows — each thesis on the newest scanned
+    pass's roster contributes the rows ATTRIBUTED to it (``SuccessorRow.theses``, which names exactly the
+    ingested theses that hold the member) on the newest scanned pass that COVERED it. A thesis the catch-up
+    skipped keeps its rows from the last pass that covered it; the look-back ends at the newest full-roster
+    scanned pass; a thesis off the roster takes its rows with it. One row per security, the newest pass's.
+
+    OLD ARTIFACTS read as covering only what they list: a row with no thesis attribution covers no thesis,
+    so it counts only when its pass is the NEWEST scanned pass (today's whole-artifact reading); it is never
+    carried for a thesis a later catch-up skipped — that flag then pages again (loud, never a silent miss).
+    ``None`` = no scanned pass at all (the first pass after T7 deploys pages its inventory once). KNOWN LIMIT
+    (shared with the twins): a member held by a thesis the catch-up skipped AND by one it covered and saw
+    clear stays in the skipped thesis's carried rows until a full pass reads both. Pure — no I/O."""
+    from pipeline.cron_run_log import carried_inventory  # lazy: cron_run_log imports this module
+
+    scanned = [d for d in payloads if isinstance(d, Mapping) and is_scan_pass(d)]
+    # every doc here has an evaluated successor block, so the block's presence is the evaluated flag
+    inv = carried_inventory(scanned, evaluated_key="successor_cik")  # type: ignore[arg-type]
+    if inv is None:
+        return None
+    covered: dict[int, set[str]] = {}  # pass index -> the thesis ids carried from that pass
+    for t, i in inv.theses:
+        if isinstance(t.get("id"), str) and t["id"]:
+            covered.setdefault(i, set()).add(t["id"])
+    out: dict[str, tuple[Mapping, Mapping]] = {}
+    for i, doc in enumerate(inv.passes):
+        block = doc.get("successor_cik")
+        for r in (block.get("rows") if isinstance(block, Mapping) else None) or []:
+            if not isinstance(r, Mapping) or not r.get("security_id"):
+                continue
+            held = _row_theses(r)
+            if (held & covered.get(i, set())) or (i == 0 and not held):
+                out.setdefault(str(r["security_id"]), (r, doc))
+    return CarriedSuccessors(newest=inv.newest, rows=tuple(out.values()))
+
+
 def previous_successor_keys(*, base_dir: Path | None = None) -> set[str] | None:
-    """The row keys of the most recent BASELINE artifact (``is_baseline``) — ``None`` (distinct from an
-    empty set) when none exists yet: the first pass after T7 deploys pages its whole inventory ONCE.
-    Newest-first, first match wins; fail-open per artifact. Pure file read."""
+    """The row keys of the carried successor-CIK inventory (``carried_successors``) — what the next pass
+    diffs against so a row pages ONCE, across a skipped-thesis catch-up too. ``None`` (distinct from an empty
+    set) when no pass has scanned yet: the first pass after T7 deploys pages its whole inventory ONCE.
+    Fail-open per artifact. Pure file read."""
     from pipeline.cron_run_log import list_run_logs  # lazy: cron_run_log imports this module
 
-    for doc in list_run_logs(base_dir=base_dir):
-        if is_baseline(doc):
-            return keys_of(doc)
-    return None
+    inv = carried_successors(list_run_logs(base_dir=base_dir))
+    return None if inv is None else inv.keys()
 
 
 def new_labels_of(doc: Mapping) -> tuple[str, ...]:

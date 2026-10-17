@@ -415,7 +415,8 @@ per-thesis; **archived theses are skipped by the list's default**, the archive s
   **Known limit (accepted):** the artifact records a thesis's flagged names, not its members, so a name held
   by a thesis the catch-up skipped AND by one it covered and saw clear stays in the skipped thesis's carried
   entry — if it comes back by the next pass, that return does not page; the full pass after reads both
-  theses fresh. The split-basis baseline keeps its own rule (part 2): its scan reads the whole basket union
+  theses fresh. The T7 successor-CIK baseline follows this same rule (§the identity monitor). The split-basis
+  baseline keeps its own rule (part 2): its scan reads the whole basket union
   rather than the ingested theses' names.
 - **Per-thesis isolation.** Each thesis's ingest and call each run in their own try; one thesis's failure is
   captured into its `ThesisRunResult` and skipped — **never fatal** to the run (the cron finishes the rest).
@@ -656,10 +657,21 @@ map is shown, never adoptable).
   forever-cached copy `securities/sec_tickers` keeps for `populate_master`; prod's was from 2026-07-27, before
   either 8-K12B), only on a night some member lists no tickers, plus ONE submissions fetch per flagged
   candidate (two today). Nothing on `--no-live`.
-- **Visibility:** a row whose key (security + successor CIK) was absent from the previous baseline artifact
-  (live, finished, full-roster, scan evaluated — `successor_cik.is_baseline`) pages ONCE through the R4
-  health event (`successor_cik_new`, benign-class like a stale feed); a known row is one quiet report line and
-  stays on the artifact (`successor_cik` block) and the Admin panel. An Undo makes it news again (pages once).
+- **Visibility:** a row whose key (security + successor CIK) is absent from the carried inventory pages ONCE
+  through the R4 health event (`successor_cik_new`, benign-class like a stale feed); a known row is one quiet
+  report line and stays on the artifact (`successor_cik` block) and the Admin panel. An Undo makes it news
+  again (pages once). **The baseline carries each THESIS forward (2026-10-17)**, the stale-tape / name-error
+  rule (`successor_cik.carried_successors` over `cron_run_log.carried_inventory`): the scan judges only the
+  members a pass ingested, so an M2 `--catch-up` judges none of a skipped thesis's members. Each row names
+  the ingested theses that hold its member (`rows[].theses`), and each thesis on the newest scanned pass's
+  roster contributes the rows attributed to it on the newest scanned pass (live, finished, scan evaluated —
+  `is_scan_pass`) that COVERED it; a skipped thesis keeps its rows from the last pass that covered it. The
+  full-roster-only rule it replaces re-paged a row a catch-up first flagged at the next full pass, and kept a
+  row the catch-up saw clear "already told", so its return never paged (MEASURED with the real scan over the
+  measured UROY / REAX documents; the sequences are pinned in `tests/pipeline/test_successor_cik.py`). A row
+  with no thesis attribution covers no thesis: it counts only when its pass is the newest, and is never
+  carried (a repeat page, never a silent miss) — every T7 artifact records the attribution, and none had yet
+  been written on prod when this shipped (read 2026-10-17). The Admin panel reads the same carried rows.
 - **Fail-open:** any fault returns `evaluated=false` with the `error` (printed loud, shown on Admin); the
   night's record never depends on it.
 

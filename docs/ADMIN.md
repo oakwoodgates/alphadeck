@@ -216,8 +216,12 @@ values — if anything else re-pointed the symbol since (the `--adopt` CLI, the 
 refuses (409) rather than clobber a value it did not write. Nothing on this card is ever applied by the
 system (#3); every row names the operator as its author.
 
-**Successor CIK** `[BUILT, T7]` — the same card, its own inventory (the newest finished, full-roster live pass
-whose successor scan RAN, `successor_asof`) and its own append-only log (`security_cik_change`, 0049).
+**Successor CIK** `[BUILT, T7]` — the same card, its own inventory and its own append-only log
+(`security_cik_change`, 0049). The inventory is the one the page diffs against — the per-thesis
+carry-forward of the finished live passes whose successor scan RAN (each thesis as the newest such pass that
+covered it saw it, a skipped-thesis catch-up included), so it lists exactly what the next pass treats as
+already told; `successor_asof` names the newest such pass, and an Adopt records the night of the pass that
+wrote the row.
 
 - **Now files under a NEW CIK** (loud) — a member whose stored CIK lists no symbol on EDGAR while SEC's ticker
   map assigns ours to another registrant (`FEED_LOOP.md` §the identity monitor): the row names the stored CIK

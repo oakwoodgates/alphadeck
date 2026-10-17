@@ -236,10 +236,14 @@ def _probe_rows(doc: dict | None) -> tuple[dict[UUID, dict], bool, str | None]:
 
 
 def successor_doc(payloads: list[dict]) -> dict | None:
-    """The newest artifact that may serve as the successor-CIK inventory — a live, finished, full-roster
-    pass whose scan RAN (``successor_cik.is_baseline``: the same artifact the next pass's page-once diff
-    reads, so this panel and the page agree). ``None`` = no pass has scanned yet."""
-    return next((d for d in payloads if successor_cik.is_baseline(d)), None)
+    """The successor-CIK inventory this panel renders — the per-thesis CARRY-FORWARD the next pass's
+    page-once diff reads (``successor_cik.carried_successors``), so this panel and the page agree: each
+    thesis's rows from the newest live, finished pass whose scan RAN and that COVERED it (a ``--catch-up``
+    that skipped theses, M2, counts for the theses it covered). Artifact-shaped (``as_doc`` — the newest
+    scanned pass's payload with the carried rows; built in memory, never written). ``None`` = no pass has
+    scanned yet."""
+    inv = successor_cik.carried_successors(payloads)
+    return None if inv is None else inv.as_doc()
 
 
 def _successor_error(payloads: list[dict]) -> str | None:
@@ -765,10 +769,18 @@ def _cik(raw: str) -> str:
 
 
 def _successor_row(security_id: UUID) -> tuple[dict | None, dict | None]:
-    doc = successor_doc(list_run_logs(limit=20))
-    if doc is None:
+    """``(the pass that WROTE this security's row, the row)`` from the carried inventory the panel shows —
+    the row's own pass, so an Adopt records the night that actually recommended it (a row carried across a
+    catch-up comes from an earlier pass than the newest). ``(newest scanned pass, None)`` when the security
+    has no row; ``(None, None)`` when no pass has scanned."""
+    inv = successor_cik.carried_successors(list_run_logs(limit=20))
+    if inv is None:
         return None, None
-    return doc, _successor_rows(doc).get(security_id)
+    hit = inv.source_of(security_id)
+    if hit is None:
+        return dict(inv.newest), None
+    row, src = hit
+    return dict(src), dict(row)
 
 
 @router.post("/{security_id}/adopt-cik", response_model=AdminCikChangeOut)
