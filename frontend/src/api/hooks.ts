@@ -1218,6 +1218,86 @@ export function useDailyRunJob(jobId: string | null) {
   return q;
 }
 
+// --- Price feed repairs (T2 + Q8): the operator's ratification of the nightly tape monitor ---
+// The panel itself rides /admin/status (`price_repairs`); these are its WRITES — each fired ONLY by an
+// explicit click, each with a visible inverse (Adopt/Set ⇄ Undo, Acknowledge ⇄ Revoke). retry:false — a
+// repair is a decision, never auto-retried; a 409 (nothing to change / the master moved) is shown, not
+// re-sent. Every success refreshes the status read so the click shows at once.
+export type AdminPriceRepairsOut = components["schemas"]["AdminPriceRepairsOut"];
+export type AdminRenamedRowOut = components["schemas"]["AdminRenamedRowOut"];
+export type AdminUnpriceableRowOut = components["schemas"]["AdminUnpriceableRowOut"];
+export type AdminPriceSymbolChangeOut = components["schemas"]["AdminPriceSymbolChangeOut"];
+export type AdminPriceFeedAckOut = components["schemas"]["AdminPriceFeedAckOut"];
+export type AdminProbeCandidateOut = components["schemas"]["AdminProbeCandidateOut"];
+
+function useAdminRepair<TVars, TData>(fn: (vars: TVars) => Promise<TData>) {
+  const qc = useQueryClient();
+  return useMutation({
+    retry: false,
+    mutationFn: fn,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin-status"] }),
+  });
+}
+
+// ADOPT a renamed name's probed successor (sets price_symbol, basis operator:adopt; Undo restores it).
+export function useAdoptPriceSymbol() {
+  return useAdminRepair(async (vars: { securityId: string; symbol: string }) => {
+    const { data, error } = await api.POST("/admin/price-feed/{security_id}/adopt", {
+      params: { path: { security_id: vars.securityId } },
+      body: { symbol: vars.symbol },
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
+// SET a typed vendor symbol on an unpriceable name (validated server-side by ONE vendor fetch).
+export function useSetPriceSymbol() {
+  return useAdminRepair(async (vars: { securityId: string; symbol: string }) => {
+    const { data, error } = await api.POST("/admin/price-feed/{security_id}/set-symbol", {
+      params: { path: { security_id: vars.securityId } },
+      body: { symbol: vars.symbol },
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
+// UNDO an Adopt / a Set — the exact restore of the prior master values.
+export function useUndoPriceSymbolChange() {
+  return useAdminRepair(async (vars: { changeId: string }) => {
+    const { data, error } = await api.POST("/admin/price-feed/changes/{change_id}/undo", {
+      params: { path: { change_id: vars.changeId } },
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
+// ACKNOWLEDGE an unpriceable name ("keep it, unpriced" — quiet from the next pass; Revoke undoes it).
+export function useAcknowledgeUnpriceable() {
+  return useAdminRepair(async (vars: { securityId: string; reason?: string }) => {
+    const reason = vars.reason?.trim();
+    const { data, error } = await api.POST("/admin/price-feed/{security_id}/acknowledge", {
+      params: { path: { security_id: vars.securityId } },
+      body: reason ? { reason } : {},
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
+// REVOKE an acknowledgment — the name is a loud unpriceable row again from the next pass.
+export function useRevokeAcknowledgment() {
+  return useAdminRepair(async (vars: { ackId: string }) => {
+    const { data, error } = await api.POST("/admin/price-feed/acks/{ack_id}/revoke", {
+      params: { path: { ack_id: vars.ackId } },
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
 // --- Backups (Slice 4): the operator DB-snapshot button — create + list (NEVER restore) ---
 export type BackupOut = components["schemas"]["BackupOut"];
 export type BackupsOut = components["schemas"]["BackupsOut"];

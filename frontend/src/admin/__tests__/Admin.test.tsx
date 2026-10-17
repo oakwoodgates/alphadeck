@@ -281,6 +281,7 @@ const h = vi.hoisted(() => ({
   backups: {} as Record<string, unknown>,
   createBackup: {} as Record<string, unknown>,
   backupJob: {} as Record<string, unknown>,
+  repair: {} as Record<string, unknown>,
 }));
 
 vi.mock("../../api/hooks", () => ({
@@ -291,6 +292,12 @@ vi.mock("../../api/hooks", () => ({
   useBackups: () => h.backups,
   useCreateBackup: () => h.createBackup,
   useBackupJob: () => h.backupJob,
+  // T2/Q8 — the price-feed repair writes (the panel's own behavior is in PriceFeedRepairs.test.tsx)
+  useAdoptPriceSymbol: () => h.repair,
+  useSetPriceSymbol: () => h.repair,
+  useUndoPriceSymbolChange: () => h.repair,
+  useAcknowledgeUnpriceable: () => h.repair,
+  useRevokeAcknowledgment: () => h.repair,
 }));
 
 beforeEach(() => {
@@ -316,6 +323,7 @@ beforeEach(() => {
   };
   h.createBackup = { mutate: vi.fn(), isPending: false, isError: false, error: null };
   h.backupJob = { data: undefined, isError: false };
+  h.repair = { mutate: vi.fn(), isPending: false, isError: false, error: null };
 });
 
 function renderAdmin() {
@@ -873,5 +881,71 @@ describe("Admin — split-basis defects (T4)", () => {
     renderAdmin();
     expect(screen.getByTestId("adm-split-error").textContent).toContain("OSError: down");
     expect(screen.getByTestId("adm-split-defects")).toBeTruthy();
+  });
+});
+
+describe("Admin — the price feed repairs panel takes the rows it can act on (T2/Q8)", () => {
+  // the renamed VRME row and the closed GONE row are held by the panel; the plain feed gap AAA is not
+  const REPAIRS = {
+    asof: "2026-07-17",
+    ran_at: "2026-07-17T22:30:01+00:00",
+    probe_evaluated: true,
+    probe_error: null,
+    renamed: [
+      {
+        security_id: "55555555-5555-5555-5555-555555555555",
+        ticker: "VRME",
+        edge: "2026-10-06",
+        theses: [{ id: "t1", name: "Thesis One" }],
+        edgar_tickers: ["OPNW"],
+        edgar_name: "OpenWorld, Inc.",
+        former_names: [],
+        name_change_filings: [],
+        candidates: [{ symbol: "OPNW", verified: true, overlap: 30, ratio: 1.0, bars: 500 }],
+        recommended: "OPNW",
+        probed: true,
+        price_symbol: null,
+        change: null,
+      },
+    ],
+    unpriceable: [],
+    acknowledged: [],
+    closed: [
+      {
+        security_id: "44444444-4444-4444-4444-444444444444",
+        ticker: "GONE",
+        edge: "2026-06-30",
+        thesis: "Thesis One",
+        kind: "price",
+        closed_at: "2026-07-02",
+      },
+    ],
+    applied: [],
+    expected_misses: 1,
+  };
+
+  it("a row the panel holds leaves the freshness blocks; a row it does not hold stays (#9)", () => {
+    const tape = {
+      ...TAPE_WITH_RENAMED,
+      stale: [...TAPE_WITH_RENAMED.stale, TAPE_WITH_CLOSED.stale[1]],
+    };
+    h.status = { ...h.status, data: { ...STATUS_CURRENT, tape, price_repairs: REPAIRS } };
+    renderAdmin();
+
+    const panel = screen.getByTestId("adm-price-repairs");
+    expect(panel.textContent).toContain("VRME");
+    expect(panel.textContent).toContain("GONE");
+    // the freshness card keeps the plain feed gap, and only that — VRME / GONE are not shown twice
+    const tapes = screen.getByTestId("adm-stale-tapes");
+    expect(tapes.textContent).toContain("AAA");
+    expect(tapes.textContent).not.toContain("VRME");
+    expect(screen.queryByTestId("adm-closed-tapes")).toBeNull();
+  });
+
+  it("without the panel (an older backend) every row stays in the freshness card", () => {
+    h.status = { ...h.status, data: { ...STATUS_CURRENT, tape: TAPE_WITH_RENAMED } };
+    renderAdmin();
+    expect(screen.queryByTestId("adm-price-repairs")).toBeNull();
+    expect(screen.getByTestId("adm-stale-tapes").textContent).toContain("VRME");
   });
 });

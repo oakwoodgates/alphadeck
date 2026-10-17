@@ -19,6 +19,7 @@ Auth stays deferred project-wide (these routes ride the same tenancy seam as the
 
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime, time, timedelta, timezone, tzinfo
 from uuid import UUID
 
@@ -26,6 +27,7 @@ import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.deps import get_conn
+from app.routers.admin_price_feed import price_repairs_out
 from app.schemas_api import (
     AdminAuditCheckOut,
     AdminCronOut,
@@ -80,6 +82,7 @@ from pipeline.split_basis import new_labels_of as split_new_labels
 from repositories import calls_repo
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+_log = logging.getLogger(__name__)
 
 # The benign marker (mirrors HealthEvent.label's wording): a --no-live withhold is a dev-run note, not
 # an alarm — the cron verdict must not read "unhealthy" because someone hand-ran a cache-only pass.
@@ -341,6 +344,10 @@ def _tape_out(payloads: list[dict]) -> AdminTapeOut | None:
                             if isinstance(s.get("edgar_tickers"), list)
                             else None
                         ),
+                        # Q8 — never priced (neither closed nor renamed) / acknowledged by the operator;
+                        # an older artifact lacks both and reads false
+                        unpriceable=bool(s.get("unpriceable")),
+                        acknowledged=bool(s.get("acknowledged")),
                     )
                 except Exception:  # noqa: BLE001 — skip a malformed row, never blank the panel
                     continue
@@ -943,6 +950,18 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
     tape = _tape_out(payloads)
     # T4 — the split-basis panel, from the same artifacts (no second read, no DB query)
     split_defects = _split_out(payloads)
+    # T2 + Q8 + T3 — the price-feed repairs panel: the same artifacts' inventory overlaid with the LIVE
+    # repair log (SELECTs only — this surface still writes nothing). In a SAVEPOINT and fail-open: a fault
+    # reading the repair log costs the panel (null, the FE falls back to the freshness blocks — every row
+    # still shown, #9), never the status read.
+    price_repairs = None
+    try:
+        with conn.transaction():
+            price_repairs = price_repairs_out(conn, payloads)
+    except Exception:  # noqa: BLE001 — the panel is a passenger on the status read
+        _log.exception(
+            "price-feed repairs panel failed (fail-open — the status read is unaffected)"
+        )
 
     return AdminStatusOut(
         record=AdminRecordOut(
@@ -984,6 +1003,7 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
         cron_sha=cron_sha,
         unfinished_run=unfinished,
         split_defects=split_defects,
+        price_repairs=price_repairs,
     )
 
 

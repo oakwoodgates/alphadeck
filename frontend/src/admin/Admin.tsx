@@ -11,6 +11,7 @@ import {
   useStartDailyRun,
 } from "../api/hooks";
 import { errText } from "../workbench/format";
+import { PriceFeedRepairs, repairHandledIds } from "./PriceFeedRepairs";
 
 interface Props {
   header?: ReactNode;
@@ -263,8 +264,16 @@ export function Admin({ header }: Props) {
   // feed gap (closed_at null, the common case) is the loud "stale — repair" row. Same instinct as honest
   // loudness per feed (#7/WB#3): the exception to act on is loud, the expected event is quiet — and neither
   // is ever dropped from the panel (#9).
-  const closedTapes = priceTapes.filter((t) => t.closed_at != null);
-  const stalePriceTapes = priceTapes.filter((t) => t.closed_at == null);
+  // T2/Q8 — a name the "Price feed repairs" panel holds (renamed, unpriceable, acknowledged, closed) is shown
+  // THERE, where it can be acted on, and left out of these blocks so it is not shown twice. A row the panel
+  // does not hold — an older backend without the panel, a plain feed gap — stays here: never dropped (#9).
+  const handled = repairHandledIds(status?.price_repairs);
+  const closedTapes = priceTapes.filter(
+    (t) => t.closed_at != null && !handled.has(t.security_id),
+  );
+  const stalePriceTapes = priceTapes.filter(
+    (t) => t.closed_at == null && !handled.has(t.security_id),
+  );
   // M1 — nights a pass recorded only PART of (judged per thesis); an older backend omits the field
   const partialNights = status?.record.partial_nights ?? [];
   // ...and nights whose gaps a pipeline.backfill reconstructed: resolved by the operator, so QUIET
@@ -424,6 +433,12 @@ export function Admin({ header }: Props) {
               </div>
             )}
           </section>
+
+          {/* 1b — the PRICE FEED REPAIRS (T2 + Q8 + T3): renamed names with their splice-verified
+              successors to Adopt, never-priced names to Set / Acknowledge / Remove, the quiet closed and
+              acknowledged names, and every standing repair with its Undo. Renders only when there is
+              something in it; every action is the operator's click with its inverse beside it. */}
+          {status.price_repairs && <PriceFeedRepairs repairs={status.price_repairs} />}
 
           {/* 2 — cron health: the one-word verdict + the last run */}
           <section className="adm-card" data-testid="adm-cron">

@@ -344,6 +344,52 @@ def set_price_symbol(
         return cur.rowcount > 0
 
 
+def restore_price_symbol(
+    conn: psycopg.Connection,
+    security_id: UUID,
+    price_symbol: str | None,
+    price_symbol_basis: str | None,
+    *,
+    tenant_id: UUID = DEFAULT_TENANT_ID,
+) -> bool:
+    """Put back a PRIOR ``(price_symbol, price_symbol_basis)`` pair VERBATIM — the exact-undo writer for
+    the price-feed repair log (``repositories/price_feed_repo.undo_change``, migration 0046).
+
+    Deliberately NOT ``set_price_symbol``: that one normalizes (upper-cases, coerces a ticker-equal value to
+    NULL) and always stamps a basis, so routing a restore through it could not reproduce a prior state that
+    was, say, a NULL symbol with a NULL basis. The values here were READ from this very row before the
+    change being undone, so they are already in the stored form; writing them as-is is what makes the undo
+    byte-exact. Same identity-mutable UPDATE as its sibling (nothing reads the master as-of). Returns
+    whether a row was updated (fail-closed under a foreign tenant). The caller commits."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE security_master SET price_symbol = %s, price_symbol_basis = %s "
+            "WHERE tenant_id = %s AND id = %s",
+            (price_symbol, price_symbol_basis, tenant_id, security_id),
+        )
+        return cur.rowcount > 0
+
+
+def set_name(
+    conn: psycopg.Connection,
+    security_id: UUID,
+    name: str | None,
+    *,
+    tenant_id: UUID = DEFAULT_TENANT_ID,
+) -> bool:
+    """Set one master row's display ``name`` — UPDATE-in-place identity, the same pattern as
+    ``populate_universe``'s name refresh (the id stays stable; nothing reads the master as-of). Written
+    ONLY by an operator's price-feed Adopt (refreshing a renamed company's name from EDGAR's current entity
+    name) and by that Adopt's exact Undo (restoring the prior name verbatim), both recorded in
+    ``price_symbol_change``. Never a fact, never a call input. The caller commits."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE security_master SET name = %s WHERE tenant_id = %s AND id = %s",
+            (name, tenant_id, security_id),
+        )
+        return cur.rowcount > 0
+
+
 def set_business_type(
     conn: psycopg.Connection,
     security_id: UUID,

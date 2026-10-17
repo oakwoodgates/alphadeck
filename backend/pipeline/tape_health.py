@@ -92,10 +92,19 @@ a name; #7/WB#3: the quiet is reserved for the expected event). A stopped tape i
    all pass); a ``tickers[0]`` read would ALSO have flagged ABBNY, KYOCY, PRTC and WELPM.
 
 The marker is DISPLAY-only: nothing here writes ``price_symbol`` or adopts the EDGAR symbol (a wrong
-adoption would file another company's tape under the member, #4/#6). The recommender that would propose
-an adoption for the operator to ratify is a separate, unbuilt step (plan T2), as are a check of WHICH
-security class a Form 25 removed (Q6) and treating a closed name's price 404 as expected (T3).
-``classify_stop`` takes plain inputs so each can land as its own argument without reshaping the rest.
+adoption would file another company's tape under the member, #4/#6). The recommender that proposes an
+adoption for the operator to ratify is ``pipeline/rename_probe.py`` (T2: a nightly splice probe of each
+EDGAR symbol against our stored tape — a pending recommendation, never applied), and the operator's
+ratifications (Adopt / Set symbol / Acknowledge, each with its Undo) are the Admin price-feed repairs
+(``app/routers/admin_price_feed.py``). A closed name's price 404 — and an acknowledged unpriceable name's —
+counts as EXPECTED (T3, ``pipeline/price_feed.py``). A check of WHICH security class a Form 25 removed
+(Q6) is still unbuilt; ``classify_stop`` takes plain inputs so it can land as its own argument.
+
+UNPRICEABLE (Q8) is the third reading of a stopped price tape, beside closed and renamed: a member with NO
+stored bar at all that neither explains (``is_unpriceable``). It is surfaced loudly (it pages once when new,
+through the same newly-stale diff) and stays on the Admin page until the operator ratifies it — sets a
+price symbol, acknowledges it ("keep it, unpriced": quiet thereafter, revocable), or removes it from the
+basket in the editor.
 
 A closed name is NEVER dropped from the roster, the monitor, or the panel (#9) — the marker only
 RECLASSIFIES the stopped tape, and it is EXPECTED so it renders quietly and does not page as newly-stale
@@ -168,7 +177,16 @@ class StaleTape:
     the master ``ticker`` nor ``price_symbol`` — the rename-starved shape, so the advice is "point the
     price symbol at the new listing". Never set together with ``closed_at``. ``edgar_tickers`` is EDGAR's
     current list as read this pass (``()`` = EDGAR lists none, ``None`` = not read: no CIK, or the
-    submissions read failed); DISPLAY only — nothing adopts it."""
+    submissions read failed); DISPLAY only — nothing adopts it.
+
+    ``unpriceable`` (Q8, derived — see ``is_unpriceable``) is the third reading of a stopped price tape: a
+    name with NO stored bar at all that is neither closed nor renamed (WONDF — a 40-F filer EDGAR lists no
+    symbol for, 404 at the vendor every night). It stays a loud repair row until the operator ratifies it.
+    ``acknowledged`` marks an unpriceable row the operator ACKNOWLEDGED ("keep it, unpriced" — an
+    append-only, revocable ``price_feed_ack`` row): it goes QUIET like a closed row (no newly-stale page, a
+    quiet count on Admin, still listed — #9), and its vendor 404 counts as expected (T3). Only ever set on an
+    unpriceable row: an acknowledgment cannot silence a tape that has bars and then stopped (that is a feed
+    gap, whatever was acknowledged before)."""
 
     ticker: str | None
     security_id: UUID
@@ -177,6 +195,7 @@ class StaleTape:
     closed_at: date | None = None
     renamed: bool = False
     edgar_tickers: tuple[str, ...] | None = None
+    acknowledged: bool = False
 
     @property
     def label(self) -> str:
@@ -193,6 +212,35 @@ class StaleTape:
         rename), rather than a feed gap to repair? A closed tape renders quietly and never pages as
         newly-stale (#7/WB#3); a non-closed one stays the loud "stale — repair" row."""
         return self.closed_at is not None
+
+    @property
+    def unpriceable(self) -> bool:
+        """Q8 — a price row with no stored bar at all that is neither closed nor renamed
+        (``is_unpriceable``)."""
+        return is_unpriceable(
+            kind=self.kind, edge=self.edge, closed_at=self.closed_at, renamed=self.renamed
+        )
+
+    @property
+    def quiet(self) -> bool:
+        """Does this stopped feed stay OFF the loud newly-stale page? A CLOSED tape (an expected event) and
+        an ACKNOWLEDGED unpriceable one (the operator's ratified "keep it, unpriced") — both still listed,
+        never dropped (#9). Everything else is a repair the operator has not ratified yet, and pages once.
+        """
+        return self.closed or self.acknowledged
+
+
+def is_unpriceable(
+    *, kind: str | None, edge: date | None, closed_at: date | None, renamed: bool
+) -> bool:
+    """Q8 — the UNPRICEABLE class, the ONE definition (the nightly pass, the artifact reader and the Admin
+    panel all ask this): a PRICE row whose tape has NO stored bar at all (``edge is None`` — never priced,
+    or no priceable symbol: a ticker-less member lands here too) that is NOT explained by the closed
+    classifier (T1 — a never-priced name has no last bar, so it can never be closed by proximity anyway)
+    nor by the rename guard (T2 — EDGAR lists another symbol to probe). WONDF is the first instance: a 40-F
+    filer, EDGAR ``tickers=[]``, 404 at the vendor every night. Pure, fail-soft on ``kind`` (``None`` reads
+    ``price``, the artifact convention)."""
+    return feed_kind(kind).key == PRICE.key and edge is None and closed_at is None and not renamed
 
 
 @dataclass(frozen=True)

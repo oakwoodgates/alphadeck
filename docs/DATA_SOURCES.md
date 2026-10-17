@@ -257,7 +257,7 @@ the ingest cannot tell that from "this name had a quiet year". Two classes, one 
   DIFFERS from the ticker; `ingest_bars_for_security` fetches `price_symbol or ticker`, and the bars land
   under the same `security_id`, so the detectors simply start seeing the fuller history (no call-path touch).
   A verified symbol-search resolver populates it, deliberately **OTC-scoped and thin-history-gated**.
-- **The RENAME class — the silent one `[MONITORED, G5a; repair is manual]`.** After a rename the vendor's
+- **The RENAME class — the silent one `[MONITORED, G5a; repair ratifiable since T2]`.** After a rename the vendor's
   series for the OLD symbol simply **ENDS**. The ingest appends bars after the latest stored one, so it
   appends **zero, with no error** — byte-identical to a market holiday. The resolver above cannot reach this
   case by construction (it is OTC-scoped and gated on thin history, while a renamed name has a long, healthy
@@ -285,6 +285,25 @@ the ingest cannot tell that from "this name had a quiet year". Two classes, one 
   other time is not a close: a company files these for ANY listed class, and VRME's 2025 warrant 25-NSE
   once labeled its still-trading common stock "closed". The residual the window cannot catch is a 25-NSE
   for another class filed within weeks of a stop (the unbuilt Form 25 class check). See `FEED_LOOP.md`.
+- **The rename repair is now RATIFIABLE `[BUILT, T2 2026-10-17]` — still never automatic.** Every night a
+  renamed tape's EDGAR-listed symbols are **spliced** against our stored tape (`pipeline/rename_probe.py`):
+  ONE Yahoo fetch per candidate symbol, into a throwaway temp dir (the shared `data/price_cache` is never
+  written by a probe), verified when at least 5 dates are shared and the median close ratio is within 1%.
+  The same company's tape under its new symbol matches ours to float noise (HLLK/SDCO and BRR/SVIA: 30 shared
+  dates, x1.000000); another class does not (BRR's warrants SVIAW: x0.121 — the exact mistake a blind
+  adoption of EDGAR's list would make). The verified symbol is a pending recommendation on the Admin page;
+  the operator's **Adopt** writes `price_symbol` (basis `operator:adopt`) and Undo restores the prior value
+  exactly (`price_symbol_change`, migration 0046). A symbol the operator TYPES (Set — e.g. a never-priced
+  name's TSX listing) is validated the same way first: one vendor fetch, bars must exist.
+- **Never priced** (Q8). A member with no stored bar ever that is neither closed nor renamed (WONDF: a 40-F
+  filer EDGAR lists no symbol for; Yahoo 404s it) is the UNPRICEABLE class — loud until the operator sets a
+  symbol, removes it, or **acknowledges** it ("keep it, unpriced": quiet, revocable).
+- **A vendor 404 is EXPECTED on a closed or acknowledged name** (T3). Yahoo drops a delisted symbol (404),
+  which is exactly right; the price leg records the 404 as a fact (`NameResult.price_not_found`) and the
+  nightly pass excuses it for a name its tape classification calls closed (or the operator acknowledged), so
+  it no longer counts as an ingest error or spoils `ingest_fresh`. The fetch still runs for those names
+  every night — the classification is derived from the tape, and a name that starts trading again is noticed
+  only because its bars can still land.
 
 ### The ETF fund-shares sampler stops the same silent way `[MONITORED, F1; repair is manual]`
 

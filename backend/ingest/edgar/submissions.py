@@ -234,6 +234,71 @@ def edgar_tickers(submissions: dict[str, Any]) -> tuple[str, ...]:
     return tuple(t for t in (str(x).strip().upper() for x in submissions.get("tickers") or []) if t)
 
 
+@dataclass(frozen=True)
+class FormerName:
+    """One entry of EDGAR's ``formerNames``: a name the company filed under, and the window it was used
+    (``since`` / ``until`` as EDGAR's own date strings, trimmed to ``YYYY-MM-DD``; ``""`` when absent).
+    """
+
+    name: str
+    since: str = ""
+    until: str = ""
+
+
+@dataclass(frozen=True)
+class NameChangeFiling:
+    """An 8-K carrying item 5.03 (amendments to the articles / bylaws — where a corporate NAME change is
+    reported): its filing date and accession, so a rename recommendation can cite the filing (#6).
+    """
+
+    filed: date
+    accession: str
+
+
+def entity_name(submissions: dict[str, Any]) -> str | None:
+    """The company's CURRENT registered name as EDGAR states it (``name``), stripped; ``None`` when absent.
+    Identity, never a fact — the rename recommender shows it beside the symbol EDGAR now lists ("SDCO — SDR
+    Drone, Inc."), and an operator Adopt may refresh the master's display name from it."""
+    return (str(submissions.get("name") or "")).strip() or None
+
+
+def former_names(submissions: dict[str, Any]) -> tuple[FormerName, ...]:
+    """EDGAR's ``formerNames`` in its own order (most recent first), blank names skipped — the rename
+    recommender's evidence that the company it lists under a new symbol is the SAME filer that used to be
+    our name (HLLK: "HALLMARK VENTURE GROUP, INC." until 2026-06-16, now "SDR Drone, Inc."). Tolerates a
+    sparse doc (no key -> ``()``)."""
+    out: list[FormerName] = []
+    for fn in submissions.get("formerNames") or []:
+        name = str((fn or {}).get("name") or "").strip()
+        if name:
+            out.append(
+                FormerName(
+                    name=name,
+                    since=str(fn.get("from") or "")[:10],
+                    until=str(fn.get("to") or "")[:10],
+                )
+            )
+    return tuple(out)
+
+
+def name_change_filings(submissions: dict[str, Any]) -> tuple[NameChangeFiling, ...]:
+    """Every 8-K / 8-K/A in the ``recent`` window that carries item 5.03, newest first — the filing a name
+    change is reported under. EVIDENCE for a rename recommendation (display only); deterministic from the
+    SAME arrays every other leg walks, so it costs nothing on a pass that already cached the doc. A row with
+    a malformed date is skipped, never guessed."""
+    out: list[NameChangeFiling] = []
+    for f in form8k_filings(submissions):
+        if not f["items"] or "5.03" not in f["items"]:
+            continue
+        try:
+            filed = date.fromisoformat(f["filed"])
+        except (TypeError, ValueError):
+            continue
+        out.append(NameChangeFiling(filed=filed, accession=str(f["accession"] or "")))
+    out.sort(key=lambda x: x.filed, reverse=True)
+    return tuple(out)
+
+
 def _acceptance_map(arrays: dict[str, Any]) -> dict[str, str]:
     """``{accession: raw acceptanceDateTime}`` from one block of EDGAR's parallel submission arrays.
 

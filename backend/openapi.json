@@ -2186,6 +2186,263 @@
         }
       }
     },
+    "/admin/price-feed/{security_id}/adopt": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Adopt Successor",
+        "description": "ADOPT a renamed name's successor symbol \u2014 the operator's ratification of the nightly splice probe.\nThe symbol must be one EDGAR lists for this name on the newest pass that looked (verified or not: the\nprobe recommends, the operator decides). Sets ``price_symbol`` through the existing writer (basis\n``operator:adopt``) and refreshes the display name from EDGAR's current entity name when it differs;\nthe change row records the prior values, so ``POST /admin/price-feed/changes/{id}/undo`` restores them\nexactly. The next nightly pass re-pulls the tape under the new symbol. **404** unknown security, **409**\nnot a listed candidate / no rename recommendation / nothing to change, **422** a malformed symbol.",
+        "operationId": "adopt_successor_admin_price_feed__security_id__adopt_post",
+        "parameters": [
+          {
+            "name": "security_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Security Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminPriceSymbolIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminPriceSymbolChangeOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/price-feed/{security_id}/set-symbol": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Set Symbol",
+        "description": "SET a vendor price symbol the operator typed (an unpriceable name \u2014 e.g. its TSX listing).\nVALIDATED first by ONE live vendor fetch into a throwaway cache: the symbol must return at least one\nbar, else **422** and nothing is written. Then set through the existing writer (basis\n``operator:set``), recorded with the prior values for an exact Undo. **404** unknown security, **409**\nnothing to change, **422** a malformed symbol or no vendor bars.",
+        "operationId": "set_symbol_admin_price_feed__security_id__set_symbol_post",
+        "parameters": [
+          {
+            "name": "security_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Security Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminPriceSymbolIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminPriceSymbolChangeOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/price-feed/changes/{change_id}/undo": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Undo Change",
+        "description": "UNDO an Adopt or a Set \u2014 restore the master's prior ``price_symbol`` / ``price_symbol_basis`` (and\n``name``, when the Adopt refreshed it) EXACTLY, appending an ``undo`` row (basis ``operator:undo``).\nOnly the name's standing change, and only while the master still holds its values. **404** unknown\nchange, **409** already undone / a later change stands / the master moved since.",
+        "operationId": "undo_change_admin_price_feed_changes__change_id__undo_post",
+        "parameters": [
+          {
+            "name": "change_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Change Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminPriceSymbolChangeOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/price-feed/{security_id}/acknowledge": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Acknowledge Unpriceable",
+        "description": "ACKNOWLEDGE an unpriceable name \u2014 \"keep it, unpriced\" (an append-only ``price_feed_ack``, basis\n``operator:acknowledge``). From the next pass the name is QUIET (no page, a quiet count, still listed)\nand its vendor 404 counts as expected. Idempotent: an already-acknowledged name returns its active row.\nRevoke with ``POST /admin/price-feed/acks/{id}/revoke``. **404** unknown security, **409** the name is\nnot unpriceable on the newest pass that looked.",
+        "operationId": "acknowledge_unpriceable_admin_price_feed__security_id__acknowledge_post",
+        "parameters": [
+          {
+            "name": "security_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Security Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/AdminAcknowledgeIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminPriceFeedAckOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/price-feed/acks/{ack_id}/revoke": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Revoke Acknowledgment",
+        "description": "REVOKE an acknowledgment \u2014 append the inverse row (basis ``operator:revoke``); from the next pass the\nname is a loud unpriceable row again (and pages once). **404** when no active acknowledgment has that\nid.",
+        "operationId": "revoke_acknowledgment_admin_price_feed_acks__ack_id__revoke_post",
+        "parameters": [
+          {
+            "name": "ack_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Ack Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminPriceFeedAckOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/radar/spac": {
       "get": {
         "tags": [
@@ -2593,6 +2850,25 @@
         "title": "ActivistStakeOut",
         "description": "One stored 13D/G-family filing about the episode's security (Slice B) \u2014 an overlay chip /\nledger row.\n\n``d`` = ``valid_from`` = ``filed`` (knowability \u2014 never the in-document event date). ``form`` is\nverbatim, BOTH naming eras (``SC 13D`` / ``SCHEDULE 13D`` / amendments / the 13G family).\nUnresolved identity ships null and the row is KEPT (#9): ``filer_name`` / ``filer_cik`` ``None``\n= identity unresolved; ``pct_owned`` ``None`` = pre-structured era / unparsed. 13G rows ride too \u2014\nthe fire policy (13D-family originals only) lives in the detector; the FE mirrors it as display\nweight (13G-family grayed-passive), never as an omission. ``url`` is the EDGAR filing-index URL\n(#6). Both time axes are asof-capped (no-lookahead #1)."
       },
+      "AdminAcknowledgeIn": {
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "title": "AdminAcknowledgeIn",
+        "description": "Why the operator keeps an unpriceable name unpriced (optional \u2014 a default reason is stored)."
+      },
       "AdminAuditCheckOut": {
         "properties": {
           "check": {
@@ -2658,6 +2934,50 @@
         "title": "AdminCronOut",
         "description": "The one-word cron verdict + a plain-English detail. ``unhealthy`` (the LAST run froze / errored /\nwithheld on total ingest failure / failed to refresh the benchmark tape) is deliberately its own\nLOUD state, peer to ``stale`` \u2014 a bad run\nmust read as loud as a missing one, never hide behind green (the R1 freeze lesson). A benign\n``--no-live`` dev run is NOT unhealthy. ``never_ran`` = no run artifact at all (quiet). ``gappy`` =\nthe edge is current and the last run clean, but the recent window has a night with NO call-of-record\n(a wrong-day fire) \u2014 as loud as ``stale``. Priority: never_ran > unhealthy > stale > gappy > healthy.\n\n``alarms`` (Phase 1B) are the STATUS-level alarms that are not one run's health, each a plain-English\nline, and any of them makes the verdict ``unhealthy`` (they are listed even under ``never_ran``): the\ncron's last pass ran with an UNKNOWN ``code_sha``; the cron's sha differs from this backend's own (an\nimage left stale by a partial rebuild) or the backend's own is unknown \u2014 compared only for a cron pass\nthat started after this backend process did, so a full deploy does not read ``unhealthy`` until the\nnight's pass confirms it; the last live pass paged\nthrough the LOG notifier (``SLACK_WEBHOOK_URL`` unset \u2014 a bad night pages nobody) or ran with\n``ALPHADECK_USER_AGENT`` unset; the newest unlabeled DB dump is older than\n``ALPHADECK_BACKUP_STALE_HOURS`` in schedule time (B4 \u2014 only on a stack whose run history shows the cron\nsidecar, where a nightly dump is expected). ``[]`` on a clean stack.\n\nM1 adds three alarms and one verdict. Alarms: **the last pass did not finish** (the newest artifact still\nreads ``running`` past the run timeout \u2014 killed or hung), **the last pass crashed** (``crashed``), and\n**rows without a run artifact** (a night has post-``RUN_AT`` rows but no pass artifact at all for it).\n``gappy`` now also covers a PARTIAL night (``record.partial_nights``). ``running`` = a pass is in flight\ninside its timeout and nothing else is wrong; its own night is not judged until it finishes, so a\nhealthy pass mid-loop never reads partial or stale. Priority: never_ran > unhealthy > stale > gappy >\nrunning > healthy."
       },
+      "AdminFormerNameOut": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "since": {
+            "type": "string",
+            "title": "Since",
+            "default": ""
+          },
+          "until": {
+            "type": "string",
+            "title": "Until",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "AdminFormerNameOut",
+        "description": "One of EDGAR's ``formerNames`` for the filer (``since`` / ``until`` as ``YYYY-MM-DD``, ``\"\"`` when\nEDGAR omits them) \u2014 evidence that the company EDGAR lists under a new symbol is the same filer."
+      },
+      "AdminNameChangeFilingOut": {
+        "properties": {
+          "filed": {
+            "type": "string",
+            "format": "date",
+            "title": "Filed"
+          },
+          "accession": {
+            "type": "string",
+            "title": "Accession"
+          }
+        },
+        "type": "object",
+        "required": [
+          "filed",
+          "accession"
+        ],
+        "title": "AdminNameChangeFilingOut",
+        "description": "An 8-K carrying item 5.03 (an articles amendment \u2014 where a corporate name change is filed)."
+      },
       "AdminPartialNightOut": {
         "properties": {
           "asof": {
@@ -2697,6 +3017,375 @@
         ],
         "title": "AdminPartialNightOut",
         "description": "One scheduled night the pass did not fully cover (M1): some thesis in that night's roster has no\ncall-of-record recorded at/after the night's ``RUN_AT`` and no ``pipeline.backfill`` reconstruction\neither (``pipeline/night_coverage.py``). ``covered`` of ``expected`` theses had a live post-``RUN_AT``\nrow; ``reconstructed_only`` of the rest were backfilled (resolved \u2014 they alone never make a night\npartial) and ``daytime_only`` have only a pre-``RUN_AT`` row; ``late`` of the ``covered`` ones were\nrecorded only after the night's on-time window closed (the next weekday's 06:00 ET EDGAR open \u2014 a\ncatch-up the next day). Counts only \u2014 never a thesis name."
+      },
+      "AdminPriceFeedAckOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action",
+            "default": "acknowledge"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "basis": {
+            "type": "string",
+            "title": "Basis"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "still_unpriceable": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Still Unpriceable"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "security_id",
+          "reason",
+          "basis",
+          "created_at"
+        ],
+        "title": "AdminPriceFeedAckOut",
+        "description": "One operator acknowledgment of an unpriceable name (``price_feed_ack``): \"keep it, unpriced\". Active\n= no revoke references it; an active one makes the name QUIET (no page, a quiet count) and its vendor\n404 expected (T3). ``still_unpriceable`` = the latest pass still found the name unpriceable (``False``:\nit has bars now, so the acknowledgment no longer does anything; ``None``: not in that pass's\ninventory)."
+      },
+      "AdminPriceRepairsOut": {
+        "properties": {
+          "asof": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asof"
+          },
+          "ran_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ran At"
+          },
+          "probe_evaluated": {
+            "type": "boolean",
+            "title": "Probe Evaluated",
+            "default": false
+          },
+          "probe_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Probe Error"
+          },
+          "renamed": {
+            "items": {
+              "$ref": "#/components/schemas/AdminRenamedRowOut"
+            },
+            "type": "array",
+            "title": "Renamed",
+            "default": []
+          },
+          "unpriceable": {
+            "items": {
+              "$ref": "#/components/schemas/AdminUnpriceableRowOut"
+            },
+            "type": "array",
+            "title": "Unpriceable",
+            "default": []
+          },
+          "acknowledged": {
+            "items": {
+              "$ref": "#/components/schemas/AdminPriceFeedAckOut"
+            },
+            "type": "array",
+            "title": "Acknowledged",
+            "default": []
+          },
+          "closed": {
+            "items": {
+              "$ref": "#/components/schemas/AdminStaleTapeOut"
+            },
+            "type": "array",
+            "title": "Closed",
+            "default": []
+          },
+          "applied": {
+            "items": {
+              "$ref": "#/components/schemas/AdminPriceSymbolChangeOut"
+            },
+            "type": "array",
+            "title": "Applied",
+            "default": []
+          },
+          "expected_misses": {
+            "type": "integer",
+            "title": "Expected Misses",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "AdminPriceRepairsOut",
+        "description": "The \"Price feed repairs\" panel (T2 + Q8 + T3): one place for every price-feed decision the operator\nowes or has made. The INVENTORY (``renamed`` / ``unpriceable`` / ``closed``) comes from the newest\nfinished, full-roster live run artifact that evaluated recency (``asof`` / ``ran_at``); the DECISIONS are\nread LIVE from the append-only repair log, so a click shows at once: an acknowledged name moves from\n``unpriceable`` to ``acknowledged``, an Adopt shows as the row's ``change`` with its Undo. Read-only.\n\n- ``renamed`` \u2014 loud: the splice-probed successors, each with Adopt (and Undo once adopted);\n- ``unpriceable`` \u2014 loud: never priced, not acknowledged \u2014 Set symbol / Acknowledge / Remove;\n- ``acknowledged`` \u2014 QUIET: every active acknowledgment, each revocable;\n- ``closed`` \u2014 QUIET: names that stopped trading (T1) \u2014 no repair; their vendor 404 is expected (T3);\n- ``applied`` \u2014 every STANDING operator price-symbol change, each with its Undo (the inverse stays\n  visible after the repair healed the tape and the name left the inventory, WB#1);\n- ``expected_misses`` \u2014 how many vendor 404s that pass excused as expected (closed / acknowledged).\n``probe_error`` = the rename probe failed on that pass (``renamed`` rows then carry no verdict)."
+      },
+      "AdminPriceSymbolChangeOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "prior_symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prior Symbol"
+          },
+          "new_symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Symbol"
+          },
+          "prior_basis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prior Basis"
+          },
+          "new_basis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Basis"
+          },
+          "name_changed": {
+            "type": "boolean",
+            "title": "Name Changed",
+            "default": false
+          },
+          "prior_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prior Name"
+          },
+          "new_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Name"
+          },
+          "basis": {
+            "type": "string",
+            "title": "Basis"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "undoable": {
+            "type": "boolean",
+            "title": "Undoable",
+            "default": false
+          },
+          "current_symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Symbol"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "security_id",
+          "action",
+          "basis",
+          "created_at"
+        ],
+        "title": "AdminPriceSymbolChangeOut",
+        "description": "One operator price-feed repair (``price_symbol_change``, migration 0046): an ``adopt`` (a probed\nsuccessor), a ``set`` (a symbol the operator typed, validated by one vendor fetch) or an ``undo``. The\nPRIOR and NEW master values ride the row \u2014 that is what makes the undo exact. ``basis`` names the\nauthor (``operator:adopt`` / ``operator:set`` / ``operator:undo``). ``undoable`` (a standing change only)\n= the master still holds this change's new values, so an Undo would restore the prior state exactly;\n``current_symbol`` is the master's price symbol now."
+      },
+      "AdminPriceSymbolIn": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "maxLength": 24,
+            "minLength": 1,
+            "title": "Symbol"
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbol"
+        ],
+        "title": "AdminPriceSymbolIn",
+        "description": "The operator's chosen vendor symbol (an Adopt of a probed candidate, or a typed Set)."
+      },
+      "AdminProbeCandidateOut": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          },
+          "verified": {
+            "type": "boolean",
+            "title": "Verified",
+            "default": false
+          },
+          "overlap": {
+            "type": "integer",
+            "title": "Overlap",
+            "default": 0
+          },
+          "ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ratio"
+          },
+          "bars": {
+            "type": "integer",
+            "title": "Bars",
+            "default": 0
+          },
+          "last_bar": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Bar"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbol"
+        ],
+        "title": "AdminProbeCandidateOut",
+        "description": "One EDGAR-listed symbol for a renamed name, as the nightly splice probe judged it (T2): ``overlap``\n= the dates both its vendor tape and our stored tape carry a close on, ``ratio`` = the MEDIAN of its\nclose / ours over them, ``verified`` = at least 5 shared dates with the ratio within 1% (the same\ncompany's tape under its new symbol). ``bars`` / ``last_bar`` say what the vendor serves under it (whether\nadopting it would extend our tape); ``error`` = its one fetch failed (then nothing else is known)."
       },
       "AdminReconstructedNightOut": {
         "properties": {
@@ -2822,6 +3511,132 @@
         ],
         "title": "AdminRecordOut",
         "description": "The record's freshness vs the LAST EXPECTED scheduled run \u2014 never raw ``today - edge``: a\nFriday edge on a Monday morning is CURRENT (no run was due yet), the same edge Monday night is 1\nbehind (stale). ``edge is None`` = the record has never begun \u2014 a QUIET state (``days_behind``\nNone, ``stale`` False), never an alarm on a fresh install.\n\n``stale`` / ``days_behind`` are the EDGE check (MAX(asof) vs the last expected run) and keep exactly\nthat meaning. ``missed`` / ``missed_asofs`` are the HOLE check: the scheduled weekdays in the last\n``window_days`` scheduled runs (ending at ``expected_asof``, never before the record began) with no\ncall-of-record \u2014 a run that fired on the wrong day advances the edge right over the night it skipped,\ninvisible to the edge check. ``[]`` / ``0`` on a clean window.\n\n**COVERED means a post-``RUN_AT`` row (G2c).** A night counts as recorded only if some call-of-record\nfor that as-of was ``recorded_at`` at or after that night's ``RUN_AT`` in market time. Mere existence\nwas too weak: a pre-open \"Run daily now\" writes a row for today's as-of off the PRIOR session's bars,\nso a night whose post-close pass then failed used to read as covered. ``daytime_only_asofs`` names the\nas-ofs whose ONLY row is such a daytime one \u2014 every one of them also appears in ``missed_asofs``, and\nthe detail marks them, because \"nothing ran\" and \"something ran, but not after the close\" call for\ndifferent responses. A next-morning catch-up row is recorded after the cutoff and correctly covers the\nnight; a ``reconstructed`` row (``pipeline.backfill``) covers it too, unchanged and deliberate.\n\n**PER-THESIS coverage (M1).** ``missed_asofs`` asks whether ANY row landed after the cutoff \u2014 so a pass\nkilled after recording 4 of 12 theses read as a covered night (MEASURED 2026-10-12, healthy for ~18 h).\n``partial_nights`` lists every window night NOT in ``missed_asofs`` where some thesis in that night's\nroster (created before the cutoff, not archived before it) has no row at/after the cutoff \u2014 \"4 of 12\ntheses\". A thesis ``pipeline.backfill`` reconstructed is RESOLVED, not missing (operator decision\n2026-10-16 \u2014 the backfill is the operator's answer to that hole, so a new miss stands out): a night\nwhose only gaps are reconstructed is not partial and lands in ``reconstructed_nights`` instead, a quiet\ncount that never changes the verdict. ``[]`` on a clean window; the night a pass is still running for\n(within the run timeout) is left out of both until it finishes."
+      },
+      "AdminRenamedRowOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "edge": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Edge"
+          },
+          "theses": {
+            "items": {
+              "$ref": "#/components/schemas/AdminThesisRefOut"
+            },
+            "type": "array",
+            "title": "Theses",
+            "default": []
+          },
+          "edgar_tickers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Edgar Tickers",
+            "default": []
+          },
+          "edgar_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Edgar Name"
+          },
+          "former_names": {
+            "items": {
+              "$ref": "#/components/schemas/AdminFormerNameOut"
+            },
+            "type": "array",
+            "title": "Former Names",
+            "default": []
+          },
+          "name_change_filings": {
+            "items": {
+              "$ref": "#/components/schemas/AdminNameChangeFilingOut"
+            },
+            "type": "array",
+            "title": "Name Change Filings",
+            "default": []
+          },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/AdminProbeCandidateOut"
+            },
+            "type": "array",
+            "title": "Candidates",
+            "default": []
+          },
+          "recommended": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recommended"
+          },
+          "probed": {
+            "type": "boolean",
+            "title": "Probed",
+            "default": false
+          },
+          "price_symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Symbol"
+          },
+          "change": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdminPriceSymbolChangeOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id"
+        ],
+        "title": "AdminRenamedRowOut",
+        "description": "A stopped price tape whose company EDGAR lists under another symbol (T1's ``renamed``), with the\nnightly splice probe's verdict on each candidate (T2) and the EDGAR evidence \u2014 a pending\nRECOMMENDATION: nothing is applied until the operator clicks Adopt. ``recommended`` = the first\nverified candidate (``null`` = none verified); ``probed`` = the probe judged this row on that pass.\n``price_symbol`` is the master's price symbol now; ``change`` the standing operator repair for this name\n(an Adopt waiting for the next pass to re-pull, with its Undo), else ``null``."
       },
       "AdminRunEnvOut": {
         "properties": {
@@ -3349,6 +4164,16 @@
               }
             ],
             "title": "Edgar Tickers"
+          },
+          "unpriceable": {
+            "type": "boolean",
+            "title": "Unpriceable",
+            "default": false
+          },
+          "acknowledged": {
+            "type": "boolean",
+            "title": "Acknowledged",
+            "default": false
           }
         },
         "type": "object",
@@ -3438,6 +4263,16 @@
                 "type": "null"
               }
             ]
+          },
+          "price_repairs": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdminPriceRepairsOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -3446,7 +4281,7 @@
           "cron"
         ],
         "title": "AdminStatusOut",
-        "description": "The admin page's one-GET summary: record freshness + the newest run + the cron verdict + the\nnewest DB snapshot + the feed-freshness panel. READ-ONLY \u2014 the endpoint owns no tables and writes\nnothing (test-proved; the ``last_backup`` join is a pure directory read, and ``tape`` is read from\nthe run artifacts). ``last_backup`` is ``None`` = the quiet \"no snapshots yet\" state; ``tape`` is\n``None`` until a pass has evaluated feed recency (the quiet \"not looked yet\" state).\n\n``backend_sha`` is this backend's OWN ``Settings.image_sha`` (``null`` = built without ``GIT_SHA``) and\n``cron_sha`` the ``code_sha`` the newest CRON-kind run artifact recorded (``null`` = unknown, or no\ncron pass has recorded its identity yet) \u2014 the pair the identity alarm compares (I1). The latest\nself-audit rides ``last_run.audit``.\n\nM1: ``last_run`` is the newest FINISHED pass (a pre-M1 artifact counts as finished); when the newest\nartifact is a pass that has not finished, ``unfinished_run`` describes it (``null`` otherwise).\n\n``split_defects`` (T4) is the split-basis panel \u2014 ``null`` until a finished, full-roster pass has\nscanned; a defect is a FEED problem (flag only), so it never changes ``cron.status``."
+        "description": "The admin page's one-GET summary: record freshness + the newest run + the cron verdict + the\nnewest DB snapshot + the feed-freshness panel. READ-ONLY \u2014 the endpoint owns no tables and writes\nnothing (test-proved; the ``last_backup`` join is a pure directory read, and ``tape`` is read from\nthe run artifacts). ``last_backup`` is ``None`` = the quiet \"no snapshots yet\" state; ``tape`` is\n``None`` until a pass has evaluated feed recency (the quiet \"not looked yet\" state).\n\n``backend_sha`` is this backend's OWN ``Settings.image_sha`` (``null`` = built without ``GIT_SHA``) and\n``cron_sha`` the ``code_sha`` the newest CRON-kind run artifact recorded (``null`` = unknown, or no\ncron pass has recorded its identity yet) \u2014 the pair the identity alarm compares (I1). The latest\nself-audit rides ``last_run.audit``.\n\nM1: ``last_run`` is the newest FINISHED pass (a pre-M1 artifact counts as finished); when the newest\nartifact is a pass that has not finished, ``unfinished_run`` describes it (``null`` otherwise).\n\n``split_defects`` (T4) is the split-basis panel \u2014 ``null`` until a finished, full-roster pass has\nscanned; a defect is a FEED problem (flag only), so it never changes ``cron.status``.\n\n``price_repairs`` (T2 + Q8 + T3) is the \"Price feed repairs\" panel \u2014 renamed names with their\nsplice-verified successors to Adopt, unpriceable names to Set / Acknowledge / Remove, the quiet closed\nand acknowledged names, and every standing operator repair with its Undo. A feed matter, never the\ncron verdict."
       },
       "AdminTapeOut": {
         "properties": {
@@ -3493,6 +4328,26 @@
         ],
         "title": "AdminTapeOut",
         "description": "The FEED freshness panel (G5a price tapes \u00b7 F1 ETF fund shares), read from the newest run artifact\nthat actually EVALUATED recency \u2014 not a fresh DB scan, so this surface still owns no tables. ``asof`` /\n``ran_at`` say which pass produced it (the answer is \"as of last night\", which is the right\ngranularity for a nightly feed).\n\n``stale_days`` and ``fund_shares_stale_days`` are the thresholds **that pass judged under**, read off\nits artifact rather than live, so the number shown always describes the list shown even if the setting\nchanged in between; each feed has its own because their cadences differ (a price tape gets a bar every\nsession, while a sleeve's sample carries the source page's own stated as-of date). ``0`` means that\nfeed's monitor was disabled for the pass.\n\n``stale`` is the full current inventory, one row per feed per security (a name placed in several\nvalue-chain links appears once; a name stale on both feeds appears once per feed, since the repairs\ndiffer \u2014 each row's ``kind`` says which). A row with ``closed_at`` set is a name that CLOSED (delisted /\nacquired / deregistered), G5b \u2014 it stays in this inventory (never dropped, #9) but renders quietly and\nis absent from ``newly_stale``. ``newly_stale`` are the display labels that PAGED that night \u2014 the diff\nagainst the previous evaluated pass, so a known-dead feed does not re-page forever, and a closed tape\n(an expected event, not a feed gap) is never in it (#7/WB#3)."
+      },
+      "AdminThesisRefOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "AdminThesisRefOut",
+        "description": "A thesis holding a name (``id`` + ``name``) \u2014 where the operator goes to remove it from the basket."
       },
       "AdminUnfinishedRunOut": {
         "properties": {
@@ -3560,6 +4415,86 @@
         ],
         "title": "AdminUnfinishedRunOut",
         "description": "The NEWEST run artifact, when its pass has not finished (M1): the pass writes its artifact with\n``status: \"running\"`` at its start and finalizes it at the end, so a ``running`` newest artifact is a\npass in flight \u2014 or, once older than the sidecar's run timeout (``timeout_s``, the C2 ``RUN_TIMEOUT_S``),\na pass that was KILLED (the VM went down, the timeout fired) and will never finish (``past_timeout``).\n``crashed`` = an exception escaped the pass (``error`` names it). Either of the dead shapes is a\n``cron.alarms`` line; a pass still inside its timeout reads ``running``, never an alarm."
+      },
+      "AdminUnpriceableRowOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "theses": {
+            "items": {
+              "$ref": "#/components/schemas/AdminThesisRefOut"
+            },
+            "type": "array",
+            "title": "Theses",
+            "default": []
+          },
+          "edgar_tickers": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Edgar Tickers"
+          },
+          "vendor_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor Error"
+          },
+          "price_symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Symbol"
+          },
+          "change": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdminPriceSymbolChangeOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id"
+        ],
+        "title": "AdminUnpriceableRowOut",
+        "description": "An UNPRICEABLE basket name (Q8): no stored price bar ever, and neither closed (T1) nor renamed (T2)\n\u2014 WONDF's shape. Loud until the operator ratifies one of: set a price symbol (validated by one vendor\nfetch), acknowledge it (\"keep it, unpriced\"), or remove it from the basket in the editor (``theses``).\n``vendor_error`` is what the price leg got that night (a 404); ``edgar_tickers`` what EDGAR lists\n(``[]`` = none). ``change`` = a standing operator Set (waiting for the next pass, with its Undo)."
       },
       "AnnotatedNightOut": {
         "properties": {

@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.health import HealthResponse, compute_health, enforce_boot_visibility
-from app.routers import admin, backtest, radar, scoreboard, theses, workbench
+from app.routers import admin, admin_price_feed, backtest, radar, scoreboard, theses, workbench
 from domain.settings import get_settings
 from workbench.draft_jobs import assert_single_worker
 
@@ -36,6 +36,8 @@ app.include_router(theses.router)
 app.include_router(workbench.router)
 app.include_router(scoreboard.router)
 app.include_router(admin.router)
+# T2 + Q8 — the operator's price-feed repairs (Adopt / Set / Acknowledge, each with its exact inverse)
+app.include_router(admin_price_feed.router)
 app.include_router(radar.router)
 # /backtest is ARTIFACT-served and dev/sig-only BY DATA AVAILABILITY -- it is registered
 # unconditionally and reports `available: false` where no store exists (prod), so there is no

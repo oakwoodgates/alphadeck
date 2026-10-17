@@ -489,8 +489,11 @@ def test_payload_carries_the_per_thesis_STALE_TAPES_and_the_run_level_keys(tmp_p
         "closed_at": None,  # G5b — a plain feed-gap row: not closed
         "renamed": False,  # T1 — ...and not renamed
         "edgar_tickers": None,  # T1 — EDGAR's list not read for this row (null, not [])
+        "unpriceable": False,  # Q8 — it HAS bars (an edge), so it is not the never-priced class
+        "acknowledged": False,  # Q8 — ...and nothing the operator acknowledged
     }
     assert rows[1]["ticker"] is None and rows[1]["edge"] is None  # a ticker-less, never-priced name
+    assert rows[1]["unpriceable"] is True  # Q8 — no bar ever, neither closed nor renamed
     assert rows[2]["kind"] == "fund_shares" and rows[2]["edge"] == "2026-06-02"
     # G5b — the CLOSED row serializes its delisting-form date, so the panel reads "closed — stopped
     # trading <date>" instead of the loud "stale — repair"

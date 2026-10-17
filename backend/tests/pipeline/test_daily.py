@@ -29,8 +29,10 @@ from notify import ArmedName, LogNotifier
 from pipeline import cron_run_log, daily
 from pipeline.cron_run_log import write_cron_run_log
 from pipeline.ingest_thesis import NameResult
+from pipeline.rename_probe import RenameProbe
 from pipeline.split_basis import SplitScan
-from repositories import calls_repo
+from repositories import calls_repo, price_feed_repo
+from tests import price_feed_fixtures as fx
 
 # form4_sample.xml is a senior (CEO) open-market P-buy dated 2026-06-01; this asof is within its flip
 # liveness (18d), so ingesting it flips a fact-less thesis Incubating -> Warming.
@@ -735,6 +737,9 @@ def _prime_pass(monkeypatch, *, bench_raises=False, fund_raises=False, sweep_rai
     # the T4 split-basis scan reads the price TABLE — DB-free here; proved on a real DB (and end to end
     # through run_daily_pass) in tests/pipeline/test_split_basis.py
     monkeypatch.setattr(daily, "run_split_scan", lambda **k: SplitScan())
+    # the T2 rename probe reads the price TABLE and fetches the vendor — DB- and network-free here; proved
+    # on a real DB with a fake source in tests/pipeline/test_rename_probe.py
+    monkeypatch.setattr(daily, "run_rename_probe", lambda **k: RenameProbe(evaluated=True))
 
     def _radar(conn, **k):
         order.append("spac_radar")
@@ -1474,7 +1479,10 @@ def test_report_marks_a_RENAMED_repair_row_with_EDGARs_symbols(capsys):
     out = capsys.readouterr().out
     assert "STALE PRICE TAPES" in out
     assert "VRME: last bar 2026-10-06 · renamed — EDGAR lists OPNW" in out
-    assert "WONDF: last bar never\n" in out  # no marker on a plain repair row
+    # no rename marker on the other row — Q8 names it UNPRICEABLE instead (never priced, EDGAR lists no
+    # symbol: the WONDF shape), still in the loud block until the operator ratifies it
+    assert "WONDF: last bar never · UNPRICEABLE" in out
+    assert "WONDF: last bar never · renamed" not in out
     assert "closed tapes" not in out
 
 
@@ -2415,3 +2423,267 @@ def test_pass_threads_the_SPLIT_scan_to_the_artifact_the_audit_and_the_page(monk
     assert seen["scan"]["connect"] is daily._pass_connect
     assert out.split is scan and seen["audit_split"] is scan and seen["log_split"] is scan
     assert seen["page"] == ("VWAV island x18 (2026-09-15)",)
+
+
+# --- T3 + Q8 + T2: expected price 404s, the unpriceable class, the rename probe on the pass -------------
+# REAL shapes from prod 2026-10-16 (tests/fixtures/prices/price_feed_repairs_2026_10.json): GTLS a genuine
+# close (its 25-NSE on its last bar, vendor 404), HLLK renamed to SDCO (vendor 404 under HLLK), WONDF never
+# priced (EDGAR lists no symbol, vendor 404).
+
+_OCT16 = date(2026, 10, 16)
+
+
+def _real(ticker, sid, *, tape_edge, delisting=(), edgar_tickers=(), not_found=True, **kw):
+    """A NameResult as the ingest builds it for a name whose price leg got the vendor's real 404."""
+    msg = str(fx.not_found(ticker))
+    return _nr(
+        ticker=ticker,
+        security_id=sid,
+        tape_edge=tape_edge,
+        delisting_filings=delisting,
+        edgar_tickers=edgar_tickers,
+        error=f"price: {msg}" if not_found else None,
+        leg_errors=(("price", msg),) if not_found else (),
+        price_not_found=not_found,
+        **kw,
+    )
+
+
+def test_T3_a_CLOSED_names_vendor_404_is_EXPECTED_and_ingest_fresh_stays_TRUE(db, monkeypatch):
+    """The measured Nuclear Buildout night: GTLS closed (T1) and 404s at the vendor every night. Before T3
+    that 404 made `ingest_fresh=false` on EVERY row of the thesis. Now it is an expected miss: not a name
+    error, 0 ingest errors, `ingest_fresh` true — and still visible, on the result and in the inventory.
+    """
+    gtls = uuid.uuid4()
+    names = [
+        _real("GTLS", gtls, tape_edge=fx.last_bar("GTLS"), delisting=fx.delisting("GTLS")),
+        _nr(ticker="CEG", tape_edge=_OCT16),
+    ]
+    monkeypatch.setattr(daily, "ingest_thesis", _ingest_returning(names))
+    tid = _thesis(db, "Nuclear Buildout")
+
+    (res,) = daily.run_daily(db, asof=_OCT16, allow_live=True)
+
+    assert _health(db, tid) == {"ingest_fresh": True, "ingest_errors": 0}
+    assert [x.error for x in res.ingested] == [None, None]
+    (miss,) = res.expected_price_misses
+    assert (miss.ticker, miss.reason) == ("GTLS", "closed")
+    assert miss.error.startswith("Client error '404 Not Found'")
+    (row,) = res.tape_stale
+    assert row.closed and row.closed_at == date(2026, 7, 16)  # still in the inventory (#9)
+
+
+def test_T3_a_RENAMED_but_UNADOPTED_names_404_STILL_errors(db, monkeypatch):
+    """HLLK: EDGAR lists SDCO. Its 404 is the news (one Adopt fixes it), so it stays an error and the row
+    is marked partial — exactly as before T3."""
+    names = [_real("HLLK", uuid.uuid4(), tape_edge=fx.last_bar("HLLK"), edgar_tickers=("SDCO",))]
+    monkeypatch.setattr(daily, "ingest_thesis", _ingest_returning(names + [_nr(tape_edge=_OCT16)]))
+    tid = _thesis(db, "Modern Defense")
+
+    (res,) = daily.run_daily(db, asof=_OCT16, allow_live=True)
+
+    assert _health(db, tid) == {"ingest_fresh": False, "ingest_errors": 1}
+    assert res.expected_price_misses == ()
+    assert res.tape_stale[0].renamed is True
+
+
+def test_Q8_an_UNACKNOWLEDGED_unpriceable_404_errors_and_an_ACKNOWLEDGED_one_is_expected(
+    db, monkeypatch
+):
+    """WONDF (never priced, EDGAR lists nothing): loud until the operator ratifies it — its 404 is an error
+    and its row an unpriceable repair row. After the operator ACKNOWLEDGES it (an append-only
+    price_feed_ack), the same night's 404 is expected and the row is quiet."""
+    wondf = fx.insert_security(db, "WONDF", with_tape=False)
+    names = [_real("WONDF", wondf, tape_edge=None), _nr(tape_edge=_OCT16)]
+    monkeypatch.setattr(daily, "ingest_thesis", _ingest_returning(names))
+    _thesis(db, "The Everything Exchange")
+
+    (res,) = daily.run_daily(db, asof=_OCT16, allow_live=True)
+    assert [x.error is not None for x in res.ingested] == [True, False]
+    (row,) = res.tape_stale
+    assert row.unpriceable and not row.acknowledged and not row.quiet
+
+    price_feed_repo.acknowledge(db, wondf, reason="keep it", basis="operator:acknowledge")
+    db.commit()
+    (res,) = daily.run_daily(db, asof=_OCT16, allow_live=True)
+    (row,) = res.tape_stale
+    assert row.unpriceable and row.acknowledged and row.quiet
+    assert [x.error for x in res.ingested] == [None, None]  # 0 ingest errors -> ingest_fresh true
+    assert [(m.ticker, m.reason) for m in res.expected_price_misses] == [("WONDF", "acknowledged")]
+
+
+def test_Q8_an_acknowledged_thesis_records_ingest_fresh_TRUE(db, monkeypatch):
+    """The recorded stamp itself (R2b): with WONDF acknowledged, the thesis's call-of-record is written with
+    `ingest_fresh` true and 0 errors."""
+    wondf = fx.insert_security(db, "WONDF", with_tape=False)
+    price_feed_repo.acknowledge(db, wondf, reason="keep it", basis="operator:acknowledge")
+    db.commit()
+    names = [_real("WONDF", wondf, tape_edge=None), _nr(tape_edge=_OCT16)]
+    monkeypatch.setattr(daily, "ingest_thesis", _ingest_returning(names))
+    tid = _thesis(db, "The Everything Exchange")
+
+    daily.run_daily(db, asof=_OCT16, allow_live=True)
+
+    assert _health(db, tid) == {"ingest_fresh": True, "ingest_errors": 0}
+
+
+def test_Q8_an_acknowledgment_never_silences_a_name_that_HAS_bars(db, monkeypatch):
+    """An acknowledged id whose tape has bars and stopped is a FEED GAP, not unpriceable: not marked, and
+    its 404 is not excused."""
+    sid = fx.insert_security(db, "WONDF", with_tape=False)
+    price_feed_repo.acknowledge(db, sid, reason="keep it", basis="operator:acknowledge")
+    db.commit()
+    names = [_real("WONDF", sid, tape_edge=_OCT16 - timedelta(days=30)), _nr(tape_edge=_OCT16)]
+    monkeypatch.setattr(daily, "ingest_thesis", _ingest_returning(names))
+    tid = _thesis(db, "T")
+
+    (res,) = daily.run_daily(db, asof=_OCT16, allow_live=True)
+
+    assert res.tape_stale[0].acknowledged is False and res.expected_price_misses == ()
+    assert _health(db, tid) == {"ingest_fresh": False, "ingest_errors": 1}
+
+
+def test_the_acknowledged_read_FAILS_TOWARD_LOUD(db, monkeypatch, capsys):
+    """A fault reading the acknowledgments is one warning line and an empty set: the unpriceable name stays
+    loud and its 404 an error for this pass — never silenced on a guess — and the pass still records.
+    """
+
+    def _boom(conn):
+        raise RuntimeError("relation price_feed_ack does not exist")
+
+    monkeypatch.setattr(price_feed_repo, "acknowledged_security_ids", _boom)
+    names = [_real("WONDF", uuid.uuid4(), tape_edge=None), _nr(tape_edge=_OCT16)]
+    monkeypatch.setattr(daily, "ingest_thesis", _ingest_returning(names))
+    tid = _thesis(db, "T")
+
+    (res,) = daily.run_daily(db, asof=_OCT16, allow_live=True)
+
+    assert "could not read the acknowledged-unpriceable names" in capsys.readouterr().out
+    assert res.recorded is True and res.tape_stale[0].acknowledged is False
+    assert _health(db, tid) == {"ingest_fresh": False, "ingest_errors": 1}
+
+
+def test_pass_pages_a_NEW_unpriceable_name_ONCE_and_a_KNOWN_one_never(monkeypatch, tmp_path):
+    """Q8 paging through the existing R4 newly-stale path, across passes with the REAL artifact writer:
+    WONDF pages the first night (new), is silent the next (known), stays silent once ACKNOWLEDGED (quiet),
+    and pages ONCE more when the acknowledgment is REVOKED (the operator asked for it loud again).
+    """
+    wondf = uuid.uuid4()
+    seen: list[tuple[str, ...]] = []
+    real_assess = daily.assess_health
+
+    def _assess(results, **kw):
+        seen.append(tuple(x.label for x in (kw.get("tape_stale_new") or ())))
+        return real_assess(results, **kw)
+
+    _prime_pass(monkeypatch)
+    monkeypatch.setattr(cron_run_log, "_DEFAULT_CRON_RUNS", tmp_path)
+    monkeypatch.setattr(daily, "write_cron_run_log", cron_run_log.write_cron_run_log)  # REAL writer
+    monkeypatch.setattr(daily, "assess_health", _assess)
+
+    def _pass(*, acknowledged):
+        row = daily.StaleTape(
+            ticker="WONDF",
+            security_id=wondf,
+            edge=None,
+            edgar_tickers=(),
+            acknowledged=acknowledged,
+        )
+        monkeypatch.setattr(daily, "run_daily", lambda conn, **k: _thesis_result_with([row]))
+        return daily.run_daily_pass(asof=_OCT16, allow_live=True, notifier=_Silent())
+
+    _pass(acknowledged=False)
+    _pass(acknowledged=False)
+    _pass(acknowledged=True)
+    _pass(acknowledged=True)
+    _pass(acknowledged=False)
+
+    assert seen == [("WONDF",), (), (), (), ("WONDF",)]
+
+
+def test_pass_threads_the_RENAME_probe_to_the_artifact(monkeypatch):
+    """T2 wiring: the pass runs the probe over `run_daily`'s results through `_pass_connect` (the C2
+    ceiling) with its own asof / allow_live, and hands the SAME probe to the artifact and the outcome.
+    """
+    from pipeline.rename_probe import CandidateProbe, RenameRecommendation
+
+    _prime_pass(monkeypatch)
+    sid = uuid.uuid4()
+    rec = RenameRecommendation(
+        security_id=sid,
+        ticker="HLLK",
+        edge=date(2026, 9, 24),
+        edgar_tickers=("SDCO",),
+        candidates=(CandidateProbe("SDCO", verified=True, overlap=30, ratio=1.0),),
+    )
+    probe = RenameProbe(evaluated=True, rows=(rec,), fetches=1)
+    stale = _stale("HLLK", sid=sid, edge=date(2026, 9, 24), renamed=True, edgar_tickers=("SDCO",))
+    results = _thesis_result_with([stale])
+    seen: dict = {}
+
+    def _probe(**kw):
+        seen["probe"] = kw
+        return probe
+
+    monkeypatch.setattr(daily, "run_daily", lambda conn, **k: results)
+    monkeypatch.setattr(daily, "run_rename_probe", _probe)
+    monkeypatch.setattr(daily, "write_cron_run_log", lambda r, **kw: seen.update(log=kw))
+
+    out = daily.run_daily_pass(asof=_OCT16, allow_live=True, notifier=_Silent())
+
+    assert seen["probe"]["results"] is results and seen["probe"]["connect"] is daily._pass_connect
+    assert seen["probe"]["asof"] == _OCT16 and seen["probe"]["allow_live"] is True
+    assert out.rename_probe is probe and seen["log"]["rename_probe"] is probe
+
+
+def test_report_carries_the_probe_verdict_and_the_QUIET_lines(capsys):
+    """The printed report: the renamed row names its splice-verified successor (to Adopt — never adopted
+    here); the acknowledged unpriceable name leaves the loud block for ONE quiet line; the expected 404s
+    collapse to ONE quiet line; a failed probe is loud."""
+    from pipeline.price_feed import ExpectedPriceMiss
+    from pipeline.rename_probe import CandidateProbe, RenameRecommendation
+
+    hllk, wondf, gtls = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    rec = RenameRecommendation(
+        security_id=hllk,
+        ticker="HLLK",
+        edge=date(2026, 9, 24),
+        edgar_tickers=("SDCO",),
+        candidates=(
+            CandidateProbe(
+                "SDCO", verified=True, overlap=30, ratio=1.0, last_bar=date(2026, 10, 15)
+            ),
+        ),
+    )
+    stale = (
+        _stale("HLLK", sid=hllk, edge=date(2026, 9, 24), renamed=True, edgar_tickers=("SDCO",)),
+        daily.StaleTape(ticker="WONDF", security_id=wondf, edge=None, acknowledged=True),
+        _stale("GTLS", sid=gtls, edge=date(2026, 7, 16), closed_at=date(2026, 7, 16)),
+    )
+    res = daily.ThesisRunResult(
+        thesis_id=uuid.uuid4(),
+        name="T",
+        recorded=True,
+        tape_stale=stale,
+        expected_price_misses=(
+            ExpectedPriceMiss(gtls, "GTLS", "closed", "Client error '404 Not Found'"),
+            ExpectedPriceMiss(wondf, "WONDF", "acknowledged", "Client error '404 Not Found'"),
+        ),
+    )
+    daily._report([res], probe=RenameProbe(evaluated=True, rows=(rec,)))
+    out = capsys.readouterr().out
+
+    assert (
+        "HLLK: last bar 2026-09-24 · renamed — EDGAR lists SDCO · splice-verified SDCO (30 shared bars, "
+        "x1.000, bars to 2026-10-15) — Adopt on the Admin page" in out
+    )
+    assert "WONDF: last bar" not in out  # acknowledged: out of the loud block…
+    assert (
+        "1 acknowledged unpriceable name(s) — kept unpriced by the operator" in out
+    )  # …one quiet line
+    assert (
+        "2 expected price 404(s) — closed or acknowledged-unpriceable names, not errors "
+        "(ingest_fresh unaffected): GTLS (closed), WONDF (acknowledged)" in out
+    )
+    daily._report([res], probe=RenameProbe(error="OperationalError: boom"))
+    assert "RENAME PROBE FAILED — OperationalError: boom" in capsys.readouterr().out

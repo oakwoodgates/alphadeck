@@ -1198,6 +1198,125 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/price-feed/{security_id}/adopt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Adopt Successor
+         * @description ADOPT a renamed name's successor symbol — the operator's ratification of the nightly splice probe.
+         *     The symbol must be one EDGAR lists for this name on the newest pass that looked (verified or not: the
+         *     probe recommends, the operator decides). Sets ``price_symbol`` through the existing writer (basis
+         *     ``operator:adopt``) and refreshes the display name from EDGAR's current entity name when it differs;
+         *     the change row records the prior values, so ``POST /admin/price-feed/changes/{id}/undo`` restores them
+         *     exactly. The next nightly pass re-pulls the tape under the new symbol. **404** unknown security, **409**
+         *     not a listed candidate / no rename recommendation / nothing to change, **422** a malformed symbol.
+         */
+        post: operations["adopt_successor_admin_price_feed__security_id__adopt_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/price-feed/{security_id}/set-symbol": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set Symbol
+         * @description SET a vendor price symbol the operator typed (an unpriceable name — e.g. its TSX listing).
+         *     VALIDATED first by ONE live vendor fetch into a throwaway cache: the symbol must return at least one
+         *     bar, else **422** and nothing is written. Then set through the existing writer (basis
+         *     ``operator:set``), recorded with the prior values for an exact Undo. **404** unknown security, **409**
+         *     nothing to change, **422** a malformed symbol or no vendor bars.
+         */
+        post: operations["set_symbol_admin_price_feed__security_id__set_symbol_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/price-feed/changes/{change_id}/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Undo Change
+         * @description UNDO an Adopt or a Set — restore the master's prior ``price_symbol`` / ``price_symbol_basis`` (and
+         *     ``name``, when the Adopt refreshed it) EXACTLY, appending an ``undo`` row (basis ``operator:undo``).
+         *     Only the name's standing change, and only while the master still holds its values. **404** unknown
+         *     change, **409** already undone / a later change stands / the master moved since.
+         */
+        post: operations["undo_change_admin_price_feed_changes__change_id__undo_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/price-feed/{security_id}/acknowledge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Acknowledge Unpriceable
+         * @description ACKNOWLEDGE an unpriceable name — "keep it, unpriced" (an append-only ``price_feed_ack``, basis
+         *     ``operator:acknowledge``). From the next pass the name is QUIET (no page, a quiet count, still listed)
+         *     and its vendor 404 counts as expected. Idempotent: an already-acknowledged name returns its active row.
+         *     Revoke with ``POST /admin/price-feed/acks/{id}/revoke``. **404** unknown security, **409** the name is
+         *     not unpriceable on the newest pass that looked.
+         */
+        post: operations["acknowledge_unpriceable_admin_price_feed__security_id__acknowledge_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/price-feed/acks/{ack_id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revoke Acknowledgment
+         * @description REVOKE an acknowledgment — append the inverse row (basis ``operator:revoke``); from the next pass the
+         *     name is a loud unpriceable row again (and pages once). **404** when no active acknowledgment has that
+         *     id.
+         */
+        post: operations["revoke_acknowledgment_admin_price_feed_acks__ack_id__revoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/radar/spac": {
         parameters: {
             query?: never;
@@ -1426,6 +1545,14 @@ export interface components {
             ingested: string;
         };
         /**
+         * AdminAcknowledgeIn
+         * @description Why the operator keeps an unpriceable name unpriced (optional — a default reason is stored).
+         */
+        AdminAcknowledgeIn: {
+            /** Reason */
+            reason?: string | null;
+        };
+        /**
          * AdminAuditCheckOut
          * @description One check of a pass's nightly SELF-AUDIT (V1, ``pipeline/self_audit.py``), as the artifact recorded
          *     it. ``ok`` is ``true`` (checked, holds), ``false`` (checked, FAILS — it paged and makes the verdict
@@ -1488,6 +1615,38 @@ export interface components {
             alarms: string[];
         };
         /**
+         * AdminFormerNameOut
+         * @description One of EDGAR's ``formerNames`` for the filer (``since`` / ``until`` as ``YYYY-MM-DD``, ``""`` when
+         *     EDGAR omits them) — evidence that the company EDGAR lists under a new symbol is the same filer.
+         */
+        AdminFormerNameOut: {
+            /** Name */
+            name: string;
+            /**
+             * Since
+             * @default
+             */
+            since: string;
+            /**
+             * Until
+             * @default
+             */
+            until: string;
+        };
+        /**
+         * AdminNameChangeFilingOut
+         * @description An 8-K carrying item 5.03 (an articles amendment — where a corporate name change is filed).
+         */
+        AdminNameChangeFilingOut: {
+            /**
+             * Filed
+             * Format: date
+             */
+            filed: string;
+            /** Accession */
+            accession: string;
+        };
+        /**
          * AdminPartialNightOut
          * @description One scheduled night the pass did not fully cover (M1): some thesis in that night's roster has no
          *     call-of-record recorded at/after the night's ``RUN_AT`` and no ``pipeline.backfill`` reconstruction
@@ -1522,6 +1681,201 @@ export interface components {
              * @default 0
              */
             late: number;
+        };
+        /**
+         * AdminPriceFeedAckOut
+         * @description One operator acknowledgment of an unpriceable name (``price_feed_ack``): "keep it, unpriced". Active
+         *     = no revoke references it; an active one makes the name QUIET (no page, a quiet count) and its vendor
+         *     404 expected (T3). ``still_unpriceable`` = the latest pass still found the name unpriceable (``False``:
+         *     it has bars now, so the acknowledgment no longer does anything; ``None``: not in that pass's
+         *     inventory).
+         */
+        AdminPriceFeedAckOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker?: string | null;
+            /**
+             * Action
+             * @default acknowledge
+             */
+            action: string;
+            /** Reason */
+            reason: string;
+            /** Basis */
+            basis: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Still Unpriceable */
+            still_unpriceable?: boolean | null;
+        };
+        /**
+         * AdminPriceRepairsOut
+         * @description The "Price feed repairs" panel (T2 + Q8 + T3): one place for every price-feed decision the operator
+         *     owes or has made. The INVENTORY (``renamed`` / ``unpriceable`` / ``closed``) comes from the newest
+         *     finished, full-roster live run artifact that evaluated recency (``asof`` / ``ran_at``); the DECISIONS are
+         *     read LIVE from the append-only repair log, so a click shows at once: an acknowledged name moves from
+         *     ``unpriceable`` to ``acknowledged``, an Adopt shows as the row's ``change`` with its Undo. Read-only.
+         *
+         *     - ``renamed`` — loud: the splice-probed successors, each with Adopt (and Undo once adopted);
+         *     - ``unpriceable`` — loud: never priced, not acknowledged — Set symbol / Acknowledge / Remove;
+         *     - ``acknowledged`` — QUIET: every active acknowledgment, each revocable;
+         *     - ``closed`` — QUIET: names that stopped trading (T1) — no repair; their vendor 404 is expected (T3);
+         *     - ``applied`` — every STANDING operator price-symbol change, each with its Undo (the inverse stays
+         *       visible after the repair healed the tape and the name left the inventory, WB#1);
+         *     - ``expected_misses`` — how many vendor 404s that pass excused as expected (closed / acknowledged).
+         *     ``probe_error`` = the rename probe failed on that pass (``renamed`` rows then carry no verdict).
+         */
+        AdminPriceRepairsOut: {
+            /** Asof */
+            asof?: string | null;
+            /** Ran At */
+            ran_at?: string | null;
+            /**
+             * Probe Evaluated
+             * @default false
+             */
+            probe_evaluated: boolean;
+            /** Probe Error */
+            probe_error?: string | null;
+            /**
+             * Renamed
+             * @default []
+             */
+            renamed: components["schemas"]["AdminRenamedRowOut"][];
+            /**
+             * Unpriceable
+             * @default []
+             */
+            unpriceable: components["schemas"]["AdminUnpriceableRowOut"][];
+            /**
+             * Acknowledged
+             * @default []
+             */
+            acknowledged: components["schemas"]["AdminPriceFeedAckOut"][];
+            /**
+             * Closed
+             * @default []
+             */
+            closed: components["schemas"]["AdminStaleTapeOut"][];
+            /**
+             * Applied
+             * @default []
+             */
+            applied: components["schemas"]["AdminPriceSymbolChangeOut"][];
+            /**
+             * Expected Misses
+             * @default 0
+             */
+            expected_misses: number;
+        };
+        /**
+         * AdminPriceSymbolChangeOut
+         * @description One operator price-feed repair (``price_symbol_change``, migration 0046): an ``adopt`` (a probed
+         *     successor), a ``set`` (a symbol the operator typed, validated by one vendor fetch) or an ``undo``. The
+         *     PRIOR and NEW master values ride the row — that is what makes the undo exact. ``basis`` names the
+         *     author (``operator:adopt`` / ``operator:set`` / ``operator:undo``). ``undoable`` (a standing change only)
+         *     = the master still holds this change's new values, so an Undo would restore the prior state exactly;
+         *     ``current_symbol`` is the master's price symbol now.
+         */
+        AdminPriceSymbolChangeOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker?: string | null;
+            /** Action */
+            action: string;
+            /** Prior Symbol */
+            prior_symbol?: string | null;
+            /** New Symbol */
+            new_symbol?: string | null;
+            /** Prior Basis */
+            prior_basis?: string | null;
+            /** New Basis */
+            new_basis?: string | null;
+            /**
+             * Name Changed
+             * @default false
+             */
+            name_changed: boolean;
+            /** Prior Name */
+            prior_name?: string | null;
+            /** New Name */
+            new_name?: string | null;
+            /** Basis */
+            basis: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Undoable
+             * @default false
+             */
+            undoable: boolean;
+            /** Current Symbol */
+            current_symbol?: string | null;
+        };
+        /**
+         * AdminPriceSymbolIn
+         * @description The operator's chosen vendor symbol (an Adopt of a probed candidate, or a typed Set).
+         */
+        AdminPriceSymbolIn: {
+            /** Symbol */
+            symbol: string;
+        };
+        /**
+         * AdminProbeCandidateOut
+         * @description One EDGAR-listed symbol for a renamed name, as the nightly splice probe judged it (T2): ``overlap``
+         *     = the dates both its vendor tape and our stored tape carry a close on, ``ratio`` = the MEDIAN of its
+         *     close / ours over them, ``verified`` = at least 5 shared dates with the ratio within 1% (the same
+         *     company's tape under its new symbol). ``bars`` / ``last_bar`` say what the vendor serves under it (whether
+         *     adopting it would extend our tape); ``error`` = its one fetch failed (then nothing else is known).
+         */
+        AdminProbeCandidateOut: {
+            /** Symbol */
+            symbol: string;
+            /**
+             * Verified
+             * @default false
+             */
+            verified: boolean;
+            /**
+             * Overlap
+             * @default 0
+             */
+            overlap: number;
+            /** Ratio */
+            ratio?: number | null;
+            /**
+             * Bars
+             * @default 0
+             */
+            bars: number;
+            /** Last Bar */
+            last_bar?: string | null;
+            /** Error */
+            error?: string | null;
         };
         /**
          * AdminReconstructedNightOut
@@ -1614,6 +1968,63 @@ export interface components {
              * @default []
              */
             reconstructed_nights: components["schemas"]["AdminReconstructedNightOut"][];
+        };
+        /**
+         * AdminRenamedRowOut
+         * @description A stopped price tape whose company EDGAR lists under another symbol (T1's ``renamed``), with the
+         *     nightly splice probe's verdict on each candidate (T2) and the EDGAR evidence — a pending
+         *     RECOMMENDATION: nothing is applied until the operator clicks Adopt. ``recommended`` = the first
+         *     verified candidate (``null`` = none verified); ``probed`` = the probe judged this row on that pass.
+         *     ``price_symbol`` is the master's price symbol now; ``change`` the standing operator repair for this name
+         *     (an Adopt waiting for the next pass to re-pull, with its Undo), else ``null``.
+         */
+        AdminRenamedRowOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker?: string | null;
+            /** Edge */
+            edge?: string | null;
+            /**
+             * Theses
+             * @default []
+             */
+            theses: components["schemas"]["AdminThesisRefOut"][];
+            /**
+             * Edgar Tickers
+             * @default []
+             */
+            edgar_tickers: string[];
+            /** Edgar Name */
+            edgar_name?: string | null;
+            /**
+             * Former Names
+             * @default []
+             */
+            former_names: components["schemas"]["AdminFormerNameOut"][];
+            /**
+             * Name Change Filings
+             * @default []
+             */
+            name_change_filings: components["schemas"]["AdminNameChangeFilingOut"][];
+            /**
+             * Candidates
+             * @default []
+             */
+            candidates: components["schemas"]["AdminProbeCandidateOut"][];
+            /** Recommended */
+            recommended?: string | null;
+            /**
+             * Probed
+             * @default false
+             */
+            probed: boolean;
+            /** Price Symbol */
+            price_symbol?: string | null;
+            change?: components["schemas"]["AdminPriceSymbolChangeOut"] | null;
         };
         /**
          * AdminRunEnvOut
@@ -1920,6 +2331,16 @@ export interface components {
             renamed: boolean;
             /** Edgar Tickers */
             edgar_tickers?: string[] | null;
+            /**
+             * Unpriceable
+             * @default false
+             */
+            unpriceable: boolean;
+            /**
+             * Acknowledged
+             * @default false
+             */
+            acknowledged: boolean;
         };
         /**
          * AdminStatusOut
@@ -1939,6 +2360,11 @@ export interface components {
          *
          *     ``split_defects`` (T4) is the split-basis panel — ``null`` until a finished, full-roster pass has
          *     scanned; a defect is a FEED problem (flag only), so it never changes ``cron.status``.
+         *
+         *     ``price_repairs`` (T2 + Q8 + T3) is the "Price feed repairs" panel — renamed names with their
+         *     splice-verified successors to Adopt, unpriceable names to Set / Acknowledge / Remove, the quiet closed
+         *     and acknowledged names, and every standing operator repair with its Undo. A feed matter, never the
+         *     cron verdict.
          */
         AdminStatusOut: {
             record: components["schemas"]["AdminRecordOut"];
@@ -1952,6 +2378,7 @@ export interface components {
             cron_sha?: string | null;
             unfinished_run?: components["schemas"]["AdminUnfinishedRunOut"] | null;
             split_defects?: components["schemas"]["AdminSplitOut"] | null;
+            price_repairs?: components["schemas"]["AdminPriceRepairsOut"] | null;
         };
         /**
          * AdminTapeOut
@@ -2001,6 +2428,19 @@ export interface components {
             newly_stale: string[];
         };
         /**
+         * AdminThesisRefOut
+         * @description A thesis holding a name (``id`` + ``name``) — where the operator goes to remove it from the basket.
+         */
+        AdminThesisRefOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+        };
+        /**
          * AdminUnfinishedRunOut
          * @description The NEWEST run artifact, when its pass has not finished (M1): the pass writes its artifact with
          *     ``status: "running"`` at its start and finalizes it at the end, so a ``running`` newest artifact is a
@@ -2037,6 +2477,35 @@ export interface components {
             timeout_s: number;
             /** Error */
             error?: string | null;
+        };
+        /**
+         * AdminUnpriceableRowOut
+         * @description An UNPRICEABLE basket name (Q8): no stored price bar ever, and neither closed (T1) nor renamed (T2)
+         *     — WONDF's shape. Loud until the operator ratifies one of: set a price symbol (validated by one vendor
+         *     fetch), acknowledge it ("keep it, unpriced"), or remove it from the basket in the editor (``theses``).
+         *     ``vendor_error`` is what the price leg got that night (a 404); ``edgar_tickers`` what EDGAR lists
+         *     (``[]`` = none). ``change`` = a standing operator Set (waiting for the next pass, with its Undo).
+         */
+        AdminUnpriceableRowOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker?: string | null;
+            /**
+             * Theses
+             * @default []
+             */
+            theses: components["schemas"]["AdminThesisRefOut"][];
+            /** Edgar Tickers */
+            edgar_tickers?: string[] | null;
+            /** Vendor Error */
+            vendor_error?: string | null;
+            /** Price Symbol */
+            price_symbol?: string | null;
+            change?: components["schemas"]["AdminPriceSymbolChangeOut"] | null;
         };
         /**
          * AnnotatedNightOut
@@ -7061,6 +7530,173 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BackupsOut"];
+                };
+            };
+        };
+    };
+    adopt_successor_admin_price_feed__security_id__adopt_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                security_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminPriceSymbolIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminPriceSymbolChangeOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_symbol_admin_price_feed__security_id__set_symbol_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                security_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminPriceSymbolIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminPriceSymbolChangeOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    undo_change_admin_price_feed_changes__change_id__undo_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                change_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminPriceSymbolChangeOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    acknowledge_unpriceable_admin_price_feed__security_id__acknowledge_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                security_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["AdminAcknowledgeIn"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminPriceFeedAckOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_acknowledgment_admin_price_feed_acks__ack_id__revoke_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ack_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminPriceFeedAckOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

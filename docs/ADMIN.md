@@ -31,6 +31,11 @@ nights, and containers that don't always restart. Three questions and one safety
 - **Operator-initiated triggers only.** *Run daily now* and *Create snapshot* fire **only** on an explicit
   click — never on a page load, mount, or poll (the **cost thread**: cost is the operator's to spend, never
   ambient). Reads may poll; the triggers never do.
+- **The price-feed repairs are the ONE place this surface writes data** (T2 + Q8, `/admin/price-feed/*`,
+  its own router): the operator's Adopt / Set / Undo of a vendor price symbol and Acknowledge / Revoke of an
+  unpriceable name — each an explicit click, each with its exact inverse beside it, each recorded append-only
+  (migration 0046) with the operator named as its author. `GET /admin/status` still writes nothing: it reads
+  that log, never appends to it.
 - **Honest loudness (#7).** Staleness is measured against the last **expected** scheduled run (never raw
   `today − edge`), so a weekend never cries wolf; and a bad LAST run (freeze / errors / total ingest failure)
   is its own loud `unhealthy` verdict, **peer to** `stale` — the R1 freeze must never hide behind a green
@@ -155,7 +160,47 @@ and never confirm on price.
   OTC fix's seam). The next nightly pass re-pulls the two-year window under the new symbol, appends the
   missing tail and hole-fills the overlap. Teaching the symbol resolver to follow renames **automatically** is
   deliberately not built: a wrong auto-resolve would file another company's tape under your member, which is
-  worse than a visible gap (`INVARIANTS.md` #4/#6). See `DATA_SOURCES.md` §free EOD prices.
+  worse than a visible gap (`INVARIANTS.md` #4/#6). See `DATA_SOURCES.md` §free EOD prices. **Since T2/Q8
+  the renamed, never-priced and closed names move to the "Price feed repairs" panel below**, where the
+  repair is one click with its Undo; this block keeps only the stopped tapes that panel does not hold (a
+  plain feed gap — or every row, against an older backend that has no panel).
+- **Unpriceable** (Q8). A stopped price row with **no stored bar ever** that is neither closed nor renamed
+  (WONDF — a 40-F filer EDGAR lists no symbol for) is its own class: loud, it pages once when new, and it stays
+  until you set a symbol, acknowledge it, or remove it (the panel below).
+
+### Price feed repairs — "what do I owe the price feed?"  `[BUILT, T2 + Q8 + T3]`
+
+One card (`price_repairs` on `/admin/status`; the writes are `/admin/price-feed/*`) for every price-feed
+decision. Its INVENTORY comes from the newest finished, full-roster live pass that evaluated recency (the
+same pass the freshness block reads); its DECISIONS are read live from the append-only repair log (0046), so
+a click shows at once. Rendered only when something is in it.
+
+- **Renamed** (loud) — each stopped tape whose company EDGAR lists under a symbol we don't price, with the
+  nightly **splice probe**'s verdict on every listed symbol (`FEED_LOOP.md` §the tape monitor, part 3): its
+  shared dates with our stored tape, the median close ratio, verified (>= 5 dates within 1%) or not, and how
+  far its bars run — plus the EDGAR evidence (current name, former names, the item-5.03 8-K). **Adopt <SYM>**
+  (the verified one is the primary button; an unverified one stays adoptable on your judgment) sets
+  `price_symbol` through the existing writer (basis `operator:adopt`) and refreshes the master's display name
+  to EDGAR's current entity name; the row then reads "adopted SDCO — the next nightly pass re-pulls the tape
+  under it" with **Undo adopt**. A symbol EDGAR does not list for the name is refused (409 — use Set).
+- **Never priced** (loud) — **Set price symbol** (you type a vendor symbol, e.g. a TSX listing; it is
+  validated by ONE vendor fetch into a throwaway cache — no bars, nothing written, 422), **Acknowledge —
+  keep unpriced** (an optional reason; append-only, basis `operator:acknowledge`), or **Remove from basket →**
+  (a link to the Workbench basket editor — there is no second delete path here).
+- **Acknowledged** (quiet) — a collapsed count that opens to each acknowledged name with its reason and
+  **Revoke**. An acknowledged name never pages, its vendor 404 is expected (T3), and it stays listed (#9); a
+  revoke makes it loud again from the next pass (it pages once).
+- **Closed** (quiet) — a collapsed count of the names that stopped trading; nothing to repair, their vendor
+  404 is expected.
+- **In force** (quiet) — every standing Adopt / Set whose name already left the inventory (its tape healed),
+  each with its **Undo** — the inverse never vanishes with the problem (WB#1).
+
+**Undo is exact.** Every change row carries the master's PRIOR and NEW `price_symbol`, `price_symbol_basis`
+and (when an Adopt refreshed it) `name`; Undo writes the prior values back verbatim and appends an `undo` row.
+It applies only to a name's newest standing change, and only while the master still holds that change's
+values — if anything else re-pointed the symbol since (the `--adopt` CLI, the finalize self-heal), the Undo
+refuses (409) rather than clobber a value it did not write. Nothing on this card is ever applied by the
+system (#3); every row names the operator as its author.
 
 #### ETF fund-shares tapes — "is every sleeve still being sampled?"  `[BUILT, F1]`
 
@@ -411,7 +456,12 @@ the freeze it is adjacent to: `POSTMORTEM_CRON_FREEZE_2026-07.md`.
 
 | Endpoint | Shape | Notes |
 |---|---|---|
-| `GET /admin/status` | freshness + cron verdict + last-snapshot age + the stopped-feed and split-basis panels | read-only; the page opens on it |
+| `GET /admin/status` | freshness + cron verdict + last-snapshot age + the stopped-feed, split-basis and price-feed-repairs panels | read-only; the page opens on it |
+| `POST /admin/price-feed/{security_id}/adopt` | `{symbol}` → the change row | a symbol EDGAR lists for a renamed name; 409 otherwise / nothing to change |
+| `POST /admin/price-feed/{security_id}/set-symbol` | `{symbol}` → the change row | ONE vendor fetch validates first (no bars → 422, nothing written) |
+| `POST /admin/price-feed/changes/{change_id}/undo` | → the undo row | exact restore; 409 already undone / a later change stands / the master moved |
+| `POST /admin/price-feed/{security_id}/acknowledge` | `{reason?}` → the acknowledgment | unpriceable names only (409 otherwise); idempotent |
+| `POST /admin/price-feed/acks/{ack_id}/revoke` | → the revoke row | 404 when no active acknowledgment |
 | `GET /admin/runs?limit=` | the run-of-record history, newest first | read-only file parse; skip-unreadable |
 | `POST /admin/run-daily` | **202** + `job_id` | the cron's exact unit; 409 when any process runs a pass (C1 lock) or the slot is busy; 503 DB unreachable |
 | `GET /admin/run-daily/jobs/{job_id}` | job status → run-history row | 404 → "lost from view", never a spinner |

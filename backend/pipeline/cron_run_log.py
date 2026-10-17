@@ -51,6 +51,7 @@ from typing import TYPE_CHECKING
 
 from domain.feed_kinds import StaleFeedLabel, feed_kind
 from pipeline.name_errors import NameIngestError, name_errors_of
+from pipeline.rename_probe import RenameProbe
 from pipeline.split_basis import SplitScan, defect_keys_of
 
 if TYPE_CHECKING:  # avoid importing the pipeline module at import time (keeps the layering one-way)
@@ -233,6 +234,7 @@ def build_run_payload(
     name_errors_known: int = 0,
     audit: Sequence[AuditResult] = (),
     split: SplitScan | None = None,
+    rename_probe: RenameProbe | None = None,
 ) -> dict:
     """The run-of-record payload — PURE (no I/O), extracted from the artifact writer so the admin
     "run now" job can shape its poll result IDENTICALLY to a parsed artifact (one schema, two readers).
@@ -312,6 +314,16 @@ def build_run_payload(
     `split_duration_s`, `split_defects` (`[{security_id, ticker, kind, dates, factor, events}]` — the
     inventory the Admin panel renders and the next pass diffs, keyed on `kind:security_id`) and
     `split_defects_new` (what PAGED). `split=None` writes the not-evaluated block; readers use `.get`.
+
+    T2 / Q8 / T3 — THE PRICE-FEED REPAIRS. `rename_probe` (`pipeline/rename_probe.RenameProbe.payload`) is
+    the nightly splice probe of every renamed tape's EDGAR symbols — `{evaluated, error, fetches,
+    duration_s, rows: [{security_id, ticker, edge, edgar_tickers, recommended, candidates: [{symbol,
+    verified, overlap, ratio, bars, last_bar, error}], edgar_name, former_names, name_change_filings}]}` —
+    a pending recommendation the Admin panel offers for the operator's Adopt. Each `tape_stale` row also
+    carries `unpriceable` (Q8: no stored bar ever, neither closed nor renamed) and `acknowledged` (the
+    operator's "keep it, unpriced" — quiet, never paged); each thesis carries `expected_price_misses`
+    (`[{security_id, ticker, reason, error}]` — the vendor 404s T3 excused as expected, `reason` `closed` or
+    `acknowledged`). An artifact written before these keys reads them absent / false / empty (`.get`).
     """
     recorded = sum(1 for r in results if r.recorded)
     edgar_fetches = sum(r.edgar_fetches for r in results)
@@ -339,6 +351,8 @@ def build_run_payload(
         "audit": [a.to_json() for a in audit],
         # T4 — the split-basis monitor: the inventory + the new-defect diff (flag only, never a call input)
         **(split or SplitScan()).payload(),
+        # T2 — the rename probe: splice-verified successor recommendations (pending; never applied)
+        **(rename_probe or RenameProbe()).payload(),
         # THE FREEZE DETECTOR: total EDGAR network pulls this run. A frozen index and a healthy
         # nothing-filed night both show 0 new facts — this is the number that differs. 0 on a `live`
         # run = the cache never refreshed = a freeze (R4 pages on it); a healthy night is in the hundreds.
@@ -424,8 +438,17 @@ def build_run_payload(
                         "edgar_tickers": (
                             list(s.edgar_tickers) if s.edgar_tickers is not None else None
                         ),
+                        # Q8 — never priced (and neither closed nor renamed), and whether the operator
+                        # acknowledged it ("keep it, unpriced" — a quiet row that never pages)
+                        "unpriceable": s.unpriceable,
+                        "acknowledged": s.acknowledged,
                     }
                     for s in r.tape_stale
+                ],
+                # T3 — the vendor 404s excused as EXPECTED (a closed or acknowledged name): not name
+                # errors, so they do not spoil `ingest_fresh` — and recorded here, never dropped (#9)
+                "expected_price_misses": [
+                    m.to_json() for m in getattr(r, "expected_price_misses", ()) or ()
                 ],
             }
             for r in results
@@ -457,6 +480,7 @@ def write_cron_run_log(
     name_errors_known: int = 0,
     audit: Sequence[AuditResult] = (),
     split: SplitScan | None = None,
+    rename_probe: RenameProbe | None = None,
 ) -> Path | None:
     """Dump one cron pass (``build_run_payload``, above — the payload's meaning lives there) to
     ``<base>/<utc-timestamp>.json``; return the path (or ``None`` fail-open). The whole write — payload
@@ -489,6 +513,7 @@ def write_cron_run_log(
             name_errors_known=name_errors_known,
             audit=audit,
             split=split,
+            rename_probe=rename_probe,
         )
         run_dir = base_dir or _DEFAULT_CRON_RUNS
         run_dir.mkdir(parents=True, exist_ok=True)
@@ -676,7 +701,15 @@ def previous_stale_tapes(*, base_dir: Path | None = None) -> set[str] | None:
                 # matching key here and pages ONCE as newly stale — VRME's shape, the first night the
                 # proximity rule ships. Without this skip, its silenced night would count as "already
                 # told" and the reclassification would never page.
-                if isinstance(s, dict) and s.get("security_id") and not s.get("closed_at"):
+                # Q8 — an ACKNOWLEDGED unpriceable row is out of the baseline for the same reason: it never
+                # paged (the operator said "keep it, unpriced"), so if the acknowledgment is REVOKED the
+                # name finds no key here and pages ONCE as newly stale — the operator asked for it loud.
+                if (
+                    isinstance(s, dict)
+                    and s.get("security_id")
+                    and not s.get("closed_at")
+                    and not s.get("acknowledged")
+                ):
                     out.add(f"{feed_kind(s.get('kind')).key}:{s['security_id']}")
         return out
     return None
