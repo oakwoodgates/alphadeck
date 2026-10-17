@@ -430,6 +430,42 @@ def test_outbound_classic_13d_skipped_under_filer_feed(db, security_id):
     assert row["filer_cik"] == "0001840904" and row["form"] == "SC 13D"  # the activist, kept
 
 
+def test_a_KNOWN_outbound_skip_is_recorded_but_not_reprinted_and_a_new_one_still_prints(
+    db, security_id, capsys
+):
+    """Q18 on the real UEC outbound 13D: the skip is identical with or without a baseline (nothing stored,
+    counted, NAMED on the result) — only the line changes. Known (in ``known_skips``) → silent; not
+    known → the ``skip:`` line naming the accession, as before."""
+    filings = [
+        _filing(
+            _UEC_ACC,
+            form="SCHEDULE 13D",
+            filed="2026-07-28",
+            primary_doc="xslSCHEDULE_13D_X01/primary_doc.xml",
+        )
+    ]
+    client = _Client({f"forms/{_UEC_ACC}/primary_doc.xml": _UEC_XML})
+
+    known = ingest_schedule13(
+        db,
+        security_id,
+        _UEC_CIK,
+        filings,
+        client,
+        known_skips={f"schedule13_outbound:{_UEC_ACC}"},
+    )
+    db.commit()
+    assert capsys.readouterr().out == ""
+    assert known.subject_skipped == 1 and [a for a, _ in known.outbound] == [_UEC_ACC]
+    assert _read(db, security_id) == []  # the skip itself is unchanged: never stored
+
+    new = ingest_schedule13(db, security_id, _UEC_CIK, filings, client, known_skips=set())
+    db.commit()
+    assert f"skip: schedule13 {_UEC_ACC}" in capsys.readouterr().out
+    assert new.subject_skipped == 1 and new.outbound == known.outbound
+    assert _read(db, security_id) == []
+
+
 def test_unresolved_subject_keeps_the_row_recall_safe(db, security_id):
     """RECALL-SACRED (#9): a 13D-family filing whose subject CANNOT be resolved (the identity document
     is unfetchable) is KEPT with NULL identity — unresolved ≠ mis-attributed. The skip only ever fires

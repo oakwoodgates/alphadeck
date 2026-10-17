@@ -51,6 +51,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from domain.feed_kinds import StaleFeedLabel, feed_kind
+from pipeline.ingest_skips import SkipDiff
 from pipeline.name_errors import NameIngestError, name_errors_of
 from pipeline.rename_probe import RenameProbe
 from pipeline.split_basis import SplitScan, defect_keys_of
@@ -238,6 +239,7 @@ def build_run_payload(
     split: SplitScan | None = None,
     rename_probe: RenameProbe | None = None,
     successor: SuccessorScan | None = None,
+    skips: SkipDiff | None = None,
 ) -> dict:
     """The run-of-record payload — PURE (no I/O), extracted from the artifact writer so the admin
     "run now" job can shape its poll result IDENTICALLY to a parsed artifact (one schema, two readers).
@@ -334,6 +336,13 @@ def build_run_payload(
     label, ...}], new: [{key, label}]}` — the members whose company now files under another CIK (a pending
     recommendation the Admin panel offers for the operator's Adopt), and `new` = what PAGED. `successor=None`
     writes the not-evaluated block; readers use `.get`.
+
+    Q18 — THE SKIPPED FILINGS (`pipeline/ingest_skips.SkipDiff.payload`): `ingest_skips_evaluated` (a
+    LIVE pass — the only kind that is a baseline) and `ingest_skips`, one block per kind
+    (`form4_unparseable` / `schedule13_outbound` / `schedule13_identity`) with `total`, `known`, `new`
+    (`[{accession, security_id, ticker, reason}]` — the filings whose line printed tonight),
+    `previous_total`, `delta` and the full `accessions` inventory `previous_ingest_skips` (below) reads as
+    the next baseline. `skips=None` writes the not-evaluated empty block; readers use `.get`.
     """
     recorded = sum(1 for r in results if r.recorded)
     edgar_fetches = sum(r.edgar_fetches for r in results)
@@ -365,6 +374,8 @@ def build_run_payload(
         **(rename_probe or RenameProbe()).payload(),
         # T7 — the successor-CIK detector: members now filing under another CIK (pending; never applied)
         **(successor or SuccessorScan()).payload(),
+        # Q18 — the skipped-filing inventory + its diff (known ones counted, new ones named)
+        **(skips or SkipDiff()).payload(),
         # THE FREEZE DETECTOR: total EDGAR network pulls this run. A frozen index and a healthy
         # nothing-filed night both show 0 new facts — this is the number that differs. 0 on a `live`
         # run = the cache never refreshed = a freeze (R4 pages on it); a healthy night is in the hundreds.
@@ -494,6 +505,7 @@ def write_cron_run_log(
     split: SplitScan | None = None,
     rename_probe: RenameProbe | None = None,
     successor: SuccessorScan | None = None,
+    skips: SkipDiff | None = None,
 ) -> Path | None:
     """Dump one cron pass (``build_run_payload``, above — the payload's meaning lives there) to
     ``<base>/<utc-timestamp>.json``; return the path (or ``None`` fail-open). The whole write — payload
@@ -528,6 +540,7 @@ def write_cron_run_log(
             split=split,
             rename_probe=rename_probe,
             successor=successor,
+            skips=skips,
         )
         run_dir = base_dir or _DEFAULT_CRON_RUNS
         run_dir.mkdir(parents=True, exist_ok=True)
@@ -872,6 +885,38 @@ def previous_name_errors(*, base_dir: Path | None = None) -> set[str] | None:
             for e in t.get("name_errors") or []:
                 if isinstance(e, dict) and e.get("security_id") and e.get("leg"):
                     out.add(f"{e['security_id']}:{e['leg']}")
+        return out
+    return None
+
+
+def previous_ingest_skips(*, base_dir: Path | None = None) -> dict[str, set[str]] | None:
+    """Q18 — ``kind -> {accession}`` for every filing a leg SKIPPED on the most recent pass that EVALUATED
+    the skip diff: the baseline that makes a filing "known" (counted, not re-printed) tonight. The twin of
+    ``previous_name_errors`` and held to the SAME baseline rule: LIVE (a ``--no-live`` pass reads cache
+    misses), ``ingest_skips_evaluated`` (a pre-Q18 artifact carries no inventory — read as "nothing
+    skipped", every known filing would re-print once more, which is merely loud, but it is still not a
+    baseline), FINISHED (M1) and FULL-ROSTER (M2 — a catch-up that skipped theses never walked their
+    filings).
+
+    ``None`` (distinct from an empty dict) = no qualifying artifact yet — the first pass after Q18 ships —
+    which the caller treats as "nothing is known", so every skip prints once. Newest-first, first match
+    wins; fail-open per artifact and per row (a malformed block is skipped, never an exception). Pure file
+    read."""
+    for doc in list_run_logs(base_dir=base_dir):
+        if (
+            doc.get("mode") != "live"
+            or not doc.get("ingest_skips_evaluated", False)
+            or not is_finished(doc)
+            or not is_full_roster(doc)  # M2 — a partial catch-up is never a baseline
+        ):
+            continue
+        out: dict[str, set[str]] = {}
+        block = doc.get("ingest_skips")
+        if isinstance(block, dict):
+            for kind, summary in block.items():
+                accs = summary.get("accessions") if isinstance(summary, dict) else None
+                if isinstance(accs, list):
+                    out[str(kind)] = {str(a) for a in accs if a}
         return out
     return None
 

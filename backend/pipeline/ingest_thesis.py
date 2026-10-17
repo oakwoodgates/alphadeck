@@ -73,6 +73,14 @@ from ingest.funds.source import FundSharesSource
 from ingest.prices.eod_loader import latest_bar_date
 from ingest.prices.ingest_security import ingest_bars_for_security
 from ingest.prices.source import PriceSource, YahooPriceSource
+from ingest.skips import (
+    FORM4_UNPARSEABLE,
+    SCHEDULE13_IDENTITY,
+    SCHEDULE13_OUTBOUND,
+    IngestSkip,
+    clip_reason,
+    is_known,
+)
 from repositories import thesis_repo
 from securities import master
 
@@ -172,6 +180,11 @@ class NameResult:
     edgar_name: str | None = None
     former_names: tuple[FormerName, ...] = ()
     name_change_filings: tuple[NameChangeFiling, ...] = ()
+    # Q18 — every FILING a leg skipped this pass (``ingest.skips``): a Form 4 it could not fetch or parse,
+    # a 13D-family filing that is the owner's own outbound stake, a 13D/G whose filer identity did not
+    # resolve. The counts above are unchanged; this names the filings so the cron can count the ones that
+    # skipped the same way last pass instead of re-printing ~440 lines a night, and print only the new.
+    ingest_skips: tuple[IngestSkip, ...] = ()
 
 
 def _tolerable_filing_error(e: Exception) -> bool:
@@ -204,10 +217,15 @@ def _is_not_found(e: Exception) -> bool:
 
 
 def _form4_leg(
-    conn: psycopg.Connection, client: EdgarClient, sec: Security, *, tenant_id: UUID
-) -> tuple[int, int, int]:
+    conn: psycopg.Connection,
+    client: EdgarClient,
+    sec: Security,
+    *,
+    tenant_id: UUID,
+    known_skips: Collection[str] | None = None,
+) -> tuple[int, int, int, tuple[IngestSkip, ...]]:
     """Ingest only Form 4 accessions not already stored for this security (incremental). Returns
-    ``(appended, skipped, txn_rejected)``. Needs the issuer CIK; a name without one contributes no
+    ``(appended, skipped, txn_rejected, skips)``. Needs the issuer CIK; a name without one contributes no
     insider facts.
 
     PER-FILING tolerance: a filing whose fetch or parse fails (``_tolerable_filing_error``) is skipped
@@ -215,17 +233,24 @@ def _form4_leg(
     name's whole insider history. A skipped accession is never stored, so every later run re-attempts it
     (and re-counts it) rather than silently marking it done.
 
+    Q18 — every skipped filing is also RETURNED in ``skips`` (``ingest.skips.FORM4_UNPARSEABLE``). Its
+    warning prints unless ``known_skips`` (the previous finished pass's skip keys) already holds it: a
+    filing that failed the same way last pass is counted by the cron instead of re-printed nightly. Only
+    the line changes — the skip, its count and the re-attempt are identical, and an error that is NOT
+    tolerable still raises exactly as before (never a new swallow-and-count).
+
     ``txn_rejected`` (P1) is a DIFFERENT and much narrower thing than ``skipped``: a per-TRANSACTION
     rejection by the sanity bound (``ingest.edgar.form4.implausible_txn_date``) inside a filing that
     otherwise stored fine. It is carried so the cron's per-thesis summary can name it when nonzero; every
     rejection has already printed in full at the row level (the skip-counter lesson — the tally accompanies
     the loud report, it never stands in for it)."""
     if not sec.cik:
-        return 0, 0, 0
+        return 0, 0, 0, ()
     seen = existing_accessions(conn, sec.id, tenant_id=tenant_id)
     appended = 0
     skipped = 0
     txn_rejected = 0
+    skips: list[IngestSkip] = []
     for f in form4_filings(fetch_submissions(client, sec.cik)):
         if f["accession"] in seen:
             continue  # already have this filing's txns — skip (no duplicate append)
@@ -252,10 +277,15 @@ def _form4_leg(
             if not _tolerable_filing_error(e):
                 raise
             skipped += 1
-            print(
-                f"  warn: {sec.ticker or sec.id} form4 {f['accession']} ({f['filed']}) skipped: {e}"
+            skips.append(
+                IngestSkip(FORM4_UNPARSEABLE, f["accession"], sec.id, sec.ticker, clip_reason(e))
             )
-    return appended, skipped, txn_rejected
+            if not is_known(known_skips, FORM4_UNPARSEABLE, f["accession"]):
+                print(
+                    f"  warn: {sec.ticker or sec.id} form4 {f['accession']} ({f['filed']}) "
+                    f"skipped: {e}"
+                )
+    return appended, skipped, txn_rejected, tuple(skips)
 
 
 def _form8k_leg(
@@ -277,22 +307,38 @@ def _form8k_leg(
 
 
 def _schedule13_leg(
-    conn: psycopg.Connection, client: EdgarClient, sec: Security, *, tenant_id: UUID
-) -> tuple[int, int, int]:
+    conn: psycopg.Connection,
+    client: EdgarClient,
+    sec: Security,
+    *,
+    tenant_id: UUID,
+    known_skips: Collection[str] | None = None,
+) -> tuple[int, int, int, tuple[IngestSkip, ...]]:
     """Ingest the security's 13D/G activist-stake tape (Band 03 S5) from its OWN submissions JSON —
-    the S5-verified subject-indexing path. Returns ``(appended, reversioned, identity_skipped)``.
+    the S5-verified subject-indexing path. Returns ``(appended, reversioned, identity_skipped, skips)``.
     Needs the issuer CIK; a name without one contributes no stakes.
 
     Enumeration reads the SAME submissions document the Form 4 / 8-K legs fetch (cache-free second
     read); the activist's identity costs one bounded, immutable-cached document fetch per filing
     (``ingest_schedule13``'s depth strategy). Append-if-changed: an unchanged tape re-run appends
     ZERO rows; a stored filing whose identity RESOLVES gets a new version (never an UPDATE); an
-    identity failure stores the row with NULL filer and counts loud (#9)."""
+    identity failure stores the row with NULL filer and counts loud (#9).
+
+    Q18 — ``skips`` names the outbound (owner-filed) and identity-failed filings; ``known_skips`` mutes the
+    lines of the ones that skipped the same way last pass (``ingest_schedule13``)."""
     if not sec.cik:
-        return 0, 0, 0
+        return 0, 0, 0, ()
     filings = schedule13_filings(fetch_submissions(client, sec.cik))
-    res = ingest_schedule13(conn, sec.id, sec.cik, filings, client, tenant_id=tenant_id)
-    return res.appended, res.reversioned, res.identity_skipped
+    res = ingest_schedule13(
+        conn, sec.id, sec.cik, filings, client, tenant_id=tenant_id, known_skips=known_skips
+    )
+    skips = tuple(
+        IngestSkip(SCHEDULE13_OUTBOUND, acc, sec.id, sec.ticker, why) for acc, why in res.outbound
+    ) + tuple(
+        IngestSkip(SCHEDULE13_IDENTITY, acc, sec.id, sec.ticker, why)
+        for acc, why in res.identity_failures
+    )
+    return res.appended, res.reversioned, res.identity_skipped, skips
 
 
 # The price leg lives in ``ingest.prices.ingest_security.ingest_bars_for_security`` now — ONE
@@ -312,6 +358,7 @@ def ingest_thesis(
     fund_source: FundSharesSource | None = None,
     only_security_ids: Collection[UUID] | None = None,
     now: datetime | None = None,
+    known_skips: Collection[str] | None = None,
 ) -> list[NameResult]:
     """Ingest insider + price facts — and, for an ETF sleeve, a fund shares-outstanding sample — for
     each RESOLVED basket member of ``thesis_id``.
@@ -344,6 +391,11 @@ def ingest_thesis(
     interactive kick pays only for the names actually waiting). ``None`` (the default — the CLI and the
     cron) walks every resolved member, byte-identical to before the parameter existed. Scope narrows
     WHICH members are walked, never what a walked member ingests.
+
+    ``known_skips`` (Q18) is the previous finished pass's set of skipped-filing keys
+    (``ingest.skips.skip_key``), which only the daily cron passes: a filing that skipped the same way last
+    pass is recorded on ``NameResult.ingest_skips`` but its line is not printed again. ``None`` prints every
+    skip, as before. It changes LOGGING only — never what is stored, skipped, counted or raised.
     """
     thesis = thesis_repo.get(conn, thesis_id)
     if thesis is None:
@@ -377,10 +429,12 @@ def ingest_thesis(
         f4 = 0
         f4_skipped = 0
         f4_txn_rejected = 0
+        skips: list[IngestSkip] = []
         try:
-            f4, f4_skipped, f4_txn_rejected = _form4_leg(
-                conn, client, sec, tenant_id=thesis.tenant_id
+            f4, f4_skipped, f4_txn_rejected, f4_skips = _form4_leg(
+                conn, client, sec, tenant_id=thesis.tenant_id, known_skips=known_skips
             )
+            skips.extend(f4_skips)
             conn.commit()
         except (
             Exception
@@ -400,9 +454,10 @@ def ingest_thesis(
             leg_errs.append(("form8k", str(e)))
         s13_appended, s13_reversioned, s13_skipped = 0, 0, 0
         try:
-            s13_appended, s13_reversioned, s13_skipped = _schedule13_leg(
-                conn, client, sec, tenant_id=thesis.tenant_id
+            s13_appended, s13_reversioned, s13_skipped, s13_skips = _schedule13_leg(
+                conn, client, sec, tenant_id=thesis.tenant_id, known_skips=known_skips
             )
+            skips.extend(s13_skips)
             conn.commit()
         except Exception as e:  # noqa: BLE001 — same per-leg isolation as the form4 leg
             conn.rollback()
@@ -534,6 +589,7 @@ def ingest_thesis(
                 edgar_name=current_name,
                 former_names=formers,
                 name_change_filings=renames,
+                ingest_skips=tuple(skips),
             )
         )
     return results

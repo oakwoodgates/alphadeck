@@ -2138,6 +2138,64 @@ def test_pass_pages_NEWLY_failing_names_and_collapses_the_KNOWN_ones(monkeypatch
     assert {e["leg"] for e in doc["theses"][0]["name_errors"]} == {"price", "form4", "fund_shares"}
 
 
+def test_pass_mutes_KNOWN_skipped_filings_and_names_only_the_NEW(monkeypatch, tmp_path, capsys):
+    """Q18 ACROSS THREE PASSES through the REAL artifact writer, the O1 twin: pass 1 has no baseline, so the
+    loop is handed ``known_skips=None`` (every skip prints, as before) and all are new; pass 2 with the SAME
+    skipped filings hands the loop exactly those keys and counts them known; pass 3 adds one new filing — it
+    is the only one named, and the delta shows the jump."""
+    from ingest.skips import IngestSkip
+
+    sid = uuid.uuid4()
+    seen_known: list = []
+    _prime_pass(monkeypatch)
+    monkeypatch.setattr(cron_run_log, "_DEFAULT_CRON_RUNS", tmp_path)
+    monkeypatch.setattr(daily, "write_cron_run_log", cron_run_log.write_cron_run_log)  # REAL writer
+
+    def _pass(accessions):
+        skips = tuple(
+            IngestSkip(kind, acc, sid, "FRHC", "syntax error: line 1, column 0")
+            for kind, acc in accessions
+        )
+        res = [
+            daily.ThesisRunResult(
+                thesis_id=uuid.uuid4(), name="T", recorded=True, ingested=[_nr(ingest_skips=skips)]
+            )
+        ]
+
+        def _run_daily(conn, **k):
+            seen_known.append(k.get("known_skips"))
+            return res
+
+        monkeypatch.setattr(daily, "run_daily", _run_daily)
+        out = daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
+        daily._report(out.results, skips=out.skips)
+        return out, capsys.readouterr().out
+
+    night = [
+        ("form4_unparseable", "0000950144-97-007016"),
+        ("schedule13_outbound", "0000950103-26-005722"),
+    ]
+    out1, _ = _pass(night)
+    out2, text2 = _pass(night)
+    out3, text3 = _pass(night + [("form4_unparseable", "0001094891-03-000080")])
+
+    assert seen_known[0] is None  # no baseline: nothing muted
+    assert seen_known[1] == {f"{k}:{a}" for k, a in night}  # the previous pass's inventory
+    f4 = [
+        next(k for k in o.skips.kinds if k.kind == "form4_unparseable") for o in (out1, out2, out3)
+    ]
+    assert (f4[0].known, len(f4[0].new)) == (0, 1)
+    assert (f4[1].known, len(f4[1].new), f4[1].delta) == (1, 0, 0)
+    assert (f4[2].known, f4[2].delta) == (1, 1)
+    assert [s.accession for s in out3.skips.new] == ["0001094891-03-000080"]
+    assert "form4_unparseable: 1 known" in text2 and "0 new, +0 vs the last pass" in text2
+    assert "1 new, +1 vs the last pass" in text3
+    doc = json.loads(sorted(tmp_path.glob("*.json"))[-1].read_text(encoding="utf-8"))
+    assert doc["ingest_skips_evaluated"] is True
+    assert doc["ingest_skips"]["form4_unparseable"]["total"] == 2
+    assert doc["ingest_skips"]["schedule13_outbound"]["known"] == 1
+
+
 def test_a_name_held_by_TWO_theses_is_ONE_error_row_in_the_diff(monkeypatch, tmp_path):
     sid = uuid.uuid4()
     _prime_pass(monkeypatch)

@@ -480,6 +480,29 @@ in the pass sends ONE health page (`PASS CRASHED — <type>: <message>`) before 
 can never mask the original. (A process that is KILLED runs no Python at all; the sidecar's own page and the
 external heartbeat cover that.)
 
+**Known skipped filings are a count, not ~440 lines a night (Q18, 2026-10-17)** `[BUILT]`. Three filing
+paths skip ONE filing and keep walking, and a skipped filing is never stored, so it is re-tried and its line
+re-printed every pass: a Form 4 that cannot be fetched or parsed (`form4_unparseable`), a 13D-family filing
+in a company's own feed that names another subject — the company's own outbound stake (`schedule13_outbound`),
+and a 13D/G whose filer identity did not resolve (`schedule13_identity`, stored with a NULL filer). MEASURED
+2026-10-17 by replaying the legs read-only over prod's cache and DB: 76 Form 4 lines and 365 schedule-13
+lines a night, about 73% of the cron log. **Audited before anything was collapsed** (the skip-counter lesson:
+a rising Form 4 skip count once hid a timezone bug that dropped 49 real buys): all 76 Form 4s are pre-XML
+filings dated 1997 to 2003-04-02 — 60 SGML text documents, 15 accessions with no primary document (the
+fetched "document" is EDGAR's directory listing) and 1 whose `0001.txt` 404s (checked live; the filing is a
+2000 text Form 4) — and none fails with a `ValueError`; all 365 schedule-13 lines (328 accessions) are
+13D-family filings whose feed owner is the lead filer (364) or a co-reporting person (1). No group was a
+parser bug. The mechanism is O1's, mirrored (`ingest/skips.py`, `pipeline/ingest_skips.py`): before its loop
+the pass reads the previous FINISHED, live, full-roster artifact's skip inventory
+(`cron_run_log.previous_ingest_skips`); a filing that skipped the same way there is recorded but not
+re-printed, and a NEW one prints its one line naming the accession. After the loop the artifact carries, per
+kind, `total`, `known`, `new` (accession, security, ticker, reason), `previous_total`, `delta` (so a jump in
+the known inventory shows) and the full `accessions` list (the next baseline), and stdout gets one quiet line
+per kind. The first pass after the deploy has no baseline, so it prints every skip once. **Only the logging
+changed**: what is stored, skipped, counted (`form4_skipped` on each thesis line) or raised is identical, a
+CLI or on-promote ingest (no baseline) prints everything, and no raising path became a swallow-and-count.
+The P1 `REJECT insider txn` lines (impossible transaction dates) are untouched and stay loud.
+
 ### The tape monitor, part 2 — split-basis defects (T4, 2026-10-16)  `[BUILT]`
 
 **The defect.** The price leg owns no corporate-action data (`ingest/prices/source.py`: no `get_splits`); it

@@ -53,7 +53,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timezone, tzinfo
 from functools import partial
@@ -76,12 +76,14 @@ from pipeline.call_for_thesis import call_for_thesis
 from pipeline.cron_run_log import (
     already_ran_live,
     mark_run_crashed,
+    previous_ingest_skips,
     previous_name_errors,
     previous_split_defects,
     previous_stale_tapes,
     write_cron_run_log,
     write_run_start,
 )
+from pipeline.ingest_skips import SkipDiff, diff_skips, known_keys
 from pipeline.ingest_thesis import NameResult, ingest_thesis, print_withheld_line
 from pipeline.name_errors import NameIngestError, dedup_name_errors, name_errors_of
 from pipeline.night_coverage import NightTiming, night_timing, read_on_time_theses
@@ -291,6 +293,7 @@ def run_daily(
     notifier: Notifier | None = None,
     run_kind: str = "manual",
     catch_up: bool = False,
+    known_skips: Collection[str] | None = None,
 ) -> list[ThesisRunResult]:
     """Run the daily pass over every thesis. ``asof`` defaults to today, ``known_at`` to now (a live read).
     Returns one ``ThesisRunResult`` per thesis. Never raises for a single thesis — failures are captured.
@@ -395,6 +398,7 @@ def run_daily(
                 force_refresh=force_refresh,
                 user_agent=user_agent,
                 edgar_client=edgar_client,
+                known_skips=known_skips,  # Q18 — mutes the lines of filings known to skip
             )
         except Exception as e:  # noqa: BLE001 — one thesis's ingest never aborts the cron
             conn.rollback()
@@ -732,6 +736,9 @@ class DailyPassOutcome:
     rename_probe: RenameProbe = field(default_factory=RenameProbe)
     # T7 — the successor-CIK detector's outcome (`pipeline/successor_cik.py`), computed ONCE in the pass
     successor: SuccessorScan = field(default_factory=SuccessorScan)
+    # Q18 — the skipped-filing diff (``pipeline/ingest_skips.py``): computed ONCE in the pass, so the
+    # artifact and the Admin poll payload carry the same inventory, the same known counts and the same new
+    skips: SkipDiff = field(default_factory=SkipDiff)
 
     def payload_kwargs(self) -> dict:
         """Every run-level field ``cron_run_log.build_run_payload`` / ``write_cron_run_log`` take, from this
@@ -760,6 +767,7 @@ class DailyPassOutcome:
             "split": self.split,
             "rename_probe": self.rename_probe,
             "successor": self.successor,
+            "skips": self.skips,
         }
 
 
@@ -999,6 +1007,14 @@ def _run_daily_pass_locked(
                 print(f"  fundamentals refresh ERROR: {err}")
         except Exception as e:  # noqa: BLE001 — a refresh leg is a passenger, never the driver
             print(f"WARNING: fundamentals refresh leg failed: {e}")
+    # Q18 — THE SKIPPED-FILING BASELINE, read BEFORE the loop: the filing legs print a line for every
+    # filing they skip, and an unstorable filing is re-tried (and re-printed) every pass — MEASURED ~440
+    # lines a night, ~73% of the log, all audited as legacy pre-XML Form 4s and owner-filed 13Ds. A filing
+    # that skipped the same way on the previous finished, live, full-roster pass is "known": the legs
+    # record it without re-printing, and the diff below counts it. `None` (no baseline yet) mutes nothing.
+    # The read is fail-open by construction (`previous_ingest_skips` skips a bad artifact) and changes
+    # only what is PRINTED — what is stored, skipped or raised is identical.
+    prior_skips = previous_ingest_skips()
     conn = _pass_connect()
     try:
         results = run_daily(
@@ -1008,6 +1024,7 @@ def _run_daily_pass_locked(
             notifier=notifier,
             run_kind=run_kind,
             catch_up=catch_up,
+            known_skips=known_keys(prior_skips),
         )
     finally:
         conn.close()
@@ -1078,6 +1095,15 @@ def _run_daily_pass_locked(
         )
         name_errors_new = tuple(current_errors[k] for k in new_error_keys)
         name_errors_known = len(current_errors) - len(name_errors_new)
+    # Q18 — THE SKIPPED-FILING DIFF, the name-error diff's twin, computed here for the same reason (before
+    # this pass's artifact exists, or it would be its own baseline) against the SAME baseline the legs
+    # muted on. Deduped across theses (one filing is one row). A --no-live pass is recorded but not
+    # evaluated: it is never a baseline.
+    skips = diff_skips(
+        (s for r in results for x in r.ingested for s in getattr(x, "ingest_skips", ())),
+        prior_skips,
+        evaluated=allow_live,
+    )
     # T4 — THE SPLIT-BASIS MONITOR (`pipeline/split_basis.py`): one read-only, windowed scan of the active
     # basket union's stored tapes for a mixed split basis (an island, a lone cliff, a flapping bar). AFTER
     # `run_daily`, so it reads the bars tonight's price legs just re-versioned; BEFORE this run's artifact
@@ -1167,6 +1193,7 @@ def _run_daily_pass_locked(
         split=split,
         rename_probe=rename_probe,
         successor=successor,
+        skips=skips,
     )
     # R3 — the cron's run-of-record, so the next freeze is noticed by the platform, not by eye. Written
     # AFTER the run from the collected results (write-only, no DB); fail-open, so it never fails the cron.
@@ -1256,6 +1283,7 @@ def _report(
     split: SplitScan | None = None,
     probe: RenameProbe | None = None,
     successor: SuccessorScan | None = None,
+    skips: SkipDiff | None = None,
 ) -> int:
     """Print a per-thesis summary; return the number of theses that ERRORED.
 
@@ -1424,6 +1452,11 @@ def _report(
             f"{len(expected)} expected price 404(s) — closed or acknowledged-unpriceable names, not "
             f"errors (ingest_fresh unaffected): {names}"
         )
+    # Q18 — the skipped filings: ONE quiet line per kind (known count, new count, the change vs the last
+    # pass); each NEW filing already printed its own line during the ingest above
+    if skips is not None:
+        for line in skips.report_lines():
+            print(line)
     # D2 — names whose in-progress bar was withheld (session not yet settled): ONE quiet line, deduped
     print_withheld_line(x for r in results for x in r.ingested)
     if skipped:
@@ -1635,6 +1668,7 @@ def main(argv: list[str] | None = None) -> None:
         split=outcome.split,
         probe=outcome.rename_probe,
         successor=outcome.successor,
+        skips=outcome.skips,
     )  # the per-thesis summary + the errored count, printed either way
     # F4 — WHAT A NON-ZERO EXIT MEANS TO A WRAPPER: this night has NO call-of-record at all (the pass
     # crashed, or every thesis was withheld/errored for a real reason). It no longer means "some thesis
