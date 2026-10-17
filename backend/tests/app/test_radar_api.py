@@ -8,15 +8,15 @@ import uuid
 from datetime import date, timedelta
 
 from db.session import DEFAULT_TENANT_ID
-from domain.market_time import market_today
 from domain.thesis import Thesis
 from radar import repo
 from repositories import thesis_repo
 
-# Option (b), INVARIANTS.md §6: read the PRODUCTION clock (market_today) so these test dates and the
-# code agree by construction — never an ambient date.today() that drifts on a runner whose zone leads
-# market time (CI runs UTC).
-TODAY = market_today()
+# Option (b), INVARIANTS.md §6: "today" is the `pinned_today` fixture (tests/conftest.py), the PRODUCTION
+# clock pinned for the test, so these test dates and the tape's request-time window
+# (`market_today() - days`) agree by construction. Never an ambient date.today() (drifts on a runner whose
+# zone leads market time; CI runs UTC), and never a module-level read at import (stale once a run
+# crosses midnight ET).
 
 
 def _master(db, cik10: str, ticker: str | None, sector: str | None) -> uuid.UUID:
@@ -55,15 +55,19 @@ def _event(db, cik10, sid, form, filed, accession, items=None, name="Shell Co"):
     db.commit()
 
 
-def test_tape_states_joins_and_badges(client, db):
+def test_tape_states_joins_and_badges(client, db, pinned_today):
     dead_sid = _master(db, "0000001111", "DEAD", "Blank Checks")
     live_sid = _master(db, "0000002222", "LIVE", "Blank Checks")
     t = _thesis(db)
     # CIK 1111: announced then terminated (the Rev 2 pair — the dead deal must read terminated)
-    _event(db, "0000001111", dead_sid, "8-K", TODAY - timedelta(days=30), "acc-1101", ["1.01"])
-    _event(db, "0000001111", dead_sid, "8-K", TODAY - timedelta(days=2), "acc-1102", ["1.02"])
+    _event(
+        db, "0000001111", dead_sid, "8-K", pinned_today - timedelta(days=30), "acc-1101", ["1.01"]
+    )
+    _event(
+        db, "0000001111", dead_sid, "8-K", pinned_today - timedelta(days=2), "acc-1102", ["1.02"]
+    )
     # CIK 2222: a 425 → announced, with a stored thesis match
-    _event(db, "0000002222", live_sid, "425", TODAY - timedelta(days=1), "acc-2201")
+    _event(db, "0000002222", live_sid, "425", pinned_today - timedelta(days=1), "acc-2201")
     repo.record_match_if_changed(
         db,
         repo.SpacMatch(
@@ -74,7 +78,7 @@ def test_tape_states_joins_and_badges(client, db):
             matched_broad=["real-world assets"],
             truncated=False,
             source_ref="https://example.test/acc-2201.txt",
-            filed=TODAY - timedelta(days=1),
+            filed=pinned_today - timedelta(days=1),
         ),
     )
     db.commit()
@@ -97,10 +101,10 @@ def test_tape_states_joins_and_badges(client, db):
     assert by_acc["acc-2201"]["in_basket_of"] == []  # not attached yet
 
 
-def test_attach_is_operator_set_idempotent_and_reversible(client, db):
+def test_attach_is_operator_set_idempotent_and_reversible(client, db, pinned_today):
     sid = _master(db, "0000002222", "LIVE", "Blank Checks")
     t = _thesis(db)
-    _event(db, "0000002222", sid, "425", TODAY - timedelta(days=1), "acc-2201")
+    _event(db, "0000002222", sid, "425", pinned_today - timedelta(days=1), "acc-2201")
     repo.record_match_if_changed(
         db,
         repo.SpacMatch(
@@ -111,7 +115,7 @@ def test_attach_is_operator_set_idempotent_and_reversible(client, db):
             matched_broad=[],
             truncated=False,
             source_ref="u",
-            filed=TODAY - timedelta(days=1),
+            filed=pinned_today - timedelta(days=1),
         ),
     )
     db.commit()
