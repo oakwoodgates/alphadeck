@@ -15,14 +15,13 @@ import uuid
 from datetime import timedelta
 
 from db.session import DEFAULT_TENANT_ID
-from domain.market_time import market_today
 from domain.thesis import BasketMember, Segment, Thesis
 from repositories import thesis_repo
 
-# Option (b), INVARIANTS.md §6: read the PRODUCTION clock (market_today) so these test dates and the
-# code agree by construction — never an ambient date.today() that drifts on a runner whose zone leads
-# market time (CI runs UTC).
-TODAY = market_today()
+# Option (b), INVARIANTS.md §6: "today" is the `pinned_today` fixture (tests/conftest.py), the PRODUCTION
+# clock pinned for the test, so these test dates and the code's request-time `market_today()` agree by
+# construction. Never an ambient date.today() (drifts on a runner whose zone leads market time; CI runs
+# UTC), and never a module-level read at import (stale once a run crosses midnight ET).
 
 
 def _thesis(db, security_id=None) -> Thesis:
@@ -51,7 +50,7 @@ def _thesis(db, security_id=None) -> Thesis:
     return t
 
 
-def test_put_catalysts_and_kill_criteria_author_the_spine(client, db):
+def test_put_catalysts_and_kill_criteria_author_the_spine(client, db, pinned_today):
     t = _thesis(db)
     r = client.put(
         f"/theses/{t.id}/catalysts",
@@ -76,7 +75,7 @@ def test_put_catalysts_and_kill_criteria_author_the_spine(client, db):
 
     # the call CONSUMES them: the counter-case now documents the kill criterion (no more
     # "no documented counter-case" on an authored thesis)
-    card = client.get(f"/theses/{t.id}/call", params={"asof": str(TODAY)}).json()
+    card = client.get(f"/theses/{t.id}/call", params={"asof": str(pinned_today)}).json()
     assert "Kill criteria: DRAM contract prices roll over" in card["counter_case"]
 
 
@@ -117,12 +116,14 @@ def test_put_replaces_the_whole_list_and_empty_clears(client, db):
     assert r.json()["catalysts"] == []  # the operator's own explicit clear is allowed
 
 
-def test_ratify_catalyst_writes_the_conviction_fact_that_turns_key_one(client, db, security_id):
+def test_ratify_catalyst_writes_the_conviction_fact_that_turns_key_one(
+    client, db, security_id, pinned_today
+):
     """The arming path: a hand-authored, CITED catalyst fact is a Key-1 conviction the call engine
     consumes — the thesis leaves Incubating on the next read (no extractor, no LLM: the operator
     authored a verifiable event with its citation; the platform times it)."""
     t = _thesis(db, security_id=security_id)
-    card = client.get(f"/theses/{t.id}/call", params={"asof": str(TODAY)}).json()
+    card = client.get(f"/theses/{t.id}/call", params={"asof": str(pinned_today)}).json()
     assert card["state"] == "incubating" and card["key_conviction"]["turned"] is False
 
     r = client.post(
@@ -135,18 +136,18 @@ def test_ratify_catalyst_writes_the_conviction_fact_that_turns_key_one(client, d
             "label": "10-year offtake agreement signed",
             "source": "ratified",
             "source_ref": "https://example.com/pr/offtake",
-            "event_date": str(TODAY - timedelta(days=2)),
+            "event_date": str(pinned_today - timedelta(days=2)),
         },
     )
     assert r.status_code == 200 and r.json()["fact_type"] == "catalyst"
 
-    card = client.get(f"/theses/{t.id}/call", params={"asof": str(TODAY)}).json()
+    card = client.get(f"/theses/{t.id}/call", params={"asof": str(pinned_today)}).json()
     assert card["key_conviction"]["turned"] is True  # the authored catalyst IS the conviction key
     assert card["state"] != "incubating"
     assert any("offtake" in (tr.get("label") or "") for tr in card["triggers_fired"])
 
 
-def test_ratify_catalyst_requires_its_citation(client, db, security_id):
+def test_ratify_catalyst_requires_its_citation(client, db, security_id, pinned_today):
     r = client.post(
         "/workbench/facts",
         json={
@@ -157,7 +158,7 @@ def test_ratify_catalyst_requires_its_citation(client, db, security_id):
             "label": "uncited claim",
             "source": "ratified",
             "source_ref": "   ",
-            "event_date": str(TODAY),
+            "event_date": str(pinned_today),
         },
     )
     assert r.status_code == 422

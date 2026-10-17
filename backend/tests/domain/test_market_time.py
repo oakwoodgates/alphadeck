@@ -18,12 +18,13 @@ Two kinds of test here:
 from __future__ import annotations
 
 import ast
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
 
+from app.routers import theses as theses_router
 from domain import market_time
 from domain.market_time import (
     known_at_for_asof,
@@ -303,6 +304,152 @@ def test_the_test_scan_actually_walks_the_tests_tree():
     for anchor in ("tests/app/test_decisions_api.py", "tests/domain/test_market_time.py"):
         assert anchor in rel
     assert all(r.startswith("tests/") for r in rel)
+
+
+# --- the import-time guard: no test captures "today" when its module is IMPORTED ---
+#
+# The option-(b) swap made test dates read the production clock, but three modules read it ONCE, at import:
+# ``TODAY = market_today()``. Collection imports every module before the first test runs, so under ``-n 6``
+# that value can be minutes old by the time a test uses it, while the code under test reads
+# ``market_today()`` at REQUEST time. A full run started 2026-10-16 23:59:11 ET crossed midnight and failed
+# 8 tests in test_decisions_api / test_thesis_lists_api: the test said the 16th and the app (correctly)
+# said the 17th. The same shape as the option-(b) flake, on the time axis instead of the zone axis, and just
+# as invisible on most runs. This scan makes a NEW import-time read a failing test instead of a midnight.
+#
+# Scope: the day/instant reads (``market_today()``, ``market_now()``, ``date.today()``, ``datetime.now()``
+# with or without a zone, ``.utcnow()``, ``datetime.today()``). NOT ``known_at_for_asof(<fixed date>)``: for
+# a past date it is ``min(now, end of that day)`` = the end of that day, clock-free (the pinned historical
+# dates in tests/replay/test_pit_first_knowability.py).
+
+_IMPORT_TIME_WHY = (
+    "Read the clock INSIDE the test, or take the ``pinned_today`` fixture (tests/conftest.py), which pins\n"
+    "  the day for the test AND the app it calls. A value read at import is read at COLLECTION, which can\n"
+    "  be minutes before the test runs, and goes stale the moment a run crosses midnight ET."
+)
+
+
+def _clock_call(node: ast.Call) -> str | None:
+    f = node.func
+    if isinstance(f, ast.Name) and f.id in ("market_today", "market_now"):
+        return f"{f.id}()"
+    if not isinstance(f, ast.Attribute):
+        return None
+    if f.attr in ("market_today", "market_now"):
+        return f"{f.attr}()"
+    recv = getattr(f.value, "id", None) or getattr(f.value, "attr", None)
+    if (recv, f.attr) in {
+        ("date", "today"),
+        ("datetime", "today"),
+        ("datetime", "now"),
+        ("datetime", "utcnow"),
+    }:
+        return f"{recv}.{f.attr}()"
+    return None
+
+
+class _ImportTimeClockReads(ast.NodeVisitor):
+    """Collects clock reads that run when the module is IMPORTED: the module body, class bodies, decorator
+    expressions and default-argument values (all evaluated at definition time). A function or lambda BODY
+    is never entered: it runs per call, which is exactly where a test should read the clock."""
+
+    def __init__(self) -> None:
+        self.hits: list[str] = []
+
+    def _definition(self, node: ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda) -> None:
+        if not isinstance(node, ast.Lambda):
+            for deco in node.decorator_list:
+                self.visit(deco)
+        for default in [*node.args.defaults, *node.args.kw_defaults]:
+            if default is not None:
+                self.visit(default)
+
+    visit_FunctionDef = visit_AsyncFunctionDef = visit_Lambda = _definition
+
+    def visit_Call(self, node: ast.Call) -> None:
+        what = _clock_call(node)
+        if what:
+            self.hits.append(f"line {node.lineno}: {what}")
+        self.generic_visit(node)
+
+
+def _import_time_clock_reads(path: Path) -> list[str]:
+    scan = _ImportTimeClockReads()
+    scan.visit(ast.parse(path.read_text(encoding="utf-8")))
+    return scan.hits
+
+
+def test_no_test_module_reads_the_clock_at_import():
+    found: list[str] = []
+    for path in _test_files():
+        rel = path.relative_to(_BACKEND).as_posix()
+        found += [f"{rel} {h}" for h in _import_time_clock_reads(path)]
+    assert not found, (
+        "clock read(s) at IMPORT time in tests:\n  "
+        + "\n  ".join(found)
+        + "\n  "
+        + _IMPORT_TIME_WHY
+    )
+
+
+def test_the_import_time_guard_actually_detects_a_violation(tmp_path):
+    """The guard's own guard: every import-time shape is caught, and a read inside a test or helper BODY
+    (per call, the correct place) is not."""
+    good = tmp_path / "good.py"
+    good.write_text(
+        "from datetime import date, datetime, timezone\n"
+        "from domain.market_time import known_at_for_asof, market_today\n"
+        "FIXED = date(2026, 10, 16)\n"  # a fixed date is not a clock read
+        "PINS = [known_at_for_asof(date(2025, 6, 2))]\n"  # out of scope (clock-free for a past date)
+        "def test_x(pinned_today):\n"
+        "    today = market_today()\n"
+        "    now = datetime.now(timezone.utc)\n"
+        "    later = lambda: date.today()\n"
+        "def _helper(asof=None):\n"
+        "    return asof or market_today()\n"
+        "class TestY:\n"
+        "    def test_z(self):\n"
+        "        return market_today()\n",
+        encoding="utf-8",
+    )
+    assert _import_time_clock_reads(good) == []
+
+    bad = tmp_path / "bad.py"
+    bad.write_text(
+        "import datetime as dt\n"
+        "import pytest\n"
+        "from datetime import date, datetime, timezone\n"
+        "from domain import market_time\n"
+        "from domain.market_time import market_now, market_today\n"
+        "TODAY = market_today()\n"  # the 2026-10-16/17 shape
+        "NOW = market_now()\n"
+        "STAMP = datetime.now(timezone.utc)\n"
+        "AMBIENT = dt.date.today()\n"
+        "VIA_MODULE = market_time.market_today()\n"
+        "def _call(asof=market_today()):\n"  # a default value runs at definition time
+        "    return asof\n"
+        "@pytest.mark.parametrize('d', [date.today()])\n"  # so does a decorator
+        "def test_p(d):\n"
+        "    pass\n"
+        "class TestK:\n"
+        "    WHEN = datetime.utcnow()\n",  # and a class body
+        encoding="utf-8",
+    )
+    assert len(_import_time_clock_reads(bad)) == 8
+
+
+def test_pinned_today_pins_the_route_too_and_holds_across_midnight(monkeypatch, pinned_today):
+    """The fixture's contract (tests/conftest.py): the day the TEST holds is the day the ROUTE reads, even
+    when the wall clock crosses midnight ET mid-test. ``app.routers.theses`` imports ``market_today`` BY
+    NAME, like every route, so a pin that patched only ``domain.market_time.market_today`` would miss it;
+    the fixture pins ``market_now``, which every ``market_today()`` goes through. (The route module is
+    imported at the TOP of this file, before any fixture runs, as collection imports it in a real run:
+    imported inside the test it would bind whatever the fixture had patched, and prove nothing.)"""
+    assert theses_router.market_today() == market_today() == pinned_today
+    # the wall clock crosses midnight ET while the test runs
+    _pin(
+        monkeypatch, datetime.combine(pinned_today + timedelta(days=1), time(0, 0, 1), market_tz())
+    )
+    assert theses_router.market_today() == pinned_today
 
 
 # --- known_at_for_asof + serve_known_at: the transaction-axis cap the serve path threads (invariant #1) ---

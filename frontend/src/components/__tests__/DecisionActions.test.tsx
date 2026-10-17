@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // The network boundary, mocked: the decisions query + the post mutation. The state-appropriate
 // action row, the gate's friction copy, the forms, and the voided-row rendering are the REAL
@@ -17,12 +17,16 @@ vi.mock("../../api/hooks", () => ({
 }));
 
 import type { CallCardResponse } from "../../api/hooks";
-import { todayISO } from "../../util/format";
 import { DecisionActions } from "../DecisionActions";
 
-// LOCAL today, same source as the component — a UTC-derived constant would diverge from the form's
-// default near midnight in any non-UTC test environment (the exact bug this pins against)
-const TODAY = todayISO();
+// "Today" is PINNED for every test: the clock is frozen at LOCAL noon on a fixed day (beforeEach), so
+// TODAY and the component's todayISO() at render are the same read by construction. Never a
+// UTC-derived constant (it diverges from the form's local default near midnight in any non-UTC
+// environment), and never todayISO() at module load: that is read at IMPORT, before the tests run, so
+// a run crossing local midnight compares yesterday with today (the backend's 2026-10-16/17 shape).
+// Only Date is faked; timers stay real so userEvent's internal delays still run.
+const NOW = new Date(2026, 9, 16, 12, 0, 0); // local noon, 16 Oct 2026: TZ-safe, no midnight flip
+const TODAY = "2026-10-16";
 
 const base = {
   thesis_id: "t1",
@@ -46,9 +50,15 @@ const armedCard = {
 } as unknown as CallCardResponse;
 
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(NOW);
   h.mutate.mockReset();
   h.decisions = { data: undefined };
   h.post = { isPending: false, isError: false, error: null };
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("DecisionActions — decision capture on the CallCard", () => {

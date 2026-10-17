@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import uuid
+from datetime import date
 
 import psycopg
 import pytest
@@ -59,6 +60,37 @@ def db(_migrated):
     finally:
         conn.rollback()
         conn.close()
+
+
+@pytest.fixture
+def pinned_today(monkeypatch) -> date:
+    """The market day, PINNED for one test, so the test's "today" and the app's are the SAME read.
+
+    The code under test reads ``market_today()`` at REQUEST time. A module-level
+    ``TODAY = market_today()`` reads it at IMPORT time instead, when the module is collected, which
+    under ``-n 6`` can be minutes before the test runs. A run that crossed midnight ET therefore
+    compared yesterday's date with today's: started 2026-10-16 23:59:11 ET, 8 failures in
+    ``test_decisions_api`` / ``test_thesis_lists_api``, and every one was a CORRECT app answer (a fill
+    dated "yesterday" but recorded after yesterday ended is invisible to yesterday's as-of: no
+    lookahead on the transaction axis, invariant #1). Reading ``market_today()`` inside the test only
+    narrows that window to the test's own runtime; pinning closes it.
+
+    Pins ``domain.market_time.market_now`` at the instant this fixture runs. Every ``market_today()``
+    goes through that module attribute, so the test and every route it calls agree on the day by
+    construction, even across a real midnight. NOT pinned: transaction time (``recorded_at`` from the
+    DB clock, ``datetime.now(timezone.utc)``, the ``known_at`` cap's ``now``), so a pinned DAY never
+    fakes when a fact was learned (INVARIANTS.md §4). A module that imported ``market_now`` BY NAME
+    (``pipeline/daily.py``) keeps the live clock; a test that needs it pinned patches that name too.
+    """
+    # Imported here, not at the top: this conftest is imported before its ``pytest_configure`` test-DB
+    # guard runs, so its import surface stays exactly what it was.
+    from domain import market_time
+
+    frozen = market_time.market_now()
+    monkeypatch.setattr(
+        market_time, "market_now", lambda tz=None: frozen.astimezone(tz or market_time.market_tz())
+    )
+    return frozen.date()
 
 
 @pytest.fixture
