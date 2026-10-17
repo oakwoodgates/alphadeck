@@ -384,21 +384,17 @@ def _tape_out(payloads: list[dict]) -> AdminTapeOut | None:
 def _split_out(payloads: list[dict]) -> AdminSplitOut | None:
     """The SPLIT-BASIS panel (T4), from the artifacts already read (no DB query — this router owns no
     tables, and a second definition of "defect" here could drift from the one the page fired on). The
-    inventory comes from the newest LIVE, FINISHED (M1), FULL-ROSTER (M2) artifact whose scan EVALUATED —
-    the same pass ``cron_run_log.previous_split_defects`` diffs against, so the panel and the page agree;
-    ``error`` is set when the newest such artifact that ran the monitor at all (``split_evaluated``
-    present) FAILED its scan, so a broken monitor shows instead of the panel quietly aging. ``None`` = no
-    pass has scanned yet (the quiet state right after deploy). Fail-open per row, like ``_tape_out``: a
-    malformed row is skipped."""
+    inventory comes from the newest LIVE, FINISHED (M1) artifact whose scan EVALUATED — a partial
+    ``--catch-up`` (M2) included, since the scan reads the whole basket union — the same pass
+    ``cron_run_log.previous_split_defects`` diffs against, so the panel and the page agree; ``error`` is
+    set when the newest such artifact that ran the monitor at all (``split_evaluated`` present) FAILED its
+    scan, so a broken monitor shows instead of the panel quietly aging. ``None`` = no pass has scanned yet
+    (the quiet state right after deploy). Fail-open per row, like ``_tape_out``: a malformed row is
+    skipped."""
     newest_error: str | None = None
     seen_live = False
     for doc in payloads:
-        if (
-            doc.get("mode") != "live"
-            or "split_evaluated" not in doc
-            or not is_finished(doc)
-            or not is_full_roster(doc)
-        ):
+        if doc.get("mode") != "live" or "split_evaluated" not in doc or not is_finished(doc):
             continue
         if not doc.get("split_evaluated"):
             if not seen_live and doc.get("split_error"):

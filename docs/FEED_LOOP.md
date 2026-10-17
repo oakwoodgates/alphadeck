@@ -333,7 +333,9 @@ per-thesis; **archived theses are skipped by the list's default**, the archive s
   with no on-time row (none at all, a daytime-only row, a reconstructed row, or a LATE row) is processed as
   before. A killed night's catch-up therefore records ONLY the missing theses. A skipped thesis counts as
   "the night has its record" everywhere that asks (the exit code, the guard, the self-audit), and a pass that
-  skipped any thesis is never a stale-tape / name-error baseline (its inventory lacks those theses). The
+  skipped any thesis is never a stale-tape / name-error baseline (its inventory lacks those theses). It IS
+  the split-basis baseline: that scan reads the whole basket union, skipped theses' names included (T4
+  follow-up, 2026-10-17 — see the tape monitor, part 2). The
   scheduled run and the Admin button never skip: they re-version on purpose. If the skip read itself fails,
   the catch-up processes every thesis (one loud line) — the pre-M2 behavior, never a silent gap.
 - **A LATE row is recorded, never scored (L1, operator Q5 = A, 2026-10-16).** M2 stops a catch-up from
@@ -507,10 +509,15 @@ read as genuine volume-spike moves on today's tape (JAGX 09-22 on x383 volume, W
 `split_window_days` / `split_defects` (`[{security_id, ticker, kind, dates, factor, events}]`, at most the 12
 newest dates per row) / `split_defects_new`; the printed report shows NEW defects loud and the known ones as
 one quiet count; NEW defects page once through the R4 health event (diffed on `kind:security_id` against the
-previous live pass that scanned, FINISHED (M1) and was FULL-ROSTER (M2) — `cron_run_log.previous_split_defects`,
-the same baseline rule as `tape_stale_new` and the name errors, so neither a killed pass nor a catch-up that
-skipped theses can make the next night re-page the inventory; the first pass after deploy hands it over
-once); `/admin/status` carries the panel (`split_defects`, `ADMIN.md`); and the V1 self-audit's
+previous live pass that scanned and FINISHED (M1) — `cron_run_log.previous_split_defects`, so a killed pass
+never becomes the baseline; the first pass after deploy hands the inventory over once). A `--catch-up` that
+SKIPPED theses (M2) **is** a baseline here, unlike for `tape_stale_new` and the name errors: the scan reads
+the whole active basket union from the table, so a skipped thesis's names are in its inventory. Excluding it
+(the original T4 rule) re-paged a defect the catch-up had already paged, because the next full pass diffed
+against the pass before the catch-up — MEASURED on a real DB with VWAV's real tape, 2026-10-17 — and kept a
+defect the catch-up saw cleared in the baseline, so it stayed silent when it came back. Now a defect pages
+once, and again only after a pass genuinely found it gone. `/admin/status` carries the panel
+(`split_defects`, `ADMIN.md`, read from that same pass); and the V1 self-audit's
 `split_defects_flagged` check passes with defects present and fails only when the scan could not run (there
 is no "acknowledged" state, and failing on a standing, already-flagged defect would page every night). It is
 **benign-class** — a vendor tape defect, so the Admin verdict stays about the cron. It is a **MONITOR**:

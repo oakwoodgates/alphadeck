@@ -584,7 +584,8 @@ def is_full_roster(doc: dict) -> bool:
     stale-tape and name-error inventories lack the skipped theses' names, so diffing the next pass against
     it would re-page every known-dead feed and known-failing name those theses hold as if new (and the
     Admin freshness panel would show a partial inventory). A pre-M2 artifact has no ``skipped`` keys and
-    reads full."""
+    reads full. (The SPLIT baseline does not apply this: its scan reads the whole basket union, so a
+    partial catch-up's split inventory is complete — ``previous_split_defects``.)"""
     theses = doc.get("theses")
     if not isinstance(theses, list):
         return True
@@ -762,13 +763,18 @@ def previous_name_errors(*, base_dir: Path | None = None) -> set[str] | None:
 def previous_split_defects(*, base_dir: Path | None = None) -> set[str] | None:
     """The ``"<kind>:<security_id>"`` keys of every split-basis defect (T4, ``pipeline/split_basis.py``) on
     the most recent pass that EVALUATED the scan — the baseline the current pass diffs against so only NEW
-    defects page, the twin of ``previous_stale_tapes`` / ``previous_name_errors`` and held to the SAME
-    baseline rule: a LIVE pass (``--no-live`` never re-pulled a tape), ``split_evaluated`` (a pre-T4
-    artifact or a pass whose scan FAILED carries no inventory — read as "nothing was flagged" it would
-    re-page every known defect), FINISHED (M1 — a killed pass's start artifact is never a baseline) and
-    FULL-ROSTER (M2 — a catch-up that skipped theses is never a baseline). The scan itself reads the whole
-    basket union from the table, so a partial catch-up's split inventory is in fact complete; the roster
-    rule is kept anyway so every "what did the last pass see" reader agrees on which pass that was.
+    defects page, the twin of ``previous_stale_tapes`` / ``previous_name_errors``: a LIVE pass
+    (``--no-live`` never re-pulled a tape), ``split_evaluated`` (a pre-T4 artifact or a pass whose scan
+    FAILED carries no inventory — read as "nothing was flagged" it would re-page every known defect) and
+    FINISHED (M1 — a killed pass's start artifact is never a baseline).
+
+    A PARTIAL ``--catch-up`` (M2 — it skipped the theses whose on-time row stood) IS a baseline here, unlike
+    for the two twins, because its split inventory is COMPLETE: the scan reads the whole active basket union
+    from the table (``scan_split_defects``), never the processed theses' names, so a skipped thesis's names
+    are in it. Excluding it (the T4 rule until 2026-10-17) re-paged a defect the catch-up had already paged
+    — the next full pass diffed against the pass BEFORE the catch-up — and, the other way, kept a defect the
+    catch-up saw CLEARED in the baseline, so it did not page when it came back. With the catch-up as the
+    baseline a defect pages once, and again only after a pass genuinely found it gone.
 
     ``None`` (distinct from an empty set) = no qualifying artifact yet — the first pass after T4 deploys —
     which the caller treats as "everything flagged is news", so the inventory pages ONCE. Newest-first,
@@ -778,7 +784,6 @@ def previous_split_defects(*, base_dir: Path | None = None) -> set[str] | None:
             doc.get("mode") != "live"
             or not doc.get("split_evaluated", False)
             or not is_finished(doc)
-            or not is_full_roster(doc)  # M2 — a partial catch-up is never a baseline
         ):
             continue
         return defect_keys_of(doc)

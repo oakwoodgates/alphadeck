@@ -2259,8 +2259,9 @@ class AdminStatusOut(BaseModel):
     M1: ``last_run`` is the newest FINISHED pass (a pre-M1 artifact counts as finished); when the newest
     artifact is a pass that has not finished, ``unfinished_run`` describes it (``null`` otherwise).
 
-    ``split_defects`` (T4) is the split-basis panel — ``null`` until a finished, full-roster pass has
-    scanned; a defect is a FEED problem (flag only), so it never changes ``cron.status``.
+    ``split_defects`` (T4) is the split-basis panel — ``null`` until a finished live pass has scanned (a
+    partial catch-up counts: the scan reads the whole basket union); a defect is a FEED problem (flag
+    only), so it never changes ``cron.status``.
 
     ``price_repairs`` (T2 + Q8 + T3 + T7) is the "Price feed repairs" panel — renamed names with their
     splice-verified successors to Adopt, unpriceable names to Set / Acknowledge / Remove, members whose

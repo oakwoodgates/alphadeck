@@ -221,11 +221,14 @@ def _defect(ticker="VWAV", kind=ISLAND, sid=None):
     )
 
 
-def test_the_split_BASELINE_is_the_newest_live_FINISHED_FULL_ROSTER_pass_that_scanned(tmp_path):
-    """`cron_run_log.previous_split_defects` follows its stale-tape / name-error twins' rule: every newer
-    artifact below is one the diff must SKIP — a failed scan, a --no-live pass, a pre-T4 artifact, a
-    catch-up that skipped a thesis (M2), and a killed pass's start artifact (M1) — so the baseline stays
-    the older full pass, and a skipped-thesis catch-up can never make the next night re-page everything.
+def test_the_split_BASELINE_is_the_newest_live_FINISHED_pass_that_scanned_a_catch_up_included(
+    tmp_path,
+):
+    """`cron_run_log.previous_split_defects`: every newer artifact below is one the diff must SKIP — a
+    failed scan, a --no-live pass, a pre-T4 artifact, and a killed pass's start artifact (M1) — so the
+    baseline stays the older full pass. A catch-up that SKIPPED a thesis (M2) is NOT skipped, unlike for
+    the stale-tape / name-error twins: the scan reads the whole basket union, so its inventory is complete
+    (the re-page that excluding it caused is pinned by the catch-up sequence tests at the end of this file).
     """
     a, b, c = _defect(), _defect("MPU", FLAP), _defect("BTOC", CLIFF)
     t0 = datetime(2026, 10, 13, 2, 30, tzinfo=timezone.utc)
@@ -251,16 +254,16 @@ def test_the_split_BASELINE_is_the_newest_live_FINISHED_FULL_ROSTER_pass_that_sc
     pre_t4.write_text(
         json.dumps({k: v for k, v in doc.items() if not k.startswith("split_")}), encoding="utf-8"
     )
-    skipped = daily.ThesisRunResult(thesis_id=uuid.uuid4(), name="T", skipped="on-time row stands")
-    _write(
-        4, split=SplitScan(evaluated=True, defects=(c,)), results=[skipped]
-    )  # M2 partial catch-up
-    started = t0 + timedelta(hours=5)
+    started = t0 + timedelta(hours=4)
     assert cron_run_log.write_run_start(
         asof=date(2026, 10, 12), allow_live=True, started_at=started, base_dir=tmp_path
     )  # M1 — a pass that never finished
 
     assert cron_run_log.previous_split_defects(base_dir=tmp_path) == {a.key, b.key}
+
+    skipped = daily.ThesisRunResult(thesis_id=uuid.uuid4(), name="T", skipped="on-time row stands")
+    _write(5, split=SplitScan(evaluated=True, defects=(c,)), results=[skipped])  # M2 catch-up
+    assert cron_run_log.previous_split_defects(base_dir=tmp_path) == {c.key}  # IS the baseline
 
     _write(6, split=SplitScan(evaluated=True))  # a newer clean, finished, full pass IS the baseline
     assert cron_run_log.previous_split_defects(base_dir=tmp_path) == set()
@@ -529,3 +532,105 @@ def test_the_PASS_writes_the_inventory_PAGES_new_defects_ONCE_and_audits(db, mon
     assert "split-thesis-name" not in split_pages[0].label  # a page never names a thesis
     audit = {a.check: a for a in first.audit}["split_defects_flagged"]
     assert audit.ok is True and "2 split-basis defect(s) flagged (2 new" in audit.detail
+
+
+# --- the M2 catch-up and the split baseline: a defect pages ONCE across a skipped-thesis catch-up --------
+#
+# THE REAL SEQUENCE, on a real DB and real tapes (VWAV's half-adjusted island + flap, MYPS's clean re-base):
+# each pass runs the split leg exactly as `_run_daily_pass_locked` does — `run_split_scan` over the active
+# basket union, diffed against `cron_run_log.previous_split_defects`, then the run artifact written with
+# the pass's ROSTER (a `--catch-up` that found an on-time row for a thesis records it `skipped`, M2).
+
+_T4_ASOF = date(2026, 10, 16)
+_T0 = datetime(2026, 10, 17, 2, 30, tzinfo=timezone.utc)
+
+
+def _split_pass(tmp_path, hour, roster):
+    """One pass's split leg + its artifact. ``roster`` = [(thesis_id, skipped_reason | None)]."""
+    scan = run_split_scan(
+        asof=_T4_ASOF,
+        allow_live=True,
+        connect=connect,
+        previous=lambda: cron_run_log.previous_split_defects(base_dir=tmp_path),
+        clock=lambda: 0,
+    )
+    at = _T0 + timedelta(hours=hour)
+    results = [
+        daily.ThesisRunResult(thesis_id=tid, name="T", recorded=None if why else False, skipped=why)
+        for tid, why in roster
+    ]
+    assert cron_run_log.write_cron_run_log(
+        results,
+        asof=_T4_ASOF,
+        allow_live=True,
+        started_at=at,
+        finished_at=at,
+        base_dir=tmp_path,
+        split=scan,
+    )
+    return scan
+
+
+_ON_TIME = "on-time call-of-record already recorded"
+
+
+def test_a_catch_up_that_SKIPS_the_defects_thesis_does_not_make_the_next_full_pass_RE_PAGE(
+    db, tmp_path
+):
+    """The spec's sequence: a full pass pages D -> a --catch-up that skips D's thesis -> the next full pass
+    must NOT page D."""
+    vwav, myps = _security(db, "VWAV"), _security(db, "MYPS")
+    _load(db, vwav, "VWAV")
+    _load(db, myps, "MYPS")
+    t_vwav = _thesis(db, "holds VWAV", [("VWAV", vwav)])
+    t_myps = _thesis(db, "holds MYPS", [("MYPS", myps)])
+    full = [(t_vwav, None), (t_myps, None)]
+
+    first = _split_pass(tmp_path, 0, full)
+    assert {(d.ticker, d.kind) for d in first.new} == {("VWAV", ISLAND), ("VWAV", FLAP)}  # paged
+    catch_up = _split_pass(tmp_path, 10, [(t_vwav, _ON_TIME), (t_myps, None)])
+    assert catch_up.new == () and catch_up.known == 2
+    assert _split_pass(tmp_path, 20, full).new == ()  # NOT paged again
+
+
+def test_a_defect_FIRST_SEEN_by_a_catch_up_pages_once_not_again_at_the_next_full_pass(db, tmp_path):
+    """The re-page the M2 roster rule caused: the catch-up's scan reads the WHOLE union (a skipped thesis's
+    names included), so its inventory is complete — yet it was excluded as a baseline, and the next full pass
+    diffed against the pass BEFORE the catch-up and paged its defect a second time. VWAV's tape lands while
+    the catch-up runs (its thesis is processed; the other thesis is skipped)."""
+    vwav, myps = _security(db, "VWAV"), _security(db, "MYPS")
+    _load(db, myps, "MYPS")
+    t_vwav = _thesis(db, "holds VWAV", [("VWAV", vwav)])
+    t_myps = _thesis(db, "holds MYPS", [("MYPS", myps)])
+    full = [(t_vwav, None), (t_myps, None)]
+
+    assert _split_pass(tmp_path, 0, full).defects == ()  # no VWAV tape stored yet
+    _load(db, vwav, "VWAV")  # the catch-up's price leg stores VWAV's tape
+    catch_up = _split_pass(tmp_path, 10, [(t_vwav, None), (t_myps, _ON_TIME)])
+    assert {(d.ticker, d.kind) for d in catch_up.new} == {("VWAV", ISLAND), ("VWAV", FLAP)}  # paged
+    nxt = _split_pass(tmp_path, 20, full)
+    assert nxt.new == () and nxt.known == 2  # paged ONCE
+
+
+def test_a_defect_genuinely_CLEARED_during_a_catch_up_and_then_BACK_pages_again(db, tmp_path):
+    """The other side of "pages once": a defect that left the inventory (here the operator archived the
+    only thesis holding VWAV before the catch-up) and came back (restored before the next pass) is news
+    again — the catch-up's complete inventory is the baseline, so its absence there is real."""
+    vwav, myps = _security(db, "VWAV"), _security(db, "MYPS")
+    _load(db, vwav, "VWAV")
+    _load(db, myps, "MYPS")
+    t_vwav = _thesis(db, "holds VWAV", [("VWAV", vwav)])
+    t_myps = _thesis(db, "holds MYPS", [("MYPS", myps)])
+    second = _thesis(db, "also MYPS", [("MYPS", myps)])
+
+    assert len(_split_pass(tmp_path, 0, [(t_vwav, None), (t_myps, None), (second, None)]).new) == 2
+    with db.cursor() as cur:
+        cur.execute("UPDATE thesis SET archived_at = now() WHERE id = %s", (t_vwav,))
+    db.commit()
+    catch_up = _split_pass(tmp_path, 10, [(t_myps, _ON_TIME), (second, None)])
+    assert catch_up.defects == ()  # cleared from the union
+    with db.cursor() as cur:
+        cur.execute("UPDATE thesis SET archived_at = NULL WHERE id = %s", (t_vwav,))
+    db.commit()
+    back = _split_pass(tmp_path, 20, [(t_vwav, None), (t_myps, None), (second, None)])
+    assert {(d.ticker, d.kind) for d in back.new} == {("VWAV", ISLAND), ("VWAV", FLAP)}

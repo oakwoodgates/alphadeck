@@ -269,9 +269,9 @@ sometimes serves it HALF-adjusted or flips a bar between bases from one pull to 
 then mixes two bases, and a basis cliff reads as a +1,800% breakout. The nightly pass scans the basket's
 stored tapes for it (`pipeline/split_basis.py`; the rule, its thresholds and the measured precision are in
 `FEED_LOOP.md` §the tape monitor, part 2) and `/admin/status` carries the result as `split_defects`, read
-from the newest live artifact whose scan ran, from a pass that FINISHED (M1) and processed its full roster
-(M2 — the same pass the next night's diff reads) — artifact-sourced like the stopped-feed panel, so the
-surface still owns no tables:
+from the newest live artifact whose scan ran, from a pass that FINISHED (M1) — a `--catch-up` that skipped
+theses (M2) counts, since the scan reads the whole basket union; the same pass the next night's diff
+reads — artifact-sourced like the stopped-feed panel, so the surface still owns no tables:
 
 - **One row per name per kind**, each with its `factor` (the step: 20 for a 1-for-20 split), its `dates`
   (the affected bars, at most the 12 newest; `events` is the full count) and its `kind`:
@@ -281,8 +281,9 @@ surface still owns no tables:
     reverse split the history before it never got;
   - **`flap`** — a stored bar whose versions changed basis in both directions (the vendor flipped it and
     flipped it back), the latest flip within 90 days.
-- **`newly_flagged`** are the labels that PAGED that night — new since the last finished, full-roster pass,
-  keyed on the kind and the security, so a standing defect never re-pages; the run row carries them too (`split_defects_new`, a
+- **`newly_flagged`** are the labels that PAGED that night — new since the last finished pass that scanned
+  (a catch-up included), keyed on the kind and the security, so a standing defect never re-pages, not even
+  across a skipped-thesis catch-up; the run row carries them too (`split_defects_new`, a
   `problems` line with the benign marker).
 - **`error`** is set when the newest live pass's scan could not run; `defects` then still shows the last good
   inventory, and its `asof` / `ran_at` say which pass that was. The self-audit fails on a scan that could not
