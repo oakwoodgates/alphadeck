@@ -369,6 +369,49 @@ def test_unfetchable_filing_is_skipped_not_leg_fatal(db, security_id, monkeypatc
     assert _counts(db) == (_F4_PER_ACCESSION, 1)
 
 
+def test_a_KNOWN_form4_skip_is_counted_and_recorded_but_not_reprinted(
+    db, security_id, monkeypatch, capsys
+):
+    """Q18: with a baseline that already holds ACC-BAD, the pre-XML filing is skipped and counted exactly as
+    before and NAMED on ``ingest_skips`` — but its warning does not print again; the NEW failing filing
+    (ACC-404) still prints its one line. Only the log changes: the table and the counts are identical.
+    """
+    _patch(monkeypatch, accessions=("ACC-BAD", "ACC-404", "ACC-1"), bar_dates=(date(2026, 6, 15),))
+    monkeypatch.setattr(IT, "EdgarClient", _MixedClient)
+    tid = _make_thesis(db, [("DEVCO", security_id)])
+
+    r = IT.ingest_thesis(db, tid, allow_live=False, known_skips={"form4_unparseable:ACC-BAD"})[0]
+
+    out = capsys.readouterr().out
+    assert "ACC-BAD" not in out  # known: counted, not re-printed
+    assert "ACC-404" in out and "skipped" in out  # new: its one line
+    assert r.error is None and r.form4_skipped == 2
+    assert r.form4_appended == _F4_PER_ACCESSION
+    assert sorted((s.kind, s.accession) for s in r.ingest_skips) == [
+        ("form4_unparseable", "ACC-404"),
+        ("form4_unparseable", "ACC-BAD"),
+    ]
+    assert all(s.security_id == security_id and s.reason for s in r.ingest_skips)
+    assert _counts(db) == (_F4_PER_ACCESSION, 1)
+
+
+def test_known_skips_never_absorbs_an_error_that_already_raised(db, security_id, monkeypatch):
+    """The delete-or-leave-loud rule: a baseline mutes the LINE of a tolerated skip only. A systemic error
+    (a CacheMiss with live pulls off) still aborts the Form 4 leg as a captured leg error, even when its
+    accession happens to be in ``known_skips``."""
+    _patch(monkeypatch, accessions=("ACC-1",))
+
+    class _Missing(_FakeClient):
+        def get_text(self, url: str, cache_key: str) -> str:
+            raise CacheMiss("not cached")
+
+    monkeypatch.setattr(IT, "EdgarClient", _Missing)
+    tid = _make_thesis(db, [("DEVCO", security_id)])
+    r = IT.ingest_thesis(db, tid, allow_live=False, known_skips={"form4_unparseable:ACC-1"})[0]
+    assert r.error is not None and "form4" in r.error
+    assert r.form4_skipped == 0 and r.ingest_skips == ()
+
+
 def test_skip_tolerance_keeps_rerun_at_zero_rows_count_the_table(db, security_id, monkeypatch):
     """COUNT-the-table idempotency holds WITH a skip in the walk: the re-run re-attempts the bad
     filing (never stored → never in ``existing_accessions``), re-skips it, and appends ZERO rows —

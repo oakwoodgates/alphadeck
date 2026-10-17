@@ -5,9 +5,11 @@ One ``master.{YYYYMMDD}.idx`` per posted day lists EVERY filing accepted that da
 deliberately NOT the EFTS full-text path (``ingest/edgar/fulltext.py``), so the radar can never
 drift the recall-gated discovery universe (INVARIANTS #9).
 
-Cache: ``daily-index/`` is a MUTABLE prefix → the 12h default TTL applies (today's index grows
-through the day; a re-fetch of a finished day is cheap). Weekends/holidays have no index — the
-fetch 404s and the caller treats that date as a no-index day, not an error.
+Cache: today's (and a future) ``daily-index/master.<date>.idx`` is MUTABLE — the client's TTL applies,
+because today's index grows through the day. A FINISHED day's index is cached forever once a copy
+written after that day closed (06:00 ET the next day) is on disk (K1, ``ingest/edgar/client.py``
+``_DATED_INDEX``) — so a copy cached mid-day is refreshed once more, never frozen. Weekends/holidays have
+no index — the fetch 404s and the caller treats that date as a no-index day, not an error.
 """
 
 from __future__ import annotations

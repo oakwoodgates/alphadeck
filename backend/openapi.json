@@ -2078,7 +2078,7 @@
           "admin"
         ],
         "summary": "Start Backup",
-        "description": "KICK OFF a ``pg_dump`` snapshot as a background JOB and return immediately (**202** + ``job_id``);\npoll ``GET /admin/backup/jobs/{job_id}``. Fires ONLY on this explicit request \u2014 never on a page load,\nmount, or poll (cost is the operator's to spend; the reads may poll, the trigger never does). The dump\nis READ-ONLY (``pg_dump``) and mutates no row; it writes a ``.sql`` under ``/data/backups`` (a host\nbind, so it is copyable off-box) and prunes old UNLABELED dumps (keep-last-N; a ``label`` marks a\nprune-EXEMPT snapshot). **409** when a snapshot is already in progress (the single-slot in-process\nguard \u2014 a double-click can never stack a second dump). **RESTORE is deliberately CLI-only** (a\ndestructive drop-schema + reload; never a button): ``docker exec -i alphadeck-postgres-1 psql -U\nalphadeck -d alphadeck < ./data/backups/<file>``. The job opens its OWN subprocess (it outlives this\nrequest).",
+        "description": "KICK OFF a ``pg_dump`` snapshot as a background JOB and return immediately (**202** + ``job_id``);\npoll ``GET /admin/backup/jobs/{job_id}``. Fires ONLY on this explicit request \u2014 never on a page load,\nmount, or poll (cost is the operator's to spend; the reads may poll, the trigger never does). The dump\nis READ-ONLY (``pg_dump``) and mutates no row; it writes a ``.sql`` under ``/data/backups`` (a host\nbind, so it is copyable off-box) and prunes old dumps (keep-last-N UNLABELED; a ``label`` marks a\nnamed snapshot, kept 90 days or while among the newest 20 labeled). **409** when a snapshot is\nalready in progress (the single-slot in-process guard \u2014 a double-click can never stack a second\ndump). **RESTORE is deliberately CLI-only** (a destructive drop-schema + reload; never a button):\n``docker exec -i alphadeck-postgres-1 psql -U alphadeck -d alphadeck < ./data/backups/<file>``. The job opens its OWN subprocess (it outlives this\nrequest).",
         "operationId": "start_backup_admin_backup_post",
         "requestBody": {
           "content": {
@@ -5792,7 +5792,7 @@
         },
         "type": "object",
         "title": "BackupCreateIn",
-        "description": "The optional create body. A ``label`` marks a NAMED snapshot that retention never auto-prunes (a\ndeliberate recovery point like ``pre-migration``); omit it for a rolling nightly-style dump."
+        "description": "The optional create body. A ``label`` marks a NAMED snapshot (a deliberate recovery point like\n``pre-migration``), which retention keeps 90 days, or while it is among the newest 20 labeled dumps;\nomit it for a rolling nightly-style dump."
       },
       "BackupJobRef": {
         "properties": {
@@ -5891,7 +5891,7 @@
           "labeled"
         ],
         "title": "BackupOut",
-        "description": "One snapshot as a value-free file listing \u2014 ``name`` (``alphadeck-<UTC>[-<label>].sql``),\n``bytes`` (file size), ``created_at`` (parsed from the filename timestamp, UTC), and ``labeled``\n(a named, prune-EXEMPT dump). Computed on read from the backups directory; writes nothing."
+        "description": "One snapshot as a value-free file listing \u2014 ``name`` (``alphadeck-<UTC>[-<label>].sql``),\n``bytes`` (file size), ``created_at`` (parsed from the filename timestamp, UTC), and ``labeled``\n(a named dump: kept 90 days, or while among the newest 20 labeled, rather than in the rolling\nkeep-N). Computed on read from the backups directory; writes nothing."
       },
       "BackupsOut": {
         "properties": {

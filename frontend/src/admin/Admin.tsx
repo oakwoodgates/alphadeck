@@ -535,7 +535,8 @@ export function Admin({ header }: Props) {
                 disabled={backupRunning}
               />
               <span className="adm-note">
-                pg_dump to ./data/backups — a labeled dump is kept (never auto-pruned); restore is CLI-only
+                pg_dump to ./data/backups — a labeled dump is kept 90 days, or while among the newest 20
+                labeled; restore is CLI-only
               </span>
             </div>
             {createBackup.isError && <div className="adm-err">{errText(createBackup.error)}</div>}

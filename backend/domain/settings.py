@@ -250,9 +250,17 @@ class Settings(BaseSettings):
     # (the .sql on disk is the durable record regardless).
     backup_job_running_ttl_s: float = 600.0
     backup_job_finished_ttl_s: float = 3600.0
-    # Retention: keep the newest N UNLABELED snapshots (a rolling week of nightlies); LABELED/named dumps
-    # are EXEMPT. Override with ALPHADECK_BACKUP_KEEP (e.g. =5 for a button-only deploy).
+    # Retention: keep the newest N UNLABELED snapshots (a rolling week of nightlies). Override with
+    # ALPHADECK_BACKUP_KEEP (e.g. =5 for a button-only deploy).
     backup_keep: int = 7
+    # Q16 — LABELED (named) dumps used to be kept forever (MEASURED 2026-10-17: 65 of them, 19.8 GB). One is
+    # now deleted only when it is BOTH older than `backup_labeled_max_age_days` AND outside the newest
+    # `backup_labeled_keep` labeled dumps: "90 days, or the last 20", whichever keeps more. Either value
+    # <= 0 turns labeled pruning OFF (the old keep-forever), so a bad setting can only ever keep more,
+    # never delete more. ALPHADECK_BACKUP_LABELED_KEEP / ALPHADECK_BACKUP_LABELED_MAX_AGE_DAYS.
+    # `python -m pipeline.backup --prune-dry-run` lists what a prune would remove and removes nothing.
+    backup_labeled_keep: int = 20
+    backup_labeled_max_age_days: float = 90.0
     # pg_dump wall ceiling — a hang becomes a LOUD failed job rather than a held slot.
     backup_timeout_s: float = 300.0
     # B4 — the BACKUP-AGE alarm (/admin/status): the newest UNLABELED dump may be at most this many hours

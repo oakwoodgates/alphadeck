@@ -35,6 +35,7 @@ the 0037 lesson).
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import date
 from typing import Any
@@ -47,6 +48,7 @@ from db.session import DEFAULT_TENANT_ID
 from domain.settings import get_settings
 from ingest.edgar.form8k import filing_index_url
 from ingest.edgar.submissions import SCHEDULE13_D_FORMS, form4_doc_url
+from ingest.skips import SCHEDULE13_IDENTITY, SCHEDULE13_OUTBOUND, clip_reason, is_known
 
 
 @dataclass(frozen=True)
@@ -58,12 +60,17 @@ class Schedule13Result:
     ``subject_skipped`` = 13D-family filings NOT stored because the cover/header names a DIFFERENT
     subject than this feed's owner (the owner is the FILER of an OUTBOUND stake about someone else —
     the ingest root-cause fix; a precision drop of visible junk, logged, never a real subject's row).
+
+    Q18 — ``outbound`` / ``identity_failures`` name those filings as ``(accession, reason)`` pairs, so the
+    cron can count the ones that skipped the same way last pass instead of re-printing them every night.
     """
 
     appended: int = 0
     reversioned: int = 0
     identity_skipped: int = 0
     subject_skipped: int = 0
+    outbound: tuple[tuple[str, str], ...] = ()
+    identity_failures: tuple[tuple[str, str], ...] = ()
 
 
 def is_13d_family(form: str) -> bool:
@@ -249,9 +256,16 @@ def ingest_schedule13(
     *,
     tenant_id: UUID = DEFAULT_TENANT_ID,
     recorded_at=None,
+    known_skips: Collection[str] | None = None,
 ) -> Schedule13Result:
     """Append-if-changed the 13D/G tape for one SUBJECT security (the caller owns the txn — no
     commit here).
+
+    ``known_skips`` (Q18) is the previous finished pass's set of skipped-filing keys (``ingest.skips``):
+    an outbound or identity-failed filing in it is RECORDED on the result but not printed again (the cron
+    prints one count per kind); every other one prints its line, as before. ``None`` (the default — the CLI,
+    the on-promote kick, every test) prints everything. Only the LOG changes: what is stored, skipped or
+    counted is identical either way.
 
     ``filings`` is ``submissions.schedule13_filings`` output: ``{accession, form, filed,
     primary_doc}`` with ``filed`` an ISO date string. Per filing: resolve the activist's identity
@@ -273,6 +287,8 @@ def ingest_schedule13(
     result_reversioned = 0
     identity_skipped = 0
     subject_skipped = 0
+    outbound: list[tuple[str, str]] = []
+    identity_failures: list[tuple[str, str]] = []
     owner_cik = _norm_cik(str(cik))  # this feed's owner (the security we are ingesting FOR)
     for f in filings:
         filed = date.fromisoformat(f["filed"])
@@ -290,7 +306,9 @@ def ingest_schedule13(
             except Exception as e:  # noqa: BLE001 — one filing's identity failure, never the leg's
                 identity = None
                 identity_skipped += 1
-                print(f"  warn: schedule13 {f['accession']} identity unresolved: {e}")
+                identity_failures.append((f["accession"], clip_reason(e)))
+                if not is_known(known_skips, SCHEDULE13_IDENTITY, f["accession"]):
+                    print(f"  warn: schedule13 {f['accession']} identity unresolved: {e}")
         filer_cik = identity["filer_cik"] if identity else None
         filer_name = identity["filer_name"] if identity else None
         pct_owned = identity.get("pct_owned") if identity else None
@@ -309,10 +327,12 @@ def ingest_schedule13(
         subj = identity.get("subject_cik") if identity else None
         if is_13d_family(f["form"]) and subj and _norm_cik(subj) != owner_cik:
             subject_skipped += 1
-            print(
-                f"  skip: schedule13 {f['accession']} subject {subj} != feed-owner {owner_cik} "
-                "— outbound filing (owner is the filer, not the subject)"
-            )
+            outbound.append((f["accession"], f"subject {subj} != feed-owner {owner_cik}"))
+            if not is_known(known_skips, SCHEDULE13_OUTBOUND, f["accession"]):
+                print(
+                    f"  skip: schedule13 {f['accession']} subject {subj} != feed-owner {owner_cik} "
+                    "— outbound filing (owner is the filer, not the subject)"
+                )
             continue
         if prior is not None and (
             prior["form"] == f["form"]
@@ -346,4 +366,6 @@ def ingest_schedule13(
         reversioned=result_reversioned,
         identity_skipped=identity_skipped,
         subject_skipped=subject_skipped,
+        outbound=tuple(outbound),
+        identity_failures=tuple(identity_failures),
     )

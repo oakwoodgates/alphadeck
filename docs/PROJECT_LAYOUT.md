@@ -124,9 +124,11 @@ alphadeck/
     │       └── base.py · registry.py · sma.py · range52w.py · volume_regime.py · insider_flow.py · etf_flow.py
     ├── ingest/                     # data-ingestion bricks (cache-first; live behind allow_live; CacheMiss canonical in __init__.py)
     │   ├── http.py                                               # polite_get (429/5xx retry + Retry-After) + RateLimiter (the shared token-bucket; Tier-1)
+    │   ├── skips.py                                              # Q18: a per-FILING skip record (form4_unparseable / schedule13_outbound / schedule13_identity)
     │   ├── edgar/{client,submissions,form4,converts,extract,fulltext}.py   # SEC client + Form 4 + converts + extractor + fulltext (the EFTS discovery enumerator: discover · classify · parallel under the shared RateLimiter)
     │   ├── edgar/{annual_shares,annual_runway,statement_sources}.py         # the "dark" FPI retrieval (FLAG-only): 20-F/40-F cover shares (+ADS ratio) · statement cash/runway · the primary-doc-vs-EX-99 seam
     │   ├── edgar/nport.py                                        # locate / fetch / parse one fund series' N-PORT holdings (the ETF sleeve)
+    │   ├── edgar/companyfacts_gate.py                            # Q17: when a RECURRING pass re-pulls companyfacts (new XBRL filing / weekly backstop) + the measured form set
     │   ├── funds/{source,polygon,snapshot_loader,ingest_security}.py        # the fund shares-out sampler: the source seam (Polygon primary when keyed → Global X / stockanalysis fallback) · the one incremental, re-versioning, no-lookahead leg
     │   ├── doe/{client,entities,feed}.py                          # the USASpending/DOE automated catalyst feed
     │   ├── prices/{eod_loader,source,ingest_security}.py          # EOD bars (+ latest_bar_date, stored_bars, force_refresh) · the PriceSource seam (Yahoo/Stooq) · the ONE price leg (incremental tail + the RE-VERSION pass)
@@ -146,7 +148,8 @@ alphadeck/
     │   ├── call_for_thesis.py · run.py · seed.py · core.py
     │   ├── ingest_thesis.py        #   M2: per-thesis back-half ingest (Form 4 + EOD; incremental, fail-visible)
     │   ├── daily.py · daily_job.py · cron_run_log.py · schedule.py   #   the daily call-of-record cron (ingest → assemble → TRANSITION → recording-GATE → record_if_changed) · the admin "run daily" job · the append-only run-of-record · the Mon–Fri/RUN_AT schedule math [#196–#200]
-    │   ├── backup.py · backup_job.py   #   the rolling pg_dump snapshots (keep-N) + the admin "create snapshot" job (#215)
+    │   ├── backup.py · backup_job.py   #   the pg_dump snapshots (unlabeled keep-N; labeled 90 days or the newest 20, Q16) + the admin "create snapshot" job (#215)
+    │   ├── ingest_skips.py             #   Q18: the cross-pass diff of skipped filings (known = a count, new = loud), the O1 twin
     │   ├── annotate_phantom_arms.py    #   D3b CLI: re-assemble each honest row D3a-off vs D3a-on at its own known_at; annotate phantom arms (exclude) / composition changes (note), dry-run default
     │   ├── backfill_fund_shares.py     #   CLI: backfill historical ETF fund-shares from Polygon over a range (#237)
     │   ├── populate_master.py      #   the SEC-universe broadener CLI

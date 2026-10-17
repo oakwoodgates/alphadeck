@@ -51,6 +51,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from domain.feed_kinds import StaleFeedLabel, feed_kind
+from ingest.skips import dedup_skips
+from pipeline.ingest_skips import SkipDiff
 from pipeline.name_errors import NameIngestError, name_errors_of
 from pipeline.rename_probe import RenameProbe
 from pipeline.split_basis import SplitScan, defect_keys_of
@@ -238,6 +240,7 @@ def build_run_payload(
     split: SplitScan | None = None,
     rename_probe: RenameProbe | None = None,
     successor: SuccessorScan | None = None,
+    skips: SkipDiff | None = None,
 ) -> dict:
     """The run-of-record payload — PURE (no I/O), extracted from the artifact writer so the admin
     "run now" job can shape its poll result IDENTICALLY to a parsed artifact (one schema, two readers).
@@ -334,6 +337,15 @@ def build_run_payload(
     label, ...}], new: [{key, label}]}` — the members whose company now files under another CIK (a pending
     recommendation the Admin panel offers for the operator's Adopt), and `new` = what PAGED. `successor=None`
     writes the not-evaluated block; readers use `.get`.
+
+    Q18 — THE SKIPPED FILINGS (`pipeline/ingest_skips.SkipDiff.payload`): `ingest_skips_evaluated` (a
+    LIVE pass — the only kind that is a baseline) and `ingest_skips`, one block per kind
+    (`form4_unparseable` / `schedule13_outbound` / `schedule13_identity`) with `total`, `known`, `new`
+    (`[{accession, security_id, ticker, reason}]` — the filings whose line printed tonight),
+    `previous_total`, `delta` and the full run-level `accessions` inventory. Each THESIS also carries its own
+    `ingest_skips` (`[{kind, accession}]`, the filings ITS legs skipped — attributed like `name_errors`):
+    that per-thesis list is what `previous_ingest_skips` (below) carries forward as the next baseline.
+    `skips=None` writes the not-evaluated empty block; readers use `.get`.
     """
     recorded = sum(1 for r in results if r.recorded)
     edgar_fetches = sum(r.edgar_fetches for r in results)
@@ -365,6 +377,8 @@ def build_run_payload(
         **(rename_probe or RenameProbe()).payload(),
         # T7 — the successor-CIK detector: members now filing under another CIK (pending; never applied)
         **(successor or SuccessorScan()).payload(),
+        # Q18 — the skipped-filing inventory + its diff (known ones counted, new ones named)
+        **(skips or SkipDiff()).payload(),
         # THE FREEZE DETECTOR: total EDGAR network pulls this run. A frozen index and a healthy
         # nothing-filed night both show 0 new facts — this is the number that differs. 0 on a `live`
         # run = the cache never refreshed = a freeze (R4 pages on it); a healthy night is in the hundreds.
@@ -422,6 +436,16 @@ def build_run_payload(
                         "error": e.error,
                     }
                     for e in name_errors_of(r.ingested)
+                ],
+                # Q18 — the FILINGS this thesis's legs skipped tonight, one row per (kind, accession): the
+                # per-thesis inventory the next pass's skip baseline carries forward (`previous_ingest_skips`
+                # through `carried_inventory`), so a catch-up counts for the theses it covered. Empty for a
+                # thesis a catch-up skipped (nothing was walked) — the carry-forward reads past it.
+                "ingest_skips": [
+                    {"kind": s.kind, "accession": s.accession}
+                    for s in dedup_skips(
+                        sk for x in r.ingested for sk in getattr(x, "ingest_skips", ())
+                    ).values()
                 ],
                 "form4_appended": sum(x.form4_appended for x in r.ingested),
                 "price_bars_appended": sum(x.price_bars_appended for x in r.ingested),
@@ -494,6 +518,7 @@ def write_cron_run_log(
     split: SplitScan | None = None,
     rename_probe: RenameProbe | None = None,
     successor: SuccessorScan | None = None,
+    skips: SkipDiff | None = None,
 ) -> Path | None:
     """Dump one cron pass (``build_run_payload``, above — the payload's meaning lives there) to
     ``<base>/<utc-timestamp>.json``; return the path (or ``None`` fail-open). The whole write — payload
@@ -528,6 +553,7 @@ def write_cron_run_log(
             split=split,
             rename_probe=rename_probe,
             successor=successor,
+            skips=skips,
         )
         run_dir = base_dir or _DEFAULT_CRON_RUNS
         run_dir.mkdir(parents=True, exist_ok=True)
@@ -874,6 +900,39 @@ def previous_name_errors(*, base_dir: Path | None = None) -> set[str] | None:
                     out.add(f"{e['security_id']}:{e['leg']}")
         return out
     return None
+
+
+def previous_ingest_skips(*, base_dir: Path | None = None) -> dict[str, set[str]] | None:
+    """Q18 — ``kind -> {accession}`` for every filing a leg SKIPPED in the last-known inventory of every
+    thesis: the baseline that makes a filing "known" (counted, not re-printed) tonight. The twin of
+    ``previous_name_errors``, read through the SAME per-thesis carry-forward (``carried_inventory`` with
+    ``ingest_skips_evaluated``): each thesis's ``ingest_skips`` from the newest finished, live, skip-evaluated
+    pass that COVERED it. So a filing FIRST skipped by a ``--catch-up`` prints there once and is known at the
+    next full pass, and a thesis a catch-up SKIPPED keeps its filings from the last pass that walked it (the
+    full-roster rule this replaced read past the catch-up, and re-printed what it had printed).
+
+    FALL BACK LOUD, never silent. ``None`` (distinct from an empty dict) = no qualifying artifact yet, OR no
+    carried entry carries a per-thesis ``ingest_skips`` list (every one predates the attribution — the first
+    Q18 build recorded the inventory only run-level): the caller treats that as "nothing is known", so every
+    skip prints once. A carried entry WITHOUT the list (one thesis carried from such an artifact) contributes
+    nothing, so ITS filings read as new and print once — a repeat line at worst, never a muted one. Fail-open
+    per artifact and per row (a malformed row is skipped, never an exception). Pure file read."""
+    inv = carried_inventory(
+        list_run_logs(base_dir=base_dir), evaluated_key="ingest_skips_evaluated"
+    )
+    if inv is None:
+        return None
+    out: dict[str, set[str]] = {}
+    attributed = False
+    for t in inv.entries():
+        rows = t.get("ingest_skips")
+        if not isinstance(rows, list):
+            continue  # pre-attribution entry: unknown, so its filings read as new (print once)
+        attributed = True
+        for r in rows:
+            if isinstance(r, dict) and r.get("kind") and r.get("accession"):
+                out.setdefault(str(r["kind"]), set()).add(str(r["accession"]))
+    return out if attributed else None
 
 
 def previous_split_defects(*, base_dir: Path | None = None) -> set[str] | None:

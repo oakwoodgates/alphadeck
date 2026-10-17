@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import os
 import time
+from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 
 from ingest import CacheMiss
+from ingest.edgar import client as client_mod
 from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
 
 _CACHE = Path(__file__).resolve().parent.parent / "fixtures" / "edgar"
@@ -199,6 +202,110 @@ def test_the_recurring_ttl_still_caches_immutable_filing_documents_forever(tmp_p
 
     assert client.get_text("https://sec.gov/acc-9/doc.htm", "forms/acc-9/doc.htm") == "the filing"
     assert fetched == [] and client.live_fetches == 0
+
+
+# --- K1: a FINISHED day's dated index is immutable (market time, cached after it finished) ---------
+
+_ET = ZoneInfo("America/New_York")
+
+
+def _et(y: int, m: int, d: int, hh: int, mm: int = 0) -> float:
+    return datetime(y, m, d, hh, mm, tzinfo=_ET).timestamp()
+
+
+def _at(cache_dir: Path, key: str, written_at: float) -> Path:
+    p = cache_dir / key
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("CIK|Company Name|Form Type|Date Filed|Filename\n", encoding="utf-8")
+    os.utime(p, (written_at, written_at))
+    return p
+
+
+def _pin_now(monkeypatch, epoch: float) -> None:
+    monkeypatch.setattr(client_mod, "_now", lambda: epoch)
+
+
+def test_a_finished_days_index_is_cached_forever(tmp_path, monkeypatch):
+    """10-14's index, cached on the night of 10-15 (after 10-14 closed): never re-pulled again — not the
+    next week, not a year later — whatever the client's TTL."""
+    key = "daily-index/master.20261014.idx"
+    _at(tmp_path, key, _et(2026, 10, 15, 22, 45))
+    for now in (_et(2026, 10, 20, 22, 45), _et(2027, 10, 20, 22, 45)):
+        _pin_now(monkeypatch, now)
+        client, fetched = _live_client(tmp_path, ttl_s=RECURRING_CACHE_TTL_S)
+        client.get_text("https://www.sec.gov/x", key)
+        assert fetched == [] and client.live_fetches == 0
+
+
+def test_a_past_days_index_cached_DURING_that_day_is_refreshed_once_then_frozen(
+    tmp_path, monkeypatch
+):
+    """The radar caches TODAY's index at ~22:45 ET while it still grows. The next night that date is past,
+    but THAT copy is not final: it is re-pulled once under the TTL, and the copy written then is frozen.
+    """
+    key = "daily-index/master.20261016.idx"
+    p = _at(tmp_path, key, _et(2026, 10, 16, 22, 45))  # the in-day copy
+    _pin_now(monkeypatch, _et(2026, 10, 19, 22, 45))
+    client, fetched = _live_client(tmp_path, ttl_s=RECURRING_CACHE_TTL_S)
+    client.get_text("https://www.sec.gov/x", key)
+    assert len(fetched) == 1  # the in-day copy is refreshed
+    os.utime(p, (_et(2026, 10, 19, 22, 45),) * 2)  # that write happened at the pinned "now"
+    _pin_now(monkeypatch, _et(2026, 10, 26, 22, 45))
+    client.get_text("https://www.sec.gov/x", key)
+    assert len(fetched) == 1  # ...and is now final: cached forever
+
+
+def test_TODAY_is_the_MARKET_date_not_the_UTC_date(tmp_path, monkeypatch):
+    """At 22:30 ET on 10-16 the UTC date is already 10-17. 10-16's index is TODAY's in market time and must
+    stay mutable (re-pulled past the TTL), even though a UTC 'today' would call it past. 10-15's, cached
+    after 10-15 closed, is final at the same instant."""
+    _pin_now(monkeypatch, datetime(2026, 10, 17, 2, 30, tzinfo=timezone.utc).timestamp())
+    assert datetime.fromtimestamp(client_mod._now(), _ET).date().isoformat() == "2026-10-16"
+    today = "daily-index/master.20261016.idx"
+    yesterday = "daily-index/master.20261015.idx"
+    _at(tmp_path, today, _et(2026, 10, 16, 21, 0))
+    _at(tmp_path, yesterday, _et(2026, 10, 16, 21, 0))
+    client, fetched = _live_client(tmp_path, ttl_s=RECURRING_CACHE_TTL_S)
+    client.get_text("https://www.sec.gov/today", today)
+    client.get_text("https://www.sec.gov/yesterday", yesterday)
+    assert fetched == ["https://www.sec.gov/today"]
+
+
+def test_the_day_after_before_06_ET_a_copy_from_that_night_is_not_yet_final(tmp_path, monkeypatch):
+    """05:00 ET on 10-17: 10-16 is past in market time, but a copy written 22:45 ET on 10-16 predates
+    06:00 ET 10-17, so it is still re-pulled under the TTL."""
+    key = "daily-index/master.20261016.idx"
+    _at(tmp_path, key, _et(2026, 10, 16, 22, 45))
+    _pin_now(monkeypatch, _et(2026, 10, 17, 5, 0))
+    client, fetched = _live_client(tmp_path, ttl_s=RECURRING_CACHE_TTL_S)
+    client.get_text("https://www.sec.gov/x", key)
+    assert len(fetched) == 1
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "daily-index/master.20261020.idx",  # a FUTURE date
+        "daily-index/master.20261399.idx",  # not a real date
+        "full-index/2026/QTR3/master.idx",  # the quarterly index (undated — it grows all quarter)
+    ],
+)
+def test_future_impossible_and_undated_index_keys_stay_mutable(tmp_path, monkeypatch, key):
+    _at(tmp_path, key, _et(2026, 10, 17, 7, 0))
+    _pin_now(monkeypatch, _et(2026, 10, 19, 22, 45))
+    client, fetched = _live_client(tmp_path, ttl_s=RECURRING_CACHE_TTL_S)
+    client.get_text("https://www.sec.gov/x", key)
+    assert len(fetched) == 1
+
+
+def test_a_finished_index_is_final_for_the_INTERACTIVE_client_too(tmp_path, monkeypatch):
+    """Key-classed, not client-classed: the 12h default client serves it forever as well."""
+    key = "daily-index/master.20261014.idx"
+    _at(tmp_path, key, _et(2026, 10, 15, 7, 0))
+    _pin_now(monkeypatch, _et(2026, 12, 1, 12, 0))
+    client, fetched = _live_client(tmp_path)
+    client.get_text("https://www.sec.gov/x", key)
+    assert fetched == []
 
 
 def test_the_recurring_ttl_is_inert_offline_so_the_suite_and_no_live_are_unaffected(tmp_path):

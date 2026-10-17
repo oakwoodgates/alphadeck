@@ -74,10 +74,44 @@ and the free proxy is demonstrably inadequate. Default to free + derive.
   the same-pass re-reads free *and* still closes the gap across passes: EDGAR accepts filings 06:00–22:00 ET,
   so nothing can be filed in the five minutes before a 22:30 pass, and no daytime warmth survives five minutes
   (measured: a 20-minute-old key refetches). Accepted residual: a second pass started *within* five minutes of
-  another reads the first's cache for the companies it reached last. `ingest_fundamentals` keeps the 12h TTL
-  **deliberately** (a large document feeding a *quarterly* series — a day's staleness cannot change a call), as
-  do the Workbench and a standalone `python -m pipeline.ingest_thesis`. Offline (`allow_live=False`) the dial is
-  inert — a stale hit is still served, so the suite and `--no-live` are unaffected.
+  another reads the first's cache for the companies it reached last. The Workbench and a standalone
+  `python -m pipeline.ingest_thesis` keep the 12h TTL (interactive paths). Offline (`allow_live=False`) the dial
+  is inert — a stale hit is still served, so the suite and `--no-live` are unaffected.
+- **A FINISHED day's dated index is immutable too (K1, 2026-10-17).** A `daily-index/` (or `full-index/`)
+  key that names a `YYYYMMDD` date — `daily-index/master.20261015.idx`, the SPAC radar's spine — is cached
+  forever once the date is strictly before TODAY IN MARKET TIME (not UTC: at 22:30 ET the UTC date has
+  already rolled over while tonight's index still grows) AND the cached copy was written at or after
+  06:00 ET on the following day. The second half matters: the radar caches today's index at ~22:45 ET
+  while it is still growing, and freezing that copy when the date turned past would drop every filing
+  indexed later, so an in-day copy is refreshed once more under the TTL and only that later copy is frozen.
+  Today's and future dates, undated keys (the quarterly `full-index/.../master.idx`) and impossible dates
+  stay mutable. Key-classed in `EdgarClient._is_stale`, like `forms/`, for every client.
+- **`companyfacts/*` is FILING-GATED on a recurring client (Q17, 2026-10-17).** This reverses the earlier
+  choice that "`ingest_fundamentals` keeps the 12h TTL deliberately (a quarterly series)". That choice saved
+  nothing: by 22:30 the 12h clock had always expired, so the nightly fundamentals leg re-pulled every basket
+  name's companyfacts (MEASURED 2026-10-17: 680 documents, 1.18 GB) to pick up the ~38 a night that had filed
+  anything. A third key class now sits between immutable and plain-mutable: on a client built with the
+  recurring dial (`EdgarClient.recurring` — the dial is the marker, no second knob), a cached companyfacts is
+  re-pulled only when **(a)** it is not cached, **(b)** the company's cached `submissions/CIK<10>.json` lists a
+  filing ACCEPTED since the companyfacts was fetched (less a 24 h grace for SEC's XBRL processing and clock
+  skew) whose form is in the measured XBRL form set, or **(c)** a 6.5-day backstop has passed. The rule, the
+  form set (every distinct `form` on any fact in prod's 688 cached companyfacts files, plus an `/A` for every
+  base form) and its counts live in `ingest/edgar/companyfacts_gate.py`. The gate reads the index **from disk**
+  (no fetch, no `live_fetches` count), so it adds no SEC request; a missing or unreadable index, or a
+  qualifying row with no date, counts as due. **X8:** a companyfacts 404 writes `<key>.404` and a recurring
+  client re-asks on the same gate rather than nightly (a known absence prints as one quiet count). An
+  INTERACTIVE client keeps the plain 12h TTL for companyfacts and ignores the 404 marker — the Workbench's
+  freshness is unchanged. **Same-night, by placement:** the refresh runs PER THESIS inside the nightly
+  loop — right after that thesis's `ingest_thesis` re-pulled its members' submissions indexes at the
+  five-minute recurring TTL, and before its call is assembled — so the gate reads TONIGHT's index and a quarter
+  filed today reaches tonight's call, as the old nightly re-pull did (MEASURED: a 10-Q/A accepted 17:02 ET was
+  in that night's companyfacts). One pass-wide memory keeps it to one pull per company per pass, however many
+  theses (or share classes) hold it. A fundamentals fault is rolled back where it runs and never costs a
+  thesis its record. Anything the index cannot show (a company whose index stopped refreshing, a form that
+  starts carrying facts later) is re-pulled by the backstop within 6.5 days. Simulated on prod's real filing
+  cadence (45 weekday passes, 2026-08-18 → 2026-10-16): ~178 pulls a pass instead of 680 (about 26%), ~0.29 GB
+  instead of 1.18 GB. (The 24 h grace means a name pulled the night of its filing is pulled once more the next
+  night; that second pull is most of the difference from the ~151 a one-pass-late placement would cost.)
 - **The cache PERSISTS across container rebuilds** — the compose stack mounts a named volume (`appdata:/data`,
   backend + the cron sidecar) over the runtime-data home, so `data/edgar_cache/` (and the price/DOE/FIGI/SEC
   caches beside it) survives `docker compose up --build`. Before the volume, every rebuild wiped the cache and

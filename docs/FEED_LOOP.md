@@ -159,10 +159,22 @@ nothing can be filed in the five minutes before a 22:30 pass, and no daytime war
 of another reads the first's cache for the companies it reached last — which is exactly why the R4 freeze
 page keeps its `--catch-up` exemption (see "Known gaps").
 
-**`ingest_fundamentals` keeps the 12h TTL deliberately** (companyfacts is a large document feeding a
-*quarterly* series — a day's staleness cannot change a call), and the interactive paths (the Workbench, a
-standalone `python -m pipeline.ingest_thesis`) keep it too. Consequence for the operator: **"Run daily now"
-is safe at any hour**.
+The interactive paths (the Workbench, a standalone `python -m pipeline.ingest_thesis`) keep the 12h TTL.
+Consequence for the operator: **"Run daily now" is safe at any hour**.
+
+**…and `companyfacts` is FILING-GATED on the recurring pass (Q17, 2026-10-17)** `[BUILT]`. `ingest_fundamentals`
+used to be the one deliberate exception to the recurring dial, keeping 12h "because the series is quarterly"
+— but by 22:30 the 12h clock had always expired, so the leg re-pulled every basket name's companyfacts every
+night (MEASURED: 680 documents, 1.18 GB). On a recurring client the `companyfacts/` key class is now re-pulled
+only when uncached, when the company's cached submissions index shows a new XBRL-bearing filing since the
+last pull, or after a 6.5-day backstop; a 404 is negative-cached on the same gate (X8). The gate reads the
+index from disk, so it costs no SEC request. And the refresh moved INTO the per-thesis loop (step 1b of
+`run_daily`): it runs right after that thesis's ingest re-pulled tonight's submissions indexes and before its
+call is assembled, so a quarter filed today still reaches tonight's call. A pass-wide memory pulls each company
+at most once, and a fundamentals fault is rolled back where it runs — recorded on the thesis's
+`fundamentals_error`, never its `error` — so it never costs the night its record. The pass prints one
+fundamentals summary after the loop. The rule, the measured form set and the cost: `DATA_SOURCES.md`
+§cache-freshness and `ingest/edgar/companyfacts_gate.py`.
 
 ## Settled closes, honest stamps — the price write path (D1 + D2, 2026-10-16)  `[BUILT]`
 
@@ -471,6 +483,34 @@ stuck read raises inside the per-thesis isolation instead of hanging the loop. A
 in the pass sends ONE health page (`PASS CRASHED — <type>: <message>`) before it re-raises — fail-open, it
 can never mask the original. (A process that is KILLED runs no Python at all; the sidecar's own page and the
 external heartbeat cover that.)
+
+**Known skipped filings are a count, not ~440 lines a night (Q18, 2026-10-17)** `[BUILT]`. Three filing
+paths skip ONE filing and keep walking, and a skipped filing is never stored, so it is re-tried and its line
+re-printed every pass: a Form 4 that cannot be fetched or parsed (`form4_unparseable`), a 13D-family filing
+in a company's own feed that names another subject — the company's own outbound stake (`schedule13_outbound`),
+and a 13D/G whose filer identity did not resolve (`schedule13_identity`, stored with a NULL filer). MEASURED
+2026-10-17 by replaying the legs read-only over prod's cache and DB: 76 Form 4 lines and 365 schedule-13
+lines a night, about 73% of the cron log. **Audited before anything was collapsed** (the skip-counter lesson:
+a rising Form 4 skip count once hid a timezone bug that dropped 49 real buys): all 76 Form 4s are pre-XML
+filings dated 1997 to 2003-04-02 — 60 SGML text documents, 15 accessions with no primary document (the
+fetched "document" is EDGAR's directory listing) and 1 whose `0001.txt` 404s (checked live; the filing is a
+2000 text Form 4) — and none fails with a `ValueError`; all 365 schedule-13 lines (328 accessions) are
+13D-family filings whose feed owner is the lead filer (364) or a co-reporting person (1). No group was a
+parser bug. The mechanism is O1's, mirrored (`ingest/skips.py`, `pipeline/ingest_skips.py`): before its loop
+the pass reads the skip baseline (`cron_run_log.previous_ingest_skips`): each thesis's skipped filings,
+recorded on its own artifact entry like `name_errors`, from the newest finished, live pass that COVERED it
+(the per-thesis carry-forward `carried_inventory`, shared with the stale-tape and name-error baselines, so a
+filing first skipped by a catch-up is not re-printed at the next full pass and a thesis the catch-up skipped
+keeps its filings). A filing found there is recorded but not re-printed, and a NEW one prints its one line
+naming the accession. An artifact entry without that per-thesis list (the first Q18 build) reads as unknown:
+its filings print once more, never muted. After the loop the artifact carries, per
+kind, `total`, `known`, `new` (accession, security, ticker, reason), `previous_total`, `delta` (so a jump in
+the known inventory shows) and the full `accessions` list, each thesis entry its own `ingest_skips` (the
+next baseline), and stdout gets one quiet line
+per kind. The first pass after the deploy has no baseline, so it prints every skip once. **Only the logging
+changed**: what is stored, skipped, counted (`form4_skipped` on each thesis line) or raised is identical, a
+CLI or on-promote ingest (no baseline) prints everything, and no raising path became a swallow-and-count.
+The P1 `REJECT insider txn` lines (impossible transaction dates) are untouched and stay loud.
 
 ### The tape monitor, part 2 — split-basis defects (T4, 2026-10-16)  `[BUILT]`
 
@@ -796,6 +836,11 @@ The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
   back to UTC). **Never the container's default UTC.** *(The BACKEND container's `TZ` is pinned to match, #202,
   so a manual `docker exec … pipeline.daily` agrees on "today" — a container-scoped stopgap; the durable fix,
   a shared trading-day helper, is an open item — see `INVARIANTS.md`.)*
+- **RUN_AT stays 22:30 ET, with an accepted residual (Q19, operator decision 2026-10-17).** About 3% of
+  basket members' bars for the night are still missing from the vendor at 22:30. The pass was NOT moved to a
+  pre-dawn run for the prior night; that residual is **accepted**: that night's call-of-record is scored on a
+  slightly incomplete tape, and the next pass's incremental tail append picks the late bars up. It is a known
+  property of the record, not a fault to page on.
 - **Catch-up on boot (R6, #200 — widened to the LAST EXPECTED night, 2026-09-10).** On boot the sidecar
   fires **one** `python -m pipeline.daily --catch-up --asof <last_expected_asof(now)>` — the most recent
   as-of whose scheduled run should *already* have fired (today once `RUN_AT` has passed on a weekday, else
@@ -1038,11 +1083,23 @@ happened to exist. So a snapshot is now a one-click safety net — and a nightly
   (H3) and a successful one pings `HEARTBEAT_BACKUP_URL` (H2). Retention is unchanged: a gated dump is a
   `run_backup` and prunes the same way, and a skip prunes nothing. `fresh_snapshot` is the pure gate; a
   labeled dump never satisfies it, and a future-dated one fails toward dumping.
-- **Retention = keep-last-N, labeled EXEMPT.** After a *successful* dump the newest `ALPHADECK_BACKUP_KEEP`
-  (default **7**) UNLABELED snapshots are kept and older unlabeled ones pruned (each prune logged); a
-  **labeled** dump (created with a `label`, e.g. `pre-migration`) is never auto-deleted. A **failed** dump
-  never prunes (it must not shrink the safety net), and the atomic `tmp → os.replace` means a crashed dump
-  never lists.
+- **Retention = keep-last-N unlabeled; labeled "90 days, or the last 20" (Q16).** After a *successful*
+  dump the newest `ALPHADECK_BACKUP_KEEP` (default **7**) UNLABELED snapshots are kept and older unlabeled
+  ones pruned. A **labeled** dump (created with a `label`, e.g. `pre-migration`) is deleted only when it is
+  BOTH older than `ALPHADECK_BACKUP_LABELED_MAX_AGE_DAYS` (default **90**) AND outside the newest
+  `ALPHADECK_BACKUP_LABELED_KEEP` (default **20**) labeled dumps, so whichever rule keeps more wins; either
+  dial `<= 0` turns labeled pruning off (the old keep-forever). Labeled dumps used to be kept forever:
+  MEASURED 2026-10-17, 65 of them held 19.8 GB of the 22.6 GB of dumps. Every removed file is logged by
+  name, at WARNING so it reaches the cron and backend logs. A **failed** dump never prunes (it must not
+  shrink the safety net), and the atomic `tmp → os.replace` means a crashed dump never lists.
+  `python -m pipeline.backup --prune-dry-run [--dir D]` dumps nothing and removes nothing: it prints every
+  file the next prune would delete, with its size and the rule that selected it, plus the bytes freed (run
+  it before a deploy that changes retention, and show the operator the list).
+- **The password never reaches the log or `ps` (2026-10-17).** `pg_dump` used to get the full
+  `DATABASE_URL` on its command line, so the password was in `ps` while a dump ran and in every failure
+  traceback (`CalledProcessError` prints the command). It now gets the URL WITHOUT the password and the
+  password as `PGPASSWORD` in its environment (`_dump_target`; URI userinfo, `?password=` and key=value DSNs
+  alike); every message the backup path raises is redacted and raised without the chained subprocess error.
 - **The host bind is on BOTH services.** `./data/backups:/data/backups` (writable, the `scoreboard_replay`
   idiom minus `:ro`) is bound on `backend` (the button + list) **and** `cron` (the nightly dump), so the two
   share ONE host directory — host-accessible so a dump is copyable off-box. `pg_dump` comes from

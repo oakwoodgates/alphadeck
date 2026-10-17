@@ -1140,11 +1140,11 @@ export interface paths {
          *     poll ``GET /admin/backup/jobs/{job_id}``. Fires ONLY on this explicit request — never on a page load,
          *     mount, or poll (cost is the operator's to spend; the reads may poll, the trigger never does). The dump
          *     is READ-ONLY (``pg_dump``) and mutates no row; it writes a ``.sql`` under ``/data/backups`` (a host
-         *     bind, so it is copyable off-box) and prunes old UNLABELED dumps (keep-last-N; a ``label`` marks a
-         *     prune-EXEMPT snapshot). **409** when a snapshot is already in progress (the single-slot in-process
-         *     guard — a double-click can never stack a second dump). **RESTORE is deliberately CLI-only** (a
-         *     destructive drop-schema + reload; never a button): ``docker exec -i alphadeck-postgres-1 psql -U
-         *     alphadeck -d alphadeck < ./data/backups/<file>``. The job opens its OWN subprocess (it outlives this
+         *     bind, so it is copyable off-box) and prunes old dumps (keep-last-N UNLABELED; a ``label`` marks a
+         *     named snapshot, kept 90 days or while among the newest 20 labeled). **409** when a snapshot is
+         *     already in progress (the single-slot in-process guard — a double-click can never stack a second
+         *     dump). **RESTORE is deliberately CLI-only** (a destructive drop-schema + reload; never a button):
+         *     ``docker exec -i alphadeck-postgres-1 psql -U alphadeck -d alphadeck < ./data/backups/<file>``. The job opens its OWN subprocess (it outlives this
          *     request).
          */
         post: operations["start_backup_admin_backup_post"];
@@ -3219,8 +3219,9 @@ export interface components {
         };
         /**
          * BackupCreateIn
-         * @description The optional create body. A ``label`` marks a NAMED snapshot that retention never auto-prunes (a
-         *     deliberate recovery point like ``pre-migration``); omit it for a rolling nightly-style dump.
+         * @description The optional create body. A ``label`` marks a NAMED snapshot (a deliberate recovery point like
+         *     ``pre-migration``), which retention keeps 90 days, or while it is among the newest 20 labeled dumps;
+         *     omit it for a rolling nightly-style dump.
          */
         BackupCreateIn: {
             /** Label */
@@ -3263,7 +3264,8 @@ export interface components {
          * BackupOut
          * @description One snapshot as a value-free file listing — ``name`` (``alphadeck-<UTC>[-<label>].sql``),
          *     ``bytes`` (file size), ``created_at`` (parsed from the filename timestamp, UTC), and ``labeled``
-         *     (a named, prune-EXEMPT dump). Computed on read from the backups directory; writes nothing.
+         *     (a named dump: kept 90 days, or while among the newest 20 labeled, rather than in the rolling
+         *     keep-N). Computed on read from the backups directory; writes nothing.
          */
         BackupOut: {
             /** Name */

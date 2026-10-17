@@ -915,6 +915,133 @@ def test_previous_name_errors_NONE_before_any_evaluated_pass_then_the_KEYS(tmp_p
     assert previous_name_errors(base_dir=tmp_path) == {f"{sid}:price"}
 
 
+# --- Q18: the skipped-filing inventory rides the artifact and is the next pass's baseline -------------
+
+
+def _skip(kind: str, accession: str, ticker: str = "AAA"):
+    from ingest.skips import IngestSkip
+
+    return IngestSkip(kind, accession, uuid4(), ticker, "syntax error: line 1, column 0")
+
+
+def test_previous_ingest_skips_NONE_before_any_evaluated_pass_then_the_INVENTORY(tmp_path):
+    """The O1 baseline rule, mirrored: no evaluated artifact -> None; a pre-Q18 live artifact (the block
+    absent) is not a baseline; an evaluated live pass is — read from each THESIS's own `ingest_skips`
+    entry; a newer --no-live pass and a newer RUNNING pass are skipped over."""
+    from pipeline.cron_run_log import previous_ingest_skips, write_run_start
+    from pipeline.ingest_skips import diff_skips
+
+    assert previous_ingest_skips(base_dir=tmp_path) is None
+    write_cron_run_log(  # a pre-Q18 live pass: skips=None writes evaluated False
+        [_thesis_result(recorded=True)],
+        asof=_JUL17,
+        allow_live=True,
+        started_at=_START,
+        finished_at=_END,
+        base_dir=tmp_path,
+    )
+    assert previous_ingest_skips(base_dir=tmp_path) is None
+    tonight = (
+        _skip("form4_unparseable", "0000950144-97-007016"),
+        _skip("schedule13_outbound", "A-13D"),
+    )
+    walked = [_thesis_result(recorded=True, ingested=[_name(ingest_skips=tonight)])]
+    path = write_cron_run_log(
+        walked,
+        asof=_JUL17,
+        allow_live=True,
+        started_at=_utc(2026, 7, 18, 22, 30),
+        finished_at=_END,
+        base_dir=tmp_path,
+        skips=diff_skips(tonight, None, evaluated=True),
+    )
+    assert _read(path)["theses"][0]["ingest_skips"] == [
+        {"kind": "form4_unparseable", "accession": "0000950144-97-007016"},
+        {"kind": "schedule13_outbound", "accession": "A-13D"},
+    ]
+    want = {"form4_unparseable": {"0000950144-97-007016"}, "schedule13_outbound": {"A-13D"}}
+    assert previous_ingest_skips(base_dir=tmp_path) == want
+    write_cron_run_log(  # a NEWER no-live pass — never a baseline
+        [_thesis_result(withheld_reason="no-live")],
+        asof=_JUL17,
+        allow_live=False,
+        started_at=_utc(2026, 7, 19, 22, 30),
+        finished_at=_END,
+        base_dir=tmp_path,
+        skips=diff_skips([], None, evaluated=False),
+    )
+    write_run_start(  # a NEWER pass still RUNNING (or hard-killed) — never a baseline
+        asof=_JUL17, allow_live=True, started_at=_utc(2026, 7, 20, 22, 30), base_dir=tmp_path
+    )
+    assert previous_ingest_skips(base_dir=tmp_path) == want
+
+
+def test_the_skip_block_on_the_artifact_counts_known_new_and_the_delta(tmp_path):
+    from pipeline.ingest_skips import diff_skips
+
+    before = {"form4_unparseable": {"F-OLD-1", "F-OLD-2", "F-GONE"}, "schedule13_outbound": set()}
+    diff = diff_skips(
+        [
+            _skip("form4_unparseable", "F-OLD-1"),
+            _skip("form4_unparseable", "F-OLD-2"),
+            _skip("form4_unparseable", "F-NEW", ticker="NEWCO"),
+            _skip("form4_unparseable", "F-OLD-1"),  # a second thesis holds the name: ONE row
+        ],
+        before,
+        evaluated=True,
+    )
+    doc = _read(
+        write_cron_run_log(
+            [_thesis_result(recorded=True)],
+            asof=_JUL17,
+            allow_live=True,
+            started_at=_START,
+            finished_at=_END,
+            base_dir=tmp_path,
+            skips=diff,
+        )
+    )
+    f4 = doc["ingest_skips"]["form4_unparseable"]
+    assert doc["ingest_skips_evaluated"] is True
+    assert (f4["total"], f4["known"], f4["previous_total"], f4["delta"]) == (3, 2, 3, 0)
+    assert [n["accession"] for n in f4["new"]] == ["F-NEW"] and f4["new"][0]["ticker"] == "NEWCO"
+    assert f4["accessions"] == ["F-NEW", "F-OLD-1", "F-OLD-2"]
+    # a kind absent from the previous inventory compares against an empty set, not "no baseline"
+    s13i = doc["ingest_skips"]["schedule13_identity"]
+    assert (s13i["total"], s13i["previous_total"], s13i["delta"]) == (0, 0, 0)
+
+
+def test_the_skip_report_is_one_quiet_line_per_kind_and_silent_when_clean():
+    from pipeline.ingest_skips import diff_skips
+
+    prev = {"form4_unparseable": {"F1", "F2"}, "schedule13_outbound": {"S1"}}
+    diff = diff_skips(
+        [
+            _skip("form4_unparseable", "F1"),
+            _skip("form4_unparseable", "F2"),
+            _skip("form4_unparseable", "F3"),
+            _skip("schedule13_outbound", "S1"),
+        ],
+        prev,
+        evaluated=True,
+    )
+    lines = diff.report_lines()
+    assert lines == [
+        "form4_unparseable: 2 known (skipped the same way last pass; quiet), 1 new, +1 vs the last "
+        "pass — every accession in the run artifact",
+        "schedule13_outbound: 1 known (skipped the same way last pass; quiet), 0 new, +0 vs the last "
+        "pass — every accession in the run artifact",
+    ]
+    assert diff_skips([], prev, evaluated=True).report_lines() == []  # a clean night: nothing
+    first = diff_skips([_skip("form4_unparseable", "F1")], None, evaluated=True).report_lines()
+    assert first == [
+        "form4_unparseable: 0 known (skipped the same way last pass; quiet), 1 new (no baseline yet "
+        "— each printed above) — every accession in the run artifact"
+    ]
+    nolive = diff_skips([_skip("form4_unparseable", "F1")], prev, evaluated=False).report_lines()
+    assert len(nolive) == 1 and "not diffed" in nolive[0]
+
+
 # --- I1/I2 + V1: the identity, the env fingerprint and the audit ride the artifact --------------------
 
 

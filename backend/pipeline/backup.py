@@ -17,10 +17,14 @@ a WRITABLE host bind on both the backend and cron services), so a dump is copyab
 restorable with the command above without a ``docker cp`` first.
 
 Retention (VISIBLE pruning, never silent loss): after a SUCCESSFUL dump, keep the newest
-``Settings.backup_keep`` (default 7) UNLABELED snapshots and delete older UNLABELED ones; a LABELED
-(named) dump is EXEMPT — a deliberate recovery point like ``pre-shares-backfill`` is never auto-deleted.
-A FAILED dump never prunes (it must never shrink the safety net), and the atomic ``tmp -> os.replace``
-means a crashed dump never appears in the list. Every prune is logged.
+``Settings.backup_keep`` (default 7) UNLABELED snapshots and delete older UNLABELED ones. A LABELED (named)
+dump — a deliberate recovery point like ``pre-shares-backfill`` — is deleted only when it is BOTH older than
+``Settings.backup_labeled_max_age_days`` (90) AND outside the newest ``Settings.backup_labeled_keep`` (20)
+labeled dumps (Q16, 2026-10-17: "90 days, or the last 20", whichever keeps more). Before Q16 labeled dumps
+were kept forever, and MEASURED on prod that was 65 dumps holding 19.8 GB. A FAILED dump never prunes (it
+must never shrink the safety net), and the atomic ``tmp -> os.replace`` means a crashed dump never appears in
+the list. Every removed file is logged by name. ``--prune-dry-run`` prints exactly what a prune would remove
+(``plan_prune``, the same pure plan the real prune applies) and removes nothing.
 
 The AGE GATE (M3, 2026-10-16): ``--if-older-than-h H`` dumps only when the newest UNLABELED snapshot is at
 least H hours old (or there is none), and otherwise prints one no-op line and exits 0. The cron sidecar
@@ -43,6 +47,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit, urlunsplit
 
 from db.session import database_url as _database_url
 from domain.settings import get_settings
@@ -63,13 +68,26 @@ _log = logging.getLogger("alphadeck.backup")
 @dataclass
 class BackupInfo:
     """One snapshot as a value-free file listing (the route maps it to the ``BackupOut`` wire model).
-    ``labeled`` marks a named, prune-EXEMPT dump; ``created_at`` is parsed from the filename timestamp.
+    ``labeled`` marks a named dump (a deliberate recovery point, under the Q16 age-and-rank rule rather
+    than the rolling keep-N); ``created_at`` is parsed from the filename timestamp.
     """
 
     name: str
     bytes: int
     created_at: datetime
     labeled: bool
+
+
+@dataclass(frozen=True)
+class PruneCandidate:
+    """One snapshot a prune WOULD remove (``plan_prune``): the dry-run's row and the real prune's input, so
+    the two can never disagree. ``reason`` is the rule that selected it, in words."""
+
+    name: str
+    bytes: int
+    created_at: datetime
+    labeled: bool
+    reason: str
 
 
 @dataclass
@@ -105,28 +123,89 @@ def _parse_backup_name(name: str) -> tuple[datetime, bool] | None:
     return created_at, labeled
 
 
+# A key=value DSN's password (``password=secret`` / ``password='a b'``) and a URI's userinfo password — the
+# two shapes a libpq connection string can carry one in.
+_DSN_PASSWORD = re.compile(r"(password\s*=\s*)('(?:[^'\\]|\\.)*'|\S+)", re.IGNORECASE)
+_URI_PASSWORD = re.compile(r"(://[^:/@\s]*:)([^@\s]*)(@)")
+
+
+def _dump_target(url: str) -> tuple[str, str | None]:
+    """Split the password OUT of a connection string: ``(the string without it, the password or None)``.
+
+    The password then reaches ``pg_dump`` through ``PGPASSWORD`` in its environment, never on its command
+    line: ``argv`` is world-readable (``ps``, ``/proc/<pid>/cmdline``) and is what ``CalledProcessError`` /
+    ``TimeoutExpired`` print, so a URL there put the password into every failure traceback in the cron log.
+    The environment is readable only by the same user (``/proc/<pid>/environ``) and is printed by nothing.
+    Handles a URI's userinfo (``postgresql://user:pw@host/db``, percent-decoded for ``PGPASSWORD``), a URI
+    ``?password=`` parameter, and a key=value DSN (``host=x password=pw``); anything else passes through.
+    """
+    if "://" in url:
+        parts = urlsplit(url)
+        password: str | None = None
+        netloc = parts.netloc
+        if "@" in netloc:
+            userinfo, hostport = netloc.rsplit("@", 1)
+            if ":" in userinfo:
+                user, raw = userinfo.split(":", 1)
+                password = unquote(raw)
+                netloc = f"{user}@{hostport}"
+        query = parse_qsl(parts.query, keep_blank_values=True)
+        kept = [(k, v) for k, v in query if k.lower() != "password"]
+        if len(kept) != len(query):
+            password = next(v for k, v in query if k.lower() == "password")
+        safe = urlunsplit(parts._replace(netloc=netloc, query=urlencode(kept)))
+        return safe, password
+    m = _DSN_PASSWORD.search(url)
+    if m is None:
+        return url, None
+    raw = m.group(2)
+    password = raw[1:-1].replace("\\'", "'").replace("\\\\", "\\") if raw.startswith("'") else raw
+    return (url[: m.start()] + url[m.end() :]).strip(), password
+
+
+def _redact(text: str, secrets: list[str]) -> str:
+    """``text`` with every credential replaced by ``***``: each known secret (raw and percent-encoded),
+    then — belt and braces — any URI userinfo password or ``password=`` value still in it."""
+    for s in secrets:
+        if s:
+            text = text.replace(s, "***").replace(quote(s, safe=""), "***")
+    text = _URI_PASSWORD.sub(r"\1***\3", text)
+    return _DSN_PASSWORD.sub(r"\1***", text)
+
+
 def _pg_dump(url: str, dest: Path, *, timeout_s: float) -> None:
     """The DB touch — a READ-ONLY ``pg_dump`` subprocess (``--no-owner`` + plain-SQL default, the shape
     that restored cleanly on 2026-07-17). The ONLY seam that shells the binary, so a test injects a fake
     ``dump_runner`` and never needs it. A missing binary / non-zero exit is a LOUD, operator-facing raise
     (the job maps it to a ``failed`` job); the wall ``timeout_s`` turns a hang into a loud failure too.
+
+    CREDENTIALS NEVER REACH THE LOG (2026-10-17). The password goes to ``pg_dump`` as ``PGPASSWORD`` in its
+    environment, not in the ``--dbname`` it is given (``_dump_target``) — so ``ps`` shows the URL without
+    it. Every message raised from here is ``_redact``-ed (pg_dump's own stderr included), and raised ``from
+    None``: the chained ``CalledProcessError`` / ``TimeoutExpired`` would print the command line in the
+    traceback, and with it whatever connection string it carried.
     """
+    safe_url, password = _dump_target(url)
+    secrets = [password] if password else []
+    env = {**os.environ, "PGPASSWORD": password} if password else None
     try:
         subprocess.run(
-            ["pg_dump", "--no-owner", "--dbname", url, "--file", str(dest)],
+            ["pg_dump", "--no-owner", "--dbname", safe_url, "--file", str(dest)],
             check=True,
             capture_output=True,
             text=True,
             timeout=timeout_s,
+            env=env,
         )
-    except FileNotFoundError as exc:
+    except FileNotFoundError:
         raise RuntimeError(
             "pg_dump not found — the image needs postgresql-client-16 (see backend/Dockerfile)"
-        ) from exc
+        ) from None
     except subprocess.CalledProcessError as exc:
-        raise RuntimeError(
-            f"pg_dump failed (exit {exc.returncode}): {(exc.stderr or '').strip()}"
-        ) from exc
+        stderr = _redact((exc.stderr or "").strip(), secrets)
+        raise RuntimeError(f"pg_dump failed (exit {exc.returncode}): {stderr}") from None
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"pg_dump timed out after {timeout_s:g} s") from None
 
 
 def run_backup(
@@ -159,7 +238,13 @@ def run_backup(
     os.replace(tmp, dest)  # atomic publish — the *.sql glob only ever sees a COMPLETE dump
     size = dest.stat().st_size
 
-    pruned = _prune(d, keep if keep is not None else settings.backup_keep)  # only after success
+    pruned = _prune(  # only after success
+        d,
+        keep if keep is not None else settings.backup_keep,
+        labeled_keep=settings.backup_labeled_keep,
+        labeled_max_age_days=settings.backup_labeled_max_age_days,
+        now=now,
+    )
     _log.info(
         "backup created: %s (%d bytes)%s",
         name,
@@ -217,34 +302,166 @@ def fresh_snapshot(
     return None
 
 
-def _prune(base_dir: Path, keep: int) -> list[str]:
-    """Keep the newest ``keep`` UNLABELED snapshots; delete the older unlabeled ones; return the deleted
-    names. PURE over the dir. LABELED dumps are EXEMPT (a deliberate recovery point is never auto-deleted),
-    and an unparseable name is left untouched (never delete what we can't identify). ``keep >= count`` ->
-    nothing deleted. Each deletion is logged — visible pruning, never silent loss."""
-    unlabeled: list[Path] = []
-    for p in base_dir.glob(f"*{_SUFFIX}"):
-        parsed = _parse_backup_name(p.name)
-        if parsed is None:
-            continue  # a foreign / unparseable file is never auto-deleted
-        if not parsed[1]:  # labeled == False
-            unlabeled.append(p)
-    unlabeled.sort(key=lambda x: x.name, reverse=True)  # newest-first
+def plan_prune(
+    base_dir: Path,
+    *,
+    keep: int,
+    labeled_keep: int = 0,
+    labeled_max_age_days: float = 0.0,
+    now: datetime | None = None,
+) -> list[PruneCandidate]:
+    """What a prune WOULD remove, OLDEST-first — PURE over the dir listing (no delete, no DB, no network).
+
+    Two rules, one per kind of dump:
+
+    - **UNLABELED** (the rolling nightlies): keep the newest ``keep``; every older one is selected.
+      ``keep >= count`` selects nothing.
+    - **LABELED** (Q16): selected only when it is BOTH older than ``labeled_max_age_days`` (by its filename
+      timestamp against ``now``) AND outside the newest ``labeled_keep`` labeled dumps — "90 days, or the
+      last 20", whichever keeps more. Either dial ``<= 0`` turns the labeled rule OFF (nothing labeled is
+      ever selected, the pre-Q16 keep-forever), so a bad setting can only keep MORE. A future-dated dump
+      (the clock went backwards) has a negative age and is never "older than" anything — kept.
+
+    A name we cannot parse is never selected (a foreign file is never auto-deleted), and a file we cannot
+    stat is skipped like ``list_backups`` skips it."""
+    now = now or datetime.now(timezone.utc)
+    infos = list_backups(
+        base_dir=base_dir
+    )  # newest-first, unparseable / unstat-able already skipped
+    unlabeled = [i for i in infos if not i.labeled]
+    labeled = [i for i in infos if i.labeled]
+    out: list[PruneCandidate] = [
+        PruneCandidate(
+            name=i.name,
+            bytes=i.bytes,
+            created_at=i.created_at,
+            labeled=False,
+            reason=f"unlabeled, older than the newest {keep} unlabeled",
+        )
+        for i in unlabeled[keep:]
+    ]
+    if labeled_keep > 0 and labeled_max_age_days > 0:
+        max_age = timedelta(days=labeled_max_age_days)
+        for i in labeled[labeled_keep:]:
+            age = now - i.created_at
+            if age > max_age:
+                out.append(
+                    PruneCandidate(
+                        name=i.name,
+                        bytes=i.bytes,
+                        created_at=i.created_at,
+                        labeled=True,
+                        reason=(
+                            f"labeled, {age.days} days old (> {labeled_max_age_days:g}) and not among "
+                            f"the newest {labeled_keep} labeled"
+                        ),
+                    )
+                )
+    out.sort(key=lambda c: c.name)  # oldest-first: the order a reader expects a deletion list in
+    return out
+
+
+def _prune(
+    base_dir: Path,
+    keep: int,
+    *,
+    labeled_keep: int = 0,
+    labeled_max_age_days: float = 0.0,
+    now: datetime | None = None,
+) -> list[str]:
+    """Apply ``plan_prune`` — delete exactly what it selected — and return the deleted names. The labeled
+    dials default OFF here, so a direct caller that passes only ``keep`` keeps the pre-Q16 behavior (labeled
+    dumps untouched); ``run_backup`` passes the settings. Each deletion is logged BY NAME with the rule that
+    selected it — visible pruning, never silent loss — at WARNING, because nothing in the repo configures
+    the root logger (no ``basicConfig`` / ``dictConfig``), so an INFO line from this logger was dropped in
+    both the CLI and the API process: a deleted recovery point must reach the cron's log and the backend's,
+    whichever path triggered it. A file that cannot be deleted is logged and skipped, never a failed
+    backup."""
     deleted: list[str] = []
-    for p in unlabeled[keep:]:
+    for c in plan_prune(
+        base_dir,
+        keep=keep,
+        labeled_keep=labeled_keep,
+        labeled_max_age_days=labeled_max_age_days,
+        now=now,
+    ):
         try:
-            p.unlink()
-            deleted.append(p.name)
-            _log.info("backup prune: removed %s (keep=%d unlabeled)", p.name, keep)
+            (base_dir / c.name).unlink()
+            deleted.append(c.name)
+            _log.warning("backup prune: removed %s (%d bytes; %s)", c.name, c.bytes, c.reason)
         except OSError:  # a prune that can't delete is logged, never a failed backup
-            _log.exception("backup prune: failed to remove %s", p.name)
+            _log.exception("backup prune: failed to remove %s", c.name)
     return deleted
 
 
+def prune_dry_run_lines(
+    *,
+    base_dir: Path | None = None,
+    now: datetime | None = None,
+) -> list[str]:
+    """The ``--prune-dry-run`` report, as lines (PURE apart from the dir listing; removes NOTHING): every
+    file the NEXT prune would remove under the configured rules, with its size and the rule that selected
+    it, then the bytes it would free. The real prune runs after a successful dump, and that dump adds one
+    UNLABELED snapshot — so when the unlabeled window is already full, the report also names the one extra
+    unlabeled file that dump would push out (an unchanged, pre-Q16 behavior, listed so the count is exact).
+    """
+    s = get_settings()
+    now = now or datetime.now(timezone.utc)
+    d = base_dir or _DEFAULT_BACKUPS
+    plan = plan_prune(
+        d,
+        keep=s.backup_keep,
+        labeled_keep=s.backup_labeled_keep,
+        labeled_max_age_days=s.backup_labeled_max_age_days,
+        now=now,
+    )
+    infos = list_backups(base_dir=d)
+    labeled_rule = (
+        f"labeled: removed only when > {s.backup_labeled_max_age_days:g} days old AND not among the "
+        f"newest {s.backup_labeled_keep} labeled"
+        if s.backup_labeled_keep > 0 and s.backup_labeled_max_age_days > 0
+        else "labeled: never removed (labeled pruning is OFF)"
+    )
+    lines = [
+        f"backup prune DRY RUN — nothing is removed. dir={d} now={now.isoformat(timespec='seconds')}",
+        f"rules: unlabeled: keep the newest {s.backup_keep} · {labeled_rule}",
+        f"snapshots now: {len(infos)} ({sum(1 for i in infos if i.labeled)} labeled, "
+        f"{sum(1 for i in infos if not i.labeled)} unlabeled), {sum(i.bytes for i in infos)} bytes",
+    ]
+    if plan:
+        lines.append(f"a prune now would remove {len(plan)} file(s):")
+        lines += [f"  {c.name}  {c.bytes} bytes  ({c.reason})" for c in plan]
+    else:
+        lines.append("a prune now would remove nothing")
+    freed = sum(c.bytes for c in plan)
+    lines.append(f"bytes freed: {freed} ({freed / 1e9:.2f} GB)")
+    # The prune runs right after a dump, and that dump shifts one window by one. Name the extra file it
+    # would push out, so the listing is exact for whichever kind of dump triggers the first prune.
+    unlabeled = [i for i in infos if not i.labeled]
+    if s.backup_keep > 0 and len(unlabeled) >= s.backup_keep:
+        rolls = unlabeled[s.backup_keep - 1]
+        lines.append(
+            f"note: if an UNLABELED dump triggers the prune (the nightly), it also removes {rolls.name} "
+            f"({rolls.bytes} bytes), the oldest unlabeled one inside the keep-{s.backup_keep} window "
+            "(the rolling window, unchanged by Q16)"
+        )
+    labeled = [i for i in infos if i.labeled]
+    if s.backup_labeled_keep > 0 and s.backup_labeled_max_age_days > 0:
+        if len(labeled) >= s.backup_labeled_keep:
+            edge = labeled[s.backup_labeled_keep - 1]
+            if now - edge.created_at > timedelta(days=s.backup_labeled_max_age_days):
+                lines.append(
+                    f"note: if a LABELED dump triggers the prune, it also removes {edge.name} "
+                    f"({edge.bytes} bytes), which then falls outside the newest {s.backup_labeled_keep}"
+                )
+    return lines
+
+
 def main(argv: list[str] | None = None) -> None:
-    """``python -m pipeline.backup [--label X | --if-older-than-h H]`` — the nightly + ad-hoc snapshot CLI
-    (the cron sidecar invokes it fail-open: age-gated on boot, ungated after each weekday wake). Restore stays
-    a deliberate CLI act, documented in the module docstring.
+    """``python -m pipeline.backup [--label X | --if-older-than-h H | --prune-dry-run] [--dir D]`` — the
+    nightly + ad-hoc snapshot CLI (the cron sidecar invokes it fail-open: age-gated on boot, ungated after
+    each weekday wake). ``--prune-dry-run`` dumps nothing and removes nothing: it prints what the next prune
+    would delete (Q16). Restore stays a deliberate CLI act, documented in the module docstring.
     """
     p = argparse.ArgumentParser(
         description="Create a pg_dump snapshot of the database (the operator DB-snapshot / nightly backup)."
@@ -253,7 +470,14 @@ def main(argv: list[str] | None = None) -> None:
     mode.add_argument(
         "--label",
         default=None,
-        help="name a prune-EXEMPT snapshot (e.g. pre-migration) — omit for a rolling nightly dump",
+        help="name a snapshot (e.g. pre-migration), kept 90 days or while among the newest 20 labeled "
+        "(Q16) — omit for a rolling nightly dump",
+    )
+    mode.add_argument(
+        "--prune-dry-run",
+        action="store_true",
+        help="dump NOTHING and remove NOTHING: list exactly what the next prune would delete (each file, "
+        "its size and the rule that selected it) and the bytes it would free",
     )
     mode.add_argument(
         "--if-older-than-h",
@@ -263,11 +487,23 @@ def main(argv: list[str] | None = None) -> None:
         help="M3 age gate: dump ONLY if the newest UNLABELED snapshot is at least H hours old (or there "
         "is none); otherwise print a no-op line and exit 0 — the cron sidecar's boot call",
     )
+    p.add_argument(
+        "--dir",
+        default=None,
+        metavar="D",
+        help="the snapshot directory (default: the repo's data/backups, /data/backups in the container) — "
+        "e.g. to dry-run the prune against the host's copy of a bind-mounted dir",
+    )
     args = p.parse_args(argv)
+    base_dir = Path(args.dir) if args.dir else None
+    if args.prune_dry_run:
+        for line in prune_dry_run_lines(base_dir=base_dir):
+            print(line)
+        return
     if args.if_older_than_h is not None:
         now = datetime.now(timezone.utc)
         h = args.if_older_than_h
-        fresh = fresh_snapshot(h, now=now)
+        fresh = fresh_snapshot(h, base_dir=base_dir, now=now)
         if fresh is not None:
             age_h = (now - fresh.created_at).total_seconds() / 3600
             print(
@@ -276,7 +512,7 @@ def main(argv: list[str] | None = None) -> None:
             )
             return
         print(f"backup: due — no unlabeled snapshot younger than {h:g} h")
-    result = run_backup(label=args.label)
+    result = run_backup(label=args.label, base_dir=base_dir)
     tail = f" · pruned {len(result.pruned)}" if result.pruned else ""
     print(f"backup: wrote {result.name} ({result.bytes} bytes){tail}")
 
