@@ -1089,7 +1089,10 @@ export interface paths {
          *     another process in between fails VISIBLY on the poll ("already running"), never runs alongside it.
          *     **503** when the database cannot be reached to check. Safe to re-click once finished: the pass is
          *     idempotent (``record_if_changed`` appends nothing on unchanged facts). The job opens its OWN DB
-         *     connection (it outlives this request).
+         *     connection (it outlives this request). **Bounded like the sidecar's pass:** it runs in a child process
+         *     for at most the run timeout (``ALPHADECK_CRON_RUN_TIMEOUT_S``, default 5400 s — the one value the
+         *     sidecar's ``RUN_TIMEOUT_S`` uses); past it the process is stopped, the run lock is released with it,
+         *     its run artifact is marked ``crashed`` and the poll fails with the timeout.
          */
         post: operations["start_run_daily_admin_run_daily_post"];
         delete?: never;

@@ -53,7 +53,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timezone, tzinfo
 from functools import partial
@@ -767,6 +767,7 @@ def run_daily_pass(
     catch_up: bool = False,
     run_kind: str = "manual",
     run_lock: PassLock | None = None,
+    on_started: Callable[[datetime, date], None] | None = None,
 ) -> DailyPassOutcome:
     """The cron's FULL unit of work, under the cross-process call-of-record lock and the crash page.
 
@@ -791,7 +792,11 @@ def run_daily_pass(
     crash path above the file is re-marked ``"crashed"`` (only while it still reads ``running`` — a pass
     that finalized and then raised keeps its finished record); a hard kill leaves ``running``, which the
     ``--catch-up`` guard never credits and the Admin page alarms on past the run timeout. Every one of these
-    writes is fail-open: none can fail or mask the pass."""
+    writes is fail-open: none can fail or mask the pass.
+
+    ``on_started(started_at, asof)`` is called once the start artifact is written (fail-open): the Admin
+    button's bounded runner (``pipeline/bounded_pass.py``) learns from it which artifact to mark ``crashed``
+    if it has to stop the pass at the run timeout."""
     notifier = notifier or get_notifier()
     lock = run_lock
     resolved_asof = asof
@@ -809,6 +814,11 @@ def run_daily_pass(
             catch_up=catch_up,
             run_kind=run_kind,
         )
+        if on_started is not None:
+            try:
+                on_started(started_at, resolved_asof)
+            except Exception:  # noqa: BLE001 — a hook never fails or masks the pass
+                _log.exception("the on_started hook failed (fail-open — the pass runs regardless)")
         return _run_daily_pass_locked(
             asof=resolved_asof,
             allow_live=allow_live,

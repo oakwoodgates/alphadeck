@@ -808,6 +808,11 @@ The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
   `TIMED OUT`), one more non-zero exit, so it takes the same retry → page path as any failure. The default
   is ~1.4× the worst measured cold pass (~65 min; a normal night is 7–15 min), so a night that onboards many
   cold names at once can still exceed it; the retry then resumes ahead, since the ingest is incremental.
+  **The Admin "Run daily now" pass is bounded by the same value (2026-10-17)** `[BUILT]`: it runs in a
+  child process of the backend (`pipeline/bounded_pass.py`) for at most `Settings.cron_run_timeout_s` (the
+  backend's mirror of `RUN_TIMEOUT_S`, one host var), is stopped the same way past it, and — since the
+  backend outlives the child — its start artifact is re-marked `crashed` with the reason and one crash page
+  goes out. The run lock goes with the child's Postgres session (`ADMIN.md` §Run daily now).
 - **A night that failed for good pages from the shell, with no DB (H3, 2026-10-16)** `[BUILT]`. R4 pages
   from *inside* a finished pass, so a pass that died or never connected had no voice. MEASURED: the 10-12
   run killed at 22:42 (a WSL auto-update) and the 10-01 boot catch-up lost to the cold-start race both paged

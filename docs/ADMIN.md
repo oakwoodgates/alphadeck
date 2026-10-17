@@ -334,8 +334,9 @@ died at ~22:42 when the host VM went down, 4 of 12 theses had rows, there was no
   `running` past the sidecar's whole-pass ceiling (`ALPHADECK_CRON_RUN_TIMEOUT_S`, default 5400 s — the same
   host var the sidecar's C2 `timeout` uses, mirrored to the backend by compose as
   `Settings.cron_run_timeout_s`); a `crashed` one alarms at once with its reason. Inside the timeout the
-  verdict is `running`, not an alarm. (An Admin "Run daily now" pass is not bounded by the sidecar's timeout;
-  one that ran longer than it would read "did not finish" until it lands.)
+  verdict is `running`, not an alarm. An Admin "Run daily now" pass is bounded by the SAME value (since
+  2026-10-17 — see "Run daily now" below): past it the pass is stopped and its artifact reads `crashed`
+  ("ran past the run timeout"), so the alarm names what happened instead of waiting for a pass to land.
 - **Per-thesis coverage — `record.partial_nights`.** Every window night (not already in `missed_asofs`) is
   judged PER THESIS by `pipeline/night_coverage.py` — the module the nightly self-audit's `on_time_rows`
   check uses, so "covered" has one definition: a **non-reconstructed** row recorded at/after that night's
@@ -443,7 +444,16 @@ nothing can be filed in the five minutes before the 22:30 pass (`FEED_LOOP.md` �
 that still reads a warm cache is a pass fired **within five minutes** of another, which is why a back-to-back
 re-click can legitimately report ~0 EDGAR fetches. The job opens its
 own DB connection (it outlives the request); a lost job (server restart / expiry) shows "lost from view", not
-an infinite spinner — the run history + record edge are the durable authority. A manual pass that starts
+an infinite spinner — the run history + record edge are the durable authority. **Bounded like the sidecar's
+pass (2026-10-17):** the job runs the pass in a CHILD PROCESS (`pipeline/bounded_pass.py`) for at most the
+run timeout — `Settings.cron_run_timeout_s`, the backend's mirror of the sidecar's `RUN_TIMEOUT_S`, both
+fed by `ALPHADECK_CRON_RUN_TIMEOUT_S` (default 5400 s), so there is one value. Past it the child is stopped
+the way `timeout -k 60` stops the sidecar's (SIGTERM, SIGKILL 60 s later); its death ends its Postgres
+session, which releases the run lock (a hung pass can no longer hold it — and so block every later night —
+for as long as the backend lives); its start artifact is re-marked `crashed` with the reason, so the status
+alarm says "ran past the run timeout" at once; ONE crash page goes out; and the poll fails with the same
+words. A pass process killed from outside (the OOM killer) is marked and paged the same way, with its exit
+code. A thread cannot be stopped from outside, which is why the bound needs the process. A manual pass that starts
 **before** that night's `RUN_AT` (a pre-open click, on the prior session's bars) does **not** satisfy the
 sidecar's `--catch-up` guard — the night's post-close pass still runs (2026-09-10; on Sep 9 two 09:09 / 09:15
 ET passes had masked a missed post-close pass, and the record stayed a pre-open call).
@@ -492,7 +502,7 @@ the freeze it is adjacent to: `POSTMORTEM_CRON_FREEZE_2026-07.md`.
 | `POST /admin/price-feed/{security_id}/adopt-cik` | `{cik}` → the CIK change row | the detector's recommended successor only (409 otherwise / master moved / CIK held by another row); no network |
 | `POST /admin/price-feed/cik-changes/{change_id}/undo` | → the undo row | exact restore; 409 already undone / a later change stands / the master moved |
 | `GET /admin/runs?limit=` | the run-of-record history, newest first | read-only file parse; skip-unreadable |
-| `POST /admin/run-daily` | **202** + `job_id` | the cron's exact unit; 409 when any process runs a pass (C1 lock) or the slot is busy; 503 DB unreachable |
+| `POST /admin/run-daily` | **202** + `job_id` | the cron's exact unit, in a child process bounded by the run timeout; 409 when any process runs a pass (C1 lock) or the slot is busy; 503 DB unreachable |
 | `GET /admin/run-daily/jobs/{job_id}` | job status → run-history row | 404 → "lost from view", never a spinner |
 | `POST /admin/backup` | **202** + `job_id` | read-only `pg_dump`; 409 single-slot |
 | `GET /admin/backup/jobs/{job_id}` | job status → `BackupOut` | 404 → "lost from view" |
