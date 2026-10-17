@@ -481,9 +481,11 @@ runner, retention, the host bind, the client version) — this section is the su
   dump is copyable off-box). `GET /admin/backups` lists them newest-first, and `/admin/status` carries the
   **last-snapshot age**. Same operator-initiated discipline as *Run daily now* (fires only on the click; the
   list + age are reads).
-- **Retention = keep-last-N, labeled EXEMPT.** After a successful dump the newest `ALPHADECK_BACKUP_KEEP`
-  (default **7**) **unlabeled** snapshots are kept and older unlabeled ones pruned; a **labeled** dump (e.g.
-  `pre-migration`) is never auto-deleted. A failed dump never prunes (it must not shrink the safety net).
+- **Retention = keep-last-N unlabeled; labeled "90 days, or the last 20".** After a successful dump the
+  newest `ALPHADECK_BACKUP_KEEP` (default **7**) **unlabeled** snapshots are kept and older unlabeled ones
+  pruned. A **labeled** dump (e.g. `pre-migration`) is deleted only when it is both older than 90 days and
+  outside the newest 20 labeled dumps (Q16; the dials and the `--prune-dry-run` listing are in
+  `FEED_LOOP.md` §Backups & restore). A failed dump never prunes (it must not shrink the safety net).
 - **Nightly, too.** `scripts/daily_cron.sh` runs `python -m pipeline.backup` right after the scheduled
   `pipeline.daily` (weekday branch), fail-open — deliberately **not** folded into `run_daily_pass`, so a
   manual "Run daily now" does not also dump. Since M3 (2026-10-16) the sidecar's boot also runs an

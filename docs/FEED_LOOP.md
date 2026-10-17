@@ -1026,11 +1026,18 @@ happened to exist. So a snapshot is now a one-click safety net — and a nightly
   (H3) and a successful one pings `HEARTBEAT_BACKUP_URL` (H2). Retention is unchanged: a gated dump is a
   `run_backup` and prunes the same way, and a skip prunes nothing. `fresh_snapshot` is the pure gate; a
   labeled dump never satisfies it, and a future-dated one fails toward dumping.
-- **Retention = keep-last-N, labeled EXEMPT.** After a *successful* dump the newest `ALPHADECK_BACKUP_KEEP`
-  (default **7**) UNLABELED snapshots are kept and older unlabeled ones pruned (each prune logged); a
-  **labeled** dump (created with a `label`, e.g. `pre-migration`) is never auto-deleted. A **failed** dump
-  never prunes (it must not shrink the safety net), and the atomic `tmp → os.replace` means a crashed dump
-  never lists.
+- **Retention = keep-last-N unlabeled; labeled "90 days, or the last 20" (Q16).** After a *successful*
+  dump the newest `ALPHADECK_BACKUP_KEEP` (default **7**) UNLABELED snapshots are kept and older unlabeled
+  ones pruned. A **labeled** dump (created with a `label`, e.g. `pre-migration`) is deleted only when it is
+  BOTH older than `ALPHADECK_BACKUP_LABELED_MAX_AGE_DAYS` (default **90**) AND outside the newest
+  `ALPHADECK_BACKUP_LABELED_KEEP` (default **20**) labeled dumps, so whichever rule keeps more wins; either
+  dial `<= 0` turns labeled pruning off (the old keep-forever). Labeled dumps used to be kept forever:
+  MEASURED 2026-10-17, 65 of them held 19.8 GB of the 22.6 GB of dumps. Every removed file is logged by
+  name, at WARNING so it reaches the cron and backend logs. A **failed** dump never prunes (it must not
+  shrink the safety net), and the atomic `tmp → os.replace` means a crashed dump never lists.
+  `python -m pipeline.backup --prune-dry-run [--dir D]` dumps nothing and removes nothing: it prints every
+  file the next prune would delete, with its size and the rule that selected it, plus the bytes freed (run
+  it before a deploy that changes retention, and show the operator the list).
 - **The host bind is on BOTH services.** `./data/backups:/data/backups` (writable, the `scoreboard_replay`
   idiom minus `:ro`) is bound on `backend` (the button + list) **and** `cron` (the nightly dump), so the two
   share ONE host directory — host-accessible so a dump is copyable off-box. `pg_dump` comes from

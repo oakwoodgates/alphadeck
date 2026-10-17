@@ -1,8 +1,9 @@
 ---
 name: backup-restore
 description: >-
-  Snapshot the prod DB (labeled dumps are prune-exempt recovery points) or restore
-  one — restore is destructive, CLI-only, and needs the operator's explicit go.
+  Snapshot the prod DB (labeled dumps are recovery points kept 90 days or while among
+  the newest 20) or restore one — restore is destructive, CLI-only, and needs the
+  operator's explicit go.
   Trigger on "back up prod", "snapshot the DB", "restore the demo", "restore from
   backup". The bitemporal trap: recover lost history by RESTORING a snapshot,
   never by re-ingesting — re-ingest stamps recorded_at = today.
@@ -22,7 +23,11 @@ subprocess, no app connection.
   re-ingest — re-ingest stamps `recorded_at` = today, so the past becomes invisible
   to as-of reads pinned earlier (the demo-rebuild lesson).
 - **Label deliberate recovery points.** Retention keeps only the newest 7 UNLABELED
-  dumps; a labeled dump (`--label pre-<thing>`) is never auto-pruned.
+  dumps. A labeled dump (`--label pre-<thing>`) is NOT kept forever (Q16, 2026-10-17):
+  it is deleted once it is BOTH older than 90 days AND outside the newest 20 labeled
+  dumps. A recovery point you need longer than that must be copied off-box.
+  `python -m pipeline.backup --prune-dry-run` lists exactly what the next prune would
+  delete and removes nothing.
 
 ## Snapshot (safe, read-only)
 1. Check what already exists first — the cron takes a nightly weekday snapshot:

@@ -813,7 +813,7 @@ describe("Admin — backups (create + list, operator-initiated)", () => {
     expect(sec.textContent).toContain(BACKUP_LABELED.name);
     expect(sec.textContent).toContain("2.0 KB"); // fmtBytes(2048)
     expect(sec.textContent).toContain("5.0 MB"); // fmtBytes(5 MiB)
-    expect(screen.getByText("labeled")).toBeInTheDocument(); // the prune-exempt marker
+    expect(screen.getByText("labeled")).toBeInTheDocument(); // the labeled-dump marker
   });
 
   it("an empty snapshot list is an honest quiet line", () => {

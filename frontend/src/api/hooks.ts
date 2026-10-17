@@ -1347,7 +1347,8 @@ export function useBackups() {
   });
 }
 
-// Kick off a pg_dump snapshot (optional label -> a prune-EXEMPT named dump). retry:false — an expensive
+// Kick off a pg_dump snapshot (optional label -> a named dump, kept 90 days or while among the newest
+// 20 labeled). retry:false — an expensive
 // op must NEVER auto-retry (the server 409s a parallel run); the operator re-clicks. Fired ONLY by the
 // explicit button — never on mount/render (the operator-initiated invariant).
 export function useCreateBackup() {

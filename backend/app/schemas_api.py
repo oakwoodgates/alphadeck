@@ -1612,7 +1612,8 @@ class DisplaySignalsResponse(BaseModel):
 class BackupOut(BaseModel):
     """One snapshot as a value-free file listing — ``name`` (``alphadeck-<UTC>[-<label>].sql``),
     ``bytes`` (file size), ``created_at`` (parsed from the filename timestamp, UTC), and ``labeled``
-    (a named, prune-EXEMPT dump). Computed on read from the backups directory; writes nothing."""
+    (a named dump: kept 90 days, or while among the newest 20 labeled, rather than in the rolling
+    keep-N). Computed on read from the backups directory; writes nothing."""
 
     name: str
     bytes: int
@@ -1628,8 +1629,9 @@ class BackupsOut(BaseModel):
 
 
 class BackupCreateIn(BaseModel):
-    """The optional create body. A ``label`` marks a NAMED snapshot that retention never auto-prunes (a
-    deliberate recovery point like ``pre-migration``); omit it for a rolling nightly-style dump."""
+    """The optional create body. A ``label`` marks a NAMED snapshot (a deliberate recovery point like
+    ``pre-migration``), which retention keeps 90 days, or while it is among the newest 20 labeled dumps;
+    omit it for a rolling nightly-style dump."""
 
     label: str | None = None
 

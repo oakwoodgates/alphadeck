@@ -96,7 +96,8 @@ def test_create_202_poll_done_shows_in_list_and_status_age(client):
 
 
 def test_labeled_snapshot_is_named_and_flagged(client):
-    """A label makes a NAMED, prune-exempt snapshot; the slug rides the filename."""
+    """A label makes a NAMED snapshot (the Q16 labeled retention, not the rolling keep-N); the slug rides
+    the filename."""
     ref = client.post("/admin/backup", json={"label": "Pre Migration"})
     assert ref.status_code == 202
     result = client.get(f"/admin/backup/jobs/{ref.json()['job_id']}").json()["result"]
