@@ -160,10 +160,11 @@ replay's job (`docs/REPLAY.md` — the historical twin); attribution's source is
   - **Admin says "recorded", this page says "gap" — and Admin names the difference.** Admin's per-(thesis,
     night) coverage counts a late row as COVERING its night (the pass did record it; `ADMIN.md` "Cron
     health"), so a thesis-night recorded ONLY late reads covered there and a gap here. Admin lists exactly
-    those pairs — `GET /admin/status` `record.late_only_nights`: this banner's `late_nights` entries with no
-    on-time row, computed by the same judge (`scoreboard/late.py::late_only_nights`) — as one quiet line
-    pointing back at this banner (operator decision 2026-10-17). Informational there: never an alarm, never
-    the verdict.
+    those pairs — `GET /admin/status` `record.late_only_nights`: this banner's `late_nights` entries whose
+    `earlier_recorded_at` is `null` (nothing scored instead — a gap), computed by the same judge
+    (`scoreboard/late.py::late_only_nights`) — as one quiet line pointing back at this banner (operator
+    decision 2026-10-17). A late night that has an on-time or daytime row scored instead is not a gap and is
+    not listed there. Informational there: never an alarm, never the verdict.
   - MEASURED (prod, 2026-10-17, read-only — the branch code through a `PYTHONPATH` overlay on a
     `default_transaction_read_only` session): **9 late rows in the whole history** (793 rows, 151 of them
     reconstructed), all from the 2026-10-12 boot catch-up — AI Memory & Storage (seq 1367 at 17:04, which

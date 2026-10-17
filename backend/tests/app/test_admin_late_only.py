@@ -103,7 +103,8 @@ def test_the_10_12_night_names_exactly_the_8_late_only_theses_and_stays_quiet(
     """The measured night: 4 on-time rows (22:42-22:43), then 9 late catch-up rows (10-13 17:04-17:13), one
     of them re-versioning an on-time thesis. Admin's coverage reads the night fully covered (12 of 12 — the
     late rows cover, unchanged) and the verdict healthy; ``late_only_nights`` names EXACTLY the 8 theses
-    with no on-time row — not the re-versioned one, not the three whose catch-up appended nothing.
+    whose night is a gap on the Scoreboard — not the re-versioned one (its on-time row is scored), not the
+    three whose catch-up appended nothing.
     """
     re_versioned = _thesis(db, "OnTime-ReVersioned")  # AI Memory & Storage's shape
     quiet = [_thesis(db, f"OnTime-{i}") for i in range(3)]
@@ -136,7 +137,7 @@ def test_the_10_12_night_names_exactly_the_8_late_only_theses_and_stays_quiet(
         # served in MARKET time: the stamp the operator saw on the night, and the EDGAR open it missed
         assert datetime.fromisoformat(n["recorded_at"]).utcoffset() == timedelta(hours=-4)
         assert n["edgar_open"] == "2026-10-13T06:00:00-04:00"
-        assert n["n_rows"] == 1 and n["daytime_recorded_at"] is None
+        assert n["n_rows"] == 1
     assert rec["late_only_nights"][0]["recorded_at"] == "2026-10-13T17:05:00-04:00"
     assert rec["late_only_nights"][-1]["recorded_at"] == "2026-10-13T17:12:00-04:00"
 
@@ -152,8 +153,38 @@ def test_the_10_12_night_names_exactly_the_8_late_only_theses_and_stays_quiet(
     banner = late_nights(db, upto=date(2026, 10, 16))
     assert (
         len(banner) == 9
-    )  # the re-versioned thesis's night is late too — but an on-time row is scored
-    assert {str(n.thesis_id) for n in banner if n.earlier_recorded_at is None} == set(by_id)
+    )  # the re-versioned thesis's night is late too — but its on-time row is scored
+    assert [str(n.thesis_id) for n in banner if n.earlier_recorded_at is None] == [
+        n["thesis_id"] for n in rec["late_only_nights"]
+    ]
+
+
+def test_a_late_row_beside_a_DAYTIME_row_is_not_listed_the_scoreboard_scores_that_row(
+    client, db, monkeypatch
+):
+    """A thesis whose 10-12 rows are a 09:15 "Run daily now" (pre-RUN_AT, the prior session's bars) and a
+    late catch-up: Admin covers the night with the late row, and the Scoreboard — setting the late row aside —
+    scores the DAYTIME row, so there is no gap to name; listing it "set aside on the Scoreboard" would be
+    untrue, and noise. A plain late-only thesis beside it IS listed."""
+    daytime = _thesis(db, "Daytime+Late")
+    late = _thesis(db, "LateOnly")
+    _row(db, daytime, _MON, _et(10, 12, 9, 15))
+    _row(db, daytime, _MON, _et(10, 13, 17, 4))
+    _row(db, late, _MON, _et(10, 13, 17, 5))
+    _finished(_MON, _et(10, 12, 22, 30), 2)
+    monkeypatch.setattr(admin, "_now", lambda: _et(10, 13, 18, 0))
+
+    before = _table_counts(db)
+    body = client.get("/admin/status").json()
+    assert _table_counts(db) == before
+
+    rec = body["record"]
+    assert [n["thesis_id"] for n in rec["late_only_nights"]] == [str(late)]
+    assert rec["partial_nights"] == []  # both theses are covered (by their late rows), unchanged
+    # the banner lists both late nights; the daytime one names the row the Scoreboard scores instead
+    by_thesis = {n.thesis_id: n for n in late_nights(db, upto=_MON)}
+    assert by_thesis[daytime].earlier_recorded_at == _et(10, 12, 9, 15)
+    assert by_thesis[late].earlier_recorded_at is None
 
 
 def test_the_boundaries_FRIDAY_runs_to_MONDAY_06_00_and_a_reconstructed_only_night_is_not_late_only(

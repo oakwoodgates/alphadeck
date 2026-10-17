@@ -232,8 +232,8 @@ const STATUS_BACKFILLED = {
 
 // the MEASURED 2026-10-12 shape after the boot catch-up: every thesis has a post-close row (4 on time, 8 ONLY
 // late — a late row still COVERS its night), so nothing is partial and the cron is healthy, yet the Scoreboard
-// sets the late rows aside (L1). Two of the eight here (synthetic names); the second also carries the rarer
-// shapes the wire can hold — two late rows, and a pre-close daytime row the Scoreboard scores instead.
+// sets the late rows aside (L1), so each is a gap there. Two of the eight here (synthetic names); the second
+// also carries the rarer shape the wire can hold — two late rows on one night.
 const LATE_ONLY_NIGHTS = [
   {
     thesis_id: "66666666-6666-6666-6666-666666666666",
@@ -242,7 +242,6 @@ const LATE_ONLY_NIGHTS = [
     recorded_at: "2026-10-13T17:05:00-04:00",
     edgar_open: "2026-10-13T06:00:00-04:00",
     n_rows: 1,
-    daytime_recorded_at: null as string | null,
   },
   {
     thesis_id: "77777777-7777-7777-7777-777777777777",
@@ -251,7 +250,6 @@ const LATE_ONLY_NIGHTS = [
     recorded_at: "2026-10-13T17:13:00-04:00",
     edgar_open: "2026-10-13T06:00:00-04:00",
     n_rows: 2,
-    daytime_recorded_at: "2026-10-12T09:15:00-04:00" as string | null,
   },
 ];
 const STATUS_LATE_ONLY = {
@@ -442,8 +440,7 @@ describe("Admin — honest loudness on the freshness widget", () => {
     const items = [...block.querySelectorAll("li")].map((li) => li.textContent);
     expect(items).toEqual([
       "Thesis Alpha — night 2026-10-12 · recorded 2026-10-13 17:05 ET (11 h past the EDGAR open)",
-      "Thesis Beta — night 2026-10-12 · recorded 2026-10-13 17:13 ET (11 h past the EDGAR open; 2 late rows)" +
-        " · the Scoreboard scores its daytime row (2026-10-12 09:15 ET) instead",
+      "Thesis Beta — night 2026-10-12 · recorded 2026-10-13 17:13 ET (11 h past the EDGAR open; 2 late rows)",
     ]);
     // the pointer to the Scoreboard's own late banner
     expect(block.textContent).toContain('"late-recorded nights" line');

@@ -374,22 +374,25 @@ died at ~22:42 when the host VM went down, 4 of 12 theses had rows, there was no
   §"Late-recorded rows"). The page lists them on the freshness card
   ("2026-10-12: 4 of 12 theses") only when there is one.
 - **Thesis-nights recorded ONLY late — `record.late_only_nights` (operator decision, 2026-10-17).** A late
-  row covers its night here, but the Scoreboard sets it aside, so a (thesis, night) with a late row and NO
-  on-time row reads "covered" on this page while the Scoreboard shows a gap. The operator decided such a
-  night must LOOK different here, so the page names it. A pair is late-only when it holds at least one
-  late row (a non-reconstructed row recorded at/after the next weekday's 06:00 ET EDGAR open) and no
-  non-reconstructed row inside the night's on-time window `[RUN_AT, next EDGAR open)`. Both words come from
-  `pipeline/night_coverage.py` (`is_late` / `is_on_time`), and the list is L1's own judge filtered
-  (`scoreboard/late.py::late_only_nights` — exactly the Scoreboard banner's `late_nights` entries with no
-  on-time row), so Admin and the Scoreboard cannot disagree about which nights are late. It is read over the
-  same judged window nights as `partial_nights` (the window, minus a night a pass is still recording), for
-  every thesis with rows on them. Each entry is `{thesis_id, thesis_name, asof, recorded_at, edgar_open,
-  n_rows, daytime_recorded_at}`: the first late row's stamp and the EDGAR open it missed (both served in
-  market time), how many late rows the night holds, and, when the night also has a pre-`RUN_AT` daytime row,
-  that row's stamp (the Scoreboard scores the daytime row instead of a gap; `null` = a gap there).
-  - **The two markers never mix.** A reconstructed row is neither late nor on time here, so a
-    reconstructed-only night is never late-only (it stays the quiet `reconstructed_nights` count), and a
-    reconstruction beside a late row does not stand in for an on-time one (the Scoreboard sets both aside).
+  row covers its night here, but the Scoreboard sets it aside, so a (thesis, night) with a late row and
+  nothing else the Scoreboard scores reads "covered" on this page while the Scoreboard shows a GAP. The
+  operator decided such a night must LOOK different here, so the page names exactly those. A pair is
+  late-only when it holds at least one late row (a non-reconstructed row recorded at/after the next
+  weekday's 06:00 ET EDGAR open — `pipeline/night_coverage.is_late`) and NO row the Scoreboard would score
+  (no non-late, non-reconstructed row: neither an on-time row nor a pre-`RUN_AT` daytime one). The list is
+  L1's own judge with L1's own gap marker (`scoreboard/late.py::late_only_nights` — exactly the Scoreboard
+  banner's `late_nights` entries whose `earlier_recorded_at` is `null`), so Admin and the Scoreboard cannot
+  disagree about which nights are late, or which are gaps. It is read over the same judged window nights as
+  `partial_nights` (the window, minus a night a pass is still recording), for every thesis with rows on
+  them. Each entry is `{thesis_id, thesis_name, asof, recorded_at, edgar_open, n_rows}`: the first late
+  row's stamp and the EDGAR open it missed (both served in market time), and how many late rows the night
+  holds.
+  - **Which nights.** Late only → listed. Late + a reconstruction → listed (a reconstructed row is never
+    scored either, so both are set aside: a gap). Late + an on-time row, or late + a daytime row → NOT
+    listed: the Scoreboard scores that row instead, so there is no gap, and "set aside on the Scoreboard"
+    would be untrue — and noise.
+  - **The two markers never mix.** A reconstructed-only night holds no late row, so it is never late-only;
+    it stays the quiet `reconstructed_nights` count.
   - **Honest loudness: informational, never an alarm.** It changes neither `record.reason` nor the
     `cron.status` verdict, is never a `cron.alarms` line, and never pages. The freshness card shows one
     quiet line, rendered only when there is a pair: "N thesis-night(s) recorded only late — set aside on

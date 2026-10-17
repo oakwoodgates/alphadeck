@@ -143,15 +143,14 @@ function ClosedTapeBlock({ rows }: { rows: AdminStaleTapeOut[] }) {
 const fmtMarketWall = (iso: string) => `${iso.slice(0, 16).replace("T", " ")} ET`;
 
 /** The LATE-ONLY thesis-nights (operator decision 2026-10-17): a (thesis, night) holding a LATE row —
- *  recorded at/after the next weekday's 06:00 ET EDGAR open — and no on-time row. The coverage readout
- *  counts that row as covering the night (the pass did record it), while the Scoreboard sets late rows
- *  aside (L1: they never define an episode), so there the night reads as a gap. Without this line Admin
- *  would say "covered" where the Scoreboard shows a hole. QUIET and informational (honest loudness,
- *  #7/WB#3): never loud, never a cron alarm, never the verdict, never paged — and distinct from the
- *  backfilled line, because a reconstructed row is its own marker. Each row names the thesis, its night,
- *  when it was recorded (and how far past the EDGAR open), and — when the night also has a pre-close
- *  daytime row — that the Scoreboard scores that row instead. Rendered by its caller only when there is
- *  one: a line true of no night carries no information. */
+ *  recorded at/after the next weekday's 06:00 ET EDGAR open — and NO row the Scoreboard would score (no
+ *  on-time or daytime row). The coverage readout counts the late row as covering the night (the pass did
+ *  record it), while the Scoreboard sets late rows aside (L1: they never define an episode), so there the
+ *  night is a gap. Without this line Admin would say "covered" where the Scoreboard shows a hole. QUIET and
+ *  informational (honest loudness, #7/WB#3): never loud, never a cron alarm, never the verdict, never
+ *  paged — and distinct from the backfilled line, because a reconstructed row is its own marker. Each row
+ *  names the thesis, its night, and when it was recorded (and how far past the EDGAR open). Rendered by its
+ *  caller only when there is one: a line true of no night carries no information. */
 function LateOnlyBlock({ rows }: { rows: AdminLateOnlyNightOut[] }) {
   return (
     <div data-testid="adm-late-only">
@@ -165,9 +164,6 @@ function LateOnlyBlock({ rows }: { rows: AdminLateOnlyNightOut[] }) {
             <b>{n.thesis_name}</b> — night {n.asof} · recorded {fmtMarketWall(n.recorded_at)} (
             {hoursLate(n)} h past the EDGAR open
             {n.n_rows > 1 ? `; ${n.n_rows} late rows` : ""})
-            {n.daytime_recorded_at && (
-              <> · the Scoreboard scores its daytime row ({fmtMarketWall(n.daytime_recorded_at)}) instead</>
-            )}
           </li>
         ))}
       </ul>
