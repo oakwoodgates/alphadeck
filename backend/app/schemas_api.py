@@ -1682,7 +1682,11 @@ class AdminRunOut(BaseModel):
     and makes ``healthy`` false; ``name_errors_new`` are the ``"<ticker> (<leg>)"`` labels of names whose
     ingest leg started failing that night (O1 — a ``problems`` line with the benign marker: the thesis
     still recorded) and ``name_errors_known`` the quiet count of names failing the same way as the pass
-    before."""
+    before.
+
+    ``skipped`` (M2) = theses a ``--catch-up`` pass left alone because an ON-TIME call-of-record for the
+    night already stood (a catch-up never re-records one); ``0`` on every other pass and on an artifact
+    written before M2."""
 
     ran_at: str
     finished_at: str
@@ -1706,6 +1710,36 @@ class AdminRunOut(BaseModel):
     audit: list[AdminAuditCheckOut] = []
     name_errors_new: list[str] = []
     name_errors_known: int = 0
+    skipped: int = 0
+
+
+class AdminPartialNightOut(BaseModel):
+    """One scheduled night the pass did not fully cover (M1): some thesis in that night's roster has no
+    call-of-record recorded at/after the night's ``RUN_AT`` and no ``pipeline.backfill`` reconstruction
+    either (``pipeline/night_coverage.py``). ``covered`` of ``expected`` theses had a live post-``RUN_AT``
+    row; ``reconstructed_only`` of the rest were backfilled (resolved — they alone never make a night
+    partial) and ``daytime_only`` have only a pre-``RUN_AT`` row; ``late`` of the ``covered`` ones were
+    recorded only after the night's on-time window closed (the next weekday's 06:00 ET EDGAR open — a
+    catch-up the next day). Counts only — never a thesis name."""
+
+    asof: date
+    covered: int
+    expected: int
+    reconstructed_only: int = 0
+    daytime_only: int = 0
+    late: int = 0
+
+
+class AdminReconstructedNightOut(BaseModel):
+    """A scheduled night some of whose theses are covered only by a ``pipeline.backfill`` reconstruction
+    (``reconstructed`` of ``expected``), every other thesis having its live post-``RUN_AT`` row. QUIET by
+    operator decision (2026-10-16): the backfill is the operator's answer to that hole, so the night is NOT
+    partial and never an alarm — it is listed so the reconstruction stays visible (the Scoreboard reports
+    such rows and never scores them)."""
+
+    asof: date
+    reconstructed: int
+    expected: int
 
 
 class AdminRecordOut(BaseModel):
@@ -1728,6 +1762,16 @@ class AdminRecordOut(BaseModel):
     the detail marks them, because "nothing ran" and "something ran, but not after the close" call for
     different responses. A next-morning catch-up row is recorded after the cutoff and correctly covers the
     night; a ``reconstructed`` row (``pipeline.backfill``) covers it too, unchanged and deliberate.
+
+    **PER-THESIS coverage (M1).** ``missed_asofs`` asks whether ANY row landed after the cutoff — so a pass
+    killed after recording 4 of 12 theses read as a covered night (MEASURED 2026-10-12, healthy for ~18 h).
+    ``partial_nights`` lists every window night NOT in ``missed_asofs`` where some thesis in that night's
+    roster (created before the cutoff, not archived before it) has no row at/after the cutoff — "4 of 12
+    theses". A thesis ``pipeline.backfill`` reconstructed is RESOLVED, not missing (operator decision
+    2026-10-16 — the backfill is the operator's answer to that hole, so a new miss stands out): a night
+    whose only gaps are reconstructed is not partial and lands in ``reconstructed_nights`` instead, a quiet
+    count that never changes the verdict. ``[]`` on a clean window; the night a pass is still running for
+    (within the run timeout) is left out of both until it finishes.
     """
 
     edge: date | None
@@ -1740,6 +1784,27 @@ class AdminRecordOut(BaseModel):
     missed_asofs: list[date]
     daytime_only_asofs: list[date] = []
     window_days: int
+    partial_nights: list[AdminPartialNightOut] = []
+    reconstructed_nights: list[AdminReconstructedNightOut] = []
+
+
+class AdminUnfinishedRunOut(BaseModel):
+    """The NEWEST run artifact, when its pass has not finished (M1): the pass writes its artifact with
+    ``status: "running"`` at its start and finalizes it at the end, so a ``running`` newest artifact is a
+    pass in flight — or, once older than the sidecar's run timeout (``timeout_s``, the C2 ``RUN_TIMEOUT_S``),
+    a pass that was KILLED (the VM went down, the timeout fired) and will never finish (``past_timeout``).
+    ``crashed`` = an exception escaped the pass (``error`` names it). Either of the dead shapes is a
+    ``cron.alarms`` line; a pass still inside its timeout reads ``running``, never an alarm."""
+
+    status: str
+    started_at: str
+    asof: date
+    mode: str
+    run_kind: str | None = None
+    catch_up: bool = False
+    past_timeout: bool = False
+    timeout_s: float
+    error: str | None = None
 
 
 class AdminCronOut(BaseModel):
@@ -1760,9 +1825,17 @@ class AdminCronOut(BaseModel):
     through the LOG notifier (``SLACK_WEBHOOK_URL`` unset — a bad night pages nobody) or ran with
     ``ALPHADECK_USER_AGENT`` unset; the newest unlabeled DB dump is older than
     ``ALPHADECK_BACKUP_STALE_HOURS`` in schedule time (B4 — only on a stack whose run history shows the cron
-    sidecar, where a nightly dump is expected). ``[]`` on a clean stack."""
+    sidecar, where a nightly dump is expected). ``[]`` on a clean stack.
 
-    status: Literal["healthy", "stale", "never_ran", "unhealthy", "gappy"]
+    M1 adds three alarms and one verdict. Alarms: **the last pass did not finish** (the newest artifact still
+    reads ``running`` past the run timeout — killed or hung), **the last pass crashed** (``crashed``), and
+    **rows without a run artifact** (a night has post-``RUN_AT`` rows but no pass artifact at all for it).
+    ``gappy`` now also covers a PARTIAL night (``record.partial_nights``). ``running`` = a pass is in flight
+    inside its timeout and nothing else is wrong; its own night is not judged until it finishes, so a
+    healthy pass mid-loop never reads partial or stale. Priority: never_ran > unhealthy > stale > gappy >
+    running > healthy."""
+
+    status: Literal["healthy", "stale", "never_ran", "unhealthy", "gappy", "running"]
     detail: str
     alarms: list[str] = []
 
@@ -1845,7 +1918,11 @@ class AdminStatusOut(BaseModel):
     ``backend_sha`` is this backend's OWN ``Settings.image_sha`` (``null`` = built without ``GIT_SHA``) and
     ``cron_sha`` the ``code_sha`` the newest CRON-kind run artifact recorded (``null`` = unknown, or no
     cron pass has recorded its identity yet) — the pair the identity alarm compares (I1). The latest
-    self-audit rides ``last_run.audit``."""
+    self-audit rides ``last_run.audit``.
+
+    M1: ``last_run`` is the newest FINISHED pass (a pre-M1 artifact counts as finished); when the newest
+    artifact is a pass that has not finished, ``unfinished_run`` describes it (``null`` otherwise).
+    """
 
     record: AdminRecordOut
     last_run: AdminRunOut | None = None
@@ -1854,6 +1931,7 @@ class AdminStatusOut(BaseModel):
     tape: AdminTapeOut | None = None
     backend_sha: str | None = None
     cron_sha: str | None = None
+    unfinished_run: AdminUnfinishedRunOut | None = None
 
 
 class AdminRunsOut(BaseModel):

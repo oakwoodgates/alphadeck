@@ -82,7 +82,7 @@ from domain.market_time import market_today, market_tz
 from domain.settings import get_settings
 from pipeline.backfill_log import write_backfill_log
 from pipeline.call_for_thesis import call_for_thesis
-from pipeline.cron_run_log import list_run_logs
+from pipeline.cron_run_log import is_finished, list_run_logs
 from pipeline.run_lock import EXIT_ALREADY_RUNNING, PassAlreadyRunning, acquire_pass_lock
 from repositories import calls_repo, thesis_repo
 
@@ -159,11 +159,14 @@ def resolve_next_run_known_at(payloads: Iterable[dict], asof: date, tz: tzinfo) 
     ingested them) and nothing that arrived later. Why the bounds: a ``no-live`` run refreshed nothing (the
     R2 recording gate) so it is no evidence of what was knowable; a run started ON the as-of day (a same-day
     manual run) is not "after the night". A ``--catch-up`` pass is a live run and counts. Fail-open PER
-    PAYLOAD: an artifact with a missing / unparseable / naive stamp is skipped, never a crash."""
+    PAYLOAD: an artifact with a missing / unparseable / naive stamp is skipped, never a crash. M1: only a
+    FINISHED pass counts (``cron_run_log.is_finished``; a pre-M1 artifact reads finished) — a ``running`` or
+    ``crashed`` start artifact never ingested the night for sure, and has no honest ``finished_at`` to pin.
+    """
     cutoff = night_end(asof, tz)
     best: tuple[datetime, datetime] | None = None
     for doc in payloads:
-        if not isinstance(doc, dict) or doc.get("mode") != "live":
+        if not isinstance(doc, dict) or doc.get("mode") != "live" or not is_finished(doc):
             continue
         try:
             started = datetime.fromisoformat(doc["started_at"])

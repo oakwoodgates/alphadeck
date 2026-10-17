@@ -278,6 +278,16 @@ stamped a fresh "policy" on every cron night.
   The annotator's D3a-off re-assembly is a diagnostic view that lives only in the CLI — no live-path switch.
   (`tests/pipeline/test_annotate_phantom_arms.py`, `tests/repositories/test_call_annotations_repo.py`,
   `tests/db/test_migration_0045_call_annotation.py`.) See `SCOREBOARD.md`, `FEED_LOOP.md`.
+- *Also honored by (the on-time row — M2 + C3, 2026-10-16):* nothing recorded LATER may supersede a night's
+  honest on-time call-of-record, and nothing typed by hand may write a scored row for a past night with
+  today's knowledge. A `--catch-up` pass skips (no ingest, no write) every thesis already holding a
+  non-reconstructed row for the night inside its on-time window — `[RUN_AT, the next weekday's 06:00 ET)`,
+  `pipeline/night_coverage.on_time_window` (MEASURED 10-12: a next-day catch-up re-versioned 4 on-time rows
+  with restated bars and next-day Form 4s); and `pipeline.daily --asof <older than the last expected night>`
+  is refused (exit 2) unless `--catch-up` / `--late-ok` / `--no-live` — a missed night is
+  `pipeline.backfill`'s, pinned and marked reconstructed. Whether a LATE row is scored is the separate
+  late-row policy (L1). (`tests/pipeline/test_killed_runs.py`, `tests/pipeline/test_night_coverage.py`.)
+  See `FEED_LOOP.md`.
 - *CLOSED — "today" is a DOMAIN fact, not an ambient one.* Inside the assembler `asof` is always a
   parameter (above). But at the **edges** that choose the `asof` for a run, "today" was derived from
   `date.today()`, which reads the process's **ambient timezone**. **This bit in production:** a manual

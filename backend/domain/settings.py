@@ -275,6 +275,12 @@ class Settings(BaseSettings):
     # slowest whole call, yet well under the sidecar's whole-pass ceiling, so a stuck statement fails
     # VISIBLY inside the pass before the pass itself is killed. 0 disables. ALPHADECK_CRON_STATEMENT_TIMEOUT_S.
     cron_statement_timeout_s: float = 300.0
+    # M1 — the sidecar's whole-pass ceiling (C2: `timeout ${RUN_TIMEOUT_S}` around every `pipeline.daily`),
+    # mirrored to the backend by compose from the SAME host var (ALPHADECK_CRON_RUN_TIMEOUT_S, read here via
+    # the env_prefix) so the Admin page knows when a pass still marked `running` can no longer be alive: a
+    # start artifact older than this reads "the last pass did not finish" (an alarm); younger, "running".
+    # The default MUST equal the sidecar's (compose + daily_cron.sh both default 5400 s = 90 min).
+    cron_run_timeout_s: float = 5400.0
 
     # --- D3b — the Scoreboard's ANNOTATED-NIGHT read policy (operator decision Q2, 2026-10-16) ---
     # `call_annotation` (migration 0045) holds append-only judgments about recorded `calls` rows; an ACTIVE

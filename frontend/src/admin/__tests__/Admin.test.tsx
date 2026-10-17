@@ -185,6 +185,54 @@ const STATUS_GAPPY = {
   },
 };
 
+// M1 — the PARTIAL shape (MEASURED 2026-10-12): the 22:30 pass recorded 4 of 12 theses and the VM died. Every
+// night has SOME post-close row, so no night is a hole — judged per thesis, 10-12 is partial.
+const STATUS_PARTIAL = {
+  record: {
+    edge: "2026-10-12",
+    today: "2026-10-13",
+    expected_asof: "2026-10-12",
+    days_behind: 0,
+    stale: false,
+    reason:
+      "current at the edge — but 1 of the last 10 scheduled night(s) are PARTIAL (not every thesis has a post-22:30 call-of-record)",
+    ...CLEAN_WINDOW,
+    partial_nights: [
+      { asof: "2026-10-12", covered: 4, expected: 12, reconstructed_only: 0, daytime_only: 0, late: 0 },
+    ],
+  },
+  last_run: OK_RUN,
+  cron: {
+    status: "gappy",
+    detail: "1 PARTIAL night(s) — not every thesis has a post-22:30 call-of-record: 2026-10-12: 4 of 12 theses",
+  },
+};
+
+// M1 — a pass IN FLIGHT inside its run timeout: not an alarm, and its own night is not judged yet
+const STATUS_RUNNING = {
+  record: { ...STATUS_PARTIAL.record, partial_nights: [], reason: "current — no scheduled run is missing" },
+  last_run: OK_RUN,
+  cron: { status: "running", detail: "a pass is running (started 2026-10-16 22:30 EDT, asof 2026-10-16)" },
+};
+
+// a window whose 09-29 / 09-30 were backfilled (pipeline.backfill, reconstructed rows): resolved, quiet
+const STATUS_BACKFILLED = {
+  record: {
+    ...STATUS_PARTIAL.record,
+    partial_nights: [],
+    reason: "current — no scheduled run is missing",
+    reconstructed_nights: [
+      { asof: "2026-09-29", reconstructed: 12, expected: 12 },
+      { asof: "2026-09-30", reconstructed: 12, expected: 12 },
+    ],
+  },
+  last_run: OK_RUN,
+  cron: { status: "healthy", detail: "last run asof 2026-10-02 (live) — 12 appended" },
+};
+
+// M2 — a catch-up that left 4 theses alone (their on-time rows already stood)
+const SKIPPED_RUN = { ...CATCHUP_RUN, appended: 8, unchanged: 0, skipped: 4 };
+
 // G2c — the DAYTIME-ONLY shape: Tuesday's only call-of-record was written by a pre-open pass (on Monday's
 // bars), and that night's post-close pass failed or never fired. The row EXISTS, so the edge reads current
 // and the old membership test called the night covered. It is a hole, and a distinct one.
@@ -300,6 +348,53 @@ describe("Admin — honest loudness on the freshness widget", () => {
     // ...and no stale-tape panel either: "no stale tapes" is the normal night (honest loudness)
     expect(screen.queryByTestId("adm-stale-tapes")).toBeNull();
     expect(fresh.textContent).not.toContain("no call-of-record");
+  });
+
+  it("a PARTIAL night is loud: the 10-12 shape (a pass killed after 4 of 12 theses) is named per night", () => {
+    // M1: no night is a hole (every one has SOME post-close row) and the edge is current — exactly the
+    // state that used to read healthy for ~18 h. Judged per thesis, the killed night is partial.
+    h.status = { ...h.status, data: STATUS_PARTIAL };
+    renderAdmin();
+    const fresh = screen.getByTestId("adm-fresh");
+    expect(fresh.className).toMatch(/gappy/);
+    expect(screen.queryByTestId("adm-missed")).toBeNull(); // not a hole — a partial night
+    const partial = screen.getByTestId("adm-partial");
+    expect(partial.textContent).toContain("PARTIAL");
+    expect(partial.textContent).toContain("2026-10-12: 4 of 12 theses");
+    expect(screen.getByTestId("adm-cron").querySelector(".adm-chip")?.className).toMatch(/s-gappy/);
+  });
+
+  it("a BACKFILLED night is QUIET: listed with its reconstructed count, never loud, the cron healthy", () => {
+    // operator decision 2026-10-16: the backfill resolves the hole, so a NEW miss stands out
+    h.status = { ...h.status, data: STATUS_BACKFILLED };
+    renderAdmin();
+    const fresh = screen.getByTestId("adm-fresh");
+    expect(fresh.className).not.toMatch(/gappy|stale/);
+    expect(screen.queryByTestId("adm-partial")).toBeNull();
+    const line = screen.getByTestId("adm-reconstructed");
+    expect(line.className).toMatch(/adm-quiet/);
+    expect(line.className).not.toMatch(/adm-loud/);
+    expect(line.textContent).toContain("2026-09-29 (12 of 12 theses)");
+    expect(screen.getByTestId("adm-cron").querySelector(".adm-chip")?.className).toMatch(/s-healthy/);
+  });
+
+  it("a pass IN FLIGHT reads RUNNING, quietly — no partial line, no loud freshness card", () => {
+    h.status = { ...h.status, data: STATUS_RUNNING };
+    renderAdmin();
+    expect(screen.getByTestId("adm-fresh").className).not.toMatch(/gappy|stale/);
+    expect(screen.queryByTestId("adm-partial")).toBeNull();
+    const chip = screen.getByTestId("adm-cron").querySelector(".adm-chip");
+    expect(chip?.className).toMatch(/s-running/);
+    expect(chip?.textContent).toBe("running");
+  });
+
+  it("a catch-up's SKIPPED theses (M2) show on its run line, and only when there are any", () => {
+    h.status = { ...h.status, data: { ...STATUS_RUNNING, last_run: SKIPPED_RUN } };
+    renderAdmin();
+    expect(screen.getByTestId("adm-cron").textContent).toContain("4 skipped (on-time row stands)");
+    h.status = { ...h.status, data: { ...STATUS_RUNNING, last_run: OK_RUN } };
+    renderAdmin();
+    expect(screen.getAllByTestId("adm-cron").at(-1)?.textContent).not.toContain("skipped");
   });
 
   it("a GAPPY record is loud: gappy styling + the missed nights listed, and the cron chip says so", () => {

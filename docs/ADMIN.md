@@ -85,9 +85,13 @@ then off at 22:30).
 - The cutoff uses `Settings.cron_run_at` (`ALPHADECK_CRON_AT`), the same host var the sidecar fires on —
   mirrored into both services by compose so the trigger and its readout cannot drift.
 
-**A reconstructed night reads as recorded here — on purpose.** `record_edge` / `record_first` /
-`recorded_asof_stamps` count EVERY `calls` row, including the rows `pipeline.backfill` wrote (`calls.reconstructed`,
-migration 0042): after a backfill the night is no longer a hole, `gappy` clears, and the edge can advance.
+**A reconstructed night reads as recorded here — on purpose: after a backfill, the hole CLEARS.**
+`record_edge` / `record_first` / `recorded_asof_stamps` count EVERY `calls` row, including the rows
+`pipeline.backfill` wrote (`calls.reconstructed`, migration 0042): after a backfill the night is no longer a
+hole, `gappy` clears, and the edge can advance. The per-thesis PARTIAL check (M1, "Cron health") honors the
+same decision — a backfilled thesis is RESOLVED, never a partial night — and only keeps the reconstruction
+visible as a quiet count (`record.reconstructed_nights`). The backfill is the operator's answer to the hole,
+so the page goes quiet and a NEW miss stands out.
 Freshness asks whether the log advanced, not whether a row is scoreable — the Scoreboard's record path is the
 one reader that filters reconstructed rows out (`SCOREBOARD.md`), so "healthy" here and "N nights
 reconstructed · not scored" there can both be true of the same night.
@@ -203,11 +207,59 @@ The one-word `cron.status` verdict, plus the last run's counts and any problems:
 | `never_ran` | no run-of-record artifact yet — run one below, or bring the `cron` sidecar up |
 | `unhealthy` | the last run **froze / errored / totally failed / could not refresh the benchmark tape / failed its self-audit**, or a status-level alarm is up (`cron.alarms`: unknown or mismatched `code_sha`, the LOG notifier, an unset User-Agent, a stale nightly backup) — as loud as `stale`, so a bad run can't hide behind green |
 | `stale` | the record missed an expected scheduled run (freshness above) |
-| `gappy` | the edge is current and the last run clean, but a night inside the last `ALPHADECK_ADMIN_MISSED_WINDOW` scheduled runs has **no call-of-record** — a run fired on the wrong day (the hole check above); the detail names the dates |
+| `gappy` | the edge is current and the last run clean, but a night inside the last `ALPHADECK_ADMIN_MISSED_WINDOW` scheduled runs has **no call-of-record** — a run fired on the wrong day (the hole check above) — or is **PARTIAL** (M1: some thesis in that night's roster has no on-time row — a pass killed mid-loop); the detail names the dates, and each partial night as "4 of 12 theses" |
+| `running` | (M1) a pass is in flight inside the sidecar's run timeout and nothing else is wrong — quiet, never an alarm; its own night is not judged until it finishes |
 | `healthy` | the last run is clean, the record is current, and the window has no holes |
 
-Priority: `never_ran` > `unhealthy` > `stale` > `gappy` > `healthy` (a stale edge with a hole reads `stale`
-— the louder, more actionable verdict — while `record.missed_asofs` still lists both).
+Priority: `never_ran` > `unhealthy` > `stale` > `gappy` > `running` > `healthy` (a stale edge with a hole
+reads `stale` — the louder, more actionable verdict — while `record.missed_asofs` still lists both).
+
+**A killed or partial pass never reads healthy (M1, 2026-10-16).** MEASURED on 2026-10-12: the 22:30 pass
+died at ~22:42 when the host VM went down, 4 of 12 theses had rows, there was no artifact, and this page read
+**healthy for ~18 h** — the hole check credited the night because ONE row landed after `RUN_AT`, and
+`last_run` showed the previous night's artifact. Now:
+
+- **The pass's artifact is written at its START** (`status: "running"`) and finalized at its end
+  (`"finished"`); an exception re-marks it `"crashed"`, a hard kill leaves `"running"`. `last_run` is the
+  newest FINISHED pass (an artifact from before M1 has no status and reads finished), and
+  **`unfinished_run`** describes a newer one that has not finished (`status`, `started_at`, `asof`,
+  `run_kind`, `past_timeout`, `timeout_s`, `error`). The run history (`/admin/runs`) lists finished passes
+  only — an unfinished one has no outcome to show, and is the status alarm's to report.
+- **"The last pass did not finish (started …)"** is a `cron.alarms` line when the newest artifact still reads
+  `running` past the sidecar's whole-pass ceiling (`ALPHADECK_CRON_RUN_TIMEOUT_S`, default 5400 s — the same
+  host var the sidecar's C2 `timeout` uses, mirrored to the backend by compose as
+  `Settings.cron_run_timeout_s`); a `crashed` one alarms at once with its reason. Inside the timeout the
+  verdict is `running`, not an alarm. (An Admin "Run daily now" pass is not bounded by the sidecar's timeout;
+  one that ran longer than it would read "did not finish" until it lands.)
+- **Per-thesis coverage — `record.partial_nights`.** Every window night (not already in `missed_asofs`) is
+  judged PER THESIS by `pipeline/night_coverage.py` — the module the nightly self-audit's `on_time_rows`
+  check uses, so "covered" has one definition: a **non-reconstructed** row recorded at/after that night's
+  `RUN_AT`. A night is PARTIAL when some thesis in its ROSTER is neither covered NOR reconstructed — a
+  thesis `pipeline.backfill` reconstructed is **resolved** (operator decision, 2026-10-16: the backfill is
+  the answer to that hole), so a fully backfilled night is not partial and never an alarm; it is listed
+  quietly in **`record.reconstructed_nights`** (`{asof, reconstructed, expected}`) and on the freshness card
+  as a quiet "backfilled" line, so it stays visible while a NEW miss stands out. (The self-audit keeps the
+  strict rule — a reconstructed row never counts for it — because it judges the night its own pass just
+  ran, where no backfill exists.) The roster is the theses **created
+  before** the night's `RUN_AT` instant and **not archived before** it — point in time, so archiving a thesis
+  never hides a night it missed (known limit: `archived_at` is one stamp, so a thesis archived and later
+  restored reads as expected on the nights it sat archived). A thesis created after 22:30 was never in that
+  pass's walk and is not owed the night. Each partial night is `{asof, covered, expected,
+  reconstructed_only, daytime_only, late}` — `late` counts covered theses whose row landed only after the
+  night's on-time window (the next weekday's 06:00 ET EDGAR open); such rows still cover the night until the
+  late-row policy (L1) says otherwise. The page lists them on the freshness card
+  ("2026-10-12: 4 of 12 theses") only when there is one.
+- **A recorded night with NO run artifact at all** (post-`RUN_AT` rows for a night newer than every
+  artifact's as-of) is a `cron.alarms` line too — a pass that recorded and died before its start artifact
+  existed (the pre-M1 shape), or rows written outside the daily pass. Like the backup alarm, only on a stack
+  whose run history shows the cron sidecar: dev's `calls` table is a copy of prod's while its artifacts are
+  only dev's own hand runs, so there every night would read "no artifact".
+
+**Reconstructed rows — quiet in both checks.** After a backfill the hole clears: `missed_asofs` counts a
+reconstructed row (above), and `partial_nights` treats a reconstructed thesis as resolved. A partial night
+that ALSO has backfilled theses still names them (`reconstructed_only`, "N reconstructed only" in the
+detail) — the night is partial only because of the theses with no row at all. The reconstructed rows stay
+what they are everywhere else: reported, never scored (the Scoreboard filters them).
 
 The verdict re-derives via `assess_health` over the newest **readable** run-of-record artifact
 (`data/cron_runs/`, skip-unreadable fail-open). The **benign** `--no-live` cache-only note is excluded from
@@ -252,7 +304,8 @@ from the run artifacts or the backups dir (the surface still writes nothing):
   alarm applies only on a stack whose run history shows the cron sidecar (dev runs cron OFF). An artifact
   written before these keys existed raises no alarm by absence.
 - **A crashed pass pages (H3).** An unhandled exception in `run_daily_pass` sends ONE health page
-  (`PASS CRASHED — …`) before it re-raises; such a pass writes no artifact, so this page is its only record.
+  (`PASS CRASHED — …`) before it re-raises; since M1 its start artifact is also re-marked `crashed`, which
+  this page reads as an alarm (above).
 
 A **failed benchmark refresh** is one of the alarms (G4). The SPY/IWM tape is a *shared* call-logic input
 (`benchmark_rs`), refreshed by a fail-open passenger leg before the per-thesis loop; its faults used to reach

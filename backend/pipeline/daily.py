@@ -28,6 +28,12 @@ Discipline:
                                                             # a no-op if a LIVE pass for that asof already
                                                             # ran at/after that night's RUN_AT
 
+C3 — A HAND-TYPED PAST ``--asof`` IS REFUSED (exit 2). A pass computes its night with ``known_at = now``,
+so ``--asof <a night older than the last expected one>`` would append a SCORED call-of-record that knew
+things that night did not. Such an as-of runs only with ``--catch-up`` (the sidecar's guarded catch-up),
+``--late-ok`` (a deliberate late record; the sidecar's scheduled run passes it for an overshot sleep) or
+``--no-live`` (records nothing); a missed night is ``pipeline.backfill``'s, with a PINNED ``known_at``.
+
 EXIT CODE (the contract a wrapper reads): **0 when the night has a call-of-record** for at least one
 thesis — including a healthy-quiet night where nothing changed, a partial night where some theses errored,
 an empty roster, and a deliberate ``--no-live`` pass. **1 ONLY when the night has no record at all** (the
@@ -59,26 +65,29 @@ from db.session import connect, set_statement_timeout
 from domain.config import DEFAULT_CONFIG, config_hash
 from domain.enums import State
 from domain.feed_kinds import FEED_KINDS, StaleFeedLabel, feed_kind
-from domain.market_time import market_today, market_tz
+from domain.market_time import market_now, market_today, market_tz
 from domain.settings import Settings, get_settings
 from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
 from notify import ArmedName, HealthEvent, Notifier, TransitionEvent, get_notifier
 from pipeline.call_for_thesis import call_for_thesis
 from pipeline.cron_run_log import (
     already_ran_live,
+    mark_run_crashed,
     previous_name_errors,
     previous_stale_tapes,
     write_cron_run_log,
+    write_run_start,
 )
 from pipeline.ingest_thesis import NameResult, ingest_thesis, print_withheld_line
 from pipeline.name_errors import NameIngestError, dedup_name_errors, name_errors_of
+from pipeline.night_coverage import read_on_time_theses
 from pipeline.run_lock import (
     EXIT_ALREADY_RUNNING,
     PassAlreadyRunning,
     PassLock,
     acquire_pass_lock,
 )
-from pipeline.schedule import parse_run_at
+from pipeline.schedule import last_expected_asof, parse_run_at
 from pipeline.self_audit import AuditContext, AuditResult, failed_labels, run_audit
 from pipeline.tape_health import StaleTape, stale_fund_shares, stale_tapes
 from repositories import calls_repo, thesis_repo
@@ -194,6 +203,31 @@ class ThesisRunResult:
     # whose name has a SEC delisting form carries `closed_at`: it stays in this inventory (never dropped,
     # #9) but renders quietly as "closed" and is skipped from the loud newly-stale page (#7/WB#3).
     tape_stale: tuple[StaleTape, ...] = ()
+    # M2 — why a --catch-up pass SKIPPED this thesis outright (no ingest, no call): it already holds an
+    # ON-TIME call-of-record for the night (`night_coverage.on_time_window`). None = processed as usual.
+    # A skipped thesis HAS its night's record — every "did the night record" reader counts it as such.
+    skipped: str | None = None
+
+
+def _catch_up_skip_set(conn: psycopg.Connection, asof: date) -> dict[UUID, datetime]:
+    """M2 — ``thesis_id -> its earliest ON-TIME recorded_at`` for ``asof`` (``night_coverage``: a
+    non-reconstructed row inside ``[RUN_AT on asof, the next weekday's 06:00 ET)``), counted in the table.
+    FAIL-OPEN TOWARD RUNNING: a read that fails (or a malformed ``RUN_AT``) returns ``{}`` with one loud
+    line — the catch-up then processes every thesis, exactly as it did before M2 (a re-record of a late
+    night is the bounded cost; a skipped thesis with no record would be the silent gap)."""
+    try:
+        skip = read_on_time_theses(
+            conn, asof, run_at=parse_run_at(get_settings().cron_run_at), tz=market_tz()
+        )
+        conn.rollback()  # end the read transaction; the loop opens its own per-thesis work
+        return skip
+    except Exception as e:  # noqa: BLE001 — never the reason a catch-up does not run
+        conn.rollback()
+        print(
+            f"WARNING: catch-up could not read the on-time rows for {asof} ({e}) — processing EVERY "
+            "thesis (an on-time row may be superseded by a late one)"
+        )
+        return {}
 
 
 def run_daily(
@@ -206,6 +240,7 @@ def run_daily(
     user_agent: str | None = None,
     notifier: Notifier | None = None,
     run_kind: str = "manual",
+    catch_up: bool = False,
 ) -> list[ThesisRunResult]:
     """Run the daily pass over every thesis. ``asof`` defaults to today, ``known_at`` to now (a live read).
     Returns one ``ThesisRunResult`` per thesis. Never raises for a single thesis — failures are captured.
@@ -220,6 +255,16 @@ def run_daily(
     purpose: the sidecar and an operator invoke the SAME entry point, so only an explicit flag can tell them
     apart, and defaulting the other way would let any hand run masquerade as the nightly record. MEASURED,
     and the reason this exists: the record's two largest arm bursts were weekend manual runs on deploy days.
+
+    ``catch_up`` (M2, operator Q4 = "never"): a catch-up NEVER re-records a thesis that already has an
+    ON-TIME call-of-record for the night. MEASURED 2026-10-12: the 22:30 pass died after 4 theses recorded
+    on-time rows (22:42-22:43); the next day's 16:57 boot catch-up re-ran all 12, and ``record_if_changed``
+    appended new versions for the 4 because restated bars had changed their cards — so next-day knowledge
+    superseded the honest on-time rows (AI Memory & Storage seq 1334 at 22:42 -> seq 1367 at 17:04) and the
+    Scoreboard scores the late ones. Now such a thesis is SKIPPED ENTIRELY — no ingest, no assemble, no
+    write (``ThesisRunResult.skipped`` says why) — read once, before the loop, from the table
+    (``_catch_up_skip_set``). A thesis whose only row is late, daytime or reconstructed is processed as
+    before. The scheduled run and the Admin button pass ``False``: they re-version on purpose.
     """
     asof = asof or market_today()
     # ONE explicit cfg for the whole pass, used for BOTH the assemble and its fingerprint. Holding it in a
@@ -241,9 +286,21 @@ def run_daily(
                 "is_primary flags — CIK->security resolution is picking ARBITRARY siblings; "
                 "run `python -m pipeline.populate_master --live` to stamp the canonical primaries"
             )
+    # M2 — the catch-up's skip set: theses that already hold an ON-TIME row for this night
+    skip = _catch_up_skip_set(conn, asof) if catch_up else {}
+    tz = market_tz() if skip else None
     out: list[ThesisRunResult] = []
     for thesis in thesis_repo.list_all(conn):
         res = ThesisRunResult(thesis_id=thesis.id, name=thesis.name)
+        on_time_at = skip.get(thesis.id)
+        if on_time_at is not None:
+            # M2 — the night's honest on-time record stands; nothing later may supersede it
+            res.skipped = (
+                f"on-time call-of-record already recorded "
+                f"{on_time_at.astimezone(tz).strftime('%Y-%m-%d %H:%M %Z')}"
+            )
+            out.append(res)
+            continue
         # (1) refresh facts — ingest_thesis already isolates per-name; wrap defensively so even a thesis-level
         # failure (e.g. a malformed thesis) is captured, not fatal. A fact failure does NOT block the call.
         # a fresh client PER THESIS so its live_fetches count is that thesis's own (the freeze detector)
@@ -626,31 +683,92 @@ def run_daily_pass(
     H3 — THE CRASH PAGE. Any other exception escaping the pass (an unreachable DB at connect, a bug outside
     the per-thesis isolation) sends ONE health page through ``notifier`` (``HealthEvent.crashed``) and is
     then re-raised UNCHANGED — the page is fail-open (``_page_crash``), so it can never mask the original.
-    A crashed pass writes no artifact, so this page is the only record it leaves (the shell's own page and
-    the external heartbeat cover a process that is KILLED, where no Python runs at all)."""
+    (The shell's own page and the external heartbeat cover a process that is KILLED, where no Python runs.)
+
+    M1 — THE START ARTIFACT. The moment the lock is held, the pass writes its run artifact with
+    ``status: "running"`` (``_write_start_artifact``: the as-of, mode, run kind, identity and env), and
+    ``_run_daily_pass_locked`` FINALIZES that same file to ``"finished"`` at its end — one file per pass, so
+    a pass that dies mid-loop is no longer invisible (10-12: no artifact, Admin read healthy ~18 h). On the
+    crash path above the file is re-marked ``"crashed"`` (only while it still reads ``running`` — a pass
+    that finalized and then raised keeps its finished record); a hard kill leaves ``running``, which the
+    ``--catch-up`` guard never credits and the Admin page alarms on past the run timeout. Every one of these
+    writes is fail-open: none can fail or mask the pass."""
     notifier = notifier or get_notifier()
     lock = run_lock
     resolved_asof = asof
+    started_at: datetime | None = None
     try:
         resolved_asof = asof or market_today()
         if lock is None:
             lock = acquire_pass_lock(holder=run_kind)
+        started_at = datetime.now(timezone.utc)
+        _write_start_artifact(
+            notifier,
+            asof=resolved_asof,
+            allow_live=allow_live,
+            started_at=started_at,
+            catch_up=catch_up,
+            run_kind=run_kind,
+        )
         return _run_daily_pass_locked(
             asof=resolved_asof,
             allow_live=allow_live,
             notifier=notifier,
             catch_up=catch_up,
             run_kind=run_kind,
+            started_at=started_at,
         )
     except PassAlreadyRunning:
         raise  # a refusal, not a crash — nothing ran, nothing to page
     except BaseException as exc:
         if not isinstance(exc, (SystemExit, GeneratorExit)):
             _page_crash(notifier, resolved_asof, exc)
+            if started_at is not None:
+                _mark_crashed(started_at, exc)
         raise
     finally:
         if lock is not None:
             lock.release()
+
+
+def _write_start_artifact(
+    notifier: Notifier,
+    *,
+    asof: date,
+    allow_live: bool,
+    started_at: datetime,
+    catch_up: bool,
+    run_kind: str,
+) -> None:
+    """M1 — the pass's START artifact (``cron_run_log.write_run_start``), carrying the same identity the
+    finalized artifact will (``Settings.image_sha``, the ``DEFAULT_CONFIG`` hash, the run kind, the non-secret
+    env fingerprint). FAIL-OPEN as a whole — the identity reads included: a pass whose start record cannot
+    be written still runs (and still finalizes its artifact at the end)."""
+    try:
+        write_run_start(
+            asof=asof,
+            allow_live=allow_live,
+            started_at=started_at,
+            catch_up=catch_up,
+            code_sha=get_settings().image_sha,
+            config_hash=config_hash(DEFAULT_CONFIG),
+            run_kind=run_kind,
+            env=env_fingerprint(notifier),
+        )
+    except Exception:  # noqa: BLE001 — the start record is best-effort, never the pass's driver
+        _log.exception("cron start artifact failed (fail-open — the pass runs regardless)")
+
+
+def _mark_crashed(started_at: datetime, exc: BaseException) -> None:
+    """M1 — re-mark this pass's start artifact ``crashed`` on the H3 crash path. Fail-open against
+    EVERYTHING (``BaseException``): it runs while another exception is propagating and must never replace
+    it."""
+    try:
+        mark_run_crashed(
+            started_at=started_at, crashed_at=datetime.now(timezone.utc), error=_crash_label(exc)
+        )
+    except BaseException:  # noqa: BLE001 — the marker can never mask the original exception
+        _log.exception("the crash marker itself failed (fail-open — re-raising the original)")
 
 
 def _run_daily_pass_locked(
@@ -660,6 +778,7 @@ def _run_daily_pass_locked(
     notifier: Notifier,
     catch_up: bool,
     run_kind: str,
+    started_at: datetime | None = None,
 ) -> DailyPassOutcome:
     """The pass BODY, run by ``run_daily_pass`` while it holds the call-of-record lock (C1) and inside its
     crash page (H3). The cron's FULL unit of work as ONE callable: connect → ``run_daily`` → write the
@@ -685,8 +804,12 @@ def _run_daily_pass_locked(
     I1/I2 / O1 / V1 (Phase 1B) — after the per-thesis loop the pass also stamps its run identity + env
     fingerprint, diffs the per-name ingest errors against the previous evaluated pass, and runs the
     self-audit; all three ride the artifact (``DailyPassOutcome.payload_kwargs``) and the R4 page. Every
-    connection it opens carries the C2 ``statement_timeout`` (``_pass_connect``)."""
-    started_at = datetime.now(timezone.utc)
+    connection it opens carries the C2 ``statement_timeout`` (``_pass_connect``).
+
+    ``started_at`` (M1) is the instant ``run_daily_pass`` stamped on the START artifact; the final write
+    reuses it, so it lands on — and finalizes — that same file. ``None`` stamps it here (a direct caller).
+    """
+    started_at = started_at or datetime.now(timezone.utc)
     # G4 — the benchmark leg's outcome, initialized CLEAN so a --no-live pass (which skips the leg) reports
     # nothing to page. `benchmark_errors` counts individual benchmark pulls that failed; the separate
     # `benchmark_leg_failed` marks the leg raising before it produced any per-benchmark result, because "1
@@ -750,7 +873,12 @@ def _run_daily_pass_locked(
     conn = _pass_connect()
     try:
         results = run_daily(
-            conn, asof=asof, allow_live=allow_live, notifier=notifier, run_kind=run_kind
+            conn,
+            asof=asof,
+            allow_live=allow_live,
+            notifier=notifier,
+            run_kind=run_kind,
+            catch_up=catch_up,
         )
     finally:
         conn.close()
@@ -865,6 +993,7 @@ def _run_daily_pass_locked(
     )
     # R3 — the cron's run-of-record, so the next freeze is noticed by the platform, not by eye. Written
     # AFTER the run from the collected results (write-only, no DB); fail-open, so it never fails the cron.
+    # M1 — the path is the started-at instant, so this FINALIZES the start artifact (status "finished").
     outcome.log_path = write_cron_run_log(results, **outcome.payload_kwargs())
     # R4 — the DURABLE page: a freeze / withheld / errored run alerts through the notifier (Slack when
     # configured, else a loud log line). Healthy runs are silent. This is what makes the platform notice its
@@ -956,12 +1085,18 @@ def _report(
     (the same names and legs as the last evaluated pass — a renamed / closed / never-priced name errors every
     night, and re-printing those forever would bury the new one). A pass that did not evaluate (``--no-live``)
     prints its error count quietly, undiffed. The full reasons live in the run artifact either way.
+
+    M2 — the theses a ``--catch-up`` SKIPPED (an on-time row already stands) collapse into ONE quiet line
+    instead of a per-thesis line each: nothing happened to them, on purpose.
     """
     appended = sum(1 for r in results if r.recorded)
     unchanged = sum(1 for r in results if r.recorded is False)
     withheld = [r for r in results if r.withheld_reason]
     errored = [r for r in results if r.error]
+    skipped = [r for r in results if r.skipped]
     for r in results:
+        if r.skipped:
+            continue  # M2 — summarized in the one quiet line below
         if r.error:
             mark = f"ERROR: {r.error}"
         elif r.withheld_reason:
@@ -1056,9 +1191,16 @@ def _report(
             )
     # D2 — names whose in-progress bar was withheld (session not yet settled): ONE quiet line, deduped
     print_withheld_line(x for r in results for x in r.ingested)
+    if skipped:
+        # M2 — one quiet line (lowercase, the known-errors convention): the catch-up left these alone
+        print(
+            f"{len(skipped)} thesis(es) skipped — an on-time call-of-record for the night already "
+            f"stands and a catch-up never re-records one: {', '.join(r.name for r in skipped)}"
+        )
     wh = f" · {len(withheld)} withheld" if withheld else ""  # loud only when it happens
+    sk = f" · {len(skipped)} skipped (on-time)" if skipped else ""
     print(
-        f"done: {len(results)} theses · {appended} appended · {unchanged} unchanged{wh} · "
+        f"done: {len(results)} theses · {appended} appended · {unchanged} unchanged{wh}{sk} · "
         f"{len(transitions)} transitions · {len(errored)} errored"
     )
     return len(errored)
@@ -1079,9 +1221,11 @@ def _failed_to_record(results: list[ThesisRunResult]) -> bool:
     1. **No theses at all -> not a failure.** A pass over an empty roster recorded nothing because there
        was nothing to record (a fresh install, or every thesis deleted). Retrying it nightly forever would
        be pure noise.
-    2. **Some thesis has a BOOL ``recorded`` -> not a failure.** ``True`` = a new row was appended,
-       ``False`` = unchanged so no row — which is the common healthy-quiet night and absolutely counts as
-       "the call step ran". ``None`` means the call step FAILED for that thesis.
+    2. **Some thesis has a BOOL ``recorded``, or was SKIPPED by a catch-up -> not a failure.** ``True`` =
+       a new row was appended, ``False`` = unchanged so no row — which is the common healthy-quiet night and
+       absolutely counts as "the call step ran". ``None`` means the call step FAILED for that thesis — unless
+       the thesis was ``skipped`` (M2): a catch-up left it alone BECAUSE its on-time row already stands, so
+       the night has that record (a catch-up that skipped all twelve must exit 0, never page a retry).
     3. **Every withhold was ``no-live`` -> not a failure.** A cache-only pass withholds every call BY
        DESIGN (``run_daily``'s recording gate, Source A). ``python -m pipeline.daily --no-live`` is a
        documented operator command and must keep exiting 0; the cron never passes ``--no-live``.
@@ -1108,8 +1252,9 @@ def _failed_to_record(results: list[ThesisRunResult]) -> bool:
     """
     if not results:
         return False  # (1) nothing to record
-    if any(isinstance(r.recorded, bool) for r in results):
-        return False  # (2) the call step ran for someone — the night has a record
+    # (2) the call step ran for someone (or a skipped thesis's on-time row stands) — a record exists
+    if any(isinstance(r.recorded, bool) or r.skipped for r in results):
+        return False
     if all(r.withheld_reason == "no-live" for r in results):
         return False  # (3) a deliberate cache-only pass withholds by design
     return True  # (4) theses existed, nothing recorded, and not by request
@@ -1128,6 +1273,28 @@ def _catch_up_is_noop(asof: date) -> bool:
         )
         return True
     return False
+
+
+def past_asof_refusal(asof: date, *, now: datetime, run_at: time) -> str | None:
+    """C3 — the refusal text when ``asof`` is OLDER than the last expected night at ``now``
+    (``schedule.last_expected_asof``, market time), else ``None``. PURE (``now`` / ``run_at`` injected).
+
+    Today's as-of is never older (a daytime manual pass for today stays allowed), nor is the last expected
+    night itself (the scheduled run's own target), nor a weekend's as-of on that weekend. What is refused is
+    the hand-typed ``pipeline.daily --asof <a past night>``: it assembles that night with ``known_at = now``
+    — TODAY's knowledge — and appends a SCORED call-of-record. The docs warned against it; nothing refused
+    it. ``main`` skips this check for ``--catch-up`` / ``--late-ok`` / ``--no-live``."""
+    last = last_expected_asof(now, run_at)
+    if asof >= last:
+        return None
+    return (
+        f"--asof {asof} is older than the last expected night ({last}, market time). A pass computes its "
+        "night with TODAY's knowledge (known_at = now) and would append a SCORED call-of-record that knew "
+        "things that night did not. For a missed night run "
+        f"`python -m pipeline.backfill --asof {asof} --known-at next-run` (a PINNED reconstruction: marked "
+        "reconstructed, reported, never scored). `--catch-up` is the sidecar's guarded catch-up; pass "
+        "`--late-ok` only to record a late night on purpose."
+    )
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -1157,9 +1324,29 @@ def main(argv: list[str] | None = None) -> None:
         "must never masquerade as the nightly record. (`backfill` is stamped by pipeline.backfill, not "
         "reachable from here.)",
     )
+    p.add_argument(
+        "--late-ok",
+        action="store_true",
+        help="C3: allow an --asof OLDER than the last expected night. Without this (or --catch-up / "
+        "--no-live) such an as-of is REFUSED: the pass would compute that night with TODAY's knowledge and "
+        "append a SCORED call-of-record. For a missed night use `python -m pipeline.backfill --known-at "
+        "next-run` (pinned, marked reconstructed). The sidecar's scheduled run passes this flag, because "
+        "its target night is fixed before the sleep and an overshot sleep makes it late by construction.",
+    )
     args = p.parse_args(argv)
     asof = date.fromisoformat(args.asof) if args.asof else market_today()
     allow_live = not args.no_live
+    # C3 — refuse a hand-typed past as-of BEFORE anything runs (no lock, no artifact, no row). Bare (no
+    # --asof) is today and never older. --no-live is exempt: it withholds every call, so it cannot write
+    # the scored row this refusal exists to prevent.
+    if args.asof and not (args.catch_up or args.late_ok or args.no_live):
+        try:
+            run_at = parse_run_at(get_settings().cron_run_at)
+        except ValueError as exc:
+            p.error(f"ALPHADECK_CRON_AT is malformed: {exc}")
+        refusal = past_asof_refusal(asof, now=market_now(), run_at=run_at)
+        if refusal is not None:
+            p.error(refusal)
     notifier = get_notifier()
 
     # R6 — catch-up guard: a `--catch-up` invocation is a no-op when a LIVE pass for this asof that STARTED

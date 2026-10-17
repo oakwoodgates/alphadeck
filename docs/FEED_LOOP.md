@@ -300,6 +300,36 @@ per-thesis; **archived theses are skipped by the list's default**, the archive s
   test is deliberately generous: `recorded is False` (unchanged, so no row appended) is the common
   healthy-quiet night and counts; only `None` everywhere means nothing recorded. Fail-open toward RUNNING as
   ever — a damaged or pre-schema `theses` list is no evidence, so a needed catch-up still fires.
+  **One file per pass, written twice (M1, 2026-10-16).** The artifact used to be written only at the END of
+  a pass, so a pass that died mid-loop left nothing: MEASURED on 2026-10-12, the 22:30 run died at ~22:42
+  when the host VM went down, 4 of 12 theses had rows, there was no artifact, and Admin read healthy for
+  ~18 h. Now `run_daily_pass` writes a **start artifact** (`status: "running"`, `started_at`,
+  `finished_at: null`, the run identity + env fingerprint) the moment it holds the run lock, and the end of
+  the pass **finalizes the same file** (same name — the started-at second — atomic `tmp` + `os.replace`) to
+  `status: "finished"`. An exception the pass sees re-marks it `crashed` (with the reason) beside the H3
+  page; a HARD kill (the VM, the C2 timeout's `SIGKILL`) leaves `running`. An artifact written before M1 has
+  no `status` and reads finished. **The guard trap:** `already_ran_live` counts ONLY a finished (or legacy)
+  artifact — a `running` or `crashed` one never credits the night, or a killed night would block its own
+  recovery. The stale-tape / name-error baselines and the backfill's `next-run` pin read finished passes
+  only, too. A failed FINAL write leaves the start file `running`: the catch-up then re-runs the night
+  (safe — and since M2 it re-records nothing that already has an on-time row) and Admin reads "did not
+  finish" after the run timeout.
+- **A catch-up never re-records an on-time thesis (M2, operator Q4 = "never", 2026-10-16).** MEASURED on
+  10-12: the 22:30 pass died after 4 theses recorded on-time rows (22:42–22:43); the next day's 16:57 boot
+  catch-up re-ran ALL 12, and `record_if_changed` appended new versions for the 4 because restated bars (and
+  Form 4s SEC accepted the next day) had changed their cards — so next-day knowledge superseded the honest
+  on-time rows (AI Memory & Storage seq 1334 at 22:42 → seq 1367 at 17:04) and the Scoreboard scores the late
+  ones. Now a `--catch-up` pass for night D reads, once and from the TABLE, every thesis that already holds a
+  **non-reconstructed row for D recorded ON TIME** — inside `[D's RUN_AT, 06:00 ET on the next weekday)`, the
+  next EDGAR open (`pipeline/night_coverage.on_time_window`, the ONE helper the late-row policy L1 will
+  reuse) — and **skips that thesis entirely: no ingest, no assemble, no write**. Its per-thesis artifact entry
+  carries `skipped` with the reason, the summary counts them, and `_report` prints one quiet line. A thesis
+  with no on-time row (none at all, a daytime-only row, a reconstructed row, or a LATE row) is processed as
+  before. A killed night's catch-up therefore records ONLY the missing theses. A skipped thesis counts as
+  "the night has its record" everywhere that asks (the exit code, the guard, the self-audit), and a pass that
+  skipped any thesis is never a stale-tape / name-error baseline (its inventory lacks those theses). The
+  scheduled run and the Admin button never skip: they re-version on purpose. If the skip read itself fails,
+  the catch-up processes every thesis (one loud line) — the pre-M2 behavior, never a silent gap.
 - **The health pager (R4, #199).** `assess_health` emits a `HealthEvent` through the notify seam
   (Slack via `SLACK_WEBHOOK_URL`, **fail-open**; `LogNotifier` otherwise) when a run is a **FREEZE**
   (`frozen = allow_live and theses > 0 and edgar_fetches == 0`), has **withheld** calls, has **thesis
@@ -411,8 +441,9 @@ The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
   where some theses errored, an empty roster, a deliberate `--no-live` — and non-zero only when nothing
   recorded, which is the only shape a re-run can fix. Per-thesis errors still print and still page through
   R4; the scheduler simply no longer acts on them. Two shapes reach the retry, and **`--catch-up` stays
-  the guard** for both so the shell never has to know which it hit: a pass that **crashed before writing
-  its artifact** leaves no evidence, so the retry runs the night in full; a pass that completed with
+  the guard** for both so the shell never has to know which it hit: a pass that **crashed or was killed**
+  leaves a `crashed` / `running` start artifact the guard never credits (M1), so the retry runs the night —
+  re-recording none of the theses that already have an on-time row (M2); a pass that completed with
   **every** thesis withheld or errored recorded nothing, so the retry runs too (that is G2b, below). The
   guard also covers the narrow case of a pass that wrote its artifact and then died after recording.
   The retry sits before the in-loop catch-up window closes and before the nightly backup, so both
@@ -426,8 +457,12 @@ The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
 - **A sleep-loop, not a cron daemon (deliberate).** `backend/scripts/daily_cron.sh` waits until `RUN_AT` in
   the container's `TZ` — in **short slices (`SLICE_S`, default 60 s), re-reading the wall clock between
   them** rather than one long `sleep` (why: two bullets down) — skips weekends (markets closed → an
-  idempotent no-op + a needless API hit), fires `python -m pipeline.daily --asof <target>`, and a failed run
-  never kills the loop. It is **not Dagster, not
+  idempotent no-op + a needless API hit), fires `python -m pipeline.daily --late-ok --asof <target>`, and a
+  failed run never kills the loop. (`--late-ok`, C3: the CLI refuses an `--asof` older than the last expected
+  night; the target is fixed before the sleep, so on time it IS the last expected night and the flag is
+  inert — it carries only a suspend that overshoots past the NEXT weekday's `RUN_AT`, which is late by
+  construction. Every other sidecar invocation is a `--catch-up`, already exempt; a static test pins both.)
+  It is **not Dagster, not
   APScheduler, not a cron daemon** — chosen because a sleep-loop **inherits the container env directly** (so
   the space-bearing `ALPHADECK_USER_AGENT` isn't mangled by a cron-style env snapshot) and honors `TZ` via
   `date`. Trivially swappable to real cron / supercronic later (the contract is "fire the CLI once a day").
@@ -562,6 +597,14 @@ When a night has no call-of-record (`/admin/status` says `gappy`; `schedule.miss
 `python -m pipeline.backfill --asof <night> --known-at <pin>` reconstructs it: the SAME `call_for_thesis`
 assembly the cron runs, with the transaction clock PINNED, then `record_if_changed`. `--dry-run` first.
 
+- **`pipeline.daily --asof <past>` is REFUSED (C3, 2026-10-16).** It used to be only a warning in these
+  docs: a hand-typed `python -m pipeline.daily --asof <a night older than the last expected one>` assembled
+  that night with `known_at = now` and appended a SCORED call-of-record. `main` now exits 2 before anything
+  runs (no lock, no artifact, no row) with a message pointing here, unless the run is `--catch-up` (the
+  sidecar's guarded catch-up), `--late-ok` (a deliberate late record — the sidecar's scheduled run passes it
+  for an overshot sleep) or `--no-live` (records nothing). Today's as-of and the last expected night itself
+  stay allowed (a daytime manual pass for today; the scheduled run's own target), and so does the Admin
+  "Run daily now", which takes no as-of (it always runs today's).
 - **Why a pin, not `pipeline.daily --asof <past>`.** The `calls` log is immutable and bitemporal — a row's
   `recorded_at` is always now — and the as-of gate is two-axis (`valid_from <= asof` AND `recorded_at <=
   known_at`, `INVARIANTS.md` #4). A naive re-run computes the past night with `known_at = now`: TODAY's
@@ -811,6 +854,29 @@ Recorded here where a builder of the pager/scheduler will hit them; the full acc
   external heartbeat's (above), which alerts only once the operator configures it. The page also needs the
   `notify` package importable. The in-process half, a wrapper so an unhandled exception inside
   `run_daily_pass` pages before it re-raises, is a separate change.
+- **A killed or partial pass read "healthy" — CLOSED (M1, 2026-10-16).** MEASURED 2026-10-12: the 22:30
+  pass died at ~22:42 (the host VM went down) with 4 of 12 theses recorded; it left no artifact, and
+  `/admin/status` read healthy for ~18 h — the hole check credited the night because ONE row (any thesis)
+  landed after `RUN_AT` (`recorded_asof_stamps` is a per-night `MAX` across all theses), and `last_run`
+  showed the previous night's artifact. Now (a) every pass writes a `running` start artifact and finalizes
+  it; one still `running` past the sidecar's run timeout (`ALPHADECK_CRON_RUN_TIMEOUT_S`, mirrored to the
+  backend) or `crashed` is a `cron.alarms` line ("the last pass did not finish"), while a pass inside its
+  timeout reads `running`; (b) every recent night is judged PER THESIS (`pipeline/night_coverage.py`, the
+  self-audit's own rule): a night where some thesis in its roster has no post-`RUN_AT` row AND no
+  `pipeline.backfill` reconstruction is listed PARTIAL ("2026-10-12: 4 of 12 theses") and the verdict is
+  `gappy` — a backfilled thesis is resolved (the operator's answer to that hole, so after a backfill the
+  hole clears and stays visible only as a quiet `reconstructed_nights` count); (c) a night with
+  post-`RUN_AT` rows but NO run artifact at all alarms too. And the guard never credits a `running` /
+  `crashed` artifact, so the killed night's catch-up runs — recording only the missing theses (M2).
+  **Still open, by design:** a late catch-up row still counts as covering its night here — whether a row
+  recorded after the next 06:00 ET EDGAR open is scored is the late-row policy (L1, operator Q5 = A), a
+  separate slice; the Admin partial line already counts such rows as "recorded late".
+- **A catch-up re-recorded on-time rows with next-day knowledge — CLOSED (M2, 2026-10-16).** See "A
+  catch-up never re-records an on-time thesis" above (10-12: 4 honest on-time rows superseded at 17:04 the
+  next day). The rows already superseded on 10-12 stay in the immutable log; how the Scoreboard treats them
+  is L1's question.
+- **A hand-typed `pipeline.daily --asof <past>` wrote a scored row — CLOSED (C3, 2026-10-16).** Refused
+  (exit 2) unless `--catch-up` / `--late-ok` / `--no-live`; see "Backfilling a missed night".
 - **The cron's log was buffered and uncapped — CLOSED (O3, 2026-10-16).** `PYTHONUNBUFFERED=1` in the
   image and a 50 MB × 5 json-file cap on backend, cron and frontend (the sidecar section).
 - **A per-name feed that silently ENDED — MONITORED (G5a price tapes · F1 fund shares), the repair still

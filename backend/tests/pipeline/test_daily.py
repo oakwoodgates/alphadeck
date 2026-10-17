@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
@@ -403,6 +403,14 @@ def test_assess_health_freeze_check_off_STILL_pages_withheld_and_errored():
 _NY = ZoneInfo("America/New_York")
 
 
+def _tonight(monkeypatch, asof: date) -> None:
+    """Pin the CLI's market clock to 23:00 ET on ``asof``: a pass typed ON that night, which C3 lets
+    through (an ``--asof`` older than the last expected night is refused before anything runs)."""
+    monkeypatch.setattr(
+        daily, "market_now", lambda: datetime.combine(asof, time(23, 0), tzinfo=_NY)
+    )
+
+
 def _no_connect(monkeypatch):
     """Make connect() explode, so a test proves whether main proceeded PAST the R6 guard into the real run."""
 
@@ -473,6 +481,7 @@ def test_the_guard_is_NOT_consulted_without_catch_up(monkeypatch):
 
     monkeypatch.setattr(daily, "already_ran_live", guard)
     _no_connect(monkeypatch)
+    _tonight(monkeypatch, date(2026, 7, 17))
     with pytest.raises(RuntimeError, match="reached the run"):
         daily.main(["--asof", "2026-07-17"])
 
@@ -500,6 +509,7 @@ def test_main_threads_catch_up_into_the_pass(monkeypatch):
     monkeypatch.setattr(daily, "run_daily_pass", _pass)
     daily.main(["--catch-up", "--asof", "2026-09-08"])
     assert seen["catch_up"] is True and seen["asof"] == date(2026, 9, 8)
+    _tonight(monkeypatch, date(2026, 9, 8))  # the plain run is typed ON its night (C3)
     daily.main(["--asof", "2026-09-08"])
     assert seen["catch_up"] is False
 
@@ -1507,6 +1517,7 @@ def _outcome_with(results):
 def _exit_code(monkeypatch, results) -> int:
     """Run the CLI over a stubbed pass and return the process exit code (0 = no SystemExit)."""
     monkeypatch.setattr(daily, "run_daily_pass", lambda **kw: _outcome_with(results))
+    _tonight(monkeypatch, _ASOF)  # the night's own pass (C3 refuses a past --asof)
     try:
         daily.main(["--asof", _ASOF.isoformat()])
     except SystemExit as exc:
@@ -2225,6 +2236,7 @@ def test_main_PAGES_when_the_lock_cannot_be_taken_for_a_DB_reason(monkeypatch):
         raise ConnectionRefusedError("connection refused")
 
     monkeypatch.setattr(daily, "acquire_pass_lock", _db_down)
+    _tonight(monkeypatch, _ASOF)
     with pytest.raises(ConnectionRefusedError):
         daily.main(["--asof", _ASOF.isoformat()])
     assert [p.crashed for p in pager.health] == ["ConnectionRefusedError: connection refused"]

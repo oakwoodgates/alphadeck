@@ -8,9 +8,13 @@ from zoneinfo import ZoneInfo
 from domain.feed_kinds import StaleFeedLabel
 from pipeline.cron_run_log import (
     already_ran_live,
+    is_finished,
     list_run_logs,
+    mark_run_crashed,
     previous_stale_tapes,
+    run_status,
     write_cron_run_log,
+    write_run_start,
 )
 from pipeline.daily import ThesisRunResult
 from pipeline.ingest_thesis import NameResult
@@ -70,6 +74,7 @@ def test_writes_a_run_record_with_the_run_shape(tmp_path):
     )
     assert path is not None and path.name == "20260717T223001Z.json"
     doc = _read(path)
+    assert doc["status"] == "finished"  # M1 — the finalized artifact
     assert doc["mode"] == "live"
     assert doc["asof"] == "2026-07-17"
     assert doc["started_at"] == _START.isoformat() and doc["finished_at"] == _END.isoformat()
@@ -81,6 +86,7 @@ def test_writes_a_run_record_with_the_run_shape(tmp_path):
         "withheld": 0,
         "errored": 0,
         "transitions": 0,
+        "skipped": 0,  # M2 — theses a catch-up left alone (none on a scheduled pass)
     }
     ai = next(t for t in doc["theses"] if t["name"] == "AI Memory")
     assert (
@@ -947,3 +953,185 @@ def test_payload_identity_DEFAULTS_are_honest_nulls(tmp_path):
     )
     assert doc["code_sha"] is None and doc["run_kind"] is None and doc["env"] is None
     assert doc["audit"] == [] and doc["name_errors_new"] == []
+
+
+# --- M1: the START artifact, finalized in place; the guard counts only a FINISHED pass ---------------------
+# Every artifact below comes from the REAL writers: `write_run_start` (what a pass leaves the moment it holds
+# the run lock — and ALL a hard-killed pass leaves), `write_cron_run_log` (the finalize), `mark_run_crashed`
+# (the crash path). The 10-12 shape: the 22:30 pass started, recorded 4 of 12 theses, and the VM died at
+# 22:42 — on disk that is a start artifact for the night that never finalized.
+
+
+def _start(tmp_path, *, asof: date = _JUL17, at: datetime = _NIGHT_JUL17, **kw):
+    path = write_run_start(asof=asof, allow_live=True, started_at=at, base_dir=tmp_path, **kw)
+    assert path is not None
+    return path
+
+
+def test_a_pass_writes_a_START_artifact_and_FINALIZES_the_same_file(tmp_path):
+    start = _start(tmp_path, run_kind="cron", code_sha="2f3cdfa", config_hash="ab" * 32)
+    doc = _read(start)
+    assert doc["status"] == "running" and doc["finished_at"] is None
+    assert (doc["asof"], doc["mode"], doc["run_kind"], doc["code_sha"]) == (
+        "2026-07-17",
+        "live",
+        "cron",
+        "2f3cdfa",
+    )
+    # nothing a reader could mistake for an outcome
+    assert "theses" not in doc and "summary" not in doc and "tape_evaluated" not in doc
+    final = write_cron_run_log(
+        [_thesis_result(recorded=True)],
+        asof=_JUL17,
+        allow_live=True,
+        started_at=_NIGHT_JUL17,
+        finished_at=_utc(2026, 7, 17, 22, 41),
+        base_dir=tmp_path,
+    )
+    assert final == start  # one file per pass
+    assert sorted(p.name for p in tmp_path.glob("*.json")) == [start.name]
+    assert _read(final)["status"] == "finished"
+    assert not list(tmp_path.glob(".*.tmp"))  # the atomic write left no temp behind
+
+
+def test_THE_GUARD_TRAP_a_RUNNING_artifact_never_makes_the_catch_up_skip_the_night(tmp_path):
+    """The load-bearing M1 rule. The killed pass's start artifact is live, for the night, and started 1 s
+    after RUN_AT — every condition the guard used to check — yet it must NOT credit the night, or the
+    killed night blocks its own recovery. Pinned on the STATUS, not on the accident that a start artifact
+    carries no `theses`: the same running artifact carrying a recorded thesis still does not count.
+    """
+    path = _start(tmp_path)
+    assert _ran(tmp_path, _JUL17) is False
+    doc = _read(
+        path
+    )  # a running artifact that DID carry per-thesis outcomes (a future progress write)
+    doc["theses"] = [{"id": str(uuid4()), "recorded": True}]
+    path.write_text(json.dumps(doc), encoding="utf-8")
+    assert _ran(tmp_path, _JUL17) is False
+    # crashed: the same — the pass did not finish
+    doc["status"] = "crashed"
+    path.write_text(json.dumps(doc), encoding="utf-8")
+    assert _ran(tmp_path, _JUL17) is False
+    # and once the catch-up FINISHES, the night is credited (a separate, later pass)
+    _log_for(tmp_path, asof=_JUL17, allow_live=True, at=_utc(2026, 7, 18, 9, 5))
+    assert _ran(tmp_path, _JUL17) is True
+
+
+def test_a_LEGACY_artifact_with_no_status_still_satisfies_the_guard(tmp_path):
+    """Back-compat: every artifact written before M1 has no `status` and was only ever written at the END
+    of a completed pass, so it reads FINISHED — the deploy must not reopen every recorded night."""
+    path = write_cron_run_log(
+        [_thesis_result(recorded=False)],
+        asof=_JUL17,
+        allow_live=True,
+        started_at=_NIGHT_JUL17,
+        finished_at=_NIGHT_JUL17,
+        base_dir=tmp_path,
+    )
+    doc = _read(path)
+    del doc["status"]  # exactly a pre-M1 artifact
+    path.write_text(json.dumps(doc), encoding="utf-8")
+    assert run_status(doc) == "finished" and is_finished(doc)
+    assert _ran(tmp_path, _JUL17) is True
+    # a damaged status never credits a night (err toward running)
+    doc["status"] = None
+    path.write_text(json.dumps(doc), encoding="utf-8")
+    assert _ran(tmp_path, _JUL17) is False
+
+
+def test_mark_run_crashed_marks_ONLY_this_passs_RUNNING_file(tmp_path):
+    path = _start(tmp_path)
+    crashed_at = _utc(2026, 7, 17, 22, 42)
+    marked = mark_run_crashed(
+        started_at=_NIGHT_JUL17,
+        crashed_at=crashed_at,
+        error="RuntimeError: boom",
+        base_dir=tmp_path,
+    )
+    assert marked == path
+    doc = _read(path)
+    assert (doc["status"], doc["error"]) == ("crashed", "RuntimeError: boom")
+    assert doc["crashed_at"] == crashed_at.isoformat()
+    # a FINALIZED pass that raised afterwards keeps its finished record
+    fin_at = _utc(2026, 7, 20, 22, 30, 2)
+    write_cron_run_log(
+        [_thesis_result(recorded=True)],
+        asof=date(2026, 7, 20),
+        allow_live=True,
+        started_at=fin_at,
+        finished_at=fin_at,
+        base_dir=tmp_path,
+    )
+    assert (
+        mark_run_crashed(started_at=fin_at, crashed_at=fin_at, error="x", base_dir=tmp_path) is None
+    )
+    assert _read(tmp_path / f"{fin_at.strftime('%Y%m%dT%H%M%SZ')}.json")["status"] == "finished"
+    # no file at all -> nothing to mark (fail-open, no raise)
+    nowhere = _utc(2026, 7, 21, 22, 30)
+    assert (
+        mark_run_crashed(started_at=nowhere, crashed_at=nowhere, error="x", base_dir=tmp_path)
+        is None
+    )
+
+
+def test_the_start_write_NEVER_clobbers_another_passs_artifact(tmp_path):
+    """The name is the started-at second; at start time a file there can only be ANOTHER pass's. Two passes
+    cannot start in one second under the run lock, but if one ever did, the earlier pass's finished record
+    (and the baselines read from it) must survive — the later pass just runs without a start record.
+    """
+    path = write_cron_run_log(
+        [_thesis_result(recorded=True)],
+        asof=_JUL17,
+        allow_live=True,
+        started_at=_NIGHT_JUL17,
+        finished_at=_NIGHT_JUL17,
+        base_dir=tmp_path,
+    )
+    again = write_run_start(
+        asof=_JUL17, allow_live=True, started_at=_NIGHT_JUL17, base_dir=tmp_path
+    )
+    assert again is None
+    assert _read(path)["status"] == "finished"
+
+
+def test_a_running_or_PARTIAL_ROSTER_artifact_is_never_a_baseline(tmp_path):
+    """The stale-tape / name-error diffs read the newest finished, FULL-roster live pass. A start artifact
+    is not one (nothing evaluated), and neither is an M2 catch-up that SKIPPED theses: its inventory lacks
+    the skipped theses' names, so the next pass would re-page each of them as new."""
+    sid = uuid4()
+    write_cron_run_log(  # the full baseline: AAA is a known-dead tape
+        [_thesis_result(tape_stale=(StaleTape(security_id=sid, ticker="AAA", edge=None),))],
+        asof=_JUL17,
+        allow_live=True,
+        started_at=_NIGHT_JUL17,
+        finished_at=_NIGHT_JUL17,
+        base_dir=tmp_path,
+        tape_evaluated=True,
+    )
+    write_cron_run_log(  # a later catch-up that skipped AAA's thesis: evaluated, but a partial roster
+        [
+            _thesis_result(skipped="on-time call-of-record already recorded"),
+            _thesis_result(recorded=True),
+        ],
+        asof=date(2026, 7, 20),
+        allow_live=True,
+        started_at=_utc(2026, 7, 21, 9, 0),
+        finished_at=_utc(2026, 7, 21, 9, 5),
+        base_dir=tmp_path,
+        tape_evaluated=True,
+        catch_up=True,
+    )
+    _start(tmp_path, asof=date(2026, 7, 21), at=_utc(2026, 7, 21, 22, 30, 1))  # newest: in flight
+    assert previous_stale_tapes(base_dir=tmp_path) == {f"price:{sid}"}  # the FULL pass's inventory
+
+
+def test_a_SKIPPED_thesis_counts_as_the_night_recorded_for_the_guard(tmp_path):
+    """M2 twin of `daily._failed_to_record`: a catch-up whose every thesis was skipped (their on-time rows
+    already stood) HAS the night — a later catch-up must not re-run it."""
+    _log_for_results(
+        tmp_path,
+        [_thesis_result(skipped="on-time call-of-record already recorded 2026-07-17 22:41 EDT")],
+        asof=_JUL17,
+        at=_utc(2026, 7, 18, 9, 0),
+    )
+    assert _ran(tmp_path, _JUL17) is True

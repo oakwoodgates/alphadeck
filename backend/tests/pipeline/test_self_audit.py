@@ -103,23 +103,27 @@ def test_on_time_rows_FAILS_for_a_DAYTIME_row_a_RECONSTRUCTED_row_and_NO_row(db,
     - `recon`: its only row after the cutoff is RECONSTRUCTED (a backfill row is never the night's record);
     - `none`: no row at all for the night;
     - `ok`: a nightly row after the cutoff;
-    - `gone`: ARCHIVED, no row — the cron does not walk it, so the audit must not demand one."""
+    - `gone`: ARCHIVED before the cutoff, no row — the cron does not walk it, so the audit must not demand
+      one.
+    Every thesis is created BEFORE the cutoff (M1: the roster is the theses that existed when the night's
+    pass was due — `pipeline/night_coverage.py`), and each row goes through the cron's own writer
+    (`call_for_thesis` + `record_if_changed`) for that thesis alone."""
     _no_network(monkeypatch)
     early = _thesis(db, "thesis-early-name")
-    asof = _utc(_db_now(db)).date()
-    daily.run_daily(db, asof=asof, allow_live=True)  # `early`'s row — BEFORE the cutoff below
-    cutoff = _db_now(db)
-    if _utc(cutoff).date() != asof:  # pragma: no cover — the UTC date flipped between two reads
-        pytest.skip("crossed UTC midnight mid-test")
     ok = _thesis(db, "thesis-ok-name")
     recon = _thesis(db, "thesis-recon-name")
     none_ = _thesis(db, "thesis-none-name")
     gone = _thesis(db, "thesis-gone-name")
     thesis_repo.set_archived(db, gone, True)
     db.commit()
-    # `ok`: the real nightly writer, after the cutoff. `run_daily` walks every active thesis, so it also
-    # appends for recon/none — remove those two from the night by writing THEIR rows another way: assemble
-    # with the real writer for `ok` only, through the same record_if_changed the cron uses.
+    asof = _utc(_db_now(db)).date()
+    card_early = daily.call_for_thesis(db, early, asof, record=False)  # `early` — BEFORE the cutoff
+    calls_repo.record_if_changed(db, card_early, DEFAULT_TENANT_ID, run_kind="manual")
+    db.commit()
+    cutoff = _db_now(db)
+    if _utc(cutoff).date() != asof:  # pragma: no cover — the UTC date flipped between two reads
+        pytest.skip("crossed UTC midnight mid-test")
+    # `ok`: the real nightly writer, after the cutoff; `recon`: the same writer, marked reconstructed
     card_ok = daily.call_for_thesis(db, ok, asof, record=False)
     calls_repo.record_if_changed(db, card_ok, DEFAULT_TENANT_ID, run_kind="cron")
     card_recon = daily.call_for_thesis(db, recon, asof, record=False)
@@ -138,6 +142,26 @@ def test_on_time_rows_FAILS_for_a_DAYTIME_row_a_RECONSTRUCTED_row_and_NO_row(db,
         assert str(tid)[:8] in res.detail
     assert str(ok)[:8] not in res.detail and str(gone)[:8] not in res.detail
     assert "thesis-" not in res.detail  # ids only — never a thesis NAME
+
+
+def test_on_time_rows_judges_the_ROSTER_at_the_cutoff_created_after_is_out_archived_after_is_in(
+    db, monkeypatch
+):
+    """M1 — the roster is the night's, not today's: a thesis CREATED after the cutoff was never in the pass's
+    walk (no row demanded), while one ARCHIVED after the cutoff was (archiving never hides its missing row).
+    Both theses are real rows; the archive stamp is the real writer's `now()`, after the cutoff."""
+    _no_network(monkeypatch)
+    kept = _thesis(db, "thesis-kept-name")  # in the roster, archived AFTER the cutoff, no row
+    cutoff = _db_now(db)
+    late_born = _thesis(db, "thesis-born-after-name")  # created AFTER the cutoff, no row
+    thesis_repo.set_archived(db, kept, True)  # archived_at = now() > cutoff
+    db.commit()
+
+    res = check_on_time_rows(_ctx(cutoff=cutoff, started_at=_db_now(db)))
+
+    assert res.ok is False
+    assert "1 of 1 active theses have NO on-time row" in res.detail
+    assert str(kept)[:8] in res.detail and str(late_born)[:8] not in res.detail
 
 
 def test_on_time_rows_is_NOT_APPLICABLE_to_a_daytime_pass_or_a_no_live_pass(db):

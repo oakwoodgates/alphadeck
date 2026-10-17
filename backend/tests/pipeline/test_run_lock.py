@@ -12,15 +12,17 @@ could never see.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
 import threading
 import time as _time
 import uuid
-from datetime import date
+from datetime import date, datetime, time
 from pathlib import Path
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -35,6 +37,7 @@ from pipeline.run_lock import (
 
 _ASOF = date(2026, 6, 10)
 _BACKEND = Path(__file__).resolve().parents[2]
+_NY = ZoneInfo("America/New_York")
 
 
 def _thesis(db, name):
@@ -91,6 +94,18 @@ def _offline_pass(monkeypatch, tmp_path, *, ingest=None):
 
 def _artifacts(tmp_path) -> list[Path]:
     return sorted(tmp_path.glob("*.json"))
+
+
+def _status(path: Path) -> str:
+    return cron_run_log.run_status(json.loads(path.read_text(encoding="utf-8")))
+
+
+def _on_the_night(monkeypatch, asof: date) -> None:
+    """Pin the CLI's market clock to 23:00 ET on ``asof`` — a hand-typed pass for TONIGHT, which C3 lets
+    through (a past ``--asof`` is refused before the lock is ever tried)."""
+    monkeypatch.setattr(
+        daily, "market_now", lambda: datetime.combine(asof, time(23, 0), tzinfo=_NY)
+    )
 
 
 # --- the lock itself --------------------------------------------------------------------------------
@@ -179,8 +194,12 @@ def test_a_KILLED_holder_process_releases_the_lock(db):
 def test_two_CONCURRENT_passes_leave_exactly_ONE_set_of_rows(db, monkeypatch, tmp_path, capsys):
     """THE headline. Pass A (the sidecar) holds the lock and is mid-loop; pass B (an Admin click, a hand
     `pipeline.daily`) starts meanwhile. B must refuse — no rows, no artifact, no page — and the table must
-    hold exactly one call-of-record per thesis afterwards. COUNTED, never read through the dedup."""
+    hold exactly one call-of-record per thesis afterwards. COUNTED, never read through the dedup.
+
+    M1: while A is mid-loop its own START artifact is on disk reading ``running`` (B added nothing beside
+    it), and once A finishes that SAME file reads ``finished`` — one file per pass."""
     t1, t2 = _thesis(db, "lock-A"), _thesis(db, "lock-B")
+    _on_the_night(monkeypatch, _ASOF)  # B's hand-typed CLI run is for tonight (C3 lets it through)
     a_inside = threading.Event()
     a_go = threading.Event()
 
@@ -213,7 +232,9 @@ def test_two_CONCURRENT_passes_leave_exactly_ONE_set_of_rows(db, monkeypatch, tm
         assert exc.value.code == EXIT_ALREADY_RUNNING
         assert "ALREADY RUNNING" in capsys.readouterr().out
         assert _count_calls(db) == before  # B wrote no row
-        assert _artifacts(tmp_path) == []  # …and no artifact (A has not finished yet)
+        # …and no artifact: the only file is A's own START artifact, still `running` (M1)
+        mid = _artifacts(tmp_path)
+        assert len(mid) == 1 and _status(mid[0]) == "running"
         assert rec_b.health == []  # a refusal is not a crash: nothing paged
     finally:
         a_go.set()
@@ -227,7 +248,8 @@ def test_two_CONCURRENT_passes_leave_exactly_ONE_set_of_rows(db, monkeypatch, tm
         )
         per = {r["thesis_id"]: r["n"] for r in cur.fetchall()}
     assert per == {t1: 1, t2: 1}
-    assert len(_artifacts(tmp_path)) == 1
+    done = _artifacts(tmp_path)
+    assert done == mid and _status(done[0]) == "finished"  # the SAME file, finalized
     assert probe_pass_lock() is None  # A released it when it finished
 
 
@@ -250,10 +272,12 @@ def test_the_CLI_exits_75_while_ANOTHER_PROCESS_holds_the_lock(db, monkeypatch, 
     _thesis(db, "lock-cli")
     _offline_pass(monkeypatch, tmp_path)
     before = _count_calls(db)
+    # the sidecar's scheduled argv, verbatim since C3 (`--late-ok`: its target is fixed before the sleep)
+    sidecar = ["--run-kind", "cron", "--late-ok", "--asof", _ASOF.isoformat()]
     proc = _spawn_holder("manual")
     try:
         with pytest.raises(SystemExit) as exc:
-            daily.main(["--run-kind", "cron", "--asof", _ASOF.isoformat()])
+            daily.main(sidecar)
         assert exc.value.code == EXIT_ALREADY_RUNNING == 75
         out = capsys.readouterr().out
         assert "ALREADY RUNNING" in out and "alphadeck-pass:manual" in out
@@ -261,9 +285,9 @@ def test_the_CLI_exits_75_while_ANOTHER_PROCESS_holds_the_lock(db, monkeypatch, 
         proc.stdin.close()
         proc.wait(timeout=30)
     assert _count_calls(db) == before
-    assert _artifacts(tmp_path) == []
+    assert _artifacts(tmp_path) == []  # refused before the lock: not even a start artifact
     # and once the holder is gone the same command runs and records
-    daily.main(["--run-kind", "cron", "--asof", _ASOF.isoformat()])
+    daily.main(sidecar)
     assert _count_calls(db) == before + 1
 
 
