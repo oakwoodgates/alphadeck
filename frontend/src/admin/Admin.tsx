@@ -1,6 +1,11 @@
 import { useEffect, useState, type ReactNode } from "react";
 
-import type { AdminRunOut, AdminSplitDefectOut, AdminStaleTapeOut } from "../api/hooks";
+import type {
+  AdminLateOnlyNightOut,
+  AdminRunOut,
+  AdminSplitDefectOut,
+  AdminStaleTapeOut,
+} from "../api/hooks";
 import {
   useAdminRuns,
   useAdminStatus,
@@ -10,6 +15,8 @@ import {
   useDailyRunJob,
   useStartDailyRun,
 } from "../api/hooks";
+import { scoreboardPath } from "../nav";
+import { hoursLate } from "../scoreboard/late";
 import { errText } from "../workbench/format";
 import { PriceFeedRepairs, repairHandledIds } from "./PriceFeedRepairs";
 
@@ -126,6 +133,52 @@ function ClosedTapeBlock({ rows }: { rows: AdminStaleTapeOut[] }) {
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+/** An instant the server sends in MARKET time (the late-only rows carry ET's offset) -> its wall clock,
+ *  "2026-10-13 17:05 ET": the stamp as the operator would have read it that day. Zone-free on purpose —
+ *  the server already chose the zone, so the browser's own never enters. */
+const fmtMarketWall = (iso: string) => `${iso.slice(0, 16).replace("T", " ")} ET`;
+
+/** The LATE-ONLY thesis-nights (operator decision 2026-10-17): a (thesis, night) holding a LATE row —
+ *  recorded at/after the next weekday's 06:00 ET EDGAR open — and no on-time row. The coverage readout
+ *  counts that row as covering the night (the pass did record it), while the Scoreboard sets late rows
+ *  aside (L1: they never define an episode), so there the night reads as a gap. Without this line Admin
+ *  would say "covered" where the Scoreboard shows a hole. QUIET and informational (honest loudness,
+ *  #7/WB#3): never loud, never a cron alarm, never the verdict, never paged — and distinct from the
+ *  backfilled line, because a reconstructed row is its own marker. Each row names the thesis, its night,
+ *  when it was recorded (and how far past the EDGAR open), and — when the night also has a pre-close
+ *  daytime row — that the Scoreboard scores that row instead. Rendered by its caller only when there is
+ *  one: a line true of no night carries no information. */
+function LateOnlyBlock({ rows }: { rows: AdminLateOnlyNightOut[] }) {
+  return (
+    <div data-testid="adm-late-only">
+      <div className="adm-line adm-quiet">
+        {rows.length} thesis-night(s) recorded only late — set aside on the Scoreboard (late rows never
+        define an episode)
+      </div>
+      <ul className="adm-problems adm-quietrows">
+        {rows.map((n) => (
+          <li key={`${n.thesis_id}:${n.asof}`}>
+            <b>{n.thesis_name}</b> — night {n.asof} · recorded {fmtMarketWall(n.recorded_at)} (
+            {hoursLate(n)} h past the EDGAR open
+            {n.n_rows > 1 ? `; ${n.n_rows} late rows` : ""})
+            {n.daytime_recorded_at && (
+              <> · the Scoreboard scores its daytime row ({fmtMarketWall(n.daytime_recorded_at)}) instead</>
+            )}
+          </li>
+        ))}
+      </ul>
+      <div className="adm-sub">
+        A late row still counts as recording its night here (the pass did record it), so these never
+        make a night partial. The Scoreboard names them in its "late-recorded nights" line, whose toggle
+        scores them:{" "}
+        <a className="adm-link" href={scoreboardPath(null)}>
+          Scoreboard →
+        </a>
+      </div>
     </div>
   );
 }
@@ -278,6 +331,8 @@ export function Admin({ header }: Props) {
   const partialNights = status?.record.partial_nights ?? [];
   // ...and nights whose gaps a pipeline.backfill reconstructed: resolved by the operator, so QUIET
   const reconstructedNights = status?.record.reconstructed_nights ?? [];
+  // ...and thesis-nights recorded ONLY late: covered here, set aside on the Scoreboard — QUIET as well
+  const lateOnlyNights = status?.record.late_only_nights ?? [];
 
   return (
     <div className="board-shell adm-shell">
@@ -358,6 +413,10 @@ export function Admin({ header }: Props) {
                   .join(", ")}
               </div>
             )}
+            {/* the LATE-ONLY thesis-nights: covered here (a late row still covers its night), set aside on
+                the Scoreboard (L1). QUIET — informational, never a reason the card turns gappy — and
+                rendered only when there is one. An older backend omits the field. */}
+            {lateOnlyNights.length > 0 && <LateOnlyBlock rows={lateOnlyNights} />}
             <div className="adm-sub">
               {status.record.reason} · today {status.record.today} · last expected as-of{" "}
               {status.record.expected_asof}

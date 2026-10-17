@@ -16,22 +16,24 @@ night WINS over a later late one, and a night whose only rows are late reads exa
 record last spoke on the prior honest row). Nothing is deleted or marked: lateness is DERIVED on read from
 ``recorded_at`` (no migration), so flipping the policy re-scores the record exactly as before L1.
 
-This module is the judge + the two reads it needs: the ids to drop for one thesis (``late_call_ids``), and
-the banner's per-(thesis, night) list (``late_nights``). ``calls_repo`` stays value-free (it drops the ids it
-is given); the market timezone is deploy config, read here.
+This module is the judge + the reads it needs: the ids to drop for one thesis (``late_call_ids``), the
+banner's per-(thesis, night) list (``late_nights``), and the Admin readout's LATE-ONLY subset of that list
+(``late_only_nights`` — a night whose only post-close record is late, which Admin's coverage counts as
+recorded while this reading sets it aside). ``calls_repo`` stays value-free (it drops the ids it is given);
+the market timezone is deploy config, read here.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
-from datetime import date, tzinfo
+from collections.abc import Iterable, Mapping, Sequence
+from datetime import date, time, tzinfo
 from uuid import UUID
 
 import psycopg
 
 from domain.market_time import market_tz
 from domain.settings import get_settings
-from pipeline.night_coverage import is_late, next_edgar_open
+from pipeline.night_coverage import is_late, is_on_time, next_edgar_open
 from repositories import calls_repo
 from scoreboard.schema import LateNight
 
@@ -102,3 +104,46 @@ def late_nights(
     every tenant — the ``reconstructed_asofs`` / ``active_nights`` scope), listed under BOTH readings.
     Capped at ``upto`` so a scrubbed-back view names only nights it can see. Read-only."""
     return judge_late_nights(calls_repo.call_stamps(conn, upto=upto), tz=tz or market_tz())
+
+
+def judge_late_only_nights(
+    stamps: Iterable[Mapping], *, run_at: time, tz: tzinfo
+) -> list[LateNight]:
+    """PURE: the LATE-ONLY nights — the (thesis, as-of) entries of ``judge_late_nights`` (same entries, same
+    order) whose night holds NO on-time row: at least one late row, and no non-reconstructed row inside the
+    night's on-time window (``night_coverage.is_on_time`` — the window whose end ``is_late`` judges, so
+    "late" and "on time" keep one definition).
+
+    The Admin readout's list (operator decision 2026-10-17). Admin's per-(thesis, night) coverage counts a
+    late row as COVERING the night (the pass did record it), while the Scoreboard sets that row aside — so
+    with no on-time row beside it, Admin reads "covered" where the Scoreboard reads a gap. Naming these keeps
+    the two readings reconcilable. A reconstructed row is neither late nor on time here: it is its own
+    marker (``reconstructed_nights``), so a reconstructed-only night is never late-only, and a
+    reconstruction beside a late row does not stand in for an on-time one (the Scoreboard sets both aside).
+    A DAYTIME row (recorded before ``run_at``) is neither either: such a night is still late-only — its
+    post-close record exists only late — and ``earlier_recorded_at`` then names the daytime row the
+    late-excluding reading scores instead (``None`` = the night reads as a gap there)."""
+    stamps = list(stamps)
+    on_time = {
+        (s["thesis_id"], s["asof"])
+        for s in stamps
+        if not s["reconstructed"] and is_on_time(s["recorded_at"], s["asof"], run_at=run_at, tz=tz)
+    }
+    return [n for n in judge_late_nights(stamps, tz=tz) if (n.thesis_id, n.asof) not in on_time]
+
+
+def late_only_nights(
+    conn: psycopg.Connection,
+    *,
+    asofs: Sequence[date],
+    run_at: time,
+    tz: tzinfo | None = None,
+) -> list[LateNight]:
+    """``judge_late_only_nights`` over every thesis's rows for the nights in ``asofs`` (the Admin coverage
+    window; all tenants, every thesis — the coverage read's scope). One read of the row stamps, never the
+    cards; ``[]`` for no nights. Read-only; the caller owns the connection."""
+    if not asofs:
+        return []
+    return judge_late_only_nights(
+        calls_repo.call_stamps(conn, asofs=asofs), run_at=run_at, tz=tz or market_tz()
+    )

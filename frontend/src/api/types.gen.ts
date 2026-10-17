@@ -1030,7 +1030,10 @@ export interface paths {
          *     partial ("4 of 12 theses") and the verdict ``gappy`` — unless ``pipeline.backfill`` reconstructed that
          *     thesis's night: the backfill resolves the hole, so the night stays QUIET and is listed in
          *     ``record.reconstructed_nights`` (a count, never an alarm). The night a pass is still running for is not
-         *     judged until it finishes.
+         *     judged until it finishes. A LATE row (recorded at/after the next weekday's 06:00 ET EDGAR open) still
+         *     covers its night here, but the Scoreboard sets late rows aside (L1), so ``record.late_only_nights`` names
+         *     every judged (thesis, night) with a late row and no on-time row — "covered" here, a gap there.
+         *     Informational: it never changes ``reason``, the verdict, or ``cron.alarms``, and never pages.
          *
          *     ``split_defects`` (T4) is the split-basis panel — every basket name whose stored tape mixes two split
          *     bases (island / cliff / flap), from the newest artifact that scanned; flag only, never the verdict.
@@ -1757,6 +1760,52 @@ export interface components {
             until: string;
         };
         /**
+         * AdminLateOnlyNightOut
+         * @description One (thesis, night) recorded ONLY LATE (operator decision 2026-10-17): it holds at least one
+         *     non-reconstructed call-of-record recorded at/after the night's on-time window closed (the next weekday's
+         *     06:00 ET EDGAR open — ``pipeline.night_coverage.is_late``) and NO row inside that window. The coverage
+         *     readout counts the late row as covering the night (the pass did record it), but the Scoreboard sets late
+         *     rows aside (L1 — they never define an episode), so there the night reads as a gap (unless a daytime row
+         *     stands in, below): listed so "covered" here and the Scoreboard's reading reconcile. INFORMATIONAL —
+         *     never an alarm, never the verdict, never paged.
+         *
+         *     ``recorded_at`` = the first late row's stamp and ``edgar_open`` = the window end it missed, both in
+         *     market time; ``n_rows`` = late rows on the night; ``daytime_recorded_at`` = a pre-``RUN_AT`` row for the
+         *     night, which the Scoreboard scores instead (``null`` = none: the night is a gap there). A reconstructed
+         *     row is its own marker (``reconstructed_nights``) and never makes a night late-only.
+         */
+        AdminLateOnlyNightOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Recorded At
+             * Format: date-time
+             */
+            recorded_at: string;
+            /**
+             * Edgar Open
+             * Format: date-time
+             */
+            edgar_open: string;
+            /**
+             * N Rows
+             * @default 1
+             */
+            n_rows: number;
+            /** Daytime Recorded At */
+            daytime_recorded_at?: string | null;
+        };
+        /**
          * AdminNameChangeFilingOut
          * @description An 8-K carrying item 5.03 (an articles amendment — where a corporate name change is filed).
          */
@@ -2075,6 +2124,12 @@ export interface components {
          *     whose only gaps are reconstructed is not partial and lands in ``reconstructed_nights`` instead, a quiet
          *     count that never changes the verdict. ``[]`` on a clean window; the night a pass is still running for
          *     (within the run timeout) is left out of both until it finishes.
+         *
+         *     **LATE-ONLY thesis-nights (2026-10-17).** A late row COVERS its night here (the pass recorded it), but
+         *     the Scoreboard never scores a late row (L1), so a (thesis, night) with a late row and no on-time row
+         *     reads covered here and a gap there. ``late_only_nights`` names every such pair across the same judged
+         *     window nights (any thesis with rows for them) — informational, never an alarm: it changes neither
+         *     ``reason`` nor the cron verdict.
          */
         AdminRecordOut: {
             /** Edge */
@@ -2116,6 +2171,11 @@ export interface components {
              * @default []
              */
             reconstructed_nights: components["schemas"]["AdminReconstructedNightOut"][];
+            /**
+             * Late Only Nights
+             * @default []
+             */
+            late_only_nights: components["schemas"]["AdminLateOnlyNightOut"][];
         };
         /**
          * AdminRenamedRowOut

@@ -1775,6 +1775,29 @@ class AdminReconstructedNightOut(BaseModel):
     expected: int
 
 
+class AdminLateOnlyNightOut(BaseModel):
+    """One (thesis, night) recorded ONLY LATE (operator decision 2026-10-17): it holds at least one
+    non-reconstructed call-of-record recorded at/after the night's on-time window closed (the next weekday's
+    06:00 ET EDGAR open — ``pipeline.night_coverage.is_late``) and NO row inside that window. The coverage
+    readout counts the late row as covering the night (the pass did record it), but the Scoreboard sets late
+    rows aside (L1 — they never define an episode), so there the night reads as a gap (unless a daytime row
+    stands in, below): listed so "covered" here and the Scoreboard's reading reconcile. INFORMATIONAL —
+    never an alarm, never the verdict, never paged.
+
+    ``recorded_at`` = the first late row's stamp and ``edgar_open`` = the window end it missed, both in
+    market time; ``n_rows`` = late rows on the night; ``daytime_recorded_at`` = a pre-``RUN_AT`` row for the
+    night, which the Scoreboard scores instead (``null`` = none: the night is a gap there). A reconstructed
+    row is its own marker (``reconstructed_nights``) and never makes a night late-only."""
+
+    thesis_id: UUID
+    thesis_name: str
+    asof: date
+    recorded_at: datetime
+    edgar_open: datetime
+    n_rows: int = 1
+    daytime_recorded_at: datetime | None = None
+
+
 class AdminRecordOut(BaseModel):
     """The record's freshness vs the LAST EXPECTED scheduled run — never raw ``today - edge``: a
     Friday edge on a Monday morning is CURRENT (no run was due yet), the same edge Monday night is 1
@@ -1805,6 +1828,12 @@ class AdminRecordOut(BaseModel):
     whose only gaps are reconstructed is not partial and lands in ``reconstructed_nights`` instead, a quiet
     count that never changes the verdict. ``[]`` on a clean window; the night a pass is still running for
     (within the run timeout) is left out of both until it finishes.
+
+    **LATE-ONLY thesis-nights (2026-10-17).** A late row COVERS its night here (the pass recorded it), but
+    the Scoreboard never scores a late row (L1), so a (thesis, night) with a late row and no on-time row
+    reads covered here and a gap there. ``late_only_nights`` names every such pair across the same judged
+    window nights (any thesis with rows for them) — informational, never an alarm: it changes neither
+    ``reason`` nor the cron verdict.
     """
 
     edge: date | None
@@ -1819,6 +1848,7 @@ class AdminRecordOut(BaseModel):
     window_days: int
     partial_nights: list[AdminPartialNightOut] = []
     reconstructed_nights: list[AdminReconstructedNightOut] = []
+    late_only_nights: list[AdminLateOnlyNightOut] = []
 
 
 class AdminUnfinishedRunOut(BaseModel):

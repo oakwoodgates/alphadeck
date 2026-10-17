@@ -230,6 +230,41 @@ const STATUS_BACKFILLED = {
   cron: { status: "healthy", detail: "last run asof 2026-10-02 (live) — 12 appended" },
 };
 
+// the MEASURED 2026-10-12 shape after the boot catch-up: every thesis has a post-close row (4 on time, 8 ONLY
+// late — a late row still COVERS its night), so nothing is partial and the cron is healthy, yet the Scoreboard
+// sets the late rows aside (L1). Two of the eight here (synthetic names); the second also carries the rarer
+// shapes the wire can hold — two late rows, and a pre-close daytime row the Scoreboard scores instead.
+const LATE_ONLY_NIGHTS = [
+  {
+    thesis_id: "66666666-6666-6666-6666-666666666666",
+    thesis_name: "Thesis Alpha",
+    asof: "2026-10-12",
+    recorded_at: "2026-10-13T17:05:00-04:00",
+    edgar_open: "2026-10-13T06:00:00-04:00",
+    n_rows: 1,
+    daytime_recorded_at: null as string | null,
+  },
+  {
+    thesis_id: "77777777-7777-7777-7777-777777777777",
+    thesis_name: "Thesis Beta",
+    asof: "2026-10-12",
+    recorded_at: "2026-10-13T17:13:00-04:00",
+    edgar_open: "2026-10-13T06:00:00-04:00",
+    n_rows: 2,
+    daytime_recorded_at: "2026-10-12T09:15:00-04:00" as string | null,
+  },
+];
+const STATUS_LATE_ONLY = {
+  record: {
+    ...STATUS_PARTIAL.record,
+    partial_nights: [],
+    reason: "current — no scheduled run is missing",
+    late_only_nights: LATE_ONLY_NIGHTS,
+  },
+  last_run: OK_RUN,
+  cron: { status: "healthy", detail: "last run asof 2026-10-12 (live) — 4 appended" },
+};
+
 // M2 — a catch-up that left 4 theses alone (their on-time rows already stood)
 const SKIPPED_RUN = { ...CATCHUP_RUN, appended: 8, unchanged: 0, skipped: 4 };
 
@@ -387,6 +422,48 @@ describe("Admin — honest loudness on the freshness widget", () => {
     expect(line.className).not.toMatch(/adm-loud/);
     expect(line.textContent).toContain("2026-09-29 (12 of 12 theses)");
     expect(screen.getByTestId("adm-cron").querySelector(".adm-chip")?.className).toMatch(/s-healthy/);
+  });
+
+  it("a LATE-ONLY thesis-night is QUIET and distinct: each named with its night and recorded-at, the cron healthy", () => {
+    // operator decision 2026-10-17: Admin must not read "covered" where the Scoreboard shows a gap
+    h.status = { ...h.status, data: STATUS_LATE_ONLY };
+    renderAdmin();
+    const fresh = screen.getByTestId("adm-fresh");
+    expect(fresh.className).not.toMatch(/gappy|stale/); // informational — never turns the card loud
+    expect(screen.queryByTestId("adm-partial")).toBeNull();
+    expect(screen.queryByTestId("adm-reconstructed")).toBeNull(); // its own marker, not the backfill's
+    const block = screen.getByTestId("adm-late-only");
+    expect(block.querySelector(".adm-loud")).toBeNull();
+    const line = block.querySelector(".adm-line");
+    expect(line?.className).toMatch(/adm-quiet/);
+    expect(line?.textContent).toContain(
+      "2 thesis-night(s) recorded only late — set aside on the Scoreboard (late rows never define an episode)",
+    );
+    const items = [...block.querySelectorAll("li")].map((li) => li.textContent);
+    expect(items).toEqual([
+      "Thesis Alpha — night 2026-10-12 · recorded 2026-10-13 17:05 ET (11 h past the EDGAR open)",
+      "Thesis Beta — night 2026-10-12 · recorded 2026-10-13 17:13 ET (11 h past the EDGAR open; 2 late rows)" +
+        " · the Scoreboard scores its daytime row (2026-10-12 09:15 ET) instead",
+    ]);
+    // the pointer to the Scoreboard's own late banner
+    expect(block.textContent).toContain('"late-recorded nights" line');
+    expect(block.querySelector("a.adm-link")?.getAttribute("href")).toBe("/scoreboard");
+    expect(screen.getByTestId("adm-cron").querySelector(".adm-chip")?.className).toMatch(/s-healthy/);
+  });
+
+  it("ZERO late-only nights render nothing — a line true of no night carries no information", () => {
+    h.status = {
+      ...h.status,
+      data: { ...STATUS_LATE_ONLY, record: { ...STATUS_LATE_ONLY.record, late_only_nights: [] } },
+    };
+    renderAdmin();
+    expect(screen.queryByTestId("adm-late-only")).toBeNull();
+    expect(screen.getByTestId("adm-fresh").textContent).not.toContain("recorded only late");
+  });
+
+  it("an older backend without the field renders no late-only line either", () => {
+    renderAdmin(); // STATUS_CURRENT carries no late_only_nights at all
+    expect(screen.queryByTestId("adm-late-only")).toBeNull();
   });
 
   it("a pass IN FLIGHT reads RUNNING, quietly — no partial line, no loud freshness card", () => {

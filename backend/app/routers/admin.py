@@ -31,6 +31,7 @@ from app.routers.admin_price_feed import price_repairs_out
 from app.schemas_api import (
     AdminAuditCheckOut,
     AdminCronOut,
+    AdminLateOnlyNightOut,
     AdminPartialNightOut,
     AdminReconstructedNightOut,
     AdminRecordOut,
@@ -81,6 +82,7 @@ from pipeline.schedule import (
 from pipeline.split_basis import new_labels_of as split_new_labels
 from pipeline.successor_cik import new_labels_of as successor_new_labels
 from repositories import calls_repo
+from scoreboard.late import late_only_nights
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 _log = logging.getLogger(__name__)
@@ -726,7 +728,10 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
     partial ("4 of 12 theses") and the verdict ``gappy`` — unless ``pipeline.backfill`` reconstructed that
     thesis's night: the backfill resolves the hole, so the night stays QUIET and is listed in
     ``record.reconstructed_nights`` (a count, never an alarm). The night a pass is still running for is not
-    judged until it finishes.
+    judged until it finishes. A LATE row (recorded at/after the next weekday's 06:00 ET EDGAR open) still
+    covers its night here, but the Scoreboard sets late rows aside (L1), so ``record.late_only_nights`` names
+    every judged (thesis, night) with a late row and no on-time row — "covered" here, a gap there.
+    Informational: it never changes ``reason``, the verdict, or ``cron.alarms``, and never pages.
 
     ``split_defects`` (T4) is the split-basis panel — every basket name whose stored tape mixes two split
     bases (island / cliff / flap), from the newest artifact that scanned; flag only, never the verdict.
@@ -806,6 +811,12 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
     reconstructed = [
         coverage[d] for d in judged if coverage[d].resolved and coverage[d].reconstructed_only
     ]
+    # LATE-ONLY thesis-nights (operator decision 2026-10-17). A late row COVERS its night above (the pass
+    # recorded it), but the Scoreboard never scores a late row (L1, `scoreboard/late.py`), so a (thesis, night)
+    # with a late row and no on-time row reads "covered" here and a GAP there. Named across the same judged
+    # nights by L1's own judge (one definition of late, and of on time) — INFORMATIONAL: it touches neither
+    # `reason`, nor the verdict, nor `cron.alarms`, and never pages (honest loudness). One read-only query.
+    late_only = late_only_nights(conn, asofs=judged, run_at=run_at, tz=tz)
     # the verdict's view of the edge/hole checks: the night an in-flight pass is recording is not missing yet
     # (`record.*` keeps the raw edge-check meaning; only the one-word verdict reads through the in-flight pass)
     missed_eff = [d for d in missed if d != in_flight_asof]
@@ -1001,6 +1012,20 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
                     expected=len(c.expected),
                 )
                 for c in reconstructed
+            ],
+            late_only_nights=[
+                AdminLateOnlyNightOut(
+                    thesis_id=n.thesis_id,
+                    thesis_name=n.thesis_name,
+                    asof=n.asof,
+                    recorded_at=n.recorded_at.astimezone(tz),
+                    edgar_open=n.edgar_open.astimezone(tz),
+                    n_rows=n.n_rows,
+                    daytime_recorded_at=(
+                        n.earlier_recorded_at.astimezone(tz) if n.earlier_recorded_at else None
+                    ),
+                )
+                for n in late_only
             ],
         ),
         last_run=last_run,
