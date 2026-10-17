@@ -16,6 +16,8 @@ const h = vi.hoisted(() => ({
   undo: {} as Record<string, unknown>,
   ack: {} as Record<string, unknown>,
   revoke: {} as Record<string, unknown>,
+  adoptCik: {} as Record<string, unknown>,
+  undoCik: {} as Record<string, unknown>,
 }));
 
 vi.mock("../../api/hooks", () => ({
@@ -24,6 +26,8 @@ vi.mock("../../api/hooks", () => ({
   useUndoPriceSymbolChange: () => h.undo,
   useAcknowledgeUnpriceable: () => h.ack,
   useRevokeAcknowledgment: () => h.revoke,
+  useAdoptSuccessorCik: () => h.adoptCik,
+  useUndoCikChange: () => h.undoCik,
 }));
 
 const m = () => ({ mutate: vi.fn(), isPending: false, isError: false, error: null });
@@ -34,6 +38,8 @@ beforeEach(() => {
   h.undo = m();
   h.ack = m();
   h.revoke = m();
+  h.adoptCik = m();
+  h.undoCik = m();
 });
 
 const HLLK_ID = "1ab2376c-df06-4928-9d6a-868a49eb936b";
@@ -271,6 +277,100 @@ describe("PriceFeedRepairs — every action is the operator's click, with its in
     h.adopt = { ...m(), isError: true, error: { detail: "HLLK is already priced under SDCO" } };
     show(NIGHT);
     expect(screen.getByText("HLLK is already priced under SDCO")).toBeTruthy();
+  });
+});
+
+// T7 — the successor-CIK block, on the measured 2026-10-17 prod finding: UROY's stored CIK 0001711570
+// ("Uranium Royalty Corp. /CA", 15-12G 2026-07-31) lists no symbol; SEC assigns UROY to 0002143673
+// (8-K12B 2026-07-28, incorporated DE, files 10-K / 10-Q).
+const UROY_ID = "c61a00a6-ff88-43c3-8c3e-479e4f900e14";
+const UROY = {
+  security_id: UROY_ID,
+  ticker: "UROY",
+  theses: [{ id: "nb", name: "Nuclear Buildout" }],
+  stored_cik: "0001711570",
+  master_name: "Uranium Royalty Corp.",
+  old_entity_name: "Uranium Royalty Corp. /CA",
+  old_former_names: [{ name: "Uranium Royalty Corp.", since: "2018-07-16", until: "2026-07-20" }],
+  deregistrations: [{ form: "15-12G", filed: "2026-07-31", accession: "0001493152-26-035517", items: [] }],
+  candidates: [
+    {
+      cik: "0002143673",
+      matched_on: ["UROY"],
+      entity_name: "Uranium Royalty Corp.",
+      edgar_tickers: ["UROY"],
+      former_names: [],
+      succession_filings: [
+        { form: "8-K12B", filed: "2026-07-28", accession: "0001493152-26-034947", items: ["5.03"] },
+      ],
+      identity_read: true,
+      recent_foreign_form: null,
+      files_domestic_forms: true,
+      incorporation: "DE",
+      error: null,
+    },
+  ],
+  recommended: "0002143673",
+  current_cik: "0001711570",
+  change: null,
+};
+const CIK_CHANGE = {
+  id: "k1",
+  security_id: UROY_ID,
+  ticker: "UROY",
+  action: "adopt",
+  prior_cik: "0001711570",
+  new_cik: "0002143673",
+  prior_name: "Uranium Royalty Corp.",
+  new_name: "Uranium Royalty Corp.",
+  basis: "operator:adopt-cik",
+  created_at: "2026-10-17T15:00:00+00:00",
+  undoable: true,
+  current_cik: "0002143673",
+};
+
+describe("PriceFeedRepairs — the successor CIK (T7)", () => {
+  it("a member filing under a NEW CIK is LOUD with its evidence and ONE Adopt for the recommended CIK", async () => {
+    show({ ...EMPTY, successor: [UROY], successor_asof: "2026-10-16" });
+    const block = screen.getByTestId("adm-successor-cik");
+    expect(block.querySelector(".adm-loud")).not.toBeNull();
+    const row = screen.getByTestId("adm-successor-row");
+    expect(row.textContent).toContain(
+      "UROY — stored CIK 0001711570 (Uranium Royalty Corp. /CA) lists no symbol · 15-12G filed 2026-07-31",
+    );
+    expect(screen.getByTestId("adm-successor-candidate").textContent).toContain(
+      "SEC now assigns UROY to CIK 0002143673 (Uranium Royalty Corp.) · 8-K12B filed 2026-07-28",
+    );
+    expect(row.textContent).toContain("incorporated DE · files 10-K / 10-Q (insider Form 4s apply)");
+    for (const hook of [h.adoptCik, h.undoCik]) {
+      expect(hook.mutate as ReturnType<typeof vi.fn>).not.toHaveBeenCalled(); // nothing on mount
+    }
+    await userEvent.click(screen.getByRole("button", { name: "Adopt CIK 0002143673" }));
+    expect(h.adoptCik.mutate).toHaveBeenCalledWith({ securityId: UROY_ID, cik: "0002143673" });
+  });
+
+  it("an adopted row shows the re-point and its Undo; an unread successor cannot be adopted", async () => {
+    show({ ...EMPTY, successor: [{ ...UROY, change: CIK_CHANGE, current_cik: "0002143673" }] });
+    expect(screen.getByTestId("adm-applied-cik-line").textContent).toContain("adopted CIK 0002143673");
+    expect(screen.queryByRole("button", { name: /^Adopt CIK/ })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Undo adopt" }));
+    expect(h.undoCik.mutate).toHaveBeenCalledWith({ changeId: "k1" });
+
+    const unread = { ...UROY.candidates[0], identity_read: false, error: "OSError: timed out" };
+    show({ ...EMPTY, successor: [{ ...UROY, candidates: [unread] }] });
+    expect(screen.getByRole("button", { name: "Adopt CIK 0002143673" })).toBeDisabled();
+    expect(screen.getByText(/could not be read on that pass \(OSError: timed out\)/)).toBeTruthy();
+  });
+
+  it("a re-point that left the inventory keeps its Undo in a QUIET list (WB#1); a failed check is loud", async () => {
+    show({ ...EMPTY, cik_applied: [CIK_CHANGE], successor_error: "OSError: map fetch failed" });
+    const applied = screen.getByTestId("adm-cik-applied");
+    expect(applied.tagName).toBe("DETAILS");
+    expect(applied.querySelector(".adm-loud")).toBeNull();
+    expect(applied.textContent).toContain("UROY — CIK 0001711570 → 0002143673");
+    await userEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(h.undoCik.mutate).toHaveBeenCalledWith({ changeId: "k1" });
+    expect(screen.getByTestId("adm-successor-error").textContent).toContain("OSError: map fetch failed");
   });
 });
 

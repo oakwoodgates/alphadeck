@@ -202,6 +202,28 @@ values — if anything else re-pointed the symbol since (the `--adopt` CLI, the 
 refuses (409) rather than clobber a value it did not write. Nothing on this card is ever applied by the
 system (#3); every row names the operator as its author.
 
+**Successor CIK** `[BUILT, T7]` — the same card, its own inventory (the newest finished, full-roster live pass
+whose successor scan RAN, `successor_asof`) and its own append-only log (`security_cik_change`, 0049).
+
+- **Now files under a NEW CIK** (loud) — a member whose stored CIK lists no symbol on EDGAR while SEC's ticker
+  map assigns ours to another registrant (`FEED_LOOP.md` §the identity monitor): the row names the stored CIK
+  with its EDGAR name and deregistration ("UROY — stored CIK 0001711570 (Uranium Royalty Corp. /CA) lists no
+  symbol · 15-12G filed 2026-07-31") and the successor with its evidence ("SEC now assigns UROY to CIK
+  0002143673 (Uranium Royalty Corp.) · 8-K12B filed 2026-07-28 · incorporated DE · files 10-K / 10-Q").
+  **Adopt CIK <cik>** — only the recommended one, and only when the successor's submissions were read that
+  night — re-points `security_master.cik` in place (the row id stays: tape, facts, basket links, sign-off)
+  and refreshes the CIK-dependent identity from the successor's filings (the `enrich_identity` derivation +
+  the entity name), with no network request; the row then reads "adopted CIK 0002143673 — the next nightly
+  pass reads its filings" with **Undo adopt**. Refused (409): a CIK the detector did not recommend, a name it
+  did not flag, a master whose CIK moved since the pass, a successor CIK another master row already holds.
+- **CIK re-points in force** (quiet) — every standing Adopt whose name left the inventory (its new CIK lists
+  the symbol, so the next pass no longer flags it), each with its **Undo** (WB#1).
+- A failed scan is one loud line (`successor_error`).
+
+Undo is exact the same way: each change row stores the PRIOR and NEW value of every column the Adopt touched
+(cik, name, the submissions-sourced identity, `enriched_source` / `enriched_at`); Undo writes the prior ones
+back verbatim, only for the name's newest standing change, and refuses (409) if the master drifted since.
+
 #### ETF fund-shares tapes — "is every sleeve still being sampled?"  `[BUILT, F1]`
 
 The same silent-end class, one layer over. An ETF sleeve's shares-outstanding sample is what the net-flow
@@ -462,6 +484,8 @@ the freeze it is adjacent to: `POSTMORTEM_CRON_FREEZE_2026-07.md`.
 | `POST /admin/price-feed/changes/{change_id}/undo` | → the undo row | exact restore; 409 already undone / a later change stands / the master moved |
 | `POST /admin/price-feed/{security_id}/acknowledge` | `{reason?}` → the acknowledgment | unpriceable names only (409 otherwise); idempotent |
 | `POST /admin/price-feed/acks/{ack_id}/revoke` | → the revoke row | 404 when no active acknowledgment |
+| `POST /admin/price-feed/{security_id}/adopt-cik` | `{cik}` → the CIK change row | the detector's recommended successor only (409 otherwise / master moved / CIK held by another row); no network |
+| `POST /admin/price-feed/cik-changes/{change_id}/undo` | → the undo row | exact restore; 409 already undone / a later change stands / the master moved |
 | `GET /admin/runs?limit=` | the run-of-record history, newest first | read-only file parse; skip-unreadable |
 | `POST /admin/run-daily` | **202** + `job_id` | the cron's exact unit; 409 when any process runs a pass (C1 lock) or the slot is busy; 503 DB unreachable |
 | `GET /admin/run-daily/jobs/{job_id}` | job status → run-history row | 404 → "lost from view", never a spinner |

@@ -1317,6 +1317,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/price-feed/{security_id}/adopt-cik": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Adopt Successor Cik
+         * @description ADOPT a member's SUCCESSOR CIK — the operator's ratification of the nightly successor-CIK detector
+         *     (the CIK we store lists no tickers; SEC's ticker map assigns our symbol to this registrant). Only the
+         *     CIK the detector RECOMMENDED on the newest pass that scanned is accepted. Re-points
+         *     ``security_master.cik`` IN PLACE (the row id stays — tape, facts, basket links and sign-off are kept)
+         *     and refreshes the CIK-dependent identity from the successor's submissions the detector already read
+         *     (``master.enrich`` over ``parse_identity`` — the ``enrich_identity`` derivation — plus the entity name);
+         *     the click makes no network request. The change row records every touched column's prior value, so
+         *     ``POST /admin/price-feed/cik-changes/{id}/undo`` restores them exactly. The next nightly pass reads the
+         *     successor's filings. **404** unknown security, **409** no recommendation for this name / not the
+         *     recommended CIK / the successor was not read / the master moved since the pass / another master row
+         *     already holds that CIK, **422** a malformed CIK.
+         */
+        post: operations["adopt_successor_cik_admin_price_feed__security_id__adopt_cik_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/price-feed/cik-changes/{change_id}/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Undo Cik Change
+         * @description UNDO a successor-CIK Adopt — restore the master's prior CIK, name and every identity column the Adopt
+         *     refreshed EXACTLY, appending an ``undo`` row (basis ``operator:undo``). Only the name's standing
+         *     re-point, and only while the master still holds its values. **404** unknown change, **409** already
+         *     undone / a later change stands / the master moved since.
+         */
+        post: operations["undo_cik_change_admin_price_feed_cik_changes__change_id__undo_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/radar/spac": {
         parameters: {
             query?: never;
@@ -1572,6 +1625,52 @@ export interface components {
             detail: string;
         };
         /**
+         * AdminCikChangeOut
+         * @description One operator successor-CIK re-point (``security_cik_change``, migration 0049): an ``adopt`` or the
+         *     ``undo`` of one. ``prior_cik`` / ``new_cik`` and ``prior_name`` / ``new_name`` are the headline values;
+         *     the row also stores every touched identity column's prior + new value — what makes the undo exact.
+         *     ``basis`` names the author (``operator:adopt-cik`` / ``operator:undo``). ``undoable`` (a standing adopt
+         *     only) = the master still holds this change's new values; ``current_cik`` is the master's CIK now.
+         */
+        AdminCikChangeOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker?: string | null;
+            /** Action */
+            action: string;
+            /** Prior Cik */
+            prior_cik?: string | null;
+            /** New Cik */
+            new_cik?: string | null;
+            /** Prior Name */
+            prior_name?: string | null;
+            /** New Name */
+            new_name?: string | null;
+            /** Basis */
+            basis: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Undoable
+             * @default false
+             */
+            undoable: boolean;
+            /** Current Cik */
+            current_cik?: string | null;
+        };
+        /**
          * AdminCronOut
          * @description The one-word cron verdict + a plain-English detail. ``unhealthy`` (the LAST run froze / errored /
          *     withheld on total ingest failure / failed to refresh the benchmark tape) is deliberately its own
@@ -1613,6 +1712,27 @@ export interface components {
              * @default []
              */
             alarms: string[];
+        };
+        /**
+         * AdminFilingRefOut
+         * @description One filing named as evidence (T7): its form, FILING date, accession and — an 8-K-family form — the
+         *     item codes EDGAR resolved (``[]`` = none).
+         */
+        AdminFilingRefOut: {
+            /** Form */
+            form: string;
+            /**
+             * Filed
+             * Format: date
+             */
+            filed: string;
+            /** Accession */
+            accession: string;
+            /**
+             * Items
+             * @default []
+             */
+            items: string[];
         };
         /**
          * AdminFormerNameOut
@@ -1722,10 +1842,10 @@ export interface components {
         };
         /**
          * AdminPriceRepairsOut
-         * @description The "Price feed repairs" panel (T2 + Q8 + T3): one place for every price-feed decision the operator
+         * @description The "Price feed repairs" panel (T2 + Q8 + T3 + T7): one place for every feed decision the operator
          *     owes or has made. The INVENTORY (``renamed`` / ``unpriceable`` / ``closed``) comes from the newest
          *     finished, full-roster live run artifact that evaluated recency (``asof`` / ``ran_at``); the DECISIONS are
-         *     read LIVE from the append-only repair log, so a click shows at once: an acknowledged name moves from
+         *     read LIVE from the append-only repair logs, so a click shows at once: an acknowledged name moves from
          *     ``unpriceable`` to ``acknowledged``, an Adopt shows as the row's ``change`` with its Undo. Read-only.
          *
          *     - ``renamed`` — loud: the splice-probed successors, each with Adopt (and Undo once adopted);
@@ -1734,8 +1854,14 @@ export interface components {
          *     - ``closed`` — QUIET: names that stopped trading (T1) — no repair; their vendor 404 is expected (T3);
          *     - ``applied`` — every STANDING operator price-symbol change, each with its Undo (the inverse stays
          *       visible after the repair healed the tape and the name left the inventory, WB#1);
-         *     - ``expected_misses`` — how many vendor 404s that pass excused as expected (closed / acknowledged).
-         *     ``probe_error`` = the rename probe failed on that pass (``renamed`` rows then carry no verdict).
+         *     - ``expected_misses`` — how many vendor 404s that pass excused as expected (closed / acknowledged);
+         *     - ``successor`` (T7) — loud: members whose company now files under a NEW CIK (the filing legs read the
+         *       dead one), each with its recommended successor to Adopt (and Undo once adopted). From the newest
+         *       finished, full-roster live artifact whose successor scan RAN (``successor_asof``);
+         *     - ``cik_applied`` (T7) — every STANDING successor-CIK re-point, each with its Undo (WB#1).
+         *     ``probe_error`` = the rename probe failed on that pass (``renamed`` rows then carry no verdict);
+         *     ``successor_error`` = the newest live pass's successor scan failed (its rows then are the last good
+         *     pass's, or none).
          */
         AdminPriceRepairsOut: {
             /** Asof */
@@ -1779,6 +1905,25 @@ export interface components {
              * @default 0
              */
             expected_misses: number;
+            /** Successor Asof */
+            successor_asof?: string | null;
+            /**
+             * Successor Evaluated
+             * @default false
+             */
+            successor_evaluated: boolean;
+            /** Successor Error */
+            successor_error?: string | null;
+            /**
+             * Successor
+             * @default []
+             */
+            successor: components["schemas"]["AdminSuccessorRowOut"][];
+            /**
+             * Cik Applied
+             * @default []
+             */
+            cik_applied: components["schemas"]["AdminCikChangeOut"][];
         };
         /**
          * AdminPriceSymbolChangeOut
@@ -2361,10 +2506,10 @@ export interface components {
          *     ``split_defects`` (T4) is the split-basis panel — ``null`` until a finished, full-roster pass has
          *     scanned; a defect is a FEED problem (flag only), so it never changes ``cron.status``.
          *
-         *     ``price_repairs`` (T2 + Q8 + T3) is the "Price feed repairs" panel — renamed names with their
-         *     splice-verified successors to Adopt, unpriceable names to Set / Acknowledge / Remove, the quiet closed
-         *     and acknowledged names, and every standing operator repair with its Undo. A feed matter, never the
-         *     cron verdict.
+         *     ``price_repairs`` (T2 + Q8 + T3 + T7) is the "Price feed repairs" panel — renamed names with their
+         *     splice-verified successors to Adopt, unpriceable names to Set / Acknowledge / Remove, members whose
+         *     company now files under a successor CIK to Adopt, the quiet closed and acknowledged names, and every
+         *     standing operator repair with its Undo. A feed matter, never the cron verdict.
          */
         AdminStatusOut: {
             record: components["schemas"]["AdminRecordOut"];
@@ -2379,6 +2524,113 @@ export interface components {
             unfinished_run?: components["schemas"]["AdminUnfinishedRunOut"] | null;
             split_defects?: components["schemas"]["AdminSplitOut"] | null;
             price_repairs?: components["schemas"]["AdminPriceRepairsOut"] | null;
+        };
+        /**
+         * AdminSuccessorCandidateOut
+         * @description One CIK SEC's ticker map now assigns the member's symbol to (T7), with the evidence read from ITS
+         *     submissions on that pass: ``matched_on`` = our symbols the map assigns to it; ``entity_name`` /
+         *     ``former_names`` / ``edgar_tickers`` = who EDGAR says it is; ``succession_filings`` = its 8-K12B /
+         *     8-K12G3 (the successor-issuer report). ``recent_foreign_form`` / ``files_domestic_forms`` /
+         *     ``incorporation`` preview the identity an Adopt applies (``identity_read`` false = the successor's
+         *     submissions could not be read that night — then ``error`` says why and the row is not adoptable).
+         */
+        AdminSuccessorCandidateOut: {
+            /** Cik */
+            cik: string;
+            /**
+             * Matched On
+             * @default []
+             */
+            matched_on: string[];
+            /** Entity Name */
+            entity_name?: string | null;
+            /**
+             * Edgar Tickers
+             * @default []
+             */
+            edgar_tickers: string[];
+            /**
+             * Former Names
+             * @default []
+             */
+            former_names: components["schemas"]["AdminFormerNameOut"][];
+            /**
+             * Succession Filings
+             * @default []
+             */
+            succession_filings: components["schemas"]["AdminFilingRefOut"][];
+            /**
+             * Identity Read
+             * @default false
+             */
+            identity_read: boolean;
+            /** Recent Foreign Form */
+            recent_foreign_form?: string | null;
+            /** Files Domestic Forms */
+            files_domestic_forms?: boolean | null;
+            /** Incorporation */
+            incorporation?: string | null;
+            /** Error */
+            error?: string | null;
+        };
+        /**
+         * AdminSuccessorCikIn
+         * @description The successor CIK the operator adopts (T7) — digits, with or without the zero padding; it must be
+         *     the CIK the nightly detector recommended for the name.
+         */
+        AdminSuccessorCikIn: {
+            /** Cik */
+            cik: string;
+        };
+        /**
+         * AdminSuccessorRowOut
+         * @description A basket member whose company now files under a NEW CIK (T7's detector): the CIK the master holds
+         *     lists no tickers on EDGAR, and SEC's ticker map assigns the member's symbol to another registrant — a
+         *     pending RECOMMENDATION; nothing is applied until the operator clicks Adopt. ``stored_cik`` and the OLD
+         *     CIK's evidence (``old_entity_name``, ``old_former_names``, its ``deregistrations`` — 15-12B / 15-12G /
+         *     15-15D) sit beside each ``candidates`` entry's. ``recommended`` = the one candidate (``null`` when the
+         *     map is ambiguous — shown, not adoptable). ``current_cik`` is the master's CIK now; ``change`` the
+         *     standing operator re-point for this name (an Adopt waiting for the next pass, with its Undo).
+         */
+        AdminSuccessorRowOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker?: string | null;
+            /**
+             * Theses
+             * @default []
+             */
+            theses: components["schemas"]["AdminThesisRefOut"][];
+            /** Stored Cik */
+            stored_cik: string;
+            /** Master Name */
+            master_name?: string | null;
+            /** Old Entity Name */
+            old_entity_name?: string | null;
+            /**
+             * Old Former Names
+             * @default []
+             */
+            old_former_names: components["schemas"]["AdminFormerNameOut"][];
+            /**
+             * Deregistrations
+             * @default []
+             */
+            deregistrations: components["schemas"]["AdminFilingRefOut"][];
+            /**
+             * Candidates
+             * @default []
+             */
+            candidates: components["schemas"]["AdminSuccessorCandidateOut"][];
+            /** Recommended */
+            recommended?: string | null;
+            /** Current Cik */
+            current_cik?: string | null;
+            change?: components["schemas"]["AdminCikChangeOut"] | null;
         };
         /**
          * AdminTapeOut
@@ -7688,6 +7940,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdminPriceFeedAckOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    adopt_successor_cik_admin_price_feed__security_id__adopt_cik_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                security_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminSuccessorCikIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminCikChangeOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    undo_cik_change_admin_price_feed_cik_changes__change_id__undo_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                change_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminCikChangeOut"];
                 };
             };
             /** @description Validation Error */

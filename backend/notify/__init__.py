@@ -161,6 +161,11 @@ class HealthEvent:
     # unchanged — so it is benign-class like a stale feed: it pages once, never re-pages a known defect,
     # and never makes the Admin verdict unhealthy.
     split_defects_new: tuple[str, ...] = ()
+    # T7 — members whose company now files under a NEW CIK (``pipeline/successor_cik.py``), NEW since the
+    # previous evaluated pass, each a ``"<ticker> -> CIK <successor> (<8-K12B date>)"`` label. A data gap,
+    # not a cron fault (the filing legs read the dead CIK; the operator's Adopt repairs it), so it is
+    # benign-class like a stale feed: it pages once and never makes the Admin verdict unhealthy.
+    successor_cik_new: tuple[str, ...] = ()
 
     @property
     def withheld(self) -> int:
@@ -218,6 +223,13 @@ class HealthEvent:
             bits.append(
                 f"{len(self.split_defects_new)} NEW split-basis defect(s) on price tapes: "
                 f"{', '.join(self.split_defects_new)} — flag only (the call is unchanged), not a cron error"
+            )
+        # T7 — the filing legs read a dead CIK for these names (Form 4 / 8-K / 13D/G missed until adopted)
+        if self.successor_cik_new:
+            bits.append(
+                f"{len(self.successor_cik_new)} name(s) now file under a NEW CIK (a successor issuer — the "
+                f"filing legs read the dead one): {', '.join(self.successor_cik_new)} — Adopt on the Admin "
+                "page, not a cron error"
             )
         return f"cron {self.asof}: " + " · ".join(bits)
 

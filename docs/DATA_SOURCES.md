@@ -178,6 +178,18 @@ Two SEC capabilities feed the Workbench's per-name scoring facts (`docs/WORKBENC
   `master.resolve()` (the other live writer, ticker-keyed): both set `cik`, so neither duplicates the other's
   rows (tested both orders) — and post-broadener, `resolve()`'s OpenFIGI calls fall to ~zero (the universe is
   already loaded).
+  **The CIK itself was never revisited — until T7 (2026-10-17).** Nothing above changes a stored CIK, and the
+  populate path's ticker map is cached FOREVER (`securities/sec_tickers`, cache-first; prod's copy dated
+  2026-07-27). A company that re-registers under a SUCCESSOR CIK and keeps its ticker (Rule 12g-3: an 8-K12B
+  on the new CIK, a 15-12G on the old) leaves the member on a dead CIK, and every filing leg goes quiet
+  (MEASURED: UROY 0001711570 → 0002143673, REAX 0001862461 → 0002136387). The nightly successor-CIK detector
+  (`pipeline/successor_cik.py`, `FEED_LOOP.md` §the identity monitor) reads the SAME map fresh each night
+  through the polite `EdgarClient` (key `files/company_tickers_exchange.json`, the recurring five-minute TTL)
+  and flags a member whose stored CIK lists no tickers while the map assigns its symbol to another CIK. The
+  re-point is the operator's (Adopt on Admin → `master.set_cik`, in place, with an exact Undo — migration
+  0049); never `populate_master`, which keys on `(cik, ticker)` and would insert a second row for the
+  successor rather than move the member. Serve-time EDGAR links are built from the CURRENT CIK, which is
+  harmless after a re-point: EDGAR resolves a filing index by accession under any CIK path (MEASURED).
 - **Filing extraction (10-Q/10-K).** The three-tier extractor pulls a resolved name's latest 10-Q + 10-K (via
   the same cache-first `EdgarClient` + declared UA + rate-limit gate) and produces *candidate* scoring facts
   the operator ratifies — the extractor LOCATES, the operator RATIFIES. Detail in `WORKBENCH_EXTRACTION.md`;

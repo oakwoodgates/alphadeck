@@ -2108,11 +2108,88 @@ class AdminUnpriceableRowOut(BaseModel):
     change: AdminPriceSymbolChangeOut | None = None
 
 
+class AdminFilingRefOut(BaseModel):
+    """One filing named as evidence (T7): its form, FILING date, accession and — an 8-K-family form — the
+    item codes EDGAR resolved (``[]`` = none)."""
+
+    form: str
+    filed: date
+    accession: str
+    items: list[str] = []
+
+
+class AdminSuccessorCandidateOut(BaseModel):
+    """One CIK SEC's ticker map now assigns the member's symbol to (T7), with the evidence read from ITS
+    submissions on that pass: ``matched_on`` = our symbols the map assigns to it; ``entity_name`` /
+    ``former_names`` / ``edgar_tickers`` = who EDGAR says it is; ``succession_filings`` = its 8-K12B /
+    8-K12G3 (the successor-issuer report). ``recent_foreign_form`` / ``files_domestic_forms`` /
+    ``incorporation`` preview the identity an Adopt applies (``identity_read`` false = the successor's
+    submissions could not be read that night — then ``error`` says why and the row is not adoptable).
+    """
+
+    cik: str
+    matched_on: list[str] = []
+    entity_name: str | None = None
+    edgar_tickers: list[str] = []
+    former_names: list[AdminFormerNameOut] = []
+    succession_filings: list[AdminFilingRefOut] = []
+    identity_read: bool = False
+    recent_foreign_form: str | None = None
+    files_domestic_forms: bool | None = None
+    incorporation: str | None = None
+    error: str | None = None
+
+
+class AdminCikChangeOut(BaseModel):
+    """One operator successor-CIK re-point (``security_cik_change``, migration 0049): an ``adopt`` or the
+    ``undo`` of one. ``prior_cik`` / ``new_cik`` and ``prior_name`` / ``new_name`` are the headline values;
+    the row also stores every touched identity column's prior + new value — what makes the undo exact.
+    ``basis`` names the author (``operator:adopt-cik`` / ``operator:undo``). ``undoable`` (a standing adopt
+    only) = the master still holds this change's new values; ``current_cik`` is the master's CIK now.
+    """
+
+    id: UUID
+    security_id: UUID
+    ticker: str | None = None
+    action: str
+    prior_cik: str | None = None
+    new_cik: str | None = None
+    prior_name: str | None = None
+    new_name: str | None = None
+    basis: str
+    created_at: datetime
+    undoable: bool = False
+    current_cik: str | None = None
+
+
+class AdminSuccessorRowOut(BaseModel):
+    """A basket member whose company now files under a NEW CIK (T7's detector): the CIK the master holds
+    lists no tickers on EDGAR, and SEC's ticker map assigns the member's symbol to another registrant — a
+    pending RECOMMENDATION; nothing is applied until the operator clicks Adopt. ``stored_cik`` and the OLD
+    CIK's evidence (``old_entity_name``, ``old_former_names``, its ``deregistrations`` — 15-12B / 15-12G /
+    15-15D) sit beside each ``candidates`` entry's. ``recommended`` = the one candidate (``null`` when the
+    map is ambiguous — shown, not adoptable). ``current_cik`` is the master's CIK now; ``change`` the
+    standing operator re-point for this name (an Adopt waiting for the next pass, with its Undo)."""
+
+    security_id: UUID
+    ticker: str | None = None
+    theses: list[AdminThesisRefOut] = []
+    stored_cik: str
+    master_name: str | None = None
+    old_entity_name: str | None = None
+    old_former_names: list[AdminFormerNameOut] = []
+    deregistrations: list[AdminFilingRefOut] = []
+    candidates: list[AdminSuccessorCandidateOut] = []
+    recommended: str | None = None
+    current_cik: str | None = None
+    change: AdminCikChangeOut | None = None
+
+
 class AdminPriceRepairsOut(BaseModel):
-    """The "Price feed repairs" panel (T2 + Q8 + T3): one place for every price-feed decision the operator
+    """The "Price feed repairs" panel (T2 + Q8 + T3 + T7): one place for every feed decision the operator
     owes or has made. The INVENTORY (``renamed`` / ``unpriceable`` / ``closed``) comes from the newest
     finished, full-roster live run artifact that evaluated recency (``asof`` / ``ran_at``); the DECISIONS are
-    read LIVE from the append-only repair log, so a click shows at once: an acknowledged name moves from
+    read LIVE from the append-only repair logs, so a click shows at once: an acknowledged name moves from
     ``unpriceable`` to ``acknowledged``, an Adopt shows as the row's ``change`` with its Undo. Read-only.
 
     - ``renamed`` — loud: the splice-probed successors, each with Adopt (and Undo once adopted);
@@ -2121,8 +2198,14 @@ class AdminPriceRepairsOut(BaseModel):
     - ``closed`` — QUIET: names that stopped trading (T1) — no repair; their vendor 404 is expected (T3);
     - ``applied`` — every STANDING operator price-symbol change, each with its Undo (the inverse stays
       visible after the repair healed the tape and the name left the inventory, WB#1);
-    - ``expected_misses`` — how many vendor 404s that pass excused as expected (closed / acknowledged).
-    ``probe_error`` = the rename probe failed on that pass (``renamed`` rows then carry no verdict).
+    - ``expected_misses`` — how many vendor 404s that pass excused as expected (closed / acknowledged);
+    - ``successor`` (T7) — loud: members whose company now files under a NEW CIK (the filing legs read the
+      dead one), each with its recommended successor to Adopt (and Undo once adopted). From the newest
+      finished, full-roster live artifact whose successor scan RAN (``successor_asof``);
+    - ``cik_applied`` (T7) — every STANDING successor-CIK re-point, each with its Undo (WB#1).
+    ``probe_error`` = the rename probe failed on that pass (``renamed`` rows then carry no verdict);
+    ``successor_error`` = the newest live pass's successor scan failed (its rows then are the last good
+    pass's, or none).
     """
 
     asof: date | None = None
@@ -2135,6 +2218,11 @@ class AdminPriceRepairsOut(BaseModel):
     closed: list[AdminStaleTapeOut] = []
     applied: list[AdminPriceSymbolChangeOut] = []
     expected_misses: int = 0
+    successor_asof: date | None = None
+    successor_evaluated: bool = False
+    successor_error: str | None = None
+    successor: list[AdminSuccessorRowOut] = []
+    cik_applied: list[AdminCikChangeOut] = []
 
 
 class AdminPriceSymbolIn(BaseModel):
@@ -2147,6 +2235,13 @@ class AdminAcknowledgeIn(BaseModel):
     """Why the operator keeps an unpriceable name unpriced (optional — a default reason is stored)."""
 
     reason: str | None = Field(default=None, max_length=500)
+
+
+class AdminSuccessorCikIn(BaseModel):
+    """The successor CIK the operator adopts (T7) — digits, with or without the zero padding; it must be
+    the CIK the nightly detector recommended for the name."""
+
+    cik: str = Field(min_length=1, max_length=16)
 
 
 class AdminStatusOut(BaseModel):
@@ -2167,10 +2262,10 @@ class AdminStatusOut(BaseModel):
     ``split_defects`` (T4) is the split-basis panel — ``null`` until a finished, full-roster pass has
     scanned; a defect is a FEED problem (flag only), so it never changes ``cron.status``.
 
-    ``price_repairs`` (T2 + Q8 + T3) is the "Price feed repairs" panel — renamed names with their
-    splice-verified successors to Adopt, unpriceable names to Set / Acknowledge / Remove, the quiet closed
-    and acknowledged names, and every standing operator repair with its Undo. A feed matter, never the
-    cron verdict.
+    ``price_repairs`` (T2 + Q8 + T3 + T7) is the "Price feed repairs" panel — renamed names with their
+    splice-verified successors to Adopt, unpriceable names to Set / Acknowledge / Remove, members whose
+    company now files under a successor CIK to Adopt, the quiet closed and acknowledged names, and every
+    standing operator repair with its Undo. A feed matter, never the cron verdict.
     """
 
     record: AdminRecordOut

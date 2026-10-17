@@ -21,6 +21,17 @@ What the operator can do here, and its inverse:
   quiet count, still listed — #9) and its 404 counts as expected (T3). **Revoke** appends the inverse.
 - **Remove from basket** is NOT here: the panel links to the existing basket editor (no second delete path).
 
+T7 — the SUCCESSOR CIK (``pipeline/successor_cik.py``): a member whose company now files under a NEW CIK
+(the CIK we store lists no tickers, and SEC's ticker map assigns our symbol to another registrant — UROY,
+REAX), so every filing leg reads the dead CIK.
+
+- **Adopt successor CIK** -> ``security_master.cik`` re-pointed IN PLACE (``master.set_cik`` — the row id
+  stays, so the tape, the facts, the basket links and the sign-off stay), and the CIK-dependent identity
+  refreshed from the successor's submissions the detector already read (the ``enrich_identity``
+  derivation — ``master.enrich`` over ``parse_identity`` — plus the entity name). Only the CIK the detector
+  RECOMMENDED is accepted, and the click makes no network request. **Undo** restores every touched column
+  byte-for-byte (``security_cik_change``, 0049).
+
 Nothing runs without the operator's click; every write names the operator as its author (``basis``), runs
 in one transaction under the master row's lock, and is append-only. The read model (``price_repairs_out``)
 is consumed by ``GET /admin/status`` (``admin.py``), which stays a read: it reads the run artifacts and the
@@ -43,6 +54,8 @@ from fastapi import APIRouter, Body, Depends, HTTPException
 from app.deps import get_conn
 from app.schemas_api import (
     AdminAcknowledgeIn,
+    AdminCikChangeOut,
+    AdminFilingRefOut,
     AdminFormerNameOut,
     AdminNameChangeFilingOut,
     AdminPriceFeedAckOut,
@@ -52,14 +65,20 @@ from app.schemas_api import (
     AdminProbeCandidateOut,
     AdminRenamedRowOut,
     AdminStaleTapeOut,
+    AdminSuccessorCandidateOut,
+    AdminSuccessorCikIn,
+    AdminSuccessorRowOut,
     AdminThesisRefOut,
     AdminUnpriceableRowOut,
 )
 from domain.feed_kinds import PRICE, feed_kind
+from domain.security import SecurityIdentity
 from ingest.prices.source import DEFAULT_RANGE, PriceSource, YahooPriceSource
+from pipeline import successor_cik
 from pipeline.cron_run_log import is_finished, is_full_roster, list_run_logs
 from pipeline.tape_health import is_unpriceable
-from repositories import price_feed_repo
+from repositories import cik_change_repo, price_feed_repo
+from repositories.cik_change_repo import CikChange, StandingCikChange
 from repositories.price_feed_repo import (
     PriceFeedAck,
     PriceSymbolChange,
@@ -80,6 +99,7 @@ BASIS_SET = "operator:set"
 BASIS_UNDO = "operator:undo"
 BASIS_ACK = "operator:acknowledge"
 BASIS_REVOKE = "operator:revoke"
+BASIS_ADOPT_CIK = "operator:adopt-cik"
 
 
 # --- the inventory: the newest pass that looked ---------------------------------------------------------
@@ -200,6 +220,135 @@ def _probe_rows(doc: dict | None) -> tuple[dict[UUID, dict], bool, str | None]:
     return out, bool(block.get("evaluated")), (str(err) if err else None)
 
 
+# --- T7: the successor-CIK inventory -------------------------------------------------------------------
+
+
+def successor_doc(payloads: list[dict]) -> dict | None:
+    """The newest artifact that may serve as the successor-CIK inventory — a live, finished, full-roster
+    pass whose scan RAN (``successor_cik.is_baseline``: the same artifact the next pass's page-once diff
+    reads, so this panel and the page agree). ``None`` = no pass has scanned yet."""
+    return next((d for d in payloads if successor_cik.is_baseline(d)), None)
+
+
+def _successor_error(payloads: list[dict]) -> str | None:
+    """The newest live, finished pass's successor-scan ERROR when that scan failed (``None`` when it ran,
+    or no pass carries the block yet) — loud on the panel, so a broken detector is never silently absent.
+    """
+    for d in payloads:
+        block = d.get("successor_cik")
+        if d.get("mode") == "live" and is_finished(d) and isinstance(block, dict):
+            return None if block.get("evaluated") else str(block.get("error") or "not evaluated")
+    return None
+
+
+def _successor_rows(doc: dict | None) -> dict[UUID, dict]:
+    """``security_id -> row`` from an artifact's ``successor_cik`` block. Fail-open per row."""
+    out: dict[UUID, dict] = {}
+    block = (doc or {}).get("successor_cik")
+    for r in (block.get("rows") if isinstance(block, dict) else None) or []:
+        try:
+            out[UUID(str(r["security_id"]))] = r
+        except Exception:  # noqa: BLE001 — a malformed row is skipped, never a raise
+            continue
+    return out
+
+
+def _filings_out(raw: object) -> list[AdminFilingRefOut]:
+    return [
+        AdminFilingRefOut(**f)
+        for f in (raw if isinstance(raw, list) else [])
+        if isinstance(f, dict) and f.get("filed") and f.get("form")
+    ]
+
+
+def _formers_out(raw: object) -> list[AdminFormerNameOut]:
+    return [
+        AdminFormerNameOut(**f)
+        for f in (raw if isinstance(raw, list) else [])
+        if isinstance(f, dict) and f.get("name")
+    ]
+
+
+def _candidate_out(c: dict) -> AdminSuccessorCandidateOut:
+    ident = c.get("identity") if isinstance(c.get("identity"), dict) else None
+    return AdminSuccessorCandidateOut(
+        cik=str(c["cik"]),
+        matched_on=[str(x) for x in c.get("matched_on") or []],
+        entity_name=c.get("entity_name"),
+        edgar_tickers=[str(x) for x in c.get("edgar_tickers") or []],
+        former_names=_formers_out(c.get("former_names")),
+        succession_filings=_filings_out(c.get("succession_filings")),
+        identity_read=ident is not None,
+        recent_foreign_form=(ident or {}).get("recent_foreign_form"),
+        files_domestic_forms=(ident or {}).get("files_domestic_forms"),
+        incorporation=(ident or {}).get("incorporation"),
+        error=c.get("error"),
+    )
+
+
+def _cik_change_out(c: CikChange, *, ticker: str | None = None) -> AdminCikChangeOut:
+    standing = isinstance(c, StandingCikChange)
+    return AdminCikChangeOut(
+        id=c.id,
+        security_id=c.security_id,
+        ticker=c.ticker if standing else ticker,  # type: ignore[attr-defined]
+        action=c.action,
+        prior_cik=c.prior_cik,
+        new_cik=c.new_cik,
+        prior_name=c.prior_values.get("name"),
+        new_name=c.new_values.get("name"),
+        basis=c.basis,
+        created_at=c.created_at,
+        undoable=c.undoable if standing else False,  # type: ignore[attr-defined]
+        current_cik=c.current_cik if standing else None,  # type: ignore[attr-defined]
+    )
+
+
+def _successor_out(
+    conn: psycopg.Connection, payloads: list[dict]
+) -> tuple[dict | None, list[AdminSuccessorRowOut], list[AdminCikChangeOut]]:
+    """``(the inventory artifact, its rows overlaid with the LIVE CIK log + the master's current CIK, every
+    standing re-point)``. SELECTs only."""
+    doc = successor_doc(payloads)
+    rows = _successor_rows(doc)
+    standing = {c.security_id: c for c in cik_change_repo.standing_changes(conn)}
+    current: dict[UUID, str | None] = {}
+    if rows:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id, cik FROM security_master WHERE id = ANY(%s)", (list(rows),))
+            current = {r["id"]: r["cik"] for r in cur.fetchall()}
+    out: list[AdminSuccessorRowOut] = []
+    for sid, r in rows.items():
+        try:
+            out.append(
+                AdminSuccessorRowOut(
+                    security_id=sid,
+                    ticker=r.get("ticker"),
+                    theses=[
+                        AdminThesisRefOut(id=UUID(str(t["id"])), name=str(t.get("name") or ""))
+                        for t in r.get("theses") or []
+                        if isinstance(t, dict) and t.get("id")
+                    ],
+                    stored_cik=str(r["stored_cik"]),
+                    master_name=r.get("master_name"),
+                    old_entity_name=r.get("old_entity_name"),
+                    old_former_names=_formers_out(r.get("old_former_names")),
+                    deregistrations=_filings_out(r.get("deregistrations")),
+                    candidates=[
+                        _candidate_out(c)
+                        for c in r.get("candidates") or []
+                        if isinstance(c, dict) and c.get("cik")
+                    ],
+                    recommended=r.get("recommended"),
+                    current_cik=current.get(sid),
+                    change=_cik_change_out(standing[sid]) if sid in standing else None,
+                )
+            )
+        except Exception:  # noqa: BLE001 — skip a malformed row, never blank the panel
+            continue
+    return doc, out, [_cik_change_out(c) for c in standing.values()]
+
+
 # --- the read model ------------------------------------------------------------------------------------
 
 
@@ -254,9 +403,9 @@ def _master_symbols(
 
 def price_repairs_out(conn: psycopg.Connection, payloads: list[dict]) -> AdminPriceRepairsOut:
     """The panel (see ``AdminPriceRepairsOut``): the inventory from the newest pass that looked, overlaid
-    with the LIVE repair log (standing changes, active acknowledgments) and the master's current price
-    symbols. SELECTs only — the caller runs it inside a savepoint so a fault can never poison the status
-    read."""
+    with the LIVE repair logs (standing changes, active acknowledgments, standing CIK re-points) and the
+    master's current price symbols / CIKs. SELECTs only — the caller runs it inside a savepoint so a fault
+    can never poison the status read."""
     doc = inventory_doc(payloads)
     inv = _inventory(doc) if doc is not None else {}
     probes, probe_evaluated, probe_error = _probe_rows(doc)
@@ -341,7 +490,15 @@ def price_repairs_out(conn: psycopg.Connection, payloads: list[dict]) -> AdminPr
         for m in (t.get("expected_price_misses") or [])
         if isinstance(m, dict)
     }
+    # T7 — the successor-CIK block reads its OWN inventory artifact (the newest pass whose scan ran) and the
+    # live CIK change log; independent of the price inventory above
+    sdoc, successor, cik_applied = _successor_out(conn, payloads)
     return AdminPriceRepairsOut(
+        successor_asof=_date((sdoc or {}).get("asof")),
+        successor_evaluated=sdoc is not None,
+        successor_error=_successor_error(payloads),
+        successor=successor,
+        cik_applied=cik_applied,
         asof=_date((doc or {}).get("asof")),
         ran_at=str(doc["started_at"]) if doc and doc.get("started_at") else None,
         probe_evaluated=probe_evaluated,
@@ -582,3 +739,110 @@ def revoke_acknowledgment(
         ticker=_ticker_of(conn, out.security_id),  # type: ignore[union-attr]
         still_unpriceable=None,
     )
+
+
+# --- T7: the successor-CIK writes ----------------------------------------------------------------------
+
+
+def _cik(raw: str) -> str:
+    """The operator's CIK in the master's stored form (10 digits, zero-padded); **422** when it is not one."""
+    c = successor_cik.cik10((raw or "").strip())
+    if c is None:
+        raise HTTPException(status_code=422, detail=f"{raw!r} is not a CIK")
+    return c
+
+
+def _successor_row(security_id: UUID) -> tuple[dict | None, dict | None]:
+    doc = successor_doc(list_run_logs(limit=20))
+    if doc is None:
+        return None, None
+    return doc, _successor_rows(doc).get(security_id)
+
+
+@router.post("/{security_id}/adopt-cik", response_model=AdminCikChangeOut)
+def adopt_successor_cik(
+    security_id: UUID,
+    body: AdminSuccessorCikIn,
+    conn: psycopg.Connection = Depends(get_conn),
+) -> AdminCikChangeOut:
+    """ADOPT a member's SUCCESSOR CIK — the operator's ratification of the nightly successor-CIK detector
+    (the CIK we store lists no tickers; SEC's ticker map assigns our symbol to this registrant). Only the
+    CIK the detector RECOMMENDED on the newest pass that scanned is accepted. Re-points
+    ``security_master.cik`` IN PLACE (the row id stays — tape, facts, basket links and sign-off are kept)
+    and refreshes the CIK-dependent identity from the successor's submissions the detector already read
+    (``master.enrich`` over ``parse_identity`` — the ``enrich_identity`` derivation — plus the entity name);
+    the click makes no network request. The change row records every touched column's prior value, so
+    ``POST /admin/price-feed/cik-changes/{id}/undo`` restores them exactly. The next nightly pass reads the
+    successor's filings. **404** unknown security, **409** no recommendation for this name / not the
+    recommended CIK / the successor was not read / the master moved since the pass / another master row
+    already holds that CIK, **422** a malformed CIK."""
+    cik = _cik(body.cik)
+    ticker = _ticker_of(conn, security_id)
+    doc, row = _successor_row(security_id)
+    who = ticker or security_id
+    if doc is None or row is None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{who} has no successor-CIK recommendation on the last pass",
+        )
+    rec = row.get("recommended")
+    if not rec:
+        raise HTTPException(
+            status_code=409,
+            detail=f"SEC's ticker map names more than one CIK for {who} — no single recommendation; "
+            "repair it by hand",
+        )
+    if cik != rec:
+        raise HTTPException(
+            status_code=409,
+            detail=f"CIK {cik} is not the successor the detector recommended for {who} ({rec})",
+        )
+    cand = next(
+        (c for c in row.get("candidates") or [] if isinstance(c, dict) and c.get("cik") == rec),
+        None,
+    )
+    if cand is None or not isinstance(cand.get("identity"), dict):
+        why = (cand or {}).get("error") or "no identity was recorded"
+        raise HTTPException(
+            status_code=409,
+            detail=f"CIK {rec}'s submissions were not read on that pass ({why}) — its identity cannot be "
+            "applied; the next pass retries the read",
+        )
+    identity = SecurityIdentity.model_validate(cand["identity"])
+    detail = {
+        "pass_asof": doc.get("asof"),
+        "stored_cik": row.get("stored_cik"),
+        "recommended": rec,
+        "matched_on": cand.get("matched_on"),
+        "entity_name": cand.get("entity_name"),
+        "succession_filings": cand.get("succession_filings"),
+        "deregistrations": row.get("deregistrations"),
+        "old_entity_name": row.get("old_entity_name"),
+        "identity": cand["identity"],
+    }
+    change = _commit(
+        conn,
+        lambda: cik_change_repo.adopt(
+            conn,
+            security_id,
+            new_cik=rec,
+            expected_cik=str(row.get("stored_cik")),
+            identity=identity,
+            entity_name=cand.get("entity_name"),
+            basis=BASIS_ADOPT_CIK,
+            detail=detail,
+        ),
+    )
+    return _cik_change_out(change, ticker=ticker)  # type: ignore[arg-type]
+
+
+@router.post("/cik-changes/{change_id}/undo", response_model=AdminCikChangeOut)
+def undo_cik_change(
+    change_id: UUID, conn: psycopg.Connection = Depends(get_conn)
+) -> AdminCikChangeOut:
+    """UNDO a successor-CIK Adopt — restore the master's prior CIK, name and every identity column the Adopt
+    refreshed EXACTLY, appending an ``undo`` row (basis ``operator:undo``). Only the name's standing
+    re-point, and only while the master still holds its values. **404** unknown change, **409** already
+    undone / a later change stands / the master moved since."""
+    out = _commit(conn, lambda: cik_change_repo.undo(conn, change_id, basis=BASIS_UNDO))
+    return _cik_change_out(out, ticker=_ticker_of(conn, out.security_id))  # type: ignore[union-attr,arg-type]

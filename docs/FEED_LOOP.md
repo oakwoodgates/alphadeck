@@ -589,6 +589,85 @@ x1.000; SVIAW rejected at x0.143), BTAI → **BTAIQ** (495, x1.000), VRME → **
 (GTLS / XOMA / CPRX / AVNS are excused as closed); Modern Defense (HLLK) and The Everything Exchange (WONDF)
 stay `false` until the operator Adopts SDCO and decides WONDF.
 
+### The identity monitor — a SUCCESSOR CIK (T7, 2026-10-17)  `[BUILT]`
+
+Every filing leg reads `fetch_submissions(client, sec.cik)`, and nothing ever changes a stored CIK. A company
+that re-registers under a NEW CIK but keeps its ticker — a redomicile or holding-company reorganization, the
+successor issuer of Exchange Act Rule 12g-3 (it files an **8-K12B** / 8-K12G3; the predecessor files a
+**15-12B / 15-12G / 15-15D**) — therefore goes silent on the insider, 8-K and 13D/G legs while its price tape
+(keyed on the ticker) stays fresh, so the tape monitor never looks.
+
+**The measured finding (prod, read-only, 2026-10-17).** UROY (Nuclear Buildout): stored 0001711570 — now
+"Uranium Royalty Corp. /CA", `tickers=[]`, 15-12G 2026-07-31; the live CIK is 0002143673 (8-K12B
+2026-07-28). Missed: the CEO's open-market Form 4 buy (2026-07-30), 8-Ks 08-07 / 09-15, a 13D, the 10-K /
+10-K/A / 10-Q. REAX (The Everything Exchange): stored 0001862461 — `tickers=[]`, 15-12G 2026-09-04; the live
+CIK is 0002136387 "Real REMAX Group Inc." (8-K12B 2026-08-24). Missed: 25 Form 4s + 6 Form 4/As, an 8-K, a
+13D. Both masters still said `recent_foreign_form=40-F` / `files_domestic_forms=false`, so the app told the
+operator insider flow was structurally unavailable.
+
+**The detector** (`pipeline/successor_cik.py`, nightly, after the rename probe). For EVERY member the pass
+ingested — fresh tapes included — it flags the member when BOTH hold: **(a)** the stored CIK's submissions list
+no tickers (`NameResult.edgar_tickers == ()`, read by the ingest from the cached doc — zero extra fetches) and
+**(b)** SEC's ticker map (`company_tickers_exchange.json`) assigns the member's `ticker` or `price_symbol` to a
+DIFFERENT CIK. (a) alone also matches a closed name (its ticker leaves the map with it), a no-ticker filer that
+still files (UCLE, KAYS) and a never-listed one (WONDF); (b) is what separates a successor. The evidence rides
+the row as DISPLAY, never a gate (`ingest/edgar/succession.py`): the old CIK's deregistration, current entity
+name and `formerNames` (re-read from the ingest's cache by a cache-only client), and the successor's 8-K12B /
+8-K12G3, entity name, `formerNames` and symbols, plus its IDENTITY (`parse_identity` — the `enrich_identity`
+derivation) so the operator's Adopt needs no fetch of its own. `recommended` = the one candidate (an ambiguous
+map is shown, never adoptable).
+
+- **Cost:** ONE ticker-map request through the polite cached `EdgarClient` on the RECURRING five-minute TTL
+  (key `files/company_tickers_exchange.json` — a mutable class, so it is tonight's map, never the
+  forever-cached copy `securities/sec_tickers` keeps for `populate_master`; prod's was from 2026-07-27, before
+  either 8-K12B), only on a night some member lists no tickers, plus ONE submissions fetch per flagged
+  candidate (two today). Nothing on `--no-live`.
+- **Visibility:** a row whose key (security + successor CIK) was absent from the previous baseline artifact
+  (live, finished, full-roster, scan evaluated — `successor_cik.is_baseline`) pages ONCE through the R4
+  health event (`successor_cik_new`, benign-class like a stale feed); a known row is one quiet report line and
+  stays on the artifact (`successor_cik` block) and the Admin panel. An Undo makes it news again (pages once).
+- **Fail-open:** any fault returns `evaluated=false` with the `error` (printed loud, shown on Admin); the
+  night's record never depends on it.
+
+**The operator's Adopt / Undo** (`ADMIN.md`, "Price feed repairs"; migration **0049** `security_cik_change`,
+append-only, `no_update`, one undo per change). Adopt accepts ONLY the CIK the detector recommended, then — in
+one transaction under the master row's `FOR UPDATE` lock — re-points `security_master.cik` IN PLACE through the
+new narrow writer `master.set_cik` (the row id stays: the tape, every fact, the basket links and the sign-off
+stay attached; NOT `populate_master`, which keys on `(cik, ticker)` and would insert a second row), applies the
+recorded identity through `master.enrich` (the same derivation `enrich_identity` runs) and the successor's
+entity name. The row records the PRIOR and NEW value of every touched column (`master.CIK_IDENTITY_COLUMNS`:
+cik, name, the submissions-sourced identity, `enriched_source` / `enriched_at`), so Undo restores them byte for
+byte (`master.restore_cik_identity`), only for the newest standing change, and 409s if the master drifted.
+Adopt also refuses when the master's CIK moved since the pass, or another master row already carries the
+successor CIK (that would be a row merge, which this verb does not do). The click makes no network request.
+
+**The 8-K12B question — decided: NOT added to the 8-K item tape (`form8k_filings` stays `8-K` / `8-K/A`).**
+MEASURED on the two real filings (submissions `items`): UROY's 8-K12B carries 1.01, 2.01, 2.02, 3.01, 3.02,
+3.03, 5.01, 5.02, 5.03, 7.01, 9.01; REAX's 1.01, 2.01, 2.03, 3.01, 3.03, 5.01, 5.02, 5.03, 8.01, 9.01. In a
+succession report those items describe the reorganization itself — 3.01 the listing TRANSFER (not a
+deficiency), 5.02 the carried-over officers, 3.02 / 3.03 the share exchange. Admitted to the tape they WOULD
+change what fires: the live `corporate_risk` detector reads 3.01 / 3.02 at 0.50 (a counter-case + setup-strength
+haircut on both names, within the 180-day window today), and 5.02 is a personnel trigger (dormant behind
+`corporate_catalyst_enabled=False`). That is a call-policy change, so it is left for the operator: the
+proposal is to store succession 8-Ks on the tape with a form-aware cut in the detectors (stored, fired by
+nothing — #9). The recall the research flagged is closed by the re-point itself: the successors' ordinary
+8-Ks (UROY 08-07 / 09-15, REAX 08-28) are plain `8-K`s the existing leg reads once the CIK is adopted.
+
+**Serve-time EDGAR links after a re-point.** The CallCard's filing links are built at serve time from the
+security's CURRENT CIK (`schemas_api.edgar_url` over `master.ciks_for`), so a pre-re-point filing's link
+would name the successor's CIK in its path. MEASURED 2026-10-17: EDGAR resolves a filing-index page by
+accession whatever the CIK segment — UROY's 15-12G index returned 200 under the old CIK, the new CIK and an
+unrelated one (Apple's 320193), naming the right filer each time — so the links keep working; only the URL's
+CIK segment is cosmetic. Left as a documented limitation (the 8-K rows also store their own `source_ref`
+built from the CIK at ingest; Form 4 rows store the filing's `issuer_cik`). UROY and REAX hold no
+old-CIK Form 4 / 8-K rows, so nothing changes for them today.
+
+**MEASURED on prod with this branch (read-only, 2026-10-17)** — the branch's `run_successor_scan` over prod's
+688 basket securities (a read-only export of the master, the cron container's cached submissions copied out,
+SEC's map and the two successors fetched live into a scratch cache): 1 member without a CIK, 687 judged,
+**12** list no tickers (ATAI, AVNS, CPRX, GTLS, KAYS, REAX, RMAX, SKYT, UCLE, UROY, WONDF, XOMA), **2
+flagged — UROY → 0002143673 and REAX → 0002136387**, nothing else; **3** SEC requests, 2.3 s.
+
 ## The scheduling sidecar — the `cron` service + `scripts/daily_cron.sh`  `[BUILT #73]`
 
 The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
