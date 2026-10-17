@@ -496,11 +496,16 @@ fetched "document" is EDGAR's directory listing) and 1 whose `0001.txt` 404s (ch
 2000 text Form 4) — and none fails with a `ValueError`; all 365 schedule-13 lines (328 accessions) are
 13D-family filings whose feed owner is the lead filer (364) or a co-reporting person (1). No group was a
 parser bug. The mechanism is O1's, mirrored (`ingest/skips.py`, `pipeline/ingest_skips.py`): before its loop
-the pass reads the previous FINISHED, live, full-roster artifact's skip inventory
-(`cron_run_log.previous_ingest_skips`); a filing that skipped the same way there is recorded but not
-re-printed, and a NEW one prints its one line naming the accession. After the loop the artifact carries, per
+the pass reads the skip baseline (`cron_run_log.previous_ingest_skips`): each thesis's skipped filings,
+recorded on its own artifact entry like `name_errors`, from the newest finished, live pass that COVERED it
+(the per-thesis carry-forward `carried_inventory`, shared with the stale-tape and name-error baselines, so a
+filing first skipped by a catch-up is not re-printed at the next full pass and a thesis the catch-up skipped
+keeps its filings). A filing found there is recorded but not re-printed, and a NEW one prints its one line
+naming the accession. An artifact entry without that per-thesis list (the first Q18 build) reads as unknown:
+its filings print once more, never muted. After the loop the artifact carries, per
 kind, `total`, `known`, `new` (accession, security, ticker, reason), `previous_total`, `delta` (so a jump in
-the known inventory shows) and the full `accessions` list (the next baseline), and stdout gets one quiet line
+the known inventory shows) and the full `accessions` list, each thesis entry its own `ingest_skips` (the
+next baseline), and stdout gets one quiet line
 per kind. The first pass after the deploy has no baseline, so it prints every skip once. **Only the logging
 changed**: what is stored, skipped, counted (`form4_skipped` on each thesis line) or raised is identical, a
 CLI or on-promote ingest (no baseline) prints everything, and no raising path became a swallow-and-count.

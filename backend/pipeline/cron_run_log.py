@@ -51,6 +51,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from domain.feed_kinds import StaleFeedLabel, feed_kind
+from ingest.skips import dedup_skips
 from pipeline.ingest_skips import SkipDiff
 from pipeline.name_errors import NameIngestError, name_errors_of
 from pipeline.rename_probe import RenameProbe
@@ -341,8 +342,10 @@ def build_run_payload(
     LIVE pass — the only kind that is a baseline) and `ingest_skips`, one block per kind
     (`form4_unparseable` / `schedule13_outbound` / `schedule13_identity`) with `total`, `known`, `new`
     (`[{accession, security_id, ticker, reason}]` — the filings whose line printed tonight),
-    `previous_total`, `delta` and the full `accessions` inventory `previous_ingest_skips` (below) reads as
-    the next baseline. `skips=None` writes the not-evaluated empty block; readers use `.get`.
+    `previous_total`, `delta` and the full run-level `accessions` inventory. Each THESIS also carries its own
+    `ingest_skips` (`[{kind, accession}]`, the filings ITS legs skipped — attributed like `name_errors`):
+    that per-thesis list is what `previous_ingest_skips` (below) carries forward as the next baseline.
+    `skips=None` writes the not-evaluated empty block; readers use `.get`.
     """
     recorded = sum(1 for r in results if r.recorded)
     edgar_fetches = sum(r.edgar_fetches for r in results)
@@ -433,6 +436,16 @@ def build_run_payload(
                         "error": e.error,
                     }
                     for e in name_errors_of(r.ingested)
+                ],
+                # Q18 — the FILINGS this thesis's legs skipped tonight, one row per (kind, accession): the
+                # per-thesis inventory the next pass's skip baseline carries forward (`previous_ingest_skips`
+                # through `carried_inventory`), so a catch-up counts for the theses it covered. Empty for a
+                # thesis a catch-up skipped (nothing was walked) — the carry-forward reads past it.
+                "ingest_skips": [
+                    {"kind": s.kind, "accession": s.accession}
+                    for s in dedup_skips(
+                        sk for x in r.ingested for sk in getattr(x, "ingest_skips", ())
+                    ).values()
                 ],
                 "form4_appended": sum(x.form4_appended for x in r.ingested),
                 "price_bars_appended": sum(x.price_bars_appended for x in r.ingested),
@@ -890,35 +903,36 @@ def previous_name_errors(*, base_dir: Path | None = None) -> set[str] | None:
 
 
 def previous_ingest_skips(*, base_dir: Path | None = None) -> dict[str, set[str]] | None:
-    """Q18 — ``kind -> {accession}`` for every filing a leg SKIPPED on the most recent pass that EVALUATED
-    the skip diff: the baseline that makes a filing "known" (counted, not re-printed) tonight. The twin of
-    ``previous_name_errors`` and held to the SAME baseline rule: LIVE (a ``--no-live`` pass reads cache
-    misses), ``ingest_skips_evaluated`` (a pre-Q18 artifact carries no inventory — read as "nothing
-    skipped", every known filing would re-print once more, which is merely loud, but it is still not a
-    baseline), FINISHED (M1) and FULL-ROSTER (M2 — a catch-up that skipped theses never walked their
-    filings).
+    """Q18 — ``kind -> {accession}`` for every filing a leg SKIPPED in the last-known inventory of every
+    thesis: the baseline that makes a filing "known" (counted, not re-printed) tonight. The twin of
+    ``previous_name_errors``, read through the SAME per-thesis carry-forward (``carried_inventory`` with
+    ``ingest_skips_evaluated``): each thesis's ``ingest_skips`` from the newest finished, live, skip-evaluated
+    pass that COVERED it. So a filing FIRST skipped by a ``--catch-up`` prints there once and is known at the
+    next full pass, and a thesis a catch-up SKIPPED keeps its filings from the last pass that walked it (the
+    full-roster rule this replaced read past the catch-up, and re-printed what it had printed).
 
-    ``None`` (distinct from an empty dict) = no qualifying artifact yet — the first pass after Q18 ships —
-    which the caller treats as "nothing is known", so every skip prints once. Newest-first, first match
-    wins; fail-open per artifact and per row (a malformed block is skipped, never an exception). Pure file
-    read."""
-    for doc in list_run_logs(base_dir=base_dir):
-        if (
-            doc.get("mode") != "live"
-            or not doc.get("ingest_skips_evaluated", False)
-            or not is_finished(doc)
-            or not is_full_roster(doc)  # M2 — a partial catch-up is never a baseline
-        ):
-            continue
-        out: dict[str, set[str]] = {}
-        block = doc.get("ingest_skips")
-        if isinstance(block, dict):
-            for kind, summary in block.items():
-                accs = summary.get("accessions") if isinstance(summary, dict) else None
-                if isinstance(accs, list):
-                    out[str(kind)] = {str(a) for a in accs if a}
-        return out
-    return None
+    FALL BACK LOUD, never silent. ``None`` (distinct from an empty dict) = no qualifying artifact yet, OR no
+    carried entry carries a per-thesis ``ingest_skips`` list (every one predates the attribution — the first
+    Q18 build recorded the inventory only run-level): the caller treats that as "nothing is known", so every
+    skip prints once. A carried entry WITHOUT the list (one thesis carried from such an artifact) contributes
+    nothing, so ITS filings read as new and print once — a repeat line at worst, never a muted one. Fail-open
+    per artifact and per row (a malformed row is skipped, never an exception). Pure file read."""
+    inv = carried_inventory(
+        list_run_logs(base_dir=base_dir), evaluated_key="ingest_skips_evaluated"
+    )
+    if inv is None:
+        return None
+    out: dict[str, set[str]] = {}
+    attributed = False
+    for t in inv.entries():
+        rows = t.get("ingest_skips")
+        if not isinstance(rows, list):
+            continue  # pre-attribution entry: unknown, so its filings read as new (print once)
+        attributed = True
+        for r in rows:
+            if isinstance(r, dict) and r.get("kind") and r.get("accession"):
+                out.setdefault(str(r["kind"]), set()).add(str(r["accession"]))
+    return out if attributed else None
 
 
 def previous_split_defects(*, base_dir: Path | None = None) -> set[str] | None:

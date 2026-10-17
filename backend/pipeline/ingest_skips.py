@@ -1,8 +1,9 @@
 """Q18 — the cross-pass diff of skipped FILINGS: known ones become one count per kind, new ones stay loud.
 
 The O1 name-error mechanism (``pipeline/name_errors.py`` + ``cron_run_log.previous_name_errors``), mirrored
-for the per-filing skips the filing legs tolerate (``ingest.skips``). The pass reads the previous FINISHED,
-LIVE, full-roster artifact's skip inventory BEFORE its loop (``cron_run_log.previous_ingest_skips``), hands
+for the per-filing skips the filing legs tolerate (``ingest.skips``). The pass reads the skip baseline
+BEFORE its loop — each thesis's skipped filings from the newest finished, live pass that COVERED it, the
+per-thesis carry-forward ``cron_run_log.previous_ingest_skips`` shares with O1 — hands
 the keys to the legs so a filing that skipped the same way last pass does not print its line again, then —
 after the loop, before its own artifact is written — computes this diff for the artifact and the summary
 lines.

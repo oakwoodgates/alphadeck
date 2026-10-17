@@ -926,8 +926,8 @@ def _skip(kind: str, accession: str, ticker: str = "AAA"):
 
 def test_previous_ingest_skips_NONE_before_any_evaluated_pass_then_the_INVENTORY(tmp_path):
     """The O1 baseline rule, mirrored: no evaluated artifact -> None; a pre-Q18 live artifact (the block
-    absent) is not a baseline; an evaluated live pass is; a newer --no-live pass and a newer RUNNING pass
-    are skipped over."""
+    absent) is not a baseline; an evaluated live pass is — read from each THESIS's own `ingest_skips`
+    entry; a newer --no-live pass and a newer RUNNING pass are skipped over."""
     from pipeline.cron_run_log import previous_ingest_skips, write_run_start
     from pipeline.ingest_skips import diff_skips
 
@@ -941,25 +941,25 @@ def test_previous_ingest_skips_NONE_before_any_evaluated_pass_then_the_INVENTORY
         base_dir=tmp_path,
     )
     assert previous_ingest_skips(base_dir=tmp_path) is None
-    diff = diff_skips(
-        [_skip("form4_unparseable", "0000950144-97-007016"), _skip("schedule13_outbound", "A-13D")],
-        None,
-        evaluated=True,
+    tonight = (
+        _skip("form4_unparseable", "0000950144-97-007016"),
+        _skip("schedule13_outbound", "A-13D"),
     )
-    write_cron_run_log(
-        [_thesis_result(recorded=True)],
+    walked = [_thesis_result(recorded=True, ingested=[_name(ingest_skips=tonight)])]
+    path = write_cron_run_log(
+        walked,
         asof=_JUL17,
         allow_live=True,
         started_at=_utc(2026, 7, 18, 22, 30),
         finished_at=_END,
         base_dir=tmp_path,
-        skips=diff,
+        skips=diff_skips(tonight, None, evaluated=True),
     )
-    want = {
-        "form4_unparseable": {"0000950144-97-007016"},
-        "schedule13_outbound": {"A-13D"},
-        "schedule13_identity": set(),
-    }
+    assert _read(path)["theses"][0]["ingest_skips"] == [
+        {"kind": "form4_unparseable", "accession": "0000950144-97-007016"},
+        {"kind": "schedule13_outbound", "accession": "A-13D"},
+    ]
+    want = {"form4_unparseable": {"0000950144-97-007016"}, "schedule13_outbound": {"A-13D"}}
     assert previous_ingest_skips(base_dir=tmp_path) == want
     write_cron_run_log(  # a NEWER no-live pass — never a baseline
         [_thesis_result(withheld_reason="no-live")],

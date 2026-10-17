@@ -1055,7 +1055,8 @@ def _run_daily_pass_locked(
     # Q18 — THE SKIPPED-FILING BASELINE, read BEFORE the loop: the filing legs print a line for every
     # filing they skip, and an unstorable filing is re-tried (and re-printed) every pass — MEASURED ~440
     # lines a night, ~73% of the log, all audited as legacy pre-XML Form 4s and owner-filed 13Ds. A filing
-    # that skipped the same way on the previous finished, live, full-roster pass is "known": the legs
+    # that skipped the same way in its thesis's last-known inventory (the per-thesis carry-forward, so a
+    # catch-up counts for the theses it covered — `previous_ingest_skips`) is "known": the legs
     # record it without re-printing, and the diff below counts it. `None` (no baseline yet) mutes nothing.
     # The read is fail-open by construction (`previous_ingest_skips` skips a bad artifact) and changes
     # only what is PRINTED — what is stored, skipped or raised is identical.
