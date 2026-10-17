@@ -305,6 +305,16 @@ def created_at_for(conn: psycopg.Connection, thesis_ids: Iterable[UUID]) -> dict
         return {r["id"]: r["created_at"] for r in cur.fetchall()}
 
 
+def lifespans(conn: psycopg.Connection) -> list[dict]:
+    """``{id, created_at, archived_at}`` for EVERY thesis, archived ones included (all tenants, like the
+    cron's walk) — the per-(thesis, night) coverage read's roster (M1, ``pipeline/night_coverage.py``):
+    which theses a given night's pass was due to record. Both columns are ``timestamptz`` (aware);
+    ``archived_at`` is ``NULL`` for a live thesis. Read-only."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT id, created_at, archived_at FROM thesis ORDER BY id")
+        return list(cur.fetchall())
+
+
 def set_archived(conn: psycopg.Connection, thesis_id: UUID, archived: bool) -> None:
     """Archive (never delete) / restore a thesis — the SOLE writer of ``archived_at`` (``upsert``
     never names the column, so a promote can neither archive nor resurrect). Idempotent: archiving

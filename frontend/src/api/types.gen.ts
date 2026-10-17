@@ -1018,6 +1018,16 @@ export interface paths {
          *     backend's (``backend_sha`` / ``cron_sha``), the last live pass paging through the LOG notifier or
          *     running without a User-Agent, and the newest unlabeled DB dump older than the schedule-aware backup
          *     window. ``last_run.audit`` is the latest pass's nightly self-audit; a failed check is a run problem.
+         *
+         *     M1 — a killed or partial pass never reads healthy. A pass writes its artifact ``running`` at its start
+         *     and finalizes it at the end: ``last_run`` is the newest FINISHED pass, and ``unfinished_run`` describes
+         *     a newer one that has not finished. Past the sidecar's run timeout (``ALPHADECK_CRON_RUN_TIMEOUT_S``) a
+         *     still-``running`` pass alarms "the last pass did not finish", a ``crashed`` one alarms at once, and a
+         *     recorded night with no run artifact at all alarms too; inside the timeout the verdict is ``running``.
+         *     ``record.partial_nights`` judges every window night PER THESIS (the self-audit's own rule): each thesis
+         *     in that night's roster needs a non-reconstructed call-of-record at/after ``RUN_AT``, else the night is
+         *     partial ("4 of 12 theses") and the verdict ``gappy``. The night a pass is still running for is not
+         *     judged until it finishes.
          */
         get: operations["get_admin_status_admin_status_get"];
         put?: never;
@@ -1448,13 +1458,21 @@ export interface components {
          *     ``ALPHADECK_USER_AGENT`` unset; the newest unlabeled DB dump is older than
          *     ``ALPHADECK_BACKUP_STALE_HOURS`` in schedule time (B4 — only on a stack whose run history shows the cron
          *     sidecar, where a nightly dump is expected). ``[]`` on a clean stack.
+         *
+         *     M1 adds three alarms and one verdict. Alarms: **the last pass did not finish** (the newest artifact still
+         *     reads ``running`` past the run timeout — killed or hung), **the last pass crashed** (``crashed``), and
+         *     **rows without a run artifact** (a night has post-``RUN_AT`` rows but no pass artifact at all for it).
+         *     ``gappy`` now also covers a PARTIAL night (``record.partial_nights``). ``running`` = a pass is in flight
+         *     inside its timeout and nothing else is wrong; its own night is not judged until it finishes, so a
+         *     healthy pass mid-loop never reads partial or stale. Priority: never_ran > unhealthy > stale > gappy >
+         *     running > healthy.
          */
         AdminCronOut: {
             /**
              * Status
              * @enum {string}
              */
-            status: "healthy" | "stale" | "never_ran" | "unhealthy" | "gappy";
+            status: "healthy" | "stale" | "never_ran" | "unhealthy" | "gappy" | "running";
             /** Detail */
             detail: string;
             /**
@@ -1462,6 +1480,42 @@ export interface components {
              * @default []
              */
             alarms: string[];
+        };
+        /**
+         * AdminPartialNightOut
+         * @description One scheduled night the pass did not fully cover (M1): some thesis in that night's roster has no
+         *     non-reconstructed call-of-record recorded at/after the night's ``RUN_AT`` (``pipeline/night_coverage.py``
+         *     — the SAME definition the nightly self-audit checks). ``covered`` of ``expected`` theses had one;
+         *     ``reconstructed_only`` of the rest carry only a ``pipeline.backfill`` row and ``daytime_only`` only a
+         *     pre-``RUN_AT`` one; ``late`` of the ``covered`` ones were recorded only after the night's on-time window
+         *     closed (the next weekday's 06:00 ET EDGAR open — a catch-up the next day). Counts only — never a thesis
+         *     name.
+         */
+        AdminPartialNightOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /** Covered */
+            covered: number;
+            /** Expected */
+            expected: number;
+            /**
+             * Reconstructed Only
+             * @default 0
+             */
+            reconstructed_only: number;
+            /**
+             * Daytime Only
+             * @default 0
+             */
+            daytime_only: number;
+            /**
+             * Late
+             * @default 0
+             */
+            late: number;
         };
         /**
          * AdminRecordOut
@@ -1484,6 +1538,14 @@ export interface components {
          *     the detail marks them, because "nothing ran" and "something ran, but not after the close" call for
          *     different responses. A next-morning catch-up row is recorded after the cutoff and correctly covers the
          *     night; a ``reconstructed`` row (``pipeline.backfill``) covers it too, unchanged and deliberate.
+         *
+         *     **PER-THESIS coverage (M1).** ``missed_asofs`` asks whether ANY row landed after the cutoff — so a pass
+         *     killed after recording 4 of 12 theses read as a covered night (MEASURED 2026-10-12, healthy for ~18 h).
+         *     ``partial_nights`` lists every window night NOT in ``missed_asofs`` where some thesis in that night's
+         *     roster (created before the cutoff, not archived before it) has no NON-reconstructed row at/after the
+         *     cutoff — "4 of 12 theses". Here a reconstructed row does NOT count: it is the honest stand-in for a
+         *     missed night, never the night's on-time record. ``[]`` on a clean window; the night a pass is still
+         *     running for (within the run timeout) is left out until it finishes.
          */
         AdminRecordOut: {
             /** Edge */
@@ -1515,6 +1577,11 @@ export interface components {
             daytime_only_asofs: string[];
             /** Window Days */
             window_days: number;
+            /**
+             * Partial Nights
+             * @default []
+             */
+            partial_nights: components["schemas"]["AdminPartialNightOut"][];
         };
         /**
          * AdminRunEnvOut
@@ -1599,6 +1666,10 @@ export interface components {
          *     ingest leg started failing that night (O1 — a ``problems`` line with the benign marker: the thesis
          *     still recorded) and ``name_errors_known`` the quiet count of names failing the same way as the pass
          *     before.
+         *
+         *     ``skipped`` (M2) = theses a ``--catch-up`` pass left alone because an ON-TIME call-of-record for the
+         *     night already stood (a catch-up never re-records one); ``0`` on every other pass and on an artifact
+         *     written before M2.
          */
         AdminRunOut: {
             /** Ran At */
@@ -1659,6 +1730,11 @@ export interface components {
              * @default 0
              */
             name_errors_known: number;
+            /**
+             * Skipped
+             * @default 0
+             */
+            skipped: number;
         };
         /**
          * AdminRunsOut
@@ -1741,6 +1817,9 @@ export interface components {
          *     ``cron_sha`` the ``code_sha`` the newest CRON-kind run artifact recorded (``null`` = unknown, or no
          *     cron pass has recorded its identity yet) — the pair the identity alarm compares (I1). The latest
          *     self-audit rides ``last_run.audit``.
+         *
+         *     M1: ``last_run`` is the newest FINISHED pass (a pre-M1 artifact counts as finished); when the newest
+         *     artifact is a pass that has not finished, ``unfinished_run`` describes it (``null`` otherwise).
          */
         AdminStatusOut: {
             record: components["schemas"]["AdminRecordOut"];
@@ -1752,6 +1831,7 @@ export interface components {
             backend_sha?: string | null;
             /** Cron Sha */
             cron_sha?: string | null;
+            unfinished_run?: components["schemas"]["AdminUnfinishedRunOut"] | null;
         };
         /**
          * AdminTapeOut
@@ -1799,6 +1879,44 @@ export interface components {
              * @default []
              */
             newly_stale: string[];
+        };
+        /**
+         * AdminUnfinishedRunOut
+         * @description The NEWEST run artifact, when its pass has not finished (M1): the pass writes its artifact with
+         *     ``status: "running"`` at its start and finalizes it at the end, so a ``running`` newest artifact is a
+         *     pass in flight — or, once older than the sidecar's run timeout (``timeout_s``, the C2 ``RUN_TIMEOUT_S``),
+         *     a pass that was KILLED (the VM went down, the timeout fired) and will never finish (``past_timeout``).
+         *     ``crashed`` = an exception escaped the pass (``error`` names it). Either of the dead shapes is a
+         *     ``cron.alarms`` line; a pass still inside its timeout reads ``running``, never an alarm.
+         */
+        AdminUnfinishedRunOut: {
+            /** Status */
+            status: string;
+            /** Started At */
+            started_at: string;
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /** Mode */
+            mode: string;
+            /** Run Kind */
+            run_kind?: string | null;
+            /**
+             * Catch Up
+             * @default false
+             */
+            catch_up: boolean;
+            /**
+             * Past Timeout
+             * @default false
+             */
+            past_timeout: boolean;
+            /** Timeout S */
+            timeout_s: number;
+            /** Error */
+            error?: string | null;
         };
         /**
          * AnnotatedNightOut

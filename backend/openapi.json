@@ -1925,7 +1925,7 @@
           "admin"
         ],
         "summary": "Get Admin Status",
-        "description": "The freshness + health summary the admin page opens on \u2014 READ-ONLY (writes nothing, owns no\ntables). ``record`` measures the calls-log edge against the last EXPECTED Mon-Fri+RUN_AT run\n(container-local clock; a Friday edge on a Monday morning is CURRENT \u2014 never a weekend false\nalarm); ``edge: null`` is the quiet \"record has never begun\" state. ``last_run`` is the newest\nreadable run-of-record artifact. ``cron.status`` is the one-word verdict: ``never_ran`` (no\nartifact), ``unhealthy`` (the last run froze / errored / totally failed / could not refresh the\nshared benchmark tape \u2014 as loud as stale, so a bad run can't hide behind green), ``stale`` (the\nrecord missed an expected run), ``gappy`` (the edge is current but a night inside the last\n``ALPHADECK_ADMIN_MISSED_WINDOW`` scheduled runs has no call-of-record recorded at/after that night's\n``RUN_AT`` \u2014 a run that fired on the wrong day, or failed after a daytime pass; the edge check alone\ncannot see either), else ``healthy``. ``record.missed_asofs`` lists the holes (empty on a clean\nwindow) and ``record.daytime_only_asofs`` names the subset whose only row is a pre-``RUN_AT`` one.\n``tape`` is the FEED freshness panel (G5a price tapes \u00b7 F1 ETF fund shares): every basket\nname whose stored EOD tape or fund-shares sampling has stopped, each row naming which feed, read from\nthe newest run artifact that evaluated recency \u2014 ``null`` until a pass has looked. A stale feed is a\nFEED gap, not a cron fault, so it never changes ``cron.status``. A row whose ``closed_at`` is set (G5b)\nis a name that CLOSED \u2014 delisted / acquired / deregistered per a SEC delisting form filed near its last\nbar \u2014 so its tape correctly ended and needs no repair; it stays on the panel (never dropped, #9) but\nrenders quietly as \"closed\" and never pages. A row with ``renamed`` set (T1) is a repair row whose\ncompany EDGAR lists under other symbols (``edgar_tickers``). ``cron.alarms`` are the status-level\nalarms (Phase 1B) that make the verdict\n``unhealthy`` though no single run failed: the cron's ``code_sha`` unknown or different from this\nbackend's (``backend_sha`` / ``cron_sha``), the last live pass paging through the LOG notifier or\nrunning without a User-Agent, and the newest unlabeled DB dump older than the schedule-aware backup\nwindow. ``last_run.audit`` is the latest pass's nightly self-audit; a failed check is a run problem.",
+        "description": "The freshness + health summary the admin page opens on \u2014 READ-ONLY (writes nothing, owns no\ntables). ``record`` measures the calls-log edge against the last EXPECTED Mon-Fri+RUN_AT run\n(container-local clock; a Friday edge on a Monday morning is CURRENT \u2014 never a weekend false\nalarm); ``edge: null`` is the quiet \"record has never begun\" state. ``last_run`` is the newest\nreadable run-of-record artifact. ``cron.status`` is the one-word verdict: ``never_ran`` (no\nartifact), ``unhealthy`` (the last run froze / errored / totally failed / could not refresh the\nshared benchmark tape \u2014 as loud as stale, so a bad run can't hide behind green), ``stale`` (the\nrecord missed an expected run), ``gappy`` (the edge is current but a night inside the last\n``ALPHADECK_ADMIN_MISSED_WINDOW`` scheduled runs has no call-of-record recorded at/after that night's\n``RUN_AT`` \u2014 a run that fired on the wrong day, or failed after a daytime pass; the edge check alone\ncannot see either), else ``healthy``. ``record.missed_asofs`` lists the holes (empty on a clean\nwindow) and ``record.daytime_only_asofs`` names the subset whose only row is a pre-``RUN_AT`` one.\n``tape`` is the FEED freshness panel (G5a price tapes \u00b7 F1 ETF fund shares): every basket\nname whose stored EOD tape or fund-shares sampling has stopped, each row naming which feed, read from\nthe newest run artifact that evaluated recency \u2014 ``null`` until a pass has looked. A stale feed is a\nFEED gap, not a cron fault, so it never changes ``cron.status``. A row whose ``closed_at`` is set (G5b)\nis a name that CLOSED \u2014 delisted / acquired / deregistered per a SEC delisting form filed near its last\nbar \u2014 so its tape correctly ended and needs no repair; it stays on the panel (never dropped, #9) but\nrenders quietly as \"closed\" and never pages. A row with ``renamed`` set (T1) is a repair row whose\ncompany EDGAR lists under other symbols (``edgar_tickers``). ``cron.alarms`` are the status-level\nalarms (Phase 1B) that make the verdict\n``unhealthy`` though no single run failed: the cron's ``code_sha`` unknown or different from this\nbackend's (``backend_sha`` / ``cron_sha``), the last live pass paging through the LOG notifier or\nrunning without a User-Agent, and the newest unlabeled DB dump older than the schedule-aware backup\nwindow. ``last_run.audit`` is the latest pass's nightly self-audit; a failed check is a run problem.\n\nM1 \u2014 a killed or partial pass never reads healthy. A pass writes its artifact ``running`` at its start\nand finalizes it at the end: ``last_run`` is the newest FINISHED pass, and ``unfinished_run`` describes\na newer one that has not finished. Past the sidecar's run timeout (``ALPHADECK_CRON_RUN_TIMEOUT_S``) a\nstill-``running`` pass alarms \"the last pass did not finish\", a ``crashed`` one alarms at once, and a\nrecorded night with no run artifact at all alarms too; inside the timeout the verdict is ``running``.\n``record.partial_nights`` judges every window night PER THESIS (the self-audit's own rule): each thesis\nin that night's roster needs a non-reconstructed call-of-record at/after ``RUN_AT``, else the night is\npartial (\"4 of 12 theses\") and the verdict ``gappy``. The night a pass is still running for is not\njudged until it finishes.",
         "operationId": "get_admin_status_admin_status_get",
         "responses": {
           "200": {
@@ -2614,7 +2614,8 @@
               "stale",
               "never_ran",
               "unhealthy",
-              "gappy"
+              "gappy",
+              "running"
             ],
             "title": "Status"
           },
@@ -2637,7 +2638,47 @@
           "detail"
         ],
         "title": "AdminCronOut",
-        "description": "The one-word cron verdict + a plain-English detail. ``unhealthy`` (the LAST run froze / errored /\nwithheld on total ingest failure / failed to refresh the benchmark tape) is deliberately its own\nLOUD state, peer to ``stale`` \u2014 a bad run\nmust read as loud as a missing one, never hide behind green (the R1 freeze lesson). A benign\n``--no-live`` dev run is NOT unhealthy. ``never_ran`` = no run artifact at all (quiet). ``gappy`` =\nthe edge is current and the last run clean, but the recent window has a night with NO call-of-record\n(a wrong-day fire) \u2014 as loud as ``stale``. Priority: never_ran > unhealthy > stale > gappy > healthy.\n\n``alarms`` (Phase 1B) are the STATUS-level alarms that are not one run's health, each a plain-English\nline, and any of them makes the verdict ``unhealthy`` (they are listed even under ``never_ran``): the\ncron's last pass ran with an UNKNOWN ``code_sha``; the cron's sha differs from this backend's own (an\nimage left stale by a partial rebuild) or the backend's own is unknown \u2014 compared only for a cron pass\nthat started after this backend process did, so a full deploy does not read ``unhealthy`` until the\nnight's pass confirms it; the last live pass paged\nthrough the LOG notifier (``SLACK_WEBHOOK_URL`` unset \u2014 a bad night pages nobody) or ran with\n``ALPHADECK_USER_AGENT`` unset; the newest unlabeled DB dump is older than\n``ALPHADECK_BACKUP_STALE_HOURS`` in schedule time (B4 \u2014 only on a stack whose run history shows the cron\nsidecar, where a nightly dump is expected). ``[]`` on a clean stack."
+        "description": "The one-word cron verdict + a plain-English detail. ``unhealthy`` (the LAST run froze / errored /\nwithheld on total ingest failure / failed to refresh the benchmark tape) is deliberately its own\nLOUD state, peer to ``stale`` \u2014 a bad run\nmust read as loud as a missing one, never hide behind green (the R1 freeze lesson). A benign\n``--no-live`` dev run is NOT unhealthy. ``never_ran`` = no run artifact at all (quiet). ``gappy`` =\nthe edge is current and the last run clean, but the recent window has a night with NO call-of-record\n(a wrong-day fire) \u2014 as loud as ``stale``. Priority: never_ran > unhealthy > stale > gappy > healthy.\n\n``alarms`` (Phase 1B) are the STATUS-level alarms that are not one run's health, each a plain-English\nline, and any of them makes the verdict ``unhealthy`` (they are listed even under ``never_ran``): the\ncron's last pass ran with an UNKNOWN ``code_sha``; the cron's sha differs from this backend's own (an\nimage left stale by a partial rebuild) or the backend's own is unknown \u2014 compared only for a cron pass\nthat started after this backend process did, so a full deploy does not read ``unhealthy`` until the\nnight's pass confirms it; the last live pass paged\nthrough the LOG notifier (``SLACK_WEBHOOK_URL`` unset \u2014 a bad night pages nobody) or ran with\n``ALPHADECK_USER_AGENT`` unset; the newest unlabeled DB dump is older than\n``ALPHADECK_BACKUP_STALE_HOURS`` in schedule time (B4 \u2014 only on a stack whose run history shows the cron\nsidecar, where a nightly dump is expected). ``[]`` on a clean stack.\n\nM1 adds three alarms and one verdict. Alarms: **the last pass did not finish** (the newest artifact still\nreads ``running`` past the run timeout \u2014 killed or hung), **the last pass crashed** (``crashed``), and\n**rows without a run artifact** (a night has post-``RUN_AT`` rows but no pass artifact at all for it).\n``gappy`` now also covers a PARTIAL night (``record.partial_nights``). ``running`` = a pass is in flight\ninside its timeout and nothing else is wrong; its own night is not judged until it finishes, so a\nhealthy pass mid-loop never reads partial or stale. Priority: never_ran > unhealthy > stale > gappy >\nrunning > healthy."
+      },
+      "AdminPartialNightOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "covered": {
+            "type": "integer",
+            "title": "Covered"
+          },
+          "expected": {
+            "type": "integer",
+            "title": "Expected"
+          },
+          "reconstructed_only": {
+            "type": "integer",
+            "title": "Reconstructed Only",
+            "default": 0
+          },
+          "daytime_only": {
+            "type": "integer",
+            "title": "Daytime Only",
+            "default": 0
+          },
+          "late": {
+            "type": "integer",
+            "title": "Late",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "covered",
+          "expected"
+        ],
+        "title": "AdminPartialNightOut",
+        "description": "One scheduled night the pass did not fully cover (M1): some thesis in that night's roster has no\nnon-reconstructed call-of-record recorded at/after the night's ``RUN_AT`` (``pipeline/night_coverage.py``\n\u2014 the SAME definition the nightly self-audit checks). ``covered`` of ``expected`` theses had one;\n``reconstructed_only`` of the rest carry only a ``pipeline.backfill`` row and ``daytime_only`` only a\npre-``RUN_AT`` one; ``late`` of the ``covered`` ones were recorded only after the night's on-time window\nclosed (the next weekday's 06:00 ET EDGAR open \u2014 a catch-up the next day). Counts only \u2014 never a thesis\nname."
       },
       "AdminRecordOut": {
         "properties": {
@@ -2706,6 +2747,14 @@
           "window_days": {
             "type": "integer",
             "title": "Window Days"
+          },
+          "partial_nights": {
+            "items": {
+              "$ref": "#/components/schemas/AdminPartialNightOut"
+            },
+            "type": "array",
+            "title": "Partial Nights",
+            "default": []
           }
         },
         "type": "object",
@@ -2721,7 +2770,7 @@
           "window_days"
         ],
         "title": "AdminRecordOut",
-        "description": "The record's freshness vs the LAST EXPECTED scheduled run \u2014 never raw ``today - edge``: a\nFriday edge on a Monday morning is CURRENT (no run was due yet), the same edge Monday night is 1\nbehind (stale). ``edge is None`` = the record has never begun \u2014 a QUIET state (``days_behind``\nNone, ``stale`` False), never an alarm on a fresh install.\n\n``stale`` / ``days_behind`` are the EDGE check (MAX(asof) vs the last expected run) and keep exactly\nthat meaning. ``missed`` / ``missed_asofs`` are the HOLE check: the scheduled weekdays in the last\n``window_days`` scheduled runs (ending at ``expected_asof``, never before the record began) with no\ncall-of-record \u2014 a run that fired on the wrong day advances the edge right over the night it skipped,\ninvisible to the edge check. ``[]`` / ``0`` on a clean window.\n\n**COVERED means a post-``RUN_AT`` row (G2c).** A night counts as recorded only if some call-of-record\nfor that as-of was ``recorded_at`` at or after that night's ``RUN_AT`` in market time. Mere existence\nwas too weak: a pre-open \"Run daily now\" writes a row for today's as-of off the PRIOR session's bars,\nso a night whose post-close pass then failed used to read as covered. ``daytime_only_asofs`` names the\nas-ofs whose ONLY row is such a daytime one \u2014 every one of them also appears in ``missed_asofs``, and\nthe detail marks them, because \"nothing ran\" and \"something ran, but not after the close\" call for\ndifferent responses. A next-morning catch-up row is recorded after the cutoff and correctly covers the\nnight; a ``reconstructed`` row (``pipeline.backfill``) covers it too, unchanged and deliberate."
+        "description": "The record's freshness vs the LAST EXPECTED scheduled run \u2014 never raw ``today - edge``: a\nFriday edge on a Monday morning is CURRENT (no run was due yet), the same edge Monday night is 1\nbehind (stale). ``edge is None`` = the record has never begun \u2014 a QUIET state (``days_behind``\nNone, ``stale`` False), never an alarm on a fresh install.\n\n``stale`` / ``days_behind`` are the EDGE check (MAX(asof) vs the last expected run) and keep exactly\nthat meaning. ``missed`` / ``missed_asofs`` are the HOLE check: the scheduled weekdays in the last\n``window_days`` scheduled runs (ending at ``expected_asof``, never before the record began) with no\ncall-of-record \u2014 a run that fired on the wrong day advances the edge right over the night it skipped,\ninvisible to the edge check. ``[]`` / ``0`` on a clean window.\n\n**COVERED means a post-``RUN_AT`` row (G2c).** A night counts as recorded only if some call-of-record\nfor that as-of was ``recorded_at`` at or after that night's ``RUN_AT`` in market time. Mere existence\nwas too weak: a pre-open \"Run daily now\" writes a row for today's as-of off the PRIOR session's bars,\nso a night whose post-close pass then failed used to read as covered. ``daytime_only_asofs`` names the\nas-ofs whose ONLY row is such a daytime one \u2014 every one of them also appears in ``missed_asofs``, and\nthe detail marks them, because \"nothing ran\" and \"something ran, but not after the close\" call for\ndifferent responses. A next-morning catch-up row is recorded after the cutoff and correctly covers the\nnight; a ``reconstructed`` row (``pipeline.backfill``) covers it too, unchanged and deliberate.\n\n**PER-THESIS coverage (M1).** ``missed_asofs`` asks whether ANY row landed after the cutoff \u2014 so a pass\nkilled after recording 4 of 12 theses read as a covered night (MEASURED 2026-10-12, healthy for ~18 h).\n``partial_nights`` lists every window night NOT in ``missed_asofs`` where some thesis in that night's\nroster (created before the cutoff, not archived before it) has no NON-reconstructed row at/after the\ncutoff \u2014 \"4 of 12 theses\". Here a reconstructed row does NOT count: it is the honest stand-in for a\nmissed night, never the night's on-time record. ``[]`` on a clean window; the night a pass is still\nrunning for (within the run timeout) is left out until it finishes."
       },
       "AdminRunEnvOut": {
         "properties": {
@@ -3028,6 +3077,11 @@
             "type": "integer",
             "title": "Name Errors Known",
             "default": 0
+          },
+          "skipped": {
+            "type": "integer",
+            "title": "Skipped",
+            "default": 0
           }
         },
         "type": "object",
@@ -3048,7 +3102,7 @@
           "catch_up"
         ],
         "title": "AdminRunOut",
-        "description": "One daily pass, as the run-of-record artifact recorded it (``pipeline/cron_run_log.py`` \u2014 the\nfield names are the ARTIFACT's, not inventions): counts + outcomes only, value-free. ``healthy`` /\n``problems`` are ``assess_health`` re-read from the same numbers, so the freeze detector\n(``edgar_fetches == 0`` on a live run), withheld calls, thesis errors, and a failed BENCHMARK\nrefresh (the shared SPY/IWM tape ``benchmark_rs`` reads \u2014 a fail-open passenger leg whose faults\nused to reach stdout only) surface on every row \u2014 a bad run can never hide behind a green\nhistory. The benchmark counts live on the artifact for exactly that reason; a row written before\nthey existed reads clean, never broken. ``mode`` is ``\"live\" | \"no-live\"`` (the R2\nrecording-gate signal); ``ran_at`` is the artifact's ``started_at`` (UTC ISO). ``catch_up`` = a\n``--catch-up`` pass (the sidecar's boot / late-wake catch-up): its ~0 EDGAR fetches are expected\n(it runs inside the cache TTL), so the freeze check is skipped for that row; an artifact written\nbefore the key existed reads ``False``.\n\nPhase 1B (each ``null`` / empty on an artifact written before it existed \u2014 never an alarm by absence):\n``code_sha`` / ``config_hash`` / ``run_kind`` + ``env`` are the pass's RUN IDENTITY and non-secret env\nfingerprint (I1/I2); ``audit`` is its nightly SELF-AUDIT (V1) \u2014 a failed check is a ``problems`` line\nand makes ``healthy`` false; ``name_errors_new`` are the ``\"<ticker> (<leg>)\"`` labels of names whose\ningest leg started failing that night (O1 \u2014 a ``problems`` line with the benign marker: the thesis\nstill recorded) and ``name_errors_known`` the quiet count of names failing the same way as the pass\nbefore."
+        "description": "One daily pass, as the run-of-record artifact recorded it (``pipeline/cron_run_log.py`` \u2014 the\nfield names are the ARTIFACT's, not inventions): counts + outcomes only, value-free. ``healthy`` /\n``problems`` are ``assess_health`` re-read from the same numbers, so the freeze detector\n(``edgar_fetches == 0`` on a live run), withheld calls, thesis errors, and a failed BENCHMARK\nrefresh (the shared SPY/IWM tape ``benchmark_rs`` reads \u2014 a fail-open passenger leg whose faults\nused to reach stdout only) surface on every row \u2014 a bad run can never hide behind a green\nhistory. The benchmark counts live on the artifact for exactly that reason; a row written before\nthey existed reads clean, never broken. ``mode`` is ``\"live\" | \"no-live\"`` (the R2\nrecording-gate signal); ``ran_at`` is the artifact's ``started_at`` (UTC ISO). ``catch_up`` = a\n``--catch-up`` pass (the sidecar's boot / late-wake catch-up): its ~0 EDGAR fetches are expected\n(it runs inside the cache TTL), so the freeze check is skipped for that row; an artifact written\nbefore the key existed reads ``False``.\n\nPhase 1B (each ``null`` / empty on an artifact written before it existed \u2014 never an alarm by absence):\n``code_sha`` / ``config_hash`` / ``run_kind`` + ``env`` are the pass's RUN IDENTITY and non-secret env\nfingerprint (I1/I2); ``audit`` is its nightly SELF-AUDIT (V1) \u2014 a failed check is a ``problems`` line\nand makes ``healthy`` false; ``name_errors_new`` are the ``\"<ticker> (<leg>)\"`` labels of names whose\ningest leg started failing that night (O1 \u2014 a ``problems`` line with the benign marker: the thesis\nstill recorded) and ``name_errors_known`` the quiet count of names failing the same way as the pass\nbefore.\n\n``skipped`` (M2) = theses a ``--catch-up`` pass left alone because an ON-TIME call-of-record for the\nnight already stood (a catch-up never re-records one); ``0`` on every other pass and on an artifact\nwritten before M2."
       },
       "AdminRunsOut": {
         "properties": {
@@ -3203,6 +3257,16 @@
               }
             ],
             "title": "Cron Sha"
+          },
+          "unfinished_run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdminUnfinishedRunOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -3211,7 +3275,7 @@
           "cron"
         ],
         "title": "AdminStatusOut",
-        "description": "The admin page's one-GET summary: record freshness + the newest run + the cron verdict + the\nnewest DB snapshot + the feed-freshness panel. READ-ONLY \u2014 the endpoint owns no tables and writes\nnothing (test-proved; the ``last_backup`` join is a pure directory read, and ``tape`` is read from\nthe run artifacts). ``last_backup`` is ``None`` = the quiet \"no snapshots yet\" state; ``tape`` is\n``None`` until a pass has evaluated feed recency (the quiet \"not looked yet\" state).\n\n``backend_sha`` is this backend's OWN ``Settings.image_sha`` (``null`` = built without ``GIT_SHA``) and\n``cron_sha`` the ``code_sha`` the newest CRON-kind run artifact recorded (``null`` = unknown, or no\ncron pass has recorded its identity yet) \u2014 the pair the identity alarm compares (I1). The latest\nself-audit rides ``last_run.audit``."
+        "description": "The admin page's one-GET summary: record freshness + the newest run + the cron verdict + the\nnewest DB snapshot + the feed-freshness panel. READ-ONLY \u2014 the endpoint owns no tables and writes\nnothing (test-proved; the ``last_backup`` join is a pure directory read, and ``tape`` is read from\nthe run artifacts). ``last_backup`` is ``None`` = the quiet \"no snapshots yet\" state; ``tape`` is\n``None`` until a pass has evaluated feed recency (the quiet \"not looked yet\" state).\n\n``backend_sha`` is this backend's OWN ``Settings.image_sha`` (``null`` = built without ``GIT_SHA``) and\n``cron_sha`` the ``code_sha`` the newest CRON-kind run artifact recorded (``null`` = unknown, or no\ncron pass has recorded its identity yet) \u2014 the pair the identity alarm compares (I1). The latest\nself-audit rides ``last_run.audit``.\n\nM1: ``last_run`` is the newest FINISHED pass (a pre-M1 artifact counts as finished); when the newest\nartifact is a pass that has not finished, ``unfinished_run`` describes it (``null`` otherwise)."
       },
       "AdminTapeOut": {
         "properties": {
@@ -3258,6 +3322,73 @@
         ],
         "title": "AdminTapeOut",
         "description": "The FEED freshness panel (G5a price tapes \u00b7 F1 ETF fund shares), read from the newest run artifact\nthat actually EVALUATED recency \u2014 not a fresh DB scan, so this surface still owns no tables. ``asof`` /\n``ran_at`` say which pass produced it (the answer is \"as of last night\", which is the right\ngranularity for a nightly feed).\n\n``stale_days`` and ``fund_shares_stale_days`` are the thresholds **that pass judged under**, read off\nits artifact rather than live, so the number shown always describes the list shown even if the setting\nchanged in between; each feed has its own because their cadences differ (a price tape gets a bar every\nsession, while a sleeve's sample carries the source page's own stated as-of date). ``0`` means that\nfeed's monitor was disabled for the pass.\n\n``stale`` is the full current inventory, one row per feed per security (a name placed in several\nvalue-chain links appears once; a name stale on both feeds appears once per feed, since the repairs\ndiffer \u2014 each row's ``kind`` says which). A row with ``closed_at`` set is a name that CLOSED (delisted /\nacquired / deregistered), G5b \u2014 it stays in this inventory (never dropped, #9) but renders quietly and\nis absent from ``newly_stale``. ``newly_stale`` are the display labels that PAGED that night \u2014 the diff\nagainst the previous evaluated pass, so a known-dead feed does not re-page forever, and a closed tape\n(an expected event, not a feed gap) is never in it (#7/WB#3)."
+      },
+      "AdminUnfinishedRunOut": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "started_at": {
+            "type": "string",
+            "title": "Started At"
+          },
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "mode": {
+            "type": "string",
+            "title": "Mode"
+          },
+          "run_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Kind"
+          },
+          "catch_up": {
+            "type": "boolean",
+            "title": "Catch Up",
+            "default": false
+          },
+          "past_timeout": {
+            "type": "boolean",
+            "title": "Past Timeout",
+            "default": false
+          },
+          "timeout_s": {
+            "type": "number",
+            "title": "Timeout S"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "started_at",
+          "asof",
+          "mode",
+          "timeout_s"
+        ],
+        "title": "AdminUnfinishedRunOut",
+        "description": "The NEWEST run artifact, when its pass has not finished (M1): the pass writes its artifact with\n``status: \"running\"`` at its start and finalizes it at the end, so a ``running`` newest artifact is a\npass in flight \u2014 or, once older than the sidecar's run timeout (``timeout_s``, the C2 ``RUN_TIMEOUT_S``),\na pass that was KILLED (the VM went down, the timeout fired) and will never finish (``past_timeout``).\n``crashed`` = an exception escaped the pass (``error`` names it). Either of the dead shapes is a\n``cron.alarms`` line; a pass still inside its timeout reads ``running``, never an alarm."
       },
       "AnnotatedNightOut": {
         "properties": {

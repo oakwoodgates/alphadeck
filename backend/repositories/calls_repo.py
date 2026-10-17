@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from datetime import date, datetime
 from typing import Any, NamedTuple
 from uuid import UUID
@@ -206,6 +207,29 @@ def recorded_asof_stamps(conn: psycopg.Connection, *, since: date) -> dict[date,
             (since,),
         )
         return {r["asof"]: r["recorded_at"] for r in cur.fetchall()}
+
+
+def thesis_night_stamps(conn: psycopg.Connection, *, asofs: Sequence[date]) -> list[dict]:
+    """Every ``calls`` row's ``{thesis_id, asof, reconstructed, recorded_at}`` for the as-ofs in ``asofs``
+    (all tenants, every thesis) — the per-(thesis, night) coverage read (M1/M2,
+    ``pipeline/night_coverage.py``).
+
+    ``recorded_asof_stamps`` (above) answers "did ANY row for the night land after the cutoff" — one stamp per
+    as-of across every thesis, which is exactly how a pass killed after 4 of 12 theses read as a covered
+    night (2026-10-12). This keeps the thesis and the ``reconstructed`` marker on every row so the caller can
+    ask per thesis, tell a backfilled thesis from a live one, and ask WHEN each row landed relative to a
+    window (on-time vs late — a thesis can hold an on-time row AND a later catch-up row for the same night,
+    which a per-group MAX would collapse to the late one). Every row, never the deduped read: it COUNTS THE
+    TABLE. A handful of rows per (thesis, night). Value-free and read-only; the window is the caller's.
+    """
+    if not asofs:
+        return []
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT thesis_id, asof, reconstructed, recorded_at FROM calls WHERE asof = ANY(%s)",
+            (list(asofs),),
+        )
+        return list(cur.fetchall())
 
 
 def list_for_thesis(conn: psycopg.Connection, thesis_id: UUID) -> list[CallCard]:

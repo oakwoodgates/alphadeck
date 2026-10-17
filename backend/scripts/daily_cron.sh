@@ -471,10 +471,15 @@ while :; do
     # the same bounded, fail-open DB wait as the boot (quiet when the DB is up): a Postgres restarting at
     # RUN_AT costs up to DB_WAIT_S of delay instead of a failed run and a RETRY_DELAY_S retry
     wait_for_db "scheduled run ${target}"
-    echo "daily-cron: $(date) — running pipeline.daily --asof ${target}"
+    echo "daily-cron: $(date) — running pipeline.daily --late-ok --asof ${target}"
     beat_start "${target}" # H2 — "started"; the success ping below (or a catch-up's) closes it
-    # the SCHEDULED run always fires (no --catch-up): it re-versions even if an operator hand-ran that day
-    if run_pass --run-kind cron --asof "${target}"; then
+    # the SCHEDULED run always fires (no --catch-up): it re-versions even if an operator hand-ran that day.
+    # --late-ok (C3): the CLI refuses an --asof older than the last expected night unless told otherwise.
+    # The target is fixed BEFORE the sleep, so on time it IS the last expected night and the flag is inert;
+    # it matters only when a suspend overshoots past the NEXT weekday's RUN_AT (target Tue, wake Wed 22:40),
+    # where the night is late by construction — the same pass this loop always ran, never a refusal + a
+    # 20-minute retry. Catch-ups and retries pass --catch-up, which the refusal already exempts.
+    if run_pass --run-kind cron --late-ok --asof "${target}"; then
       beat_if_current "${target}"
     else
       _rc=$? # the failed run's exit status, read first (any later command resets $?)

@@ -29,6 +29,7 @@ from app.deps import get_conn
 from app.schemas_api import (
     AdminAuditCheckOut,
     AdminCronOut,
+    AdminPartialNightOut,
     AdminRecordOut,
     AdminRunEnvOut,
     AdminRunJobRef,
@@ -38,6 +39,7 @@ from app.schemas_api import (
     AdminStaleTapeOut,
     AdminStatusOut,
     AdminTapeOut,
+    AdminUnfinishedRunOut,
     BackupCreateIn,
     BackupJobRef,
     BackupJobStatus,
@@ -51,9 +53,18 @@ from notify import HealthEvent
 from pipeline.backup import BackupInfo, list_backups, run_backup
 from pipeline.backup_job import BackupRunInFlight, start_backup_job
 from pipeline.backup_job import get_job as get_backup_job
-from pipeline.cron_run_log import build_run_payload, list_run_logs
+from pipeline.cron_run_log import (
+    RUN_STATUS_CRASHED,
+    RUN_STATUS_RUNNING,
+    build_run_payload,
+    is_finished,
+    is_full_roster,
+    list_run_logs,
+    run_status,
+)
 from pipeline.daily import ThesisRunResult, assess_health, run_daily_pass
 from pipeline.daily_job import DailyRunInFlight, get_job, start_daily_job
+from pipeline.night_coverage import NightCoverage, read_night_coverage
 from pipeline.run_lock import probe_pass_lock
 from pipeline.schedule import (
     expected_runs_behind,
@@ -146,7 +157,14 @@ def _admin_run_out(payload: dict) -> AdminRunOut:
     with ``.get`` ON PURPOSE, unlike the strict ``payload[...]`` above: this function is strict by design and
     its callers skip a RAISING artifact fail-open, so reading a new key strictly would make every artifact
     written before the deploy unparseable — silently blanking the entire run history and ``last_run``.
+
+    M1 — a pass that has NOT finished (``status`` ``running`` / ``crashed``: a start artifact, never
+    finalized) is REFUSED here (``ValueError``, so every caller skips it): it has no outcome to show, and a
+    row built from it would read as a clean zero-thesis pass. ``/admin/status`` reports it separately
+    (``unfinished_run`` + its alarm). A pre-M1 artifact has no ``status`` and reads finished.
     """
+    if not is_finished(payload):
+        raise ValueError(f"not a finished pass (status {run_status(payload)!r})")
     asof = date.fromisoformat(payload["asof"])
     allow_live = payload["mode"] == "live"
     catch_up = bool(payload.get("catch_up", False))
@@ -194,6 +212,7 @@ def _admin_run_out(payload: dict) -> AdminRunOut:
             error=t.get("error"),
             edgar_fetches=int(t.get("edgar_fetches") or 0),
             withheld_reason=t.get("withheld_reason"),
+            skipped=t.get("skipped") if isinstance(t.get("skipped"), str) else None,
         )
         for t in payload["theses"]
     ]
@@ -221,6 +240,7 @@ def _admin_run_out(payload: dict) -> AdminRunOut:
         withheld=int(summary["withheld"]),
         errored=int(summary["errored"]),
         transitions=int(summary["transitions"]),
+        skipped=int(summary.get("skipped") or 0),
         edgar_fetches=int(payload["edgar_fetches"]),
         healthy=health is None,
         problems=_problems(health),
@@ -267,7 +287,12 @@ def _tape_out(payloads: list[dict]) -> AdminTapeOut | None:
     """
     settings = get_settings()
     for doc in payloads:
-        if doc.get("mode") != "live" or not doc.get("tape_evaluated", False):
+        # M2 — a catch-up that SKIPPED theses holds a partial inventory: never the panel's source
+        if (
+            doc.get("mode") != "live"
+            or not doc.get("tape_evaluated", False)
+            or not is_full_roster(doc)
+        ):
             continue
         rows: dict[str, AdminStaleTapeOut] = {}
         for t in doc.get("theses") or []:
@@ -448,6 +473,116 @@ def _backup_alarm(
     )
 
 
+def _market_stamp(raw: str, tz: tzinfo) -> str:
+    """An artifact's ISO instant as a short market-time wall clock (``2026-10-12 22:30 EDT``) for a detail
+    line; the raw string when it does not parse."""
+    try:
+        t = datetime.fromisoformat(raw)
+    except (TypeError, ValueError):
+        return str(raw)
+    if t.tzinfo is None:
+        return str(raw)
+    return t.astimezone(tz).strftime("%Y-%m-%d %H:%M %Z")
+
+
+def _unfinished_run(
+    payloads: list[dict], *, now: datetime, tz: tzinfo, timeout_s: float
+) -> AdminUnfinishedRunOut | None:
+    """M1 — the NEWEST artifact, when its pass has not finished: ``running`` (a start artifact never
+    finalized) or ``crashed``. ``past_timeout`` = a ``running`` one older than the sidecar's whole-pass
+    ceiling (C2's ``RUN_TIMEOUT_S``): nothing that old can still be alive under the sidecar — the VM died,
+    the timeout killed it, the container restarted mid-pass. Only the NEWEST counts: an older unfinished
+    artifact was followed by a later pass, and its night's damage is what the per-thesis coverage reports.
+    A newest artifact with an unparseable / naive ``started_at`` cannot be aged and reads as past the
+    timeout (loud — a damaged start record must not read as a healthy pass in flight). Pure."""
+    if not payloads:
+        return None
+    doc = payloads[0]
+    if is_finished(doc):
+        return None
+    status = run_status(doc)
+    started = _started(doc)
+    if now.tzinfo is None:  # the clock seam may be pinned naive in a test — read it as market time
+        now = now.replace(tzinfo=tz)
+    past = started is None or (now - started).total_seconds() > timeout_s
+    try:
+        asof = date.fromisoformat(str(doc.get("asof")))
+    except ValueError:
+        return None  # no night to name — the run history's skip rule (never a 500)
+    err = doc.get("error")
+    return AdminUnfinishedRunOut(
+        status=status,
+        started_at=str(doc.get("started_at")),
+        asof=asof,
+        mode=str(doc.get("mode") or "unknown"),
+        run_kind=doc.get("run_kind") if isinstance(doc.get("run_kind"), str) else None,
+        catch_up=bool(doc.get("catch_up", False)),
+        past_timeout=status == RUN_STATUS_RUNNING and past,
+        timeout_s=timeout_s,
+        error=err if isinstance(err, str) else None,
+    )
+
+
+def _unfinished_alarm(u: AdminUnfinishedRunOut | None, tz: tzinfo) -> str | None:
+    """M1 (a) — the alarm line for a pass that will never finish, or ``None`` (none, or one still inside
+    its timeout — that one reads ``running``, never an alarm)."""
+    if u is None:
+        return None
+    who = f"asof {u.asof.isoformat()}, {u.run_kind or 'unknown-kind'}" + (
+        ", catch-up" if u.catch_up else ""
+    )
+    started = _market_stamp(u.started_at, tz)
+    if u.status == RUN_STATUS_CRASHED:
+        return (
+            f"the last pass CRASHED (started {started}; {who}): {u.error or 'no reason recorded'} — "
+            "its night may be partial (see the partial nights)"
+        )
+    if u.status == RUN_STATUS_RUNNING and not u.past_timeout:
+        return None
+    if u.status == RUN_STATUS_RUNNING:
+        return (
+            f"the last pass did not finish (started {started}; {who}) — still marked running past the "
+            f"{u.timeout_s:g} s run timeout: it was killed, hung, or the host went down; its night may "
+            "be partial (see the partial nights)"
+        )
+    return f"the last pass's artifact has an unknown status {u.status!r} (started {started}; {who})"
+
+
+def _orphan_rows_alarm(
+    coverage: dict[date, NightCoverage], payloads: list[dict], run_at: time
+) -> str | None:
+    """M1 (c) — the newest night with post-``RUN_AT`` (non-reconstructed) rows has NO run artifact at all:
+    the newest artifact of ANY status is for an older night. The 10-12 shape on an image from before the
+    start artifact (a pass recorded 4 theses and died, leaving no file, while ``last_run`` kept showing the
+    night before); now it means a start artifact that could not be written, or rows written outside the
+    daily pass. ``None`` when every recorded night has an artifact (or nothing was recorded / no artifact
+    exists — ``never_ran`` speaks for the latter).
+
+    Only on a stack whose run history shows the CRON sidecar (a ``run_kind == "cron"`` artifact — the
+    ``_backup_alarm`` gate): the check assumes this stack's own passes wrote its rows. On DEV (cron OFF, the
+    ``calls`` table a one-way copy of prod's, the artifacts only dev's own hand runs) every prod night would
+    read "rows without an artifact" forever."""
+    nights = [d for d, c in coverage.items() if c.any_post_cutoff]
+    if not nights or not any(d.get("run_kind") == "cron" for d in payloads):
+        return None
+    latest = max(nights)
+    asofs = []
+    for d in payloads:
+        try:
+            asofs.append(date.fromisoformat(str(d.get("asof"))))
+        except ValueError:
+            continue
+    newest = max(asofs, default=None)
+    if newest is not None and newest >= latest:
+        return None
+    seen = newest.isoformat() if newest is not None else "none readable"
+    return (
+        f"calls rows were recorded after {run_at:%H:%M} for {latest.isoformat()} but no pass left a run "
+        f"artifact for that night (the newest artifact is for asof {seen}) — a pass recorded and died "
+        "before its start artifact was written, or rows were written outside the daily pass"
+    )
+
+
 def _backup_out(info: BackupInfo) -> BackupOut:
     """One pipeline-layer ``BackupInfo`` -> the wire row (value-free: name, size, created_at, labeled).
     Shared by the create job's result, the list endpoint, and the status ``last_backup`` join."""
@@ -495,6 +630,16 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
     backend's (``backend_sha`` / ``cron_sha``), the last live pass paging through the LOG notifier or
     running without a User-Agent, and the newest unlabeled DB dump older than the schedule-aware backup
     window. ``last_run.audit`` is the latest pass's nightly self-audit; a failed check is a run problem.
+
+    M1 — a killed or partial pass never reads healthy. A pass writes its artifact ``running`` at its start
+    and finalizes it at the end: ``last_run`` is the newest FINISHED pass, and ``unfinished_run`` describes
+    a newer one that has not finished. Past the sidecar's run timeout (``ALPHADECK_CRON_RUN_TIMEOUT_S``) a
+    still-``running`` pass alarms "the last pass did not finish", a ``crashed`` one alarms at once, and a
+    recorded night with no run artifact at all alarms too; inside the timeout the verdict is ``running``.
+    ``record.partial_nights`` judges every window night PER THESIS (the self-audit's own rule): each thesis
+    in that night's roster needs a non-reconstructed call-of-record at/after ``RUN_AT``, else the night is
+    partial ("4 of 12 theses") and the verdict ``gappy``. The night a pass is still running for is not
+    judged until it finishes.
     """
     run_at = _run_at()
     now = _now()
@@ -534,6 +679,47 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
     pre_cutoff = set(stamps) - covered
     daytime_only = [d for d in missed if d in pre_cutoff]
 
+    # The run artifacts, newest-first (a bounded file read): the M1 in-flight / did-not-finish read below
+    # and the run row further down both come from this one list.
+    payloads = list_run_logs(limit=20)
+    settings = get_settings()
+
+    # M1 — THE PASS THAT HAS NOT FINISHED. The pass writes its artifact `running` at its start and
+    # finalizes it at the end, so a `running` newest artifact is a pass in flight — or, past the sidecar's
+    # run timeout, a pass that was killed (10-12: the VM died at 22:42 and nothing said so). In flight, its
+    # own night is not judged yet (a healthy pass mid-loop is partial by construction); dead, it alarms.
+    unfinished = _unfinished_run(
+        payloads, now=now, tz=tz, timeout_s=float(settings.cron_run_timeout_s)
+    )
+    in_flight_asof = (
+        unfinished.asof
+        if unfinished is not None
+        and unfinished.status == RUN_STATUS_RUNNING
+        and not unfinished.past_timeout
+        else None
+    )
+
+    # M1 — PER-(THESIS, NIGHT) COVERAGE. `covered` above asks whether ANY row landed after the cutoff, so a
+    # pass killed after 4 of 12 theses read as a covered night (10-12, healthy for ~18 h). Every window night
+    # inside the record's span is judged per thesis by the SAME rule the nightly self-audit uses
+    # (`pipeline/night_coverage.py`): each thesis in that night's roster needs a NON-reconstructed row at/after
+    # the cutoff. A night already in `missed` stays there (nothing ran after the close); any other night that
+    # is not complete is PARTIAL. Two read-only queries; the surface still writes nothing.
+    cov_nights = [d for d in window_days if first is not None and d >= first]
+    coverage = read_night_coverage(conn, cov_nights, run_at=run_at, tz=tz) if cov_nights else {}
+    missed_set = set(missed)
+    partial = [
+        coverage[d]
+        for d in cov_nights
+        if d not in missed_set and d != in_flight_asof and not coverage[d].complete
+    ]
+    # the verdict's view of the edge/hole checks: the night an in-flight pass is recording is not missing yet
+    # (`record.*` keeps the raw edge-check meaning; only the one-word verdict reads through the in-flight pass)
+    missed_eff = [d for d in missed if d != in_flight_asof]
+    stale_eff = stale and not (
+        in_flight_asof is not None and in_flight_asof == expected and days_behind == 1
+    )
+
     if edge is None:
         reason = "the record has never begun — no call-of-record logged yet"
     elif stale:
@@ -547,13 +733,17 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
             f"current at the edge — but {len(missed)} of the last {len(window_days)} scheduled "
             f"run(s) have no post-{run_at:%H:%M} call-of-record{tail}"
         )
+    elif partial:
+        reason = (
+            f"current at the edge — but {len(partial)} of the last {len(window_days)} scheduled "
+            f"night(s) are PARTIAL (not every thesis has a post-{run_at:%H:%M} call-of-record)"
+        )
     else:
         reason = "current — no scheduled run is missing"
 
-    # The newest READABLE artifact (skip-unreadable fail-open, the run-log read discipline). The read
-    # is bounded: status only needs the most recent parseable row.
+    # The newest READABLE FINISHED artifact (skip-unreadable fail-open, the run-log read discipline;
+    # `_admin_run_out` refuses a running / crashed one — M1). Bounded: status only needs the newest row.
     last_run: AdminRunOut | None = None
-    payloads = list_run_logs(limit=20)
     for p in payloads:
         try:
             last_run = _admin_run_out(p)
@@ -569,7 +759,6 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
 
     # Phase 1B — the STATUS-level alarms (not one run's health): the run identity (I1/I2) and the backup
     # age (B4). Both read files only (the artifacts + the backups dir), so the surface still writes nothing.
-    settings = get_settings()
     backend_sha = settings.image_sha
     status_alarms, cron_sha = _identity_alarms(payloads, backend_sha)
     backup_alarm = _backup_alarm(
@@ -582,8 +771,27 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
     )
     if backup_alarm:
         status_alarms.append(backup_alarm)
+    # M1 (a) — the last pass did not finish / crashed; (c) — a recorded night with no run artifact at all.
+    # (c) is skipped when (a) already fired: the dead pass's own artifact explains the night.
+    unfinished_alarm = _unfinished_alarm(unfinished, tz)
+    if unfinished_alarm:
+        status_alarms.append(unfinished_alarm)
+    else:
+        orphan = _orphan_rows_alarm(coverage, payloads, run_at)
+        if orphan:
+            status_alarms.append(orphan)
 
-    if last_run is None:
+    # the per-night PARTIAL line, shared by the gappy detail below ("2026-10-12: 4 of 12 theses")
+    partial_detail = "; ".join(f"{c.asof.isoformat()}: {c.describe()}" for c in partial)
+
+    if last_run is None and in_flight_asof is not None:
+        cron = AdminCronOut(
+            status="running",
+            detail=f"the first pass is running (started {_market_stamp(unfinished.started_at, tz)}, "
+            f"asof {in_flight_asof.isoformat()}) — no pass has finished yet",
+            alarms=status_alarms,
+        )
+    elif last_run is None:
         cron = AdminCronOut(
             status="never_ran",
             detail="no daily run has been recorded yet — run one below, or bring the cron sidecar up",
@@ -604,30 +812,45 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
                 )
             parts.extend(status_alarms)
             cron = AdminCronOut(status="unhealthy", detail="; ".join(parts), alarms=status_alarms)
-        elif stale:
+        elif stale_eff:
             cron = AdminCronOut(
                 status="stale",
                 detail=f"record edge {edge.isoformat() if edge else '—'} is {days_behind} expected "
                 f"run(s) behind (last expected as-of {expected.isoformat()})",
             )
-        elif missed:
+        elif missed_eff or partial:
             # gappy: the edge is current and the last run clean, yet a recent night has no post-RUN_AT
             # record — the wrong-day shape. As loud as stale (a hole is a missing run the edge check can't
             # see); a clean window never mentions holes (honest loudness). G2c — the two shapes are named
             # DISTINCTLY, because they call for different things: a night with NOTHING at all is a run that
             # never fired, while a night whose only row is a DAYTIME one had a pass that ran on the prior
             # session's bars and then a post-close pass that failed or never happened. Marking the second is
-            # the whole point of the cutoff: it used to read as covered.
-            daytime_set = set(daytime_only)
-            marked = ", ".join(
-                f"{d.isoformat()} (daytime row only)" if d in daytime_set else d.isoformat()
-                for d in missed
-            )
+            # the whole point of the cutoff: it used to read as covered. M1 — a PARTIAL night (some thesis
+            # in its roster has no on-time row: a pass killed mid-loop) is the third shape, named per night.
+            parts = []
+            if missed_eff:
+                daytime_set = set(daytime_only)
+                marked = ", ".join(
+                    f"{d.isoformat()} (daytime row only)" if d in daytime_set else d.isoformat()
+                    for d in missed_eff
+                )
+                parts.append(
+                    f"record has {len(missed_eff)} hole(s) in the last {len(window_days)} scheduled "
+                    f"runs: {marked} — a run fired on the wrong day, failed after a daytime pass, or "
+                    'never fired (see FEED_LOOP.md "Known gaps")'
+                )
+            if partial:
+                parts.append(
+                    f"{len(partial)} PARTIAL night(s) — not every thesis has a post-{run_at:%H:%M} "
+                    f"call-of-record: {partial_detail} (a pass killed mid-loop, or a thesis that failed)"
+                )
+            cron = AdminCronOut(status="gappy", detail="; ".join(parts))
+        elif in_flight_asof is not None:
             cron = AdminCronOut(
-                status="gappy",
-                detail=f"record has {len(missed)} hole(s) in the last {len(window_days)} scheduled "
-                f"runs: {marked} — a run fired on the wrong day, failed after a daytime pass, or never "
-                'fired (see FEED_LOOP.md "Known gaps")',
+                status="running",
+                detail=f"a pass is running (started {_market_stamp(unfinished.started_at, tz)}, asof "
+                f"{in_flight_asof.isoformat()}) — last finished run asof {last_run.asof.isoformat()} "
+                f"({last_run.mode}) · record edge {edge.isoformat() if edge else 'not begun yet'}",
             )
         else:
             cron = AdminCronOut(
@@ -653,6 +876,17 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
             missed_asofs=missed,
             daytime_only_asofs=daytime_only,
             window_days=len(window_days),
+            partial_nights=[
+                AdminPartialNightOut(
+                    asof=c.asof,
+                    covered=len(c.covered),
+                    expected=len(c.expected),
+                    reconstructed_only=len(c.reconstructed_only),
+                    daytime_only=len(c.daytime_only),
+                    late=len(c.covered - c.on_time),
+                )
+                for c in partial
+            ],
         ),
         last_run=last_run,
         cron=cron,
@@ -660,6 +894,7 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
         tape=tape,
         backend_sha=backend_sha,
         cron_sha=cron_sha,
+        unfinished_run=unfinished,
     )
 
 

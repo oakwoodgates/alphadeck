@@ -111,6 +111,10 @@ services:
       # weekdays it scans for nights with NO call-of-record — the wrong-day-fire shape the edge check
       # alone cannot see. The fallback mirrors the code default; 0 disables the scan.
       ALPHADECK_ADMIN_MISSED_WINDOW: ${ALPHADECK_ADMIN_MISSED_WINDOW:-10}
+      # M1 — the sidecar's whole-pass ceiling (its RUN_TIMEOUT_S, below), mirrored so the admin page knows
+      # when a pass still marked `running` can no longer be alive ("the last pass did not finish"). The
+      # fallback mirrors the sidecar's and the code default (Settings.cron_run_timeout_s).
+      ALPHADECK_CRON_RUN_TIMEOUT_S: ${ALPHADECK_CRON_RUN_TIMEOUT_S:-5400}
     depends_on:
       postgres:
         condition: service_healthy

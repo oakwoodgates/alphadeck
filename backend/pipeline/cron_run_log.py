@@ -11,11 +11,28 @@ itself, so the next freeze is noticed by the platform, not by eye.
 BOUNDS (a file is not a fact — the `draft_run_log.py` discipline):
 
 - **Write-only, no DB.** This module WRITES a file and opens no connection; it cannot touch a spine row. It is
-  called by `pipeline.daily.main` AFTER the run completes, from the already-collected results.
+  called by `pipeline.daily.run_daily_pass` from the already-collected results.
 - **Fail-open, logged.** A run-log write that fails (disk full, permissions) is a logged exception and `None`,
   NEVER a failed cron. The record is best-effort; the ingest + call-of-record it records are not.
 - **Value-free.** It records counts + outcomes the run already produced (appended / unchanged / errored,
   per-thesis ingest tallies); it computes no number and reads no fact (#3).
+
+M1 — ONE FILE PER PASS, WRITTEN TWICE (2026-10-16). The artifact used to be written only at the END of a
+pass, so a pass that died mid-loop left NO trace: MEASURED on 2026-10-12 the 22:30 run died at ~22:42 when
+the host VM went down, 4 of 12 theses had rows, there was no artifact, and `/admin/status` read healthy for
+~18 h off the previous night's file. Now the pass writes a START artifact (``status: "running"``,
+``started_at``, ``finished_at: null``, the run identity + env) the moment it holds the run lock
+(``write_run_start``), and FINALIZES the same file — same name, the started-at instant — to
+``status: "finished"`` with the full payload at the end (``write_cron_run_log``). A pass that dies on an
+exception Python sees is re-marked ``"crashed"`` (``mark_run_crashed``); a HARD kill (the VM, ``SIGKILL``,
+the C2 timeout) leaves ``"running"`` behind, which the Admin page reads as "did not finish" once it is older
+than the run timeout. An artifact written before M1 has no ``status`` key and reads as FINISHED
+(``run_status``) — it was only ever written at the end of a completed pass. Every writer here is atomic
+(``tmp`` + ``os.replace``), so the start file is never seen half-overwritten.
+
+**THE GUARD TRAP (load-bearing):** every reader that treats an artifact as "this pass happened" —
+``already_ran_live`` above all — must count only a FINISHED artifact. A ``running`` one credited by the
+``--catch-up`` guard would make a killed night block its own recovery.
 
 The home mirrors the caches + the draft log: the repo's gitignored `data/` locally, `/data` in the container
 (the compose `appdata:/data` volume), so the record survives rebuilds — the very thing whose absence made the
@@ -26,6 +43,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from collections.abc import Sequence
 from datetime import date, datetime, time, tzinfo
 from pathlib import Path
@@ -43,6 +61,152 @@ _log = logging.getLogger("alphadeck.cron")
 # Runtime artifacts live under the repo's gitignored data/ (== the container's volume-mounted /data);
 # tests pass an explicit base_dir.
 _DEFAULT_CRON_RUNS = Path(__file__).resolve().parents[2] / "data" / "cron_runs"
+
+# M1 — the pass status an artifact carries. "running" is written at the start, "finished" at the end, and
+# "crashed" when an exception escaped the pass; a hard kill leaves "running".
+RUN_STATUS_RUNNING = "running"
+RUN_STATUS_FINISHED = "finished"
+RUN_STATUS_CRASHED = "crashed"
+
+
+def run_status(doc: dict) -> str:
+    """The pass status an artifact records. A pre-M1 artifact has NO ``status`` key and reads
+    ``"finished"`` (back-compat: it was only ever written at the end of a completed pass). A present but
+    non-string value reads ``"unknown"`` — never finished, so a damaged status can never credit a night.
+    """
+    s = doc.get("status", RUN_STATUS_FINISHED)
+    return s if isinstance(s, str) else "unknown"
+
+
+def is_finished(doc: dict) -> bool:
+    """Did this artifact's pass FINISH (or is it a legacy artifact with no status)? The one test every
+    "this pass happened" reader applies — the ``--catch-up`` guard, the stale-tape / name-error baselines,
+    the Admin ``last_run``, the backfill's ``next-run`` pin."""
+    return run_status(doc) == RUN_STATUS_FINISHED
+
+
+def _artifact_path(run_dir: Path, started_at: datetime) -> Path:
+    # %H%M%S, no colons — legal on Windows too; the started-at instant names the run, so the start write
+    # and the finalize land on the SAME file (one file per pass)
+    return run_dir / f"{started_at.strftime('%Y%m%dT%H%M%SZ')}.json"
+
+
+def _write_atomic(path: Path, payload: dict) -> None:
+    """Write ``payload`` to ``path`` via a sibling temp file + ``os.replace`` — a reader (or a kill) never
+    sees a half-written artifact. The temp name does not end in ``.json``, so ``*.json`` readers skip it.
+    """
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def build_start_payload(
+    *,
+    asof: date,
+    allow_live: bool,
+    started_at: datetime,
+    catch_up: bool = False,
+    code_sha: str | None = None,
+    config_hash: str | None = None,
+    run_kind: str | None = None,
+    env: dict | None = None,
+) -> dict:
+    """M1 — the START artifact's payload (PURE): who is running, for which night, under which identity —
+    and nothing a reader could mistake for an outcome. Deliberately NO ``theses`` / ``summary`` /
+    ``tape_evaluated`` / ``name_errors_evaluated`` keys: the guard's "recorded for some thesis" test, the
+    stale-tape and name-error baselines and the Admin run row all find nothing to credit in it, on top of
+    the explicit ``status`` check each of them makes."""
+    return {
+        "status": RUN_STATUS_RUNNING,
+        "started_at": started_at.isoformat(),
+        "finished_at": None,
+        "asof": asof.isoformat(),
+        "mode": "live" if allow_live else "no-live",
+        "catch_up": catch_up,
+        "code_sha": code_sha,
+        "config_hash": config_hash,
+        "run_kind": run_kind,
+        "env": dict(env) if env is not None else None,
+    }
+
+
+def write_run_start(
+    *,
+    asof: date,
+    allow_live: bool,
+    started_at: datetime,
+    base_dir: Path | None = None,
+    catch_up: bool = False,
+    code_sha: str | None = None,
+    config_hash: str | None = None,
+    run_kind: str | None = None,
+    env: dict | None = None,
+) -> Path | None:
+    """M1 — write the pass's START artifact (``status: "running"``) at the file the finalize will
+    overwrite. Fail-open like every writer here: a fault is a logged exception and ``None``, never a failed
+    pass (the pass still finalizes the same path at its end).
+
+    It NEVER overwrites an existing file: at start time a file at this path can only be ANOTHER pass's
+    (the name is the started-at second), and clobbering a finished artifact would erase that pass's record
+    and the baselines the stale-tape / name-error diffs read. Two passes cannot start in the same second
+    under the run lock, so in practice this never fires; when it does, the pass runs without a start record
+    and its final write lands on that path exactly as every pre-M1 pass did."""
+    try:
+        payload = build_start_payload(
+            asof=asof,
+            allow_live=allow_live,
+            started_at=started_at,
+            catch_up=catch_up,
+            code_sha=code_sha,
+            config_hash=config_hash,
+            run_kind=run_kind,
+            env=env,
+        )
+        run_dir = base_dir or _DEFAULT_CRON_RUNS
+        run_dir.mkdir(parents=True, exist_ok=True)
+        path = _artifact_path(run_dir, started_at)
+        if path.exists():
+            _log.warning(
+                "cron start artifact skipped — %s already exists (another pass's)", path.name
+            )
+            return None
+        _write_atomic(path, payload)
+        return path
+    except Exception:  # noqa: BLE001 — fail-open by contract: log, never fail the cron
+        _log.exception("cron start artifact write failed (fail-open — the pass is unaffected)")
+        return None
+
+
+def mark_run_crashed(
+    *,
+    started_at: datetime,
+    crashed_at: datetime,
+    error: str,
+    base_dir: Path | None = None,
+) -> Path | None:
+    """M1 — re-mark a pass's START artifact ``status: "crashed"`` (+ ``crashed_at`` and the one-line
+    ``error``) when an exception escaped the pass. ONLY a file still reading ``running`` is touched: a pass
+    that already FINALIZED and then raised in a post-leg keeps its finished record (overwriting it would
+    throw the night's summary away), and a missing or unreadable start file is left alone. Fail-open —
+    called from the crash path, so it must never raise over the exception being reported."""
+    try:
+        path = _artifact_path(base_dir or _DEFAULT_CRON_RUNS, started_at)
+        if not path.exists():
+            return None
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(doc, dict) or run_status(doc) != RUN_STATUS_RUNNING:
+            return None
+        if doc.get("started_at") != started_at.isoformat():
+            return None  # not THIS pass's start record — never re-mark another pass
+
+        doc["status"] = RUN_STATUS_CRASHED
+        doc["crashed_at"] = crashed_at.isoformat()
+        doc["error"] = error
+        _write_atomic(path, doc)
+        return path
+    except Exception:  # noqa: BLE001 — fail-open by contract
+        _log.exception("cron crash marker write failed (fail-open)")
+        return None
 
 
 def build_run_payload(
@@ -137,10 +301,14 @@ def build_run_payload(
 
     V1 — THE SELF-AUDIT. `audit` is the `[{check, ok, detail}]` list `pipeline/self_audit.run_audit` left
     (`ok` null = not applicable to this pass — never a pass); the Admin page re-derives its alarm from it.
+
+    M1 — ``status: "finished"``: this is the FINALIZED artifact, overwriting the pass's start artifact
+    (``build_start_payload``) at the same path. A pre-M1 artifact lacks the key and reads finished.
     """
     recorded = sum(1 for r in results if r.recorded)
     edgar_fetches = sum(r.edgar_fetches for r in results)
     return {
+        "status": RUN_STATUS_FINISHED,
         "started_at": started_at.isoformat(),
         "finished_at": finished_at.isoformat(),
         "duration_s": round((finished_at - started_at).total_seconds(), 3),
@@ -192,6 +360,8 @@ def build_run_payload(
             "withheld": sum(1 for r in results if r.withheld_reason),
             "errored": sum(1 for r in results if r.error),
             "transitions": sum(1 for r in results if r.transition),
+            # M2 — theses a --catch-up left alone because an on-time row already stood
+            "skipped": sum(1 for r in results if r.skipped),
         },
         "theses": [
             {
@@ -199,6 +369,8 @@ def build_run_payload(
                 "name": r.name,
                 "recorded": r.recorded,
                 "withheld_reason": r.withheld_reason,  # R2a — why the call was NOT recorded (or None)
+                # M2 — why a --catch-up SKIPPED this thesis (its on-time row stands), or None
+                "skipped": r.skipped,
                 "transition": r.transition,
                 "error": r.error,
                 "edgar_fetches": r.edgar_fetches,  # per-thesis freeze detector
@@ -278,7 +450,11 @@ def write_cron_run_log(
     """Dump one cron pass (``build_run_payload``, above — the payload's meaning lives there) to
     ``<base>/<utc-timestamp>.json``; return the path (or ``None`` fail-open). The whole write — payload
     build included — stays inside the fail-open try: a run-log fault is a logged exception, never a
-    failed cron."""
+    failed cron. M1: the path is the started-at instant, so this FINALIZES (atomically overwrites) the
+    start artifact ``write_run_start`` left for the same pass. If THIS write fails, the start file stays
+    ``running`` — the guard then lets a catch-up re-run the night (safe: ``record_if_changed``) and the Admin
+    page reads "did not finish" after the run timeout: loud and recoverable, never a silent credit.
+    """
     try:
         payload = build_run_payload(
             results,
@@ -304,9 +480,8 @@ def write_cron_run_log(
         )
         run_dir = base_dir or _DEFAULT_CRON_RUNS
         run_dir.mkdir(parents=True, exist_ok=True)
-        # %H%M%S, no colons — legal on Windows too; the started-at instant names the run
-        path = run_dir / f"{started_at.strftime('%Y%m%dT%H%M%SZ')}.json"
-        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        path = _artifact_path(run_dir, started_at)
+        _write_atomic(path, payload)
         return path
     except Exception:  # noqa: BLE001 — fail-open by contract: log, never fail the cron
         _log.exception("cron run log write failed (fail-open — the cron run is unaffected)")
@@ -336,11 +511,34 @@ def _recorded_for_some_thesis(doc: dict) -> bool:
 
     ``isinstance(..., bool)`` on purpose, not ``in (True, False)``: in Python ``1 in (True, False)`` is True,
     so an integer that wandered into the field would be mistaken for an outcome.
+
+    M2 — a thesis a ``--catch-up`` SKIPPED (a non-empty ``skipped`` reason: its on-time row already stands)
+    counts too: the night HAS that record. The live twin ``daily._failed_to_record`` reads it the same way.
     """
     theses = doc.get("theses")
     if not isinstance(theses, list):
         return False
-    return any(isinstance(t, dict) and isinstance(t.get("recorded"), bool) for t in theses)
+    return any(
+        isinstance(t, dict)
+        and (
+            isinstance(t.get("recorded"), bool)
+            or (isinstance(t.get("skipped"), str) and t["skipped"])
+        )
+        for t in theses
+    )
+
+
+def is_full_roster(doc: dict) -> bool:
+    """Did this artifact's pass process EVERY thesis on its roster? ``False`` when a ``--catch-up`` SKIPPED
+    some (M2 — their on-time rows stood, so they were never ingested). Such a pass is not a BASELINE: its
+    stale-tape and name-error inventories lack the skipped theses' names, so diffing the next pass against
+    it would re-page every known-dead feed and known-failing name those theses hold as if new (and the
+    Admin freshness panel would show a partial inventory). A pre-M2 artifact has no ``skipped`` keys and
+    reads full."""
+    theses = doc.get("theses")
+    if not isinstance(theses, list):
+        return True
+    return not any(isinstance(t, dict) and t.get("skipped") for t in theses)
 
 
 def already_ran_live(asof: date, *, run_at: time, tz: tzinfo, base_dir: Path | None = None) -> bool:
@@ -370,6 +568,17 @@ def already_ran_live(asof: date, *, run_at: time, tz: tzinfo, base_dir: Path | N
     is an aware UTC ISO stamp). PURE over its arguments — no settings read, no ambient clock (the
     ``schedule.py`` discipline); ``daily.main`` supplies ``run_at`` / ``tz`` from config.
 
+    **And the pass must have FINISHED (M1, 2026-10-16) — THE GUARD TRAP.** A pass now writes a START
+    artifact (``status: "running"``) the moment it holds the lock and finalizes it at the end; a pass killed
+    mid-loop leaves the ``running`` file behind (MEASURED shape: 10-12, the VM died at 22:42 with 4 of 12
+    theses recorded). Crediting that file would make the killed night BLOCK ITS OWN RECOVERY — the retry and
+    every later catch-up would no-op over a partial night. So only ``is_finished`` counts: ``"finished"``, or
+    a pre-M1 artifact with no ``status`` at all (it was only ever written at the end). ``running``,
+    ``crashed`` and any unknown status read as "did not run" — the catch-up re-runs the night, and
+    ``record_if_changed`` keeps the theses that DID record from appending twice. The G2b test (some thesis
+    recorded) still applies on top, to finished artifacts. The explicit status check is the rule; that a
+    start artifact also carries no ``theses`` list is only belt-and-suspenders.
+
     Fail-open = **err toward running**: an unreadable artifact, or a live one whose ``started_at`` is missing /
     unparseable / NAIVE (a naive stamp cannot be compared honestly against a market-time cutoff), is skipped,
     so a bad artifact can never make the guard falsely report "ran" and cancel a needed catch-up (a repeated
@@ -396,6 +605,8 @@ def already_ran_live(asof: date, *, run_at: time, tz: tzinfo, base_dir: Path | N
             continue
         if not isinstance(doc, dict) or doc.get("asof") != target or doc.get("mode") != "live":
             continue
+        if not is_finished(doc):
+            continue  # M1 — a running / crashed pass never credits the night (the guard trap)
         try:
             started = datetime.fromisoformat(doc["started_at"])
         except (KeyError, TypeError, ValueError):
@@ -435,7 +646,12 @@ def previous_stale_tapes(*, base_dir: Path | None = None) -> set[str] | None:
     is skipped, never an exception) — and the whole read is best-effort: the caller's worst case is a repeat
     page, never a missed one. Pure file read — no DB, no network, nothing written."""
     for doc in list_run_logs(base_dir=base_dir):
-        if doc.get("mode") != "live" or not doc.get("tape_evaluated", False):
+        if (
+            doc.get("mode") != "live"
+            or not doc.get("tape_evaluated", False)
+            or not is_finished(doc)
+            or not is_full_roster(doc)  # M2 — a partial catch-up is never a baseline
+        ):
             continue
         out: set[str] = set()
         for t in doc.get("theses") or []:
@@ -467,7 +683,12 @@ def previous_name_errors(*, base_dir: Path | None = None) -> set[str] | None:
     Newest-first, first match wins; fail-open per artifact (a malformed row is skipped). Pure file read.
     """
     for doc in list_run_logs(base_dir=base_dir):
-        if doc.get("mode") != "live" or not doc.get("name_errors_evaluated", False):
+        if (
+            doc.get("mode") != "live"
+            or not doc.get("name_errors_evaluated", False)
+            or not is_finished(doc)
+            or not is_full_roster(doc)  # M2 — a partial catch-up is never a baseline
+        ):
             continue
         out: set[str] = set()
         for t in doc.get("theses") or []:

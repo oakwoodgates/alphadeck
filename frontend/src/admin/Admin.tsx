@@ -48,8 +48,10 @@ function RunSummaryLine({ run }: { run: AdminRunOut }) {
       asof <b>{run.asof}</b> ({run.mode}) — {run.appended} appended · {run.unchanged} unchanged
       {run.withheld > 0 && <> · {run.withheld} withheld</>}
       {run.errored > 0 && <> · {run.errored} errored</>}
-      {run.transitions > 0 && <> · {run.transitions} transitions</>} · {run.edgar_fetches} EDGAR
-      fetches · {fmtDur(run.duration_s)}
+      {run.transitions > 0 && <> · {run.transitions} transitions</>}
+      {/* M2 — a catch-up left these alone: their on-time call-of-record already stood */}
+      {(run.skipped ?? 0) > 0 && <> · {run.skipped} skipped (on-time row stands)</>} ·{" "}
+      {run.edgar_fetches} EDGAR fetches · {fmtDur(run.duration_s)}
     </span>
   );
 }
@@ -210,6 +212,8 @@ export function Admin({ header }: Props) {
   // is ever dropped from the panel (#9).
   const closedTapes = priceTapes.filter((t) => t.closed_at != null);
   const stalePriceTapes = priceTapes.filter((t) => t.closed_at == null);
+  // M1 — nights a pass recorded only PART of (judged per thesis); an older backend omits the field
+  const partialNights = status?.record.partial_nights ?? [];
 
   return (
     <div className="board-shell adm-shell">
@@ -225,7 +229,11 @@ export function Admin({ header }: Props) {
           {/* 1 — freshness / the dead-man's switch: loud ONLY when stale (the edge) or gappy (a hole) */}
           <section
             className={`adm-card adm-fresh${
-              status.record.stale ? " stale" : status.record.missed > 0 ? " gappy" : ""
+              status.record.stale
+                ? " stale"
+                : status.record.missed > 0 || partialNights.length > 0
+                  ? " gappy"
+                  : ""
             }`}
             data-testid="adm-fresh"
           >
@@ -262,6 +270,16 @@ export function Admin({ header }: Props) {
                       : d,
                   )
                   .join(", ")}
+              </div>
+            )}
+            {/* M1 — the PARTIAL nights: a pass recorded SOME theses after the close and then died (or a
+                thesis failed), so the night is not a hole above yet not fully recorded either. Judged
+                per thesis; rendered only when there is one (honest loudness). */}
+            {partialNights.length > 0 && (
+              <div className="adm-line adm-loud" data-testid="adm-partial">
+                <b>{partialNights.length}</b> scheduled night(s) are PARTIAL — not every thesis has a
+                post-close call-of-record:{" "}
+                {partialNights.map((p) => `${p.asof}: ${p.covered} of ${p.expected} theses`).join(", ")}
               </div>
             )}
             <div className="adm-sub">
