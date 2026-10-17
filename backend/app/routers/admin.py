@@ -1107,11 +1107,11 @@ def start_backup(body: BackupCreateIn | None = None) -> BackupJobRef:
     poll ``GET /admin/backup/jobs/{job_id}``. Fires ONLY on this explicit request — never on a page load,
     mount, or poll (cost is the operator's to spend; the reads may poll, the trigger never does). The dump
     is READ-ONLY (``pg_dump``) and mutates no row; it writes a ``.sql`` under ``/data/backups`` (a host
-    bind, so it is copyable off-box) and prunes old UNLABELED dumps (keep-last-N; a ``label`` marks a
-    prune-EXEMPT snapshot). **409** when a snapshot is already in progress (the single-slot in-process
-    guard — a double-click can never stack a second dump). **RESTORE is deliberately CLI-only** (a
-    destructive drop-schema + reload; never a button): ``docker exec -i alphadeck-postgres-1 psql -U
-    alphadeck -d alphadeck < ./data/backups/<file>``. The job opens its OWN subprocess (it outlives this
+    bind, so it is copyable off-box) and prunes old dumps (keep-last-N UNLABELED; a ``label`` marks a
+    named snapshot, kept 90 days or while among the newest 20 labeled). **409** when a snapshot is
+    already in progress (the single-slot in-process guard — a double-click can never stack a second
+    dump). **RESTORE is deliberately CLI-only** (a destructive drop-schema + reload; never a button):
+    ``docker exec -i alphadeck-postgres-1 psql -U alphadeck -d alphadeck < ./data/backups/<file>``. The job opens its OWN subprocess (it outlives this
     request)."""
     label = body.label if body else None
 
