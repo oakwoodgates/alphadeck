@@ -1097,13 +1097,23 @@ def test_the_start_write_NEVER_clobbers_another_passs_artifact(tmp_path):
     assert _read(path)["status"] == "finished"
 
 
-def test_a_running_or_PARTIAL_ROSTER_artifact_is_never_a_baseline(tmp_path):
-    """The stale-tape / name-error diffs read the newest finished, FULL-roster live pass. A start artifact
-    is not one (nothing evaluated), and neither is an M2 catch-up that SKIPPED theses: its inventory lacks
-    the skipped theses' names, so the next pass would re-page each of them as new."""
+def test_a_RUNNING_artifact_is_never_a_baseline_and_a_PARTIAL_one_never_drops_a_skipped_thesis(
+    tmp_path,
+):
+    """A start artifact is no baseline (nothing evaluated, never finished). An M2 catch-up that SKIPPED a
+    thesis counts only for the theses it COVERED (the per-thesis carry-forward, ``carried_inventory``): the
+    skipped thesis keeps its entry from the full pass before it, so its known-dead tape is still "already
+    told" and the next pass does not re-page it. (Until 2026-10-17 the partial pass was excluded outright;
+    the catch-up sequences are pinned in ``test_catchup_baseline.py``.)"""
     sid = uuid4()
+    aaa_thesis = uuid4()
     write_cron_run_log(  # the full baseline: AAA is a known-dead tape
-        [_thesis_result(tape_stale=(StaleTape(security_id=sid, ticker="AAA", edge=None),))],
+        [
+            _thesis_result(
+                thesis_id=aaa_thesis,
+                tape_stale=(StaleTape(security_id=sid, ticker="AAA", edge=None),),
+            )
+        ],
         asof=_JUL17,
         allow_live=True,
         started_at=_NIGHT_JUL17,
@@ -1111,9 +1121,9 @@ def test_a_running_or_PARTIAL_ROSTER_artifact_is_never_a_baseline(tmp_path):
         base_dir=tmp_path,
         tape_evaluated=True,
     )
-    write_cron_run_log(  # a later catch-up that skipped AAA's thesis: evaluated, but a partial roster
+    write_cron_run_log(  # a later catch-up that skipped AAA's thesis: evaluated, a partial roster
         [
-            _thesis_result(skipped="on-time call-of-record already recorded"),
+            _thesis_result(thesis_id=aaa_thesis, skipped="on-time call-of-record already recorded"),
             _thesis_result(recorded=True),
         ],
         asof=date(2026, 7, 20),
@@ -1125,7 +1135,7 @@ def test_a_running_or_PARTIAL_ROSTER_artifact_is_never_a_baseline(tmp_path):
         catch_up=True,
     )
     _start(tmp_path, asof=date(2026, 7, 21), at=_utc(2026, 7, 21, 22, 30, 1))  # newest: in flight
-    assert previous_stale_tapes(base_dir=tmp_path) == {f"price:{sid}"}  # the FULL pass's inventory
+    assert previous_stale_tapes(base_dir=tmp_path) == {f"price:{sid}"}  # AAA's thesis, carried
 
 
 def test_a_SKIPPED_thesis_counts_as_the_night_recorded_for_the_guard(tmp_path):
@@ -1138,3 +1148,71 @@ def test_a_SKIPPED_thesis_counts_as_the_night_recorded_for_the_guard(tmp_path):
         at=_utc(2026, 7, 18, 9, 0),
     )
     assert _ran(tmp_path, _JUL17) is True
+
+
+# --- the per-thesis carry-forward's BOUNDS (the catch-up sequences: test_catchup_baseline.py) ----------
+
+
+def _evaluated(tmp_path, results, *, at: datetime, catch_up: bool = False):
+    """One finished live pass that evaluated both per-thesis inventories."""
+    write_cron_run_log(
+        results,
+        asof=at.date(),
+        allow_live=True,
+        started_at=at,
+        finished_at=at,
+        base_dir=tmp_path,
+        tape_evaluated=True,
+        name_errors_evaluated=True,
+        catch_up=catch_up,
+    )
+
+
+def test_the_carry_forward_STOPS_at_the_newest_FULL_roster_pass(tmp_path):
+    """A full-roster pass covered every thesis then active, so nothing older is newer evidence: thesis A
+    flagged N on night 1, was ARCHIVED for night 2's full pass (absent from its roster), and is back on a
+    catch-up's roster (skipped — its on-time row stood). A is carried from nothing: night 2 is where the
+    look-back ends, so N is not "already told" and pages if A flags it again."""
+    a, b, n = uuid4(), uuid4(), uuid4()
+    _evaluated(
+        tmp_path,
+        [_thesis_result(thesis_id=a, tape_stale=(_st("NNN", sid=n),)), _thesis_result(thesis_id=b)],
+        at=_utc(2026, 7, 14, 22, 30),
+    )
+    _evaluated(tmp_path, [_thesis_result(thesis_id=b)], at=_utc(2026, 7, 15, 22, 30))
+    _evaluated(
+        tmp_path,
+        [_thesis_result(thesis_id=a, skipped="on-time row stands"), _thesis_result(thesis_id=b)],
+        at=_utc(2026, 7, 17, 9, 0),
+        catch_up=True,
+    )
+    assert previous_stale_tapes(base_dir=tmp_path) == set()
+
+
+def test_carried_inventory_reads_the_PAIRING_and_the_roster_order(tmp_path):
+    """The carried view the Admin panels walk: the newest pass's roster order, each entry paired with the
+    pass it came from; ``None`` with no qualifying pass at all (a --no-live pass, a not-evaluated one and a
+    killed pass's start artifact never qualify)."""
+    from pipeline.cron_run_log import carried_inventory
+
+    _log_for(tmp_path, asof=_JUL17, allow_live=False, at=_utc(2026, 7, 13, 22, 30))  # no-live
+    _log_for(tmp_path, asof=_JUL17, allow_live=True, at=_utc(2026, 7, 13, 22, 31))  # not evaluated
+    _start(tmp_path, asof=_JUL17, at=_utc(2026, 7, 13, 22, 32))  # killed: still "running"
+    assert (
+        carried_inventory(list_run_logs(base_dir=tmp_path), evaluated_key="tape_evaluated") is None
+    )
+
+    a, b = uuid4(), uuid4()
+    _evaluated(
+        tmp_path, [_thesis_result(thesis_id=a), _thesis_result(thesis_id=b)], at=_NIGHT_JUL17
+    )
+    _evaluated(
+        tmp_path,
+        [_thesis_result(thesis_id=b), _thesis_result(thesis_id=a, skipped="on-time row stands")],
+        at=_utc(2026, 7, 18, 9, 0),
+        catch_up=True,
+    )
+    inv = carried_inventory(list_run_logs(base_dir=tmp_path), evaluated_key="tape_evaluated")
+    assert [(t["id"], i) for t, i in inv.theses] == [(str(b), 0), (str(a), 1)]
+    assert inv.newest["catch_up"] is True and len(inv.passes) == 2
+    assert [t["id"] for t in inv.as_doc()["theses"]] == [str(b), str(a)]

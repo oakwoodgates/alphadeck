@@ -62,8 +62,8 @@ from pipeline.bounded_pass import run_admin_pass
 from pipeline.cron_run_log import (
     RUN_STATUS_CRASHED,
     RUN_STATUS_RUNNING,
+    carried_inventory,
     is_finished,
-    is_full_roster,
     list_run_logs,
     run_status,
 )
@@ -300,11 +300,19 @@ def _threshold(doc: dict, key: str, live: int) -> int:
 
 
 def _tape_out(payloads: list[dict]) -> AdminTapeOut | None:
-    """The FEED freshness panel (G5a price tapes · F1 fund shares), built from the newest artifact that
+    """The FEED freshness panel (G5a price tapes · F1 fund shares), built from the run artifacts that
     actually EVALUATED recency — ARTIFACT-SOURCED on purpose, not a fresh DB scan: this router's bound is
     "a read surface over the cron's own instrumentation" that owns no tables, and a second definition of
     "stale" living in a query here could drift from the one the page fired on. The cost is that the panel
     reads "as of the last pass", which is the right granularity for a nightly feed.
+
+    THE SAME INVENTORY THE PAGE DIFFS AGAINST (2026-10-17): the per-thesis carry-forward
+    (``cron_run_log.carried_inventory`` — the rule ``previous_stale_tapes`` reads), so each thesis's rows
+    come from the newest finished, live, evaluated pass that COVERED it, and a ``--catch-up`` that skipped
+    theses (M2) shows what it found in the theses it did cover. Its loud rows are exactly what the next pass
+    treats as already told; ``newly_stale`` is what the NEWEST such pass paged (a catch-up included), and
+    ``asof`` / ``ran_at`` / the thresholds are that pass's. A skipped thesis's rows are as of the last pass
+    that covered it — normally the night before, in the killed-night shape M2 exists for.
 
     ``None`` = no pass has looked yet (the quiet state right after deploy, and for a ``--no-live``-only
     history). Rows are deduped by ``kind`` + ``security_id`` across theses — a name held by two theses is
@@ -317,18 +325,11 @@ def _tape_out(payloads: list[dict]) -> AdminTapeOut | None:
     Both THRESHOLDS come off the artifact (F6) — see ``_threshold`` for why a stored 0 must survive.
     """
     settings = get_settings()
-    for doc in payloads:
-        # M2 — a catch-up that SKIPPED theses holds a partial inventory: never the panel's source
-        if (
-            doc.get("mode") != "live"
-            or not doc.get("tape_evaluated", False)
-            or not is_full_roster(doc)
-        ):
-            continue
+    inv = carried_inventory(payloads, evaluated_key="tape_evaluated")
+    if inv is not None:
+        doc = inv.newest
         rows: dict[str, AdminStaleTapeOut] = {}
-        for t in doc.get("theses") or []:
-            if not isinstance(t, dict):
-                continue
+        for t in inv.entries():
             for s in t.get("tape_stale") or []:
                 try:
                     kind = feed_kind(s.get("kind")).key

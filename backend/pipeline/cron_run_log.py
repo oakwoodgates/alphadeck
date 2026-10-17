@@ -45,6 +45,7 @@ import json
 import logging
 import os
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import date, datetime, time, tzinfo
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -302,7 +303,7 @@ def build_run_payload(
     O1 — THE PER-NAME ERRORS. Each thesis carries `name_errors` (`security_id`, `ticker`, `leg`, `error`
     — one row per failed LEG, `pipeline/name_errors.py`), and the run carries the cross-pass diff the way
     G5a carries `tape_stale_new`: `name_errors_evaluated` (a LIVE pass — the only kind that is a baseline),
-    `name_errors_new` (the `security_id:leg` keys absent from the previous evaluated pass — what PAGED) and
+    `name_errors_new` (the `security_id:leg` keys absent from the last-known inventory — what PAGED) and
     `name_errors_known` (the quiet count of the rest). `previous_name_errors` (below) reads the baseline.
 
     V1 — THE SELF-AUDIT. `audit` is the `[{check, ok, detail}]` list `pipeline/self_audit.run_audit` left
@@ -580,7 +581,10 @@ def _recorded_for_some_thesis(doc: dict) -> bool:
 
 def is_full_roster(doc: dict) -> bool:
     """Did this artifact's pass process EVERY thesis on its roster? ``False`` when a ``--catch-up`` SKIPPED
-    some (M2 — their on-time rows stood, so they were never ingested). Such a pass is not a BASELINE: its
+    some (M2 — their on-time rows stood, so they were never ingested; ``thesis_covered`` reads one entry).
+    Such a pass is never a baseline ON ITS OWN — ``carried_inventory`` (below) reads it only for the theses
+    it covered, carries each skipped thesis forward from the last pass that did cover it, and ends its
+    look-back at the newest full-roster pass — because its
     stale-tape and name-error inventories lack the skipped theses' names, so diffing the next pass against
     it would re-page every known-dead feed and known-failing name those theses hold as if new (and the
     Admin freshness panel would show a partial inventory). A pre-M2 artifact has no ``skipped`` keys and
@@ -669,11 +673,136 @@ def already_ran_live(asof: date, *, run_at: time, tz: tzinfo, base_dir: Path | N
     return False
 
 
+def thesis_covered(entry: dict) -> bool:
+    """Did the pass that wrote this per-thesis ``entry`` COVER that thesis — ingest it, so its stale feeds and
+    its failing names are an OBSERVATION? ``False`` only for a thesis a ``--catch-up`` SKIPPED (M2 — a
+    ``skipped`` reason: its on-time row stood, so nothing was ingested and its inventories are empty by
+    construction, not because anything cleared). Coverage comes from the artifact alone. An artifact written
+    before M2 carries no ``skipped`` keys, so it covers exactly the theses its per-thesis results list — and
+    no other: a thesis it does not list was not on that pass's roster. Truthiness, the ``is_full_roster``
+    reading, so a pass is full-roster exactly when it covers every thesis it lists."""
+    return not entry.get("skipped")
+
+
+@dataclass(frozen=True)
+class CarriedInventory:
+    """The per-thesis inventory a baseline reads (``carried_inventory``): for every thesis on the NEWEST
+    qualifying pass's roster, its entry from the newest qualifying pass that COVERED it.
+
+    ``passes`` are the qualifying passes read, newest first — from the newest one back to (and including) the
+    newest FULL-roster one, where the look-back ends. ``theses`` pairs each carried per-thesis entry with the
+    index (into ``passes``) of the pass it came from, in the newest pass's roster order."""
+
+    passes: tuple[dict, ...]
+    theses: tuple[tuple[dict, int], ...]
+
+    @property
+    def newest(self) -> dict:
+        """The newest qualifying pass: the roster, the night the inventory is "as of", what it paged."""
+        return self.passes[0]
+
+    def entries(self) -> list[dict]:
+        """The carried per-thesis entries (each its own pass's ``theses[]`` element, unmodified)."""
+        return [t for t, _ in self.theses]
+
+    def as_doc(self) -> dict:
+        """The newest pass's payload with its ``theses`` replaced by the carried entries — the view an
+        artifact-shaped reader (the Price feed repairs panel) walks. Built in memory, never written.
+        """
+        return {**self.newest, "theses": self.entries()}
+
+
+def _inventory_pass(doc: dict, evaluated_key: str) -> bool:
+    """Can ``doc`` contribute to an inventory baseline? A LIVE pass (a ``--no-live`` pass reads cache misses,
+    not tonight's feed), that EVALUATED this inventory (``evaluated_key`` — a pre-monitor artifact, or a
+    pass with the monitor off, carries none: read as "nothing flagged" it would re-page everything known) and
+    FINISHED (M1 — a killed pass's start artifact is never a baseline)."""
+    return doc.get("mode") == "live" and bool(doc.get(evaluated_key, False)) and is_finished(doc)
+
+
+def carried_inventory(payloads: Sequence[dict], *, evaluated_key: str) -> CarriedInventory | None:
+    """THE PER-THESIS CARRY-FORWARD (2026-10-17) — the ONE rule the stale-tape and name-error baselines
+    (``previous_stale_tapes`` / ``previous_name_errors``) AND the Admin panels that render those inventories
+    (``app/routers/admin.py::_tape_out``, ``admin_price_feed.inventory_doc``) read, so a name the panel
+    lists never re-pages and the panel marks NEW exactly what paged. ``payloads`` are parsed artifacts
+    NEWEST-FIRST (``list_run_logs``); ``evaluated_key`` is the inventory's evaluated flag
+    (``tape_evaluated`` / ``name_errors_evaluated``).
+
+    Both inventories are PER THESIS — every entry belongs to a thesis the pass ingested — and an M2
+    ``--catch-up`` covers only the theses whose on-time row was missing. So the baseline is, for each thesis
+    on the NEWEST qualifying pass's roster (full or partial), its entry from the newest qualifying pass that
+    COVERED it (``thesis_covered``); a thesis that pass skipped keeps its entry from the last pass that did
+    cover it. The union is the last-known inventory of every thesis. Consequences, each pinned in
+    ``tests/pipeline/test_catchup_baseline.py``:
+
+    - a name FIRST flagged by a catch-up pages there ONCE (the next pass reads the catch-up's entry for that
+      thesis). The old FULL-ROSTER rule skipped the catch-up, so the next full pass diffed against the pass
+      before it and paged the name AGAIN;
+    - a name the catch-up saw CLEAR and that comes back pages again — a genuine clear-and-return (the old
+      rule still held it from the pass before the catch-up, so its return stayed silent);
+    - a name in a thesis the catch-up SKIPPED never re-pages (that thesis's entry is carried).
+
+    BOUNDS. The look-back ENDS at the newest qualifying FULL-roster pass (``is_full_roster``): it covered every
+    thesis then active, so nothing older is newer evidence about any of them, and a thesis it did not list
+    (created later, or archived then) has no older entry to carry. The ROSTER is the newest qualifying pass's
+    (a catch-up lists its skipped theses too), so a thesis no longer listed — archived — takes its entries
+    with it and can never mask a name elsewhere.
+
+    FAIL LOUD. ``None`` = no qualifying pass at all (the first pass after a monitor ships) — the caller pages
+    the whole inventory once. A thesis on the roster that no readable qualifying pass in the look-back
+    covered (a new thesis skipped by a catch-up, or its covering artifact unreadable — ``list_run_logs``
+    skips it) contributes NOTHING, so each of its names reads as news: a repeat page at worst, never a
+    silenced one. A roster entry without an id is used only when the newest pass covered it.
+
+    KNOWN LIMIT (accepted): the artifact records a thesis's FLAGGED names, not its members, so when one name
+    is held by a thesis the catch-up skipped AND by one it covered and saw clear, the skipped thesis's
+    carried entry still holds it — if it comes back by the next pass, that return does not page. The full
+    pass after that reads both theses fresh. Pure over its input — no I/O."""
+    passes: list[dict] = []
+    for doc in payloads:
+        if not isinstance(doc, dict) or not _inventory_pass(doc, evaluated_key):
+            continue
+        passes.append(doc)
+        if is_full_roster(doc):
+            break  # a full roster covered every thesis then active: nothing older is newer evidence
+    if not passes:
+        return None
+    slots: list[tuple[dict, int] | None] = []
+    pending: dict[str, int] = {}  # thesis id -> its slot, still owed an older covering pass
+    roster = passes[0].get("theses")
+    for t in roster if isinstance(roster, list) else []:
+        if not isinstance(t, dict):
+            continue
+        if thesis_covered(t):
+            slots.append((t, 0))
+            continue
+        tid = t.get("id")
+        if isinstance(tid, str) and tid and tid not in pending:
+            pending[tid] = len(slots)
+            slots.append(None)
+    for i, doc in enumerate(passes[1:], start=1):
+        if not pending:
+            break
+        older = doc.get("theses")
+        for t in older if isinstance(older, list) else []:
+            if not isinstance(t, dict) or not thesis_covered(t):
+                continue
+            tid = t.get("id")
+            if isinstance(tid, str) and tid in pending:
+                slots[pending.pop(tid)] = (t, i)
+    return CarriedInventory(passes=tuple(passes), theses=tuple(s for s in slots if s is not None))
+
+
 def previous_stale_tapes(*, base_dir: Path | None = None) -> set[str] | None:
-    """The set of ``"<kind>:<security_id>"`` keys whose feed was STALE — and NOT classified closed — on the
-    most recent pass that actually EVALUATED recency: the baseline the current pass diffs against so only
-    NEWLY stale feeds page (G5a/F1). Closed rows are left out on purpose (T1): they never paged, so a name
-    reclassified closed → repair must read as news and page once.
+    """The set of ``"<kind>:<security_id>"`` keys whose feed was STALE — and NOT classified closed — in the
+    last-known inventory of every thesis: the baseline the current pass diffs against so only NEWLY stale
+    feeds page (G5a/F1). Closed rows are left out on purpose (T1): they never paged, so a name reclassified
+    closed → repair must read as news and page once.
+
+    WHICH entries: the PER-THESIS CARRY-FORWARD (``carried_inventory``, its rule and bounds live there) —
+    each thesis's entry from the newest finished, live, recency-evaluated pass that COVERED it, so a
+    ``--catch-up`` that skipped theses (M2) counts for the theses it did cover. The Admin freshness panel and
+    the Price feed repairs panel read the same carried inventory.
 
     ``None`` (distinct from an empty set!) = **no evaluated live artifact exists yet** — the first pass after
     this monitor deployed, or a run home with nothing in it. The caller treats that as "everything currently
@@ -693,21 +822,14 @@ def previous_stale_tapes(*, base_dir: Path | None = None) -> set[str] | None:
     new. Keying on the kind as well as the id is what lets one name go stale on its price tape now and its
     fund-shares sample later and have the second page as the news it is.
 
-    Newest-first, first match wins. Fail-open PER ARTIFACT like its siblings (an unreadable or malformed file
-    is skipped, never an exception) — and the whole read is best-effort: the caller's worst case is a repeat
-    page, never a missed one. Pure file read — no DB, no network, nothing written."""
-    for doc in list_run_logs(base_dir=base_dir):
-        if (
-            doc.get("mode") != "live"
-            or not doc.get("tape_evaluated", False)
-            or not is_finished(doc)
-            or not is_full_roster(doc)  # M2 — a partial catch-up is never a baseline
-        ):
-            continue
+    Fail-open PER ARTIFACT like its siblings (an unreadable or malformed file is skipped, never an
+    exception) — and the whole read is best-effort: a thesis no readable pass covered contributes nothing,
+    so the caller's worst case is a repeat page, never a missed one. Pure file read — no DB, no network,
+    nothing written."""
+    inv = carried_inventory(list_run_logs(base_dir=base_dir), evaluated_key="tape_evaluated")
+    if inv is not None:
         out: set[str] = set()
-        for t in doc.get("theses") or []:
-            if not isinstance(t, dict):
-                continue
+        for t in inv.entries():
             for s in t.get("tape_stale") or []:
                 # T1 — a CLOSED row (`closed_at` set) is NOT in the baseline: it never paged, so the
                 # operator was never told about it as a feed gap. The current side of the diff excludes
@@ -730,29 +852,23 @@ def previous_stale_tapes(*, base_dir: Path | None = None) -> set[str] | None:
 
 
 def previous_name_errors(*, base_dir: Path | None = None) -> set[str] | None:
-    """The ``"<security_id>:<leg>"`` keys of every name that ERRORED on the most recent pass that EVALUATED
-    name errors — the baseline the current pass diffs against so only NEWLY failing names page (O1), the
-    exact twin of ``previous_stale_tapes`` above.
+    """The ``"<security_id>:<leg>"`` keys of every name that ERRORED in the last-known inventory of every
+    thesis — the baseline the current pass diffs against so only NEWLY failing names page (O1), the exact
+    twin of ``previous_stale_tapes`` above and read through the SAME per-thesis carry-forward
+    (``carried_inventory``): each thesis's entry from the newest finished, live, name-error-evaluated pass
+    that COVERED it, so a ``--catch-up`` that skipped theses (M2) counts for the theses it did cover.
 
     ``None`` (distinct from an empty set) = no evaluated artifact yet — the first pass after O1 deploys. The
     caller treats that as "everything currently failing is news", so the known inventory pages ONCE instead
     of the first night being silent. ``mode == "live"`` AND ``name_errors_evaluated`` are both required: a
     ``--no-live`` pass's errors are cache misses, not tonight's feed, and an artifact written before O1
     carries no per-name rows — read as "nothing errored", it would re-page every known-dead name as new.
-    Newest-first, first match wins; fail-open per artifact (a malformed row is skipped). Pure file read.
+    Fail-open per artifact (a malformed row is skipped). Pure file read.
     """
-    for doc in list_run_logs(base_dir=base_dir):
-        if (
-            doc.get("mode") != "live"
-            or not doc.get("name_errors_evaluated", False)
-            or not is_finished(doc)
-            or not is_full_roster(doc)  # M2 — a partial catch-up is never a baseline
-        ):
-            continue
+    inv = carried_inventory(list_run_logs(base_dir=base_dir), evaluated_key="name_errors_evaluated")
+    if inv is not None:
         out: set[str] = set()
-        for t in doc.get("theses") or []:
-            if not isinstance(t, dict):
-                continue
+        for t in inv.entries():
             for e in t.get("name_errors") or []:
                 if isinstance(e, dict) and e.get("security_id") and e.get("leg"):
                     out.add(f"{e['security_id']}:{e['leg']}")
@@ -768,8 +884,10 @@ def previous_split_defects(*, base_dir: Path | None = None) -> set[str] | None:
     FAILED carries no inventory — read as "nothing was flagged" it would re-page every known defect) and
     FINISHED (M1 — a killed pass's start artifact is never a baseline).
 
-    A PARTIAL ``--catch-up`` (M2 — it skipped the theses whose on-time row stood) IS a baseline here, unlike
-    for the two twins, because its split inventory is COMPLETE: the scan reads the whole active basket union
+    A PARTIAL ``--catch-up`` (M2 — it skipped the theses whose on-time row stood) IS a baseline here IN
+    WHOLE — the two twins count it only for the theses it covered, because their inventories are per thesis
+    (the per-thesis carry-forward, ``carried_inventory``) — because its split inventory is COMPLETE: the
+    scan reads the whole active basket union
     from the table (``scan_split_defects``), never the processed theses' names, so a skipped thesis's names
     are in it. Excluding it (the T4 rule until 2026-10-17) re-paged a defect the catch-up had already paged
     — the next full pass diffed against the pass BEFORE the catch-up — and, the other way, kept a defect the

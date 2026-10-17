@@ -276,6 +276,88 @@ def test_a_FAILED_scan_shows_its_error_on_the_panel(client, db):
     assert p["successor_evaluated"] is False and p["successor"] == []
 
 
+def test_across_a_skipped_thesis_CATCH_UP_the_panel_lists_EXACTLY_the_pages_baseline(client, db):
+    """The panel reads the SAME per-thesis carry-forward as the page (``successor_cik``'s baseline). After
+    every pass of the real sequence — a full pass (REAX pages), a catch-up that SKIPS The Everything
+    Exchange and ingests Nuclear Buildout with UROY newly in it (UROY pages), the next full pass (nothing
+    pages) — the panel's rows are exactly the names the next pass treats as already told, it reads as of
+    the newest pass, and the night's run row names exactly what paged."""
+    from pipeline.successor_cik import previous_successor_keys
+
+    ids = {t: fx.insert_security(db, t) for t in ("UROY", "REAX", "HLLK", "UCLE")}
+    nb, ee = uuid.uuid4(), uuid.uuid4()
+
+    def thesis(tid, name, *tickers):
+        if not tickers:  # the catch-up SKIPPED it (its on-time row stood): nothing ingested
+            return ThesisRunResult(thesis_id=tid, name=name, skipped="on-time row stood")
+        return ThesisRunResult(
+            thesis_id=tid,
+            name=name,
+            recorded=False,
+            ingested=[fx.name_result(t, ids[t]) for t in tickers],
+        )
+
+    def run(results, *, asof: date, at: datetime, catch_up: bool = False) -> list[str]:
+        scan = run_successor_scan(
+            results=results,
+            allow_live=True,
+            connect=connect,
+            previous=previous_successor_keys,  # the conftest-redirected run home
+            clock=time.perf_counter,
+            live_client=fx.FixtureEdgar(fx.network_docs("UROY", "REAX")),
+            cache_client=fx.FixtureEdgar(fx.cache_docs("UROY", "REAX", "HLLK", "UCLE")),
+        )
+        write_cron_run_log(
+            results,
+            asof=asof,
+            allow_live=True,
+            started_at=at,
+            finished_at=at + timedelta(minutes=5),
+            catch_up=catch_up,
+            successor=scan,
+        )
+        p = _panel(client)
+        told = {k.split(":")[0] for k in previous_successor_keys()}
+        assert {r["security_id"] for r in p["successor"]} == told
+        assert p["successor_asof"] == asof.isoformat()
+        problems = client.get("/admin/runs?limit=1").json()["runs"][0]["problems"]
+        paged = [line for line in problems if "now file under a NEW CIK" in line]
+        if scan.new:
+            head = (
+                f"{len(scan.new)} name(s) now file under a NEW CIK: {', '.join(scan.new_labels)} —"
+            )
+            assert len(paged) == 1 and paged[0].startswith(head)
+        else:
+            assert paged == []
+        return sorted(r["ticker"] for r in p["successor"])
+
+    first = run(
+        [thesis(nb, "Nuclear Buildout", "UCLE"), thesis(ee, "The Everything Exchange", "REAX")],
+        asof=date(2026, 10, 14),
+        at=datetime(2026, 10, 15, 2, 30, tzinfo=timezone.utc),
+    )
+    assert first == ["REAX"]
+    caught = run(
+        [thesis(nb, "Nuclear Buildout", "UROY", "UCLE"), thesis(ee, "The Everything Exchange")],
+        asof=date(2026, 10, 15),
+        at=datetime(2026, 10, 16, 13, 0, tzinfo=timezone.utc),
+        catch_up=True,
+    )
+    assert caught == [
+        "REAX",
+        "UROY",
+    ]  # REAX carried for the skipped thesis; UROY found by the catch-up
+    nxt = run(
+        [
+            thesis(nb, "Nuclear Buildout", "UROY", "UCLE"),
+            thesis(ee, "The Everything Exchange", "REAX", "HLLK"),
+        ],
+        asof=date(2026, 10, 16),
+        at=datetime(2026, 10, 17, 2, 30, tzinfo=timezone.utc),
+    )
+    assert nxt == ["REAX", "UROY"]
+
+
 def test_the_status_read_still_WRITES_NOTHING_with_the_successor_block(client, db):
     ids = _night(db)
     client.post(

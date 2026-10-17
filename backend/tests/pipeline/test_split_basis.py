@@ -226,9 +226,10 @@ def test_the_split_BASELINE_is_the_newest_live_FINISHED_pass_that_scanned_a_catc
 ):
     """`cron_run_log.previous_split_defects`: every newer artifact below is one the diff must SKIP — a
     failed scan, a --no-live pass, a pre-T4 artifact, and a killed pass's start artifact (M1) — so the
-    baseline stays the older full pass. A catch-up that SKIPPED a thesis (M2) is NOT skipped, unlike for
-    the stale-tape / name-error twins: the scan reads the whole basket union, so its inventory is complete
-    (the re-page that excluding it caused is pinned by the catch-up sequence tests at the end of this file).
+    baseline stays the older full pass. A catch-up that SKIPPED a thesis (M2) is NOT skipped — it is the
+    baseline in WHOLE (the stale-tape / name-error twins count it only for the theses it covered, the
+    per-thesis carry-forward): the scan reads the whole basket union, so its inventory is complete (the
+    re-page that excluding it caused is pinned by the catch-up sequence tests at the end of this file).
     """
     a, b, c = _defect(), _defect("MPU", FLAP), _defect("BTOC", CLIFF)
     t0 = datetime(2026, 10, 13, 2, 30, tzinfo=timezone.utc)

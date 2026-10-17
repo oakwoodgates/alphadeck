@@ -333,9 +333,10 @@ per-thesis; **archived theses are skipped by the list's default**, the archive s
   with no on-time row (none at all, a daytime-only row, a reconstructed row, or a LATE row) is processed as
   before. A killed night's catch-up therefore records ONLY the missing theses. A skipped thesis counts as
   "the night has its record" everywhere that asks (the exit code, the guard, the self-audit), and a pass that
-  skipped any thesis is never a stale-tape / name-error baseline (its inventory lacks those theses). It IS
-  the split-basis baseline: that scan reads the whole basket union, skipped theses' names included (T4
-  follow-up, 2026-10-17 — see the tape monitor, part 2). The
+  skipped any thesis counts toward the stale-tape / name-error baselines only for the theses it COVERED (a
+  skipped one keeps its entries from the last pass that covered it — the per-thesis carry-forward, G5a
+  below). It IS the split-basis baseline IN WHOLE: that scan reads the whole basket union, skipped theses'
+  names included (T4 follow-up, 2026-10-17 — see the tape monitor, part 2). The
   scheduled run and the Admin button never skip: they re-version on purpose. If the skip read itself fails,
   the catch-up processes every thesis (one loud line) — the pre-M2 behavior, never a silent gap.
 - **A LATE row is recorded, never scored (L1, operator Q5 = A, 2026-10-16).** M2 stops a catch-up from
@@ -393,6 +394,30 @@ per-thesis; **archived theses are skipped by the list's default**, the archive s
   substance compare and break the cron's idempotency. And it is NOT a cron alarm: the run worked, the FEED has
   a gap, so the Admin verdict stays `healthy` while the panel lists it (`ADMIN.md` §stale price tapes). The
   repair is the operator's and is data, not code (`DATA_SOURCES.md` §when the symbol drifts).
+- **The stale-tape and name-error baselines carry each THESIS forward (2026-10-17)** `[BUILT]`. Both
+  inventories are per thesis (each entry belongs to a thesis the pass ingested), and an M2 `--catch-up`
+  covers only the theses whose on-time row was missing. The two baselines used to read only FULL-roster
+  passes, so a catch-up was invisible to the next pass — MEASURED with contract inputs: a name a catch-up
+  FIRST flagged paged there and again at the next full pass (which diffed against the pass before the
+  catch-up), and a name the catch-up saw CLEAR stayed "already told", so its return never paged. Now the
+  baseline is, for each thesis on the newest qualifying pass's roster, its entry from the newest finished,
+  live, evaluated pass that COVERED it, full or partial; a thesis a catch-up skipped keeps its entry from the
+  last pass that did cover it (`cron_run_log.carried_inventory`, read by `previous_stale_tapes` and
+  `previous_name_errors`). Coverage comes from the artifact alone: a thesis is covered unless its entry
+  carries an M2 `skipped` reason, and an artifact written before M2 covers exactly the theses it lists. The
+  look-back ends at the newest full-roster pass (it covered every thesis then active), and a thesis no longer
+  on the roster (archived) takes its entries with it. So a name first flagged by a catch-up pages ONCE, a
+  name cleared in a catch-up and later back pages again (a genuine return), and a name in a skipped thesis
+  never re-pages. Fail loud: no qualifying pass at all pages the whole inventory once (as before), and a
+  thesis no readable pass covered contributes nothing, so its names read as news. The Admin freshness panel
+  and the Price feed repairs card read the SAME carried inventory, so what they list is exactly what the next
+  pass treats as already told, and the panel's `newly_stale` is what the newest such pass paged (`ADMIN.md`).
+  **Known limit (accepted):** the artifact records a thesis's flagged names, not its members, so a name held
+  by a thesis the catch-up skipped AND by one it covered and saw clear stays in the skipped thesis's carried
+  entry — if it comes back by the next pass, that return does not page; the full pass after reads both
+  theses fresh. The T7 successor-CIK baseline follows this same rule (§the identity monitor). The split-basis
+  baseline keeps its own rule (part 2): its scan reads the whole basket union
+  rather than the ingested theses' names.
 - **Per-thesis isolation.** Each thesis's ingest and call each run in their own try; one thesis's failure is
   captured into its `ThesisRunResult` and skipped — **never fatal** to the run (the cron finishes the rest).
 - **No-lookahead.** `asof = today`, `known_at = now` (`PointInTimeData` defaults `None → now`); never backdated.
@@ -436,8 +461,9 @@ identical fact versions (the bitemporal read dedups them; the table grows), unch
 the **run identity** (`code_sha`, `config_hash`, `run_kind`) and a **non-secret env fingerprint** (`TZ`, the
 market zone, `RUN_AT` / `cron_at` as values; the User-Agent, Slack webhook, Polygon key and heartbeat URL as
 **set/unset booleans only**; the notifier class) — the Admin page alarms on an unknown or mismatched sha, the
-LOG notifier and an unset UA; **per-name ingest errors** by leg (`name_errors`), diffed against the previous
-live pass so only NEWLY failing (security, leg) pairs print loud and page, the known ones collapsing to one
+LOG notifier and an unset UA; **per-name ingest errors** by leg (`name_errors`), diffed against the last-known
+inventory (each thesis as the newest live pass that covered it saw it — the per-thesis carry-forward, G5a
+above) so only NEWLY failing (security, leg) pairs print loud and page, the known ones collapsing to one
 quiet count; and the **self-audit** (`audit`, `pipeline/self_audit.py`), whose failures page. Every
 connection the pass opens sets a session **`statement_timeout`** (`ALPHADECK_CRON_STATEMENT_TIMEOUT_S`,
 default 300 s — sized ~2,000x the slowest measured single read, 151 ms; 0 disables), so a lock wait or a
@@ -511,8 +537,10 @@ newest dates per row) / `split_defects_new`; the printed report shows NEW defect
 one quiet count; NEW defects page once through the R4 health event (diffed on `kind:security_id` against the
 previous live pass that scanned and FINISHED (M1) — `cron_run_log.previous_split_defects`, so a killed pass
 never becomes the baseline; the first pass after deploy hands the inventory over once). A `--catch-up` that
-SKIPPED theses (M2) **is** a baseline here, unlike for `tape_stale_new` and the name errors: the scan reads
-the whole active basket union from the table, so a skipped thesis's names are in its inventory. Excluding it
+SKIPPED theses (M2) **is** a baseline here IN WHOLE — `tape_stale_new` and the name errors count it only
+for the theses it covered, since their inventories are per thesis (the per-thesis carry-forward, above) —
+because the scan reads the whole active basket union from the table, so a skipped thesis's names are in its
+inventory. Excluding it
 (the original T4 rule) re-paged a defect the catch-up had already paged, because the next full pass diffed
 against the pass before the catch-up — MEASURED on a real DB with VWAV's real tape, 2026-10-17 — and kept a
 defect the catch-up saw cleared in the baseline, so it stayed silent when it came back. Now a defect pages
@@ -629,10 +657,21 @@ map is shown, never adoptable).
   forever-cached copy `securities/sec_tickers` keeps for `populate_master`; prod's was from 2026-07-27, before
   either 8-K12B), only on a night some member lists no tickers, plus ONE submissions fetch per flagged
   candidate (two today). Nothing on `--no-live`.
-- **Visibility:** a row whose key (security + successor CIK) was absent from the previous baseline artifact
-  (live, finished, full-roster, scan evaluated — `successor_cik.is_baseline`) pages ONCE through the R4
-  health event (`successor_cik_new`, benign-class like a stale feed); a known row is one quiet report line and
-  stays on the artifact (`successor_cik` block) and the Admin panel. An Undo makes it news again (pages once).
+- **Visibility:** a row whose key (security + successor CIK) is absent from the carried inventory pages ONCE
+  through the R4 health event (`successor_cik_new`, benign-class like a stale feed); a known row is one quiet
+  report line and stays on the artifact (`successor_cik` block) and the Admin panel. An Undo makes it news
+  again (pages once). **The baseline carries each THESIS forward (2026-10-17)**, the stale-tape / name-error
+  rule (`successor_cik.carried_successors` over `cron_run_log.carried_inventory`): the scan judges only the
+  members a pass ingested, so an M2 `--catch-up` judges none of a skipped thesis's members. Each row names
+  the ingested theses that hold its member (`rows[].theses`), and each thesis on the newest scanned pass's
+  roster contributes the rows attributed to it on the newest scanned pass (live, finished, scan evaluated —
+  `is_scan_pass`) that COVERED it; a skipped thesis keeps its rows from the last pass that covered it. The
+  full-roster-only rule it replaces re-paged a row a catch-up first flagged at the next full pass, and kept a
+  row the catch-up saw clear "already told", so its return never paged (MEASURED with the real scan over the
+  measured UROY / REAX documents; the sequences are pinned in `tests/pipeline/test_successor_cik.py`). A row
+  with no thesis attribution covers no thesis: it counts only when its pass is the newest, and is never
+  carried (a repeat page, never a silent miss) — every T7 artifact records the attribution, and none had yet
+  been written on prod when this shipped (read 2026-10-17). The Admin panel reads the same carried rows.
 - **Fail-open:** any fault returns `evaluated=false` with the `error` (printed loud, shown on Admin); the
   night's record never depends on it.
 

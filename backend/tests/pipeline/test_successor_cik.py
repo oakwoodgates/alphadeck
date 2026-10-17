@@ -8,12 +8,14 @@ read; the master read runs on the real test DB (the scan opens its own read-only
 
 from __future__ import annotations
 
+import json
 import time
 import uuid
+from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 
 from db.session import connect
-from ingest.edgar.submissions import parse_identity
+from ingest.edgar.submissions import edgar_tickers, parse_identity
 from ingest.edgar.succession import (
     TICKER_MAP_CACHE_KEY,
     deregistration_filings,
@@ -23,10 +25,12 @@ from ingest.edgar.succession import (
 from pipeline import cron_run_log
 from pipeline.cron_run_log import write_cron_run_log
 from pipeline.daily import ThesisRunResult, assess_health
+from pipeline.ingest_thesis import NameResult
 from pipeline.successor_cik import (
     SuccessorScan,
+    carried_successors,
     cik10,
-    is_baseline,
+    is_scan_pass,
     keys_of,
     new_labels_of,
     previous_successor_keys,
@@ -368,15 +372,145 @@ def test_the_baseline_rule_and_the_artifact_readers(db, tmp_path):
     assert previous_successor_keys(base_dir=tmp_path) is None  # no artifact: None, not an empty set
     _write(results, scan, at, tmp_path)
     (doc,) = cron_run_log.list_run_logs(base_dir=tmp_path)
-    assert is_baseline(doc)
+    assert is_scan_pass(doc)
     assert keys_of(doc) == {r.key for r in scan.rows}
+    assert previous_successor_keys(base_dir=tmp_path) == {r.key for r in scan.rows}
     assert new_labels_of(doc) == scan.new_labels
     assert doc["successor_cik"]["fetches"] == 3 and doc["successor_cik"]["judged"] == 4
-    # a failed scan, a no-live pass, an unfinished pass, a partial catch-up: never the baseline
-    assert not is_baseline({**doc, "successor_cik": {"evaluated": False, "error": "x"}})
-    assert not is_baseline({**doc, "mode": "no-live"})
-    assert not is_baseline({**doc, "status": "running"})
-    assert not is_baseline(
-        {**doc, "theses": [{**doc["theses"][0], "skipped": "on-time row stands"}]}
+    # a failed scan, a no-live pass, an unfinished pass, a pre-T7 artifact: never a contributor
+    assert not is_scan_pass({**doc, "successor_cik": {"evaluated": False, "error": "x"}})
+    assert not is_scan_pass({**doc, "mode": "no-live"})
+    assert not is_scan_pass({**doc, "status": "running"})
+    assert not is_scan_pass({k: v for k, v in doc.items() if k != "successor_cik"})  # pre-T7
+    # a partial catch-up IS one — but only for the theses it covered (the carry-forward): skipping
+    # Nuclear Buildout leaves its UROY row out of this pass's own contribution
+    nb, *rest = doc["theses"]
+    partial = {**doc, "theses": [{**nb, "skipped": "on-time row stands"}, *rest]}
+    assert is_scan_pass(partial)
+    carried = carried_successors([partial])
+    assert carried is not None and {r["ticker"] for r, _ in carried.rows} == {"REAX"}
+
+
+# --- the page fires ONCE across a skipped-thesis CATCH-UP (the per-thesis carry-forward) ----------------
+#
+# THE REAL SEQUENCES: each pass runs the REAL scan (the real DB master, the measured EDGAR docs) over the
+# roster ``run_daily`` returns — an ingested thesis with its members' NameResults, or a thesis a --catch-up
+# SKIPPED (M2: ``skipped`` set, nothing ingested, so none of its members is judged) — diffs against the REAL
+# baseline reader and writes the pass's artifact through the REAL writer. UROY sits in Nuclear Buildout,
+# REAX in The Everything Exchange (with the negatives UCLE / HLLK beside them).
+
+_ON_TIME = "on-time call-of-record already recorded 2026-10-15 22:41 EDT"
+_T0 = datetime(2026, 10, 15, 2, 30, tzinfo=timezone.utc)
+_NB, _EE = uuid.uuid4(), uuid.uuid4()
+
+
+def _adopted(ids) -> NameResult:
+    """UROY after the operator's Adopt: the stored CIK is now the successor, so tonight's ingest reads ITS
+    submissions — which list UROY (the measured successor doc). Condition (a) fails: not flagged."""
+    return replace(
+        fx.name_result("UROY", ids["UROY"]),
+        edgar_tickers=edgar_tickers(fx.successor_doc("UROY")),
     )
-    assert not is_baseline({k: v for k, v in doc.items() if k != "successor_cik"})  # pre-T7
+
+
+def _roster_pass(tmp_path, hour: int, roster) -> SuccessorScan:
+    """One pass: ``roster`` = [(thesis_id, name, [NameResult] | None)] — ``None`` = the catch-up SKIPPED it.
+    Runs the scan against the real baseline reader, then writes the artifact (the next pass's baseline).
+    """
+    results = [
+        (
+            ThesisRunResult(thesis_id=tid, name=name, skipped=_ON_TIME)
+            if names is None
+            else ThesisRunResult(thesis_id=tid, name=name, recorded=False, ingested=list(names))
+        )
+        for tid, name, names in roster
+    ]
+    scan = _scan(results, previous=lambda: previous_successor_keys(base_dir=tmp_path))
+    _write(results, scan, _T0 + timedelta(hours=hour), tmp_path)
+    return scan
+
+
+def _new(scan: SuccessorScan) -> list[str]:
+    return [r.ticker for r in scan.new]
+
+
+def _nb(ids, *names):
+    return (_NB, "Nuclear Buildout", [fx.name_result(t, ids[t]) for t in names])
+
+
+def _ee(ids, *names):
+    return (_EE, "The Everything Exchange", [fx.name_result(t, ids[t]) for t in names])
+
+
+_NB_SKIPPED = (_NB, "Nuclear Buildout", None)
+_EE_SKIPPED = (_EE, "The Everything Exchange", None)
+
+
+def test_1_a_successor_FIRST_flagged_by_a_catch_up_pages_ONCE_not_again_at_the_next_full_pass(
+    db, tmp_path
+):
+    """Full pass (UROY not yet in Nuclear Buildout; REAX pages) -> a catch-up that skips The Everything
+    Exchange and ingests Nuclear Buildout, UROY now in it -> the next full pass. UROY pages once, at the
+    catch-up."""
+    ids = _seed(db)
+    assert _new(_roster_pass(tmp_path, 0, [_nb(ids, "UCLE"), _ee(ids, "REAX", "HLLK")])) == ["REAX"]
+    catch_up = _roster_pass(tmp_path, 10, [_nb(ids, "UROY", "UCLE"), _EE_SKIPPED])
+    assert _new(catch_up) == ["UROY"]
+    nxt = _roster_pass(tmp_path, 20, [_nb(ids, "UROY", "UCLE"), _ee(ids, "REAX", "HLLK")])
+    assert _new(nxt) == [] and len(nxt.rows) == 2  # known, both — UROY NOT paged again
+
+
+def test_2_a_successor_CLEARED_in_a_catch_up_and_then_BACK_pages_again(db, tmp_path):
+    """Full pass flags UROY and REAX -> UROY is ADOPTED, and a catch-up that covers Nuclear Buildout sees it
+    clear (EE skipped) -> the Adopt is UNDONE and the next full pass flags UROY again. A genuine
+    clear-and-return: UROY pages again."""
+    ids = _seed(db)
+    full = [_nb(ids, "UROY", "UCLE"), _ee(ids, "REAX", "HLLK")]
+    assert _new(_roster_pass(tmp_path, 0, full)) == ["REAX", "UROY"]
+    adopted = (_NB, "Nuclear Buildout", [_adopted(ids), fx.name_result("UCLE", ids["UCLE"])])
+    catch_up = _roster_pass(tmp_path, 10, [adopted, _EE_SKIPPED])
+    assert catch_up.rows == () and _new(catch_up) == []
+    assert _new(_roster_pass(tmp_path, 20, full)) == ["UROY"]  # back -> news again
+
+
+def test_3_a_successor_in_a_thesis_the_catch_up_SKIPPED_does_not_re_page(db, tmp_path):
+    """Full pass flags UROY and REAX -> a catch-up that SKIPS Nuclear Buildout (UROY not judged) -> the next
+    full pass flags both. Nuclear Buildout keeps its rows from the last pass that covered it: nothing
+    re-pages."""
+    ids = _seed(db)
+    full = [_nb(ids, "UROY", "UCLE"), _ee(ids, "REAX", "HLLK")]
+    assert _new(_roster_pass(tmp_path, 0, full)) == ["REAX", "UROY"]
+    catch_up = _roster_pass(tmp_path, 10, [_NB_SKIPPED, _ee(ids, "REAX", "HLLK")])
+    assert _new(catch_up) == [] and [r.ticker for r in catch_up.rows] == ["REAX"]
+    assert _new(_roster_pass(tmp_path, 20, full)) == []
+
+
+def _strip_row_theses(tmp_path) -> None:
+    """Rewrite the newest artifact as a writer that kept no per-row thesis attribution would have left it
+    (``successor_cik.rows[].theses`` absent) — no coverage claim for any row."""
+    path = sorted(tmp_path.glob("*.json"))[-1]
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    for r in doc["successor_cik"]["rows"]:
+        r.pop("theses", None)
+    path.write_text(json.dumps(doc), encoding="utf-8")
+
+
+def test_4_an_artifact_WITHOUT_row_attribution_is_the_baseline_only_as_the_NEWEST_pass(
+    db, tmp_path
+):
+    """Old artifacts read as covering only what they list. A row that lists no thesis covers no thesis: as
+    the NEWEST pass the artifact is the whole baseline (today's reading), but it cannot be CARRIED for a
+    thesis a later catch-up skipped — so that thesis's flag pages again (loud, never a silent miss).
+    """
+    ids = _seed(db)
+    full = [_nb(ids, "UROY", "UCLE"), _ee(ids, "REAX", "HLLK")]
+    assert _new(_roster_pass(tmp_path, 0, full)) == ["REAX", "UROY"]
+    _strip_row_theses(tmp_path)
+    assert previous_successor_keys(base_dir=tmp_path) == {
+        f"{ids['REAX']}:0002136387",
+        f"{ids['UROY']}:0002143673",
+    }  # the newest pass: every row, attributed or not
+    catch_up = _roster_pass(tmp_path, 10, [_NB_SKIPPED, _ee(ids, "REAX", "HLLK")])
+    assert _new(catch_up) == []
+    # UROY's only covering pass recorded no attribution for it -> nothing carried -> news again (loud)
+    assert _new(_roster_pass(tmp_path, 20, full)) == ["UROY"]

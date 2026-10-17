@@ -96,7 +96,7 @@ def _night(db, *, probe_error: str | None = None):
             fetches=1,
         ),
     )
-    return {"hllk": hllk, "wondf": wondf, "gtls": gtls, "md": md, "ee": ee}
+    return {"hllk": hllk, "wondf": wondf, "gtls": gtls, "md": md, "ee": ee, "nb": nb}
 
 
 def _panel(client) -> dict:
@@ -319,6 +319,45 @@ def test_a_failed_probe_shows_its_error_and_the_renamed_row_stays_listed(client,
     assert p["probe_error"] == "OperationalError: server closed the connection"
     (r,) = p["renamed"]
     assert r["security_id"] == str(ids["hllk"]) and r["probed"] is False and r["candidates"] == []
+
+
+def test_a_renamed_row_CARRIED_across_a_catch_up_keeps_its_probe_and_stays_adoptable(client, db):
+    """The panel reads the per-thesis carry-forward (``inventory_doc``): a later catch-up that SKIPPED
+    Modern Defense (HLLK's thesis — its on-time row stood) probed nothing for HLLK, so HLLK's row is
+    carried from the full night together with the probe of the pass that saw it — still recommended,
+    still adoptable — while the panel reads as of the catch-up. Nuclear Buildout was skipped too (GTLS stays
+    closed, carried); The Everything Exchange was covered and found nothing stale, so WONDF leaves.
+    """
+    ids = _night(db)
+    at = datetime(2026, 10, 18, 13, 0, tzinfo=timezone.utc)
+    write_cron_run_log(
+        [
+            ThesisRunResult(
+                thesis_id=ids["md"], name="Modern Defense", skipped="on-time row stood"
+            ),
+            ThesisRunResult(thesis_id=ids["ee"], name="The Everything Exchange", recorded=False),
+            ThesisRunResult(
+                thesis_id=ids["nb"], name="Nuclear Buildout", skipped="on-time row stood"
+            ),
+        ],
+        asof=date(2026, 10, 17),
+        allow_live=True,
+        started_at=at,
+        finished_at=at + timedelta(minutes=5),
+        catch_up=True,
+        tape_evaluated=True,
+        tape_stale_days=5,
+        rename_probe=RenameProbe(evaluated=True, rows=(), fetches=0),
+    )
+
+    p = _panel(client)
+
+    assert p["asof"] == "2026-10-17"  # as of the catch-up
+    (r,) = p["renamed"]
+    assert r["ticker"] == "HLLK" and r["probed"] is True and r["recommended"] == "SDCO"
+    assert p["unpriceable"] == [] and [c["ticker"] for c in p["closed"]] == ["GTLS"]
+    r = client.post(f"/admin/price-feed/{ids['hllk']}/adopt", json={"symbol": "SDCO"})
+    assert r.status_code == 200, r.text
 
 
 def test_the_status_read_still_WRITES_NOTHING_with_the_panel(client, db):
