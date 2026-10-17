@@ -816,6 +816,11 @@ The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
   back to UTC). **Never the container's default UTC.** *(The BACKEND container's `TZ` is pinned to match, #202,
   so a manual `docker exec … pipeline.daily` agrees on "today" — a container-scoped stopgap; the durable fix,
   a shared trading-day helper, is an open item — see `INVARIANTS.md`.)*
+- **RUN_AT stays 22:30 ET, with an accepted residual (Q19, operator decision 2026-10-17).** About 3% of
+  basket members' bars for the night are still missing from the vendor at 22:30. The pass was NOT moved to a
+  pre-dawn run for the prior night; that residual is **accepted**: that night's call-of-record is scored on a
+  slightly incomplete tape, and the next pass's incremental tail append picks the late bars up. It is a known
+  property of the record, not a fault to page on.
 - **Catch-up on boot (R6, #200 — widened to the LAST EXPECTED night, 2026-09-10).** On boot the sidecar
   fires **one** `python -m pipeline.daily --catch-up --asof <last_expected_asof(now)>` — the most recent
   as-of whose scheduled run should *already* have fired (today once `RUN_AT` has passed on a weekday, else
