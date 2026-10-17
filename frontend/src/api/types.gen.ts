@@ -1089,7 +1089,10 @@ export interface paths {
          *     another process in between fails VISIBLY on the poll ("already running"), never runs alongside it.
          *     **503** when the database cannot be reached to check. Safe to re-click once finished: the pass is
          *     idempotent (``record_if_changed`` appends nothing on unchanged facts). The job opens its OWN DB
-         *     connection (it outlives this request).
+         *     connection (it outlives this request). **Bounded like the sidecar's pass:** it runs in a child process
+         *     for at most the run timeout (``ALPHADECK_CRON_RUN_TIMEOUT_S``, default 5400 s — the one value the
+         *     sidecar's ``RUN_TIMEOUT_S`` uses); past it the process is stopped, the run lock is released with it,
+         *     its run artifact is marked ``crashed`` and the poll fails with the timeout.
          */
         post: operations["start_run_daily_admin_run_daily_post"];
         delete?: never;
@@ -2503,8 +2506,9 @@ export interface components {
          *     M1: ``last_run`` is the newest FINISHED pass (a pre-M1 artifact counts as finished); when the newest
          *     artifact is a pass that has not finished, ``unfinished_run`` describes it (``null`` otherwise).
          *
-         *     ``split_defects`` (T4) is the split-basis panel — ``null`` until a finished, full-roster pass has
-         *     scanned; a defect is a FEED problem (flag only), so it never changes ``cron.status``.
+         *     ``split_defects`` (T4) is the split-basis panel — ``null`` until a finished live pass has scanned (a
+         *     partial catch-up counts: the scan reads the whole basket union); a defect is a FEED problem (flag
+         *     only), so it never changes ``cron.status``.
          *
          *     ``price_repairs`` (T2 + Q8 + T3 + T7) is the "Price feed repairs" panel — renamed names with their
          *     splice-verified successors to Adopt, unpriceable names to Set / Acknowledge / Remove, members whose

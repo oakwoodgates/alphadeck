@@ -333,7 +333,9 @@ per-thesis; **archived theses are skipped by the list's default**, the archive s
   with no on-time row (none at all, a daytime-only row, a reconstructed row, or a LATE row) is processed as
   before. A killed night's catch-up therefore records ONLY the missing theses. A skipped thesis counts as
   "the night has its record" everywhere that asks (the exit code, the guard, the self-audit), and a pass that
-  skipped any thesis is never a stale-tape / name-error baseline (its inventory lacks those theses). The
+  skipped any thesis is never a stale-tape / name-error baseline (its inventory lacks those theses). It IS
+  the split-basis baseline: that scan reads the whole basket union, skipped theses' names included (T4
+  follow-up, 2026-10-17 — see the tape monitor, part 2). The
   scheduled run and the Admin button never skip: they re-version on purpose. If the skip read itself fails,
   the catch-up processes every thesis (one loud line) — the pre-M2 behavior, never a silent gap.
 - **A LATE row is recorded, never scored (L1, operator Q5 = A, 2026-10-16).** M2 stops a catch-up from
@@ -507,10 +509,15 @@ read as genuine volume-spike moves on today's tape (JAGX 09-22 on x383 volume, W
 `split_window_days` / `split_defects` (`[{security_id, ticker, kind, dates, factor, events}]`, at most the 12
 newest dates per row) / `split_defects_new`; the printed report shows NEW defects loud and the known ones as
 one quiet count; NEW defects page once through the R4 health event (diffed on `kind:security_id` against the
-previous live pass that scanned, FINISHED (M1) and was FULL-ROSTER (M2) — `cron_run_log.previous_split_defects`,
-the same baseline rule as `tape_stale_new` and the name errors, so neither a killed pass nor a catch-up that
-skipped theses can make the next night re-page the inventory; the first pass after deploy hands it over
-once); `/admin/status` carries the panel (`split_defects`, `ADMIN.md`); and the V1 self-audit's
+previous live pass that scanned and FINISHED (M1) — `cron_run_log.previous_split_defects`, so a killed pass
+never becomes the baseline; the first pass after deploy hands the inventory over once). A `--catch-up` that
+SKIPPED theses (M2) **is** a baseline here, unlike for `tape_stale_new` and the name errors: the scan reads
+the whole active basket union from the table, so a skipped thesis's names are in its inventory. Excluding it
+(the original T4 rule) re-paged a defect the catch-up had already paged, because the next full pass diffed
+against the pass before the catch-up — MEASURED on a real DB with VWAV's real tape, 2026-10-17 — and kept a
+defect the catch-up saw cleared in the baseline, so it stayed silent when it came back. Now a defect pages
+once, and again only after a pass genuinely found it gone. `/admin/status` carries the panel
+(`split_defects`, `ADMIN.md`, read from that same pass); and the V1 self-audit's
 `split_defects_flagged` check passes with defects present and fails only when the scan could not run (there
 is no "acknowledged" state, and failing on a standing, already-flagged defect would page every night). It is
 **benign-class** — a vendor tape defect, so the Admin verdict stays about the cron. It is a **MONITOR**:
@@ -801,6 +808,11 @@ The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
   `TIMED OUT`), one more non-zero exit, so it takes the same retry → page path as any failure. The default
   is ~1.4× the worst measured cold pass (~65 min; a normal night is 7–15 min), so a night that onboards many
   cold names at once can still exceed it; the retry then resumes ahead, since the ingest is incremental.
+  **The Admin "Run daily now" pass is bounded by the same value (2026-10-17)** `[BUILT]`: it runs in a
+  child process of the backend (`pipeline/bounded_pass.py`) for at most `Settings.cron_run_timeout_s` (the
+  backend's mirror of `RUN_TIMEOUT_S`, one host var), is stopped the same way past it, and — since the
+  backend outlives the child — its start artifact is re-marked `crashed` with the reason and one crash page
+  goes out. The run lock goes with the child's Postgres session (`ADMIN.md` §Run daily now).
 - **A night that failed for good pages from the shell, with no DB (H3, 2026-10-16)** `[BUILT]`. R4 pages
   from *inside* a finished pass, so a pass that died or never connected had no voice. MEASURED: the 10-12
   run killed at 22:42 (a WSL auto-update) and the 10-01 boot catch-up lost to the cold-start race both paged
@@ -1143,12 +1155,21 @@ Recorded here where a builder of the pager/scheduler will hit them; the full acc
   rule, so an ungated monitor would report every equity in every basket. One rule, one dedup, two
   thresholds; the prose for each feed lives once in `domain/feed_kinds.py`.
   **A stopped price tape is classified closed, renamed, or a feed gap** (G5b, tightened by T1 2026-10-16;
-  `pipeline/tape_health.classify_stop`, derive-on-read from the submissions the Form 4 leg already cached —
-  zero extra fetches, nothing persisted):
+  `pipeline/tape_health.classify_stop`, derive-on-read from the submissions the Form 4 leg already cached,
+  plus — for a stale name only — the Form 25 documents in its window; nothing persisted):
   - **closed** (quiet, never pages) only when a SEC delisting form (25 / 25-NSE / 15-12B / 15-12G) was
     filed within `[last bar − tape_closed_before_days, last bar + tape_closed_after_days]` (defaults 30 / 45)
     and on or before the as-of, **and** EDGAR lists no different ticker for the company. `closed_at` is the
-    filing nearest the last bar. A never-priced name has no last bar, so it can never be closed this way.
+    filing nearest the last bar that counts. A never-priced name has no last bar, so it can never be closed
+    this way. **A Form 25 / 25-NSE counts only if it removed THIS security** (Q6, 2026-10-17): its primary
+    document names the class removed, and one naming another class — warrants, units, rights, notes,
+    preferred — is passed over for the next-nearest form. Read by `ingest/edgar/form25.py` (deterministic
+    text: the 25-NSE's `<descriptionClassSecurity>`, or the issuer template's "(Description of class of
+    securities)" line; the LEADING class decides, since every warrant description names the common it
+    converts into) through the night's EDGAR client, only for a name already judged stale, nearest-first
+    and only until a form counts. `forms/*` caches forever, so that is one fetch per Form 25 the first night
+    a name goes stale and a disk read after. An **unknown** class (a paper filing, a failed fetch, an
+    unrecognized description) still counts, exactly as before Q6, and prints one `warn:` line saying so.
   - **renamed** — a loud repair row marked "renamed — EDGAR lists X": EDGAR's current `tickers` holds
     neither the master `ticker` nor `price_symbol` (membership, never `tickers[0]`). Display only; nothing
     adopts the symbol.
@@ -1163,18 +1184,23 @@ Recorded here where a builder of the pager/scheduler will hit them; the full acc
   the night its tape stopped. Under the proximity rule the 8 genuine closes stay closed (nearest form within
   [−7, +13] days of the last bar), VRME / HLLK / BRR / BTAI become renamed repair rows, and **7** of the 192
   would still read closed if their tape stopped tonight, each on a 25-NSE filed in the last 30 days (ACHR,
-  ARBE, BKKT, IONQ, KTTA, PDYN, VSTD). All 7 still trade, so those 25-NSEs presumably removed some other
-  class (not verified — the forms were not opened); checking WHICH class a Form 25 removed is the unbuilt
-  Q6, and it is what would close this residual. A name reclassified closed → repair is news: the
-  newly-stale diff leaves closed rows out of its baseline, so it pages **once**.
+  ARBE, BKKT, IONQ, KTTA, PDYN, VSTD). **Q6 opened those forms** (MEASURED 2026-10-17, each window Form 25
+  fetched through `EdgarClient`): ACHR, ARBE, BKKT, IONQ, KTTA and PDYN each removed **warrants**, so none
+  of them reads closed any more; VSTD's removed its **Class A Common Stock** (a Nasdaq 12d2-2(b) strike),
+  so if its tape stops it still reads closed — correctly. The 8 genuine closes stay closed (every one's
+  Form 25 reads "Common Stock" / "Class A common stock"); one `closed_at` moves — XOMA's nearest form, the
+  2026-07-16 25-NSE, removed its **preferred** depositary shares, so its close now dates from the 2026-07-27
+  15-12G. On a 316-document set of real Form 25s the reader called 228 another class, 81 the common/ADS and
+  7 unknown (all paper filings). A name reclassified closed → repair is news: the newly-stale diff leaves
+  closed rows out of its baseline, so it pages **once**.
   **Still open by design:** the repair is the
   operator's (set the vendor symbol override for a tape; check fund/ticker/source for a sleeve), because an
   automatic rename-follower could file another company's tape under a member — worse than a visible gap
   (#4/#6). **Ratifiable since T2/Q8/T3 (2026-10-17):** a renamed name carries a nightly splice-verified
   successor to Adopt, an unpriceable one can be Set / Acknowledged / removed, and a closed or acknowledged
-  name's vendor 404 is expected — see "The tape monitor, part 3" above. Still unbuilt: Q6 (which security
-  class a Form 25 removed); the existing `--adopt` CLI and the finalize self-heal still write `price_symbol`
-  without a `price_symbol_change` row (an Admin Undo refuses rather than clobber what they wrote).
+  name's vendor 404 is expected — see "The tape monitor, part 3" above. Still unbuilt: the existing
+  `--adopt` CLI and the finalize self-heal still write `price_symbol` without a `price_symbol_change` row (an
+  Admin Undo refuses rather than clobber what they wrote).
 
 ## The count-the-table idempotency discipline (the load-bearing test pattern)
 

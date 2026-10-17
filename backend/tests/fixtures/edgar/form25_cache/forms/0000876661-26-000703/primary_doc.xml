@@ -1,0 +1,34 @@
+<?xml version="1.0"?>
+<notificationOfRemoval>
+
+    <schemaVersion>X0203</schemaVersion>
+
+    <exchange>
+        <cik>0000876661</cik>
+        <entityName>NEW YORK STOCK EXCHANGE LLC</entityName>
+    </exchange>
+
+    <issuer>
+        <cik>0001581091</cik>
+        <entityName>RE/MAX Holdings, Inc.</entityName>
+        <fileNumber>001-36101</fileNumber>
+        <address>
+            <street1>5075 South Syracuse Street</street1>
+            <city>Denver</city>
+            <stateOrCountryCode>CO</stateOrCountryCode>
+            <stateOrCountry>COLORADO</stateOrCountry>
+            <zipCode>80237</zipCode>
+        </address>
+        <telephoneNumber>303-770-5531</telephoneNumber>
+    </issuer>
+
+    <descriptionClassSecurity>Class A common stock</descriptionClassSecurity>
+
+    <ruleProvision>17 CFR 240.12d2-2(a)(3)</ruleProvision>
+
+    <signatureData>
+        <signatureName>Anthony Sozzi</signatureName>
+        <signatureTitle>Analyst, Market Watch</signatureTitle>
+        <signatureDate>2026-08-25</signatureDate>
+    </signatureData>
+</notificationOfRemoval>

@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<notificationOfRemoval>
+
+    <schemaVersion>X0203</schemaVersion>
+
+    <exchange>
+        <cik>0001354457</cik>
+        <entityName>Nasdaq Stock Market LLC</entityName>
+    </exchange>
+
+    <issuer>
+        <cik>0001861841</cik>
+        <entityName>Arbe Robotics Ltd.</entityName>
+        <fileNumber>001-40884</fileNumber>
+        <address>
+            <street1>HaHashmonaim St. 107</street1>
+            <street2></street2>
+            <city>Tel Aviv-Yafo</city>
+            <stateOrCountryCode>L3</stateOrCountryCode>
+            <stateOrCountry>ISRAEL</stateOrCountry>
+            <zipCode>6713321</zipCode>
+        </address>
+        <telephoneNumber>+972-73-7969804, 200</telephoneNumber>
+    </issuer>
+
+    <descriptionClassSecurity>Warrant</descriptionClassSecurity>
+
+    <ruleProvision>17 CFR 240.12d2-2(a)(2)</ruleProvision>
+
+    <signatureData>
+        <signatureName>Katelin Rowe</signatureName>
+        <signatureTitle>CDO Analyst</signatureTitle>
+        <signatureDate>2026-10-06</signatureDate>
+    </signatureData>
+</notificationOfRemoval>

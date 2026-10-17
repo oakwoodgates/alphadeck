@@ -1,0 +1,34 @@
+<?xml version="1.0"?>
+<notificationOfRemoval>
+
+    <schemaVersion>X0203</schemaVersion>
+
+    <exchange>
+        <cik>0000876661</cik>
+        <entityName>NEW YORK STOCK EXCHANGE LLC</entityName>
+    </exchange>
+
+    <issuer>
+        <cik>0000892553</cik>
+        <entityName>CHART INDUSTRIES INC</entityName>
+        <fileNumber>001-11442</fileNumber>
+        <address>
+            <street1>8665 NEW TRAILS DR, SUITE 100</street1>
+            <city>The Woodlands</city>
+            <stateOrCountryCode>TX</stateOrCountryCode>
+            <stateOrCountry>TEXAS</stateOrCountry>
+            <zipCode>77381</zipCode>
+        </address>
+        <telephoneNumber>281-364-8700</telephoneNumber>
+    </issuer>
+
+    <descriptionClassSecurity>Common Stock</descriptionClassSecurity>
+
+    <ruleProvision>17 CFR 240.12d2-2(a)(3)</ruleProvision>
+
+    <signatureData>
+        <signatureName>Anthony Sozzi</signatureName>
+        <signatureTitle>Analyst, Market Watch</signatureTitle>
+        <signatureDate>2026-07-16</signatureDate>
+    </signatureData>
+</notificationOfRemoval>

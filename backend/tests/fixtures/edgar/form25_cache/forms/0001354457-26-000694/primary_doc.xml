@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<notificationOfRemoval>
+
+    <schemaVersion>X0203</schemaVersion>
+
+    <exchange>
+        <cik>0001354457</cik>
+        <entityName>Nasdaq Stock Market LLC</entityName>
+    </exchange>
+
+    <issuer>
+        <cik>0001369568</cik>
+        <entityName>CATALYST PHARMACEUTICALS, INC.</entityName>
+        <fileNumber>001-33057</fileNumber>
+        <address>
+            <street1>355 Alhambra Circle</street1>
+            <street2>Suite 1250</street2>
+            <city>Coral Gables</city>
+            <stateOrCountryCode>FL</stateOrCountryCode>
+            <stateOrCountry>FLORIDA</stateOrCountry>
+            <zipCode>33134</zipCode>
+        </address>
+        <telephoneNumber>+1 305 529-2522</telephoneNumber>
+    </issuer>
+
+    <descriptionClassSecurity>Common Stock</descriptionClassSecurity>
+
+    <ruleProvision>17 CFR 240.12d2-2(a)(3)</ruleProvision>
+
+    <signatureData>
+        <signatureName>Katelin Rowe</signatureName>
+        <signatureTitle>CDO Analyst</signatureTitle>
+        <signatureDate>2026-07-15</signatureDate>
+    </signatureData>
+</notificationOfRemoval>

@@ -58,16 +58,16 @@ from notify import HealthEvent
 from pipeline.backup import BackupInfo, list_backups, run_backup
 from pipeline.backup_job import BackupRunInFlight, start_backup_job
 from pipeline.backup_job import get_job as get_backup_job
+from pipeline.bounded_pass import run_admin_pass
 from pipeline.cron_run_log import (
     RUN_STATUS_CRASHED,
     RUN_STATUS_RUNNING,
-    build_run_payload,
     is_finished,
     is_full_roster,
     list_run_logs,
     run_status,
 )
-from pipeline.daily import ThesisRunResult, assess_health, run_daily_pass
+from pipeline.daily import ThesisRunResult, assess_health
 from pipeline.daily_job import DailyRunInFlight, get_job, start_daily_job
 from pipeline.night_coverage import NightCoverage, read_night_coverage
 from pipeline.run_lock import probe_pass_lock
@@ -384,21 +384,17 @@ def _tape_out(payloads: list[dict]) -> AdminTapeOut | None:
 def _split_out(payloads: list[dict]) -> AdminSplitOut | None:
     """The SPLIT-BASIS panel (T4), from the artifacts already read (no DB query — this router owns no
     tables, and a second definition of "defect" here could drift from the one the page fired on). The
-    inventory comes from the newest LIVE, FINISHED (M1), FULL-ROSTER (M2) artifact whose scan EVALUATED —
-    the same pass ``cron_run_log.previous_split_defects`` diffs against, so the panel and the page agree;
-    ``error`` is set when the newest such artifact that ran the monitor at all (``split_evaluated``
-    present) FAILED its scan, so a broken monitor shows instead of the panel quietly aging. ``None`` = no
-    pass has scanned yet (the quiet state right after deploy). Fail-open per row, like ``_tape_out``: a
-    malformed row is skipped."""
+    inventory comes from the newest LIVE, FINISHED (M1) artifact whose scan EVALUATED — a partial
+    ``--catch-up`` (M2) included, since the scan reads the whole basket union — the same pass
+    ``cron_run_log.previous_split_defects`` diffs against, so the panel and the page agree; ``error`` is
+    set when the newest such artifact that ran the monitor at all (``split_evaluated`` present) FAILED its
+    scan, so a broken monitor shows instead of the panel quietly aging. ``None`` = no pass has scanned yet
+    (the quiet state right after deploy). Fail-open per row, like ``_tape_out``: a malformed row is
+    skipped."""
     newest_error: str | None = None
     seen_live = False
     for doc in payloads:
-        if (
-            doc.get("mode") != "live"
-            or "split_evaluated" not in doc
-            or not is_finished(doc)
-            or not is_full_roster(doc)
-        ):
+        if doc.get("mode") != "live" or "split_evaluated" not in doc or not is_finished(doc):
             continue
         if not doc.get("split_evaluated"):
             if not seen_live and doc.get("split_error"):
@@ -1048,7 +1044,10 @@ def start_run_daily() -> AdminRunJobRef:
     another process in between fails VISIBLY on the poll ("already running"), never runs alongside it.
     **503** when the database cannot be reached to check. Safe to re-click once finished: the pass is
     idempotent (``record_if_changed`` appends nothing on unchanged facts). The job opens its OWN DB
-    connection (it outlives this request)."""
+    connection (it outlives this request). **Bounded like the sidecar's pass:** it runs in a child process
+    for at most the run timeout (``ALPHADECK_CRON_RUN_TIMEOUT_S``, default 5400 s — the one value the
+    sidecar's ``RUN_TIMEOUT_S`` uses); past it the process is stopped, the run lock is released with it,
+    its run artifact is marked ``crashed`` and the poll fails with the timeout."""
     try:
         holder = probe_pass_lock()
     except Exception as exc:  # noqa: BLE001 — an unreachable DB is a visible 503, never a 500
@@ -1063,13 +1062,11 @@ def start_run_daily() -> AdminRunJobRef:
         )
 
     def _run() -> AdminRunOut:
-        # asof=today, live — the cron's exact unit of work (it takes the run lock itself)
-        outcome = run_daily_pass()
-        # ONE mapping off the outcome (`payload_kwargs`), so this poll payload can never disagree with the
-        # artifact the SAME pass wrote — G4's benchmark counts, G5a's stale diff, and Phase 1B's identity /
-        # name errors / audit all ride it, each computed once inside the pass.
-        payload = build_run_payload(outcome.results, **outcome.payload_kwargs())
-        return _admin_run_out(payload)
+        # asof=today, live — the cron's exact unit of work (it takes the run lock itself), in a child
+        # process bounded by the run timeout (`pipeline/bounded_pass.py`). The payload is the ONE mapping
+        # off the outcome (`build_run_payload(**payload_kwargs())`, built in the child), so this poll can
+        # never disagree with the artifact the SAME pass wrote.
+        return _admin_run_out(run_admin_pass())
 
     try:
         job_id = start_daily_job(_run)

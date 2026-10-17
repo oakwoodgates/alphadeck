@@ -20,8 +20,8 @@ from app.routers import admin
 from db.session import DEFAULT_TENANT_ID
 from domain.feed_kinds import StaleFeedLabel
 from domain.settings import get_settings
-from pipeline import daily, daily_job
-from pipeline.cron_run_log import write_cron_run_log
+from pipeline import bounded_pass, daily, daily_job
+from pipeline.cron_run_log import build_run_payload, write_cron_run_log
 from pipeline.daily import ThesisRunResult
 from pipeline.tape_health import StaleTape
 from repositories import calls_repo
@@ -47,6 +47,10 @@ def _inline_daily_jobs(monkeypatch):
     monkeypatch.setattr(
         daily_job, "_DEFAULT_EXECUTOR", lambda job, run: daily_job._run_job(job, run)
     )
+    # ...and run the PASS in this process (``pass_payload`` — the same body the bounded runner's child
+    # runs), so a test's monkeypatches and tmp homes reach it. The child-process bound itself is proved in
+    # tests/pipeline/test_bounded_pass.py; the wiring to it by the two tests that restore it below.
+    monkeypatch.setattr(admin, "run_admin_pass", lambda **kw: bounded_pass.pass_payload())
     yield
     daily_job.reset_state()
 
@@ -455,12 +459,56 @@ def test_run_daily_failure_is_a_visible_failed_job(client, monkeypatch):
     def boom(**kw):
         raise RuntimeError("db exploded")
 
-    monkeypatch.setattr(admin, "run_daily_pass", boom)
+    monkeypatch.setattr(admin, "run_admin_pass", boom)
     job_id = client.post("/admin/run-daily").json()["job_id"]
     body = client.get(f"/admin/run-daily/jobs/{job_id}").json()
     assert body["status"] == "failed" and body["result"] is None
     assert "db exploded" in body["error"]
     # the slot was freed — the trigger isn't bricked
+    assert client.post("/admin/run-daily").status_code == 202
+
+
+def test_run_daily_job_runs_the_BOUNDED_pass_with_the_ONE_run_timeout(client, monkeypatch):
+    """The wiring: the job runs the pass through the bounded runner (a child process), with the run
+    timeout the sidecar enforces (``Settings.cron_run_timeout_s``), and its payload is the poll's result.
+    The runner itself is stubbed here — the real child, lock and timeout are proved in
+    tests/pipeline/test_bounded_pass.py."""
+    monkeypatch.setattr(
+        admin, "run_admin_pass", bounded_pass.run_admin_pass
+    )  # undo the inline seam
+    seen = []
+
+    def _runner(body, **kw):
+        seen.append((body, kw))
+        at = datetime(2026, 7, 20, 22, 30, tzinfo=timezone.utc)
+        return build_run_payload(
+            [_tr(recorded=True)], asof=_MON, allow_live=True, started_at=at, finished_at=at
+        )
+
+    monkeypatch.setattr(bounded_pass, "run_bounded", _runner)
+    job_id = client.post("/admin/run-daily").json()["job_id"]
+    body = client.get(f"/admin/run-daily/jobs/{job_id}").json()
+
+    assert body["status"] == "done" and body["result"]["asof"] == _MON.isoformat()
+    assert seen == [
+        (bounded_pass.pass_payload, {"timeout_s": float(get_settings().cron_run_timeout_s)})
+    ]
+
+
+def test_a_TIMED_OUT_admin_pass_is_a_visible_failed_job_that_SAYS_so(client, monkeypatch):
+    """Past the run timeout the job fails with the runner's words — the pass was stopped, its artifact is
+    marked crashed, the lock released — never a spinner, and the slot frees for a retry."""
+
+    def _timed_out(**kw):
+        raise bounded_pass.PassTimedOut(
+            "the pass ran past the run timeout (5400 s) and was stopped — its run artifact is marked "
+            "crashed and the run lock was released with it"
+        )
+
+    monkeypatch.setattr(admin, "run_admin_pass", _timed_out)
+    job_id = client.post("/admin/run-daily").json()["job_id"]
+    body = client.get(f"/admin/run-daily/jobs/{job_id}").json()
+    assert body["status"] == "failed" and "ran past the run timeout (5400 s)" in body["error"]
     assert client.post("/admin/run-daily").status_code == 202
 
 

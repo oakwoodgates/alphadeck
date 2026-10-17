@@ -10,8 +10,12 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, timedelta
+from functools import partial
+from pathlib import Path
 
 from domain.settings import Settings
+from ingest.edgar.client import EdgarClient
+from ingest.edgar.form25 import delisted_class_is_other
 from ingest.edgar.submissions import DelistingFiling, delisting_filings, edgar_tickers
 from pipeline.ingest_thesis import NameResult
 from pipeline.tape_health import (
@@ -567,3 +571,283 @@ def test_a_StaleTape_defaults_to_NOT_closed_and_NOT_renamed():
     stale-repair tape."""
     row = StaleTape(ticker="AAA", security_id=uuid.uuid4(), edge=None)
     assert row.closed is False and row.renamed is False and row.edgar_tickers is None
+
+
+# --- Q6: the Form 25 CLASS check — a Form 25 that removed ANOTHER class is not a close -------------------
+#
+# REAL rows, MEASURED 2026-10-17: each name's window delisting forms exactly as `delisting_filings` reads
+# them from prod's cached submissions (form, filing date, accession, primary document, the doc's own cik),
+# the tickers EDGAR lists, and the edge prod's stored tape stops at. The Form 25 documents are the real ones
+# in tests/fixtures/edgar/form25_cache (provenance: tests/ingest/test_form25.py), read through the REAL
+# client and the REAL hook the nightly pass binds. For the 7 still-trading names the stop has NOT happened:
+# each case states the rule's contract on the name's real record with a tonight-stop (their real last bar,
+# judged at a pass five days later) — the same hypothetical the T1 measurement counted them under.
+
+_Q6_ASOF = date(2026, 10, 21)  # a pass at which a 2026-10-16 last bar reads stale (5 calendar days)
+_F25_CACHE = Path(__file__).resolve().parents[1] / "fixtures" / "edgar" / "form25_cache"
+_XSL = "xslF25X02/primary_doc.xml"
+
+
+def _q6_subs(cik: str, tickers: list[str], rows: list[tuple[str, str, str, str]]) -> dict:
+    """EDGAR's real submissions shape WITH its ``cik`` and the real ``primaryDocument`` per row."""
+    rows = sorted(rows, key=lambda r: r[1], reverse=True)
+    return {
+        "cik": cik,
+        "tickers": tickers,
+        "filings": {
+            "recent": {
+                "form": [r[0] for r in rows],
+                "filingDate": [r[1] for r in rows],
+                "accessionNumber": [r[2] for r in rows],
+                "primaryDocument": [r[3] for r in rows],
+            }
+        },
+    }
+
+
+def _nse(filed: str, accession: str) -> tuple[str, str, str, str]:
+    return ("25-NSE", filed, accession, _XSL)
+
+
+def _f15(filed: str, accession: str, doc: str) -> tuple[str, str, str, str]:
+    return ("15-12G", filed, accession, doc)
+
+
+# name -> (submissions, last bar). The 7 still trading, then the 8 genuine closes.
+Q6_NAMES = {
+    "ACHR": (
+        _q6_subs("0001824502", ["ACHR"], [_nse("2026-09-16", "0000876661-26-000755")]),
+        date(2026, 10, 16),
+    ),
+    "ARBE": (
+        _q6_subs("0001861841", ["ARBE", "ARBEW"], [_nse("2026-10-06", "0001354457-26-000957")]),
+        date(2026, 10, 16),
+    ),
+    "BKKT": (
+        _q6_subs("0001820302", ["BKKT", "BKKT-WT"], [_nse("2026-10-15", "0000876661-26-000837")]),
+        date(2026, 10, 16),
+    ),
+    "IONQ": (
+        _q6_subs("0001824920", ["IONQ"], [_nse("2026-09-30", "0000876661-26-000804")]),
+        date(2026, 10, 16),
+    ),
+    "KTTA": (
+        _q6_subs("0001841330", ["KTTA"], [_nse("2026-09-16", "0001354457-26-000883")]),
+        date(2026, 10, 16),
+    ),
+    "PDYN": (
+        _q6_subs("0001826681", ["PDYN", "PDYNW"], [_nse("2026-09-28", "0001354457-26-000917")]),
+        date(2026, 10, 16),
+    ),
+    "VSTD": (
+        _q6_subs("0001898604", ["VSTD"], [_nse("2026-10-09", "0001354457-26-000973")]),
+        date(2026, 10, 15),
+    ),
+    "SKYT": (
+        _q6_subs(
+            "0001819974",
+            [],
+            [
+                _nse("2026-07-31", "0001354457-26-000745"),
+                _f15("2026-08-10", "0000950142-26-002290", "eh260818332_1512g-sky.htm"),
+            ],
+        ),
+        date(2026, 8, 7),
+    ),
+    "QRVO": (
+        _q6_subs(
+            "0001604778",
+            ["QRVO"],
+            [
+                _nse("2026-10-05", "0001354457-26-000942"),
+                _f15("2026-10-15", "0001104659-26-116241", "tm2627544d1_1512g.htm"),
+            ],
+        ),
+        date(2026, 10, 5),
+    ),
+    "GTLS": (
+        _q6_subs(
+            "0000892553",
+            [],
+            [
+                _nse("2026-07-16", "0000876661-26-000623"),
+                _f15("2026-07-29", "0001193125-26-322203", "d135037d1512g.htm"),
+            ],
+        ),
+        date(2026, 7, 16),
+    ),
+    "ATAI": (
+        _q6_subs(
+            "0002081043",
+            [],
+            [
+                _nse("2026-09-11", "0001354457-26-000870"),
+                _f15("2026-09-21", "0001140361-26-037188", "ef20082445_1512g.htm"),
+            ],
+        ),
+        date(2026, 9, 11),
+    ),
+    "XOMA": (
+        _q6_subs(
+            "0000791908",
+            [],
+            [
+                _nse("2026-07-14", "0001354457-26-000691"),
+                _nse("2026-07-16", "0001354457-26-000697"),
+                _f15("2026-07-27", "0001193125-26-318235", "d368035d1512g.htm"),
+            ],
+        ),
+        date(2026, 7, 21),
+    ),
+    "CPRX": (
+        _q6_subs(
+            "0001369568",
+            [],
+            [
+                _nse("2026-07-15", "0001354457-26-000694"),
+                _f15("2026-07-24", "0001193125-26-315836", "d152809d1512g.htm"),
+            ],
+        ),
+        date(2026, 7, 21),
+    ),
+    "AVNS": (
+        _q6_subs(
+            "0001606498",
+            [],
+            [
+                _nse("2026-07-27", "0000876661-26-000646"),
+                _f15("2026-08-06", "0001606498-26-000120", "avns2026form15.htm"),
+            ],
+        ),
+        date(2026, 7, 24),
+    ),
+    "RMAX": (
+        _q6_subs(
+            "0001581091",
+            [],
+            [
+                _nse("2026-08-25", "0000876661-26-000703"),
+                _f15("2026-09-04", "0001104659-26-105182", "tm2623567d11_1512g.htm"),
+            ],
+        ),
+        date(2026, 8, 24),
+    ),
+}
+_STILL_TRADING = {"ACHR", "ARBE", "BKKT", "IONQ", "KTTA", "PDYN", "VSTD"}
+
+
+def _hook():
+    """The REAL hook the nightly pass binds, on the real cached Form 25 documents (no network)."""
+    return partial(delisted_class_is_other, EdgarClient(cache_dir=_F25_CACHE, allow_live=False))
+
+
+def _q6(name: str, *, hook=None) -> StaleTape:
+    subs, edge = Q6_NAMES[name]
+    out = stale_tapes(
+        [_member(subs, ticker=name, edge=edge)],
+        asof=_Q6_ASOF,
+        stale_days=5,
+        removes_other_class=hook,
+    )
+    assert len(out) == 1  # every case IS a stopped tape — the classification never drops it (#9)
+    return out[0]
+
+
+def test_Q6_a_WARRANT_25_NSE_no_longer_closes_a_stopped_common_tape():
+    """The measured residual: under proximity alone each of these six would read CLOSED (quiet, never
+    paged) the night its tape stopped — on a 25-NSE that removed its WARRANTS. With the class check each is
+    the loud stale-REPAIR row a stopped, still-listed common tape is."""
+    for name in ("ACHR", "ARBE", "BKKT", "IONQ", "KTTA", "PDYN"):
+        filed = Q6_NAMES[name][0]["filings"]["recent"]["filingDate"][0]
+        assert _q6(name).closed_at == date.fromisoformat(filed), name  # T1 alone: silenced
+        row = _q6(name, hook=_hook())
+        assert (row.closed, row.renamed) == (False, False), name
+
+
+def test_Q6_VSTD_whose_25_NSE_removes_its_COMMON_still_closes():
+    """Not every recent 25-NSE is a warrant: VSTD's 2026-10-09 filing removes its "Class A Common Stock"
+    (a Nasdaq 12d2-2(b) strike), so if its tape stops it IS a close — the class check keeps it one.
+    """
+    assert _q6("VSTD", hook=_hook()).closed_at == date(2026, 10, 9)
+
+
+def test_Q6_the_8_genuine_closes_STAY_closed():
+    """Every genuine close's Form 25 removes the common, so each stays closed. One date moves: XOMA's
+    nearest form (2026-07-16) removed its PREFERRED depositary shares, so its close dates from the
+    next-nearest form, the 2026-07-27 15-12G (nearer than the common's 07-14 25-NSE: +6 days vs -7).
+    """
+    t1 = {name: _q6(name).closed_at for name in Q6_NAMES if name not in _STILL_TRADING}
+    q6 = {name: _q6(name, hook=_hook()).closed_at for name in t1}
+    assert q6 == {
+        "SKYT": date(2026, 8, 10),
+        "QRVO": date(2026, 10, 5),
+        "GTLS": date(2026, 7, 16),
+        "ATAI": date(2026, 9, 11),
+        "XOMA": date(2026, 7, 27),
+        "CPRX": date(2026, 7, 24),
+        "AVNS": date(2026, 7, 27),
+        "RMAX": date(2026, 8, 25),
+    }
+    assert {n for n in t1 if t1[n] != q6[n]} == {"XOMA"} and t1["XOMA"] == date(2026, 7, 16)
+
+
+class _Asked:
+    """A recording hook: which filings ``classify_stop`` asked about, answering from the real reader."""
+
+    def __init__(self) -> None:
+        self.real = _hook()
+        self.asked: list[tuple[str, str]] = []
+
+    def __call__(self, label, filing) -> bool:
+        self.asked.append((label, filing.accession))
+        return self.real(label, filing)
+
+
+def test_Q6_the_hook_is_asked_NEAREST_first_ONLY_for_a_Form_25_and_ONLY_until_one_counts():
+    """The cost bound: SKYT's nearest form is its 15-12G (+3 days), which counts without a read, so its
+    25-NSE is never opened; XOMA's nearest is the preferred's 25-NSE (-5), read once and passed over, and
+    the 15-12G (+6) then counts — its common's 25-NSE (-7) is never opened."""
+    skyt, xoma = _Asked(), _Asked()
+    assert _q6("SKYT", hook=skyt).closed_at == date(2026, 8, 10)
+    assert skyt.asked == []
+    assert _q6("XOMA", hook=xoma).closed_at == date(2026, 7, 27)
+    assert xoma.asked == [
+        ("XOMA", "0001354457-26-000697")
+    ]  # the label rides along for the log line
+
+
+def test_Q6_the_hook_is_never_asked_for_a_RENAMED_a_NEVER_PRICED_or_a_FRESH_tape():
+    """No document read where the class cannot matter: the rename guard decides first (VRME's real record,
+    EDGAR lists OPNW), a never-priced name has no last bar to be near, and a live tape is never classified.
+    """
+    asked = _Asked()
+    vrme = stale_tapes(
+        [_member(VRME, ticker="VRME", edge=date(2026, 10, 6))],
+        asof=_TONIGHT,
+        stale_days=5,
+        removes_other_class=asked,
+    )
+    assert vrme[0].renamed is True
+    subs, _ = Q6_NAMES["ACHR"]
+    never = stale_tapes(
+        [_member(subs, ticker="ACHR", edge=None)],
+        asof=_Q6_ASOF,
+        stale_days=5,
+        removes_other_class=asked,
+    )
+    assert never[0].closed is False
+    fresh = stale_tapes(
+        [_member(subs, ticker="ACHR", edge=_Q6_ASOF)],
+        asof=_Q6_ASOF,
+        stale_days=5,
+        removes_other_class=asked,
+    )
+    assert fresh == () and asked.asked == []
+
+
+def test_Q6_an_UNKNOWN_class_still_COUNTS_and_is_logged(capsys, tmp_path):
+    """The fail-safe Q6 kept: a Form 25 whose class cannot be read (here: the document is not in the cache
+    and live pulls are off) counts as this security's delisting exactly as before — and says so."""
+    blind = partial(delisted_class_is_other, EdgarClient(cache_dir=tmp_path, allow_live=False))
+    assert _q6("ACHR", hook=blind).closed_at == date(2026, 9, 16)
+    assert "counted as a delisting of this security (fail-safe)" in capsys.readouterr().out

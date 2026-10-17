@@ -154,7 +154,11 @@ and never confirm on price.
   marked **"renamed — EDGAR lists X"**: the symbol to point the price leg at, shown, never adopted for you.
   Everything else is a plain repair row. A form filed at some other time does not close a tape (a company
   files these for any listed class — VRME's 2025 warrant removal once silenced its common stock in 2026),
-  and a never-priced name can never read closed. A name that moves from closed back to repair pages once.
+  and a never-priced name can never read closed. **Nor does a Form 25 that removed another class** (Q6): the
+  pass reads each window Form 25's own class line, and one removing warrants, units, rights, notes or
+  preferred is not a close of the common (ACHR's, IONQ's and four other still-trading names' recent 25-NSEs
+  were all warrants). A Form 25 whose class cannot be read still counts, as before, and the cron log says so
+  in a `warn:` line. A name that moves from closed back to repair pages once.
 - **The repair is yours, and it is data, not code:** check each listed name for a ticker rename or a
   delisting, then set the vendor symbol override on the security master (`security_master.price_symbol`, the
   OTC fix's seam). The next nightly pass re-pulls the two-year window under the new symbol, appends the
@@ -265,9 +269,9 @@ sometimes serves it HALF-adjusted or flips a bar between bases from one pull to 
 then mixes two bases, and a basis cliff reads as a +1,800% breakout. The nightly pass scans the basket's
 stored tapes for it (`pipeline/split_basis.py`; the rule, its thresholds and the measured precision are in
 `FEED_LOOP.md` §the tape monitor, part 2) and `/admin/status` carries the result as `split_defects`, read
-from the newest live artifact whose scan ran, from a pass that FINISHED (M1) and processed its full roster
-(M2 — the same pass the next night's diff reads) — artifact-sourced like the stopped-feed panel, so the
-surface still owns no tables:
+from the newest live artifact whose scan ran, from a pass that FINISHED (M1) — a `--catch-up` that skipped
+theses (M2) counts, since the scan reads the whole basket union; the same pass the next night's diff
+reads — artifact-sourced like the stopped-feed panel, so the surface still owns no tables:
 
 - **One row per name per kind**, each with its `factor` (the step: 20 for a 1-for-20 split), its `dates`
   (the affected bars, at most the 12 newest; `events` is the full count) and its `kind`:
@@ -277,8 +281,9 @@ surface still owns no tables:
     reverse split the history before it never got;
   - **`flap`** — a stored bar whose versions changed basis in both directions (the vendor flipped it and
     flipped it back), the latest flip within 90 days.
-- **`newly_flagged`** are the labels that PAGED that night — new since the last finished, full-roster pass,
-  keyed on the kind and the security, so a standing defect never re-pages; the run row carries them too (`split_defects_new`, a
+- **`newly_flagged`** are the labels that PAGED that night — new since the last finished pass that scanned
+  (a catch-up included), keyed on the kind and the security, so a standing defect never re-pages, not even
+  across a skipped-thesis catch-up; the run row carries them too (`split_defects_new`, a
   `problems` line with the benign marker).
 - **`error`** is set when the newest live pass's scan could not run; `defects` then still shows the last good
   inventory, and its `asof` / `ran_at` say which pass that was. The self-audit fails on a scan that could not
@@ -329,8 +334,9 @@ died at ~22:42 when the host VM went down, 4 of 12 theses had rows, there was no
   `running` past the sidecar's whole-pass ceiling (`ALPHADECK_CRON_RUN_TIMEOUT_S`, default 5400 s — the same
   host var the sidecar's C2 `timeout` uses, mirrored to the backend by compose as
   `Settings.cron_run_timeout_s`); a `crashed` one alarms at once with its reason. Inside the timeout the
-  verdict is `running`, not an alarm. (An Admin "Run daily now" pass is not bounded by the sidecar's timeout;
-  one that ran longer than it would read "did not finish" until it lands.)
+  verdict is `running`, not an alarm. An Admin "Run daily now" pass is bounded by the SAME value (since
+  2026-10-17 — see "Run daily now" below): past it the pass is stopped and its artifact reads `crashed`
+  ("ran past the run timeout"), so the alarm names what happened instead of waiting for a pass to land.
 - **Per-thesis coverage — `record.partial_nights`.** Every window night (not already in `missed_asofs`) is
   judged PER THESIS by `pipeline/night_coverage.py` — the module the nightly self-audit's `on_time_rows`
   check uses, so "covered" has one definition: a **non-reconstructed** row recorded at/after that night's
@@ -438,7 +444,16 @@ nothing can be filed in the five minutes before the 22:30 pass (`FEED_LOOP.md` �
 that still reads a warm cache is a pass fired **within five minutes** of another, which is why a back-to-back
 re-click can legitimately report ~0 EDGAR fetches. The job opens its
 own DB connection (it outlives the request); a lost job (server restart / expiry) shows "lost from view", not
-an infinite spinner — the run history + record edge are the durable authority. A manual pass that starts
+an infinite spinner — the run history + record edge are the durable authority. **Bounded like the sidecar's
+pass (2026-10-17):** the job runs the pass in a CHILD PROCESS (`pipeline/bounded_pass.py`) for at most the
+run timeout — `Settings.cron_run_timeout_s`, the backend's mirror of the sidecar's `RUN_TIMEOUT_S`, both
+fed by `ALPHADECK_CRON_RUN_TIMEOUT_S` (default 5400 s), so there is one value. Past it the child is stopped
+the way `timeout -k 60` stops the sidecar's (SIGTERM, SIGKILL 60 s later); its death ends its Postgres
+session, which releases the run lock (a hung pass can no longer hold it — and so block every later night —
+for as long as the backend lives); its start artifact is re-marked `crashed` with the reason, so the status
+alarm says "ran past the run timeout" at once; ONE crash page goes out; and the poll fails with the same
+words. A pass process killed from outside (the OOM killer) is marked and paged the same way, with its exit
+code. A thread cannot be stopped from outside, which is why the bound needs the process. A manual pass that starts
 **before** that night's `RUN_AT` (a pre-open click, on the prior session's bars) does **not** satisfy the
 sidecar's `--catch-up` guard — the night's post-close pass still runs (2026-09-10; on Sep 9 two 09:09 / 09:15
 ET passes had masked a missed post-close pass, and the record stayed a pre-open call).
@@ -487,7 +502,7 @@ the freeze it is adjacent to: `POSTMORTEM_CRON_FREEZE_2026-07.md`.
 | `POST /admin/price-feed/{security_id}/adopt-cik` | `{cik}` → the CIK change row | the detector's recommended successor only (409 otherwise / master moved / CIK held by another row); no network |
 | `POST /admin/price-feed/cik-changes/{change_id}/undo` | → the undo row | exact restore; 409 already undone / a later change stands / the master moved |
 | `GET /admin/runs?limit=` | the run-of-record history, newest first | read-only file parse; skip-unreadable |
-| `POST /admin/run-daily` | **202** + `job_id` | the cron's exact unit; 409 when any process runs a pass (C1 lock) or the slot is busy; 503 DB unreachable |
+| `POST /admin/run-daily` | **202** + `job_id` | the cron's exact unit, in a child process bounded by the run timeout; 409 when any process runs a pass (C1 lock) or the slot is busy; 503 DB unreachable |
 | `GET /admin/run-daily/jobs/{job_id}` | job status → run-history row | 404 → "lost from view", never a spinner |
 | `POST /admin/backup` | **202** + `job_id` | read-only `pg_dump`; 409 single-slot |
 | `GET /admin/backup/jobs/{job_id}` | job status → `BackupOut` | 404 → "lost from view" |

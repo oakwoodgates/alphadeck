@@ -134,3 +134,31 @@ def test_a_PRE_T4_artifact_still_parses_and_carries_no_split_line(client, cron_r
 
     assert body["split_defects"] is None  # never scanned — the quiet state, not an alarm
     assert run["split_defects_new"] == [] and not any("split" in p for p in run["problems"])
+
+
+def test_the_panel_reads_a_PARTIAL_catch_up_the_same_pass_the_next_diff_reads(
+    client, cron_runs_dir
+):
+    """A --catch-up that SKIPPED a thesis (M2) scanned the whole basket union, so its split inventory is
+    complete: the panel shows it (not the older full pass), exactly as ``previous_split_defects`` makes it
+    the next pass's baseline — the panel and the page never disagree about which pass was last."""
+    _artifact(
+        at=datetime(2026, 7, 20, 22, 30, tzinfo=timezone.utc),
+        split=SplitScan(evaluated=True, defects=(), window_days=430),
+    )
+    seen = _vwav()
+    path = write_cron_run_log(
+        [_tr(skipped="on-time call-of-record already recorded"), _tr(recorded=False)],
+        asof=_MON,
+        allow_live=True,
+        started_at=datetime(2026, 7, 21, 13, 0, tzinfo=timezone.utc),
+        finished_at=datetime(2026, 7, 21, 13, 5, tzinfo=timezone.utc),
+        catch_up=True,
+        split=SplitScan(evaluated=True, defects=(seen,), new=(seen,), window_days=430),
+    )
+    assert path is not None
+
+    panel = client.get("/admin/status").json()["split_defects"]
+
+    assert panel["ran_at"].startswith("2026-07-21") and panel["newly_flagged"] == [seen.label]
+    assert [r["ticker"] for r in panel["defects"]] == ["VWAV"]

@@ -53,9 +53,10 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timezone, tzinfo
+from functools import partial
 from pathlib import Path
 from time import perf_counter
 from uuid import UUID
@@ -69,6 +70,7 @@ from domain.feed_kinds import FEED_KINDS, StaleFeedLabel, feed_kind
 from domain.market_time import market_now, market_today, market_tz
 from domain.settings import Settings, get_settings
 from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
+from ingest.edgar.form25 import delisted_class_is_other
 from notify import ArmedName, HealthEvent, Notifier, TransitionEvent, get_notifier
 from pipeline.call_for_thesis import call_for_thesis
 from pipeline.cron_run_log import (
@@ -420,6 +422,9 @@ def run_daily(
                     stale_days=s.tape_stale_days,
                     closed_before_days=s.tape_closed_before_days,
                     closed_after_days=s.tape_closed_after_days,
+                    # Q6 — a Form 25 that removed ANOTHER class (warrants, units ...) is not a close;
+                    # its document is read through this thesis's client (forms/* cache forever)
+                    removes_other_class=partial(delisted_class_is_other, edgar_client),
                 )
             if s.fund_shares_stale_days > 0:
                 rows += stale_fund_shares(
@@ -762,6 +767,7 @@ def run_daily_pass(
     catch_up: bool = False,
     run_kind: str = "manual",
     run_lock: PassLock | None = None,
+    on_started: Callable[[datetime, date], None] | None = None,
 ) -> DailyPassOutcome:
     """The cron's FULL unit of work, under the cross-process call-of-record lock and the crash page.
 
@@ -786,7 +792,11 @@ def run_daily_pass(
     crash path above the file is re-marked ``"crashed"`` (only while it still reads ``running`` — a pass
     that finalized and then raised keeps its finished record); a hard kill leaves ``running``, which the
     ``--catch-up`` guard never credits and the Admin page alarms on past the run timeout. Every one of these
-    writes is fail-open: none can fail or mask the pass."""
+    writes is fail-open: none can fail or mask the pass.
+
+    ``on_started(started_at, asof)`` is called once the start artifact is written (fail-open): the Admin
+    button's bounded runner (``pipeline/bounded_pass.py``) learns from it which artifact to mark ``crashed``
+    if it has to stop the pass at the run timeout."""
     notifier = notifier or get_notifier()
     lock = run_lock
     resolved_asof = asof
@@ -804,6 +814,11 @@ def run_daily_pass(
             catch_up=catch_up,
             run_kind=run_kind,
         )
+        if on_started is not None:
+            try:
+                on_started(started_at, resolved_asof)
+            except Exception:  # noqa: BLE001 — a hook never fails or masks the pass
+                _log.exception("the on_started hook failed (fail-open — the pass runs regardless)")
         return _run_daily_pass_locked(
             asof=resolved_asof,
             allow_live=allow_live,

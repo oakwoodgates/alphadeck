@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<notificationOfRemoval>
+
+    <schemaVersion>X0203</schemaVersion>
+
+    <exchange>
+        <cik>0001354457</cik>
+        <entityName>Nasdaq Stock Market LLC</entityName>
+    </exchange>
+
+    <issuer>
+        <cik>0002081043</cik>
+        <entityName>AtaiBeckley Inc.</entityName>
+        <fileNumber>001-4303</fileNumber>
+        <address>
+            <street1>Wallstrasse 16</street1>
+            <street2></street2>
+            <city>Berlin</city>
+            <stateOrCountryCode>2M</stateOrCountryCode>
+            <stateOrCountry>GERMANY</stateOrCountry>
+            <zipCode>10179</zipCode>
+        </address>
+        <telephoneNumber>929-207-2670</telephoneNumber>
+    </issuer>
+
+    <descriptionClassSecurity>Common Stock</descriptionClassSecurity>
+
+    <ruleProvision>17 CFR 240.12d2-2(a)(3)</ruleProvision>
+
+    <signatureData>
+        <signatureName>Katelin Rowe</signatureName>
+        <signatureTitle>CDO Analyst</signatureTitle>
+        <signatureDate>2026-09-11</signatureDate>
+    </signatureData>
+</notificationOfRemoval>
