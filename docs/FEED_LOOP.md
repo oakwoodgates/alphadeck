@@ -216,7 +216,8 @@ re-version pass either, the two market-hours bars it froze (SPY 2026-08-25 765.2
 - the **recurring path** (the nightly leg, and any pass through `run_daily_pass`) stamps `recorded_at = now`
   from the **database clock** (`db_now`, the one-clock rule); only the **CLI** (`python -m
   pipeline.ingest_benchmarks` → `historical_backfill=True`) backdates, for deep history;
-- the thesis path's restatement compare (`_restated`, tolerance unchanged) runs over the vendor's newest
+- the thesis path's EXACT restatement compare (`_restated`, unchanged; Q11's older-bar tolerance and revert
+  hold below are the thesis path's alone) runs over the vendor's newest
   **`Settings.benchmark_restate_window` = 5 settled sessions**: a revised stored bar gets a NEW version
   stamped `now` (never backdated, on either path); an in-window date the store lacks is filled. **Older bars
   are never re-versioned by a pass** — that is the operator's Q3 repair.
@@ -246,6 +247,82 @@ or later, and an unsettled session (exit 2). `--apply` holds the call-of-record 
 held) and writes its provenance to `data/repairs/`. **It re-records no call:** the benchmark tape feeds only
 the display-only RS column (`benchmark_prices` is called only from `signals/display/relative_strength.py`;
 no basket member is a benchmark row). Run `--apply` on prod after a labeled backup.
+
+### Price restatements — which restated bars a pass writes (Q11: T6 + T5, 2026-10-17)  `[BUILT]`
+
+The thesis price leg (`ingest/prices/ingest_security.py`; the rules in `ingest/prices/restatement.py`) used to
+re-version EVERY overlap bar the vendor's pull differed on beyond float noise (rel 1e-9). The operator decided
+(Q11) to stop chasing two kinds of vendor noise. **The SPY/IWM leg (D1's 5-session window, `_restated`) and the
+Q3 repair (`_moved`, explicit dates) are untouched — both stay exact.**
+
+**T6 — the old-bar tolerance.** The overlap splits at the fresh pull's newest **3 session dates** (D1's own
+count: the vendor's session dates, no calendar). A stored bar inside that window keeps the **exact** compare —
+late volume settling lands there (BTOC's 10-14 bar: 12,592 -> 13,069 shares the next night). An OLDER bar
+re-versions only when its close moved **>= 0.5%** or its volume **>= 5%**, relative to the stored value (a
+stored zero or absent value keeps the exact rule). A split moves both by an integer factor, so it still lands.
+A hole (an overlap date never stored) is still stored.
+
+**T5 — revert hysteresis.** The older restated bars are decided **all-or-nothing per (security, pass)**:
+
+- a bar is a **revert** when its fresh value matches (within the T6 tolerance) a **superseded** — non-latest —
+  stored version of itself: the vendor is going back to a value the store held and replaced;
+- the set is a revert only when **every** bar is one; a single value the store never held makes it
+  **first-time** and it applies in the same pass (a genuine split re-base can never be held back);
+- a revert set is **held**, whole, until a pull on a **later market date** agrees (the same dates still
+  covered, each within the tolerance of what the held pull said). Two pulls on one night (a name in two
+  theses, a second "Run daily now") never confirm each other, and a cache-first read (the Workbench pull)
+  never starts, confirms or clears a hold. If the next pull serves the stored basis again (A -> B -> A -> B),
+  nothing is appended and the hold clears;
+- the trailing-window bars are **not** part of the decision: they always apply (exact compare);
+- the pending state is `price_restatement_hold` (migration **0047**): one OPERATIONAL row per held security
+  (`pull_date`, the held `bars`), upserted / deleted freely; `fact_price_eod` stays strictly INSERT-only;
+- **a hold is never silent (#9):** `BarsResult.held` -> `NameResult.price_bars_held` -> the run artifact's
+  per-thesis `price_bars_held`, one quiet printed line per held name (deduped across theses), and one log line
+  from the price leg.
+
+**The replay that set and checks the rule** (MEASURED, 2026-10-17, read-only on prod: the branch's code re-run
+over every member-price version stored 2026-09-01..10-16 — 30 cron nights, SPY/IWM excluded; a pass = the rows
+sharing one `recorded_at`, its pull = those rows plus the stored value of every other date in the 2y window;
+nights a name was pulled but nothing changed are added as empty pulls):
+
+| | old rule (as stored) | new rule |
+|---|---|---|
+| re-versions written | 27,367 | 17,845 (16,807 the same pass, 1,038 one night later on a T5 confirm) |
+| sub-tolerance wiggles on older bars (T6) | stored | 8,772 not stored (6,412 within tolerance + 2,360 that only wiggled back to the value the store kept) |
+| revert holds (T5) | — | 16: 10 confirmed by the next night's pull, 3 superseded by a first-time re-base, 2 bounced (HIMS, 1 bar, both same-night), 1 open (BTOC, 10-16) |
+| first-time split-sized (>= x1.8) re-bases | applied | 43 of 43 applied the SAME pass (VWAV x20, OPTT x30, BURU x40, BTOC x16, MPU x20, DCX x160, ...) |
+| (name, night) whose tape carries a T4 island / cliff | 173 | 172 |
+| price-detector decisions (fire / event date / grade) that differ | — | 4, every one a T5 hold of a flip to the unadjusted basis: BTOC 10-16's fake `volume_breakout` + `breakdown_flip`, MPU 09-17's fake `volume_breakout`, REAX 09-03's `breakdown_flip`. T6 alone changes none. |
+
+**What the numbers say about T5, honestly.** The vendor's flips mostly PERSIST: of the 15 holds a later pull
+resolved, 10 were confirmed by it, 3 gave way to a first-time re-base and only 2 (HIMS, one bar, the same night)
+bounced back. So one night of hysteresis mostly DELAYS a flip rather than absorbing it, and the delay cuts
+both ways — it avoided BTOC 10-16's x16 cliff, MPU 09-17's cliff and VRME 10-07's islands, and it kept ARTL
+09-02 and SEGG 09-01 / 09-03 on a defective basis one night longer (each of those reverts was a return TO the
+consistent basis). Net: one defect-night fewer in thirty. BTOC 10-16 itself is decided by the next pull: if
+the vendor still serves the unadjusted history, the cliff lands one night later.
+
+**Why "every" bar, not "any" or "most".** Mixed sets (some bars revert, some never held) were 12 of the 195
+older restated sets. "Any" would hold genuine first re-bases that carry a coincidental match (ARTL / BURU 09-05:
+1 of 492 bars; REAX 09-05: 2 of 493) — on REAX it adds a cliff night. "Most" (0.9 / 0.5) holds more and moved
+the defect count by at most one night: the odd bars in a flip are cent-rounding (BURU 2025-04-22 stored 0.8059,
+re-served 0.81 = +0.51%; MPU 2025-03-07 12.934 -> 13.0), so the fraction measures rounding, not intent. Under
+"every", a value the store never held is never held back — by construction, not by a tuned fraction.
+
+**Why the window bars always apply.** Holding them with the older set was the first design; on LRHC 09-09 it
+kept a pre-split bar on the adjusted basis between unadjusted neighbors — a fake `volume_breakout` the stored
+tape never had. Applying them removed it, and no replayed hold had a basis change spanning both regions.
+
+**What T6 changes in a recorded call** (the same replay with T5 switched off, so only the tolerance acts; the
+detectors run on each night's tape with `asof` = the night; open / high / low were not replayed, so the
+breakout's close-strength follow-through is not modeled). No fire / event-date / grade decision of the four
+price detectors (`volume_breakout`, `breakout_52w`, `breakdown` core + flip) differs on any (active name, cron
+night). They DO read older bars finer than the tolerance — a base high, a base-volume average — so an older
+bar's sub-tolerance drift can move a LABEL digit: 9 detector outputs on 3 names in thirty nights (JAGX
+"202.1x" vs "202.0x" avg volume, BIIB "1.6x" vs "1.7x", CPOP's 200-day base 2.75 vs 2.76), plus the
+provenance detail of 62 more and the low digits of 13 `breakout_52w` scores. A CallCard carrying such a
+trigger would record the other digit; neither value is more right — the difference is the vendor's own
+post-settle noise.
 
 ## The daily cron — `pipeline/daily.py`  `[BUILT #71]`
 
@@ -773,8 +850,9 @@ once, and again only after a pass genuinely found it gone. `/admin/status` carri
 is no "acknowledged" state, and failing on a standing, already-flagged defect would page every night). It is
 **benign-class** — a vendor tape defect, so the Admin verdict stays about the cron. It is a **MONITOR**:
 nothing it finds reaches a detector, the CallCard, or a stored bar. Whether price detectors should ABSTAIN on
-a flagged name (plan Q10), a two-agreeing-pulls hysteresis before re-basing (T5) and any repair of stored
-bars are separate, undecided steps.
+a flagged name (plan Q10) and any repair of stored bars are separate, undecided steps. The two-agreeing-pulls
+hysteresis on a vendor REVERT (T5) is built in the price leg itself — see "Price restatements" above; it does
+not read this monitor.
 
 ### The tape monitor, part 3 — price-feed repairs: renamed, unpriceable, expected 404s (T2 + Q8 + T3, 2026-10-17)  `[BUILT]`
 
@@ -1502,13 +1580,13 @@ fact tables) and M2b (the calls log): `test_rerun_appends_zero_rows_count_the_ta
 
 ## What this subsystem is NOT (deferred / parked)
 
-- **The restatement re-version** `[DEFERRED]` — re-storing a stored bar when a fresh pull's value differs
-  (Yahoo re-bases the whole history on a split, and the incremental `d > last` guard never refreshes old
-  bars → a thesis living across a FUTURE split accumulates mixed-basis bars). Parked behind the
-  **source-strategy decision** (keep Yahoo + re-version, vs move to a raw+splits source and own the adjustment
-  at read time — which dissolves it). Safe for the MVP: the seeded names have no splits, and a fresh thesis
-  pulls a continuous whole-history-adjusted series. Detail + the two paths: `DATA_SOURCES.md`.
-  - *The build spec, when it lands (generic — no split math):* on each pull, compare the fresh value for each
+- **The restatement re-version** `[BUILT — Option A, 2026-07-11; tolerance + revert hysteresis Q11,
+  2026-10-17]` — re-storing a stored bar when a fresh pull's value differs (Yahoo re-bases the whole history on
+  a split, and the incremental `d > last` guard never refreshes old bars → a thesis living across a FUTURE
+  split accumulated mixed-basis bars). The operator kept Yahoo + re-version; which restated bars a pass writes
+  is now "Price restatements" (above). A raw+splits source owning the adjustment at read time stays the
+  endgame (`DATA_SOURCES.md`). Kept for its history:
+  - *The original build spec (generic — no split math):* on each pull, compare the fresh value for each
     already-stored date against the latest stored version; **if it differs beyond a stable float tolerance, append
     the fresh value as a NEW version** (`append_fact`, `recorded_at=now`) — idempotent when nothing differs. This
     is the same bitemporal shape as any restatement: a past as-of read (`known_at` < the re-version time) still

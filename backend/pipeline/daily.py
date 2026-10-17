@@ -91,7 +91,12 @@ from pipeline.cron_run_log import (
 from pipeline.ingest_fundamentals import NameResult as FundamentalsResult
 from pipeline.ingest_fundamentals import PassMemo
 from pipeline.ingest_skips import SkipDiff, diff_skips, known_keys
-from pipeline.ingest_thesis import NameResult, ingest_thesis, print_withheld_line
+from pipeline.ingest_thesis import (
+    NameResult,
+    ingest_thesis,
+    print_held_lines,
+    print_withheld_line,
+)
 from pipeline.name_errors import NameIngestError, dedup_name_errors, name_errors_of
 from pipeline.night_coverage import NightTiming, night_timing, read_on_time_theses
 from pipeline.pass_timings import per_thesis, timed
@@ -1557,6 +1562,9 @@ def _report(
             print(line)
     # D2 — names whose in-progress bar was withheld (session not yet settled): ONE quiet line, deduped
     print_withheld_line(x for r in results for x in r.ingested)
+    # Q11 / T5 — names whose older restated bars were held (a vendor revert awaiting a second pull): one
+    # quiet line each, deduped across theses
+    print_held_lines(x for r in results for x in r.ingested)
     if skipped:
         # M2 — one quiet line (lowercase, the known-errors convention): the catch-up left these alone
         print(
