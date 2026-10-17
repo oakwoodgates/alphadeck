@@ -298,6 +298,9 @@ vi.mock("../../api/hooks", () => ({
   useUndoPriceSymbolChange: () => h.repair,
   useAcknowledgeUnpriceable: () => h.repair,
   useRevokeAcknowledgment: () => h.repair,
+  // T7 — the successor-CIK writes on the same panel
+  useAdoptSuccessorCik: () => h.repair,
+  useUndoCikChange: () => h.repair,
 }));
 
 beforeEach(() => {

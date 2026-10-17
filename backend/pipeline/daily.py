@@ -101,6 +101,8 @@ from pipeline.schedule import last_expected_asof, parse_run_at
 from pipeline.self_audit import AuditContext, AuditResult, failed_labels, run_audit
 from pipeline.split_basis import SplitScan, run_split_scan
 from pipeline.split_basis import report_lines as split_report_lines
+from pipeline.successor_cik import SuccessorScan, previous_successor_keys, run_successor_scan
+from pipeline.successor_cik import report_lines as successor_report_lines
 from pipeline.tape_health import StaleTape, stale_fund_shares, stale_tapes
 from repositories import calls_repo, price_feed_repo, thesis_repo
 from securities import master
@@ -575,6 +577,7 @@ def assess_health(
     name_errors_new: tuple[str, ...] = (),
     audit_failed: tuple[str, ...] = (),
     split_defects_new: tuple[str, ...] = (),
+    successor_cik_new: tuple[str, ...] = (),
 ) -> HealthEvent | None:
     """R4 — the run's pageable health, or None when the run was clean (loudness marks the exception). Unhealthy
     = a FREEZE (a live run whose EDGAR fetches summed to ZERO across present theses — the R1 cache-never-
@@ -621,6 +624,10 @@ def assess_health(
     T4 — ``split_defects_new`` are the labels of split-basis defects (``pipeline/split_basis.py``) NEW since
     the previous evaluated pass. Benign-class like a stale feed: a vendor TAPE defect, flag only — the call
     is unchanged and the run did its job — so it pages once and never makes the Admin verdict unhealthy.
+
+    T7 — ``successor_cik_new`` are the labels of members whose company now files under a NEW CIK
+    (``pipeline/successor_cik.py``), NEW since the previous evaluated pass. Benign-class the same way: a
+    data gap the operator's Adopt repairs, not a cron fault — it pages once.
     """
     theses = len(results)
     # split withheld by its ACTUAL reason — a --no-live dev run is benign, a total failure is an alarm; a page
@@ -641,6 +648,7 @@ def assess_health(
         or name_errors_new
         or audit_failed
         or split_defects_new
+        or successor_cik_new
     ):
         return None  # healthy — no page
     return HealthEvent(
@@ -657,6 +665,7 @@ def assess_health(
         name_errors_new=tuple(name_errors_new),
         audit_failed=tuple(audit_failed),
         split_defects_new=tuple(split_defects_new),
+        successor_cik_new=tuple(successor_cik_new),
     )
 
 
@@ -712,6 +721,8 @@ class DailyPassOutcome:
     # tonight's renamed tapes, computed ONCE in the pass so the artifact, the printed report and the Admin
     # panel all read the same probe
     rename_probe: RenameProbe = field(default_factory=RenameProbe)
+    # T7 — the successor-CIK detector's outcome (`pipeline/successor_cik.py`), computed ONCE in the pass
+    successor: SuccessorScan = field(default_factory=SuccessorScan)
 
     def payload_kwargs(self) -> dict:
         """Every run-level field ``cron_run_log.build_run_payload`` / ``write_cron_run_log`` take, from this
@@ -739,6 +750,7 @@ class DailyPassOutcome:
             "audit": self.audit,
             "split": self.split,
             "rename_probe": self.rename_probe,
+            "successor": self.successor,
         }
 
 
@@ -1054,6 +1066,18 @@ def _run_daily_pass_locked(
         connect=_pass_connect,
         clock=perf_counter,
     )
+    # T7 — THE SUCCESSOR-CIK DETECTOR (`pipeline/successor_cik.py`): for EVERY ingested member (fresh tapes
+    # too), a stored CIK whose submissions list no tickers + SEC's ticker map assigning our symbol to another
+    # CIK = the company now files under a successor issuer, and our filing legs read the dead CIK. A pending
+    # RECOMMENDATION (the operator's Adopt applies it); BEFORE the artifact, so its own rows are never the
+    # baseline it diffs against. Fail-open for the pass (a fault rides `successor.error`).
+    successor = run_successor_scan(
+        results=results,
+        allow_live=allow_live,
+        connect=_pass_connect,
+        previous=previous_successor_keys,
+        clock=perf_counter,
+    )
     # I1/I2 — THE RUN IDENTITY on the artifact: the same sha / cfg hash / run kind `run_daily` stamped on
     # every row it wrote (the identical expressions — `run_daily` holds its cfg local as DEFAULT_CONFIG and
     # reads `image_sha` the same way), plus the non-secret env fingerprint the Admin page alarms on.
@@ -1104,6 +1128,7 @@ def _run_daily_pass_locked(
         audit=audit,
         split=split,
         rename_probe=rename_probe,
+        successor=successor,
     )
     # R3 — the cron's run-of-record, so the next freeze is noticed by the platform, not by eye. Written
     # AFTER the run from the collected results (write-only, no DB); fail-open, so it never fails the cron.
@@ -1128,6 +1153,8 @@ def _run_daily_pass_locked(
         audit_failed=failed_labels(audit),
         # T4 — the NEW split-basis defects page once (benign-class: a vendor tape defect, flag only)
         split_defects_new=split.new_labels,
+        # T7 — the NEW successor-CIK rows page once (benign-class: a data gap the operator's Adopt repairs)
+        successor_cik_new=successor.new_labels,
     )
     if health is not None:
         notifier.notify_health(health)
@@ -1190,6 +1217,7 @@ def _report(
     name_errors_evaluated: bool = True,
     split: SplitScan | None = None,
     probe: RenameProbe | None = None,
+    successor: SuccessorScan | None = None,
 ) -> int:
     """Print a per-thesis summary; return the number of theses that ERRORED.
 
@@ -1214,6 +1242,8 @@ def _report(
     verified successor to Adopt, or why none verified); an UNPRICEABLE row is named as such; an
     ACKNOWLEDGED unpriceable row moves to its own quiet lowercase line (the operator ratified it); the
     excused EXPECTED price 404s collapse to ONE quiet line; a failed probe is one loud line.
+
+    T7 — the successor-CIK block (``successor_cik.report_lines``): NEW rows loud, known ones one quiet line.
     """
     appended = sum(1 for r in results if r.recorded)
     unchanged = sum(1 for r in results if r.recorded is False)
@@ -1340,6 +1370,10 @@ def _report(
             )
     if split is not None:
         for line in split_report_lines(split):
+            print(line)
+    # T7 — the successor-CIK block: NEW rows loud, known ones one quiet line, a failed scan loud
+    if successor is not None:
+        for line in successor_report_lines(successor):
             print(line)
     # T3 — the EXPECTED price 404s (closed / acknowledged names), deduped across theses: ONE quiet line
     expected: dict[UUID, ExpectedPriceMiss] = {}
@@ -1562,6 +1596,7 @@ def main(argv: list[str] | None = None) -> None:
         name_errors_evaluated=outcome.name_errors_evaluated,
         split=outcome.split,
         probe=outcome.rename_probe,
+        successor=outcome.successor,
     )  # the per-thesis summary + the errored count, printed either way
     # F4 — WHAT A NON-ZERO EXIT MEANS TO A WRAPPER: this night has NO call-of-record at all (the pass
     # crashed, or every thesis was withheld/errored for a real reason). It no longer means "some thesis

@@ -381,11 +381,110 @@ def set_name(
     ``populate_universe``'s name refresh (the id stays stable; nothing reads the master as-of). Written
     ONLY by an operator's price-feed Adopt (refreshing a renamed company's name from EDGAR's current entity
     name) and by that Adopt's exact Undo (restoring the prior name verbatim), both recorded in
-    ``price_symbol_change``. Never a fact, never a call input. The caller commits."""
+    ``price_symbol_change`` — and by the successor-CIK Adopt (T7, the successor's entity name), recorded in
+    ``security_cik_change`` (its Undo restores the name through ``restore_cik_identity``). Never a fact,
+    never a call input. The caller commits."""
     with conn.cursor() as cur:
         cur.execute(
             "UPDATE security_master SET name = %s WHERE tenant_id = %s AND id = %s",
             (name, tenant_id, security_id),
+        )
+        return cur.rowcount > 0
+
+
+# The columns an operator CIK RE-POINT touches (T7, migration 0049): the CIK itself, the display name, and
+# every submissions-sourced identity column ``enrich`` writes (the CIK-dependent ones — a successor issuer's
+# filer forms, incorporation, address and category are not its predecessor's). The change log records the
+# prior and new value of EACH, so an undo restores all of them verbatim (``restore_cik_identity``).
+CIK_IDENTITY_COLUMNS = (
+    "cik",
+    "name",
+    "sector",
+    "exchange",
+    "status",
+    "category",
+    "incorporation",
+    "business_city",
+    "business_country",
+    "files_foreign_forms",
+    "files_domestic_forms",
+    "recent_foreign_form",
+    "enriched_source",
+    "enriched_at",
+)
+_CIK_IDENTITY_SELECT = ", ".join(CIK_IDENTITY_COLUMNS)
+_CIK_IDENTITY_SET = ", ".join(f"{c} = %({c})s" for c in CIK_IDENTITY_COLUMNS)
+
+
+def cik_identity_of(
+    conn: psycopg.Connection,
+    security_id: UUID,
+    *,
+    tenant_id: UUID = DEFAULT_TENANT_ID,
+    lock: bool = False,
+) -> dict | None:
+    """The master's current values of ``CIK_IDENTITY_COLUMNS`` (plus ``ticker``) for one row, as stored —
+    ``None`` for an unknown / foreign id. ``lock=True`` takes the row ``FOR UPDATE`` for the caller's
+    transaction (the CIK change log's writes serialize on it). Read-only otherwise."""
+    with conn.cursor() as cur:
+        cur.execute(
+            f"SELECT ticker, {_CIK_IDENTITY_SELECT} FROM security_master "  # noqa: S608 — module constant
+            f"WHERE tenant_id = %s AND id = %s{' FOR UPDATE' if lock else ''}",
+            (tenant_id, security_id),
+        )
+        row = cur.fetchone()
+    return dict(row) if row else None
+
+
+def set_cik(
+    conn: psycopg.Connection,
+    security_id: UUID,
+    cik: str,
+    *,
+    tenant_id: UUID = DEFAULT_TENANT_ID,
+) -> bool:
+    """RE-POINT one master row's ``cik`` IN PLACE (T7) — the ONE writer that changes a stored CIK. Written
+    ONLY by the operator's successor-CIK Adopt (``repositories/cik_change_repo.adopt``), which records the
+    prior value for an exact Undo; nothing automatic ever calls it (#3).
+
+    In place is the point: the row id stays, so the price tape, every fact row, the basket links and the
+    sign-off all stay attached (8+ tables FK ``security_id``), and the filing legs read the successor's
+    submissions from the next pass. NOT ``populate_universe``: it keys on ``(cik, ticker)`` and would insert
+    a second row for the successor instead. The same identity-mutable UPDATE as ``set_price_symbol`` /
+    ``enrich`` (nothing reads the master as-of). ``cik`` must be the 10-digit zero-padded form the master
+    stores (``ValueError`` otherwise, before any write). Returns whether a row was updated (fail-closed under
+    a foreign tenant). The caller commits."""
+    if not (isinstance(cik, str) and len(cik) == 10 and cik.isdigit() and int(cik) > 0):
+        raise ValueError(f"a CIK must be 10 zero-padded digits, got {cik!r}")
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE security_master SET cik = %s WHERE tenant_id = %s AND id = %s",
+            (cik, tenant_id, security_id),
+        )
+        return cur.rowcount > 0
+
+
+def restore_cik_identity(
+    conn: psycopg.Connection,
+    security_id: UUID,
+    values: dict,
+    *,
+    tenant_id: UUID = DEFAULT_TENANT_ID,
+) -> bool:
+    """Put back a PRIOR set of ``CIK_IDENTITY_COLUMNS`` values VERBATIM — the exact-undo writer for the CIK
+    change log (``repositories/cik_change_repo.undo``, migration 0049). Every column is written as given
+    (``values`` must carry all of them — ``KeyError`` otherwise, before any write): no normalization and no
+    COALESCE, because these are the values READ from this very row before the change being undone, so writing
+    them as-is is what makes the undo byte-exact (``enrich``'s exchange fill-if-null could not restore a NULL).
+    Same identity-mutable UPDATE as its siblings. Returns whether a row was updated (fail-closed under a
+    foreign tenant). The caller commits."""
+    params = {c: values[c] for c in CIK_IDENTITY_COLUMNS}
+    params.update(tenant=tenant_id, sid=security_id)
+    with conn.cursor() as cur:
+        cur.execute(
+            f"UPDATE security_master SET {_CIK_IDENTITY_SET} "  # noqa: S608 — module constant
+            "WHERE tenant_id = %(tenant)s AND id = %(sid)s",
+            params,
         )
         return cur.rowcount > 0
 

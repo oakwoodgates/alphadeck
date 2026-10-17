@@ -2443,6 +2443,104 @@
         }
       }
     },
+    "/admin/price-feed/{security_id}/adopt-cik": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Adopt Successor Cik",
+        "description": "ADOPT a member's SUCCESSOR CIK \u2014 the operator's ratification of the nightly successor-CIK detector\n(the CIK we store lists no tickers; SEC's ticker map assigns our symbol to this registrant). Only the\nCIK the detector RECOMMENDED on the newest pass that scanned is accepted. Re-points\n``security_master.cik`` IN PLACE (the row id stays \u2014 tape, facts, basket links and sign-off are kept)\nand refreshes the CIK-dependent identity from the successor's submissions the detector already read\n(``master.enrich`` over ``parse_identity`` \u2014 the ``enrich_identity`` derivation \u2014 plus the entity name);\nthe click makes no network request. The change row records every touched column's prior value, so\n``POST /admin/price-feed/cik-changes/{id}/undo`` restores them exactly. The next nightly pass reads the\nsuccessor's filings. **404** unknown security, **409** no recommendation for this name / not the\nrecommended CIK / the successor was not read / the master moved since the pass / another master row\nalready holds that CIK, **422** a malformed CIK.",
+        "operationId": "adopt_successor_cik_admin_price_feed__security_id__adopt_cik_post",
+        "parameters": [
+          {
+            "name": "security_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Security Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminSuccessorCikIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminCikChangeOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/price-feed/cik-changes/{change_id}/undo": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Undo Cik Change",
+        "description": "UNDO a successor-CIK Adopt \u2014 restore the master's prior CIK, name and every identity column the Adopt\nrefreshed EXACTLY, appending an ``undo`` row (basis ``operator:undo``). Only the name's standing\nre-point, and only while the master still holds its values. **404** unknown change, **409** already\nundone / a later change stands / the master moved since.",
+        "operationId": "undo_cik_change_admin_price_feed_cik_changes__change_id__undo_post",
+        "parameters": [
+          {
+            "name": "change_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Change Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminCikChangeOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/radar/spac": {
       "get": {
         "tags": [
@@ -2899,6 +2997,114 @@
         "title": "AdminAuditCheckOut",
         "description": "One check of a pass's nightly SELF-AUDIT (V1, ``pipeline/self_audit.py``), as the artifact recorded\nit. ``ok`` is ``true`` (checked, holds), ``false`` (checked, FAILS \u2014 it paged and makes the verdict\n``unhealthy``) or ``null`` (NOT APPLICABLE to that pass \u2014 e.g. a daytime manual pass cannot leave the\nnight's on-time row; never read as a pass). ``detail`` is plain English with counts and short ids, never\na thesis name."
       },
+      "AdminCikChangeOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "prior_cik": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prior Cik"
+          },
+          "new_cik": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Cik"
+          },
+          "prior_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prior Name"
+          },
+          "new_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Name"
+          },
+          "basis": {
+            "type": "string",
+            "title": "Basis"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "undoable": {
+            "type": "boolean",
+            "title": "Undoable",
+            "default": false
+          },
+          "current_cik": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Cik"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "security_id",
+          "action",
+          "basis",
+          "created_at"
+        ],
+        "title": "AdminCikChangeOut",
+        "description": "One operator successor-CIK re-point (``security_cik_change``, migration 0049): an ``adopt`` or the\n``undo`` of one. ``prior_cik`` / ``new_cik`` and ``prior_name`` / ``new_name`` are the headline values;\nthe row also stores every touched identity column's prior + new value \u2014 what makes the undo exact.\n``basis`` names the author (``operator:adopt-cik`` / ``operator:undo``). ``undoable`` (a standing adopt\nonly) = the master still holds this change's new values; ``current_cik`` is the master's CIK now."
+      },
       "AdminCronOut": {
         "properties": {
           "status": {
@@ -2933,6 +3139,39 @@
         ],
         "title": "AdminCronOut",
         "description": "The one-word cron verdict + a plain-English detail. ``unhealthy`` (the LAST run froze / errored /\nwithheld on total ingest failure / failed to refresh the benchmark tape) is deliberately its own\nLOUD state, peer to ``stale`` \u2014 a bad run\nmust read as loud as a missing one, never hide behind green (the R1 freeze lesson). A benign\n``--no-live`` dev run is NOT unhealthy. ``never_ran`` = no run artifact at all (quiet). ``gappy`` =\nthe edge is current and the last run clean, but the recent window has a night with NO call-of-record\n(a wrong-day fire) \u2014 as loud as ``stale``. Priority: never_ran > unhealthy > stale > gappy > healthy.\n\n``alarms`` (Phase 1B) are the STATUS-level alarms that are not one run's health, each a plain-English\nline, and any of them makes the verdict ``unhealthy`` (they are listed even under ``never_ran``): the\ncron's last pass ran with an UNKNOWN ``code_sha``; the cron's sha differs from this backend's own (an\nimage left stale by a partial rebuild) or the backend's own is unknown \u2014 compared only for a cron pass\nthat started after this backend process did, so a full deploy does not read ``unhealthy`` until the\nnight's pass confirms it; the last live pass paged\nthrough the LOG notifier (``SLACK_WEBHOOK_URL`` unset \u2014 a bad night pages nobody) or ran with\n``ALPHADECK_USER_AGENT`` unset; the newest unlabeled DB dump is older than\n``ALPHADECK_BACKUP_STALE_HOURS`` in schedule time (B4 \u2014 only on a stack whose run history shows the cron\nsidecar, where a nightly dump is expected). ``[]`` on a clean stack.\n\nM1 adds three alarms and one verdict. Alarms: **the last pass did not finish** (the newest artifact still\nreads ``running`` past the run timeout \u2014 killed or hung), **the last pass crashed** (``crashed``), and\n**rows without a run artifact** (a night has post-``RUN_AT`` rows but no pass artifact at all for it).\n``gappy`` now also covers a PARTIAL night (``record.partial_nights``). ``running`` = a pass is in flight\ninside its timeout and nothing else is wrong; its own night is not judged until it finishes, so a\nhealthy pass mid-loop never reads partial or stale. Priority: never_ran > unhealthy > stale > gappy >\nrunning > healthy."
+      },
+      "AdminFilingRefOut": {
+        "properties": {
+          "form": {
+            "type": "string",
+            "title": "Form"
+          },
+          "filed": {
+            "type": "string",
+            "format": "date",
+            "title": "Filed"
+          },
+          "accession": {
+            "type": "string",
+            "title": "Accession"
+          },
+          "items": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Items",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "form",
+          "filed",
+          "accession"
+        ],
+        "title": "AdminFilingRefOut",
+        "description": "One filing named as evidence (T7): its form, FILING date, accession and \u2014 an 8-K-family form \u2014 the\nitem codes EDGAR resolved (``[]`` = none)."
       },
       "AdminFormerNameOut": {
         "properties": {
@@ -3167,11 +3406,55 @@
             "type": "integer",
             "title": "Expected Misses",
             "default": 0
+          },
+          "successor_asof": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Successor Asof"
+          },
+          "successor_evaluated": {
+            "type": "boolean",
+            "title": "Successor Evaluated",
+            "default": false
+          },
+          "successor_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Successor Error"
+          },
+          "successor": {
+            "items": {
+              "$ref": "#/components/schemas/AdminSuccessorRowOut"
+            },
+            "type": "array",
+            "title": "Successor",
+            "default": []
+          },
+          "cik_applied": {
+            "items": {
+              "$ref": "#/components/schemas/AdminCikChangeOut"
+            },
+            "type": "array",
+            "title": "Cik Applied",
+            "default": []
           }
         },
         "type": "object",
         "title": "AdminPriceRepairsOut",
-        "description": "The \"Price feed repairs\" panel (T2 + Q8 + T3): one place for every price-feed decision the operator\nowes or has made. The INVENTORY (``renamed`` / ``unpriceable`` / ``closed``) comes from the newest\nfinished, full-roster live run artifact that evaluated recency (``asof`` / ``ran_at``); the DECISIONS are\nread LIVE from the append-only repair log, so a click shows at once: an acknowledged name moves from\n``unpriceable`` to ``acknowledged``, an Adopt shows as the row's ``change`` with its Undo. Read-only.\n\n- ``renamed`` \u2014 loud: the splice-probed successors, each with Adopt (and Undo once adopted);\n- ``unpriceable`` \u2014 loud: never priced, not acknowledged \u2014 Set symbol / Acknowledge / Remove;\n- ``acknowledged`` \u2014 QUIET: every active acknowledgment, each revocable;\n- ``closed`` \u2014 QUIET: names that stopped trading (T1) \u2014 no repair; their vendor 404 is expected (T3);\n- ``applied`` \u2014 every STANDING operator price-symbol change, each with its Undo (the inverse stays\n  visible after the repair healed the tape and the name left the inventory, WB#1);\n- ``expected_misses`` \u2014 how many vendor 404s that pass excused as expected (closed / acknowledged).\n``probe_error`` = the rename probe failed on that pass (``renamed`` rows then carry no verdict)."
+        "description": "The \"Price feed repairs\" panel (T2 + Q8 + T3 + T7): one place for every feed decision the operator\nowes or has made. The INVENTORY (``renamed`` / ``unpriceable`` / ``closed``) comes from the newest\nfinished, full-roster live run artifact that evaluated recency (``asof`` / ``ran_at``); the DECISIONS are\nread LIVE from the append-only repair logs, so a click shows at once: an acknowledged name moves from\n``unpriceable`` to ``acknowledged``, an Adopt shows as the row's ``change`` with its Undo. Read-only.\n\n- ``renamed`` \u2014 loud: the splice-probed successors, each with Adopt (and Undo once adopted);\n- ``unpriceable`` \u2014 loud: never priced, not acknowledged \u2014 Set symbol / Acknowledge / Remove;\n- ``acknowledged`` \u2014 QUIET: every active acknowledgment, each revocable;\n- ``closed`` \u2014 QUIET: names that stopped trading (T1) \u2014 no repair; their vendor 404 is expected (T3);\n- ``applied`` \u2014 every STANDING operator price-symbol change, each with its Undo (the inverse stays\n  visible after the repair healed the tape and the name left the inventory, WB#1);\n- ``expected_misses`` \u2014 how many vendor 404s that pass excused as expected (closed / acknowledged);\n- ``successor`` (T7) \u2014 loud: members whose company now files under a NEW CIK (the filing legs read the\n  dead one), each with its recommended successor to Adopt (and Undo once adopted). From the newest\n  finished, full-roster live artifact whose successor scan RAN (``successor_asof``);\n- ``cik_applied`` (T7) \u2014 every STANDING successor-CIK re-point, each with its Undo (WB#1).\n``probe_error`` = the rename probe failed on that pass (``renamed`` rows then carry no verdict);\n``successor_error`` = the newest live pass's successor scan failed (its rows then are the last good\npass's, or none)."
       },
       "AdminPriceSymbolChangeOut": {
         "properties": {
@@ -4281,7 +4564,246 @@
           "cron"
         ],
         "title": "AdminStatusOut",
-        "description": "The admin page's one-GET summary: record freshness + the newest run + the cron verdict + the\nnewest DB snapshot + the feed-freshness panel. READ-ONLY \u2014 the endpoint owns no tables and writes\nnothing (test-proved; the ``last_backup`` join is a pure directory read, and ``tape`` is read from\nthe run artifacts). ``last_backup`` is ``None`` = the quiet \"no snapshots yet\" state; ``tape`` is\n``None`` until a pass has evaluated feed recency (the quiet \"not looked yet\" state).\n\n``backend_sha`` is this backend's OWN ``Settings.image_sha`` (``null`` = built without ``GIT_SHA``) and\n``cron_sha`` the ``code_sha`` the newest CRON-kind run artifact recorded (``null`` = unknown, or no\ncron pass has recorded its identity yet) \u2014 the pair the identity alarm compares (I1). The latest\nself-audit rides ``last_run.audit``.\n\nM1: ``last_run`` is the newest FINISHED pass (a pre-M1 artifact counts as finished); when the newest\nartifact is a pass that has not finished, ``unfinished_run`` describes it (``null`` otherwise).\n\n``split_defects`` (T4) is the split-basis panel \u2014 ``null`` until a finished, full-roster pass has\nscanned; a defect is a FEED problem (flag only), so it never changes ``cron.status``.\n\n``price_repairs`` (T2 + Q8 + T3) is the \"Price feed repairs\" panel \u2014 renamed names with their\nsplice-verified successors to Adopt, unpriceable names to Set / Acknowledge / Remove, the quiet closed\nand acknowledged names, and every standing operator repair with its Undo. A feed matter, never the\ncron verdict."
+        "description": "The admin page's one-GET summary: record freshness + the newest run + the cron verdict + the\nnewest DB snapshot + the feed-freshness panel. READ-ONLY \u2014 the endpoint owns no tables and writes\nnothing (test-proved; the ``last_backup`` join is a pure directory read, and ``tape`` is read from\nthe run artifacts). ``last_backup`` is ``None`` = the quiet \"no snapshots yet\" state; ``tape`` is\n``None`` until a pass has evaluated feed recency (the quiet \"not looked yet\" state).\n\n``backend_sha`` is this backend's OWN ``Settings.image_sha`` (``null`` = built without ``GIT_SHA``) and\n``cron_sha`` the ``code_sha`` the newest CRON-kind run artifact recorded (``null`` = unknown, or no\ncron pass has recorded its identity yet) \u2014 the pair the identity alarm compares (I1). The latest\nself-audit rides ``last_run.audit``.\n\nM1: ``last_run`` is the newest FINISHED pass (a pre-M1 artifact counts as finished); when the newest\nartifact is a pass that has not finished, ``unfinished_run`` describes it (``null`` otherwise).\n\n``split_defects`` (T4) is the split-basis panel \u2014 ``null`` until a finished, full-roster pass has\nscanned; a defect is a FEED problem (flag only), so it never changes ``cron.status``.\n\n``price_repairs`` (T2 + Q8 + T3 + T7) is the \"Price feed repairs\" panel \u2014 renamed names with their\nsplice-verified successors to Adopt, unpriceable names to Set / Acknowledge / Remove, members whose\ncompany now files under a successor CIK to Adopt, the quiet closed and acknowledged names, and every\nstanding operator repair with its Undo. A feed matter, never the cron verdict."
+      },
+      "AdminSuccessorCandidateOut": {
+        "properties": {
+          "cik": {
+            "type": "string",
+            "title": "Cik"
+          },
+          "matched_on": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Matched On",
+            "default": []
+          },
+          "entity_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity Name"
+          },
+          "edgar_tickers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Edgar Tickers",
+            "default": []
+          },
+          "former_names": {
+            "items": {
+              "$ref": "#/components/schemas/AdminFormerNameOut"
+            },
+            "type": "array",
+            "title": "Former Names",
+            "default": []
+          },
+          "succession_filings": {
+            "items": {
+              "$ref": "#/components/schemas/AdminFilingRefOut"
+            },
+            "type": "array",
+            "title": "Succession Filings",
+            "default": []
+          },
+          "identity_read": {
+            "type": "boolean",
+            "title": "Identity Read",
+            "default": false
+          },
+          "recent_foreign_form": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recent Foreign Form"
+          },
+          "files_domestic_forms": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Files Domestic Forms"
+          },
+          "incorporation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Incorporation"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "cik"
+        ],
+        "title": "AdminSuccessorCandidateOut",
+        "description": "One CIK SEC's ticker map now assigns the member's symbol to (T7), with the evidence read from ITS\nsubmissions on that pass: ``matched_on`` = our symbols the map assigns to it; ``entity_name`` /\n``former_names`` / ``edgar_tickers`` = who EDGAR says it is; ``succession_filings`` = its 8-K12B /\n8-K12G3 (the successor-issuer report). ``recent_foreign_form`` / ``files_domestic_forms`` /\n``incorporation`` preview the identity an Adopt applies (``identity_read`` false = the successor's\nsubmissions could not be read that night \u2014 then ``error`` says why and the row is not adoptable)."
+      },
+      "AdminSuccessorCikIn": {
+        "properties": {
+          "cik": {
+            "type": "string",
+            "maxLength": 16,
+            "minLength": 1,
+            "title": "Cik"
+          }
+        },
+        "type": "object",
+        "required": [
+          "cik"
+        ],
+        "title": "AdminSuccessorCikIn",
+        "description": "The successor CIK the operator adopts (T7) \u2014 digits, with or without the zero padding; it must be\nthe CIK the nightly detector recommended for the name."
+      },
+      "AdminSuccessorRowOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "theses": {
+            "items": {
+              "$ref": "#/components/schemas/AdminThesisRefOut"
+            },
+            "type": "array",
+            "title": "Theses",
+            "default": []
+          },
+          "stored_cik": {
+            "type": "string",
+            "title": "Stored Cik"
+          },
+          "master_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Master Name"
+          },
+          "old_entity_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Old Entity Name"
+          },
+          "old_former_names": {
+            "items": {
+              "$ref": "#/components/schemas/AdminFormerNameOut"
+            },
+            "type": "array",
+            "title": "Old Former Names",
+            "default": []
+          },
+          "deregistrations": {
+            "items": {
+              "$ref": "#/components/schemas/AdminFilingRefOut"
+            },
+            "type": "array",
+            "title": "Deregistrations",
+            "default": []
+          },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/AdminSuccessorCandidateOut"
+            },
+            "type": "array",
+            "title": "Candidates",
+            "default": []
+          },
+          "recommended": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recommended"
+          },
+          "current_cik": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Cik"
+          },
+          "change": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdminCikChangeOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "stored_cik"
+        ],
+        "title": "AdminSuccessorRowOut",
+        "description": "A basket member whose company now files under a NEW CIK (T7's detector): the CIK the master holds\nlists no tickers on EDGAR, and SEC's ticker map assigns the member's symbol to another registrant \u2014 a\npending RECOMMENDATION; nothing is applied until the operator clicks Adopt. ``stored_cik`` and the OLD\nCIK's evidence (``old_entity_name``, ``old_former_names``, its ``deregistrations`` \u2014 15-12B / 15-12G /\n15-15D) sit beside each ``candidates`` entry's. ``recommended`` = the one candidate (``null`` when the\nmap is ambiguous \u2014 shown, not adoptable). ``current_cik`` is the master's CIK now; ``change`` the\nstanding operator re-point for this name (an Adopt waiting for the next pass, with its Undo)."
       },
       "AdminTapeOut": {
         "properties": {

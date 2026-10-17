@@ -79,6 +79,7 @@ from pipeline.schedule import (
     scheduled_window,
 )
 from pipeline.split_basis import new_labels_of as split_new_labels
+from pipeline.successor_cik import new_labels_of as successor_new_labels
 from repositories import calls_repo
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -156,6 +157,14 @@ def _problems(health: HealthEvent | None) -> list[str]:
             f"{len(health.split_defects_new)} NEW split-basis defect(s): "
             f"{', '.join(health.split_defects_new)} — a vendor tape defect, flag only, {_BENIGN_MARK} "
             "in this run"
+        )
+    # T7 — a member NEWLY found filing under a successor CIK: a data gap the operator's Adopt repairs, so
+    # benign-marked like a stale feed (it paged; the standing list lives on the Price feed repairs panel)
+    if health.successor_cik_new:
+        out.append(
+            f"{len(health.successor_cik_new)} name(s) now file under a NEW CIK: "
+            f"{', '.join(health.successor_cik_new)} — Adopt on the Price feed repairs panel, "
+            f"{_BENIGN_MARK} in this run"
         )
     return out
 
@@ -245,6 +254,8 @@ def _admin_run_out(payload: dict) -> AdminRunOut:
         name_errors_new=name_errors_new,
         audit_failed=audit_failed,
         split_defects_new=split_defects_new,
+        # T7 — re-derive the successor-CIK page, so the history shows the same page the run emitted
+        successor_cik_new=successor_new_labels(payload),
     )
     summary = payload["summary"]
     return AdminRunOut(

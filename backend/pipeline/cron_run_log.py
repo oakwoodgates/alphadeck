@@ -53,6 +53,7 @@ from domain.feed_kinds import StaleFeedLabel, feed_kind
 from pipeline.name_errors import NameIngestError, name_errors_of
 from pipeline.rename_probe import RenameProbe
 from pipeline.split_basis import SplitScan, defect_keys_of
+from pipeline.successor_cik import SuccessorScan
 
 if TYPE_CHECKING:  # avoid importing the pipeline module at import time (keeps the layering one-way)
     from pipeline.daily import ThesisRunResult
@@ -235,6 +236,7 @@ def build_run_payload(
     audit: Sequence[AuditResult] = (),
     split: SplitScan | None = None,
     rename_probe: RenameProbe | None = None,
+    successor: SuccessorScan | None = None,
 ) -> dict:
     """The run-of-record payload — PURE (no I/O), extracted from the artifact writer so the admin
     "run now" job can shape its poll result IDENTICALLY to a parsed artifact (one schema, two readers).
@@ -324,6 +326,13 @@ def build_run_payload(
     operator's "keep it, unpriced" — quiet, never paged); each thesis carries `expected_price_misses`
     (`[{security_id, ticker, reason, error}]` — the vendor 404s T3 excused as expected, `reason` `closed` or
     `acknowledged`). An artifact written before these keys reads them absent / false / empty (`.get`).
+
+    T7 — THE SUCCESSOR-CIK DETECTOR. `successor_cik` (`pipeline/successor_cik.SuccessorScan.payload`) —
+    `{evaluated, error, judged, no_ticker, fetches, duration_s, rows: [{security_id, ticker, stored_cik,
+    candidates: [{cik, entity_name, succession_filings, identity, ...}], recommended, deregistrations, key,
+    label, ...}], new: [{key, label}]}` — the members whose company now files under another CIK (a pending
+    recommendation the Admin panel offers for the operator's Adopt), and `new` = what PAGED. `successor=None`
+    writes the not-evaluated block; readers use `.get`.
     """
     recorded = sum(1 for r in results if r.recorded)
     edgar_fetches = sum(r.edgar_fetches for r in results)
@@ -353,6 +362,8 @@ def build_run_payload(
         **(split or SplitScan()).payload(),
         # T2 — the rename probe: splice-verified successor recommendations (pending; never applied)
         **(rename_probe or RenameProbe()).payload(),
+        # T7 — the successor-CIK detector: members now filing under another CIK (pending; never applied)
+        **(successor or SuccessorScan()).payload(),
         # THE FREEZE DETECTOR: total EDGAR network pulls this run. A frozen index and a healthy
         # nothing-filed night both show 0 new facts — this is the number that differs. 0 on a `live`
         # run = the cache never refreshed = a freeze (R4 pages on it); a healthy night is in the hundreds.
@@ -481,6 +492,7 @@ def write_cron_run_log(
     audit: Sequence[AuditResult] = (),
     split: SplitScan | None = None,
     rename_probe: RenameProbe | None = None,
+    successor: SuccessorScan | None = None,
 ) -> Path | None:
     """Dump one cron pass (``build_run_payload``, above — the payload's meaning lives there) to
     ``<base>/<utc-timestamp>.json``; return the path (or ``None`` fail-open). The whole write — payload
@@ -514,6 +526,7 @@ def write_cron_run_log(
             audit=audit,
             split=split,
             rename_probe=rename_probe,
+            successor=successor,
         )
         run_dir = base_dir or _DEFAULT_CRON_RUNS
         run_dir.mkdir(parents=True, exist_ok=True)

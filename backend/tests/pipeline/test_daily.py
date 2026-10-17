@@ -31,6 +31,7 @@ from pipeline.cron_run_log import write_cron_run_log
 from pipeline.ingest_thesis import NameResult
 from pipeline.rename_probe import RenameProbe
 from pipeline.split_basis import SplitScan
+from pipeline.successor_cik import SuccessorScan
 from repositories import calls_repo, price_feed_repo
 from tests import price_feed_fixtures as fx
 
@@ -740,6 +741,9 @@ def _prime_pass(monkeypatch, *, bench_raises=False, fund_raises=False, sweep_rai
     # the T2 rename probe reads the price TABLE and fetches the vendor — DB- and network-free here; proved
     # on a real DB with a fake source in tests/pipeline/test_rename_probe.py
     monkeypatch.setattr(daily, "run_rename_probe", lambda **k: RenameProbe(evaluated=True))
+    # the T7 successor-CIK scan reads the master and fetches SEC's ticker map — DB- and network-free here;
+    # proved on a real DB with fixture EDGAR clients in tests/pipeline/test_successor_cik.py
+    monkeypatch.setattr(daily, "run_successor_scan", lambda **k: SuccessorScan(evaluated=True))
 
     def _radar(conn, **k):
         order.append("spac_radar")
@@ -2634,6 +2638,104 @@ def test_pass_threads_the_RENAME_probe_to_the_artifact(monkeypatch):
     assert seen["probe"]["results"] is results and seen["probe"]["connect"] is daily._pass_connect
     assert seen["probe"]["asof"] == _OCT16 and seen["probe"]["allow_live"] is True
     assert out.rename_probe is probe and seen["log"]["rename_probe"] is probe
+
+
+# --- T7: the successor-CIK detector on the pass ---------------------------------------------------------
+# The REAL measured case (tests/fixtures/edgar/successor_cik_2026_10.json): UROY's stored CIK 0001711570
+# lists no tickers; SEC's map assigns UROY to 0002143673 (8-K12B 2026-07-28). The scan itself is proved on
+# a real DB in tests/pipeline/test_successor_cik.py; these prove the pass's wiring.
+
+
+def _uroy_row(sid):
+    from pipeline.successor_cik import SuccessorCandidate, SuccessorRow
+
+    return SuccessorRow(
+        security_id=sid,
+        ticker="UROY",
+        price_symbol=None,
+        stored_cik="0001711570",
+        master_name="Uranium Royalty Corp.",
+        candidates=(SuccessorCandidate(cik="0002143673", matched_on=("UROY",)),),
+    )
+
+
+def test_pass_threads_the_SUCCESSOR_scan_to_the_artifact_the_outcome_and_the_page(monkeypatch):
+    _prime_pass(monkeypatch)
+    row = _uroy_row(uuid.uuid4())
+    scan = SuccessorScan(evaluated=True, rows=(row,), new=(row,), judged=1, no_ticker=1)
+    results = _thesis_result_with([])
+    seen: dict = {}
+
+    def _scan(**kw):
+        seen["scan"] = kw
+        return scan
+
+    real_assess = daily.assess_health
+
+    def _assess(r, **kw):
+        seen["page"] = kw.get("successor_cik_new")
+        return real_assess(r, **kw)
+
+    monkeypatch.setattr(daily, "run_daily", lambda conn, **k: results)
+    monkeypatch.setattr(daily, "run_successor_scan", _scan)
+    monkeypatch.setattr(daily, "write_cron_run_log", lambda r, **kw: seen.update(log=kw))
+    monkeypatch.setattr(daily, "assess_health", _assess)
+
+    out = daily.run_daily_pass(asof=_OCT16, allow_live=True, notifier=_Silent())
+
+    assert seen["scan"]["results"] is results and seen["scan"]["connect"] is daily._pass_connect
+    assert seen["scan"]["allow_live"] is True
+    assert seen["scan"]["previous"] is daily.previous_successor_keys
+    assert out.successor is scan and seen["log"]["successor"] is scan
+    assert seen["page"] == ("UROY -> CIK 0002143673",)
+
+
+def test_pass_pages_a_NEW_successor_ONCE_and_a_KNOWN_one_never(monkeypatch, tmp_path):
+    """Across passes with the REAL artifact writer and the REAL baseline reader (the stubbed scan applies
+    the pass's own ``previous``): UROY pages the first night, is silent the next."""
+    sid = uuid.uuid4()
+    pages: list = []
+
+    class _Pager(_Silent):
+        def notify_health(self, event):
+            pages.append(event)
+
+    def _scan(**kw):
+        row = _uroy_row(sid)
+        prior = kw["previous"]()
+        return SuccessorScan(
+            evaluated=True,
+            rows=(row,),
+            new=(row,) if prior is None or row.key not in prior else (),
+        )
+
+    _prime_pass(monkeypatch)
+    monkeypatch.setattr(cron_run_log, "_DEFAULT_CRON_RUNS", tmp_path)
+    monkeypatch.setattr(daily, "write_cron_run_log", cron_run_log.write_cron_run_log)  # REAL writer
+    monkeypatch.setattr(daily, "run_daily", lambda conn, **k: _thesis_result_with([]))
+    monkeypatch.setattr(daily, "run_successor_scan", _scan)
+
+    daily.run_daily_pass(asof=_OCT16, allow_live=True, notifier=_Pager())
+    daily.run_daily_pass(asof=_OCT16, allow_live=True, notifier=_Pager())
+
+    successor_pages = [p.successor_cik_new for p in pages if p.successor_cik_new]
+    assert successor_pages == [("UROY -> CIK 0002143673",)]  # ONCE
+    # the newest artifact (two passes inside one second share a file name — the later one wins) still
+    # carries the known row: on the artifact and the Admin panel, just not paged again
+    newest = cron_run_log.list_run_logs(base_dir=tmp_path)[0]["successor_cik"]
+    assert len(newest["rows"]) == 1 and newest["new"] == []
+
+
+def test_report_prints_NEW_successors_loud_and_KNOWN_ones_quiet(capsys):
+    from pipeline.successor_cik import report_lines
+
+    a, b = _uroy_row(uuid.uuid4()), _uroy_row(uuid.uuid4())
+    res = daily.ThesisRunResult(thesis_id=uuid.uuid4(), name="T", recorded=False)
+    daily._report([res], successor=SuccessorScan(evaluated=True, rows=(a, b), new=(a,)))
+    out = capsys.readouterr().out
+    assert "SUCCESSOR CIK — NEW" in out and "  UROY -> CIK 0002143673" in out
+    assert "1 known successor-CIK name(s) awaiting the operator's Adopt" in out
+    assert report_lines(SuccessorScan(evaluated=True)) == []
 
 
 def test_report_carries_the_probe_verdict_and_the_QUIET_lines(capsys):

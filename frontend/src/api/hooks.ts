@@ -1298,6 +1298,35 @@ export function useRevokeAcknowledgment() {
   });
 }
 
+// --- Successor CIK (T7): a member whose company now files under a NEW CIK ---
+export type AdminSuccessorRowOut = components["schemas"]["AdminSuccessorRowOut"];
+export type AdminSuccessorCandidateOut = components["schemas"]["AdminSuccessorCandidateOut"];
+export type AdminCikChangeOut = components["schemas"]["AdminCikChangeOut"];
+export type AdminFilingRefOut = components["schemas"]["AdminFilingRefOut"];
+
+// ADOPT the detector's recommended successor CIK (re-points security_master.cik in place; Undo restores it).
+export function useAdoptSuccessorCik() {
+  return useAdminRepair(async (vars: { securityId: string; cik: string }) => {
+    const { data, error } = await api.POST("/admin/price-feed/{security_id}/adopt-cik", {
+      params: { path: { security_id: vars.securityId } },
+      body: { cik: vars.cik },
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
+// UNDO a successor-CIK Adopt — the exact restore of the prior CIK, name and identity.
+export function useUndoCikChange() {
+  return useAdminRepair(async (vars: { changeId: string }) => {
+    const { data, error } = await api.POST("/admin/price-feed/cik-changes/{change_id}/undo", {
+      params: { path: { change_id: vars.changeId } },
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
 // --- Backups (Slice 4): the operator DB-snapshot button — create + list (NEVER restore) ---
 export type BackupOut = components["schemas"]["BackupOut"];
 export type BackupsOut = components["schemas"]["BackupsOut"];
