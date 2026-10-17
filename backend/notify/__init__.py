@@ -140,6 +140,11 @@ class HealthEvent:
     # V1 — the nightly self-audit's FAILED checks, each ``"<check>: <detail>"`` (counts / ids, never thesis
     # names). A real alarm: the audit failing means the pass did not leave the night the record it claims.
     audit_failed: tuple[str, ...] = ()
+    # T4 — split-basis defects (``pipeline/split_basis.py``) NEW since the previous evaluated pass, each a
+    # ``"<ticker or id> <kind> x<factor> (<date>)"`` label. A vendor TAPE defect, flag only — the call is
+    # unchanged — so it is benign-class like a stale feed: it pages once, never re-pages a known defect,
+    # and never makes the Admin verdict unhealthy.
+    split_defects_new: tuple[str, ...] = ()
 
     @property
     def withheld(self) -> int:
@@ -190,6 +195,14 @@ class HealthEvent:
         # (no breakout, no SMA flip, no RVOL — and no price-based de-arm), and a dead fund-shares sample
         # takes the sleeve's flow read quiet with it.
         bits.extend(f"{bit} — not a cron error" for bit in stale_feed_bits(self.tape_stale_new))
+        # T4 — a price tape that mixes split bases (a half-adjusted island, an unadjusted reverse split, a
+        # vendor flapping a bar's basis): a feed defect the operator should see before trusting that name's
+        # price triggers. Flag only — nothing was changed in the call.
+        if self.split_defects_new:
+            bits.append(
+                f"{len(self.split_defects_new)} NEW split-basis defect(s) on price tapes: "
+                f"{', '.join(self.split_defects_new)} — flag only (the call is unchanged), not a cron error"
+            )
         return f"cron {self.asof}: " + " · ".join(bits)
 
 

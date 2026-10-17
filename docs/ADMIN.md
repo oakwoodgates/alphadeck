@@ -191,6 +191,39 @@ the leg reports success and the series stands still.
   stops, and today very few baskets hold an ETF sleeve at all — the monitor exists so the sleeve can grow
   without re-opening the same silent-end gap the price tape had.
 
+### Split-basis defects — "is every tape on ONE split basis?"  `[BUILT, T4]`
+
+A tape can be fed every night and still be wrong: the vendor re-bases a name's history on a split, and
+sometimes serves it HALF-adjusted or flips a bar between bases from one pull to the next. The stored tape
+then mixes two bases, and a basis cliff reads as a +1,800% breakout. The nightly pass scans the basket's
+stored tapes for it (`pipeline/split_basis.py`; the rule, its thresholds and the measured precision are in
+`FEED_LOOP.md` §the tape monitor, part 2) and `/admin/status` carries the result as `split_defects`, read
+from the newest live artifact whose scan ran, from a pass that FINISHED (M1) and processed its full roster
+(M2 — the same pass the next night's diff reads) — artifact-sourced like the stopped-feed panel, so the
+surface still owns no tables:
+
+- **One row per name per kind**, each with its `factor` (the step: 20 for a 1-for-20 split), its `dates`
+  (the affected bars, at most the 12 newest; `events` is the full count) and its `kind`:
+  - **`island`** — a run of bars on another basis than both neighbors (the half-adjusted shape: VWAV's
+    09-15 / 09-16 unadjusted between adjusted bars);
+  - **`cliff`** — a lone UP step whose price stays up and volume stays down by about the same factor: a
+    reverse split the history before it never got;
+  - **`flap`** — a stored bar whose versions changed basis in both directions (the vendor flipped it and
+    flipped it back), the latest flip within 90 days.
+- **`newly_flagged`** are the labels that PAGED that night — new since the last finished, full-roster pass,
+  keyed on the kind and the security, so a standing defect never re-pages; the run row carries them too (`split_defects_new`, a
+  `problems` line with the benign marker).
+- **`error`** is set when the newest live pass's scan could not run; `defects` then still shows the last good
+  inventory, and its `asof` / `ran_at` say which pass that was. The self-audit fails on a scan that could not
+  run (an alarm), and **passes with defects present** — it reports the count (`split_defects_flagged`).
+- **`null`** until a pass has scanned (the quiet state right after deploy, and for a `--no-live`-only
+  history).
+- **It never changes the verdict.** A defect is a vendor tape problem, flag only: nothing it finds reaches a
+  detector, a call or a stored bar. What to do with a flagged name (treat its price triggers with suspicion;
+  whether detectors should abstain on it is an open decision, plan Q10) is yours. The Admin page renders the
+  rows under "Record freshness", loud, only when there is at least one, with a "NEW — paged on this pass"
+  marker on the rows that paged.
+
 This is the **same staleness the Scoreboard shows** (Slice 2, `SCOREBOARD.md`) — one contract
 (`pipeline/schedule.py`), two surfaces — both now feeding it `domain/market_time.market_now()` (an explicit
 `ZoneInfo`) rather than an ambient `datetime.now()`. *(Earmark, still open: `schedule.py` remains the second
@@ -289,7 +322,10 @@ from the run artifacts or the backups dir (the surface still writes nothing):
   that night's `RUN_AT` (counted in the `calls` table), the pass's `code_sha` is known, and every thesis the
   pass started finished. A **failed** check is an alarm (`SELF-AUDIT FAILED — …` in `problems`, the verdict
   `unhealthy`, and it paged); `ok: null` is **not applicable** (a daytime or `--no-live` pass) and is never
-  read as a pass.
+  read as a pass. **T4 adds `split_defects_flagged`**: the split-basis scan ran over tonight's tapes, so every
+  defect it can see is flagged — it reports the count, passes with defects present (there is no
+  "acknowledged" state, and failing on a standing defect would page nightly), and fails only when the scan
+  could not run.
 - **Per-name ingest errors (O1).** The artifact now keeps WHY each name errored, one row per failed leg.
   Names whose leg started failing since the previous live pass show as `name_errors_new` and a `problems`
   line with the **benign** marker (the thesis still recorded — not a cron fault); the known-failing ones are
@@ -374,7 +410,7 @@ the freeze it is adjacent to: `POSTMORTEM_CRON_FREEZE_2026-07.md`.
 
 | Endpoint | Shape | Notes |
 |---|---|---|
-| `GET /admin/status` | freshness + cron verdict + last-snapshot age | read-only; the page opens on it |
+| `GET /admin/status` | freshness + cron verdict + last-snapshot age + the stopped-feed and split-basis panels | read-only; the page opens on it |
 | `GET /admin/runs?limit=` | the run-of-record history, newest first | read-only file parse; skip-unreadable |
 | `POST /admin/run-daily` | **202** + `job_id` | the cron's exact unit; 409 when any process runs a pass (C1 lock) or the slot is busy; 503 DB unreachable |
 | `GET /admin/run-daily/jobs/{job_id}` | job status → run-history row | 404 → "lost from view", never a spinner |

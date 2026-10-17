@@ -271,6 +271,7 @@ def test_the_phase_1_checks_are_registered():
         "check_on_time_rows",
         "check_code_sha_known",
         "check_every_thesis_finished",
+        "check_split_defects_flagged",  # T4 — its branches are proved in tests/pipeline/test_split_basis.py
     ]
 
 
@@ -313,7 +314,15 @@ def test_the_PASS_writes_the_audit_into_the_artifact_and_PAGES_a_failure(db, mon
         get_settings.cache_clear()
 
     checks = {a.check: a for a in out.audit}
-    assert set(checks) == {"on_time_rows", "code_sha_known", "every_thesis_finished"}
+    assert set(checks) == {
+        "on_time_rows",
+        "code_sha_known",
+        "every_thesis_finished",
+        "split_defects_flagged",
+    }
+    assert (
+        checks["split_defects_flagged"].ok is True
+    )  # the real scan ran over the (clean) test tapes
     assert checks["code_sha_known"].ok is False
     doc = json.loads(next(tmp_path.glob("*.json")).read_text(encoding="utf-8"))
     assert {a["check"]: a["ok"] for a in doc["audit"]}["code_sha_known"] is False

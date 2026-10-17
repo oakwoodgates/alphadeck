@@ -57,6 +57,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timezone, tzinfo
 from pathlib import Path
+from time import perf_counter
 from uuid import UUID
 
 import psycopg
@@ -74,6 +75,7 @@ from pipeline.cron_run_log import (
     already_ran_live,
     mark_run_crashed,
     previous_name_errors,
+    previous_split_defects,
     previous_stale_tapes,
     write_cron_run_log,
     write_run_start,
@@ -89,6 +91,8 @@ from pipeline.run_lock import (
 )
 from pipeline.schedule import last_expected_asof, parse_run_at
 from pipeline.self_audit import AuditContext, AuditResult, failed_labels, run_audit
+from pipeline.split_basis import SplitScan, run_split_scan
+from pipeline.split_basis import report_lines as split_report_lines
 from pipeline.tape_health import StaleTape, stale_fund_shares, stale_tapes
 from repositories import calls_repo, thesis_repo
 from securities import master
@@ -508,6 +512,7 @@ def assess_health(
     tape_stale_new: tuple[StaleFeedLabel, ...] = (),
     name_errors_new: tuple[str, ...] = (),
     audit_failed: tuple[str, ...] = (),
+    split_defects_new: tuple[str, ...] = (),
 ) -> HealthEvent | None:
     """R4 — the run's pageable health, or None when the run was clean (loudness marks the exception). Unhealthy
     = a FREEZE (a live run whose EDGAR fetches summed to ZERO across present theses — the R1 cache-never-
@@ -550,6 +555,10 @@ def assess_health(
     V1 — ``audit_failed`` are the self-audit's FAILED checks (``self_audit.failed_labels``). A real alarm:
     the pass did not leave the night the record it claims (a thesis with no on-time row, an unknown
     ``code_sha``, a thesis it started and never finished). A not-applicable check never reaches here.
+
+    T4 — ``split_defects_new`` are the labels of split-basis defects (``pipeline/split_basis.py``) NEW since
+    the previous evaluated pass. Benign-class like a stale feed: a vendor TAPE defect, flag only — the call
+    is unchanged and the run did its job — so it pages once and never makes the Admin verdict unhealthy.
     """
     theses = len(results)
     # split withheld by its ACTUAL reason — a --no-live dev run is benign, a total failure is an alarm; a page
@@ -569,6 +578,7 @@ def assess_health(
         or tape_stale_new
         or name_errors_new
         or audit_failed
+        or split_defects_new
     ):
         return None  # healthy — no page
     return HealthEvent(
@@ -584,6 +594,7 @@ def assess_health(
         tape_stale_new=tape_stale_new,
         name_errors_new=tuple(name_errors_new),
         audit_failed=tuple(audit_failed),
+        split_defects_new=tuple(split_defects_new),
     )
 
 
@@ -632,6 +643,9 @@ class DailyPassOutcome:
     name_errors_known: int = 0
     # V1 — the self-audit's results (``pipeline/self_audit.py``)
     audit: tuple[AuditResult, ...] = ()
+    # T4 — the split-basis monitor's outcome (``pipeline/split_basis.py``): computed ONCE in the pass, so
+    # the artifact and the Admin poll payload carry the same inventory and the same new-defect diff
+    split: SplitScan = field(default_factory=SplitScan)
 
     def payload_kwargs(self) -> dict:
         """Every run-level field ``cron_run_log.build_run_payload`` / ``write_cron_run_log`` take, from this
@@ -657,6 +671,7 @@ class DailyPassOutcome:
             "name_errors_new": self.name_errors_new,
             "name_errors_known": self.name_errors_known,
             "audit": self.audit,
+            "split": self.split,
         }
 
 
@@ -943,6 +958,19 @@ def _run_daily_pass_locked(
         )
         name_errors_new = tuple(current_errors[k] for k in new_error_keys)
         name_errors_known = len(current_errors) - len(name_errors_new)
+    # T4 — THE SPLIT-BASIS MONITOR (`pipeline/split_basis.py`): one read-only, windowed scan of the active
+    # basket union's stored tapes for a mixed split basis (an island, a lone cliff, a flapping bar). AFTER
+    # `run_daily`, so it reads the bars tonight's price legs just re-versioned; BEFORE this run's artifact
+    # is written, for the same reason as the two diffs above (once the artifact exists it would be its own
+    # baseline). Flag only: nothing it finds reaches a detector or the card (Q10 is open). Fail-open for
+    # the pass — a scan fault comes back as `split.error`, which the self-audit fails on (and so pages).
+    split = run_split_scan(
+        asof=asof,
+        allow_live=allow_live,
+        connect=_pass_connect,
+        previous=previous_split_defects,
+        clock=perf_counter,
+    )
     # I1/I2 — THE RUN IDENTITY on the artifact: the same sha / cfg hash / run kind `run_daily` stamped on
     # every row it wrote (the identical expressions — `run_daily` holds its cfg local as DEFAULT_CONFIG and
     # reads `image_sha` the same way), plus the non-secret env fingerprint the Admin page alarms on.
@@ -964,6 +992,7 @@ def _run_daily_pass_locked(
             run_at=parse_run_at(settings.cron_run_at),
             tz=market_tz(),
             connect=_pass_connect,
+            split=split,
         )
         audit: tuple[AuditResult, ...] = tuple(run_audit(audit_ctx))
     except Exception as e:  # noqa: BLE001 — a broken audit is an alarm, never a failed pass
@@ -990,6 +1019,7 @@ def _run_daily_pass_locked(
         name_errors_new=name_errors_new,
         name_errors_known=name_errors_known,
         audit=audit,
+        split=split,
     )
     # R3 — the cron's run-of-record, so the next freeze is noticed by the platform, not by eye. Written
     # AFTER the run from the collected results (write-only, no DB); fail-open, so it never fails the cron.
@@ -1012,6 +1042,8 @@ def _run_daily_pass_locked(
         # O1 + V1 — the newly-failing names and the failed audit checks page through the SAME event
         name_errors_new=tuple(e.label for e in name_errors_new),
         audit_failed=failed_labels(audit),
+        # T4 — the NEW split-basis defects page once (benign-class: a vendor tape defect, flag only)
+        split_defects_new=split.new_labels,
     )
     if health is not None:
         notifier.notify_health(health)
@@ -1072,6 +1104,7 @@ def _report(
     name_errors_new: tuple[NameIngestError, ...] = (),
     name_errors_known: int = 0,
     name_errors_evaluated: bool = True,
+    split: SplitScan | None = None,
 ) -> int:
     """Print a per-thesis summary; return the number of theses that ERRORED.
 
@@ -1088,6 +1121,9 @@ def _report(
 
     M2 — the theses a ``--catch-up`` SKIPPED (an on-time row already stands) collapse into ONE quiet line
     instead of a per-thesis line each: nothing happened to them, on purpose.
+
+    T4 — the split-basis monitor's block (``split_basis.report_lines``): NEW defects loud, one line each;
+    the KNOWN ones one quiet count; a failed scan loud; nothing on a clean or un-scanned night.
     """
     appended = sum(1 for r in results if r.recorded)
     unchanged = sum(1 for r in results if r.recorded is False)
@@ -1189,6 +1225,9 @@ def _report(
                 f"{undiffed} name error(s) — not diffed (a --no-live pass is never a baseline); "
                 "reasons in the run artifact"
             )
+    if split is not None:
+        for line in split_report_lines(split):
+            print(line)
     # D2 — names whose in-progress bar was withheld (session not yet settled): ONE quiet line, deduped
     print_withheld_line(x for r in results for x in r.ingested)
     if skipped:
@@ -1397,6 +1436,7 @@ def main(argv: list[str] | None = None) -> None:
         name_errors_new=outcome.name_errors_new,
         name_errors_known=outcome.name_errors_known,
         name_errors_evaluated=outcome.name_errors_evaluated,
+        split=outcome.split,
     )  # the per-thesis summary + the errored count, printed either way
     # F4 — WHAT A NON-ZERO EXIT MEANS TO A WRAPPER: this night has NO call-of-record at all (the pass
     # crashed, or every thesis was withheld/errored for a real reason). It no longer means "some thesis

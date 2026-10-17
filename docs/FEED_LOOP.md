@@ -10,7 +10,8 @@
 > · `backend/repositories/calls_repo.py` (`record_if_changed` / `_canonical`) · the `cron` sidecar in
 > `docker-compose.yml` + `backend/scripts/daily_cron.sh` · `backend/pipeline/backfill.py` (a missed night,
 > reconstructed with a PINNED `known_at`) · `backend/pipeline/tape_health.py` (the price-tape recency
-> monitor — a monitor, never a signal).
+> monitor — a monitor, never a signal) · `backend/pipeline/split_basis.py` (the split-basis defect monitor,
+> T4 — likewise flag only).
 >
 > **Status: BUILT** — the per-thesis ingest (PR #70), the daily cron + `record_if_changed` (#71), the
 > fresh-data fix + the price-source seam (#72), the scheduling sidecar (#73), and the **cron-freeze
@@ -418,6 +419,80 @@ stuck read raises inside the per-thesis isolation instead of hanging the loop. A
 in the pass sends ONE health page (`PASS CRASHED — <type>: <message>`) before it re-raises — fail-open, it
 can never mask the original. (A process that is KILLED runs no Python at all; the sidecar's own page and the
 external heartbeat cover that.)
+
+### The tape monitor, part 2 — split-basis defects (T4, 2026-10-16)  `[BUILT]`
+
+**The defect.** The price leg owns no corporate-action data (`ingest/prices/source.py`: no `get_splits`); it
+trusts the vendor to re-base the whole history on a split, and the re-version pass mirrors whatever the
+vendor serves, bar for bar. When the vendor serves a HALF-adjusted tape, or flips a bar between the adjusted
+and unadjusted basis from one pull to the next, the stored latest-version tape inherits it. MEASURED on prod
+(read-only, 2026-10-16): VWAV's 1-for-20 split left 09-15 = 0.532 on 4.5M and 09-16 = 0.377 on 12.7M
+UNADJUSTED between adjusted bars (9.06, 7.32) — for weeks; six more basket names carry one-to-two-bar islands
+at x6..x40 from 2026-07-29; MPU / SEGG / BURU flip bars x20 / x7 / x40 and back across nights; and a basis
+cliff reads as a +1,800% `technical_breakout` (close/base_high >= 3 on 17 tickers in the record).
+
+**What runs.** After the per-thesis loop and before the artifact is written, `run_daily_pass` calls
+`split_basis.run_split_scan`: TWO windowed, read-only queries over the **active basket union** (every
+resolved member of every non-archived thesis) — the latest-version tape, and the version history of every
+bar re-versioned in the last 90 days — then pure detectors per security. Measured on prod: **~3 s** for 687
+names and a 430-day window. Window = the widest price lookback on the call path (`max` of the breakout,
+52-week, laggard and core-breakdown lookbacks = **430 calendar days**), read off the config: a defect inside
+it can distort a detector tonight, one older cannot.
+
+**The rule** (constants and their measured justification in the module):
+
+| kind | shape | key thresholds |
+|---|---|---|
+| `island` | a boundary (adjacent closes x>=1.8 either way, both closes >= $0.02) and, within 30 bars, an inverse boundary undoing it to within x1.5 — the bars between sit on another basis than both neighbors | the island's median close differs from its flanks' (<=5 bars a side, never crossing another boundary, >= 3 bars together) by K >= 1.8, its median volume moves the OTHER way with `beta = -log V / log K` in [0.5, 3.0], each side moves less than K within itself, and both levels trade >= $1,000/day |
+| `cliff` | a lone UP boundary (no inverse partner) whose new price level stays up and volume level stays down — a reverse split the vendor never applied to the history before it | the same level test, 3+ bars each side |
+| `flap` | one stored bar whose consecutive versions changed basis by x>=1.8 in BOTH directions, the latest change within 90 days | a single re-base (the honest split re-version) never counts |
+
+The inverse-volume test is what separates a basis from a move: a split divides the share count by the factor
+it multiplies the price by, so dollar volume carries straight through; a genuine big move comes on a volume
+spike in the SAME direction. **Lone DOWN cliffs are never flagged, by design:** a crash on heavy volume (an
+offering, a delisting notice) is the same shape as an unadjusted FORWARD split — MEASURED, allowing them would
+have added 19 rows, essentially all genuine crashes (AXG, BTAI, CORT, LPCN, VTGN, …). That residual
+(an unadjusted forward split the vendor never re-based) is named, not missed; the flap check still catches a
+vendor that keeps changing its mind.
+
+**Precision on prod, 2026-10-16** (the branch's code, read-only, over the basket union right after that
+night's 22:30 pass): **26 rows on 17 names, every one judged a true defect** — 7 islands (BURU x38, CPOP
+x14, GGRP x8, LRHC x6, OPTT x30, VRME x10, VWAV x18: exactly the research's seven), 10 flaps (ARTL, BTOC,
+BURU, LRHC, MPU, REAX, SEGG, VRME, VWAV, YYAI — each version history shows a flip and a flip back), 9 lone
+cliffs (CPOP, GGRP, LRHC, OPTT at the same factor as their own islands; BTOC x13; DUKR x24, MI x95, OPAD
+x6.6, SMX x7.4 — unadjusted reverse splits judged from the tape: a x6..x95 step on a /k volume level that
+persists, NOT cross-checked against a corporate-action record, which the platform does not have). **BTOC
+is the monitor's first live catch:** absent from the same scan at ~22:20 ET (24 rows), it was re-based x16
+on 10-15 and that night's pull flipped its history BACK to unadjusted (0.303 -> 4.84 -> 0.303 on 09-08),
+leaving a x13 cliff at its 10-14 split. Each gate is load-bearing on that data (removing it adds a
+judged-false row): the tick floor (4 sub-two-cent OTC flips), the 3-bar level (4 genuine pump days), the
+within-side range test (3 pump-and-fade "islands"), the $1,000 liquidity floor (1 thin-print island);
+`BETA_MAX` changed nothing that night and is kept only as a physical-plausibility bound. **Known misses at
+the event level** (the names are flagged anyway): BURU's 09-02 cliff and LRHC's 08-11 island (their post-split
+volume fell by less than half the factor in log terms, beta < 0.5) and CPOP's 08-07 island (the island day
+itself was a volume spike). The research counted 14 flapping names (method not reproduced here); within the
+active basket and the 430-day window, before that night's pass, 10 names carried a both-direction version
+flip at x>=1.8 and 9 flag — LIVG's are sub-two-cent tick flips, excluded by the floor (BTOC joined after the
+pass). **Cross-check against the record:** 13 tickers carry a `technical_breakout` whose label puts the close
+at >= 3x its base high; 7 are flagged today (BURU, CPOP, GGRP, MPU, OPTT, REAX, VRME), 4 sit on a history
+re-based ONCE since (GAME, JUNS, MDCX, NXL — the mixed-basis window between a split and the vendor's re-base,
+now consistent, so correctly not flagged today; their breakout factors match their re-base factors), and 2
+read as genuine volume-spike moves on today's tape (JAGX 09-22 on x383 volume, WGRX's 09-16 pump).
+
+**Where it shows, and what it never does.** The artifact carries `split_evaluated` / `split_error` /
+`split_window_days` / `split_defects` (`[{security_id, ticker, kind, dates, factor, events}]`, at most the 12
+newest dates per row) / `split_defects_new`; the printed report shows NEW defects loud and the known ones as
+one quiet count; NEW defects page once through the R4 health event (diffed on `kind:security_id` against the
+previous live pass that scanned, FINISHED (M1) and was FULL-ROSTER (M2) — `cron_run_log.previous_split_defects`,
+the same baseline rule as `tape_stale_new` and the name errors, so neither a killed pass nor a catch-up that
+skipped theses can make the next night re-page the inventory; the first pass after deploy hands it over
+once); `/admin/status` carries the panel (`split_defects`, `ADMIN.md`); and the V1 self-audit's
+`split_defects_flagged` check passes with defects present and fails only when the scan could not run (there
+is no "acknowledged" state, and failing on a standing, already-flagged defect would page every night). It is
+**benign-class** — a vendor tape defect, so the Admin verdict stays about the cron. It is a **MONITOR**:
+nothing it finds reaches a detector, the CallCard, or a stored bar. Whether price detectors should ABSTAIN on
+a flagged name (plan Q10), a two-agreeing-pulls hysteresis before re-basing (T5) and any repair of stored
+bars are separate, undecided steps.
 
 ## The scheduling sidecar — the `cron` service + `scripts/daily_cron.sh`  `[BUILT #73]`
 

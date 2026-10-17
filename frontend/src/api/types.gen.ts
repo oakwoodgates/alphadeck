@@ -1030,6 +1030,9 @@ export interface paths {
          *     thesis's night: the backfill resolves the hole, so the night stays QUIET and is listed in
          *     ``record.reconstructed_nights`` (a count, never an alarm). The night a pass is still running for is not
          *     judged until it finishes.
+         *
+         *     ``split_defects`` (T4) is the split-basis panel — every basket name whose stored tape mixes two split
+         *     bases (island / cliff / flap), from the newest artifact that scanned; flag only, never the verdict.
          */
         get: operations["get_admin_status_admin_status_get"];
         put?: never;
@@ -1698,6 +1701,10 @@ export interface components {
          *     ``skipped`` (M2) = theses a ``--catch-up`` pass left alone because an ON-TIME call-of-record for the
          *     night already stood (a catch-up never re-records one); ``0`` on every other pass and on an artifact
          *     written before M2.
+         *
+         *     ``split_defects_new`` (T4) are the labels of the split-basis defects that pass flagged as NEW
+         *     (``"<ticker> <kind> x<factor> (<date>)"`` — a ``problems`` line with the benign marker: a vendor tape
+         *     defect, flag only).
          */
         AdminRunOut: {
             /** Ran At */
@@ -1763,6 +1770,11 @@ export interface components {
              * @default 0
              */
             skipped: number;
+            /**
+             * Split Defects New
+             * @default []
+             */
+            split_defects_new: string[];
         };
         /**
          * AdminRunsOut
@@ -1775,6 +1787,81 @@ export interface components {
              * @default []
              */
             runs: components["schemas"]["AdminRunOut"][];
+        };
+        /**
+         * AdminSplitDefectOut
+         * @description One flagged split-basis defect (T4, ``pipeline/split_basis.py``): a basket name whose STORED price
+         *     tape mixes two split bases, as the pass's scan found it. ``kind``:
+         *
+         *     - ``island`` — a run of bars on another basis than both neighbors (a factor-``k`` step and the inverse
+         *       step back, the volume moving the other way): the half-adjusted shape (VWAV 2026-09-15..16);
+         *     - ``cliff`` — a lone UP step whose price stays up and volume stays down by about the same factor: a
+         *       reverse split the vendor never applied to the history before it;
+         *     - ``flap`` — a stored bar whose versions changed basis in BOTH directions (the vendor flipped it and
+         *       flipped it back).
+         *
+         *     ``dates`` are the affected bars (at most the 12 most recent; ``events`` is the full count), ``factor``
+         *     the step size (>= 1, e.g. 20 for a 1-for-20 split). Evidence for the operator only: nothing here
+         *     changes a call (whether a price detector should abstain on a flagged name is an open decision).
+         */
+        AdminSplitDefectOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker?: string | null;
+            /** Kind */
+            kind: string;
+            /**
+             * Dates
+             * @default []
+             */
+            dates: string[];
+            /** Factor */
+            factor: number;
+            /**
+             * Events
+             * @default 0
+             */
+            events: number;
+        };
+        /**
+         * AdminSplitOut
+         * @description The split-basis panel (T4), read from the newest run artifact whose scan EVALUATED — like ``tape``,
+         *     artifact-sourced so this surface still owns no tables. ``asof`` / ``ran_at`` name that pass;
+         *     ``window_days`` is the calendar window it scanned (the widest price lookback on the call path).
+         *     ``defects`` is the full current inventory (one row per name per kind); ``newly_flagged`` the labels
+         *     that PAGED that night (new since the pass before — a standing defect never re-pages). ``error`` is set
+         *     when the NEWEST live pass's scan could not run (``defects`` then still shows the last good inventory,
+         *     from ``asof``) — a broken monitor is shown, never silently absent.
+         */
+        AdminSplitOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /** Ran At */
+            ran_at: string;
+            /**
+             * Window Days
+             * @default 0
+             */
+            window_days: number;
+            /**
+             * Defects
+             * @default []
+             */
+            defects: components["schemas"]["AdminSplitDefectOut"][];
+            /**
+             * Newly Flagged
+             * @default []
+             */
+            newly_flagged: string[];
+            /** Error */
+            error?: string | null;
         };
         /**
          * AdminStaleTapeOut
@@ -1848,6 +1935,9 @@ export interface components {
          *
          *     M1: ``last_run`` is the newest FINISHED pass (a pre-M1 artifact counts as finished); when the newest
          *     artifact is a pass that has not finished, ``unfinished_run`` describes it (``null`` otherwise).
+         *
+         *     ``split_defects`` (T4) is the split-basis panel — ``null`` until a finished, full-roster pass has
+         *     scanned; a defect is a FEED problem (flag only), so it never changes ``cron.status``.
          */
         AdminStatusOut: {
             record: components["schemas"]["AdminRecordOut"];
@@ -1860,6 +1950,7 @@ export interface components {
             /** Cron Sha */
             cron_sha?: string | null;
             unfinished_run?: components["schemas"]["AdminUnfinishedRunOut"] | null;
+            split_defects?: components["schemas"]["AdminSplitOut"] | null;
         };
         /**
          * AdminTapeOut

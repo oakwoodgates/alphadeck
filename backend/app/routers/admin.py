@@ -37,6 +37,8 @@ from app.schemas_api import (
     AdminRunJobStatus,
     AdminRunOut,
     AdminRunsOut,
+    AdminSplitDefectOut,
+    AdminSplitOut,
     AdminStaleTapeOut,
     AdminStatusOut,
     AdminTapeOut,
@@ -74,6 +76,7 @@ from pipeline.schedule import (
     parse_run_at,
     scheduled_window,
 )
+from pipeline.split_basis import new_labels_of as split_new_labels
 from repositories import calls_repo
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -142,6 +145,15 @@ def _problems(health: HealthEvent | None) -> list[str]:
         f"{bit} — a feed gap to repair, {_BENIGN_MARK} in this run"
         for bit in stale_feed_bits(health.tape_stale_new)
     )
+    # T4 — a NEW split-basis defect: a vendor TAPE defect (flag only — the call is unchanged), so it carries
+    # the benign marker like a stale feed. It paged and shows on the run row; the standing inventory lives
+    # on the split-basis panel (`split_defects`), never in the one-word cron verdict.
+    if health.split_defects_new:
+        out.append(
+            f"{len(health.split_defects_new)} NEW split-basis defect(s): "
+            f"{', '.join(health.split_defects_new)} — a vendor tape defect, flag only, {_BENIGN_MARK} "
+            "in this run"
+        )
     return out
 
 
@@ -202,6 +214,8 @@ def _admin_run_out(payload: dict) -> AdminRunOut:
         if isinstance(a, dict)
     ]
     audit_failed = tuple(f"{a.check}: {a.detail}" for a in audit if a.ok is False)
+    # T4 — the night's NEW split-basis defects, re-read so the history shows the same page this run emitted
+    split_defects_new = split_new_labels(payload)
     env_raw = payload.get("env")
     env = AdminRunEnvOut.model_validate(env_raw) if isinstance(env_raw, dict) else None
     results = [
@@ -227,6 +241,7 @@ def _admin_run_out(payload: dict) -> AdminRunOut:
         tape_stale_new=tape_stale_new,
         name_errors_new=name_errors_new,
         audit_failed=audit_failed,
+        split_defects_new=split_defects_new,
     )
     summary = payload["summary"]
     return AdminRunOut(
@@ -255,6 +270,7 @@ def _admin_run_out(payload: dict) -> AdminRunOut:
         audit=audit,
         name_errors_new=list(name_errors_new),
         name_errors_known=int(payload.get("name_errors_known") or 0),
+        split_defects_new=list(split_defects_new),
     )
 
 
@@ -344,6 +360,59 @@ def _tape_out(payloads: list[dict]) -> AdminTapeOut | None:
             stale=list(rows.values()),
             newly_stale=newly,
         )
+    return None
+
+
+def _split_out(payloads: list[dict]) -> AdminSplitOut | None:
+    """The SPLIT-BASIS panel (T4), from the artifacts already read (no DB query — this router owns no
+    tables, and a second definition of "defect" here could drift from the one the page fired on). The
+    inventory comes from the newest LIVE, FINISHED (M1), FULL-ROSTER (M2) artifact whose scan EVALUATED —
+    the same pass ``cron_run_log.previous_split_defects`` diffs against, so the panel and the page agree;
+    ``error`` is set when the newest such artifact that ran the monitor at all (``split_evaluated``
+    present) FAILED its scan, so a broken monitor shows instead of the panel quietly aging. ``None`` = no
+    pass has scanned yet (the quiet state right after deploy). Fail-open per row, like ``_tape_out``: a
+    malformed row is skipped."""
+    newest_error: str | None = None
+    seen_live = False
+    for doc in payloads:
+        if (
+            doc.get("mode") != "live"
+            or "split_evaluated" not in doc
+            or not is_finished(doc)
+            or not is_full_roster(doc)
+        ):
+            continue
+        if not doc.get("split_evaluated"):
+            if not seen_live and doc.get("split_error"):
+                newest_error = str(doc["split_error"])
+            seen_live = True
+            continue
+        rows: list[AdminSplitDefectOut] = []
+        for d in doc.get("split_defects") or []:
+            try:
+                rows.append(
+                    AdminSplitDefectOut(
+                        security_id=UUID(str(d["security_id"])),
+                        ticker=d.get("ticker"),
+                        kind=str(d["kind"]),
+                        dates=[date.fromisoformat(x) for x in d.get("dates") or []],
+                        factor=float(d["factor"]),
+                        events=int(d.get("events") or 0),
+                    )
+                )
+            except Exception:  # noqa: BLE001 — skip a malformed row, never blank the panel
+                continue
+        try:
+            return AdminSplitOut(
+                asof=date.fromisoformat(doc["asof"]),
+                ran_at=str(doc["started_at"]),
+                window_days=int(doc.get("split_window_days") or 0),
+                defects=rows,
+                newly_flagged=list(split_new_labels(doc)),
+                error=newest_error,
+            )
+        except Exception:  # noqa: BLE001 — a malformed artifact is skipped like any other read
+            continue
     return None
 
 
@@ -643,6 +712,9 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
     thesis's night: the backfill resolves the hole, so the night stays QUIET and is listed in
     ``record.reconstructed_nights`` (a count, never an alarm). The night a pass is still running for is not
     judged until it finishes.
+
+    ``split_defects`` (T4) is the split-basis panel — every basket name whose stored tape mixes two split
+    bases (island / cliff / flap), from the newest artifact that scanned; flag only, never the verdict.
     """
     run_at = _run_at()
     now = _now()
@@ -869,6 +941,8 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
     # G5a — the price-tape panel, from the artifacts ALREADY read above (no second read, no DB query): the
     # "is it watched?" view for prices. None until a pass has evaluated recency.
     tape = _tape_out(payloads)
+    # T4 — the split-basis panel, from the same artifacts (no second read, no DB query)
+    split_defects = _split_out(payloads)
 
     return AdminStatusOut(
         record=AdminRecordOut(
@@ -909,6 +983,7 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
         backend_sha=backend_sha,
         cron_sha=cron_sha,
         unfinished_run=unfinished,
+        split_defects=split_defects,
     )
 
 

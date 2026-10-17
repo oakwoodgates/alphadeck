@@ -1138,6 +1138,8 @@ export type AdminRunOut = components["schemas"]["AdminRunOut"];
 // One stale FEED row on the freshness panel (a price tape, or an ETF sleeve's fund-shares samples —
 // `kind` says which, because the two are repaired differently).
 export type AdminStaleTapeOut = components["schemas"]["AdminStaleTapeOut"];
+// T4 — one split-basis defect (a stored price tape mixing two split bases: island / cliff / flap)
+export type AdminSplitDefectOut = components["schemas"]["AdminSplitDefectOut"];
 export type AdminRunsOut = components["schemas"]["AdminRunsOut"];
 export type AdminRunJobRef = components["schemas"]["AdminRunJobRef"];
 export type AdminRunJobStatus = components["schemas"]["AdminRunJobStatus"];

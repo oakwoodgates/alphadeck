@@ -29,6 +29,7 @@ from notify import ArmedName, LogNotifier
 from pipeline import cron_run_log, daily
 from pipeline.cron_run_log import write_cron_run_log
 from pipeline.ingest_thesis import NameResult
+from pipeline.split_basis import SplitScan
 from repositories import calls_repo
 
 # form4_sample.xml is a senior (CEO) open-market P-buy dated 2026-06-01; this asof is within its flip
@@ -676,6 +677,9 @@ def _prime_pass(monkeypatch, *, bench_raises=False, fund_raises=False, sweep_rai
     # the V1 self-audit reads the calls TABLE — DB-free here; its checks are proved on a real DB in
     # tests/pipeline/test_self_audit.py
     monkeypatch.setattr(daily, "run_audit", lambda ctx, *a, **k: [])
+    # the T4 split-basis scan reads the price TABLE — DB-free here; proved on a real DB (and end to end
+    # through run_daily_pass) in tests/pipeline/test_split_basis.py
+    monkeypatch.setattr(daily, "run_split_scan", lambda **k: SplitScan())
 
     def _radar(conn, **k):
         order.append("spac_radar")
@@ -2314,3 +2318,45 @@ def test_EVERY_connection_the_pass_opens_gets_the_ceiling(monkeypatch):
     )  # benchmarks, fundamentals, the per-thesis loop, shell sweep, SPAC radar
     assert [c for c, _ in bound] == opened
     assert {s for _, s in bound} == {get_settings().cron_statement_timeout_s}
+
+
+def test_pass_threads_the_SPLIT_scan_to_the_artifact_the_audit_and_the_page(monkeypatch):
+    """T4 wiring: the pass runs the split-basis scan through `_pass_connect` (the C2 ceiling) with its own
+    asof / allow_live, then hands the SAME result to the artifact, the self-audit and the R4 assessor (the
+    new defects' labels page). The scan itself is proved on a real DB in tests/pipeline/test_split_basis.py.
+    """
+    from pipeline.split_basis import ISLAND, SplitDefect
+
+    _prime_pass(monkeypatch)
+    d = SplitDefect(uuid.uuid4(), "VWAV", ISLAND, (date(2026, 9, 15),), 18.0, 1)
+    scan = SplitScan(evaluated=True, defects=(d,), new=(d,), window_days=430)
+    seen: dict = {}
+
+    def _scan(**kw):
+        seen["scan"] = kw
+        return scan
+
+    def _audit(ctx, *a, **k):
+        seen["audit_split"] = ctx.split
+        return []
+
+    def _log(results, **kw):
+        seen["log_split"] = kw.get("split")
+
+    real_assess = daily.assess_health
+
+    def _assess(results, **kw):
+        seen["page"] = kw.get("split_defects_new")
+        return real_assess(results, **kw)
+
+    monkeypatch.setattr(daily, "run_split_scan", _scan)
+    monkeypatch.setattr(daily, "run_audit", _audit)
+    monkeypatch.setattr(daily, "write_cron_run_log", _log)
+    monkeypatch.setattr(daily, "assess_health", _assess)
+
+    out = daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
+
+    assert seen["scan"]["asof"] == _ASOF and seen["scan"]["allow_live"] is True
+    assert seen["scan"]["connect"] is daily._pass_connect
+    assert out.split is scan and seen["audit_split"] is scan and seen["log_split"] is scan
+    assert seen["page"] == ("VWAV island x18 (2026-09-15)",)

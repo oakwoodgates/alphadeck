@@ -1925,7 +1925,7 @@
           "admin"
         ],
         "summary": "Get Admin Status",
-        "description": "The freshness + health summary the admin page opens on \u2014 READ-ONLY (writes nothing, owns no\ntables). ``record`` measures the calls-log edge against the last EXPECTED Mon-Fri+RUN_AT run\n(container-local clock; a Friday edge on a Monday morning is CURRENT \u2014 never a weekend false\nalarm); ``edge: null`` is the quiet \"record has never begun\" state. ``last_run`` is the newest\nreadable run-of-record artifact. ``cron.status`` is the one-word verdict: ``never_ran`` (no\nartifact), ``unhealthy`` (the last run froze / errored / totally failed / could not refresh the\nshared benchmark tape \u2014 as loud as stale, so a bad run can't hide behind green), ``stale`` (the\nrecord missed an expected run), ``gappy`` (the edge is current but a night inside the last\n``ALPHADECK_ADMIN_MISSED_WINDOW`` scheduled runs has no call-of-record recorded at/after that night's\n``RUN_AT`` \u2014 a run that fired on the wrong day, or failed after a daytime pass; the edge check alone\ncannot see either), else ``healthy``. ``record.missed_asofs`` lists the holes (empty on a clean\nwindow) and ``record.daytime_only_asofs`` names the subset whose only row is a pre-``RUN_AT`` one.\n``tape`` is the FEED freshness panel (G5a price tapes \u00b7 F1 ETF fund shares): every basket\nname whose stored EOD tape or fund-shares sampling has stopped, each row naming which feed, read from\nthe newest run artifact that evaluated recency \u2014 ``null`` until a pass has looked. A stale feed is a\nFEED gap, not a cron fault, so it never changes ``cron.status``. A row whose ``closed_at`` is set (G5b)\nis a name that CLOSED \u2014 delisted / acquired / deregistered per a SEC delisting form filed near its last\nbar \u2014 so its tape correctly ended and needs no repair; it stays on the panel (never dropped, #9) but\nrenders quietly as \"closed\" and never pages. A row with ``renamed`` set (T1) is a repair row whose\ncompany EDGAR lists under other symbols (``edgar_tickers``). ``cron.alarms`` are the status-level\nalarms (Phase 1B) that make the verdict\n``unhealthy`` though no single run failed: the cron's ``code_sha`` unknown or different from this\nbackend's (``backend_sha`` / ``cron_sha``), the last live pass paging through the LOG notifier or\nrunning without a User-Agent, and the newest unlabeled DB dump older than the schedule-aware backup\nwindow. ``last_run.audit`` is the latest pass's nightly self-audit; a failed check is a run problem.\n\nM1 \u2014 a killed or partial pass never reads healthy. A pass writes its artifact ``running`` at its start\nand finalizes it at the end: ``last_run`` is the newest FINISHED pass, and ``unfinished_run`` describes\na newer one that has not finished. Past the sidecar's run timeout (``ALPHADECK_CRON_RUN_TIMEOUT_S``) a\nstill-``running`` pass alarms \"the last pass did not finish\", a ``crashed`` one alarms at once, and a\nrecorded night with no run artifact at all alarms too; inside the timeout the verdict is ``running``.\n``record.partial_nights`` judges every window night PER THESIS (the self-audit's own rule): each thesis\nin that night's roster needs a non-reconstructed call-of-record at/after ``RUN_AT``, else the night is\npartial (\"4 of 12 theses\") and the verdict ``gappy`` \u2014 unless ``pipeline.backfill`` reconstructed that\nthesis's night: the backfill resolves the hole, so the night stays QUIET and is listed in\n``record.reconstructed_nights`` (a count, never an alarm). The night a pass is still running for is not\njudged until it finishes.",
+        "description": "The freshness + health summary the admin page opens on \u2014 READ-ONLY (writes nothing, owns no\ntables). ``record`` measures the calls-log edge against the last EXPECTED Mon-Fri+RUN_AT run\n(container-local clock; a Friday edge on a Monday morning is CURRENT \u2014 never a weekend false\nalarm); ``edge: null`` is the quiet \"record has never begun\" state. ``last_run`` is the newest\nreadable run-of-record artifact. ``cron.status`` is the one-word verdict: ``never_ran`` (no\nartifact), ``unhealthy`` (the last run froze / errored / totally failed / could not refresh the\nshared benchmark tape \u2014 as loud as stale, so a bad run can't hide behind green), ``stale`` (the\nrecord missed an expected run), ``gappy`` (the edge is current but a night inside the last\n``ALPHADECK_ADMIN_MISSED_WINDOW`` scheduled runs has no call-of-record recorded at/after that night's\n``RUN_AT`` \u2014 a run that fired on the wrong day, or failed after a daytime pass; the edge check alone\ncannot see either), else ``healthy``. ``record.missed_asofs`` lists the holes (empty on a clean\nwindow) and ``record.daytime_only_asofs`` names the subset whose only row is a pre-``RUN_AT`` one.\n``tape`` is the FEED freshness panel (G5a price tapes \u00b7 F1 ETF fund shares): every basket\nname whose stored EOD tape or fund-shares sampling has stopped, each row naming which feed, read from\nthe newest run artifact that evaluated recency \u2014 ``null`` until a pass has looked. A stale feed is a\nFEED gap, not a cron fault, so it never changes ``cron.status``. A row whose ``closed_at`` is set (G5b)\nis a name that CLOSED \u2014 delisted / acquired / deregistered per a SEC delisting form filed near its last\nbar \u2014 so its tape correctly ended and needs no repair; it stays on the panel (never dropped, #9) but\nrenders quietly as \"closed\" and never pages. A row with ``renamed`` set (T1) is a repair row whose\ncompany EDGAR lists under other symbols (``edgar_tickers``). ``cron.alarms`` are the status-level\nalarms (Phase 1B) that make the verdict\n``unhealthy`` though no single run failed: the cron's ``code_sha`` unknown or different from this\nbackend's (``backend_sha`` / ``cron_sha``), the last live pass paging through the LOG notifier or\nrunning without a User-Agent, and the newest unlabeled DB dump older than the schedule-aware backup\nwindow. ``last_run.audit`` is the latest pass's nightly self-audit; a failed check is a run problem.\n\nM1 \u2014 a killed or partial pass never reads healthy. A pass writes its artifact ``running`` at its start\nand finalizes it at the end: ``last_run`` is the newest FINISHED pass, and ``unfinished_run`` describes\na newer one that has not finished. Past the sidecar's run timeout (``ALPHADECK_CRON_RUN_TIMEOUT_S``) a\nstill-``running`` pass alarms \"the last pass did not finish\", a ``crashed`` one alarms at once, and a\nrecorded night with no run artifact at all alarms too; inside the timeout the verdict is ``running``.\n``record.partial_nights`` judges every window night PER THESIS (the self-audit's own rule): each thesis\nin that night's roster needs a non-reconstructed call-of-record at/after ``RUN_AT``, else the night is\npartial (\"4 of 12 theses\") and the verdict ``gappy`` \u2014 unless ``pipeline.backfill`` reconstructed that\nthesis's night: the backfill resolves the hole, so the night stays QUIET and is listed in\n``record.reconstructed_nights`` (a count, never an alarm). The night a pass is still running for is not\njudged until it finishes.\n\n``split_defects`` (T4) is the split-basis panel \u2014 every basket name whose stored tape mixes two split\nbases (island / cliff / flap), from the newest artifact that scanned; flag only, never the verdict.",
         "operationId": "get_admin_status_admin_status_get",
         "responses": {
           "200": {
@@ -3115,6 +3115,14 @@
             "type": "integer",
             "title": "Skipped",
             "default": 0
+          },
+          "split_defects_new": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Split Defects New",
+            "default": []
           }
         },
         "type": "object",
@@ -3135,7 +3143,7 @@
           "catch_up"
         ],
         "title": "AdminRunOut",
-        "description": "One daily pass, as the run-of-record artifact recorded it (``pipeline/cron_run_log.py`` \u2014 the\nfield names are the ARTIFACT's, not inventions): counts + outcomes only, value-free. ``healthy`` /\n``problems`` are ``assess_health`` re-read from the same numbers, so the freeze detector\n(``edgar_fetches == 0`` on a live run), withheld calls, thesis errors, and a failed BENCHMARK\nrefresh (the shared SPY/IWM tape ``benchmark_rs`` reads \u2014 a fail-open passenger leg whose faults\nused to reach stdout only) surface on every row \u2014 a bad run can never hide behind a green\nhistory. The benchmark counts live on the artifact for exactly that reason; a row written before\nthey existed reads clean, never broken. ``mode`` is ``\"live\" | \"no-live\"`` (the R2\nrecording-gate signal); ``ran_at`` is the artifact's ``started_at`` (UTC ISO). ``catch_up`` = a\n``--catch-up`` pass (the sidecar's boot / late-wake catch-up): its ~0 EDGAR fetches are expected\n(it runs inside the cache TTL), so the freeze check is skipped for that row; an artifact written\nbefore the key existed reads ``False``.\n\nPhase 1B (each ``null`` / empty on an artifact written before it existed \u2014 never an alarm by absence):\n``code_sha`` / ``config_hash`` / ``run_kind`` + ``env`` are the pass's RUN IDENTITY and non-secret env\nfingerprint (I1/I2); ``audit`` is its nightly SELF-AUDIT (V1) \u2014 a failed check is a ``problems`` line\nand makes ``healthy`` false; ``name_errors_new`` are the ``\"<ticker> (<leg>)\"`` labels of names whose\ningest leg started failing that night (O1 \u2014 a ``problems`` line with the benign marker: the thesis\nstill recorded) and ``name_errors_known`` the quiet count of names failing the same way as the pass\nbefore.\n\n``skipped`` (M2) = theses a ``--catch-up`` pass left alone because an ON-TIME call-of-record for the\nnight already stood (a catch-up never re-records one); ``0`` on every other pass and on an artifact\nwritten before M2."
+        "description": "One daily pass, as the run-of-record artifact recorded it (``pipeline/cron_run_log.py`` \u2014 the\nfield names are the ARTIFACT's, not inventions): counts + outcomes only, value-free. ``healthy`` /\n``problems`` are ``assess_health`` re-read from the same numbers, so the freeze detector\n(``edgar_fetches == 0`` on a live run), withheld calls, thesis errors, and a failed BENCHMARK\nrefresh (the shared SPY/IWM tape ``benchmark_rs`` reads \u2014 a fail-open passenger leg whose faults\nused to reach stdout only) surface on every row \u2014 a bad run can never hide behind a green\nhistory. The benchmark counts live on the artifact for exactly that reason; a row written before\nthey existed reads clean, never broken. ``mode`` is ``\"live\" | \"no-live\"`` (the R2\nrecording-gate signal); ``ran_at`` is the artifact's ``started_at`` (UTC ISO). ``catch_up`` = a\n``--catch-up`` pass (the sidecar's boot / late-wake catch-up): its ~0 EDGAR fetches are expected\n(it runs inside the cache TTL), so the freeze check is skipped for that row; an artifact written\nbefore the key existed reads ``False``.\n\nPhase 1B (each ``null`` / empty on an artifact written before it existed \u2014 never an alarm by absence):\n``code_sha`` / ``config_hash`` / ``run_kind`` + ``env`` are the pass's RUN IDENTITY and non-secret env\nfingerprint (I1/I2); ``audit`` is its nightly SELF-AUDIT (V1) \u2014 a failed check is a ``problems`` line\nand makes ``healthy`` false; ``name_errors_new`` are the ``\"<ticker> (<leg>)\"`` labels of names whose\ningest leg started failing that night (O1 \u2014 a ``problems`` line with the benign marker: the thesis\nstill recorded) and ``name_errors_known`` the quiet count of names failing the same way as the pass\nbefore.\n\n``skipped`` (M2) = theses a ``--catch-up`` pass left alone because an ON-TIME call-of-record for the\nnight already stood (a catch-up never re-records one); ``0`` on every other pass and on an artifact\nwritten before M2.\n\n``split_defects_new`` (T4) are the labels of the split-basis defects that pass flagged as NEW\n(``\"<ticker> <kind> x<factor> (<date>)\"`` \u2014 a ``problems`` line with the benign marker: a vendor tape\ndefect, flag only)."
       },
       "AdminRunsOut": {
         "properties": {
@@ -3151,6 +3159,108 @@
         "type": "object",
         "title": "AdminRunsOut",
         "description": "The run history \u2014 parsed run-of-record artifacts, newest first. An unreadable artifact is\nSKIPPED fail-open (a corrupt night never blanks the history)."
+      },
+      "AdminSplitDefectOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "dates": {
+            "items": {
+              "type": "string",
+              "format": "date"
+            },
+            "type": "array",
+            "title": "Dates",
+            "default": []
+          },
+          "factor": {
+            "type": "number",
+            "title": "Factor"
+          },
+          "events": {
+            "type": "integer",
+            "title": "Events",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "kind",
+          "factor"
+        ],
+        "title": "AdminSplitDefectOut",
+        "description": "One flagged split-basis defect (T4, ``pipeline/split_basis.py``): a basket name whose STORED price\ntape mixes two split bases, as the pass's scan found it. ``kind``:\n\n- ``island`` \u2014 a run of bars on another basis than both neighbors (a factor-``k`` step and the inverse\n  step back, the volume moving the other way): the half-adjusted shape (VWAV 2026-09-15..16);\n- ``cliff`` \u2014 a lone UP step whose price stays up and volume stays down by about the same factor: a\n  reverse split the vendor never applied to the history before it;\n- ``flap`` \u2014 a stored bar whose versions changed basis in BOTH directions (the vendor flipped it and\n  flipped it back).\n\n``dates`` are the affected bars (at most the 12 most recent; ``events`` is the full count), ``factor``\nthe step size (>= 1, e.g. 20 for a 1-for-20 split). Evidence for the operator only: nothing here\nchanges a call (whether a price detector should abstain on a flagged name is an open decision)."
+      },
+      "AdminSplitOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "ran_at": {
+            "type": "string",
+            "title": "Ran At"
+          },
+          "window_days": {
+            "type": "integer",
+            "title": "Window Days",
+            "default": 0
+          },
+          "defects": {
+            "items": {
+              "$ref": "#/components/schemas/AdminSplitDefectOut"
+            },
+            "type": "array",
+            "title": "Defects",
+            "default": []
+          },
+          "newly_flagged": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Newly Flagged",
+            "default": []
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "ran_at"
+        ],
+        "title": "AdminSplitOut",
+        "description": "The split-basis panel (T4), read from the newest run artifact whose scan EVALUATED \u2014 like ``tape``,\nartifact-sourced so this surface still owns no tables. ``asof`` / ``ran_at`` name that pass;\n``window_days`` is the calendar window it scanned (the widest price lookback on the call path).\n``defects`` is the full current inventory (one row per name per kind); ``newly_flagged`` the labels\nthat PAGED that night (new since the pass before \u2014 a standing defect never re-pages). ``error`` is set\nwhen the NEWEST live pass's scan could not run (``defects`` then still shows the last good inventory,\nfrom ``asof``) \u2014 a broken monitor is shown, never silently absent."
       },
       "AdminStaleTapeOut": {
         "properties": {
@@ -3300,6 +3410,16 @@
                 "type": "null"
               }
             ]
+          },
+          "split_defects": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdminSplitOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -3308,7 +3428,7 @@
           "cron"
         ],
         "title": "AdminStatusOut",
-        "description": "The admin page's one-GET summary: record freshness + the newest run + the cron verdict + the\nnewest DB snapshot + the feed-freshness panel. READ-ONLY \u2014 the endpoint owns no tables and writes\nnothing (test-proved; the ``last_backup`` join is a pure directory read, and ``tape`` is read from\nthe run artifacts). ``last_backup`` is ``None`` = the quiet \"no snapshots yet\" state; ``tape`` is\n``None`` until a pass has evaluated feed recency (the quiet \"not looked yet\" state).\n\n``backend_sha`` is this backend's OWN ``Settings.image_sha`` (``null`` = built without ``GIT_SHA``) and\n``cron_sha`` the ``code_sha`` the newest CRON-kind run artifact recorded (``null`` = unknown, or no\ncron pass has recorded its identity yet) \u2014 the pair the identity alarm compares (I1). The latest\nself-audit rides ``last_run.audit``.\n\nM1: ``last_run`` is the newest FINISHED pass (a pre-M1 artifact counts as finished); when the newest\nartifact is a pass that has not finished, ``unfinished_run`` describes it (``null`` otherwise)."
+        "description": "The admin page's one-GET summary: record freshness + the newest run + the cron verdict + the\nnewest DB snapshot + the feed-freshness panel. READ-ONLY \u2014 the endpoint owns no tables and writes\nnothing (test-proved; the ``last_backup`` join is a pure directory read, and ``tape`` is read from\nthe run artifacts). ``last_backup`` is ``None`` = the quiet \"no snapshots yet\" state; ``tape`` is\n``None`` until a pass has evaluated feed recency (the quiet \"not looked yet\" state).\n\n``backend_sha`` is this backend's OWN ``Settings.image_sha`` (``null`` = built without ``GIT_SHA``) and\n``cron_sha`` the ``code_sha`` the newest CRON-kind run artifact recorded (``null`` = unknown, or no\ncron pass has recorded its identity yet) \u2014 the pair the identity alarm compares (I1). The latest\nself-audit rides ``last_run.audit``.\n\nM1: ``last_run`` is the newest FINISHED pass (a pre-M1 artifact counts as finished); when the newest\nartifact is a pass that has not finished, ``unfinished_run`` describes it (``null`` otherwise).\n\n``split_defects`` (T4) is the split-basis panel \u2014 ``null`` until a finished, full-roster pass has\nscanned; a defect is a FEED problem (flag only), so it never changes ``cron.status``."
       },
       "AdminTapeOut": {
         "properties": {
