@@ -129,9 +129,16 @@ and never confirm on price.
   leaves a Wednesday edge and a Monday pass = 5 days) flags for one night and clears on the next session.
   `0` disables the monitor; raise it if that night ever costs more than catching a dead tape a day sooner.
 - **Where it comes from:** the nightly pass records each name's feed edges and its stale set into the
-  run-of-record artifact, and this panel reads the newest artifact that actually **evaluated** recency. So it
+  run-of-record artifact, and this panel reads the artifacts that actually **evaluated** recency. So it
   is "as of last night" (the right granularity for a nightly feed), it costs no query, and this surface still
   owns no tables. `tape` is **null** until a pass has looked — a `--no-live` pass never counts.
+  **It is the SAME inventory the page diffs against** (2026-10-17): each thesis's rows come from the newest
+  finished live pass that COVERED that thesis, so a `--catch-up` that skipped theses (M2) shows what it found
+  in the theses it did cover, and a skipped thesis keeps the rows of the last pass that covered it (normally
+  the night before, in the killed-night shape). The loud rows are exactly what the next pass treats as already
+  told, and `newly_stale` is what the newest such pass paged — a catch-up included — so a name the panel
+  marks new is a name that paged. `asof` / `ran_at` name that newest pass (`FEED_LOOP.md` §"the stale-tape
+  and name-error baselines carry each thesis forward").
   The **thresholds shown are the ones that pass judged under**, read off its artifact rather than live: a
   setting changed between the pass and the read would otherwise describe the list on screen with a number
   that never produced it. `0` on a threshold means that feed's monitor was disabled for the pass.
@@ -142,9 +149,10 @@ and never confirm on price.
   fault: the run did its job. So the night's run row carries a problem line naming the tape and the notifier
   pushes it, while the one-word verdict stays about the cron (an `unhealthy` chip that really meant "a vendor
   renamed a ticker" would teach you to ignore the chip). Only **newly** stale tapes page — the diff is against
-  the previous evaluated pass, keyed on the security (not the ticker), so a handful of known-dead tapes do not
-  re-page every night. The **first** evaluated pass after this shipped pages the whole current inventory once,
-  on purpose.
+  the inventory this panel shows (each thesis as the last pass that covered it saw it), keyed on the security
+  (not the ticker), so a handful of known-dead tapes do not re-page every night, not even across a
+  skipped-thesis catch-up. The **first** evaluated pass after this shipped pages the whole current inventory
+  once, on purpose.
 - **Closed vs renamed vs a feed gap** (G5b/T1). A stopped tape whose company filed a SEC delisting form
   (25 / 25-NSE / 15-12B / 15-12G) **near its last bar** (−30 / +45 calendar days by default,
   `ALPHADECK_TAPE_CLOSED_BEFORE_DAYS` / `_AFTER_DAYS`), on a company EDGAR no longer lists under a different
@@ -175,9 +183,11 @@ and never confirm on price.
 ### Price feed repairs — "what do I owe the price feed?"  `[BUILT, T2 + Q8 + T3]`
 
 One card (`price_repairs` on `/admin/status`; the writes are `/admin/price-feed/*`) for every price-feed
-decision. Its INVENTORY comes from the newest finished, full-roster live pass that evaluated recency (the
-same pass the freshness block reads); its DECISIONS are read live from the append-only repair log (0046), so
-a click shows at once. Rendered only when something is in it.
+decision. Its INVENTORY is the freshness block's — the per-thesis carry-forward of the finished live passes
+that evaluated recency (each thesis as the newest pass that covered it saw it; a renamed row keeps the splice
+probe of the pass that saw it) — so it lists exactly what the page treats as already told; its DECISIONS
+are read live from the append-only repair log (0046), so a click shows at once. Rendered only when
+something is in it.
 
 - **Renamed** (loud) — each stopped tape whose company EDGAR lists under a symbol we don't price, with the
   nightly **splice probe**'s verdict on every listed symbol (`FEED_LOOP.md` §the tape monitor, part 3): its
@@ -401,9 +411,11 @@ from the run artifacts or the backups dir (the surface still writes nothing):
   "acknowledged" state, and failing on a standing defect would page nightly), and fails only when the scan
   could not run.
 - **Per-name ingest errors (O1).** The artifact now keeps WHY each name errored, one row per failed leg.
-  Names whose leg started failing since the previous live pass show as `name_errors_new` and a `problems`
-  line with the **benign** marker (the thesis still recorded — not a cron fault); the known-failing ones are
-  the quiet `name_errors_known` count.
+  Names whose leg started failing since the last-known inventory (each thesis as the newest live pass that
+  covered it saw it — a skipped-thesis catch-up counts for the theses it covered, so a name it first flagged
+  is new there and only there) show as `name_errors_new` and a `problems` line with the **benign** marker
+  (the thesis still recorded — not a cron fault); the known-failing ones are the quiet `name_errors_known`
+  count.
 - **Status-level alarms (`cron.alarms`, I1/I2 + B4)** — each makes the verdict `unhealthy`: the cron's last
   pass ran with an **unknown `code_sha`**; the cron's sha **differs** from this backend's (`cron_sha` vs
   `backend_sha` — compared only for a cron pass that started after this backend did, so a full deploy is not

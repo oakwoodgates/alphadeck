@@ -75,7 +75,7 @@ from domain.feed_kinds import PRICE, feed_kind
 from domain.security import SecurityIdentity
 from ingest.prices.source import DEFAULT_RANGE, PriceSource, YahooPriceSource
 from pipeline import successor_cik
-from pipeline.cron_run_log import is_finished, is_full_roster, list_run_logs
+from pipeline.cron_run_log import carried_inventory, is_finished, list_run_logs
 from pipeline.tape_health import is_unpriceable
 from repositories import cik_change_repo, price_feed_repo
 from repositories.cik_change_repo import CikChange, StandingCikChange
@@ -122,18 +122,30 @@ class _Row:
 
 
 def inventory_doc(payloads: list[dict]) -> dict | None:
-    """The newest LIVE, FINISHED (M1), FULL-ROSTER (M2) artifact that EVALUATED feed recency — the same pass
-    the freshness panel and the newly-stale baseline read, so this panel and the page agree. ``None`` = no
-    pass has looked yet."""
-    for doc in payloads:
-        if (
-            doc.get("mode") == "live"
-            and doc.get("tape_evaluated", False)
-            and is_finished(doc)
-            and is_full_roster(doc)
-        ):
-            return doc
-    return None
+    """The stale-feed inventory this panel renders — the per-thesis CARRY-FORWARD
+    (``cron_run_log.carried_inventory``) the freshness panel and the newly-stale baseline read, so this
+    panel and the page agree: each thesis's rows from the newest LIVE, FINISHED (M1), recency-evaluated
+    pass that COVERED it (a ``--catch-up`` that skipped theses, M2, counts for the theses it covered).
+    Returned artifact-shaped (``CarriedInventory.as_doc`` — the newest such pass's payload with its
+    ``theses`` replaced by the carried entries; built in memory, never written), so every per-thesis
+    reader below walks it unchanged. Its ``rename_probe`` block is the newest pass's, with each probe row
+    taken from the newest of the passes read that probed that name (a renamed row carried from a thesis the
+    catch-up skipped keeps the probe of the pass that saw it). ``None`` = no pass has looked yet."""
+    inv = carried_inventory(payloads, evaluated_key="tape_evaluated")
+    if inv is None:
+        return None
+    doc = inv.as_doc()
+    block = inv.newest.get("rename_probe")
+    probe = dict(block) if isinstance(block, dict) else {}
+    rows: dict[str, dict] = {}
+    for p in inv.passes:  # newest first: the first pass that probed a name wins
+        b = p.get("rename_probe")
+        for r in (b.get("rows") if isinstance(b, dict) else None) or []:
+            if isinstance(r, dict) and r.get("security_id"):
+                rows.setdefault(str(r["security_id"]), r)
+    probe["rows"] = list(rows.values())
+    doc["rename_probe"] = probe
+    return doc
 
 
 def _date(v: object) -> date | None:

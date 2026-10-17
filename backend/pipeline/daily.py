@@ -607,20 +607,22 @@ def assess_health(
     than derived, because the legs run outside ``run_daily`` and this function stays pure.
 
     G5a/F1 — ``tape_stale_new`` are the ``(kind, label)`` pairs for names whose monitored FEED went stale
-    **since the previous evaluated live pass** (``cron_run_log.previous_stale_tapes`` does that diff, keyed
-    on ``kind:security_id``; this function stays pure, so the cross-run comparison is passed IN like the
-    benchmark counts). Both feeds ride one argument and the page groups them by kind, because a price tape
-    and a fund-shares sample stop for different reasons and are repaired differently. NEWLY
-    stale only, on purpose: a handful of known-dead feeds must not re-page every night forever (inverse
-    loudness — a page true of every night carries no information). It pages, but it is NOT an alarm about the
+    **since the last-known inventory of the evaluated live passes** — each thesis as the newest pass that
+    covered it saw it, a skipped-thesis ``--catch-up`` included (``cron_run_log.previous_stale_tapes`` reads
+    that per-thesis carry-forward, keyed on ``kind:security_id``; this function stays pure, so the cross-run
+    comparison is passed IN like the benchmark counts). Both feeds ride one argument and the page groups
+    them by kind, because a price tape and a fund-shares sample stop for different reasons and are repaired
+    differently. NEWLY stale only, on purpose: a handful of known-dead feeds must not re-page every night
+    forever (inverse loudness — a page true of every night carries no information). It pages, but it is NOT an alarm about the
     CRON: the run did its job, the FEED has a gap the operator repairs (the vendor price symbol for a tape;
     a fund/ticker/source check for a sleeve) — so ``app/routers/admin.py::_problems`` renders it with the
     benign marker and the one-word cron verdict stays about the cron.
 
     O1 — ``name_errors_new`` are the ``"<ticker or id> (<leg>)"`` labels of names whose ingest leg started
-    failing since the previous evaluated live pass (the diff lives in ``run_daily_pass``, passed IN like the
-    stale-tape diff). Newly failing only — the known-failing names collapse to a quiet count in the printed
-    report — and benign-class like a stale feed: the thesis still recorded.
+    failing since the same per-thesis last-known inventory (``cron_run_log.previous_name_errors``; the diff
+    lives in ``run_daily_pass``, passed IN like the stale-tape diff). Newly failing only — the known-failing
+    names collapse to a quiet count in the printed report — and benign-class like a stale feed: the thesis
+    still recorded.
 
     V1 — ``audit_failed`` are the self-audit's FAILED checks (``self_audit.failed_labels``). A real alarm:
     the pass did not leave the night the record it claims (a thesis with no on-time row, an unknown
@@ -1029,6 +1031,9 @@ def _run_daily_pass_locked(
         current = {
             f"{s.kind}:{s.security_id}": s for r in results for s in r.tape_stale if not s.quiet
         }
+        # The baseline is PER THESIS (`cron_run_log.carried_inventory`): each thesis as the newest pass that
+        # COVERED it saw it — so a --catch-up that skipped theses (M2) counts for the ones it covered, a name
+        # it first flagged pages once, and a name it saw clear pages again when it comes back.
         prior = previous_stale_tapes()
         new_keys = sorted(current) if prior is None else sorted(set(current) - prior)
         tape_stale_new = tuple(

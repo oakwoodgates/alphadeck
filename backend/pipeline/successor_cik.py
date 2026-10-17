@@ -456,10 +456,12 @@ def keys_of(doc: Mapping) -> set[str]:
 
 
 def is_baseline(doc: Mapping) -> bool:
-    """May this artifact be the diff baseline (and the Admin inventory)? The rule every "what did the last
-    pass see" reader shares: a LIVE, FINISHED (M1), FULL-ROSTER (M2) pass whose scan was ``evaluated`` (a
-    pre-T7 artifact or a failed scan carries no inventory — read as "nothing flagged" it would re-page every
-    known row)."""
+    """May this artifact be the diff baseline (and the Admin inventory)? A LIVE, FINISHED (M1), FULL-ROSTER
+    (M2) pass whose scan was ``evaluated`` (a pre-T7 artifact or a failed scan carries no inventory — read as
+    "nothing flagged" it would re-page every known row). (The stale-tape and name-error baselines no longer
+    use the full-roster rule: they carry each thesis forward, ``cron_run_log.carried_inventory``. This scan
+    judges only the ingested members, so a partial catch-up has the same question here — still open.)
+    """
     from pipeline.cron_run_log import (  # lazy: cron_run_log imports this module
         is_finished,
         is_full_roster,
