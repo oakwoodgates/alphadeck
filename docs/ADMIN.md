@@ -99,7 +99,10 @@ visible as a quiet count (`record.reconstructed_nights`). The backfill is the op
 so the page goes quiet and a NEW miss stands out.
 Freshness asks whether the log advanced, not whether a row is scoreable — the Scoreboard's record path is the
 one reader that filters reconstructed rows out (`SCOREBOARD.md`), so "healthy" here and "N nights
-reconstructed · not scored" there can both be true of the same night.
+reconstructed · not scored" there can both be true of the same night. A LATE row (recorded after the next
+weekday's 06:00 ET EDGAR open) likewise reads as recorded here while the Scoreboard sets it aside (L1), and
+a thesis-night recorded ONLY late is named on this page so the two readings reconcile —
+`record.late_only_nights` ("Cron health" below).
 
 ### Stopped feeds — "is every name still being fed?"  `[BUILT, G5a price tapes · F1 fund shares]`
 
@@ -370,6 +373,36 @@ died at ~22:42 when the host VM went down, 4 of 12 theses had rows, there was no
   pass recorded it), while the Scoreboard never SCORES them (the late-row policy L1 — `SCOREBOARD.md`
   §"Late-recorded rows"). The page lists them on the freshness card
   ("2026-10-12: 4 of 12 theses") only when there is one.
+- **Thesis-nights recorded ONLY late — `record.late_only_nights` (operator decision, 2026-10-17).** A late
+  row covers its night here, but the Scoreboard sets it aside, so a (thesis, night) with a late row and
+  nothing else the Scoreboard scores reads "covered" on this page while the Scoreboard shows a GAP. The
+  operator decided such a night must LOOK different here, so the page names exactly those. A pair is
+  late-only when it holds at least one late row (a non-reconstructed row recorded at/after the next
+  weekday's 06:00 ET EDGAR open — `pipeline/night_coverage.is_late`) and NO row the Scoreboard would score
+  (no non-late, non-reconstructed row: neither an on-time row nor a pre-`RUN_AT` daytime one). The list is
+  L1's own judge with L1's own gap marker (`scoreboard/late.py::late_only_nights` — exactly the Scoreboard
+  banner's `late_nights` entries whose `earlier_recorded_at` is `null`), so Admin and the Scoreboard cannot
+  disagree about which nights are late, or which are gaps. It is read over the same judged window nights as
+  `partial_nights` (the window, minus a night a pass is still recording), for every thesis with rows on
+  them. Each entry is `{thesis_id, thesis_name, asof, recorded_at, edgar_open, n_rows}`: the first late
+  row's stamp and the EDGAR open it missed (both served in market time), and how many late rows the night
+  holds.
+  - **Which nights.** Late only → listed. Late + a reconstruction → listed (a reconstructed row is never
+    scored either, so both are set aside: a gap). Late + an on-time row, or late + a daytime row → NOT
+    listed: the Scoreboard scores that row instead, so there is no gap, and "set aside on the Scoreboard"
+    would be untrue — and noise.
+  - **The two markers never mix.** A reconstructed-only night holds no late row, so it is never late-only;
+    it stays the quiet `reconstructed_nights` count.
+  - **Honest loudness: informational, never an alarm.** It changes neither `record.reason` nor the
+    `cron.status` verdict, is never a `cron.alarms` line, and never pages. The freshness card shows one
+    quiet line, rendered only when there is a pair: "N thesis-night(s) recorded only late — set aside on
+    the Scoreboard (late rows never define an episode)", with each pair (thesis, night, recorded-at, hours
+    past the EDGAR open) and a link to the Scoreboard, whose "late-recorded nights" line names the same
+    nights and whose toggle scores them.
+  - MEASURED on prod (2026-10-17, read-only — the branch code on a `default_transaction_read_only` session):
+    the window 2026-10-05..10-16 returns the **8** theses the 2026-10-12 boot catch-up recorded only late
+    (10-13 17:07–17:13 EDT), and not AI Memory & Storage, whose late re-version sits beside its on-time
+    22:42 row. Whole history: 9 late rows, all for 10-12.
 - **A recorded night with NO run artifact at all** (post-`RUN_AT` rows for a night newer than every
   artifact's as-of) is a `cron.alarms` line too — a pass that recorded and died before its start artifact
   existed (the pre-M1 shape), or rows written outside the daily pass. Like the backup alarm, only on a stack

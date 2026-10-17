@@ -26,7 +26,9 @@ THE WORDS:
   END. The SCOREBOARD never lets one define an episode (``scoreboard/late.py``: dropped before the per-as-of
   dedup, so an on-time row for the night wins and a late-only night reads as a cron gap — reversible by
   ``Settings.scoreboard_exclude_late`` / ``?include_late=``), and a Slack push made late says so
-  (``night_timing``, N1).
+  (``night_timing``, N1). Admin names every (thesis, night) holding a late row and NO row the Scoreboard
+  would score (``scoreboard/late.py::late_only_nights``, L1's own judge and gap marker — operator decision
+  2026-10-17): such a night is COVERED below, yet a gap on the Scoreboard, and the page must say so.
 - **Covered** (the V1 audit; the base of the Admin check) = the thesis has a NON-reconstructed row for D
   recorded at or after D's ``RUN_AT`` — WITHOUT the upper bound: a late catch-up row still COVERS the night
   here (the pass did record it — ``describe`` names it "recorded late"); L1 decides only how the Scoreboard

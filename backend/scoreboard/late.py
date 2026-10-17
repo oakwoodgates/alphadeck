@@ -16,14 +16,16 @@ night WINS over a later late one, and a night whose only rows are late reads exa
 record last spoke on the prior honest row). Nothing is deleted or marked: lateness is DERIVED on read from
 ``recorded_at`` (no migration), so flipping the policy re-scores the record exactly as before L1.
 
-This module is the judge + the two reads it needs: the ids to drop for one thesis (``late_call_ids``), and
-the banner's per-(thesis, night) list (``late_nights``). ``calls_repo`` stays value-free (it drops the ids it
-is given); the market timezone is deploy config, read here.
+This module is the judge + the reads it needs: the ids to drop for one thesis (``late_call_ids``), the
+banner's per-(thesis, night) list (``late_nights``), and the Admin readout's LATE-ONLY subset of that list
+(``late_only_nights`` — the banner's GAP nights: a late row and nothing this reading scores, which Admin's
+coverage still counts as recorded). ``calls_repo`` stays value-free (it drops the ids it is given); the
+market timezone is deploy config, read here.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import date, tzinfo
 from uuid import UUID
 
@@ -102,3 +104,32 @@ def late_nights(
     every tenant — the ``reconstructed_asofs`` / ``active_nights`` scope), listed under BOTH readings.
     Capped at ``upto`` so a scrubbed-back view names only nights it can see. Read-only."""
     return judge_late_nights(calls_repo.call_stamps(conn, upto=upto), tz=tz or market_tz())
+
+
+def judge_late_only_nights(stamps: Iterable[Mapping], *, tz: tzinfo) -> list[LateNight]:
+    """PURE: the LATE-ONLY nights — the entries of ``judge_late_nights`` (same entries, same order) that read
+    as a GAP under the late-excluding reading: ``earlier_recorded_at is None``, i.e. the night holds a late
+    row and NO row this reading would score (no non-late, non-reconstructed row). L1's own gap marker, so
+    "late" and "a gap on the Scoreboard" each keep one definition.
+
+    The Admin readout's list (operator decision 2026-10-17). Admin's per-(thesis, night) coverage counts a
+    late row as COVERING the night (the pass did record it), while the Scoreboard sets that row aside — so
+    with nothing else to score, Admin reads "covered" where the Scoreboard shows a gap. Exactly those nights:
+    - late only → listed;
+    - late + reconstructed → listed (a reconstruction is never scored either, so both are set aside — a
+      gap). A reconstructed-only night has no late row and is never listed (it is its own marker,
+      ``reconstructed_nights``);
+    - late + on-time, or late + a DAYTIME (pre-``RUN_AT``) row → NOT listed: the Scoreboard scores that
+      honest row instead, so there is no gap to name (honest loudness)."""
+    return [n for n in judge_late_nights(stamps, tz=tz) if n.earlier_recorded_at is None]
+
+
+def late_only_nights(
+    conn: psycopg.Connection, *, asofs: Sequence[date], tz: tzinfo | None = None
+) -> list[LateNight]:
+    """``judge_late_only_nights`` over every thesis's rows for the nights in ``asofs`` (the Admin coverage
+    window; all tenants, every thesis — the coverage read's scope). One read of the row stamps, never the
+    cards; ``[]`` for no nights. Read-only; the caller owns the connection."""
+    if not asofs:
+        return []
+    return judge_late_only_nights(calls_repo.call_stamps(conn, asofs=asofs), tz=tz or market_tz())

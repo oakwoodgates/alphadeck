@@ -275,14 +275,21 @@ def _ids_clause(exclude_call_ids: Collection[UUID]) -> tuple[str, tuple]:
 
 
 def call_stamps(
-    conn: psycopg.Connection, *, thesis_id: UUID | None = None, upto: date | None = None
+    conn: psycopg.Connection,
+    *,
+    thesis_id: UUID | None = None,
+    upto: date | None = None,
+    asofs: Sequence[date] | None = None,
 ) -> list[dict]:
     """Every ``calls`` row's ``{id, seq, thesis_id, thesis_name, asof, reconstructed, recorded_at}`` —
     one thesis's (``thesis_id``) or ledger-wide (all tenants, every thesis: the ``reconstructed_asofs``
-    scope), optionally capped at ``asof <= upto``, ordered ``asof, thesis, seq``. The late-row judgment's
-    input (L1, ``scoreboard/late.py``): every row, never the deduped read — a night can hold an on-time row
-    AND a later late one, and the judge must see both. Stamps only, never the card (cheap at any record
-    size). Value-free and read-only; the window is the caller's."""
+    scope), optionally capped at ``asof <= upto`` and/or limited to the as-ofs in ``asofs`` (the Admin
+    readout's window — an empty ``asofs`` reads nothing), ordered ``asof, thesis, seq``. The late-row
+    judgment's input (L1, ``scoreboard/late.py``): every row, never the deduped read — a night can hold an
+    on-time row AND a later late one, and the judge must see both. Stamps only, never the card (cheap at any
+    record size). Value-free and read-only; the window is the caller's."""
+    if asofs is not None and not asofs:
+        return []
     where, params = ["TRUE"], []
     if thesis_id is not None:
         where.append("c.thesis_id = %s")
@@ -290,6 +297,9 @@ def call_stamps(
     if upto is not None:
         where.append("c.asof <= %s")
         params.append(upto)
+    if asofs is not None:
+        where.append("c.asof = ANY(%s)")
+        params.append(list(asofs))
     with conn.cursor() as cur:
         cur.execute(
             "SELECT c.id, c.seq, c.thesis_id, t.name AS thesis_name, c.asof, c.reconstructed, "
