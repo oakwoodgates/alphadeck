@@ -97,6 +97,20 @@ def test_a_RECONSTRUCTED_or_DAYTIME_row_never_covers_and_says_which():
     assert cov.reconstructed_only == {b} and cov.daytime_only == {c}
     assert cov.describe() == "1 of 3 theses (1 reconstructed only, 1 with a daytime row only)"
     assert cov.any_post_cutoff  # the honest row is evidence a pass recorded the night
+    # RESOLVED (the Admin's verdict, operator decision 2026-10-16): the backfilled thesis is resolved, the
+    # daytime-only one is still a genuine gap — so the night stays unresolved because of `c` alone
+    assert cov.unresolved == {c} and not cov.resolved
+    backfilled_only = judge_coverage([_OCT12], spans, stamps[:2], run_at=_RUN_AT, tz=_NY)[_OCT12]
+    assert backfilled_only.unresolved == {c}  # `c` has no row at all here — still a real miss
+    healed = judge_coverage(
+        [_OCT12],
+        spans,
+        stamps[:2] + [_row(c, _et(2026, 10, 20, 9, 1), reconstructed=True)],
+        run_at=_RUN_AT,
+        tz=_NY,
+    )[_OCT12]
+    # every gap reconstructed: RESOLVED for the Admin, yet still not `complete` for the strict audit rule
+    assert healed.resolved and not healed.complete and healed.reconstructed_only == {b, c}
     # a reconstructed row alone is NOT that evidence
     recon_only = judge_coverage([_OCT12], spans, stamps[1:2], run_at=_RUN_AT, tz=_NY)[_OCT12]
     assert not recon_only.any_post_cutoff

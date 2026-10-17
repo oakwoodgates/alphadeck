@@ -1715,12 +1715,12 @@ class AdminRunOut(BaseModel):
 
 class AdminPartialNightOut(BaseModel):
     """One scheduled night the pass did not fully cover (M1): some thesis in that night's roster has no
-    non-reconstructed call-of-record recorded at/after the night's ``RUN_AT`` (``pipeline/night_coverage.py``
-    — the SAME definition the nightly self-audit checks). ``covered`` of ``expected`` theses had one;
-    ``reconstructed_only`` of the rest carry only a ``pipeline.backfill`` row and ``daytime_only`` only a
-    pre-``RUN_AT`` one; ``late`` of the ``covered`` ones were recorded only after the night's on-time window
-    closed (the next weekday's 06:00 ET EDGAR open — a catch-up the next day). Counts only — never a thesis
-    name."""
+    call-of-record recorded at/after the night's ``RUN_AT`` and no ``pipeline.backfill`` reconstruction
+    either (``pipeline/night_coverage.py``). ``covered`` of ``expected`` theses had a live post-``RUN_AT``
+    row; ``reconstructed_only`` of the rest were backfilled (resolved — they alone never make a night
+    partial) and ``daytime_only`` have only a pre-``RUN_AT`` row; ``late`` of the ``covered`` ones were
+    recorded only after the night's on-time window closed (the next weekday's 06:00 ET EDGAR open — a
+    catch-up the next day). Counts only — never a thesis name."""
 
     asof: date
     covered: int
@@ -1728,6 +1728,18 @@ class AdminPartialNightOut(BaseModel):
     reconstructed_only: int = 0
     daytime_only: int = 0
     late: int = 0
+
+
+class AdminReconstructedNightOut(BaseModel):
+    """A scheduled night some of whose theses are covered only by a ``pipeline.backfill`` reconstruction
+    (``reconstructed`` of ``expected``), every other thesis having its live post-``RUN_AT`` row. QUIET by
+    operator decision (2026-10-16): the backfill is the operator's answer to that hole, so the night is NOT
+    partial and never an alarm — it is listed so the reconstruction stays visible (the Scoreboard reports
+    such rows and never scores them)."""
+
+    asof: date
+    reconstructed: int
+    expected: int
 
 
 class AdminRecordOut(BaseModel):
@@ -1754,10 +1766,12 @@ class AdminRecordOut(BaseModel):
     **PER-THESIS coverage (M1).** ``missed_asofs`` asks whether ANY row landed after the cutoff — so a pass
     killed after recording 4 of 12 theses read as a covered night (MEASURED 2026-10-12, healthy for ~18 h).
     ``partial_nights`` lists every window night NOT in ``missed_asofs`` where some thesis in that night's
-    roster (created before the cutoff, not archived before it) has no NON-reconstructed row at/after the
-    cutoff — "4 of 12 theses". Here a reconstructed row does NOT count: it is the honest stand-in for a
-    missed night, never the night's on-time record. ``[]`` on a clean window; the night a pass is still
-    running for (within the run timeout) is left out until it finishes.
+    roster (created before the cutoff, not archived before it) has no row at/after the cutoff — "4 of 12
+    theses". A thesis ``pipeline.backfill`` reconstructed is RESOLVED, not missing (operator decision
+    2026-10-16 — the backfill is the operator's answer to that hole, so a new miss stands out): a night
+    whose only gaps are reconstructed is not partial and lands in ``reconstructed_nights`` instead, a quiet
+    count that never changes the verdict. ``[]`` on a clean window; the night a pass is still running for
+    (within the run timeout) is left out of both until it finishes.
     """
 
     edge: date | None
@@ -1771,6 +1785,7 @@ class AdminRecordOut(BaseModel):
     daytime_only_asofs: list[date] = []
     window_days: int
     partial_nights: list[AdminPartialNightOut] = []
+    reconstructed_nights: list[AdminReconstructedNightOut] = []
 
 
 class AdminUnfinishedRunOut(BaseModel):

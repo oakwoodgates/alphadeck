@@ -30,6 +30,7 @@ from app.schemas_api import (
     AdminAuditCheckOut,
     AdminCronOut,
     AdminPartialNightOut,
+    AdminReconstructedNightOut,
     AdminRecordOut,
     AdminRunEnvOut,
     AdminRunJobRef,
@@ -638,7 +639,9 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
     recorded night with no run artifact at all alarms too; inside the timeout the verdict is ``running``.
     ``record.partial_nights`` judges every window night PER THESIS (the self-audit's own rule): each thesis
     in that night's roster needs a non-reconstructed call-of-record at/after ``RUN_AT``, else the night is
-    partial ("4 of 12 theses") and the verdict ``gappy``. The night a pass is still running for is not
+    partial ("4 of 12 theses") and the verdict ``gappy`` — unless ``pipeline.backfill`` reconstructed that
+    thesis's night: the backfill resolves the hole, so the night stays QUIET and is listed in
+    ``record.reconstructed_nights`` (a count, never an alarm). The night a pass is still running for is not
     judged until it finishes.
     """
     run_at = _run_at()
@@ -703,15 +706,18 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
     # pass killed after 4 of 12 theses read as a covered night (10-12, healthy for ~18 h). Every window night
     # inside the record's span is judged per thesis by the SAME rule the nightly self-audit uses
     # (`pipeline/night_coverage.py`): each thesis in that night's roster needs a NON-reconstructed row at/after
-    # the cutoff. A night already in `missed` stays there (nothing ran after the close); any other night that
-    # is not complete is PARTIAL. Two read-only queries; the surface still writes nothing.
+    # the cutoff. A night already in `missed` stays there (nothing ran after the close); any other night with
+    # an UNRESOLVED thesis is PARTIAL. A thesis whose gap a `pipeline.backfill` filled is RESOLVED (operator
+    # decision 2026-10-16): the backfill is the operator's answer to that hole, so the night reads quiet — kept
+    # VISIBLE as a quiet reconstructed count, never an alarm — and a NEW miss stands out. Two read-only
+    # queries; the surface still writes nothing.
     cov_nights = [d for d in window_days if first is not None and d >= first]
     coverage = read_night_coverage(conn, cov_nights, run_at=run_at, tz=tz) if cov_nights else {}
     missed_set = set(missed)
-    partial = [
-        coverage[d]
-        for d in cov_nights
-        if d not in missed_set and d != in_flight_asof and not coverage[d].complete
+    judged = [d for d in cov_nights if d not in missed_set and d != in_flight_asof]
+    partial = [coverage[d] for d in judged if not coverage[d].resolved]
+    reconstructed = [
+        coverage[d] for d in judged if coverage[d].resolved and coverage[d].reconstructed_only
     ]
     # the verdict's view of the edge/hole checks: the night an in-flight pass is recording is not missing yet
     # (`record.*` keeps the raw edge-check meaning; only the one-word verdict reads through the in-flight pass)
@@ -886,6 +892,14 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
                     late=len(c.covered - c.on_time),
                 )
                 for c in partial
+            ],
+            reconstructed_nights=[
+                AdminReconstructedNightOut(
+                    asof=c.asof,
+                    reconstructed=len(c.reconstructed_only),
+                    expected=len(c.expected),
+                )
+                for c in reconstructed
             ],
         ),
         last_run=last_run,

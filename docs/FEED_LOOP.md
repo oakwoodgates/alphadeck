@@ -862,8 +862,10 @@ Recorded here where a builder of the pager/scheduler will hit them; the full acc
   it; one still `running` past the sidecar's run timeout (`ALPHADECK_CRON_RUN_TIMEOUT_S`, mirrored to the
   backend) or `crashed` is a `cron.alarms` line ("the last pass did not finish"), while a pass inside its
   timeout reads `running`; (b) every recent night is judged PER THESIS (`pipeline/night_coverage.py`, the
-  self-audit's own rule): a night where some thesis in its roster has no non-reconstructed post-`RUN_AT`
-  row is listed PARTIAL ("2026-10-12: 4 of 12 theses") and the verdict is `gappy`; (c) a night with
+  self-audit's own rule): a night where some thesis in its roster has no post-`RUN_AT` row AND no
+  `pipeline.backfill` reconstruction is listed PARTIAL ("2026-10-12: 4 of 12 theses") and the verdict is
+  `gappy` — a backfilled thesis is resolved (the operator's answer to that hole, so after a backfill the
+  hole clears and stays visible only as a quiet `reconstructed_nights` count); (c) a night with
   post-`RUN_AT` rows but NO run artifact at all alarms too. And the guard never credits a `running` /
   `crashed` artifact, so the killed night's catch-up runs — recording only the missing theses (M2).
   **Still open, by design:** a late catch-up row still counts as covering its night here — whether a row

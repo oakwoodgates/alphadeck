@@ -22,11 +22,17 @@ THE WORDS:
   next EDGAR open (EDGAR accepts filings from 06:00 ET; anything recorded later can have read a filing the
   night could not have). A Friday night's window runs to Monday 06:00 (the trigger's Mon-Fri calendar —
   holidays are not modeled, the ``pipeline/schedule.py`` choice).
-- **Covered** (the Admin partial check and the V1 audit) = the thesis has a NON-reconstructed row for D
+- **Covered** (the V1 audit; the base of the Admin check) = the thesis has a NON-reconstructed row for D
   recorded at or after D's ``RUN_AT`` — WITHOUT the upper bound: a late catch-up row still covers the night
   until L1 (operator Q5 = A) decides how late rows are treated. A ``reconstructed`` row
-  (``pipeline.backfill``) never covers — reported, never the night's record; a row recorded BEFORE the cutoff
-  (a pre-open "Run daily now") never covers — it ran on the prior session's bars.
+  (``pipeline.backfill``) never COVERS — it is reported, never the night's record; a row recorded BEFORE the
+  cutoff (a pre-open "Run daily now") never covers — it ran on the prior session's bars.
+- **Resolved** (the Admin partial check — operator decision 2026-10-16) = covered, OR the thesis's gap was
+  filled by a ``reconstructed`` row. The backfill IS the operator's decision that resolves that hole, so a
+  backfilled night reads QUIET (not partial, not an alarm — a quiet ``reconstructed`` count keeps it
+  visible), and a NEW miss stands out. Only an ``unresolved`` thesis — no row after the cutoff and no
+  reconstruction either — makes a night partial. The V1 audit keeps the stricter ``covered``: it judges the
+  night its own pass just ran, where no backfill exists.
 - **On time** (the M2 skip; reported beside covered) = a non-reconstructed row INSIDE the on-time window.
 - **Expected** = the thesis was in the night's roster: CREATED before D's cutoff, and not ARCHIVED before it
   (``archived_at`` NULL, or at/after the cutoff). The creation rule is ``pipeline.backfill
@@ -140,6 +146,18 @@ class NightCoverage:
         """Every expected thesis is covered. A night with NO expected thesis is vacuously complete — there
         was nothing to record (a night before every current thesis existed)."""
         return not self.missing
+
+    @property
+    def unresolved(self) -> frozenset[UUID]:
+        """The missing theses a backfill has NOT resolved — no post-cutoff row and no reconstructed row. The
+        Admin partial check's set (a reconstructed-only thesis is the operator's resolved hole)."""
+        return self.missing - self.reconstructed_only
+
+    @property
+    def resolved(self) -> bool:
+        """No unresolved thesis: every expected thesis is covered or was backfilled. The Admin verdict's
+        "this night is fine" — quiet even when some of it is reconstructed."""
+        return not self.unresolved
 
     def describe(self) -> str:
         """``"4 of 12 theses"`` plus what explains the gap, when anything does — counts only, never a thesis

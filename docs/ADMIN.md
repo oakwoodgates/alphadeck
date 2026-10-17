@@ -85,10 +85,13 @@ then off at 22:30).
 - The cutoff uses `Settings.cron_run_at` (`ALPHADECK_CRON_AT`), the same host var the sidecar fires on —
   mirrored into both services by compose so the trigger and its readout cannot drift.
 
-**A reconstructed night reads as recorded here — on purpose (for the HOLE check).** `record_edge` /
-`record_first` / `recorded_asof_stamps` count EVERY `calls` row, including the rows `pipeline.backfill` wrote
-(`calls.reconstructed`, migration 0042): after a backfill the night is no longer a hole and the edge can
-advance. (Since M1 the per-thesis PARTIAL check below does not count it — see "Cron health".)
+**A reconstructed night reads as recorded here — on purpose: after a backfill, the hole CLEARS.**
+`record_edge` / `record_first` / `recorded_asof_stamps` count EVERY `calls` row, including the rows
+`pipeline.backfill` wrote (`calls.reconstructed`, migration 0042): after a backfill the night is no longer a
+hole, `gappy` clears, and the edge can advance. The per-thesis PARTIAL check (M1, "Cron health") honors the
+same decision — a backfilled thesis is RESOLVED, never a partial night — and only keeps the reconstruction
+visible as a quiet count (`record.reconstructed_nights`). The backfill is the operator's answer to the hole,
+so the page goes quiet and a NEW miss stands out.
 Freshness asks whether the log advanced, not whether a row is scoreable — the Scoreboard's record path is the
 one reader that filters reconstructed rows out (`SCOREBOARD.md`), so "healthy" here and "N nights
 reconstructed · not scored" there can both be true of the same night.
@@ -229,9 +232,15 @@ died at ~22:42 when the host VM went down, 4 of 12 theses had rows, there was no
   verdict is `running`, not an alarm. (An Admin "Run daily now" pass is not bounded by the sidecar's timeout;
   one that ran longer than it would read "did not finish" until it lands.)
 - **Per-thesis coverage — `record.partial_nights`.** Every window night (not already in `missed_asofs`) is
-  judged PER THESIS by `pipeline/night_coverage.py` — the SAME rule as the nightly self-audit's
-  `on_time_rows` check, so "covered" has one definition: each thesis in that night's ROSTER needs a
-  **non-reconstructed** row recorded at/after that night's `RUN_AT`. The roster is the theses **created
+  judged PER THESIS by `pipeline/night_coverage.py` — the module the nightly self-audit's `on_time_rows`
+  check uses, so "covered" has one definition: a **non-reconstructed** row recorded at/after that night's
+  `RUN_AT`. A night is PARTIAL when some thesis in its ROSTER is neither covered NOR reconstructed — a
+  thesis `pipeline.backfill` reconstructed is **resolved** (operator decision, 2026-10-16: the backfill is
+  the answer to that hole), so a fully backfilled night is not partial and never an alarm; it is listed
+  quietly in **`record.reconstructed_nights`** (`{asof, reconstructed, expected}`) and on the freshness card
+  as a quiet "backfilled" line, so it stays visible while a NEW miss stands out. (The self-audit keeps the
+  strict rule — a reconstructed row never counts for it — because it judges the night its own pass just
+  ran, where no backfill exists.) The roster is the theses **created
   before** the night's `RUN_AT` instant and **not archived before** it — point in time, so archiving a thesis
   never hides a night it missed (known limit: `archived_at` is one stamp, so a thesis archived and later
   restored reads as expected on the nights it sat archived). A thesis created after 22:30 was never in that
@@ -246,11 +255,11 @@ died at ~22:42 when the host VM went down, 4 of 12 theses had rows, there was no
   whose run history shows the cron sidecar: dev's `calls` table is a copy of prod's while its artifacts are
   only dev's own hand runs, so there every night would read "no artifact".
 
-**Reconstructed rows and the two checks.** `missed_asofs` still counts a reconstructed row (below), so a
-backfilled night is not a hole; `partial_nights` does NOT — a reconstructed row is the honest stand-in for a
-missed night, never its on-time record — so a backfilled night stays listed PARTIAL (marked
-"N reconstructed only") until it leaves the window. That is the §2 correctness bar: the window is "correct"
-only when every night has its on-time record.
+**Reconstructed rows — quiet in both checks.** After a backfill the hole clears: `missed_asofs` counts a
+reconstructed row (above), and `partial_nights` treats a reconstructed thesis as resolved. A partial night
+that ALSO has backfilled theses still names them (`reconstructed_only`, "N reconstructed only" in the
+detail) — the night is partial only because of the theses with no row at all. The reconstructed rows stay
+what they are everywhere else: reported, never scored (the Scoreboard filters them).
 
 The verdict re-derives via `assess_health` over the newest **readable** run-of-record artifact
 (`data/cron_runs/`, skip-unreadable fail-open). The **benign** `--no-live` cache-only note is excluded from

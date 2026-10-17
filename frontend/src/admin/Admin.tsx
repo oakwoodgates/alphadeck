@@ -214,6 +214,8 @@ export function Admin({ header }: Props) {
   const stalePriceTapes = priceTapes.filter((t) => t.closed_at == null);
   // M1 — nights a pass recorded only PART of (judged per thesis); an older backend omits the field
   const partialNights = status?.record.partial_nights ?? [];
+  // ...and nights whose gaps a pipeline.backfill reconstructed: resolved by the operator, so QUIET
+  const reconstructedNights = status?.record.reconstructed_nights ?? [];
 
   return (
     <div className="board-shell adm-shell">
@@ -280,6 +282,18 @@ export function Admin({ header }: Props) {
                 <b>{partialNights.length}</b> scheduled night(s) are PARTIAL — not every thesis has a
                 post-close call-of-record:{" "}
                 {partialNights.map((p) => `${p.asof}: ${p.covered} of ${p.expected} theses`).join(", ")}
+              </div>
+            )}
+            {/* the BACKFILLED nights: a pipeline.backfill reconstruction resolved their gap (the operator's
+                decision), so they are QUIET — listed so the reconstruction stays visible, never loud, and
+                never a reason the card turns gappy. Rendered only when there is one. */}
+            {reconstructedNights.length > 0 && (
+              <div className="adm-line adm-quiet" data-testid="adm-reconstructed">
+                {reconstructedNights.length} night(s) backfilled (reconstructed — reported, never
+                scored):{" "}
+                {reconstructedNights
+                  .map((r) => `${r.asof} (${r.reconstructed} of ${r.expected} theses)`)
+                  .join(", ")}
               </div>
             )}
             <div className="adm-sub">

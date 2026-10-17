@@ -18,6 +18,7 @@ from zoneinfo import ZoneInfo
 from app.routers import admin
 from db.session import DEFAULT_TENANT_ID
 from pipeline import daily
+from pipeline.backfill import run_backfill
 from pipeline.cron_run_log import mark_run_crashed, write_cron_run_log, write_run_start
 from pipeline.daily import ThesisRunResult
 from repositories import calls_repo
@@ -178,6 +179,54 @@ def test_rows_recorded_with_NO_run_artifact_for_their_night_alarm(client, db, mo
     assert (
         body["record"]["partial_nights"] == []
     )  # every thesis IS covered — the gap is the artifact
+
+
+# --- backfilled nights are QUIET (operator decision 2026-10-16) ------------------------------------------
+
+
+def test_a_BACKFILLED_night_is_QUIET_but_a_truly_MISSING_thesis_still_reads_PARTIAL(
+    client, db, monkeypatch
+):
+    """The operator backfilled 09-29/09-30 so Admin would stop reading gappy and a NEW miss would stand out:
+    a night whose gaps `pipeline.backfill` reconstructed is RESOLVED — not partial, not an alarm — and stays
+    visible as a quiet `reconstructed_nights` count. A thesis with NO row at all still makes its night
+    partial, even beside a backfilled one. Every reconstructed row is the REAL backfill's (`run_backfill`,
+    `known_at` pinned to the next morning, `calls.reconstructed = true`)."""
+    a, b, c = (_thesis(db, f"B{i}") for i in range(3))
+    _record(db, [a, b, c], [_WEEK[0], _WEEK[2], _WEEK[4]])  # Mon, Wed, Fri: the live pass, full
+    # Tue: the host was off — every thesis backfilled
+    run_backfill(db, asof=_WEEK[1], known_at=_et(9, 9, 9, 0).astimezone(timezone.utc))
+    # Thu: `a` recorded live, `b` backfilled, `c` has NOTHING — a genuine new miss
+    _record(db, [a], [_WEEK[3]])
+    run_backfill(db, asof=_WEEK[3], known_at=_et(9, 11, 9, 0).astimezone(timezone.utc), thesis_id=b)
+    for d in _WEEK:
+        _finished(d, _et(9, d.day, 22, 30), 3)
+    _pin(monkeypatch, _et(9, 11, 23, 0))
+
+    body = _status(client)
+    # the genuine miss is loud
+    assert body["cron"]["status"] == "gappy"
+    [partial] = body["record"]["partial_nights"]
+    assert partial["asof"] == "2026-09-10"
+    assert (partial["covered"], partial["expected"], partial["reconstructed_only"]) == (1, 3, 1)
+    # (the live rows here are recorded at the real clock, after the September night — honestly "late")
+    assert "2026-09-10: 1 of 3 theses (1 reconstructed only" in body["cron"]["detail"]
+    # the fully backfilled night is QUIET: no partial entry, a quiet reconstructed count
+    assert body["record"]["reconstructed_nights"] == [
+        {"asof": "2026-09-08", "reconstructed": 3, "expected": 3}
+    ]
+    assert "2026-09-08" not in body["cron"]["detail"]
+
+    # backfill the last gap: the window now reads HEALTHY, both nights listed quietly
+    run_backfill(db, asof=_WEEK[3], known_at=_et(9, 11, 9, 0).astimezone(timezone.utc), thesis_id=c)
+    body = _status(client)
+    assert body["cron"]["status"] == "healthy", body["cron"]
+    assert body["cron"]["alarms"] == [] and body["record"]["partial_nights"] == []
+    assert body["record"]["missed_asofs"] == []
+    assert body["record"]["reconstructed_nights"] == [
+        {"asof": "2026-09-08", "reconstructed": 3, "expected": 3},
+        {"asof": "2026-09-10", "reconstructed": 2, "expected": 3},
+    ]
 
 
 # --- the healthy shapes stay healthy -------------------------------------------------------------------

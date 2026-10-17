@@ -215,6 +215,21 @@ const STATUS_RUNNING = {
   cron: { status: "running", detail: "a pass is running (started 2026-10-16 22:30 EDT, asof 2026-10-16)" },
 };
 
+// a window whose 09-29 / 09-30 were backfilled (pipeline.backfill, reconstructed rows): resolved, quiet
+const STATUS_BACKFILLED = {
+  record: {
+    ...STATUS_PARTIAL.record,
+    partial_nights: [],
+    reason: "current — no scheduled run is missing",
+    reconstructed_nights: [
+      { asof: "2026-09-29", reconstructed: 12, expected: 12 },
+      { asof: "2026-09-30", reconstructed: 12, expected: 12 },
+    ],
+  },
+  last_run: OK_RUN,
+  cron: { status: "healthy", detail: "last run asof 2026-10-02 (live) — 12 appended" },
+};
+
 // M2 — a catch-up that left 4 theses alone (their on-time rows already stood)
 const SKIPPED_RUN = { ...CATCHUP_RUN, appended: 8, unchanged: 0, skipped: 4 };
 
@@ -347,6 +362,20 @@ describe("Admin — honest loudness on the freshness widget", () => {
     expect(partial.textContent).toContain("PARTIAL");
     expect(partial.textContent).toContain("2026-10-12: 4 of 12 theses");
     expect(screen.getByTestId("adm-cron").querySelector(".adm-chip")?.className).toMatch(/s-gappy/);
+  });
+
+  it("a BACKFILLED night is QUIET: listed with its reconstructed count, never loud, the cron healthy", () => {
+    // operator decision 2026-10-16: the backfill resolves the hole, so a NEW miss stands out
+    h.status = { ...h.status, data: STATUS_BACKFILLED };
+    renderAdmin();
+    const fresh = screen.getByTestId("adm-fresh");
+    expect(fresh.className).not.toMatch(/gappy|stale/);
+    expect(screen.queryByTestId("adm-partial")).toBeNull();
+    const line = screen.getByTestId("adm-reconstructed");
+    expect(line.className).toMatch(/adm-quiet/);
+    expect(line.className).not.toMatch(/adm-loud/);
+    expect(line.textContent).toContain("2026-09-29 (12 of 12 theses)");
+    expect(screen.getByTestId("adm-cron").querySelector(".adm-chip")?.className).toMatch(/s-healthy/);
   });
 
   it("a pass IN FLIGHT reads RUNNING, quietly — no partial line, no loud freshness card", () => {
