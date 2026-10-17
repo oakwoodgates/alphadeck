@@ -218,6 +218,32 @@ def stored_bars(
         return {r["d"]: r for r in cur.fetchall()}
 
 
+def bar_versions(
+    conn: psycopg.Connection,
+    security_id: UUID,
+    dates: Iterable[date],
+    *,
+    tenant_id: UUID = DEFAULT_TENANT_ID,
+) -> dict[date, list[dict]]:
+    """EVERY stored version of the given bar dates, oldest first (``recorded_at`` ascending) — the revert
+    test's history (Q11 / T5): a version other than the last is SUPERSEDED. The last one is the same pick
+    ``stored_bars`` makes (``(d, recorded_at)`` is unique per security). One query for the whole set.
+    """
+    ds = sorted(set(dates))
+    if not ds:
+        return {}
+    out: dict[date, list[dict]] = {}
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT d, close, volume FROM fact_price_eod "
+            "WHERE tenant_id = %s AND security_id = %s AND d = ANY(%s) ORDER BY d, recorded_at, id",
+            (tenant_id, security_id, ds),
+        )
+        for r in cur.fetchall():
+            out.setdefault(r["d"], []).append(r)
+    return out
+
+
 def latest_bar_date(
     conn: psycopg.Connection, security_id: UUID, *, tenant_id: UUID = DEFAULT_TENANT_ID
 ) -> date | None:

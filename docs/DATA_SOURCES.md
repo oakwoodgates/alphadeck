@@ -205,8 +205,10 @@ The EOD price source feeds `volume_breakout` (Key 2) and the Workbench market-ca
   frozen bars), while every stored bar before 08-14 matches exactly; the closes match apart from the two
   frozen bars. So **no bar is stored before its session settles** (D2, `Settings.price_settle_time` = 18:00
   market time, `ingest/prices/settle.py` — the evidence for the hour is on the setting), and post-settle
-  revisions are re-versioned by the restatement compare (thesis names: the whole overlap; SPY/IWM: the
-  newest `Settings.benchmark_restate_window` = 5 sessions). Detail: `FEED_LOOP.md` §Settled closes.
+  revisions are re-versioned by the restatement compare (thesis names: exactly inside the pull's newest 3
+  sessions, and an OLDER bar only when its close moved >= 0.5% or its volume >= 5% — Q11; SPY/IWM: exactly,
+  the newest `Settings.benchmark_restate_window` = 5 sessions). Detail: `FEED_LOOP.md` §Settled closes and
+  §Price restatements.
 - **The benchmark tape's two stamps (D1).** The nightly SPY/IWM leg stamps `recorded_at = now` like every
   other live price bar; only the one-shot historical backfill CLI (`python -m pipeline.ingest_benchmarks`)
   backdates first versions to their bar date (the replay contract for deep history). Before 2026-10-16 the
@@ -238,9 +240,15 @@ The EOD price source feeds `volume_breakout` (Key 2) and the Workbench market-ca
 > beyond float noise, close AND volume; a hole in the overlap backfills through the same pass). Idempotent
 > (COUNT-the-table), replay-honest (a `known_at` before the correction still sees the OLD basis — the
 > bitemporal store's transaction-time guarantee), and loud only on the exception (the daily prints "N bars
-> RE-VERSIONED (restated)" only when nonzero). Option
-> (b) — a **raw + splits** source owning the adjustment at read time — stays the endgame if a paid data tier
-> arrives; the `PriceSource` seam deliberately doesn't box it out.
+> RE-VERSIONED (restated)" only when nonzero). **AMENDED — Q11, operator decision 2026-10-17:** the vendor
+> also re-serves OLD bars with sub-percent rounding wiggles, and flips some histories between the adjusted and
+> the unadjusted basis from one pull to the next (T4's flaps). So an older bar (before the pull's newest 3
+> sessions) re-versions only beyond 0.5% close / 5% volume (T6), and a pass whose older restated bars ALL go
+> back to values the store held before (a revert) holds them, whole, until a pull on a later night agrees
+> (T5; the pending state is `price_restatement_hold`, migration 0047). A first-time re-base — a genuine split
+> — still lands the same pass. Rule, replay numbers and the residuals: `FEED_LOOP.md` §Price restatements.
+> Option (b) — a **raw + splits** source owning the adjustment at read time — stays the endgame if a paid
+> data tier arrives; the `PriceSource` seam deliberately doesn't box it out.
 
 > **Canceled with reason — the parser split-adjustment (old M2c).** An earlier plan was to compute our own
 > split factor and adjust the bars at parse. **Verified unnecessary and harmful:** Yahoo already adjusts close
