@@ -185,6 +185,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --scale cr
 docker compose -f docker-compose.yml -f docker-compose.dev.yml -p alphadeck_dev --env-file .env.dev up -d --build
 docker compose -f docker-compose.yml -f docker-compose.dev.yml -p alphadeck_dev down   # stop dev (KEEPS its volumes)
 bash scripts/refresh-dev.sh                             # ONE-WAY prod->dev data refresh (pg_dump READ; never writes prod)
+bash scripts/deploy.sh --label pre-deploy-pr123 backend cron   # DEPLOY merged main to PROD (main checkout): refuses dirty/off-main/unmerged, 22:20-22:50 ET, a running pass; backup -> GIT_SHA build -> FE-restart rule -> verify (exit 0 = verified) · --dry-run · --env-only cron · docs/DEPLOY.md Flow A
 # If `make` is installed (often not on Windows): make prod-up · make dev-up · make dev-down · make refresh-dev · make venv
 
 # FORKS — self-serve experiment stacks (own worktree/branch/DB/ports, cron OFF, no live SEC), seeded

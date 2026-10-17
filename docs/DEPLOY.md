@@ -5,8 +5,9 @@ How to ship a code change to the running **prod** stack (Flow A), and how to pre
 (Flow C). Written to be followed cold by an agent.
 
 Pairs with: `docker-compose.yml` (prod) · `docker-compose.dev.yml` (dev override) ·
-`docs/DEV_PROD.md` (the two stacks + the one-way refresh). There is no deploy script —
-deploy IS the targeted `--build` below.
+`docs/DEV_PROD.md` (the two stacks + the one-way refresh). Flow A runs through
+`scripts/deploy.sh`, which builds the procedure's guards and checks in; its manual steps stay
+below as the fallback. Flows B and C are manual: deploy IS the targeted `--build`.
 
 ---
 
@@ -37,9 +38,58 @@ read it before reaching for it.
 
 ## Flow A — merged branch -> PROD (take it live)
 
+**Use the wrapper.** `scripts/deploy.sh` runs this whole flow, guards included. Run it from the MAIN
+checkout, on a clean `main` that equals `origin/main`:
+```
+git checkout main && git pull --ff-only origin main                     # the wrapper refuses anything else
+bash scripts/deploy.sh --label pre-deploy-pr123 --dry-run backend cron    # the plan: changes nothing
+bash scripts/deploy.sh --label pre-deploy-pr123 backend cron              # backup, build, restart rule, verify
+bash scripts/deploy.sh --env-only cron                                    # a cron ENV change: recreate, no build
+```
+- **Services:** any of `frontend`, `backend`, `cron`, chosen by "The load-bearing fact" above and the
+  cron caveat below. A build needs `--label`, which names the pre-deploy backup (a labeled dump is
+  prune-exempt).
+- **It refuses, changing nothing (exit 3),** on any of these:
+  - a linked worktree, or no `.env` at the checkout root;
+  - a dirty tree, or a branch other than `main`;
+  - `HEAD != origin/main` after `git fetch` (deploy what is merged);
+  - a clock inside **22:20–22:50 America/New_York**, around the 22:30 nightly pass. The script reads
+    New York time whatever the host TZ. Git for Windows ships no zoneinfo, so there
+    `TZ=America/New_York date` silently prints UTC; the script rejects that answer and uses the
+    `EST5EDT` rule instead;
+  - a pass in flight, or the call-of-record lock held. A pass in flight is `/admin/status`
+    `cron.status == running`, or an `unfinished_run` still inside its timeout. The lock is held by a
+    daily pass or a backfill (`pipeline/run_lock.py`); the script only reads `pg_locks`, it never
+    takes the lock.
+
+  It lists every refusal in one run. A bad invocation, such as an unknown service or no `--label`,
+  exits 2.
+- **Then:** the backup (step 1 below), then the rebuild with `GIT_SHA` read from
+  `git rev-parse HEAD` (never an argument; a `GIT_SHA` already in the shell is ignored). If the
+  backend was rebuilt without the frontend, it runs `docker restart alphadeck-frontend-1`. Then it
+  verifies.
+- **Verification** exits 0 only if every check passes, else 5:
+  - the backend is `healthy`;
+  - `:8080/api/health` answers 200 (the proxy);
+  - `ALPHADECK_IMAGE_SHA` in each REBUILT backend/cron container equals the sha built (after an
+    env-only recreate: unchanged);
+  - the cron container is running and, when recreated, printed its boot lines (the tail is shown);
+  - `/admin/status` reads, with no NEW `cron.alarms` line and no quiet → loud `cron.status`. An alarm
+    that was there before the deploy is shown, not failed.
+
+  A failed step exits 4. On 4 or 5, use the `stack-recovery` skill.
+- **`--dry-run`** runs the local checks for real: git (with `ls-remote` in place of `fetch`, so no
+  ref moves) and the clock. It prints every stack read, command and check, and touches no Docker
+  and no endpoint.
+
+**Manual fallback** — the same procedure by hand, for when the wrapper cannot run (say the backend
+is down, so a running pass cannot be ruled out: that is a recovery, see the `stack-recovery` skill).
+Apply its guards yourself: never between 22:20 and 22:50 America/New_York, and never while
+`/admin/status` reads `cron.status: running`.
+
 1. **Back up prod first** (one-way Slice-4 dump to `./data/backups`, safe):
    ```
-   docker compose -f docker-compose.yml -f docker-compose.prod.yml exec backend python -m pipeline.backup --label pre-deploy
+   docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T backend python -m pipeline.backup --label pre-deploy
    ```
 2. **Fast-forward the main checkout** (it can be behind by more than your PR — a prior
    dev-detour leaves local `main` behind origin):
@@ -87,9 +137,17 @@ read it before reaching for it.
    docker logs alphadeck-cron-1                  # the boot catch-up line, then "next run <ts> — asof <date>"
    docker top alphadeck-cron-1                   # a `sleep 60` (the sliced wait) — never a tens-of-thousands-second sleep
    ```
+   **A backend rebuilt WITHOUT the frontend needs `docker restart alphadeck-frontend-1`.** The
+   recreated backend has a new Docker-network IP, and the frontend's nginx cached the old one, so every
+   `/api` call 502s until nginx restarts. A rebuild that includes `frontend` recreates it, so no extra
+   restart is needed.
 4. **Verify the REAL artifact** (not just that it built):
    ```
    docker inspect --format '{{.State.Health.Status}}' alphadeck-backend-1   # -> healthy
+   curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/api/health   # -> 200: the /api PROXY, not just :8000
+   docker exec alphadeck-backend-1 printenv ALPHADECK_IMAGE_SHA             # -> the sha you built (and alphadeck-cron-1)
+   docker logs --tail 20 alphadeck-cron-1                                   # the boot lines (cron caveat below)
+   curl http://localhost:8000/admin/status                                  # cron.status + cron.alarms: nothing new
    curl http://localhost:8000/<endpoint>                                    # the new field
    ```
    For a frontend change, open the live control in the Browser pane and exercise it.
@@ -207,7 +265,9 @@ then re-run step 1 + step 2.
   `--no-deps --build cron` — there is no bind-mount to pick it up.
 - **A cron ENV change needs the container RECREATED, not just rebuilt.** Compose applies a changed
   `environment:` block on recreate, which `up -d --build --no-deps cron` does — but a bare `docker
-  restart alphadeck-cron-1` does not. After changing any of the cron service's vars, confirm with
+  restart alphadeck-cron-1` does not. An env-ONLY change can keep the image:
+  `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps --no-build cron`,
+  which is what `scripts/deploy.sh --env-only cron` runs. After changing any of the cron service's vars, confirm with
   `docker exec alphadeck-cron-1 printenv TZ ALPHADECK_MARKET_TZ RUN_AT ALPHADECK_CRON_AT RETRY_DELAY_S DB_WAIT_S RUN_TIMEOUT_S PYTHONUNBUFFERED`
   and `docker exec alphadeck-backend-1 printenv TZ ALPHADECK_MARKET_TZ ALPHADECK_CRON_AT PYTHONUNBUFFERED`.
   The heartbeat URLs are credentials, so check them as set/unset, never by value:
