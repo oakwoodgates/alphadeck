@@ -518,6 +518,77 @@ nothing it finds reaches a detector, the CallCard, or a stored bar. Whether pric
 a flagged name (plan Q10), a two-agreeing-pulls hysteresis before re-basing (T5) and any repair of stored
 bars are separate, undecided steps.
 
+### The tape monitor, part 3 — price-feed repairs: renamed, unpriceable, expected 404s (T2 + Q8 + T3, 2026-10-17)  `[BUILT]`
+
+T1 classifies a stopped price tape **closed**, **renamed** or a **feed gap** (see "Known gaps" below). This
+part turns the three readings into decisions the operator ratifies, and stops the expected ones from
+spoiling `ingest_fresh`.
+
+**The measured night it fixes (prod, 2026-10-16).** Six names failed their price leg every night with a
+vendor **404** — HLLK, GTLS, XOMA, CPRX, AVNS, WONDF — and because `ingest_fresh = ingest_errors == 0`, every
+row of Modern Defense, Nuclear Buildout, Rainbow Rush and The Everything Exchange was stamped
+`ingest_fresh=false` every night, so the flag carried no signal. Four of the six are genuine closes; HLLK is a
+rename (SDCO); WONDF (a Canadian 40-F filer, EDGAR `tickers=[]`) has never had a bar. And four renamed tapes
+(HLLK → SDCO, BRR → SVIA/SVIAW, BTAI → BTAIQ, VRME → OPNW) were starving with the existing resolver
+(`pipeline/resolve_price_symbols.py`) unable to reach them: OTC-only, thin-history-gated, matched on the stale
+master name, never run by the cron.
+
+**T2 — the rename recommender** (`pipeline/rename_probe.py`, operator Q7 = nightly). After the per-thesis loop,
+for every stopped price row T1 marks `renamed` (deduped by security), each symbol in its `edgar_tickers` is
+fetched ONCE through the `PriceSource` seam into a **throwaway temp dir** (the shared price cache is never
+touched — the `repair_benchmark_bars.py` pattern) and **spliced** against our stored tape: `overlap` = the
+dates both tapes carry a close on, `ratio` = the MEDIAN of candidate/ours, **verified** = overlap >= 5 and the
+ratio within 1%. MEASURED on the extracted prod tapes: SDCO 30/30 shared dates x1.000000, SVIA 30 x1.000000
+— and BRR's **warrants** SVIAW 30 shared dates at x0.121: **rejected**, the instrument a blind adoption of
+EDGAR's list could have filed under the member. Each row carries the EDGAR evidence (current entity name,
+`formerNames`, item-5.03 8-Ks — read by the ingest from the same cached submissions, zero fetches). The probe
+writes NOTHING: its result rides the artifact (`rename_probe`), the printed report ("renamed — EDGAR lists
+SDCO · splice-verified SDCO (30 shared bars, x1.000, bars to 2026-10-15) — Adopt on the Admin page") and the
+Admin "Price feed repairs" panel. Cost: one request per distinct candidate per pass (five tonight), nothing on
+a night with no renamed tape, nothing on `--no-live`. Fail-open: a candidate's failed fetch is recorded and
+simply not verified; a fault reading our own tape fails the probe into `rename_probe.error`, printed loud and
+shown on Admin.
+
+**Q8 — the UNPRICEABLE class** (`tape_health.is_unpriceable`): a price row with NO stored bar ever
+(`edge` null) that is neither closed nor renamed. It is surfaced **loudly** — it pages ONCE when new through
+the existing newly-stale diff (R4), and stays on Admin until the operator ratifies one of: **set a price
+symbol** (validated by one vendor fetch — bars must exist), **acknowledge** it ("keep it, unpriced"), or
+**remove it from the basket** (a link to the existing editor; there is no second delete path). An
+**acknowledged** row (an active `price_feed_ack`, migration 0046) goes QUIET like a closed row: out of the
+newly-stale diff on both sides (so it never pages, and a REVOKED acknowledgment pages once more as the news it
+then is), one quiet report line, a quiet count on Admin — still listed (#9). Only an unpriceable row can be
+marked: an acknowledgment never silences a name that HAS bars and stopped (that is a feed gap). The
+acknowledged set is read once per pass, fail-open toward LOUD (a failed read leaves every name loud).
+
+**T3 — expected 404s** (`pipeline/price_feed.py`, operator Q9 = yes). The ingest records a FACT —
+`NameResult.price_not_found`, the vendor answered 404 — and the pass judges it after the tape classification:
+a 404 on a name tonight's pass classified **closed**, or that the operator **acknowledged** unpriceable, is
+**expected**. It leaves the name's `error` / `leg_errors` (the error string is rebuilt from the remaining legs
+exactly as the ingest builds it), so it is not a name error, does not count toward `ingest_errors`, does not
+make `ingest_fresh` false and does not page; it is kept as an `ExpectedPriceMiss` on the thesis result — the
+artifact's per-thesis `expected_price_misses` and ONE quiet report line — never dropped. **Still loud, on
+purpose:** a renamed name not yet adopted (HLLK — one Adopt fixes it), an unpriceable name not yet
+acknowledged (WONDF until the operator decides), any non-404 price failure, and every other leg's error. **The
+fetch still runs for closed and acknowledged names**, deliberately: the classification is derived from the
+tape, so skipping the fetch would make "closed" self-perpetuating — a relisted name, or a WONDF the vendor
+starts serving, is noticed only because the bars can still land (the edge moves, the row stops being stale,
+the excuse no longer applies). Eight requests a night is the price of that.
+
+**The operator's ratifications** live on the Admin page (`ADMIN.md`, "Price feed repairs") and in two
+append-only tables (0046): `price_symbol_change` (Adopt / Set / Undo — every row carries the master's PRIOR
+and NEW `price_symbol`, `price_symbol_basis` and, when an Adopt refreshed it, `name`, so an Undo restores the
+master byte-for-byte) and `price_feed_ack` (Acknowledge / Revoke). The writes go through the existing
+`master.set_price_symbol` (basis `operator:adopt` / `operator:set`); nothing is ever applied by the pass.
+
+**What it predicts for the next pass (MEASURED read-only on prod with this branch, 2026-10-17** — the branch
+code on a `PYTHONPATH` overlay, a read-only connection, the cached submissions, the latest artifact's price
+errors, and the probe's real Yahoo fetches into a throwaway dir): the probe made **5** requests in **1.5 s**
+and verified all four renamed successors — HLLK → **SDCO** (49 shared dates, x1.000), BRR → **SVIA** (328,
+x1.000; SVIAW rejected at x0.143), BTAI → **BTAIQ** (495, x1.000), VRME → **OPNW** (493, x1.000); WONDF reads
+**unpriceable**; the 8 closes read closed. Nuclear Buildout and Rainbow Rush get `ingest_fresh=true` back
+(GTLS / XOMA / CPRX / AVNS are excused as closed); Modern Defense (HLLK) and The Everything Exchange (WONDF)
+stay `false` until the operator Adopts SDCO and decides WONDF.
+
 ## The scheduling sidecar — the `cron` service + `scripts/daily_cron.sh`  `[BUILT #73]`
 
 The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
@@ -1002,6 +1073,8 @@ Recorded here where a builder of the pager/scheduler will hit them; the full acc
   - **renamed** — a loud repair row marked "renamed — EDGAR lists X": EDGAR's current `tickers` holds
     neither the master `ticker` nor `price_symbol` (membership, never `tickers[0]`). Display only; nothing
     adopts the symbol.
+  - **unpriceable** (Q8) — no stored bar ever, neither closed nor renamed (WONDF); loud until the operator
+    sets a symbol, acknowledges it (then quiet) or removes it.
   - otherwise a plain **stale — repair** row.
 
   The G5b rule it replaced closed a stopped tape on ANY delisting form ever filed, dated by the newest.
@@ -1018,8 +1091,11 @@ Recorded here where a builder of the pager/scheduler will hit them; the full acc
   **Still open by design:** the repair is the
   operator's (set the vendor symbol override for a tape; check fund/ticker/source for a sleeve), because an
   automatic rename-follower could file another company's tape under a member — worse than a visible gap
-  (#4/#6). The ratifiable rename recommendation (plan T2) and treating a closed name's price 404 as expected
-  (T3) are not built.
+  (#4/#6). **Ratifiable since T2/Q8/T3 (2026-10-17):** a renamed name carries a nightly splice-verified
+  successor to Adopt, an unpriceable one can be Set / Acknowledged / removed, and a closed or acknowledged
+  name's vendor 404 is expected — see "The tape monitor, part 3" above. Still unbuilt: Q6 (which security
+  class a Form 25 removed); the existing `--adopt` CLI and the finalize self-heal still write `price_symbol`
+  without a `price_symbol_change` row (an Admin Undo refuses rather than clobber what they wrote).
 
 ## The count-the-table idempotency discipline (the load-bearing test pattern)
 

@@ -1908,6 +1908,11 @@ class AdminStaleTapeOut(BaseModel):
     closed_at: date | None = None
     renamed: bool = False
     edgar_tickers: list[str] | None = None
+    # Q8 — the UNPRICEABLE class (a price row with no stored bar ever, neither closed nor renamed) and
+    # whether that pass found it ACKNOWLEDGED by the operator (quiet, never paged). Both read false from an
+    # artifact written before the keys.
+    unpriceable: bool = False
+    acknowledged: bool = False
 
 
 class AdminTapeOut(BaseModel):
@@ -1980,6 +1985,170 @@ class AdminSplitOut(BaseModel):
     error: str | None = None
 
 
+class AdminThesisRefOut(BaseModel):
+    """A thesis holding a name (``id`` + ``name``) — where the operator goes to remove it from the basket."""
+
+    id: UUID
+    name: str
+
+
+class AdminProbeCandidateOut(BaseModel):
+    """One EDGAR-listed symbol for a renamed name, as the nightly splice probe judged it (T2): ``overlap``
+    = the dates both its vendor tape and our stored tape carry a close on, ``ratio`` = the MEDIAN of its
+    close / ours over them, ``verified`` = at least 5 shared dates with the ratio within 1% (the same
+    company's tape under its new symbol). ``bars`` / ``last_bar`` say what the vendor serves under it (whether
+    adopting it would extend our tape); ``error`` = its one fetch failed (then nothing else is known).
+    """
+
+    symbol: str
+    verified: bool = False
+    overlap: int = 0
+    ratio: float | None = None
+    bars: int = 0
+    last_bar: date | None = None
+    error: str | None = None
+
+
+class AdminFormerNameOut(BaseModel):
+    """One of EDGAR's ``formerNames`` for the filer (``since`` / ``until`` as ``YYYY-MM-DD``, ``""`` when
+    EDGAR omits them) — evidence that the company EDGAR lists under a new symbol is the same filer.
+    """
+
+    name: str
+    since: str = ""
+    until: str = ""
+
+
+class AdminNameChangeFilingOut(BaseModel):
+    """An 8-K carrying item 5.03 (an articles amendment — where a corporate name change is filed)."""
+
+    filed: date
+    accession: str
+
+
+class AdminPriceSymbolChangeOut(BaseModel):
+    """One operator price-feed repair (``price_symbol_change``, migration 0046): an ``adopt`` (a probed
+    successor), a ``set`` (a symbol the operator typed, validated by one vendor fetch) or an ``undo``. The
+    PRIOR and NEW master values ride the row — that is what makes the undo exact. ``basis`` names the
+    author (``operator:adopt`` / ``operator:set`` / ``operator:undo``). ``undoable`` (a standing change only)
+    = the master still holds this change's new values, so an Undo would restore the prior state exactly;
+    ``current_symbol`` is the master's price symbol now."""
+
+    id: UUID
+    security_id: UUID
+    ticker: str | None = None
+    action: str
+    prior_symbol: str | None = None
+    new_symbol: str | None = None
+    prior_basis: str | None = None
+    new_basis: str | None = None
+    name_changed: bool = False
+    prior_name: str | None = None
+    new_name: str | None = None
+    basis: str
+    created_at: datetime
+    undoable: bool = False
+    current_symbol: str | None = None
+
+
+class AdminPriceFeedAckOut(BaseModel):
+    """One operator acknowledgment of an unpriceable name (``price_feed_ack``): "keep it, unpriced". Active
+    = no revoke references it; an active one makes the name QUIET (no page, a quiet count) and its vendor
+    404 expected (T3). ``still_unpriceable`` = the latest pass still found the name unpriceable (``False``:
+    it has bars now, so the acknowledgment no longer does anything; ``None``: not in that pass's
+    inventory)."""
+
+    id: UUID
+    security_id: UUID
+    ticker: str | None = None
+    action: str = "acknowledge"
+    reason: str
+    basis: str
+    created_at: datetime
+    still_unpriceable: bool | None = None
+
+
+class AdminRenamedRowOut(BaseModel):
+    """A stopped price tape whose company EDGAR lists under another symbol (T1's ``renamed``), with the
+    nightly splice probe's verdict on each candidate (T2) and the EDGAR evidence — a pending
+    RECOMMENDATION: nothing is applied until the operator clicks Adopt. ``recommended`` = the first
+    verified candidate (``null`` = none verified); ``probed`` = the probe judged this row on that pass.
+    ``price_symbol`` is the master's price symbol now; ``change`` the standing operator repair for this name
+    (an Adopt waiting for the next pass to re-pull, with its Undo), else ``null``."""
+
+    security_id: UUID
+    ticker: str | None = None
+    edge: date | None = None
+    theses: list[AdminThesisRefOut] = []
+    edgar_tickers: list[str] = []
+    edgar_name: str | None = None
+    former_names: list[AdminFormerNameOut] = []
+    name_change_filings: list[AdminNameChangeFilingOut] = []
+    candidates: list[AdminProbeCandidateOut] = []
+    recommended: str | None = None
+    probed: bool = False
+    price_symbol: str | None = None
+    change: AdminPriceSymbolChangeOut | None = None
+
+
+class AdminUnpriceableRowOut(BaseModel):
+    """An UNPRICEABLE basket name (Q8): no stored price bar ever, and neither closed (T1) nor renamed (T2)
+    — WONDF's shape. Loud until the operator ratifies one of: set a price symbol (validated by one vendor
+    fetch), acknowledge it ("keep it, unpriced"), or remove it from the basket in the editor (``theses``).
+    ``vendor_error`` is what the price leg got that night (a 404); ``edgar_tickers`` what EDGAR lists
+    (``[]`` = none). ``change`` = a standing operator Set (waiting for the next pass, with its Undo).
+    """
+
+    security_id: UUID
+    ticker: str | None = None
+    theses: list[AdminThesisRefOut] = []
+    edgar_tickers: list[str] | None = None
+    vendor_error: str | None = None
+    price_symbol: str | None = None
+    change: AdminPriceSymbolChangeOut | None = None
+
+
+class AdminPriceRepairsOut(BaseModel):
+    """The "Price feed repairs" panel (T2 + Q8 + T3): one place for every price-feed decision the operator
+    owes or has made. The INVENTORY (``renamed`` / ``unpriceable`` / ``closed``) comes from the newest
+    finished, full-roster live run artifact that evaluated recency (``asof`` / ``ran_at``); the DECISIONS are
+    read LIVE from the append-only repair log, so a click shows at once: an acknowledged name moves from
+    ``unpriceable`` to ``acknowledged``, an Adopt shows as the row's ``change`` with its Undo. Read-only.
+
+    - ``renamed`` — loud: the splice-probed successors, each with Adopt (and Undo once adopted);
+    - ``unpriceable`` — loud: never priced, not acknowledged — Set symbol / Acknowledge / Remove;
+    - ``acknowledged`` — QUIET: every active acknowledgment, each revocable;
+    - ``closed`` — QUIET: names that stopped trading (T1) — no repair; their vendor 404 is expected (T3);
+    - ``applied`` — every STANDING operator price-symbol change, each with its Undo (the inverse stays
+      visible after the repair healed the tape and the name left the inventory, WB#1);
+    - ``expected_misses`` — how many vendor 404s that pass excused as expected (closed / acknowledged).
+    ``probe_error`` = the rename probe failed on that pass (``renamed`` rows then carry no verdict).
+    """
+
+    asof: date | None = None
+    ran_at: str | None = None
+    probe_evaluated: bool = False
+    probe_error: str | None = None
+    renamed: list[AdminRenamedRowOut] = []
+    unpriceable: list[AdminUnpriceableRowOut] = []
+    acknowledged: list[AdminPriceFeedAckOut] = []
+    closed: list[AdminStaleTapeOut] = []
+    applied: list[AdminPriceSymbolChangeOut] = []
+    expected_misses: int = 0
+
+
+class AdminPriceSymbolIn(BaseModel):
+    """The operator's chosen vendor symbol (an Adopt of a probed candidate, or a typed Set)."""
+
+    symbol: str = Field(min_length=1, max_length=24)
+
+
+class AdminAcknowledgeIn(BaseModel):
+    """Why the operator keeps an unpriceable name unpriced (optional — a default reason is stored)."""
+
+    reason: str | None = Field(default=None, max_length=500)
+
+
 class AdminStatusOut(BaseModel):
     """The admin page's one-GET summary: record freshness + the newest run + the cron verdict + the
     newest DB snapshot + the feed-freshness panel. READ-ONLY — the endpoint owns no tables and writes
@@ -1997,6 +2166,11 @@ class AdminStatusOut(BaseModel):
 
     ``split_defects`` (T4) is the split-basis panel — ``null`` until a finished, full-roster pass has
     scanned; a defect is a FEED problem (flag only), so it never changes ``cron.status``.
+
+    ``price_repairs`` (T2 + Q8 + T3) is the "Price feed repairs" panel — renamed names with their
+    splice-verified successors to Adopt, unpriceable names to Set / Acknowledge / Remove, the quiet closed
+    and acknowledged names, and every standing operator repair with its Undo. A feed matter, never the
+    cron verdict.
     """
 
     record: AdminRecordOut
@@ -2008,6 +2182,7 @@ class AdminStatusOut(BaseModel):
     cron_sha: str | None = None
     unfinished_run: AdminUnfinishedRunOut | None = None
     split_defects: AdminSplitOut | None = None
+    price_repairs: AdminPriceRepairsOut | None = None
 
 
 class AdminRunsOut(BaseModel):

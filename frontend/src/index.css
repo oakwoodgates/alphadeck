@@ -1797,6 +1797,20 @@ tr.adm-row-bad td { background: color-mix(in srgb, var(--warm) 5%, transparent);
 .adm-badge.b-labeled { display: inline-block; font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; border-radius: 5px; padding: 2px 7px; color: var(--leader); border: 1px solid color-mix(in srgb, var(--leader) 40%, transparent); background: color-mix(in srgb, var(--leader) 10%, transparent); }
 /* the run-history catch-up tag (a --catch-up pass: boot / late wake) — informational, deliberately quiet */
 .adm-badge.b-catchup { display: inline-block; margin-left: 6px; font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; border-radius: 5px; padding: 2px 7px; color: var(--txt-3); border: 1px solid var(--line-2); }
+/* the PRICE FEED REPAIRS panel (T2 + Q8): rows needing a decision carry their actions inline; the quiet
+   lists (closed / acknowledged / applied) are collapsed counts that open to their names (never dropped) */
+.adm-repairs { margin: 5px 0 0; padding-left: 18px; font-size: 11.5px; color: var(--txt-2); }
+.adm-repairs li { margin: 6px 0; }
+.adm-repair-act { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.adm-cand { display: inline-flex; align-items: center; gap: 6px; margin-right: 6px; }
+.adm-minibtn { font: inherit; font-size: 10.5px; font-weight: 600; color: var(--txt-2); background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 6px; padding: 3px 9px; cursor: pointer; }
+.adm-minibtn.primary { color: var(--txt); border-color: var(--leader); }
+.adm-minibtn:hover:not(:disabled) { border-color: var(--leader); }
+.adm-minibtn:disabled { opacity: 0.5; cursor: default; }
+.adm-input.adm-input-sm { font-size: 11px; padding: 3px 8px; min-width: 170px; }
+.adm-link { font-size: 11px; color: var(--leader); }
+.adm-quietlist summary { cursor: pointer; list-style-position: inside; }
+.adm-quietrows { color: var(--txt-3); }
 
 /* ================= The BACKTEST (research surface) — a recompute, never the record ====================
    Quiet by construction: this page ranks nothing. The pooled block is the loud one because it is the

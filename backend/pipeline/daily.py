@@ -83,6 +83,14 @@ from pipeline.cron_run_log import (
 from pipeline.ingest_thesis import NameResult, ingest_thesis, print_withheld_line
 from pipeline.name_errors import NameIngestError, dedup_name_errors, name_errors_of
 from pipeline.night_coverage import NightTiming, night_timing, read_on_time_theses
+from pipeline.price_feed import (
+    ExpectedPriceMiss,
+    excuse_expected_misses,
+    expected_miss_reasons,
+    mark_acknowledged,
+)
+from pipeline.rename_probe import RenameProbe, run_rename_probe
+from pipeline.rename_probe import describe as describe_rename
 from pipeline.run_lock import (
     EXIT_ALREADY_RUNNING,
     PassAlreadyRunning,
@@ -94,7 +102,7 @@ from pipeline.self_audit import AuditContext, AuditResult, failed_labels, run_au
 from pipeline.split_basis import SplitScan, run_split_scan
 from pipeline.split_basis import report_lines as split_report_lines
 from pipeline.tape_health import StaleTape, stale_fund_shares, stale_tapes
-from repositories import calls_repo, thesis_repo
+from repositories import calls_repo, price_feed_repo, thesis_repo
 from securities import master
 
 _log = logging.getLogger(__name__)
@@ -211,6 +219,28 @@ class ThesisRunResult:
     # ON-TIME call-of-record for the night (`night_coverage.on_time_window`). None = processed as usual.
     # A skipped thesis HAS its night's record — every "did the night record" reader counts it as such.
     skipped: str | None = None
+    # T3 — this thesis's EXPECTED price 404s (`pipeline/price_feed.py`): a vendor 404 on a name whose tape
+    # tonight's pass classified CLOSED, or that the operator ACKNOWLEDGED unpriceable. Removed from the
+    # names' errors (so they do not spoil `ingest_fresh`) and kept HERE — on the artifact and in one quiet
+    # report line — so the excuse stays visible (#9). Empty on a --no-live pass (nothing is classified).
+    expected_price_misses: tuple[ExpectedPriceMiss, ...] = ()
+
+
+def _acknowledged_ids(conn: psycopg.Connection) -> set[UUID]:
+    """Q8 — the security ids the operator ACKNOWLEDGED unpriceable (an active ``price_feed_ack``), read
+    ONCE before the loop. FAIL-OPEN TOWARD LOUD: a read that fails returns ``set()`` with one warning line —
+    every unpriceable name then stays a loud repair row and its 404 an error for this one pass (a repeat
+    page at worst; never a name silenced on a guess). The read runs in a SAVEPOINT (``conn.transaction()``),
+    so a fault rolls back only itself and never poisons — or discards — the caller's transaction."""
+    try:
+        with conn.transaction():
+            return price_feed_repo.acknowledged_security_ids(conn)
+    except Exception as e:  # noqa: BLE001 — never the reason a pass does not run
+        print(
+            f"WARNING: could not read the acknowledged-unpriceable names ({e}) — every unpriceable name "
+            "stays LOUD this pass and its price 404 counts as an error"
+        )
+        return set()
 
 
 def _catch_up_skip_set(conn: psycopg.Connection, asof: date) -> dict[UUID, datetime]:
@@ -305,6 +335,9 @@ def run_daily(
     # M2 — the catch-up's skip set: theses that already hold an ON-TIME row for this night
     skip = _catch_up_skip_set(conn, asof) if catch_up else {}
     tz = market_tz() if skip else None
+    # Q8/T3 — the operator's acknowledged-unpriceable names, read once (a live pass only: nothing is
+    # classified on a --no-live pass, so there is nothing to mark or excuse)
+    acknowledged = _acknowledged_ids(conn) if allow_live else set()
     out: list[ThesisRunResult] = []
     for thesis in thesis_repo.list_all(conn):
         res = ThesisRunResult(thesis_id=thesis.id, name=thesis.name)
@@ -390,7 +423,22 @@ def run_daily(
                 rows += stale_fund_shares(
                     res.ingested, asof=asof, stale_days=s.fund_shares_stale_days
                 )
+            # Q8 — an UNPRICEABLE row the operator acknowledged goes quiet (no newly-stale page, a quiet
+            # count on Admin) but stays in the inventory (#9). Only an unpriceable row can be marked.
+            rows = mark_acknowledged(rows, acknowledged)
             res.tape_stale = rows
+            # T3 — EXPECTED price 404s: a vendor 404 on a name tonight's classification calls CLOSED, or
+            # that the operator acknowledged unpriceable, is not a name error — so it does not count toward
+            # `ingest_errors` below, does not make `ingest_fresh` false, and does not page. Moved onto
+            # `expected_price_misses` (artifact + one quiet report line), never dropped. A renamed (not yet
+            # adopted) or unacknowledged unpriceable name's 404 stays an error: it needs the operator. The
+            # fetch itself still ran — a closed name whose tape revives is noticed because it did
+            # (`pipeline/price_feed.py`).
+            reasons = expected_miss_reasons(rows)
+            if reasons:
+                res.ingested, res.expected_price_misses = excuse_expected_misses(
+                    res.ingested, reasons
+                )
         # R2a — THE RECORDING GATE: a run that didn't meaningfully refresh must not write the log of record.
         # TWO conditions, closing two do-nothing shapes that a fact-count test can't (a --no-live run over a
         # warm cache is fast, clean, appends nothing, and does NOT error):
@@ -660,6 +708,10 @@ class DailyPassOutcome:
     # T4 — the split-basis monitor's outcome (``pipeline/split_basis.py``): computed ONCE in the pass, so
     # the artifact and the Admin poll payload carry the same inventory and the same new-defect diff
     split: SplitScan = field(default_factory=SplitScan)
+    # T2 — the rename probe's outcome (`pipeline/rename_probe.py`): the splice-verified recommendations for
+    # tonight's renamed tapes, computed ONCE in the pass so the artifact, the printed report and the Admin
+    # panel all read the same probe
+    rename_probe: RenameProbe = field(default_factory=RenameProbe)
 
     def payload_kwargs(self) -> dict:
         """Every run-level field ``cron_run_log.build_run_payload`` / ``write_cron_run_log`` take, from this
@@ -686,6 +738,7 @@ class DailyPassOutcome:
             "name_errors_known": self.name_errors_known,
             "audit": self.audit,
             "split": self.split,
+            "rename_probe": self.rename_probe,
         }
 
 
@@ -943,8 +996,11 @@ def _run_daily_pass_locked(
         # — never dropped from the monitor); only the loud NEWLY-STALE page skips it. T1 — the baseline
         # (`previous_stale_tapes`) skips closed rows too, so a name RECLASSIFIED closed → repair (VRME, whose
         # "closed" rested on a 2025 warrant delisting) is absent from it and pages ONCE, as the news it is.
+        # Q8 — an ACKNOWLEDGED unpriceable row is quiet the same way (`StaleTape.quiet`): the operator
+        # ratified "keep it, unpriced", so it never pages; a REVOKED acknowledgment is absent from the
+        # baseline (which skips quiet rows too) and pages ONCE as the news it then is.
         current = {
-            f"{s.kind}:{s.security_id}": s for r in results for s in r.tape_stale if not s.closed
+            f"{s.kind}:{s.security_id}": s for r in results for s in r.tape_stale if not s.quiet
         }
         prior = previous_stale_tapes()
         new_keys = sorted(current) if prior is None else sorted(set(current) - prior)
@@ -983,6 +1039,19 @@ def _run_daily_pass_locked(
         allow_live=allow_live,
         connect=_pass_connect,
         previous=previous_split_defects,
+        clock=perf_counter,
+    )
+    # T2 — THE RENAME PROBE (`pipeline/rename_probe.py`, operator Q7 = nightly): for every stopped price
+    # tape T1 marked `renamed`, ONE vendor fetch per EDGAR-listed candidate into a throwaway cache, spliced
+    # against our stored tape (>= 5 shared dates, median close ratio within 1% = verified). A pending
+    # RECOMMENDATION only — it writes nothing; the operator's Adopt on the Admin page applies it. Fail-open
+    # for the pass (a fault rides `rename_probe.error`, printed loud and shown on Admin). Nothing to probe
+    # (the common night) opens no connection and makes no request.
+    rename_probe = run_rename_probe(
+        results=results,
+        asof=asof,
+        allow_live=allow_live,
+        connect=_pass_connect,
         clock=perf_counter,
     )
     # I1/I2 — THE RUN IDENTITY on the artifact: the same sha / cfg hash / run kind `run_daily` stamped on
@@ -1034,6 +1103,7 @@ def _run_daily_pass_locked(
         name_errors_known=name_errors_known,
         audit=audit,
         split=split,
+        rename_probe=rename_probe,
     )
     # R3 — the cron's run-of-record, so the next freeze is noticed by the platform, not by eye. Written
     # AFTER the run from the collected results (write-only, no DB); fail-open, so it never fails the cron.
@@ -1119,6 +1189,7 @@ def _report(
     name_errors_known: int = 0,
     name_errors_evaluated: bool = True,
     split: SplitScan | None = None,
+    probe: RenameProbe | None = None,
 ) -> int:
     """Print a per-thesis summary; return the number of theses that ERRORED.
 
@@ -1138,6 +1209,11 @@ def _report(
 
     T4 — the split-basis monitor's block (``split_basis.report_lines``): NEW defects loud, one line each;
     the KNOWN ones one quiet count; a failed scan loud; nothing on a clean or un-scanned night.
+
+    T2 / Q8 / T3 — a RENAMED row in the loud stale block carries its splice-probe verdict (``probe``: the
+    verified successor to Adopt, or why none verified); an UNPRICEABLE row is named as such; an
+    ACKNOWLEDGED unpriceable row moves to its own quiet lowercase line (the operator ratified it); the
+    excused EXPECTED price 404s collapse to ONE quiet line; a failed probe is one loud line.
     """
     appended = sum(1 for r in results if r.recorded)
     unchanged = sum(1 for r in results if r.recorded is False)
@@ -1195,21 +1271,44 @@ def _report(
     # "set the vendor price symbol" would give the wrong instruction, and shouting an expected event is
     # noise (#7). Quiet by casing: the STALE headers are UPPERCASE (loud), the closed header is lowercase.
     stale = {f"{s.kind}:{s.security_id}": s for r in results for s in r.tape_stale}
+    recs = probe.by_security() if probe is not None else {}
     for kind in FEED_KINDS.values():
-        rows = [s for s in stale.values() if feed_kind(s.kind).key == kind.key and not s.closed]
+        rows = [s for s in stale.values() if feed_kind(s.kind).key == kind.key and not s.quiet]
         if not rows:
             continue
         print(f"STALE {kind.noun.upper()}S ({kind.advice}):")
         for s in rows:
-            # T1 — a renamed row names the symbol(s) EDGAR lists now: the operator's next step, shown,
-            # never adopted (no price_symbol write — that is the unbuilt recommender's, with a ratify).
+            # T1 — a renamed row names the symbol(s) EDGAR lists now; T2 — and the splice probe's verdict
+            # (the verified successor to Adopt on the Admin page). Shown, NEVER adopted: the write is the
+            # operator's click (#3).
             renamed = (
                 f" · renamed — EDGAR lists {', '.join(s.edgar_tickers or ())}" if s.renamed else ""
             )
+            if s.renamed and s.security_id in recs:
+                renamed += f" · {describe_rename(recs[s.security_id])}"
+            # Q8 — never priced, and neither closed nor renamed: set a symbol, acknowledge, or remove
+            unpriceable = (
+                " · UNPRICEABLE — no stored bar ever; set a price symbol, acknowledge it, or remove it "
+                "(Admin page)"
+                if s.unpriceable
+                else ""
+            )
             print(
                 f"  {s.label}: last {kind.edge_noun} {s.edge.isoformat() if s.edge else 'never'}"
-                f"{renamed}"
+                f"{renamed}{unpriceable}"
             )
+    acked = [s for s in stale.values() if s.acknowledged]
+    if acked:
+        # Q8 — the operator acknowledged these ("keep it, unpriced"): quiet, still listed (#9)
+        print(
+            f"{len(acked)} acknowledged unpriceable name(s) — kept unpriced by the operator (quiet; "
+            f"revocable on the Admin page): {', '.join(s.label for s in acked)}"
+        )
+    if probe is not None and probe.error:
+        print(
+            f"RENAME PROBE FAILED — {probe.error} (tonight's renamed tapes have no splice verdict; "
+            "the rows above still name EDGAR's symbols)"
+        )
     closed = [s for s in stale.values() if s.closed]
     if closed:
         print(
@@ -1242,6 +1341,17 @@ def _report(
     if split is not None:
         for line in split_report_lines(split):
             print(line)
+    # T3 — the EXPECTED price 404s (closed / acknowledged names), deduped across theses: ONE quiet line
+    expected: dict[UUID, ExpectedPriceMiss] = {}
+    for r in results:
+        for m in r.expected_price_misses:
+            expected.setdefault(m.security_id, m)
+    if expected:
+        names = ", ".join(f"{m.ticker or m.security_id} ({m.reason})" for m in expected.values())
+        print(
+            f"{len(expected)} expected price 404(s) — closed or acknowledged-unpriceable names, not "
+            f"errors (ingest_fresh unaffected): {names}"
+        )
     # D2 — names whose in-progress bar was withheld (session not yet settled): ONE quiet line, deduped
     print_withheld_line(x for r in results for x in r.ingested)
     if skipped:
@@ -1451,6 +1561,7 @@ def main(argv: list[str] | None = None) -> None:
         name_errors_known=outcome.name_errors_known,
         name_errors_evaluated=outcome.name_errors_evaluated,
         split=outcome.split,
+        probe=outcome.rename_probe,
     )  # the per-thesis summary + the errored count, printed either way
     # F4 — WHAT A NON-ZERO EXIT MEANS TO A WRAPPER: this night has NO call-of-record at all (the pass
     # crashed, or every thesis was withheld/errored for a real reason). It no longer means "some thesis

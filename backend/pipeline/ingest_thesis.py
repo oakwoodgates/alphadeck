@@ -50,12 +50,17 @@ from ingest.edgar.form8k import ingest_form8k
 from ingest.edgar.schedule13 import ingest_schedule13
 from ingest.edgar.submissions import (
     DelistingFiling,
+    FormerName,
+    NameChangeFiling,
     delisting_filings,
     edgar_tickers,
+    entity_name,
     fetch_submissions,
     form4_doc_url,
     form4_filings,
     form8k_filings,
+    former_names,
+    name_change_filings,
     parse_acceptance,
     schedule13_filings,
 )
@@ -154,6 +159,19 @@ class NameResult:
     # recording gate counts) — this field changes no behavior; it exists so the cron's run-of-record can
     # persist each reason by leg and page only the NEWLY failing ones (``pipeline/name_errors.py``).
     leg_errors: tuple[tuple[str, str], ...] = ()
+    # T3 — a FACT about the price leg's failure: the vendor answered **404 Not Found** for the symbol (it
+    # has no such listing). Recorded here, never judged here: whether a 404 is EXPECTED (the name CLOSED, or
+    # the operator acknowledged it unpriceable) is decided in ``pipeline.daily`` against the tape
+    # classification (``pipeline/price_feed.excuse_expected_misses``). Any other price failure (a timeout, a
+    # 5xx, a parse error) leaves this False and stays an error whatever the classification says.
+    price_not_found: bool = False
+    # T2 — the RENAME EVIDENCE, from the same cached submissions as the stop-classification facts above
+    # (zero extra fetches): EDGAR's current entity ``name``, its ``formerNames``, and the 8-Ks carrying item
+    # 5.03 (where a name change is reported). Display evidence for the rename recommender
+    # (``pipeline/rename_probe.py``) — never a judgment, never a call input.
+    edgar_name: str | None = None
+    former_names: tuple[FormerName, ...] = ()
+    name_change_filings: tuple[NameChangeFiling, ...] = ()
 
 
 def _tolerable_filing_error(e: Exception) -> bool:
@@ -171,6 +189,18 @@ def _tolerable_filing_error(e: Exception) -> bool:
     except ImportError:  # pragma: no cover — with httpx absent, no httpx error can have been raised
         return False
     return isinstance(e, httpx.HTTPError)
+
+
+def _is_not_found(e: Exception) -> bool:
+    """Did the price vendor answer **404 Not Found** (it has no listing under that symbol)? The ONE shape
+    T3 may later excuse — a closed name's or an acknowledged-unpriceable name's vendor 404 (MEASURED on prod
+    2026-10-16: GTLS / XOMA / CPRX / AVNS / WONDF / HLLK all fail exactly so). A timeout, a 5xx, a parse
+    error or anything else is not this, and stays an error unconditionally."""
+    try:
+        import httpx  # lazy, mirroring the clients — the package imports without it
+    except ImportError:  # pragma: no cover — with httpx absent, no httpx error can have been raised
+        return False
+    return isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 404
 
 
 def _form4_leg(
@@ -379,6 +409,7 @@ def ingest_thesis(
             errs.append(f"schedule13: {e}")
             leg_errs.append(("schedule13", str(e)))
         px_appended, px_reversioned, px_withheld = 0, 0, 0
+        px_not_found = False
         try:
             bars = ingest_bars_for_security(
                 conn,
@@ -399,6 +430,9 @@ def ingest_thesis(
             conn.rollback()
             errs.append(f"price: {e}")
             leg_errs.append(("price", str(e)))
+            px_not_found = _is_not_found(
+                e
+            )  # T3 — a FACT (the vendor 404'd), judged in pipeline.daily
         # THE TAPE EDGE (G5a) — read AFTER the price leg so an appended tail counts, and OUTSIDE its
         # try/except so a name whose price leg FAILED still reports where its stored tape actually ends (a
         # failing name and a dead tape are different facts; the monitor must see both). Its OWN try: this is
@@ -421,13 +455,21 @@ def ingest_thesis(
         # its result, and "no evidence" is the SAFE default — a name without positive delisting evidence
         # stays the loud "stale — repair", never the quiet "closed" (erring toward visible, #7/#9). NOT
         # judged here — `pipeline.daily` classifies a stale tape from these, so this unit needs no `asof`.
+        # T2 — the RENAME EVIDENCE rides the same read (the company's current name, its former names, and
+        # its item-5.03 8-Ks): three more walks of the cached doc, display evidence only.
         delisting: tuple[DelistingFiling, ...] = ()
         listed: tuple[str, ...] | None = None
+        current_name: str | None = None
+        formers: tuple[FormerName, ...] = ()
+        renames: tuple[NameChangeFiling, ...] = ()
         if sec.cik:
             try:
                 subs = fetch_submissions(client, sec.cik)
                 delisting = delisting_filings(subs)
                 listed = edgar_tickers(subs)
+                current_name = entity_name(subs)
+                formers = former_names(subs)
+                renames = name_change_filings(subs)
             except Exception as e:  # noqa: BLE001 — a monitor read never costs a name its result
                 print(f"  warn: {sec.ticker or sec.id} delisting read failed: {e}")
         fs_appended, fs_reversioned = 0, 0
@@ -488,6 +530,10 @@ def ingest_thesis(
                 edgar_tickers=listed,
                 price_symbol=sec.price_symbol,
                 leg_errors=tuple(leg_errs),
+                price_not_found=px_not_found,
+                edgar_name=current_name,
+                former_names=formers,
+                name_change_filings=renames,
             )
         )
     return results
