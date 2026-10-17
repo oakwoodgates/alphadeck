@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 
-import type { AdminRunOut, AdminStaleTapeOut } from "../api/hooks";
+import type { AdminRunOut, AdminSplitDefectOut, AdminStaleTapeOut } from "../api/hooks";
 import {
   useAdminRuns,
   useAdminStatus,
@@ -125,6 +125,59 @@ function ClosedTapeBlock({ rows }: { rows: AdminStaleTapeOut[] }) {
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+const SPLIT_KIND: Record<string, string> = {
+  island: "island — bars on another basis than both neighbors",
+  cliff: "cliff — a reverse split the history before it never got",
+  flap: "flap — the vendor flipped these bars' basis and back",
+};
+
+/** The SPLIT-BASIS defects (T4): basket names whose STORED price tape mixes two split bases, found by
+ *  the nightly monitor (`pipeline/split_basis.py`). Flag only — nothing here changes a call — but a mixed
+ *  basis can read as a fake +1,800% breakout, so the operator should see it before trusting that name's
+ *  price triggers. Loud like the stopped feeds (a clean tape is the norm, so a defect is the exception);
+ *  rendered by its caller only when there is one. Each row names the name, the kind, the step (x20 for
+ *  a 1-for-20 split), the newest affected bars, and marks the ones that pass paged as NEW. */
+function SplitDefectBlock({
+  rows,
+  newly,
+  asof,
+}: {
+  rows: AdminSplitDefectOut[];
+  newly: string[];
+  asof: string;
+}) {
+  return (
+    <div className="adm-stale" data-testid="adm-split-defects">
+      <div className="adm-line adm-loud">
+        <b>{rows.length}</b> split-basis defect(s) on stored price tapes
+      </div>
+      <ul className="adm-problems">
+        {rows.map((d) => {
+          const who = d.ticker ?? d.security_id;
+          // the newest three affected bars; `events` is the full count (the wire carries at most 12)
+          const shown = d.dates.slice(-3);
+          const extra = d.events - shown.length;
+          // a label that paged tonight reads "<who> <kind> x<factor> (<date>)" (the backend's one format)
+          const isNew = newly.some((l) => l.startsWith(`${who} ${d.kind} `));
+          return (
+            <li key={`${d.kind}:${d.security_id}`}>
+              <b>{who}</b> {SPLIT_KIND[d.kind] ?? d.kind} · x
+              {d.factor >= 10 ? d.factor.toFixed(0) : d.factor.toFixed(1)} · {shown.join(", ")}
+              {extra > 0 ? ` (+${extra} more)` : ""}
+              {isNew && <span data-testid="adm-split-new"> · NEW — paged on this pass</span>}
+            </li>
+          );
+        })}
+      </ul>
+      <div className="adm-sub">
+        A stored tape on two split bases distorts that name's price signals (a fake breakout, a
+        poisoned 52-week high or 200-day average). Flag only — the call is unchanged. As of the {asof}{" "}
+        pass.
+      </div>
     </div>
   );
 }
@@ -354,6 +407,21 @@ export function Admin({ header }: Props) {
                   </>
                 }
               />
+            )}
+            {/* T4 — the SPLIT-BASIS defects: rendered only when the last scan found one (a clean tape is
+                the norm), and a failed scan says so rather than letting the list quietly age. */}
+            {status.split_defects && status.split_defects.defects.length > 0 && (
+              <SplitDefectBlock
+                rows={status.split_defects.defects}
+                newly={status.split_defects.newly_flagged}
+                asof={status.split_defects.asof}
+              />
+            )}
+            {status.split_defects?.error && (
+              <div className="adm-line adm-loud" data-testid="adm-split-error">
+                The split-basis monitor could not run on the last pass ({status.split_defects.error})
+                — tonight&apos;s tapes were not checked.
+              </div>
             )}
           </section>
 

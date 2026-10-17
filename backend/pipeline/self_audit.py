@@ -28,6 +28,13 @@ PHASE-1 CHECKS (the first cut — later phases append to ``DEFAULT_CHECKS``):
   never reaches this audit — the H3 crash page and M1's start artifact, left ``running`` / ``crashed``,
   cover it.)
 
+PHASE-4 CHECK (T4):
+
+- ``split_defects_flagged`` — the split-basis monitor (``pipeline/split_basis.py``) ran over tonight's tapes,
+  so every defect it can see is flagged (on the artifact; the new ones in tonight's page). It REPORTS the
+  count and passes with defects present — there is no "acknowledged" state, and failing on a standing,
+  already-flagged defect would page every night — and FAILS only when the scan could not run.
+
 ADDING A CHECK: write ``def check_x(ctx: AuditContext) -> AuditResult`` (pure over ``ctx``; open the DB only
 through ``ctx.conn()``), append it to ``DEFAULT_CHECKS``. Each check is isolated: one that RAISES is reported
 as a FAILED check naming the exception (a broken audit is itself an alarm — never a silent skip), and the
@@ -51,6 +58,7 @@ from pipeline.night_coverage import read_night_coverage
 
 if TYPE_CHECKING:  # keep the layering one-way (no runtime import of the cron module)
     from pipeline.daily import ThesisRunResult
+    from pipeline.split_basis import SplitScan
 
 
 @dataclass(frozen=True)
@@ -80,6 +88,9 @@ class AuditContext:
     run_at: time
     tz: tzinfo
     connect: Callable[[], psycopg.Connection]
+    # T4 — the pass's split-basis scan (``pipeline/split_basis.run_split_scan``); None = the pass did not
+    # hand one in (a caller older than T4) — read as not applicable, never as a pass
+    split: SplitScan | None = None
     _conn: psycopg.Connection | None = field(default=None, repr=False)
 
     @property
@@ -204,10 +215,46 @@ def check_every_thesis_finished(ctx: AuditContext) -> AuditResult:
     return AuditResult(name, False, f"{finished} of {started} theses finished — " + "; ".join(bits))
 
 
+def check_split_defects_flagged(ctx: AuditContext) -> AuditResult:
+    """(d) T4 — "every split-basis defect flagged" (plan §2 criterion 6): the split-basis monitor RAN over
+    tonight's tapes, so every defect it can see is on the artifact and every NEW one is in tonight's page.
+
+    It passes WITH defects present, on purpose, and reports their count. A check that failed whenever a
+    defect EXISTED would fail every night a vendor keeps a half-adjusted tape (VWAV's has stood for weeks)
+    and page nightly for a known, already-flagged defect — the opposite of inverse loudness — and "this one
+    is acknowledged" would need new operator state this monitor does not have. So the audit's job is the
+    one it can honestly verify: the monitor looked, and nothing it found went unflagged. FAILS when the scan
+    could not run on a live pass (a broken monitor is an alarm, never a silent skip); not applicable to a
+    ``--no-live`` pass (no scan by design) or a caller that handed in no scan."""
+    name = "split_defects_flagged"
+    if not ctx.allow_live:
+        return AuditResult(name, None, "not applicable — a --no-live pass does not scan the tapes")
+    scan = ctx.split
+    if scan is None:
+        return AuditResult(name, None, "not applicable — no split-basis scan on this pass")
+    if scan.error:
+        return AuditResult(
+            name,
+            False,
+            f"the split-basis monitor could not run ({scan.error}) — tonight's tapes were not checked",
+        )
+    if not scan.evaluated:
+        return AuditResult(name, None, "not applicable — the split-basis scan did not evaluate")
+    if not scan.defects:
+        return AuditResult(name, True, "no split-basis defect on the active basket's tapes")
+    return AuditResult(
+        name,
+        True,
+        f"{len(scan.defects)} split-basis defect(s) flagged ({len(scan.new)} new — paged once; "
+        f"{scan.known} known) — flag only, the call is unchanged",
+    )
+
+
 DEFAULT_CHECKS: tuple[AuditCheck, ...] = (
     check_on_time_rows,
     check_code_sha_known,
     check_every_thesis_finished,
+    check_split_defects_flagged,
 )
 
 

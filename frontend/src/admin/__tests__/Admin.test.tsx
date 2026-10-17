@@ -811,3 +811,67 @@ describe("Admin — backups (create + list, operator-initiated)", () => {
     expect(screen.getByTestId("adm-backups").textContent).toContain("no snapshots yet");
   });
 });
+
+// T4 — the split-basis panel: a stored price tape on two split bases (island / cliff / flap). Flag only;
+// rendered only when there is one, with the NEW-tonight marker on the rows that paged.
+const SPLIT_PANEL = {
+  asof: "2026-10-16",
+  ran_at: "2026-10-17T02:30:00+00:00",
+  window_days: 430,
+  defects: [
+    {
+      security_id: "33333333-3333-3333-3333-333333333333",
+      ticker: "VWAV",
+      kind: "island",
+      dates: ["2026-09-15", "2026-09-16"],
+      factor: 18.02,
+      events: 2,
+    },
+    {
+      security_id: "44444444-4444-4444-4444-444444444444",
+      ticker: "MPU",
+      kind: "flap",
+      dates: ["2026-09-10", "2026-09-11", "2026-09-14"],
+      factor: 20,
+      events: 274,
+    },
+  ],
+  newly_flagged: ["VWAV island x18 (2026-09-16)"],
+  error: null,
+};
+
+describe("Admin — split-basis defects (T4)", () => {
+  it("lists each defect with its kind, step and newest bars, and marks only the NEW one", () => {
+    h.status = { ...h.status, data: { ...STATUS_CURRENT, split_defects: SPLIT_PANEL } };
+    renderAdmin();
+    const panel = screen.getByTestId("adm-split-defects");
+    expect(panel.textContent).toContain("2 split-basis defect(s)");
+    expect(panel.textContent).toContain("VWAV");
+    expect(panel.textContent).toContain("x18");
+    expect(panel.textContent).toContain("2026-09-15, 2026-09-16");
+    expect(panel.textContent).toContain("x20");
+    expect(panel.textContent).toContain("(+271 more)"); // 274 flapping bars, three shown
+    expect(screen.getAllByTestId("adm-split-new")).toHaveLength(1); // VWAV only
+    expect(panel.textContent).toMatch(/flag only/i);
+  });
+
+  it("renders nothing when the scan is clean or has never run, and says so when it FAILED", () => {
+    h.status = {
+      ...h.status,
+      data: { ...STATUS_CURRENT, split_defects: { ...SPLIT_PANEL, defects: [], newly_flagged: [] } },
+    };
+    renderAdmin();
+    expect(screen.queryByTestId("adm-split-defects")).toBeNull();
+    expect(screen.queryByTestId("adm-split-error")).toBeNull();
+  });
+
+  it("a FAILED scan is a loud line over the last good inventory", () => {
+    h.status = {
+      ...h.status,
+      data: { ...STATUS_CURRENT, split_defects: { ...SPLIT_PANEL, error: "OSError: down" } },
+    };
+    renderAdmin();
+    expect(screen.getByTestId("adm-split-error").textContent).toContain("OSError: down");
+    expect(screen.getByTestId("adm-split-defects")).toBeTruthy();
+  });
+});

@@ -51,6 +51,7 @@ from typing import TYPE_CHECKING
 
 from domain.feed_kinds import StaleFeedLabel, feed_kind
 from pipeline.name_errors import NameIngestError, name_errors_of
+from pipeline.split_basis import SplitScan, defect_keys_of
 
 if TYPE_CHECKING:  # avoid importing the pipeline module at import time (keeps the layering one-way)
     from pipeline.daily import ThesisRunResult
@@ -231,6 +232,7 @@ def build_run_payload(
     name_errors_new: Sequence[NameIngestError] = (),
     name_errors_known: int = 0,
     audit: Sequence[AuditResult] = (),
+    split: SplitScan | None = None,
 ) -> dict:
     """The run-of-record payload — PURE (no I/O), extracted from the artifact writer so the admin
     "run now" job can shape its poll result IDENTICALLY to a parsed artifact (one schema, two readers).
@@ -304,6 +306,12 @@ def build_run_payload(
 
     M1 — ``status: "finished"``: this is the FINALIZED artifact, overwriting the pass's start artifact
     (``build_start_payload``) at the same path. A pre-M1 artifact lacks the key and reads finished.
+
+    T4 — THE SPLIT-BASIS MONITOR (`pipeline/split_basis.SplitScan.payload`): `split_evaluated` (the scan
+    ran — the only kind of pass that is a diff baseline), `split_error`, `split_window_days`,
+    `split_duration_s`, `split_defects` (`[{security_id, ticker, kind, dates, factor, events}]` — the
+    inventory the Admin panel renders and the next pass diffs, keyed on `kind:security_id`) and
+    `split_defects_new` (what PAGED). `split=None` writes the not-evaluated block; readers use `.get`.
     """
     recorded = sum(1 for r in results if r.recorded)
     edgar_fetches = sum(r.edgar_fetches for r in results)
@@ -329,6 +337,8 @@ def build_run_payload(
         "name_errors_known": name_errors_known,
         # V1 — the self-audit (ok: true / false / null = not applicable)
         "audit": [a.to_json() for a in audit],
+        # T4 — the split-basis monitor: the inventory + the new-defect diff (flag only, never a call input)
+        **(split or SplitScan()).payload(),
         # THE FREEZE DETECTOR: total EDGAR network pulls this run. A frozen index and a healthy
         # nothing-filed night both show 0 new facts — this is the number that differs. 0 on a `live`
         # run = the cache never refreshed = a freeze (R4 pages on it); a healthy night is in the hundreds.
@@ -446,6 +456,7 @@ def write_cron_run_log(
     name_errors_new: Sequence[NameIngestError] = (),
     name_errors_known: int = 0,
     audit: Sequence[AuditResult] = (),
+    split: SplitScan | None = None,
 ) -> Path | None:
     """Dump one cron pass (``build_run_payload``, above — the payload's meaning lives there) to
     ``<base>/<utc-timestamp>.json``; return the path (or ``None`` fail-open). The whole write — payload
@@ -477,6 +488,7 @@ def write_cron_run_log(
             name_errors_new=name_errors_new,
             name_errors_known=name_errors_known,
             audit=audit,
+            split=split,
         )
         run_dir = base_dir or _DEFAULT_CRON_RUNS
         run_dir.mkdir(parents=True, exist_ok=True)
@@ -698,6 +710,32 @@ def previous_name_errors(*, base_dir: Path | None = None) -> set[str] | None:
                 if isinstance(e, dict) and e.get("security_id") and e.get("leg"):
                     out.add(f"{e['security_id']}:{e['leg']}")
         return out
+    return None
+
+
+def previous_split_defects(*, base_dir: Path | None = None) -> set[str] | None:
+    """The ``"<kind>:<security_id>"`` keys of every split-basis defect (T4, ``pipeline/split_basis.py``) on
+    the most recent pass that EVALUATED the scan — the baseline the current pass diffs against so only NEW
+    defects page, the twin of ``previous_stale_tapes`` / ``previous_name_errors`` and held to the SAME
+    baseline rule: a LIVE pass (``--no-live`` never re-pulled a tape), ``split_evaluated`` (a pre-T4
+    artifact or a pass whose scan FAILED carries no inventory — read as "nothing was flagged" it would
+    re-page every known defect), FINISHED (M1 — a killed pass's start artifact is never a baseline) and
+    FULL-ROSTER (M2 — a catch-up that skipped theses is never a baseline). The scan itself reads the whole
+    basket union from the table, so a partial catch-up's split inventory is in fact complete; the roster
+    rule is kept anyway so every "what did the last pass see" reader agrees on which pass that was.
+
+    ``None`` (distinct from an empty set) = no qualifying artifact yet — the first pass after T4 deploys —
+    which the caller treats as "everything flagged is news", so the inventory pages ONCE. Newest-first,
+    first match wins; fail-open per artifact. Pure file read."""
+    for doc in list_run_logs(base_dir=base_dir):
+        if (
+            doc.get("mode") != "live"
+            or not doc.get("split_evaluated", False)
+            or not is_finished(doc)
+            or not is_full_roster(doc)  # M2 — a partial catch-up is never a baseline
+        ):
+            continue
+        return defect_keys_of(doc)
     return None
 
 

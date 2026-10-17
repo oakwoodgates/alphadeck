@@ -1686,7 +1686,11 @@ class AdminRunOut(BaseModel):
 
     ``skipped`` (M2) = theses a ``--catch-up`` pass left alone because an ON-TIME call-of-record for the
     night already stood (a catch-up never re-records one); ``0`` on every other pass and on an artifact
-    written before M2."""
+    written before M2.
+
+    ``split_defects_new`` (T4) are the labels of the split-basis defects that pass flagged as NEW
+    (``"<ticker> <kind> x<factor> (<date>)"`` — a ``problems`` line with the benign marker: a vendor tape
+    defect, flag only)."""
 
     ran_at: str
     finished_at: str
@@ -1711,6 +1715,7 @@ class AdminRunOut(BaseModel):
     name_errors_new: list[str] = []
     name_errors_known: int = 0
     skipped: int = 0
+    split_defects_new: list[str] = []
 
 
 class AdminPartialNightOut(BaseModel):
@@ -1908,6 +1913,47 @@ class AdminTapeOut(BaseModel):
     newly_stale: list[str] = []
 
 
+class AdminSplitDefectOut(BaseModel):
+    """One flagged split-basis defect (T4, ``pipeline/split_basis.py``): a basket name whose STORED price
+    tape mixes two split bases, as the pass's scan found it. ``kind``:
+
+    - ``island`` — a run of bars on another basis than both neighbors (a factor-``k`` step and the inverse
+      step back, the volume moving the other way): the half-adjusted shape (VWAV 2026-09-15..16);
+    - ``cliff`` — a lone UP step whose price stays up and volume stays down by about the same factor: a
+      reverse split the vendor never applied to the history before it;
+    - ``flap`` — a stored bar whose versions changed basis in BOTH directions (the vendor flipped it and
+      flipped it back).
+
+    ``dates`` are the affected bars (at most the 12 most recent; ``events`` is the full count), ``factor``
+    the step size (>= 1, e.g. 20 for a 1-for-20 split). Evidence for the operator only: nothing here
+    changes a call (whether a price detector should abstain on a flagged name is an open decision).
+    """
+
+    security_id: UUID
+    ticker: str | None = None
+    kind: str
+    dates: list[date] = []
+    factor: float
+    events: int = 0
+
+
+class AdminSplitOut(BaseModel):
+    """The split-basis panel (T4), read from the newest run artifact whose scan EVALUATED — like ``tape``,
+    artifact-sourced so this surface still owns no tables. ``asof`` / ``ran_at`` name that pass;
+    ``window_days`` is the calendar window it scanned (the widest price lookback on the call path).
+    ``defects`` is the full current inventory (one row per name per kind); ``newly_flagged`` the labels
+    that PAGED that night (new since the pass before — a standing defect never re-pages). ``error`` is set
+    when the NEWEST live pass's scan could not run (``defects`` then still shows the last good inventory,
+    from ``asof``) — a broken monitor is shown, never silently absent."""
+
+    asof: date
+    ran_at: str
+    window_days: int = 0
+    defects: list[AdminSplitDefectOut] = []
+    newly_flagged: list[str] = []
+    error: str | None = None
+
+
 class AdminStatusOut(BaseModel):
     """The admin page's one-GET summary: record freshness + the newest run + the cron verdict + the
     newest DB snapshot + the feed-freshness panel. READ-ONLY — the endpoint owns no tables and writes
@@ -1922,6 +1968,9 @@ class AdminStatusOut(BaseModel):
 
     M1: ``last_run`` is the newest FINISHED pass (a pre-M1 artifact counts as finished); when the newest
     artifact is a pass that has not finished, ``unfinished_run`` describes it (``null`` otherwise).
+
+    ``split_defects`` (T4) is the split-basis panel — ``null`` until a finished, full-roster pass has
+    scanned; a defect is a FEED problem (flag only), so it never changes ``cron.status``.
     """
 
     record: AdminRecordOut
@@ -1932,6 +1981,7 @@ class AdminStatusOut(BaseModel):
     backend_sha: str | None = None
     cron_sha: str | None = None
     unfinished_run: AdminUnfinishedRunOut | None = None
+    split_defects: AdminSplitOut | None = None
 
 
 class AdminRunsOut(BaseModel):
