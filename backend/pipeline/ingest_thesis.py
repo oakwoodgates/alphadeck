@@ -103,6 +103,11 @@ class NameResult:
     # before `Settings.price_settle_time`); the next settled pass appends them. Summed into ONE quiet count
     # line per run, never one line per name.
     price_bars_withheld: int = 0
+    # Q11 / T5 — older restated bars NOT stored because they REVERT to a value the store held before (a
+    # vendor flipping a history between split bases) and only one pull has said so; stored once a pull on a
+    # later market date agrees. Never silent: ONE quiet line per held name (`print_held_lines`) + the run
+    # artifact's per-thesis `price_bars_held`.
+    price_bars_held: int = 0
     # the fund-shares leg (ETF net flow, F2): a non-ETF member always contributes 0; a restated
     # same-day count is a new VERSION (reversioned) — loud only when nonzero
     fund_shares_appended: int = 0
@@ -408,7 +413,7 @@ def ingest_thesis(
             conn.rollback()
             errs.append(f"schedule13: {e}")
             leg_errs.append(("schedule13", str(e)))
-        px_appended, px_reversioned, px_withheld = 0, 0, 0
+        px_appended, px_reversioned, px_withheld, px_held = 0, 0, 0, 0
         px_not_found = False
         try:
             bars = ingest_bars_for_security(
@@ -420,10 +425,11 @@ def ingest_thesis(
                 source=source,
                 now=now,
             )
-            px_appended, px_reversioned, px_withheld = (
+            px_appended, px_reversioned, px_withheld, px_held = (
                 bars.appended,
                 bars.reversioned,
                 bars.withheld,
+                bars.held,
             )
             conn.commit()
         except Exception as e:  # noqa: BLE001
@@ -516,6 +522,7 @@ def ingest_thesis(
                 form4_txn_rejected=f4_txn_rejected,
                 price_bars_reversioned=px_reversioned,
                 price_bars_withheld=px_withheld,
+                price_bars_held=px_held,
                 fund_shares_appended=fs_appended,
                 fund_shares_reversioned=fs_reversioned,
                 form8k_appended=f8k_appended,
@@ -604,6 +611,7 @@ def _report(results: list[NameResult]) -> int:
         f"{fs}{sk}{rj}, {len(errored)} errored"
     )
     print_withheld_line(results)
+    print_held_lines(results)
     return len(errored)
 
 
@@ -616,6 +624,27 @@ def print_withheld_line(results: Iterable[NameResult]) -> None:
         print(
             f"{len(withheld)} name(s): today's in-progress bar withheld — the session settles at "
             f"{get_settings().price_settle_time:%H:%M} market time; the next pass after that stores it"
+        )
+
+
+def print_held_lines(results: Iterable[NameResult]) -> None:
+    """Q11 / T5 — ONE quiet line per name whose older restated bars were HELD (the vendor reverted them to a
+    value it served before, and only one pull has said so), deduped by security across theses; nothing at
+    all when there are none. No uppercase header on purpose (the closed-tape / known-error casing): the next
+    agreeing pull stores the bars by itself — the line exists so a hold is never silent (#9), not to alarm.
+    """
+    held: dict[UUID, tuple[str, int]] = {}
+    for r in results:
+        if r.price_bars_held:
+            label = r.ticker or str(r.security_id)
+            held[r.security_id] = (
+                label,
+                max(r.price_bars_held, held.get(r.security_id, ("", 0))[1]),
+            )
+    for label, n in held.values():
+        print(
+            f"{label}: {n} older price bar(s) held — the vendor reverted them to values it served before; "
+            "stored once a pull on a later night agrees"
         )
 
 
