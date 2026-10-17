@@ -407,24 +407,31 @@ so any sales-derived signal would be dominated by autopilot and be actively misl
   is **unspecified in `CALL_LOGIC.md`** and is the operator's call — a test asserts a buy scores identically
   whether planned, discretionary, or unknown.
 
-## 8-K item codes — the corporate-event tape `[BUILT — Band 03 S3, INERT]`
+## 8-K item codes — the corporate-event tape `[BUILT — Band 03 S3; corporate_risk LIVE]`
 
 `fact_corporate_event` stores **every basket member's 8-Ks with their SEC item codes** — parsed from
 the SAME submissions JSON the Form 4 leg already fetches (the `items` array parallels
 `accessionNumber`), so the whole tape costs **zero extra EDGAR fetches** and rides the nightly cron
 as a fourth `ingest_thesis` leg. The item-code taxonomy is the SEC's own deterministic
-classification (#3 — no NLP, no LLM near the fire path); the detector cut (1.01/5.02 triggers,
-3.01/4.01/4.02/1.03 risks) lives in `CallConfig.corporate_event_items` and is applied on READ, so
-items outside the cut stay stored (#9) and a policy retune needs no re-ingest.
+classification (#3 — no NLP, no LLM near the fire path); the detector cut (the parked 5.02 trigger;
+the live 3.01/3.02/4.01/4.02/1.03 risks) lives in `CallConfig.corporate_event_items` and is applied on
+READ, so items outside the cut stay stored (#9) and a policy retune needs no re-ingest.
 
+- **Forms ingested** (`domain/edgar_forms.CORPORATE_EVENT_FORMS`, the one list): `8-K`, `8-K/A`, and —
+  since 2026-10-17 (operator decision) — a successor issuer's first report, `8-K12B` / `8-K12G3` /
+  `8-K15D5` and their `/A` amendments. The stored `form` column says which one a row is. The succession
+  reports are STORED but SKIPPED by every event detector, by form: their items describe the
+  reorganization itself (3.01 = the listing transfer, 5.02 = the carried-over officers). Full rule:
+  `docs/CORPORATE_EVENTS.md` §succession reports.
 - **Knowability:** `valid_from = filed` — the acceptance date IS when an 8-K became knowable (the
   cleanest bitemporal source on the menu; no-lookahead is free).
 - **`items` may be NULL** — EDGAR hadn't classified the filing yet; stored as NULL (never guessed)
   and re-versioned append-only when it resolves on a later run.
 - **Depth:** submissions `recent` (≥ 1 year / 1,000 filings), the same accepted depth as Form 4;
   the deferred cadence-baseline slice may need the paginated older pages.
-- **Both detectors ship INERT** (master switches default OFF) pending the sig-lab pass. Full
-  family doc: `docs/CORPORATE_EVENTS.md`.
+- **Detectors:** `corporate_risk` is LIVE (switch flipped ON 2026-08-17); `corporate_catalyst` stays
+  parked (switch OFF, 5.02-only since the 2026-08-20 `1.01` decision). Full family doc:
+  `docs/CORPORATE_EVENTS.md`.
 
 ## SC 13D/G — the activist-stake ownership tape `[BUILT — Band 03 S5, INERT]`
 

@@ -727,17 +727,26 @@ byte (`master.restore_cik_identity`), only for the newest standing change, and 4
 Adopt also refuses when the master's CIK moved since the pass, or another master row already carries the
 successor CIK (that would be a row merge, which this verb does not do). The click makes no network request.
 
-**The 8-K12B question — decided: NOT added to the 8-K item tape (`form8k_filings` stays `8-K` / `8-K/A`).**
-MEASURED on the two real filings (submissions `items`): UROY's 8-K12B carries 1.01, 2.01, 2.02, 3.01, 3.02,
-3.03, 5.01, 5.02, 5.03, 7.01, 9.01; REAX's 1.01, 2.01, 2.03, 3.01, 3.03, 5.01, 5.02, 5.03, 8.01, 9.01. In a
-succession report those items describe the reorganization itself — 3.01 the listing TRANSFER (not a
-deficiency), 5.02 the carried-over officers, 3.02 / 3.03 the share exchange. Admitted to the tape they WOULD
-change what fires: the live `corporate_risk` detector reads 3.01 / 3.02 at 0.50 (a counter-case + setup-strength
-haircut on both names, within the 180-day window today), and 5.02 is a personnel trigger (dormant behind
-`corporate_catalyst_enabled=False`). That is a call-policy change, so it is left for the operator: the
-proposal is to store succession 8-Ks on the tape with a form-aware cut in the detectors (stored, fired by
-nothing — #9). The recall the research flagged is closed by the re-point itself: the successors' ordinary
-8-Ks (UROY 08-07 / 09-15, REAX 08-28) are plain `8-K`s the existing leg reads once the CIK is adopted.
+**The 8-K12B question — decided by the operator 2026-10-17: STORED on the 8-K item tape, SKIPPED by the
+event detectors** (`docs/CORPORATE_EVENTS.md` §succession reports). MEASURED on the two real filings
+(submissions `items`): UROY's 8-K12B carries 1.01, 2.01, 2.02, 3.01, 3.02, 3.03, 5.01, 5.02, 5.03, 7.01, 9.01;
+REAX's 1.01, 2.01, 2.03, 3.01, 3.03, 5.01, 5.02, 5.03, 8.01, 9.01. In a succession report those items describe
+the reorganization itself — 3.01 the listing TRANSFER (not a deficiency), 5.02 the carried-over officers,
+3.02 / 3.03 the share exchange. Read as ordinary events they would change what fires: the live
+`corporate_risk` detector reads 3.01 / 3.02 at 0.50 (a counter-case + setup-strength haircut on both names,
+within the 180-day window today), and 5.02 is a personnel trigger (dormant behind
+`corporate_catalyst_enabled=False`). So `form8k_filings` now walks `domain/edgar_forms.CORPORATE_EVENT_FORMS`
+(the 8-K / 8-K/A plus the succession set 8-K12B / 8-K12G3 / 8-K15D5 and their amendments — the SAME set the
+T7 reader names), the stored row carries its verbatim `form`, and both corporate detectors read through
+`signals/corporate_events.event_facts`, which drops a succession row BY FORM (a plain 8-K with the same items
+still fires). After the operator Adopts UROY's / REAX's successor CIKs, the next nightly pass stores each
+8-K12B (plus the plain 8-Ks the re-point recovers — UROY 08-07 / 09-15, REAX 08-28) and neither 8-K12B fires
+anything. The same first pass also stores the succession reports already sitting under 26 other members'
+CURRENT CIKs — MEASURED read-only 2026-10-17 over the cron container's cached submissions: 29 filings
+(e.g. BKKT 8-K12B 2025-11-03, ATAI 2025-12-31, BBUC 8-K12G3 2026-03-27), none within a detector window today,
+and fired by nothing either way. No migration: `fact_corporate_event.form` already stores the form (NOT NULL
+since 0038), and every stored row before this change is an `8-K` / `8-K/A` (MEASURED on prod the same day:
+60,699 / 1,827).
 
 **Serve-time EDGAR links after a re-point.** The CallCard's filing links are built at serve time from the
 security's CURRENT CIK (`schemas_api.edgar_url` over `master.ciks_for`), so a pre-re-point filing's link
