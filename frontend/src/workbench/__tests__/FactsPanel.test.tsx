@@ -618,14 +618,10 @@ describe("FactsPanel — the explain TRANSPORT error is said, never silent", () 
   const COULDNT_REACH = /Couldn't reach the explainer/;
 
   it("renders one quiet line naming the failure — no 'drafted' tag, the passage + ratify intact", () => {
-    // a network failure: fetch rejects with a TypeError (no FastAPI `detail`) → errText's safe fallback
     h.explain = { data: undefined, error: new TypeError("Failed to fetch"), isError: true, isFetching: false };
     h.extract.data = env([FLAG_BURN]);
     render(<FactsPanel securityId={SID} />);
     const line = screen.getByText(COULDNT_REACH);
-    expect(line).toHaveTextContent(
-      "Couldn't reach the explainer — the request was rejected. Click Explain to try again.",
-    );
     expect(line).toHaveClass("drafted", "muted"); // the quiet muted line, never a drafted explanation
     expect(line.querySelector(".wb-author")).toBeNull();
     expect(screen.queryByText("drafted")).not.toBeInTheDocument();
@@ -634,13 +630,35 @@ describe("FactsPanel — the explain TRANSPORT error is said, never silent", () 
     expect(screen.getByText(/Partnership milestone payment of 264,195/)).toBeInTheDocument();
   });
 
-  it("threads the error's own text through the shared errText helper", () => {
+  it("a FastAPI {detail} string rides the line as the server's own words", () => {
     h.explain = { data: undefined, error: { detail: "upstream timed out" }, isError: true, isFetching: false };
     h.extract.data = env([FLAG_BURN]);
     render(<FactsPanel securityId={SID} />);
     expect(screen.getByText(COULDNT_REACH)).toHaveTextContent(
       "Couldn't reach the explainer — upstream timed out. Click Explain to try again.",
     );
+  });
+
+  it("a detail-less error gets NO suffix — never 'rejected' (it was never answered, not refused)", () => {
+    // the two detail-less shapes openapi-fetch 0.13 actually yields: a network failure re-throws fetch's
+    // TypeError, and a non-JSON error body (an nginx 502 HTML page) comes back as the raw string
+    const NO_SUFFIX = "Couldn't reach the explainer. Click Explain to try again.";
+    h.explain = { data: undefined, error: new TypeError("Failed to fetch"), isError: true, isFetching: false };
+    h.extract.data = env([FLAG_BURN]);
+    const { unmount } = render(<FactsPanel securityId={SID} />);
+    expect(screen.getByText(COULDNT_REACH).textContent).toBe(NO_SUFFIX);
+    expect(screen.getByText(COULDNT_REACH)).not.toHaveTextContent(/rejected/);
+    unmount();
+
+    h.explain = {
+      data: undefined,
+      error: "<html><body><h1>502 Bad Gateway</h1></body></html>",
+      isError: true,
+      isFetching: false,
+    };
+    render(<FactsPanel securityId={SID} />);
+    expect(screen.getByText(COULDNT_REACH).textContent).toBe(NO_SUFFIX);
+    expect(screen.getByText(COULDNT_REACH)).not.toHaveTextContent(/rejected/);
   });
 
   it("is hidden while a retry is in flight, even though the query still holds the error", () => {
