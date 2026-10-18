@@ -1024,6 +1024,53 @@ SEC's map and the two successors fetched live into a scratch cache): 1 member wi
 **12** list no tickers (ATAI, AVNS, CPRX, GTLS, KAYS, REAX, RMAX, SKYT, UCLE, UROY, WONDF, XOMA), **2
 flagged — UROY → 0002143673 and REAX → 0002136387**, nothing else; **3** SEC requests, 2.3 s.
 
+### The amendment leg — Form 4/A, stored, linked and resolved (R8-A, 2026-10-17)  `[BUILT]`
+
+The Form 4 leg (`_form4_leg`) now ends with the **4/A leg** (`ingest/edgar/form4a.py`): every `4/A` in the same
+cached submissions document not already stored is fetched (immutable `forms/` cache), parsed, screened (an
+amendment about ANOTHER issuer is never stored — a `form4_other_issuer` skip, the same screen the Form 4 loop
+now applies), linked to its original by the deterministic cascade, and appended to `insider_amendment` +
+`insider_amendment_link` in the leg's transaction. It runs AFTER the night's originals, so a Form 4 and its
+4/A arriving together link. Nothing is written into `fact_insider_txn`; every as-of read of it resolves the
+stored rows against the amendments, links and operator decisions recorded at/before its `known_at`
+(`db.insider_resolution` + the replay mirror's twin, one pure resolver — parity-gated). Dispositions and their
+effect: `docs/CALL_LOGIC.md` §3 (insider). The data contract: `docs/DATA_SOURCES.md` §Form 4/A.
+
+**Paging.** After the per-thesis loop, `pipeline/insider_amendment_scan.py` reads every amendment of the active
+basket union OWED the operator's decision (a pending void / duplicates — each suppressing its original
+meanwhile — a partial / consolidation / addition / restatement, an ambiguous link) and diffs it against the
+newest live, finished pass that evaluated it; a NEW one pages ONCE through the run's health event
+(benign-class: it never makes the Admin cron verdict unhealthy), a known one is one quiet line, and an
+applied 1:1 correction never pages. The inventory is read WHOLE from the tables every pass, so the newest
+evaluated pass is a complete baseline — T4's split-scan rule, not the per-thesis carry-forward (a catch-up
+that skipped theses read the same tables). A decision takes an item out of the inventory; its Undo puts it
+back and it pages once more. Artifact block: `insider_amendments` (`cron_run_log.build_run_payload`).
+
+**No history annotation — and the condition it rested on, MEASURED (prod, read-only, 2026-10-17).** The
+operator's decision was "no annotation of past rows" ON CONDITION that no thesis-level arm would have flipped.
+Method (the D3b shape): every one of the **642 honest call rows** re-assembled at its own `(asof, known_at =
+recorded_at)` through the live funnel, twice over one point-in-time view — today's stored reading, and a
+DIAGNOSTIC view (measurement script only, never the live path) resolving the 552 linked (security, 4/A) pairs
+**as if each had been known at its SEC acceptance**, no operator decisions (voids/duplicates pending =
+suppressing, corrections applied), plus the other-issuer screen. Result: **0 thesis-level arm flips**. 12 rows
+change composition — all Nuclear Buildout 07-30 → 08-17, all by FLS leaving the armed set (its cancelled buy
+suppressed); three of them change the headline (FLS → J on 08-05 / 08-06, FLS → FCEL on 07-30, which also reads
+`flip_only` instead of `starter_entry` — that row already did not reproduce today, see below). 120 more rows
+change only an insider trigger's composition (FLS, AVEX, TDG, SMR, ARBE, ATCH, AEHR); 510 are unchanged. The
+other-issuer screen alone changes no thesis shape. (209 of the 642 rows do not reproduce under today's code —
+code/config drift since they were recorded, D3b's "drift" class; the flip test compares the two assemblies under
+the SAME current code, so drift cannot be blamed on R8-A.)
+
+**The forward effect** (asof 2026-10-16, read-only, with vs without the resolver) — four cards change, none in
+state, verdict, headline or armed set: **Nuclear Buildout** loses FLS's CORE trigger (pending void) and the SMR
+insider-sell risk signal re-reads ($633,527 / 3 insiders → $352,894 / 2); **Small-scale nuclear** the same SMR
+re-read; **The Everything Exchange** gains ATCH's CORE trigger (5 insiders, $162,524, the auto-applied `A`→`P`
+recodes); **Modern Defense** gains ARBE's FLIP trigger (the 50→50,000-share correction). TDG's duplicate sells are
+suppressed too, but they are outside tonight's sell window, so no card moves for them. Each changed card
+re-records on the first pass after deploy (`record_if_changed`), so ship after a clean nightly; the first pass
+also ingests every 4/A in the window (~550 document fetches) and pages its pending inventory once. The operator
+then ratifies the pending voids on Admin.
+
 ## The scheduling sidecar — the `cron` service + `scripts/daily_cron.sh`  `[BUILT #73]`
 
 The CLI is the **unit of work**; the sidecar is a **dumb trigger**.

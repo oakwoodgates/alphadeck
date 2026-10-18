@@ -1,0 +1,74 @@
+<?xml version="1.0"?>
+<ownershipDocument>
+
+    <schemaVersion>X0609</schemaVersion>
+
+    <documentType>4/A</documentType>
+
+    <periodOfReport>2026-04-16</periodOfReport>
+
+    <dateOfOriginalSubmission>2026-04-20</dateOfOriginalSubmission>
+
+    <notSubjectToSection16>false</notSubjectToSection16>
+
+    <issuer>
+        <issuerCik>0002096300</issuerCik>
+        <issuerName>AEVEX Corp.</issuerName>
+        <issuerTradingSymbol>AVEX</issuerTradingSymbol>
+        <issuerForeignTradingSymbol></issuerForeignTradingSymbol>
+    </issuer>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001891903</rptOwnerCik>
+            <rptOwnerName>Wells Charles Roger IV</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerNonUSAddressFlag>false</rptOwnerNonUSAddressFlag>
+            <rptOwnerStreet1>C/O AEVEX CORP.</rptOwnerStreet1>
+            <rptOwnerStreet2>440 STEVENS AVE #150</rptOwnerStreet2>
+            <rptOwnerCity>SOLANA BEACH</rptOwnerCity>
+            <rptOwnerState>CA</rptOwnerState>
+            <rptOwnerZipCode>92075</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>true</isDirector>
+            <isOfficer>true</isOfficer>
+            <isTenPercentOwner>false</isTenPercentOwner>
+            <isOther>false</isOther>
+            <officerTitle>Chief Executive Officer</officerTitle>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <aff10b5One>false</aff10b5One>
+
+    <nonDerivativeTable>
+        <nonDerivativeHolding>
+            <securityTitle>
+                <value>Class A common stock</value>
+            </securityTitle>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>0</value>
+                    <footnoteId id="F1"/>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>D</value>
+                </directOrIndirectOwnership>
+            </ownershipNature>
+        </nonDerivativeHolding>
+    </nonDerivativeTable>
+
+    <footnotes>
+        <footnote id="F1">A prior Form 4 filed on April 20, 2026 incorrectly reported 500 shares of Class A common stock directly held by the reporting person. The reporting person does not hold any shares of Class A common
+stock.</footnote>
+    </footnotes>
+
+    <ownerSignature>
+        <signatureName>/s/ Christine M. Morrison, attorney-in-fact</signatureName>
+        <signatureDate>2026-04-21</signatureDate>
+    </ownerSignature>
+</ownershipDocument>

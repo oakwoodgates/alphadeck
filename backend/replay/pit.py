@@ -3,7 +3,9 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+import weakref
 from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -28,9 +30,77 @@ from db.bitemporal import (
     has_first_knowability,
     knowability_expr,
 )
+from db.insider_resolution import RESOLVED_TABLE
 from db.session import DEFAULT_TENANT_ID
-from replay.export import FACT_TABLES, read_mirror_manifest
+from domain.insider_amendments import ResolutionInputs, group_inputs
+from replay.export import AUX_TABLES, FACT_TABLES, read_mirror_manifest
 from signals.base import window_prices
+
+# the aux columns the export wrote as JSON strings (jsonb / text[]) — decoded back to the Postgres shape
+_AUX_JSON_COLS: dict[str, tuple[str, ...]] = {
+    "insider_amendment": ("rows",),
+    "insider_amendment_link": ("original_accessions", "voided_accessions", "candidate_accessions"),
+    "insider_amendment_decision": ("original_accessions", "voided_accessions"),
+}
+
+
+@dataclass(frozen=True)
+class _AuxRows:
+    """A mirror's insider-amendment aux tables, decoded and grouped by security (text id) — every version,
+    every tenant: each view applies its OWN gate (``tenant_id`` + ``recorded_at <= known_at``) in Python.
+    """
+
+    amendments: dict[str, list[dict[str, Any]]]
+    links: dict[str, list[dict[str, Any]]]
+    decisions: dict[str, list[dict[str, Any]]]
+    ciks: dict[str, list[str]]
+
+
+# R8-A — the aux tables are tiny (about one row per amendment) and IMMUTABLE for a mirror connection's life
+# (``connect_mirror`` materializes them once; nothing writes a mirror), so they are read ONCE per connection
+# and every view filters in memory — a basket sweep keeps its one-query-per-table cost (B5a). Keyed WEAKLY on
+# the connection, so a closed mirror takes its cache with it. ``None`` = the mirror carries no aux tables.
+_AUX: weakref.WeakKeyDictionary[duckdb.DuckDBPyConnection, _AuxRows | None] = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def _aux_of(con: duckdb.DuckDBPyConnection) -> _AuxRows | None:
+    """The connection's aux rows, read once (``connect_mirror`` primes it; a hand-built connection is read
+    on first use). A mirror exported before R8-A has none -> ``None`` -> nothing to resolve."""
+    if con in _AUX:
+        return _AUX[con]
+    found = con.execute(
+        "SELECT count(*) FROM information_schema.tables WHERE table_name = 'insider_amendment_link'"
+    ).fetchone()
+    if not (found and found[0]):
+        _AUX[con] = None
+        return None
+
+    def grouped(table: str) -> dict[str, list[dict[str, Any]]]:
+        res = con.execute(f"SELECT * FROM {table}")  # noqa: S608 — a trusted AUX_TABLES name
+        cols = [d[0] for d in res.description]
+        out: dict[str, list[dict[str, Any]]] = {}
+        for r in res.fetchall():
+            row = dict(zip(cols, r))
+            for jc in _AUX_JSON_COLS.get(table, ()):
+                if isinstance(row.get(jc), str):
+                    row[jc] = json.loads(row[jc])
+            out.setdefault(str(row["security_id"]), []).append(row)
+        return out
+
+    ciks: dict[str, list[str]] = {}
+    for sid, cik in con.execute("SELECT security_id, cik FROM security_cik").fetchall():
+        ciks.setdefault(str(sid), []).append(str(cik))
+    aux = _AuxRows(
+        amendments=grouped("insider_amendment"),
+        links=grouped("insider_amendment_link"),
+        decisions=grouped("insider_amendment_decision"),
+        ciks=ciks,
+    )
+    _AUX[con] = aux
+    return aux
+
 
 # jsonb / array columns the export wrote as JSON strings — the accessor decodes them back to
 # dicts/lists so the detectors (e.g. dilution_clock -> ConvertTerms.model_validate; the corporate
@@ -69,6 +139,19 @@ def connect_mirror(parquet_dir: str | Path) -> duckdb.DuckDBPyConnection:
             continue
         path = (base / f"{table}.parquet").as_posix().replace("'", "''")
         con.execute(f"CREATE TABLE {table} AS SELECT * FROM read_parquet('{path}')")
+    # R8-A — the insider-amendment aux tables: ALL present (a mirror exported since they exist — the
+    # exporter always writes every one, empty or not) or NONE (a mirror from before; the resolver then has
+    # nothing to apply, exactly what that export held). A PARTIAL set is a broken export: loud.
+    present = [t for t in AUX_TABLES if (base / f"{t}.parquet").is_file()]
+    if present and len(present) != len(AUX_TABLES):
+        missing = sorted(set(AUX_TABLES) - set(present))
+        raise FileNotFoundError(
+            f"mirror {base} has a partial insider-amendment aux set (missing {missing})"
+        )
+    for table in present:
+        path = (base / f"{table}.parquet").as_posix().replace("'", "''")
+        con.execute(f"CREATE TABLE {table} AS SELECT * FROM read_parquet('{path}')")
+    _aux_of(con)  # prime the per-connection aux cache now, so no view pays a query for it
     return con
 
 
@@ -223,7 +306,40 @@ class ReplayPointInTimeData:
             params.append(lower)
         res = self.con.execute(query, params)
         cols = [d[0] for d in res.description]
-        return self._decode(table, [dict(zip(cols, r)) for r in res.fetchall()])
+        rows = self._decode(table, [dict(zip(cols, r)) for r in res.fetchall()])
+        if table == RESOLVED_TABLE and scope_col == "security_id":
+            rows = self._resolution_inputs([scope_id]).resolve(
+                scope_id, rows, asof=self.asof, lower=lower
+            )
+        return rows
+
+    # --- R8-A — the insider-amendment resolution (the twin of db.insider_resolution) -----------------
+
+    def _resolution_inputs(self, security_ids: Iterable[UUID]) -> ResolutionInputs:
+        """Every 4/A record, link and decision of these securities recorded at/before ``known_at``, plus their
+        CIK sets — the gate ``db.insider_resolution.load_inputs`` applies on Postgres (``tenant_id`` +
+        ``recorded_at <= known_at``), fed to the SAME pure resolver (replay parity by construction). Read from
+        the per-mirror aux cache (``_aux_of``): no query per view."""
+        aux = _aux_of(self.con)
+        sids = [str(s) for s in dict.fromkeys(security_ids)]
+        if aux is None or not sids:
+            return ResolutionInputs()
+        tenant, known_at = str(self.tenant_id), self.known_at
+
+        def visible(rows_by_sid: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
+            return [
+                r
+                for s in sids
+                for r in rows_by_sid.get(s, ())
+                if str(r["tenant_id"]) == tenant and r["recorded_at"] <= known_at
+            ]
+
+        return group_inputs(
+            visible(aux.amendments),
+            visible(aux.links),
+            visible(aux.decisions),
+            [(s, c) for s in sids for c in aux.ciks.get(s, ())],
+        )
 
     def _prefetch(self, table: str) -> None:
         """ONE as-of read for the WHOLE basket, filling the memo — the DuckDB twin of
@@ -273,8 +389,12 @@ class ReplayPointInTimeData:
             sid = self._sid_by_text.get(str(row["security_id"]))
             if sid is not None:  # an id outside the basket cannot appear, but never guess
                 by_sid[sid].append(row)
+        inputs = self._resolution_inputs(self._basket) if table == RESOLVED_TABLE else None
         for sid, rows in by_sid.items():
-            self._memo[(table, sid)] = self._decode(table, rows)
+            rows = self._decode(table, rows)
+            if inputs is not None:  # R8-A — the same resolution the scoped read applies, one load
+                rows = inputs.resolve(sid, rows, asof=self.asof, lower=lower)
+            self._memo[(table, sid)] = rows
 
     def _as_of(self, table: str, scope_col: str, scope_id: UUID) -> list[dict[str, Any]]:
         if table not in _FACT_IDENTITY:

@@ -45,7 +45,8 @@ from db.session import connect
 from domain.security import Security
 from domain.settings import get_settings
 from ingest.edgar.client import EdgarClient
-from ingest.edgar.form4 import existing_accessions, ingest_form4
+from ingest.edgar.form4 import existing_accessions, ingest_form4, other_issuer_cik
+from ingest.edgar.form4a import ingest_amendments
 from ingest.edgar.form8k import ingest_form8k
 from ingest.edgar.schedule13 import ingest_schedule13
 from ingest.edgar.submissions import (
@@ -74,6 +75,7 @@ from ingest.prices.eod_loader import latest_bar_date
 from ingest.prices.ingest_security import ingest_bars_for_security
 from ingest.prices.source import PriceSource, YahooPriceSource
 from ingest.skips import (
+    FORM4_OTHER_ISSUER,
     FORM4_UNPARSEABLE,
     SCHEDULE13_IDENTITY,
     SCHEDULE13_OUTBOUND,
@@ -259,13 +261,25 @@ def _form4_leg(
     skipped = 0
     txn_rejected = 0
     skips: list[IngestSkip] = []
-    for f in form4_filings(fetch_submissions(client, sec.cik)):
+    subs = fetch_submissions(client, sec.cik)
+    for f in form4_filings(subs):
         if f["accession"] in seen:
             continue  # already have this filing's txns — skip (no duplicate append)
         url = form4_doc_url(sec.cik, f["accession"], f["primary_doc"])
         doc = f["primary_doc"].rsplit("/", 1)[-1]
         try:
             xml = client.get_text(url, f"forms/{f['accession']}/{doc}")
+            # R8-A — a filing about ANOTHER issuer (the member is its reporting owner) is never stored;
+            # it is recorded as a Q18 skip, so a known one is counted rather than re-printed nightly
+            other = other_issuer_cik(xml, sec.cik)
+            if other is not None:
+                why = f"Form 4 about issuer CIK {other}, not this security (reporting owner)"
+                skips.append(
+                    IngestSkip(FORM4_OTHER_ISSUER, f["accession"], sec.id, sec.ticker, why)
+                )
+                if not is_known(known_skips, FORM4_OTHER_ISSUER, f["accession"]):
+                    print(f"  {sec.ticker or sec.id} form4 {f['accession']} not stored: {why}")
+                continue
             # thread the SEC acceptance datetime (the honest "disclosed" clock) from the enumeration —
             # the ownership XML has none; parse_acceptance -> None leaves accepted NULL (#9)
             one = ingest_form4(
@@ -275,6 +289,7 @@ def _form4_leg(
                 f["accession"],
                 tenant_id=tenant_id,
                 accepted=parse_acceptance(f.get("accepted")),
+                member_cik=sec.cik,
             )
             appended += one.appended
             txn_rejected += one.rejected
@@ -293,6 +308,24 @@ def _form4_leg(
                     f"  warn: {sec.ticker or sec.id} form4 {f['accession']} ({f['filed']}) "
                     f"skipped: {e}"
                 )
+    # R8-A — the Form 4/A leg (``ingest.edgar.form4a``): AFTER tonight's originals, from the SAME cached
+    # submissions document; stored as filed + linked, never written into fact_insider_txn
+    amend, amend_skips = ingest_amendments(
+        conn,
+        client,
+        sec.id,
+        sec.cik,
+        sec.ticker,
+        subs,
+        tenant_id=tenant_id,
+        known_skips=known_skips,
+        tolerable=_tolerable_filing_error,
+    )
+    skips.extend(amend_skips)
+    skipped += len(amend.skipped)
+    if amend.stored:
+        pending = f", {amend.pending} pending the operator (Admin)" if amend.pending else ""
+        print(f"  {sec.ticker or sec.id}: +{len(amend.stored)} form 4/A stored + linked{pending}")
     return appended, skipped, txn_rejected, tuple(skips)
 
 

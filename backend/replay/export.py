@@ -265,6 +265,104 @@ def _as_utc(clock: Any) -> datetime:
     return datetime.combine(clock, time.min, tzinfo=market_tz()).astimezone(timezone.utc)
 
 
+# --- R8-A — the insider-amendment AUX tables ------------------------------------------------------------
+# What the replay resolver reads BESIDE ``fact_insider_txn`` (``domain.insider_amendments.resolve_insider_rows``,
+# the ONE resolver both engines share): the Form 4/As as filed, their links, the operator's decisions, and
+# every CIK a security has been known by (the other-issuer screen — IDENTITY, materialized from the master +
+# the T7 CIK-change log, never as-of). Not fact tables (no valid-time natural key), so they sit outside
+# ``FACT_TABLES`` and outside the public-clock registry above, with their own export rule below.
+AUX_TABLES: tuple[str, ...] = (
+    "insider_amendment",
+    "insider_amendment_link",
+    "insider_amendment_decision",
+    "security_cik",
+)
+# the per-amendment key of each versioned aux table (the public mode keeps its newest version)
+_AUX_KEY: dict[str, str] = {
+    "insider_amendment": "accession",
+    "insider_amendment_link": "amendment_accession",
+}
+
+_SECURITY_CIK_SQL = (
+    "SELECT id::text AS security_id, ltrim(cik, '0') AS cik FROM security_master "
+    "WHERE tenant_id = %(t)s AND cik IS NOT NULL "
+    "UNION SELECT security_id::text, ltrim(prior_cik, '0') FROM security_cik_change "
+    "WHERE tenant_id = %(t)s AND prior_cik IS NOT NULL "
+    "UNION SELECT security_id::text, ltrim(new_cik, '0') FROM security_cik_change "
+    "WHERE tenant_id = %(t)s AND new_cik IS NOT NULL "
+    "ORDER BY 1, 2"
+)
+
+
+def _read_aux(
+    conn: psycopg.Connection, table: str, tenant_id: UUID, clock: str
+) -> tuple[pa.Schema, list[dict], int]:
+    """One aux table for the mirror: ``(schema, rows, rows_dropped_null_clock)``.
+
+    ``record`` — every row, every version, untouched (the parity gate's mode, like the fact tables).
+
+    ``public`` — the amendment and its link take the 4/A's SEC ACCEPTANCE as their ``recorded_at`` (the
+    newest version per amendment; a 4/A with no acceptance is dropped and COUNTED, never modeled — the
+    insider table's own rule). The operator's decisions have no public clock at all: the mirror carries only
+    the decisions STANDING at export (revoked ones and the revokes themselves dropped; one per amendment and
+    kind), stamped with the amendment's acceptance — the operator's reading of a public filing applied from
+    when that filing was public. Right on the DATA axis, hindsight on the DECISION axis: the ratified-table
+    caveat ``_PUBLIC_CLOCK`` already names, and it applies to every void the operator ratified."""
+    with conn.cursor() as cur:
+        if table == "security_cik":
+            cur.execute(_SECURITY_CIK_SQL, {"t": tenant_id})
+        else:
+            cur.execute(
+                sql.SQL("SELECT * FROM {} WHERE tenant_id = %(t)s ORDER BY recorded_at, id").format(
+                    sql.Identifier(table)
+                ),
+                {"t": tenant_id},
+            )
+        rows = cur.fetchall()
+        schema = pa.schema(
+            [(d.name, _OID_ARROW.get(d.type_code, pa.string())) for d in cur.description]
+        )
+    if clock != "public" or table == "security_cik":
+        return schema, rows, 0
+    if table in _AUX_KEY:
+        key = _AUX_KEY[table]
+        newest: dict[tuple[Any, Any], dict] = {}
+        for r in rows:  # ascending (recorded_at, id): the last one per amendment wins
+            newest[(r["security_id"], r[key])] = r
+        kept = [r for r in newest.values() if r.get("accepted") is not None]
+        for r in kept:
+            r["recorded_at"] = _as_utc(r["accepted"])
+        return schema, kept, len(newest) - len(kept)
+    # decisions: the standing ones, clocked at their amendment's acceptance
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT DISTINCT ON (security_id, amendment_accession) security_id, amendment_accession, accepted "
+            "FROM insider_amendment_link WHERE tenant_id = %(t)s "
+            "ORDER BY security_id, amendment_accession, recorded_at DESC, id DESC",
+            {"t": tenant_id},
+        )
+        clocks = {
+            (r["security_id"], r["amendment_accession"]): r["accepted"] for r in cur.fetchall()
+        }
+    revoked = {r["revokes"] for r in rows if r["action"] == "revoke"}
+    standing: dict[tuple[Any, Any, str], dict] = {}
+    for r in rows:
+        if r["action"] == "revoke" or r["id"] in revoked:
+            continue
+        kind = "link" if r["action"] == "link" else "verdict"
+        standing[(r["security_id"], r["amendment_accession"], kind)] = r
+    kept, dropped = [], 0
+    for (sid, acc, _), r in sorted(
+        standing.items(), key=lambda kv: (str(kv[0][0]), kv[0][1], kv[0][2])
+    ):
+        accepted = clocks.get((sid, acc))
+        if accepted is None:
+            dropped += 1
+            continue
+        kept.append({**r, "recorded_at": _as_utc(accepted)})
+    return schema, kept, dropped
+
+
 def blind_detectors(excluded: list[str]) -> list[str]:
     """Which registered detectors read ONLY excluded tables — i.e. which ones cannot fire in this mirror.
 
@@ -341,6 +439,14 @@ def export_snapshot(
             "max_recorded_at": max_rec.isoformat() if max_rec is not None else None,
             **counts,
         }
+    # R8-A — the insider-amendment AUX tables, ALWAYS written (empty or not), so a mirror either has all of
+    # them or is from before they existed (``replay.pit.connect_mirror`` refuses a partial set)
+    manifest["aux_tables"] = {}
+    for table in AUX_TABLES:
+        schema, rows, dropped = _read_aux(conn, table, tenant_id, clock)
+        coerced = [{k: _coerce(v) for k, v in row.items()} for row in rows]
+        pq.write_table(pa.Table.from_pylist(coerced, schema=schema), out / f"{table}.parquet")
+        manifest["aux_tables"][table] = {"rows": len(rows), "rows_dropped_null_clock": dropped}
     (out / MANIFEST_NAME).write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n"
     )

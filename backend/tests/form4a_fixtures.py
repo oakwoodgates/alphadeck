@@ -1,0 +1,230 @@
+"""Loaders over ``tests/fixtures/edgar/form4a/`` — REAL Form 4 / 4/A ownership documents (R8-A), never
+hand-made: every XML is the document EDGAR serves for that accession (content unedited; git normalizes line
+endings like every other committed fixture).
+
+PROVENANCE
+- The 4/A documents (``0001628280-26-037326`` FLS, ``0001193125-26-166819`` AVEX, ``0001493152-26-044627``
+  .. ``-044631`` ATCH, ``0001213900-26-107326`` ARBE, ``0001193125-25-282945`` AZTA,
+  ``0001352573-26-000011`` TDG, ``0001104659-26-041960`` RPAY, ``0001856680-26-000016`` SKYT) were fetched
+  from ``https://www.sec.gov/Archives/edgar/data/<cik>/<accession>/<primary doc>`` with the declared
+  User-Agent, rate-limited, on 2026-10-17 by the R8-A measurement (the 553-amendment research corpus).
+- The original Form 4s (and the VWAV other-issuer Form 4 ``0001731122-26-000909``) were copied READ-ONLY
+  from prod's EDGAR cache (``/data/edgar_cache/forms/<accession>/<doc>``) on 2026-10-17 — the same bytes the
+  nightly Form 4 leg ingested.
+- ``FILINGS`` below (form, EDGAR filing date, SEC acceptance instant, issuer CIK, ticker) is the companies'
+  submissions index (``filings.recent``) for each accession, as cached on 2026-10-17.
+
+What each one is (MEASURED 2026-10-17, see ``domain/insider_amendments.py``):
+- FLS: a director's $164,275 code-P buy (``-035913``) the 4/A says the broker CANCELLED -> a zero-row VOID.
+  With ``-035630`` (another director, same week) the original pair read CORE.
+- AVEX: the CEO's 500-share row (``-164679``) the 4/A says he never held -> VOID.
+- ATCH: five Form 4s coding open-market purchases ``A``; five 4/As recode them ``P`` -> CORRECTIONS (CORE).
+- ARBE: 50 shares misreported; the 4/A says 50,000 -> CORRECTION.
+- AZTA: a zero-row 4/A that only attaches a power of attorney — the CFO's $69,900 buy (``-107291``) STANDS
+  (the case for routing a void to the operator instead of applying it).
+- TDG: three byte-identical Form 4s (``-000008`` .. ``-000010``, a filing agent's duplicates); the 4/A names
+  ``-000008`` the sole correct report -> DUPLICATES (a 1->N void).
+- RPAY: a 4/A that changes only the acquired/disposed flag -> CLERICAL (Table I identical).
+- SKYT: two different Form 4s by the same owner on the original date -> AMBIGUOUS.
+- VWAV: VisionWave's own Form 4 as REPORTING OWNER of SaverOne stock -> the other-issuer screen.
+"""
+
+from __future__ import annotations
+
+import uuid
+from dataclasses import dataclass
+from datetime import date, datetime
+from pathlib import Path
+
+import psycopg
+
+from db.session import DEFAULT_TENANT_ID
+from ingest.edgar.form4 import ingest_form4
+from ingest.edgar.form4a import AmendmentIngest, ingest_form4a
+from ingest.edgar.submissions import parse_acceptance
+
+FIXTURES = Path(__file__).parent / "fixtures" / "edgar" / "form4a"
+
+
+@dataclass(frozen=True)
+class Filing:
+    form: str
+    filed: date
+    accepted: datetime
+    cik: str
+    ticker: str
+
+
+def _f(form: str, filed: str, accepted: str, cik: str, ticker: str) -> Filing:
+    acc = parse_acceptance(accepted)
+    assert acc is not None
+    return Filing(form, date.fromisoformat(filed), acc, cik, ticker)
+
+
+FILINGS: dict[str, Filing] = {
+    # FLS — Flowserve (CIK 30625)
+    "0001628280-26-035630": _f("4", "2026-05-15", "2026-05-16T00:27:48.000Z", "0000030625", "FLS"),
+    "0001628280-26-035913": _f("4", "2026-05-18", "2026-05-19T00:01:38.000Z", "0000030625", "FLS"),
+    "0001628280-26-037326": _f(
+        "4/A", "2026-05-21", "2026-05-22T00:33:56.000Z", "0000030625", "FLS"
+    ),
+    # AVEX (CIK 2096300)
+    "0001193125-26-164679": _f("4", "2026-04-20", "2026-04-21T01:09:27.000Z", "0002096300", "AVEX"),
+    "0001193125-26-166819": _f(
+        "4/A", "2026-04-21", "2026-04-21T20:15:05.000Z", "0002096300", "AVEX"
+    ),
+    # ATCH (CIK 1963088) — five originals, five 4/As
+    "0001493152-26-044465": _f("4", "2026-09-28", "2026-09-28T17:22:42.000Z", "0001963088", "ATCH"),
+    "0001493152-26-044467": _f("4", "2026-09-28", "2026-09-28T17:24:09.000Z", "0001963088", "ATCH"),
+    "0001493152-26-044469": _f("4", "2026-09-28", "2026-09-28T17:25:26.000Z", "0001963088", "ATCH"),
+    "0001493152-26-044471": _f("4", "2026-09-28", "2026-09-28T17:26:49.000Z", "0001963088", "ATCH"),
+    "0001493152-26-044475": _f("4", "2026-09-28", "2026-09-28T17:29:49.000Z", "0001963088", "ATCH"),
+    "0001493152-26-044627": _f(
+        "4/A", "2026-09-28", "2026-09-29T01:01:26.000Z", "0001963088", "ATCH"
+    ),
+    "0001493152-26-044628": _f(
+        "4/A", "2026-09-28", "2026-09-29T01:01:24.000Z", "0001963088", "ATCH"
+    ),
+    "0001493152-26-044629": _f(
+        "4/A", "2026-09-28", "2026-09-29T01:01:27.000Z", "0001963088", "ATCH"
+    ),
+    "0001493152-26-044630": _f(
+        "4/A", "2026-09-28", "2026-09-29T01:01:29.000Z", "0001963088", "ATCH"
+    ),
+    "0001493152-26-044631": _f(
+        "4/A", "2026-09-28", "2026-09-29T01:01:30.000Z", "0001963088", "ATCH"
+    ),
+    # ARBE (CIK 1861841)
+    "0001213900-26-106000": _f("4", "2026-10-01", "2026-10-02T03:28:04.000Z", "0001861841", "ARBE"),
+    "0001213900-26-107326": _f(
+        "4/A", "2026-10-06", "2026-10-07T03:00:11.000Z", "0001861841", "ARBE"
+    ),
+    # AZTA (CIK 933974)
+    "0000950170-25-107291": _f("4", "2025-08-12", "2025-08-13T00:05:13.000Z", "0000933974", "AZTA"),
+    "0001193125-25-282945": _f(
+        "4/A", "2025-11-14", "2025-11-15T02:10:05.000Z", "0000933974", "AZTA"
+    ),
+    # TDG (CIK 1260221) — three duplicates and the 4/A naming the sole correct one
+    "0001352573-26-000008": _f("4", "2026-06-22", "2026-06-22T20:50:18.000Z", "0001260221", "TDG"),
+    "0001352573-26-000009": _f("4", "2026-06-22", "2026-06-22T20:50:59.000Z", "0001260221", "TDG"),
+    "0001352573-26-000010": _f("4", "2026-06-22", "2026-06-22T20:57:35.000Z", "0001260221", "TDG"),
+    "0001352573-26-000011": _f(
+        "4/A", "2026-06-24", "2026-06-24T20:57:27.000Z", "0001260221", "TDG"
+    ),
+    # RPAY (CIK 1720592)
+    "0001104659-26-041600": _f("4", "2026-04-09", "2026-04-10T02:33:54.000Z", "0001720592", "RPAY"),
+    "0001104659-26-041960": _f(
+        "4/A", "2026-04-10", "2026-04-11T00:01:14.000Z", "0001720592", "RPAY"
+    ),
+    # SKYT (CIK 1819974) — two different originals on the original date
+    "0001856680-26-000010": _f("4", "2026-03-18", "2026-03-18T21:24:13.000Z", "0001819974", "SKYT"),
+    "0001856680-26-000013": _f("4", "2026-03-18", "2026-03-18T22:13:13.000Z", "0001819974", "SKYT"),
+    "0001856680-26-000016": _f(
+        "4/A", "2026-03-23", "2026-03-23T21:01:39.000Z", "0001819974", "SKYT"
+    ),
+    # VWAV (CIK 2038439) — its own Form 4 as reporting owner of SaverOne (issuer CIK 1894693)
+    "0001731122-26-000909": _f("4", "2026-07-06", "2026-07-06T14:07:15.000Z", "0002038439", "VWAV"),
+}
+
+CIKS = {f.ticker: f.cik for f in FILINGS.values()}
+
+
+def xml(accession: str) -> str:
+    return (FIXTURES / f"{accession}.xml").read_text(encoding="utf-8")
+
+
+def originals_of(ticker: str) -> list[str]:
+    return sorted(a for a, f in FILINGS.items() if f.ticker == ticker and f.form == "4")
+
+
+def amendments_of(ticker: str) -> list[str]:
+    return sorted(a for a, f in FILINGS.items() if f.ticker == ticker and f.form == "4/A")
+
+
+def filed_by_accession(ticker: str) -> dict[str, date]:
+    """What the submissions index says each of the ticker's Form 4s was FILED on (the link key)."""
+    return {a: f.filed for a, f in FILINGS.items() if f.ticker == ticker and f.form == "4"}
+
+
+def as_issuer(conn: psycopg.Connection, security_id: uuid.UUID, cik: str) -> None:
+    """Make a fixture security the ISSUER of the Form 4 a test ingests onto it (its ``security_master.cik``).
+
+    Since R8-A the read screens a Form 4 whose issuer is ANOTHER company (the member was its reporting
+    owner), so a test that ingests, say, the real HIMS Wells Form 4 onto the generic ``security_id`` fixture
+    (CIK 0001234567) must give that security HIMS's CIK — the shape every real member has (its own Form 4s
+    name it as issuer). The asserted outcomes are unchanged; only the fixture's identity is made coherent.
+    """
+    with conn.cursor() as cur:
+        cur.execute("UPDATE security_master SET cik = %s WHERE id = %s", (cik, security_id))
+    conn.commit()
+
+
+def make_security(conn: psycopg.Connection, ticker: str) -> uuid.UUID:
+    """One ``security_master`` row carrying the REAL issuer CIK (the other-issuer screen reads it)."""
+    sid = uuid.uuid4()
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO security_master (id, tenant_id, ticker, cik, name, valid_from) "
+            "VALUES (%s, %s, %s, %s, %s, %s)",
+            (sid, DEFAULT_TENANT_ID, ticker, CIKS[ticker], f"{ticker} (fixture)", "2020-01-01"),
+        )
+    conn.commit()
+    return sid
+
+
+def ingest_originals(
+    conn: psycopg.Connection,
+    sid: uuid.UUID,
+    ticker: str,
+    *,
+    recorded_at: datetime | None = None,
+) -> int:
+    """Append the ticker's real original Form 4s the way the nightly leg does (member-screened, with the
+    SEC acceptance threaded). Returns rows appended."""
+    n = 0
+    for acc in originals_of(ticker):
+        out = ingest_form4(
+            conn,
+            sid,
+            xml(acc),
+            acc,
+            accepted=FILINGS[acc].accepted,
+            recorded_at=recorded_at,
+            member_cik=CIKS[ticker],
+        )
+        n += out.appended
+    conn.commit()
+    return n
+
+
+def ingest_amendment(
+    conn: psycopg.Connection,
+    sid: uuid.UUID,
+    accession: str,
+    *,
+    recorded_at: datetime | None = None,
+) -> AmendmentIngest:
+    """Store + link one real 4/A against what is stored for ``sid``, as the nightly 4/A leg does."""
+    f = FILINGS[accession]
+    out = ingest_form4a(
+        conn,
+        sid,
+        xml(accession),
+        accession,
+        member_cik=f.cik,
+        filed_by_accession=filed_by_accession(f.ticker),
+        filed=f.filed,
+        accepted=f.accepted,
+        recorded_at=recorded_at,
+    )
+    conn.commit()
+    return out
+
+
+def seed(conn: psycopg.Connection, ticker: str, *, amend_at: datetime | None = None) -> uuid.UUID:
+    """A security with its real originals stored, then every one of its real 4/As stored + linked."""
+    sid = make_security(conn, ticker)
+    ingest_originals(conn, sid, ticker)
+    for acc in amendments_of(ticker):
+        ingest_amendment(conn, sid, acc, recorded_at=amend_at)
+    return sid

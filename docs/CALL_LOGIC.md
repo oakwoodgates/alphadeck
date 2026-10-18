@@ -232,6 +232,28 @@ only *coincide* for insider buys, which is exactly why the two conviction source
   default every decision golden is **byte-for-byte** today's (`x × 1.0` is IEEE-exact); flipping it is a
   later measured, operator-signed decision (the sell side's `insider_sell` precedent). The primary-market /
   self-filing excludes above stay **hard set-aside** (labeled on the Scoreboard ledger, not dial-able).
+  **Which rows the insider detectors see — Form 4/A amendments and the other-issuer screen (R8-A,
+  operator-approved 2026-10-17, Option A).** Every as-of read of `fact_insider_txn` (both engines: Postgres
+  and the replay mirror, one pure resolver, `domain/insider_amendments.py`) is resolved against the stored
+  4/As before any detector sees it. A 4/A is stored as filed and linked to the original it amends; what it
+  does depends on its **disposition**: a clean **1:1 correction** (shares / price / code — including `A`→`P`
+  — / date) is applied automatically, its rows replacing the original's; a **clerical** one (Table I
+  identical) changes nothing and never double-counts; a **void** (a zero-row amendment of an original with
+  rows), **duplicates** (a 1→N void of filing-agent copies), a **partial** / **consolidation** /
+  **addition** / **restatement**, and an **ambiguous** link are routed to the operator (Admin, *Insider
+  amendments*). **The operator's condition:** while a cancellation (void / duplicates) is pending it
+  SUPPRESSES the affected original rows — buys and sells — so a cancelled buy never fires; *Ratify void*
+  keeps the suppression, *Keep original* restores the rows (a zero-row 4/A can just attach a power of
+  attorney — AZTA's CFO buy stands). The other routed kinds have no effect until applied (MEASURED: none of
+  the observed partials that omit a code-`P` row is a cancellation — they re-report the corrected row only),
+  and an ambiguous link suppresses nothing until the operator picks its original. Separately, a row whose
+  **issuer** (from the XML) is not this security — the member was the *reporting owner* of another
+  company's stock (Honeywell buying Garrett Motion, Novartis selling Aileron) — is screened (keep-and-screen;
+  the 147 such rows on prod are kept, not deleted). Every input is gated on its own `recorded_at` (the link,
+  each decision): a replay pinned before them reads the original exactly as stored (#1). Examples on prod
+  (MEASURED 2026-10-17, see `docs/FEED_LOOP.md`): FLS's cancelled $164k director buy stops being a CORE
+  trigger (pending void); ATCH's five `A`→`P` recodes restore a missed CORE (5 insiders, $162,524); ARBE's
+  50→50,000-share fix adds a FLIP; TDG's triplicated sells count once.
 - **`catalyst_conviction` `[approved]` — grade-DECOUPLED liveness (option A).** Liveness = the agreement's own
   **relevance horizon** (its period of performance), independent of grade; grade = the **customer-vs-sponsor**
   nature of the commitment — a DOE **contract** (DOE *buys your product* = revenue) or a **loan / loan

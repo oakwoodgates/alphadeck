@@ -8,6 +8,7 @@ from db.session import DEFAULT_TENANT_ID
 from ingest.edgar.form4 import ingest_form4
 from ingest.prices.eod_loader import ingest_prices, parse_stooq_csv
 from signals.base import PointInTimeData
+from tests.form4a_fixtures import as_issuer
 
 _F = Path(__file__).resolve().parent.parent / "fixtures"  # test-only EDGAR/price samples
 _SEED = Path(__file__).resolve().parent.parent.parent / "seed_data"  # shared HIMS demo samples
@@ -66,6 +67,9 @@ def test_real_hims_wells_buy_fires_core_via_pit(db, security_id):
     from signals import insider_conviction
 
     xml = (_SEED / "edgar" / "hims_wells_form4.xml").read_text(encoding="utf-8")
+    as_issuer(
+        db, security_id, "0001773751"
+    )  # R8-A: the security IS the Wells Form 4's issuer (HIMS)
     ingest_form4(db, security_id, xml, "0001773751-26-000086")
     pit = PointInTimeData(db, asof=date(2026, 6, 1), known_at=_KNOWN)
     ev = insider_conviction.detect(pit, security_id, date(2026, 6, 1), DEFAULT_CONFIG)

@@ -2541,6 +2541,295 @@
         }
       }
     },
+    "/admin/insider-amendments": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "List Amendments",
+        "description": "Every stored Form 4/A with its link, disposition, effective status and evidence, bucketed for the\npanel (pending loud; decided / applied / inert quiet). Read-only.",
+        "operationId": "list_amendments_admin_insider_amendments_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminInsiderAmendmentsOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/insider-amendments/{security_id}/{accession}/apply": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Apply Amendment",
+        "description": "RATIFY a pending amendment (basis ``operator:apply``): a void / duplicates keeps suppressing its\ntarget (now ratified); a partial / consolidation / addition / restatement replaces the original's rows\nwith the amendment's. Undo with ``POST /admin/insider-amendments/decisions/{id}/revoke``. **404** unknown\namendment, **409** nothing to ratify / a decision already stands / ambiguous and not linked yet.",
+        "operationId": "apply_amendment_admin_insider_amendments__security_id___accession__apply_post",
+        "parameters": [
+          {
+            "name": "security_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Security Id"
+            }
+          },
+          {
+            "name": "accession",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{10}-\\d{2}-\\d{6}$",
+              "title": "Accession"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/AdminInsiderReasonIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminInsiderAmendmentOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/insider-amendments/{security_id}/{accession}/keep": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Keep Original",
+        "description": "KEEP THE ORIGINAL (basis ``operator:keep``): the amendment changes nothing \u2014 a pending void's\nsuppression is lifted, an auto-applied correction is overruled. Undo with the revoke route. **404**\nunknown amendment, **409** nothing to decide / a decision already stands.",
+        "operationId": "keep_original_admin_insider_amendments__security_id___accession__keep_post",
+        "parameters": [
+          {
+            "name": "security_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Security Id"
+            }
+          },
+          {
+            "name": "accession",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{10}-\\d{2}-\\d{6}$",
+              "title": "Accession"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/AdminInsiderReasonIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminInsiderAmendmentOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/insider-amendments/{security_id}/{accession}/link": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Link Amendment To Candidate",
+        "description": "LINK an ambiguous amendment to one of its candidate originals (basis ``operator:link``). The\ndisposition against that original is computed now and stored; a routed one is then pending ratification\n(a void suppresses meanwhile). Undo with the revoke route. **404** unknown amendment, **409** not\nambiguous / already linked / not a candidate.",
+        "operationId": "link_amendment_to_candidate_admin_insider_amendments__security_id___accession__link_post",
+        "parameters": [
+          {
+            "name": "security_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Security Id"
+            }
+          },
+          {
+            "name": "accession",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{10}-\\d{2}-\\d{6}$",
+              "title": "Accession"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminInsiderLinkIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminInsiderAmendmentOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/insider-amendments/decisions/{decision_id}/revoke": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Revoke Decision",
+        "description": "UNDO a standing decision \u2014 append a ``revoke`` row naming it (basis ``operator:revoke``); the\namendment returns to the state before it. **404** unknown / already undone, **409** a verdict still\nstands under the link being undone.",
+        "operationId": "revoke_decision_admin_insider_amendments_decisions__decision_id__revoke_post",
+        "parameters": [
+          {
+            "name": "decision_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Decision Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/AdminInsiderReasonIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminInsiderAmendmentOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/radar/spac": {
       "get": {
         "tags": [
@@ -3196,6 +3485,489 @@
         ],
         "title": "AdminFormerNameOut",
         "description": "One of EDGAR's ``formerNames`` for the filer (``since`` / ``until`` as ``YYYY-MM-DD``, ``\"\"`` when\nEDGAR omits them) \u2014 evidence that the company EDGAR lists under a new symbol is the same filer."
+      },
+      "AdminInsiderAmendmentOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "accession": {
+            "type": "string",
+            "title": "Accession"
+          },
+          "filing_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filing Url"
+          },
+          "filed": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filed"
+          },
+          "accepted": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted"
+          },
+          "recorded_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Recorded At"
+          },
+          "owners": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Owners"
+          },
+          "date_of_original_submission": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date Of Original Submission"
+          },
+          "remarks": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remarks"
+          },
+          "footnotes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Footnotes"
+          },
+          "derivative_count": {
+            "type": "integer",
+            "title": "Derivative Count",
+            "default": 0
+          },
+          "disposition": {
+            "type": "string",
+            "title": "Disposition"
+          },
+          "method": {
+            "type": "string",
+            "title": "Method"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "verdict": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verdict"
+          },
+          "why": {
+            "type": "string",
+            "title": "Why",
+            "default": ""
+          },
+          "original_accessions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Original Accessions"
+          },
+          "voided_accessions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Voided Accessions"
+          },
+          "candidate_accessions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Candidate Accessions"
+          },
+          "suppressing": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Suppressing"
+          },
+          "amendment_rows": {
+            "items": {
+              "$ref": "#/components/schemas/AdminInsiderTxnOut"
+            },
+            "type": "array",
+            "title": "Amendment Rows"
+          },
+          "originals": {
+            "items": {
+              "$ref": "#/components/schemas/AdminInsiderOriginalOut"
+            },
+            "type": "array",
+            "title": "Originals"
+          },
+          "decisions": {
+            "items": {
+              "$ref": "#/components/schemas/AdminInsiderDecisionOut"
+            },
+            "type": "array",
+            "title": "Decisions"
+          },
+          "undo_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Undo Id"
+          },
+          "touches_buy": {
+            "type": "boolean",
+            "title": "Touches Buy",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "accession",
+          "recorded_at",
+          "disposition",
+          "method",
+          "status"
+        ],
+        "title": "AdminInsiderAmendmentOut",
+        "description": "One Form 4/A and everything the operator needs to ratify it.\n\n``disposition`` is what it changed (``domain.insider_amendments``); ``status`` its EFFECTIVE state \u2014\n``pending`` (owed a decision; a pending void/duplicates SUPPRESSES its target meanwhile), ``applied``\n(auto-applied correction, or ratified), ``kept`` (the original stands) or ``inert`` (nothing to do).\n``suppressing`` = the original accession(s) it currently removes from every read; ``undo_id`` = the\nstanding decision an Undo reverses (the verdict first, else the link). ``touches_buy`` = a code-P row on\neither side (the loudness hint). ``filing_url`` = the 4/A's EDGAR filing index."
+      },
+      "AdminInsiderAmendmentsOut": {
+        "properties": {
+          "pending": {
+            "items": {
+              "$ref": "#/components/schemas/AdminInsiderAmendmentOut"
+            },
+            "type": "array",
+            "title": "Pending"
+          },
+          "decided": {
+            "items": {
+              "$ref": "#/components/schemas/AdminInsiderAmendmentOut"
+            },
+            "type": "array",
+            "title": "Decided"
+          },
+          "applied": {
+            "items": {
+              "$ref": "#/components/schemas/AdminInsiderAmendmentOut"
+            },
+            "type": "array",
+            "title": "Applied"
+          },
+          "inert": {
+            "items": {
+              "$ref": "#/components/schemas/AdminInsiderAmendmentOut"
+            },
+            "type": "array",
+            "title": "Inert"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "AdminInsiderAmendmentsOut",
+        "description": "The \"Insider amendments\" panel. ``pending`` is LOUD (owed a decision, newest first per name);\n``decided`` (a standing operator decision, each undoable), ``applied`` (auto-applied 1:1 corrections,\neach overrulable with Keep original) and ``inert`` (clerical / no Table I rows / no stored original \u2014\nnothing to do) are QUIET lists, still visible (#9 / WB#2). Read live from the amendment tables."
+      },
+      "AdminInsiderDecisionOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "target_accession": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Accession"
+          },
+          "disposition": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disposition"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "basis": {
+            "type": "string",
+            "title": "Basis"
+          },
+          "recorded_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Recorded At"
+          },
+          "revokes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revokes"
+          },
+          "standing": {
+            "type": "boolean",
+            "title": "Standing",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "action",
+          "reason",
+          "basis",
+          "recorded_at"
+        ],
+        "title": "AdminInsiderDecisionOut",
+        "description": "One operator decision (``apply`` / ``keep`` / ``link`` / ``revoke``); ``standing`` = not undone."
+      },
+      "AdminInsiderLinkIn": {
+        "properties": {
+          "target_accession": {
+            "type": "string",
+            "pattern": "^\\d{10}-\\d{2}-\\d{6}$",
+            "title": "Target Accession"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "target_accession"
+        ],
+        "title": "AdminInsiderLinkIn",
+        "description": "The candidate original the operator links an ambiguous amendment to."
+      },
+      "AdminInsiderOriginalOut": {
+        "properties": {
+          "accession": {
+            "type": "string",
+            "title": "Accession"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/AdminInsiderTxnOut"
+            },
+            "type": "array",
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "accession",
+          "role"
+        ],
+        "title": "AdminInsiderOriginalOut",
+        "description": "A stored Form 4 the amendment touches, with its rows: ``role`` = ``original`` (what it amends),\n``voided`` (a duplicate a 1->N void suppresses) or ``candidate`` (an ambiguous link's option)."
+      },
+      "AdminInsiderReasonIn": {
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "title": "AdminInsiderReasonIn",
+        "description": "Why (optional \u2014 a default reason is stored)."
+      },
+      "AdminInsiderTxnOut": {
+        "properties": {
+          "seq": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seq"
+          },
+          "insider_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Insider Name"
+          },
+          "txn_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Txn Code"
+          },
+          "txn_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Txn Date"
+          },
+          "shares": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shares"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price"
+          },
+          "usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Usd"
+          }
+        },
+        "type": "object",
+        "title": "AdminInsiderTxnOut",
+        "description": "One Table I row \u2014 an amendment's as filed, or a stored original's."
       },
       "AdminLateOnlyNightOut": {
         "properties": {

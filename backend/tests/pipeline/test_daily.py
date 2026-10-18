@@ -29,6 +29,7 @@ from notify import ArmedName, LogNotifier
 from pipeline import cron_run_log, daily
 from pipeline.cron_run_log import write_cron_run_log
 from pipeline.ingest_thesis import NameResult
+from pipeline.insider_amendment_scan import AmendmentScan
 from pipeline.rename_probe import RenameProbe
 from pipeline.split_basis import SplitScan
 from pipeline.successor_cik import SuccessorScan
@@ -747,6 +748,9 @@ def _prime_pass(monkeypatch, *, bench_raises=False, sweep_raises=False):
     # the T7 successor-CIK scan reads the master and fetches SEC's ticker map — DB- and network-free here;
     # proved on a real DB with fixture EDGAR clients in tests/pipeline/test_successor_cik.py
     monkeypatch.setattr(daily, "run_successor_scan", lambda **k: SuccessorScan(evaluated=True))
+    # R8-A — the Form 4/A inventory reads the amendment TABLES — DB-free here; proved on a real DB in
+    # tests/pipeline/test_insider_amendment_scan.py
+    monkeypatch.setattr(daily, "run_amendment_scan", lambda **k: AmendmentScan(evaluated=True))
 
     def _radar(conn, **k):
         order.append("spac_radar")

@@ -1377,6 +1377,117 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/insider-amendments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Amendments
+         * @description Every stored Form 4/A with its link, disposition, effective status and evidence, bucketed for the
+         *     panel (pending loud; decided / applied / inert quiet). Read-only.
+         */
+        get: operations["list_amendments_admin_insider_amendments_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/insider-amendments/{security_id}/{accession}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Apply Amendment
+         * @description RATIFY a pending amendment (basis ``operator:apply``): a void / duplicates keeps suppressing its
+         *     target (now ratified); a partial / consolidation / addition / restatement replaces the original's rows
+         *     with the amendment's. Undo with ``POST /admin/insider-amendments/decisions/{id}/revoke``. **404** unknown
+         *     amendment, **409** nothing to ratify / a decision already stands / ambiguous and not linked yet.
+         */
+        post: operations["apply_amendment_admin_insider_amendments__security_id___accession__apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/insider-amendments/{security_id}/{accession}/keep": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Keep Original
+         * @description KEEP THE ORIGINAL (basis ``operator:keep``): the amendment changes nothing — a pending void's
+         *     suppression is lifted, an auto-applied correction is overruled. Undo with the revoke route. **404**
+         *     unknown amendment, **409** nothing to decide / a decision already stands.
+         */
+        post: operations["keep_original_admin_insider_amendments__security_id___accession__keep_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/insider-amendments/{security_id}/{accession}/link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Link Amendment To Candidate
+         * @description LINK an ambiguous amendment to one of its candidate originals (basis ``operator:link``). The
+         *     disposition against that original is computed now and stored; a routed one is then pending ratification
+         *     (a void suppresses meanwhile). Undo with the revoke route. **404** unknown amendment, **409** not
+         *     ambiguous / already linked / not a candidate.
+         */
+        post: operations["link_amendment_to_candidate_admin_insider_amendments__security_id___accession__link_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/insider-amendments/decisions/{decision_id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revoke Decision
+         * @description UNDO a standing decision — append a ``revoke`` row naming it (basis ``operator:revoke``); the
+         *     amendment returns to the state before it. **404** unknown / already undone, **409** a verdict still
+         *     stands under the link being undone.
+         */
+        post: operations["revoke_decision_admin_insider_amendments_decisions__decision_id__revoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/radar/spac": {
         parameters: {
             query?: never;
@@ -1759,6 +1870,192 @@ export interface components {
              * @default
              */
             until: string;
+        };
+        /**
+         * AdminInsiderAmendmentOut
+         * @description One Form 4/A and everything the operator needs to ratify it.
+         *
+         *     ``disposition`` is what it changed (``domain.insider_amendments``); ``status`` its EFFECTIVE state —
+         *     ``pending`` (owed a decision; a pending void/duplicates SUPPRESSES its target meanwhile), ``applied``
+         *     (auto-applied correction, or ratified), ``kept`` (the original stands) or ``inert`` (nothing to do).
+         *     ``suppressing`` = the original accession(s) it currently removes from every read; ``undo_id`` = the
+         *     standing decision an Undo reverses (the verdict first, else the link). ``touches_buy`` = a code-P row on
+         *     either side (the loudness hint). ``filing_url`` = the 4/A's EDGAR filing index.
+         */
+        AdminInsiderAmendmentOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker?: string | null;
+            /** Accession */
+            accession: string;
+            /** Filing Url */
+            filing_url?: string | null;
+            /** Filed */
+            filed?: string | null;
+            /** Accepted */
+            accepted?: string | null;
+            /**
+             * Recorded At
+             * Format: date-time
+             */
+            recorded_at: string;
+            /** Owners */
+            owners?: string[];
+            /** Date Of Original Submission */
+            date_of_original_submission?: string | null;
+            /** Remarks */
+            remarks?: string | null;
+            /** Footnotes */
+            footnotes?: string[];
+            /**
+             * Derivative Count
+             * @default 0
+             */
+            derivative_count: number;
+            /** Disposition */
+            disposition: string;
+            /** Method */
+            method: string;
+            /** Status */
+            status: string;
+            /** Verdict */
+            verdict?: string | null;
+            /**
+             * Why
+             * @default
+             */
+            why: string;
+            /** Original Accessions */
+            original_accessions?: string[];
+            /** Voided Accessions */
+            voided_accessions?: string[];
+            /** Candidate Accessions */
+            candidate_accessions?: string[];
+            /** Suppressing */
+            suppressing?: string[];
+            /** Amendment Rows */
+            amendment_rows?: components["schemas"]["AdminInsiderTxnOut"][];
+            /** Originals */
+            originals?: components["schemas"]["AdminInsiderOriginalOut"][];
+            /** Decisions */
+            decisions?: components["schemas"]["AdminInsiderDecisionOut"][];
+            /** Undo Id */
+            undo_id?: string | null;
+            /**
+             * Touches Buy
+             * @default false
+             */
+            touches_buy: boolean;
+        };
+        /**
+         * AdminInsiderAmendmentsOut
+         * @description The "Insider amendments" panel. ``pending`` is LOUD (owed a decision, newest first per name);
+         *     ``decided`` (a standing operator decision, each undoable), ``applied`` (auto-applied 1:1 corrections,
+         *     each overrulable with Keep original) and ``inert`` (clerical / no Table I rows / no stored original —
+         *     nothing to do) are QUIET lists, still visible (#9 / WB#2). Read live from the amendment tables.
+         */
+        AdminInsiderAmendmentsOut: {
+            /** Pending */
+            pending?: components["schemas"]["AdminInsiderAmendmentOut"][];
+            /** Decided */
+            decided?: components["schemas"]["AdminInsiderAmendmentOut"][];
+            /** Applied */
+            applied?: components["schemas"]["AdminInsiderAmendmentOut"][];
+            /** Inert */
+            inert?: components["schemas"]["AdminInsiderAmendmentOut"][];
+            /**
+             * Total
+             * @default 0
+             */
+            total: number;
+        };
+        /**
+         * AdminInsiderDecisionOut
+         * @description One operator decision (``apply`` / ``keep`` / ``link`` / ``revoke``); ``standing`` = not undone.
+         */
+        AdminInsiderDecisionOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Action */
+            action: string;
+            /** Target Accession */
+            target_accession?: string | null;
+            /** Disposition */
+            disposition?: string | null;
+            /** Reason */
+            reason: string;
+            /** Basis */
+            basis: string;
+            /**
+             * Recorded At
+             * Format: date-time
+             */
+            recorded_at: string;
+            /** Revokes */
+            revokes?: string | null;
+            /**
+             * Standing
+             * @default false
+             */
+            standing: boolean;
+        };
+        /**
+         * AdminInsiderLinkIn
+         * @description The candidate original the operator links an ambiguous amendment to.
+         */
+        AdminInsiderLinkIn: {
+            /** Target Accession */
+            target_accession: string;
+            /** Reason */
+            reason?: string | null;
+        };
+        /**
+         * AdminInsiderOriginalOut
+         * @description A stored Form 4 the amendment touches, with its rows: ``role`` = ``original`` (what it amends),
+         *     ``voided`` (a duplicate a 1->N void suppresses) or ``candidate`` (an ambiguous link's option).
+         */
+        AdminInsiderOriginalOut: {
+            /** Accession */
+            accession: string;
+            /** Role */
+            role: string;
+            /** Rows */
+            rows?: components["schemas"]["AdminInsiderTxnOut"][];
+        };
+        /**
+         * AdminInsiderReasonIn
+         * @description Why (optional — a default reason is stored).
+         */
+        AdminInsiderReasonIn: {
+            /** Reason */
+            reason?: string | null;
+        };
+        /**
+         * AdminInsiderTxnOut
+         * @description One Table I row — an amendment's as filed, or a stored original's.
+         */
+        AdminInsiderTxnOut: {
+            /** Seq */
+            seq?: number | null;
+            /** Insider Name */
+            insider_name?: string | null;
+            /** Txn Code */
+            txn_code?: string | null;
+            /** Txn Date */
+            txn_date?: string | null;
+            /** Shares */
+            shares?: number | null;
+            /** Price */
+            price?: number | null;
+            /** Usd */
+            usd?: number | null;
         };
         /**
          * AdminLateOnlyNightOut
@@ -8087,6 +8384,169 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdminCikChangeOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_amendments_admin_insider_amendments_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminInsiderAmendmentsOut"];
+                };
+            };
+        };
+    };
+    apply_amendment_admin_insider_amendments__security_id___accession__apply_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                security_id: string;
+                accession: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["AdminInsiderReasonIn"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminInsiderAmendmentOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    keep_original_admin_insider_amendments__security_id___accession__keep_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                security_id: string;
+                accession: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["AdminInsiderReasonIn"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminInsiderAmendmentOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    link_amendment_to_candidate_admin_insider_amendments__security_id___accession__link_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                security_id: string;
+                accession: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminInsiderLinkIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminInsiderAmendmentOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_decision_admin_insider_amendments_decisions__decision_id__revoke_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                decision_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["AdminInsiderReasonIn"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminInsiderAmendmentOut"];
                 };
             };
             /** @description Validation Error */

@@ -212,6 +212,18 @@ replay stays honest.
   design (the no-lookahead rule binds the decision, not the measurement of it). Full detail, the registry
   table and the NULL rates: `docs/BACKTEST.md`. *Enforced by:* `tests/replay/` (the parity gate runs on
   `clock="record"` and stays byte-identical; the public-clock exclusion + NULL-count tests).
+- *Also honored by (R8-A — Form 4/A amendments):* an amendment changes what the insider read returns only from
+  the moment THIS system held it. The 4/A, its link and every operator decision carry their own `recorded_at`,
+  and the resolver (`domain/insider_amendments.resolve_insider_rows`, shared verbatim by the Postgres read and
+  the DuckDB mirror) counts each iff `recorded_at <= known_at`; `accepted` (the SEC acceptance) only orders two
+  amendments of one original and is displayed, never a gate. So a replay pinned before tonight's link reads the
+  original exactly as stored, and one pinned before a ratification reads the pending state; the backfill of the
+  existing 4/As (stamped `recorded_at = now`) moves no past replay. An amended row is dated by its OWN
+  transaction date (`valid_from <= asof`, and the registry floor, apply to it too). The public-clock mirror
+  stamps a 4/A and its link at its acceptance, and carries only the operator's STANDING decisions, stamped the
+  same — the ratified-table hindsight caveat, named. *Enforced by:* `tests/db/test_insider_amendments.py`
+  (a read pinned before the link / before a decision), `tests/replay/test_pit_insider_amendments.py` (row-for-row
+  parity at four pins, both read shapes; the public-clock acceptance).
 
 ## 5. Tenant isolation; production is a fresh tenant, never a destructive wipe
 
@@ -439,6 +451,17 @@ surfaced to the operator, not silently resolved in code.**
   is a visible, reversible, still-promotable collapse (excluded rows, the To-Review "Low signal" / "No listed
   ticker" drawers) and the sort/filter VIEW never changes what Save persists — precision is the operator pruning
   visible names, never a filter that silently eats one (`TRIAGE.md`).
+- *Also honored by (R8-A — Form 4/A amendments and the other-issuer screen):* no insider row is DELETED and no
+  amendment is silently dropped. A 4/A is stored as filed (never written into, never subtracted from,
+  `fact_insider_txn`); what it does is decided per disposition and SHOWN on Admin with its evidence — an
+  auto-applied correction, a clerical / no-rows / unlinked one, and every routed one stay listed, and the
+  only provisional removal is the operator's own condition (a pending void suppresses the original it
+  cancels; *Keep original* restores it, an AMBIGUOUS link suppresses nothing). Rows stored before the
+  other-issuer screen existed are KEPT and screened at read (keep-and-screen); the screen keeps any row whose
+  issuer or member CIK is unknown, and counts every CIK the security has been known by (the T7 change log),
+  so a successor-CIK re-point never hides the predecessor's own history. A filing the ingest no longer stores
+  is recorded as a `form4_other_issuer` skip, never silently. *Enforced by:* `tests/db/test_insider_amendments.py`
+  (the stored rows are counted before and after; the screened rows are still in the table).
 
 ## 10. The LLM recommends; the operator decides — a recommendation is pending until confirmed, never auto-applied
 

@@ -19,6 +19,7 @@ from pipeline.core import assemble_from_pit
 from repositories import calls_repo, decisions_repo, thesis_repo
 from signals.base import PointInTimeData
 from signals.horizons import call_bounds
+from tests.form4a_fixtures import as_issuer
 
 # The vertical slice, end to end through persistence: seed real HIMS facts + persist the thesis, then
 # compute the CallCard from the stored thesis by re-deriving signals from the facts as-of.
@@ -28,6 +29,9 @@ _WELLS_ACCESSION = "0001773751-26-000086"
 
 
 def _seed_hims_thesis(db, security_id) -> uuid.UUID:
+    as_issuer(
+        db, security_id, "0001773751"
+    )  # R8-A: the security IS the Wells Form 4's issuer (HIMS)
     ingest_form4(
         db,
         security_id,

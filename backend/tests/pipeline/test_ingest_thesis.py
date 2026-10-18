@@ -27,6 +27,15 @@ _ALT_TENANT = uuid.UUID("00000000-0000-0000-0000-0000000002a0")
 # --- fakes for the two network legs -----------------------------------------------------------------
 
 
+def _xml_for(url: str) -> str:
+    """The sample Form 4 as the REQUESTED company's own filing: its ``issuerCik`` is the CIK in the document
+    URL (``<archives>/<cik>/<accession>/<doc>``). Since R8-A the leg refuses to store a Form 4 about another
+    issuer, so one shared document must name, for each member, that member as its issuer — the shape every
+    real company's own Form 4 has."""
+    cik = int(url.rsplit("/", 3)[1])
+    return _XML.replace("<issuerCik>0001234567</issuerCik>", f"<issuerCik>{cik:010d}</issuerCik>")
+
+
 class _FakeClient:
     """Stands in for EdgarClient: get_text always returns the sample Form 4 XML (no network)."""
 
@@ -34,7 +43,7 @@ class _FakeClient:
         pass
 
     def get_text(self, url: str, cache_key: str) -> str:
-        return _XML
+        return _xml_for(url)
 
 
 class _MixedClient(_FakeClient):
@@ -51,7 +60,7 @@ class _MixedClient(_FakeClient):
             req = httpx.Request("GET", url)
             resp = httpx.Response(404, request=req)
             raise httpx.HTTPStatusError("404 Not Found", request=req, response=resp)
-        return _XML
+        return _xml_for(url)
 
 
 def _subs(accessions, form8ks=(), delistings=()):

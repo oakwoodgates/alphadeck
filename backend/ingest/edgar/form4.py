@@ -247,6 +247,19 @@ class Form4Ingest(NamedTuple):
     rejected: int
 
 
+def other_issuer_cik(xml: str, member_cik: str | None) -> str | None:
+    """THE OTHER-ISSUER SCREEN (R8-A): the filing's ``issuerCik`` when it is a DIFFERENT company from the
+    member (``member_cik``), else ``None``. A company's own submissions feed lists every ownership filing it
+    is a party to — including the ones it filed as the REPORTING OWNER of someone else's stock (Honeywell's
+    Form 4s on Garrett Motion, Novartis selling Aileron) — and those are not this security's insider flow.
+    Keep-when-unknown (#9): no member CIK, or no issuer CIK in the document, is ``None``. A document that does
+    not parse raises ``ET.ParseError`` exactly as ``parse_form4`` would (the leg's per-filing tolerance).
+    """
+    member = _norm_cik(member_cik)
+    issuer = _norm_cik(ET.fromstring(xml).findtext("issuer/issuerCik"))
+    return issuer if member is not None and issuer is not None and issuer != member else None
+
+
 def ingest_form4(
     conn: psycopg.Connection,
     security_id: UUID,
@@ -256,6 +269,7 @@ def ingest_form4(
     tenant_id: UUID = DEFAULT_TENANT_ID,
     recorded_at=None,
     accepted=None,
+    member_cik: str | None = None,
 ) -> Form4Ingest:
     """Parse a Form 4 and append its transactions to ``fact_insider_txn`` (append-only); the caller
     owns the transaction (no commit here). Returns ``(appended, rejected)``.
@@ -281,9 +295,16 @@ def ingest_form4(
     correctly-dated non-derivative ones, and dropping the filing would lose them (#9). (The filing holds six
     transactions in total, but ``parse_form4`` stores the non-derivative ones only — hence three, not five;
     the fixture makes that checkable rather than a claim in prose.)
+
+    THE OTHER-ISSUER SCREEN (R8-A, ``other_issuer_cik``): with ``member_cik`` given, a filing whose
+    ``issuerCik`` is a DIFFERENT company stores NOTHING (``(0, 0)``) — the nightly leg checks it first and
+    records a ``form4_other_issuer`` skip; this is the writer's own guard. The rows stored before the screen
+    existed are kept and screened at read (``domain.insider_amendments``).
     """
     count = 0
     rejected = 0
+    if other_issuer_cik(xml, member_cik) is not None:
+        return Form4Ingest(appended=0, rejected=0)
     for i, t in enumerate(parse_form4(xml)):
         if t["txn_date"] is None:
             continue

@@ -97,6 +97,12 @@ from pipeline.ingest_thesis import (
     print_held_lines,
     print_withheld_line,
 )
+from pipeline.insider_amendment_scan import (
+    AmendmentScan,
+    previous_amendment_keys,
+    run_amendment_scan,
+)
+from pipeline.insider_amendment_scan import report_lines as amendment_report_lines
 from pipeline.name_errors import NameIngestError, dedup_name_errors, name_errors_of
 from pipeline.night_coverage import NightTiming, night_timing, read_on_time_theses
 from pipeline.pass_timings import per_thesis, timed
@@ -656,6 +662,7 @@ def assess_health(
     audit_failed: tuple[str, ...] = (),
     split_defects_new: tuple[str, ...] = (),
     successor_cik_new: tuple[str, ...] = (),
+    insider_amendments_new: tuple[str, ...] = (),
 ) -> HealthEvent | None:
     """R4 — the run's pageable health, or None when the run was clean (loudness marks the exception). Unhealthy
     = a FREEZE (a live run whose EDGAR fetches summed to ZERO across present theses — the R1 cache-never-
@@ -708,6 +715,10 @@ def assess_health(
     T7 — ``successor_cik_new`` are the labels of members whose company now files under a NEW CIK
     (``pipeline/successor_cik.py``), NEW since the previous evaluated pass. Benign-class the same way: a
     data gap the operator's Adopt repairs, not a cron fault — it pages once.
+
+    R8-A — ``insider_amendments_new`` are the labels of Form 4/A amendments NEWLY owed the operator's
+    decision (``pipeline/insider_amendment_scan.py``). Benign-class the same way: the decision is the
+    operator's, the run did its job — it pages once.
     """
     theses = len(results)
     # split withheld by its ACTUAL reason — a --no-live dev run is benign, a total failure is an alarm; a page
@@ -729,6 +740,7 @@ def assess_health(
         or audit_failed
         or split_defects_new
         or successor_cik_new
+        or insider_amendments_new
     ):
         return None  # healthy — no page
     return HealthEvent(
@@ -746,6 +758,7 @@ def assess_health(
         audit_failed=tuple(audit_failed),
         split_defects_new=tuple(split_defects_new),
         successor_cik_new=tuple(successor_cik_new),
+        insider_amendments_new=tuple(insider_amendments_new),
     )
 
 
@@ -809,6 +822,9 @@ class DailyPassOutcome:
     # X5 — where the pass spent its time, requests and memory (`pipeline/pass_timings.py`): the snapshot the
     # artifact was first written with, replaced by the FINAL block once the post-artifact legs ran
     timings: dict | None = None
+    # R8-A — the Form 4/A inventory owed an operator decision (``pipeline/insider_amendment_scan.py``),
+    # computed ONCE in the pass so the artifact, the printed report and the page agree
+    amendments: AmendmentScan = field(default_factory=AmendmentScan)
 
     def payload_kwargs(self) -> dict:
         """Every run-level field ``cron_run_log.build_run_payload`` / ``write_cron_run_log`` take, from this
@@ -839,6 +855,7 @@ class DailyPassOutcome:
             "successor": self.successor,
             "skips": self.skips,
             "timings": self.timings,
+            "amendments": self.amendments,
         }
 
 
@@ -1239,6 +1256,16 @@ def _run_daily_pass_locked(
         previous=previous_successor_keys,
         clock=perf_counter,
     )
+    # R8-A — THE FORM 4/A INVENTORY (`pipeline/insider_amendment_scan.py`): every stored 4/A of the active
+    # basket union OWED the operator's decision (a pending void suppresses its original meanwhile), read
+    # whole from the amendment tables and diffed against the last evaluated pass so a NEW one pages once.
+    # BEFORE the artifact, for the same reason as the diffs above. Fail-open (a fault rides `error`).
+    amendments = timed("amendment_scan")(run_amendment_scan)(
+        allow_live=allow_live,
+        connect=_pass_connect,
+        previous=previous_amendment_keys,
+        clock=perf_counter,
+    )
     # I1/I2 — THE RUN IDENTITY on the artifact: the same sha / cfg hash / run kind `run_daily` stamped on
     # every row it wrote (the identical expressions — `run_daily` holds its cfg local as DEFAULT_CONFIG and
     # reads `image_sha` the same way), plus the non-secret env fingerprint the Admin page alarms on.
@@ -1293,6 +1320,7 @@ def _run_daily_pass_locked(
         skips=skips,
         # X5 — the timings so far; `run_daily_pass` amends the artifact with the final block (post-legs)
         timings=pass_timings.snapshot(),
+        amendments=amendments,
     )
     # R3 — the cron's run-of-record, so the next freeze is noticed by the platform, not by eye. Written
     # AFTER the run from the collected results (write-only, no DB); fail-open, so it never fails the cron.
@@ -1321,6 +1349,8 @@ def _run_daily_pass_locked(
         split_defects_new=split.new_labels,
         # T7 — the NEW successor-CIK rows page once (benign-class: a data gap the operator's Adopt repairs)
         successor_cik_new=successor.new_labels,
+        # R8-A — the NEW Form 4/A amendments owed a decision page once (benign-class)
+        insider_amendments_new=amendments.new_labels,
     )
     if health is not None:
         timed("health_page")(notifier.notify_health)(health)
@@ -1387,6 +1417,7 @@ def _report(
     probe: RenameProbe | None = None,
     successor: SuccessorScan | None = None,
     skips: SkipDiff | None = None,
+    amendments: AmendmentScan | None = None,
 ) -> int:
     """Print a per-thesis summary; return the number of theses that ERRORED.
 
@@ -1543,6 +1574,10 @@ def _report(
     # T7 — the successor-CIK block: NEW rows loud, known ones one quiet line, a failed scan loud
     if successor is not None:
         for line in successor_report_lines(successor):
+            print(line)
+    # R8-A — the Form 4/A block: NEW items loud, known ones one quiet line, a failed scan loud
+    if amendments is not None:
+        for line in amendment_report_lines(amendments):
             print(line)
     # T3 — the EXPECTED price 404s (closed / acknowledged names), deduped across theses: ONE quiet line
     expected: dict[UUID, ExpectedPriceMiss] = {}
@@ -1775,6 +1810,7 @@ def main(argv: list[str] | None = None) -> None:
         probe=outcome.rename_probe,
         successor=outcome.successor,
         skips=outcome.skips,
+        amendments=outcome.amendments,
     )  # the per-thesis summary + the errored count, printed either way
     # X5 — ONE timings line: the total, the three slowest legs, the slowest thesis, the peak RSS
     timings_line = pass_timings.summary_line(outcome.timings)
