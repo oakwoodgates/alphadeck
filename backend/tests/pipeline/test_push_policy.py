@@ -29,7 +29,7 @@ from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard
 from domain.settings import get_settings
 from notify import DigestEvent, SlackNotifier
-from pipeline import daily, push_policy
+from pipeline import daily, pass_timings, push_policy
 from repositories import calls_repo, thesis_repo
 
 _FIXTURE = json.loads(
@@ -348,6 +348,26 @@ def test_a_failed_history_read_labels_every_name_FIRST_TIME_and_drops_none(db, m
     (line,) = digest.theses
     assert [n.ticker for n in line.names] == ["LMT", "HONA"] and line.rearms == ()
     assert any("re-arm history read failed" in r.getMessage() for r in caplog.records)
+
+
+def test_the_digest_send_is_its_own_X5_pass_leg(db, monkeypatch):
+    """On a metered pass the digest's history read + push is timed as the pass-level ``digest`` leg."""
+    nxt = _seed(db, (1404, 1416), history=(1170,))
+    timer = pass_timings.PassTimer()
+    token = pass_timings.activate(timer)
+    try:
+        _run(
+            db,
+            monkeypatch,
+            nxt,
+            asof=date(2026, 10, 16),
+            now=datetime(2026, 10, 16, 22, 36, tzinfo=_NY),
+            cap=_Capture(),
+        )
+        snap = timer.snapshot()
+    finally:
+        pass_timings.deactivate(token)
+    assert "digest" in snap["legs"] and snap["errors"] == []
 
 
 def test_the_re_arm_read_IS_one_query_for_the_pass(db, monkeypatch):

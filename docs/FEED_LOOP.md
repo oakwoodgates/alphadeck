@@ -594,7 +594,9 @@ suite): `per_thesis(...)` wraps the loop's iterable (each thesis is a scope), `t
   tape-edge and delisting reads, the feed-recency judgment (its Form 25 class reads included), the prior-call
   read, the commit.
 - **Pass legs:** `benchmarks`, `baselines` (the previous-artifact reads for the skip / stale-tape /
-  name-error diffs; the split and successor baselines are read inside their own scans), `split_scan`,
+  name-error diffs; the split and successor baselines are read inside their own scans), `digest` (the Q13
+  newly-armed digest after the loop: its re-arm history read + the push; absent on a pass with no newly
+  armed name), `split_scan`,
   `rename_probe`, `successor_scan`, `self_audit`, `artifact_write`, `health_page`, `shell_sweep`,
   `spac_radar`; the gaps between them are the pass's `other`. **Not in the process:** the nightly backup is a
   separate `python -m pipeline.backup` the sidecar runs after the pass, so it is not measured here. The
