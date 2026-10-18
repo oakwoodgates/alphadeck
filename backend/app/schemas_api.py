@@ -1718,7 +1718,13 @@ class AdminRunOut(BaseModel):
 
     ``split_defects_new`` (T4) are the labels of the split-basis defects that pass flagged as NEW
     (``"<ticker> <kind> x<factor> (<date>)"`` — a ``problems`` line with the benign marker: a vendor tape
-    defect, flag only)."""
+    defect, flag only).
+
+    X5 (measurement only, from the artifact's ``timings`` block — ``pipeline/pass_timings.py``):
+    ``pass_total_s`` is the WHOLE pass's wall time, the legs after the per-thesis loop included (unlike
+    ``duration_s``, which ends with the loop); ``top_leg`` / ``top_leg_s`` name the leg it spent the most
+    time in (``other`` = time no named leg claimed). All ``null`` on an artifact written before X5.
+    """
 
     ran_at: str
     finished_at: str
@@ -1744,6 +1750,9 @@ class AdminRunOut(BaseModel):
     name_errors_known: int = 0
     skipped: int = 0
     split_defects_new: list[str] = []
+    pass_total_s: float | None = None
+    top_leg: str | None = None
+    top_leg_s: float | None = None
 
 
 class AdminPartialNightOut(BaseModel):

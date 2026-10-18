@@ -336,6 +336,15 @@ The one-word `cron.status` verdict, plus the last run's counts and any problems:
 Priority: `never_ran` > `unhealthy` > `stale` > `gappy` > `running` > `healthy` (a stale edge with a hole
 reads `stale` — the louder, more actionable verdict — while `record.missed_asofs` still lists both).
 
+**Where the pass spent its time (X5, 2026-10-17).** The last-run line (and the "Run daily now" result) ends
+with `whole pass <total> · slowest leg <leg> <time>` when the artifact carries the X5 `timings` block
+(`AdminRunOut.pass_total_s` / `top_leg` / `top_leg_s`). The whole-pass total includes the legs after the
+per-thesis loop (the scans, the self-audit, the artifact write, the shell sweep, the SPAC radar), so it is
+longer than the run's own duration, which ends with the loop. Plain text, never styled, and it never moves
+the verdict: it is a measurement, not news. Absent on an artifact written before X5. The full per-leg,
+per-thesis, request-count and peak-memory breakdown lives in the artifact (`docs/FEED_LOOP.md`, "Where a
+pass spends its time").
+
 **A killed or partial pass never reads healthy (M1, 2026-10-16).** MEASURED on 2026-10-12: the 22:30 pass
 died at ~22:42 when the host VM went down, 4 of 12 theses had rows, there was no artifact, and this page read
 **healthy for ~18 h** — the hole check credited the night because ONE row landed after `RUN_AT`, and

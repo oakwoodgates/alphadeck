@@ -171,6 +171,27 @@ def _problems(health: HealthEvent | None) -> list[str]:
     return out
 
 
+def _timings_headline(payload: dict) -> tuple[float | None, str | None, float | None]:
+    """X5 — ``(whole-pass seconds, slowest leg, its seconds)`` off the artifact's ``timings`` block, each
+    ``None`` when absent or malformed (an artifact written before X5, an unmeasured pass). Lenient by design:
+    a measurement must never make a run row unparseable."""
+    t = payload.get("timings")
+    if not isinstance(t, dict):
+        return None, None, None
+    total = t.get("total_s")
+    total_s = float(total) if isinstance(total, (int, float)) else None
+    legs = t.get("legs")
+    timed_legs = (
+        [(str(k), float(v)) for k, v in legs.items() if isinstance(v, (int, float))]
+        if isinstance(legs, dict)
+        else []
+    )
+    if not timed_legs:
+        return total_s, None, None
+    leg, secs = min(timed_legs, key=lambda kv: (-kv[1], kv[0]))  # the slowest; ties by name
+    return total_s, leg, secs
+
+
 def _admin_run_out(payload: dict) -> AdminRunOut:
     """One parsed run-of-record payload -> the wire row. STRICT over the artifact's own schema — a
     missing/malformed key raises and the CALLER skips that artifact fail-open (the run-log read
@@ -260,6 +281,7 @@ def _admin_run_out(payload: dict) -> AdminRunOut:
         successor_cik_new=successor_new_labels(payload),
     )
     summary = payload["summary"]
+    pass_total_s, top_leg, top_leg_s = _timings_headline(payload)
     return AdminRunOut(
         ran_at=str(payload["started_at"]),
         finished_at=str(payload["finished_at"]),
@@ -287,6 +309,9 @@ def _admin_run_out(payload: dict) -> AdminRunOut:
         name_errors_new=list(name_errors_new),
         name_errors_known=int(payload.get("name_errors_known") or 0),
         split_defects_new=list(split_defects_new),
+        pass_total_s=pass_total_s,
+        top_leg=top_leg,
+        top_leg_s=top_leg_s,
     )
 
 

@@ -60,6 +60,20 @@ function RunSummaryLine({ run }: { run: AdminRunOut }) {
       {/* M2 — a catch-up left these alone: their on-time call-of-record already stood */}
       {(run.skipped ?? 0) > 0 && <> · {run.skipped} skipped (on-time row stands)</>} ·{" "}
       {run.edgar_fetches} EDGAR fetches · {fmtDur(run.duration_s)}
+      {/* X5 — the WHOLE pass (the legs after the per-thesis loop included) and the leg it spent the most
+       *  time in; plain text, never styled (a measurement, not news), absent on a pre-X5 artifact */}
+      {run.pass_total_s != null && (
+        <>
+          {" "}
+          · whole pass {fmtDur(run.pass_total_s)}
+          {run.top_leg != null && run.top_leg_s != null && (
+            <>
+              {" "}
+              · slowest leg {run.top_leg} {fmtDur(run.top_leg_s)}
+            </>
+          )}
+        </>
+      )}
     </span>
   );
 }
