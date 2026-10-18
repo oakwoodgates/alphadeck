@@ -188,9 +188,16 @@ def assemble_call(
     ]
     can_arm = bool(ranked_actionable)
     risk_blocked = bool(arming_pool) and not can_arm and bool(blocking_risks)
-    # Did a structural breakdown cause the withhold? Drives the de-arm-specific expression (a
+    # Did a breakdown (fast or structural) cause the withhold? Drives the de-arm-specific expression (a
     # signal-validity event, never a sell — #4/#5), distinct from a pre-arm risk block.
     dearmed = risk_blocked and any(r.dearm_grade is not None for r in blocking_risks)
+    # WHICH breakdown de-armed it (Q12) picks the de-arm copy: the dearm_grade of every breakdown that
+    # actually de-armed a member. `_is_dearming` only passes a breakdown whose dearm_grade MATCHES its
+    # member's entry grade, so this is exactly the set of entry grades the broken-down members carried
+    # — {FLIP} fast breakdown, {CORE} structural break, both = mixed. NOT the card's own entry_grade:
+    # a de-armed card grades across the whole live basket (scope None), and MEASURED on the record 16
+    # of the 28 pure fast-breakdown de-arm rows carried a card-level entry_grade of "core".
+    dearm_grades = frozenset(r.dearm_grade for r in blocking_risks if r.dearm_grade is not None)
 
     state = _state(thesis, live_entry, asof, can_arm, risk_blocked, cfg)
 
@@ -305,6 +312,7 @@ def assemble_call(
             conviction_on,
             confirmation_on,
             conviction_holdable,
+            dearm_grades=dearm_grades,
         ),
         exit_by=exit_by,
         arm_until=arm_until,
@@ -639,6 +647,8 @@ def _expression(
     conviction_on: bool,
     confirmation_on: bool,
     conviction_holdable: bool,
+    *,
+    dearm_grades: frozenset[Grade] = frozenset(),
 ) -> str:
     if state == State.MANAGING:
         return (
@@ -671,14 +681,10 @@ def _expression(
         )
     if risk_blocked:
         if dearmed:
-            # a structural breakdown de-armed the hold. ADVISORY, a signal-validity event — NEVER a sell
-            # instruction (#4/#5): the platform withdraws its go-signal; the trade decision stays the
-            # operator's. Does not deepen the size/instrument prose above.
-            return (
-                "De-armed on a structural break — the base broke, so the entry signal is no longer "
-                "valid (a signal-validity event, not a sell). Re-arms only on a fresh confirmation that "
-                "reclaims the base (see the counter-case)."
-            )
+            # a breakdown de-armed the arm. ADVISORY, a signal-validity event — NEVER a sell instruction
+            # (#4/#5): the platform withdraws its go-signal; the trade decision stays the operator's.
+            # Does not deepen the size/instrument prose above. Which copy = which breakdown (Q12).
+            return _dearm_expression(dearm_grades)
         # both keys are in and the grade qualifies, but a severe risk withholds the entry on TIMING
         return (
             "Entry withheld on risk/timing — the keys are in, but a severe risk signal must clear "
@@ -698,3 +704,41 @@ def _expression(
             )
         return "Not yet — hold for a volume-confirmed breakout before entering."
     return "Watching — banked idea, nothing to act on. No nag while incubating."
+
+
+# --- the de-arm copy (Q12, operator-approved 2026-10-18, VERBATIM) ---------------------------------------
+# Chosen by WHICH breakdown de-armed the arm (`dearm_grades` — see assemble_call). Every factual clause
+# was checked against the code before it shipped (CALL_LOGIC §2): the flip break is a close back below the
+# 8-day breakout base (`breakdown.flip_score`, `breakout_base_window` = 8) and it lifts once the close
+# reclaims that base or a fresh breakout resets it; the core break is a close below the 200-day SMA
+# (`breakdown.core_score`, `breakdown_core_sma_window` = 200) reached by a downward cross, and it lifts on a
+# reclaim or once a fresh confirmation post-dates it (`_is_dearming`'s post-date gate). The re-arm routes
+# the copy names are real but not exhaustive — CALL_LOGIC §2 lists the two it leaves out. The numbers are
+# written into the approved prose; `test_expression_boundary` pins both dials so a retune fails loudly.
+_DEARM_FLIP = (
+    "De-armed on a fast breakdown — the close fell back below the 8-day breakout base, so the flip "
+    "entry signal is no longer valid (a signal-validity event, not a sell). It re-arms if price "
+    "reclaims that base while the breakout is still live, or on a fresh breakout."
+)
+_DEARM_CORE = (
+    "De-armed on a structural break — the close fell below the 200-day base, so the core entry signal "
+    "is no longer valid (a signal-validity event, not a sell). It re-arms if price reclaims the 200-day "
+    "base while the entry triggers are live, or on a fresh confirmation."
+)
+_DEARM_MIXED = (
+    "De-armed on a breakdown — armed names gave back their bases (see the counter-case); a "
+    "signal-validity event, not a sell."
+)
+
+
+def _dearm_expression(dearm_grades: frozenset[Grade]) -> str:
+    """The de-arm copy for the grades of the breakdowns that de-armed the arm: only fast (flip)
+    breakdowns -> the flip copy; only structural (core) breaks -> the core copy; both -> the mixed copy,
+    which names no base. An empty set cannot come out of ``assemble_call`` (a de-arm always has at least
+    one de-arming breakdown); a direct caller passing none gets the grade-neutral mixed copy rather than
+    a claim about a base it cannot name."""
+    if dearm_grades == frozenset({Grade.FLIP}):
+        return _DEARM_FLIP
+    if dearm_grades == frozenset({Grade.CORE}):
+        return _DEARM_CORE
+    return _DEARM_MIXED

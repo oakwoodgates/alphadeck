@@ -81,6 +81,36 @@ The lifecycle is a **loop**, not a ratchet: `Incubating → Warming → Armed �
 > the fast flip exit for an H3 measurement. The two switches read as "whether" (`breakdown_dearm_enabled`) and
 > "which" (`breakdown_dearm_scope`); the scope dial never means off.
 
+> **The de-arm copy names the breakdown that de-armed it `[BUILT — Q12, operator-approved 2026-10-18]`.**
+> The old single string ("De-armed on a structural break … Re-arms only on a fresh confirmation") was false
+> on both counts — MEASURED (audit A1): all 30 recorded de-arm rows were fast breakdowns (28 purely, 2 mixed
+> with a structural break), and 46 of 219 flip de-arms re-armed on the same breakout. The expression is now
+> picked by the `dearm_grade` of every breakdown that **actually de-armed** a member (`_is_dearming` passes
+> one only when it matches its member's entry grade, so this is the set of entry grades the broken-down
+> names carried):
+>
+> | De-arming breakdowns | Expression (verbatim) |
+> |---|---|
+> | only fast (flip) | "De-armed on a fast breakdown — the close fell back below the 8-day breakout base, so the flip entry signal is no longer valid (a signal-validity event, not a sell). It re-arms if price reclaims that base while the breakout is still live, or on a fresh breakout." |
+> | only structural (core) | "De-armed on a structural break — the close fell below the 200-day base, so the core entry signal is no longer valid (a signal-validity event, not a sell). It re-arms if price reclaims the 200-day base while the entry triggers are live, or on a fresh confirmation." |
+> | both | "De-armed on a breakdown — armed names gave back their bases (see the counter-case); a signal-validity event, not a sell." |
+>
+> **Not the card's own `entry_grade`:** a de-armed card is graded across the whole live basket (no armed
+> security to scope to), so it can read `core` while the only de-arm was a fast breakdown — 16 of the 28
+> pure fast-breakdown rows on the record did. Each clause was checked against the code: the flip base is the
+> 8-day breakout base (`breakdown.flip_score`, `breakout_base_window` = 8) and the break lifts when the close
+> reclaims it or a fresh breakout resets it while Key 2 is live; the core base is the 200-day SMA
+> (`breakdown.core_score`, `breakdown_core_sma_window` = 200) and the break lifts on a reclaim (no live
+> downward cross) or once a fresh confirmation post-dates it (`_is_dearming`'s post-date gate). Both dials
+> are pinned by a test, so a retune sends the copy back for review. **The re-arm routes the copy names are
+> real but not exhaustive** — two more exist in the code: (1) *flip*: when the broken 8-day breakout ages out
+> of its 10-day window while ANOTHER confirmation keeps Key 2 live (a 45-day 52-week breakout, a 15-day
+> laggard), `_recent_flip_base` finds no live breakout, the flip breakdown stops firing, and the member re-arms
+> with no reclaim and no fresh breakout; (2) *core*: a fresh **conviction** (a new insider buy, a ratified
+> catalyst) that post-dates the break moves `_arm_date` past it just as a fresh confirmation does, so the
+> old break stops counting while price is still below the 200-day base. Neither contradicts the copy (it
+> never says "only"); both are listed so the record can be read honestly.
+
 > **Theme menu = a ranked per-member view `[BUILT — M5a/M5b]`.** When several basket members are
 > independently armed (a theme thesis), the call computes a call **per member** and **ranks** them —
 > `calls/assembler.rank_members`, best-first `(is_fresh, entry-grade, is_own, runway, conviction_score, id)`:

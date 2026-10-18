@@ -462,7 +462,10 @@ row recorded before a field existed reads that field as its default. Adding `Mem
 every thesis. MEASURED with a read-only re-assembly of the 2026-10-16 night on prod (`known_at` pinned to
 each row's `recorded_at`, the same pin for the code with and without the change): **1 of 12 theses differs
 — Modern Defense, whose armed TPCS had its entry window ending Sun 10-18 (0 sessions left on Fri 10-16).**
-On a NEW night every thesis appends its first row regardless (a new `asof` has no prior), so the churn that
+Q12's de-arm copy (same branch, same deploy) changes `expression` on every de-armed card instead: on the
+same re-assembly it adds **2 — AI Memory & Storage and Nuclear Buildout**, both de-armed by fast breakdowns
+under the current code (their recorded 10-16 rows, written by the older image, were armed — code drift
+since that night, not Q12). Together: **3 of 12**. On a NEW night every thesis appends its first row regardless (a new `asof` has no prior), so the churn that
 matters is a same-`asof` re-run straddling the deploy — which is why a change like this ships after a clean
 nightly. The flip side is a **rollback hazard**: `DomainModel` is `extra="forbid"`, so once a row carrying
 the new field is recorded, OLDER code cannot parse that row (`row_to_call` raises on the unknown key), and the
