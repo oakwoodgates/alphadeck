@@ -412,6 +412,15 @@ function RatifyRow({
               No plain-English read grounded in the passage — read the excerpt above.
             </div>
           )}
+          {/* a TRANSPORT failure (network, proxy, an nginx 5xx) — the endpoint itself fails open with
+              {grounded:false}, so an error here means the request never got an answer. Said plainly
+              (a silent re-enabled button reads as "nothing to say"), never as an explanation: no
+              `drafted` tag, no value. Hidden while a retry is in flight; the button stays the retry. */}
+          {explain.isError && !explain.isFetching && (
+            <div className="drafted muted">
+              Couldn't reach the explainer — {errText(explain.error)}. Click Explain to try again.
+            </div>
+          )}
         </div>
       )}
 
