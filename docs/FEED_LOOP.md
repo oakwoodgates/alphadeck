@@ -455,6 +455,20 @@ facts appends **nothing**; a genuine change (Incubating→Warming→Armed, `conf
 (triggers / members / a member's own triggers / provenance) or jsonb/IEEE repr noise can't **flap** it into a
 false re-append. (The CallCard has no wall-clock field, so the no-change case is deterministic.)
 
+**A new card field re-records only the cards where it is NOT its default (Q14, 2026-10-18).** The prior row
+is parsed back through the CURRENT model (`row_to_call` → `CallCard.model_validate`) before the compare, so a
+row recorded before a field existed reads that field as its default. Adding `MemberCall.entry_window_closing`
+(default `false`) therefore changes `_canonical` only for a card where some member's flag is `true` — not for
+every thesis. MEASURED with a read-only re-assembly of the 2026-10-16 night on prod (`known_at` pinned to
+each row's `recorded_at`, the same pin for the code with and without the change): **1 of 12 theses differs
+— Modern Defense, whose armed TPCS had its entry window ending Sun 10-18 (0 sessions left on Fri 10-16).**
+On a NEW night every thesis appends its first row regardless (a new `asof` has no prior), so the churn that
+matters is a same-`asof` re-run straddling the deploy — which is why a change like this ships after a clean
+nightly. The flip side is a **rollback hazard**: `DomainModel` is `extra="forbid"`, so once a row carrying
+the new field is recorded, OLDER code cannot parse that row (`row_to_call` raises on the unknown key), and the
+log is immutable — so a code rollback past such a change must keep the field in the model (or drop
+`extra="forbid"` for card reads) rather than revert it wholesale.
+
 **One writer at a time — the cross-process run lock (C1, 2026-10-16).** Read-compare-append is only
 idempotent when nothing else appends in between, and two passes DID overlap (MEASURED 09-01 and 09-09: the
 sidecar's late pass and an Admin click, 17 rows for one night across 12 theses). `run_daily_pass` now holds a

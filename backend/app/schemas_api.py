@@ -118,7 +118,12 @@ class MemberCallOut(BaseModel):
     confidence: float | None = None
     exit_by: date | None = None  # the liveness/hold horizon = the "runway" the ranking uses
     arm_until: date | None = None
-    lapsing: bool = False  # runway below the dial; the UI flags it (ranks below fresh)
+    # the HOLD clock closing (exit_by runway below the dial; ranks below fresh) — the UI labels it "hold
+    # clock closing". Wire name kept `lapsing` (renaming would break the contract + every recorded card).
+    lapsing: bool = False
+    # the ENTRY window closing (Q14): armed + few trading sessions left through arm_until — the UI labels
+    # it "entry window closing". Display/timing context only, never a call input (#4).
+    entry_window_closing: bool = False
     theme_armed: bool = (
         False  # armed via the THEME-conviction fallback (M5b), not its own conviction
     )
@@ -139,6 +144,7 @@ class MemberCallOut(BaseModel):
             exit_by=m.exit_by,
             arm_until=m.arm_until,
             lapsing=m.lapsing,
+            entry_window_closing=m.entry_window_closing,
             theme_armed=m.theme_armed,
             triggers=[_trigger_out(t, ciks, tickers) for t in m.triggers],
         )

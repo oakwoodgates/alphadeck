@@ -62,17 +62,33 @@ interface Props {
  *  governs how long a member STAYS armed — it de-arms on `arm_until`, which can be a month before
  *  the exit_by date beside it (the live CRVO/MPLT confusion: "Armed · Dec 8" yet de-armed Jul 19),
  *  which is why the two clocks are separate, separately sortable columns rather than one stacked
- *  cell. Loud (`.closing`) inside a week or once lapsed; muted otherwise. Mirrors the NamePanel
- *  two-clock idiom, whose labels carry the full wording. */
-function EntryWindow({ asof, armUntil }: { asof: string; armUntil: string }) {
+ *  cell. Loud (`.closing`) only when the call says the entry window is closing
+ *  (`entry_window_closing` — the last few TRADING sessions, decided by the assembler, Q14); muted
+ *  otherwise. The FE no longer derives its own "inside a week" threshold: one definition of
+ *  "closing", the brain's. Mirrors the NamePanel two-clock idiom, whose labels carry the full
+ *  wording. */
+function EntryWindow({
+  asof,
+  armUntil,
+  closing,
+}: {
+  asof: string;
+  armUntil: string;
+  closing: boolean;
+}) {
   const armDays = daysFrom(asof, armUntil);
   return (
     <span
-      className={`entry-window${armDays !== null && armDays <= 7 ? " closing" : ""}`}
-      title="the entry window — the member de-arms on this date, often well before its exit-by"
+      className={`entry-window${closing ? " closing" : ""}`}
+      title={
+        closing
+          ? "entry window closing — the last trading sessions in which this entry signal is valid; it lapses after this date"
+          : "the entry window — the entry signal is valid through this date, often well before the exit-by"
+      }
     >
       {fmtDate(armUntil)}
       {armDays !== null && (armDays < 0 ? " · lapsed" : ` · ${armDays}d`)}
+      {closing && " · entry window closing"}
     </span>
   );
 }
@@ -750,14 +766,27 @@ export function Cockpit({
                                   entry the system is endorsing (honest loudness). */}
                               <td className="met entryby">
                                 {ENTRY_WINDOW_BUCKETS.has(def.key) && r.call?.arm_until ? (
-                                  <EntryWindow asof={asof} armUntil={r.call.arm_until} />
+                                  <EntryWindow
+                                    asof={asof}
+                                    armUntil={r.call.arm_until}
+                                    closing={r.call.entry_window_closing}
+                                  />
                                 ) : (
                                   "—"
                                 )}
                               </td>
-                              <td className={`met exitby${r.call?.lapsing ? " lapse" : ""}`}>
+                              {/* `lapsing` = the HOLD clock (exit_by) closing — never the entry
+                                  window (that is the Entry-by cell's own flag, Q14). */}
+                              <td
+                                className={`met exitby${r.call?.lapsing ? " lapse" : ""}`}
+                                title={
+                                  r.call?.lapsing
+                                    ? "hold clock closing — the conviction's signal-validity horizon (exit-by) is near; not a sell date"
+                                    : undefined
+                                }
+                              >
                                 {r.call?.exit_by
-                                  ? `${r.call.lapsing ? "lapses " : ""}${fmtDate(r.call.exit_by)}`
+                                  ? `${fmtDate(r.call.exit_by)}${r.call.lapsing ? " · hold clock closing" : ""}`
                                   : "—"}
                               </td>
                             </tr>

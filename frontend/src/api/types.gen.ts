@@ -4591,6 +4591,11 @@ export interface components {
              */
             lapsing: boolean;
             /**
+             * Entry Window Closing
+             * @default false
+             */
+            entry_window_closing: boolean;
+            /**
              * Theme Armed
              * @default false
              */

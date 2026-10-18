@@ -88,7 +88,8 @@ The lifecycle is a **loop**, not a ratchet: `Incubating → Warming → Armed �
 > runway/score. The headline = the top-ranked **actionable** member (Board + Decision Queue show it + a `+N`
 > depth hint — one name per thesis, anti-flooding); the rest are the ranked menu; confirmation-only names sit
 > in a non-actionable **watch** tier. Because freshness is primary, **a fresh starter can out-rank a lapsing
-> core** — a `core` arm three weeks from lapsing (LEU → 2026-06-30) does *not* auto-headline over a `starter`
+> core** ("lapsing" here = the HOLD clock, `exit_by`, inside the freshness band — labeled "hold clock
+> closing" in the UI, never the entry window; see §6) — a `core` arm three weeks from lapsing (LEU → 2026-06-30) does *not* auto-headline over a `starter`
 > with years of runway (OKLO → 2029). **M5b** adds an operator-ratified, thesis-level **theme conviction**
 > that supplies Key 1 as a *fallback* for a confirmed member with no own conviction (a capped, flagged
 > `theme_armed` starter that ranks below own-conviction names within a band); see §3 + `docs/THEME_CONVICTION.md`.
@@ -343,6 +344,36 @@ strength of the conviction (and the detector's lookback reaches at least as far,
 would drop from the re-derived stream early). Undated/fuzzy catalysts (no `when_date`) are shown for context
 but excluded from the surface filter. The Cockpit flags binary events that fall within `catalyst_surface`;
 that inclusion is not an instruction to close the trade at the event or window end.
+
+**The two clock FLAGS on an armed member (Q14, 2026-10-18).** Each clock has its own flag on
+`MemberCall`, and each is labeled for the clock it reads — they used to share one label, and it was the
+wrong one:
+
+| Flag (wire field) | Reads | On when | UI label |
+|---|---|---|---|
+| `lapsing` | the **hold clock**, `exit_by` | `exit_by − asof < headline_lapsing_soon_days` (45) — the same freshness band the menu ranking uses | **"hold clock closing"** |
+| `entry_window_closing` | the **entry window**, `arm_until` | at most `entry_window_closing_sessions` (2) **trading sessions** remain after the card's `asof`, through `arm_until` inclusive | **"entry window closing"** |
+
+`lapsing` was labeled "entry window closing" until Q14; MEASURED on the record (audit A3), 69% of
+arm-window expiries never showed it — it tracks the 45-day hold band, not the confirmation clock that
+actually ends an arm. Its meaning is unchanged; only its words are. The wire name stays `lapsing` on
+purpose: `MemberCall` is a strict schema (`extra="forbid"`), so renaming the field would make every
+recorded card unparseable and break the API contract, for no change in behavior.
+
+`entry_window_closing` counts sessions with the cron's Mon-Fri calendar (`pipeline.schedule.is_scheduled_day`):
+asof Mon with `arm_until` Wed = 2 left (Tue, Wed) → on; the Friday before = 3 → off; Thu with a Monday
+close = 2 (Fri, Mon) → on, though it is four calendar days; a weekend `arm_until` (a calendar-day window
+can end on a Saturday) adds no session, so Friday is the last. **Holidays are not modeled** — that calendar
+fires the cron on market holidays too — so a holiday inside the last few days counts as a session and the
+flag comes on **one session late** (Labor Day 2026: `arm_until` Mon 09-07 read 3 on Wed 09-02, where an
+exchange calendar reads 2). The flag is computed from the card's own `asof` and the member's own
+`arm_until` — no wall clock, so no lookahead — and only for an **armed** member: a watch member's
+confirmation clock is a decay, not an entry, and a held (Managing) member is past its entry, so neither ever
+carries it (#7). It is **display and timing context only (#4)**: computed after every decision and read by
+none of them — state, verdict, grade, ranking and setup strength are identical at any dial value (golden-
+tested). The Cockpit shows it on the Entry-by cell, the per-name panel and the CallCard's entry clock (the
+headline member's), and the MemberMenu chips it; it replaced the Entry-by cell's old front-end "within 7
+calendar days" tint, so there is one definition of "closing".
 
 **The displayed trigger date (`event_date`).** Each fired trigger on the call card carries `event_date =
 event.asof` (its fire date), rendered as a muted right-aligned date on the row and used to order the list

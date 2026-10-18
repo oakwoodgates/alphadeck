@@ -12,6 +12,7 @@ from domain.config import CallConfig
 from domain.enums import Grade, Kind, Role, State, Verdict
 from domain.signal import SignalEvent
 from domain.thesis import Catalyst, Thesis
+from pipeline.schedule import is_scheduled_day
 from signals.common import entry_signal_is_live
 from signals.conviction_source import is_computed_conviction
 from signals.revenue_acceleration import DETECTOR_NAME as REVENUE_ACCEL_DETECTOR
@@ -278,7 +279,9 @@ def assemble_call(
     if state is State.MANAGING and position is not None and position.security_id is not None:
         held = position.security_id
         held_call = _member_call(held, live_entry, active_risk, asof, cfg).model_copy(
-            update={"verdict": Verdict.MANAGING, "confidence": None}
+            # entry_window_closing too: the held name is past its entry, so an "entry window closing"
+            # flag would be noise on a Managing row (#7 — that loudness belongs to Armed only)
+            update={"verdict": Verdict.MANAGING, "confidence": None, "entry_window_closing": False}
         )
         armed_members = [held_call] + [m for m in armed_members if m.security_id != held]
         watch_members = [m for m in watch_members if m.security_id != held]
@@ -478,10 +481,12 @@ def _member_call(
     )
 
     exit_by = _clock(conv)
+    arm_until = _clock(conf)
     entry_grade: Grade | None = None
     verdict: Verdict | None = None
     conf_value: float | None = None
     lapsing = False
+    entry_window_closing = False
     if armed:
         entry_grade = weaker_grade(conviction_grade, confirmation_grade)
         holdable = any(
@@ -489,8 +494,12 @@ def _member_call(
         )
         verdict = _verdict(State.ARMED, conviction_grade, entry_grade, holdable)
         conf_value = confidence(conv + conf, member_risk, cfg, is_starter=entry_grade == Grade.FLIP)
-        # lapsing = the same freshness band the ranking uses (the dial), surfaced for the UI to flag
+        # lapsing = the HOLD clock closing: the same freshness band the ranking uses (the dial) on the
+        # conviction's exit_by, surfaced for the UI to flag ("hold clock closing"). NOT the entry window.
         lapsing = exit_by is not None and (exit_by - asof).days < cfg.headline_lapsing_soon_days
+        # entry_window_closing = the ENTRY window closing (Q14): few trading sessions left through
+        # arm_until. Display only — computed AFTER every decision above and read by none of them (#4).
+        entry_window_closing = _entry_window_closing(asof, arm_until, cfg)
 
     return MemberCall(
         security_id=sec,
@@ -500,8 +509,9 @@ def _member_call(
         entry_grade=entry_grade,
         confidence=conf_value,
         exit_by=exit_by,
-        arm_until=_clock(conf),
+        arm_until=arm_until,
         lapsing=lapsing,
+        entry_window_closing=entry_window_closing,
         theme_armed=theme_armed,
         triggers=[
             TriggerRef(
@@ -561,6 +571,33 @@ def _verdict(
     if conviction_grade == Grade.FLIP and not conviction_holdable:
         return Verdict.FLIP_ONLY
     return Verdict.NOT_YET
+
+
+def sessions_left(asof: date, until: date) -> int:
+    """Trading sessions strictly AFTER ``asof`` through ``until`` (inclusive) — how many more sessions an
+    inclusive window ending on ``until`` stays open once ``asof``'s session is done (the cron records after
+    the close). ``0`` when ``until <= asof``. Counted on the cron's Mon-Fri calendar
+    (``pipeline.schedule.is_scheduled_day``) rather than a hand-rolled one; that calendar does NOT know
+    exchange holidays, so a holiday inside the window counts as a session (documented in CALL_LOGIC §6).
+    Pure: both dates are parameters, never a wall clock."""
+    n = 0
+    d = asof + timedelta(days=1)
+    while d <= until:
+        if is_scheduled_day(d):
+            n += 1
+        d += timedelta(days=1)
+    return n
+
+
+def _entry_window_closing(asof: date, arm_until: date | None, cfg: CallConfig) -> bool:
+    """The entry-window flag (Q14): an armed member's entry window (``arm_until``, the confirmation clock)
+    has at most ``cfg.entry_window_closing_sessions`` trading sessions left. Computed from the card's own
+    ``asof`` and the member's own ``arm_until`` only (no ambient clock — no lookahead). ``None`` (no
+    confirmation clock — the conviction-alone arming mode) and an already-passed window never flag.
+    """
+    if arm_until is None or arm_until < asof:
+        return False
+    return sessions_left(asof, arm_until) <= cfg.entry_window_closing_sessions
 
 
 def _clock(events: list[SignalEvent]) -> date | None:

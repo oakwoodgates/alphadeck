@@ -47,13 +47,16 @@ const fx = vi.hoisted(() => ({
     risk_signals: [],
     missing: [],
     counter_case: "",
+    // entry_window_closing as the assembler computes it from the card asof (Sat 2026-07-11) with the
+    // default 2-session dial: J → Fri Jul 17 = 5 sessions (off), UUUU → Mon Jul 13 = 1 (on),
+    // NNE → Sun Jul 19 = 5 (off); a watch member never carries it.
     armed_members: [
-      { security_id: "s-j", ticker: "J", verdict: "starter_entry", conviction_grade: "core", confirmation_grade: "flip", entry_grade: "flip", confidence: 0.54, exit_by: "2026-11-11", arm_until: "2026-07-17", lapsing: false, theme_armed: false, triggers: [] },
-      { security_id: "s-uuuu", ticker: "UUUU", verdict: "starter_entry", conviction_grade: "core", confirmation_grade: "flip", entry_grade: "flip", confidence: 0.41, exit_by: "2026-07-15", arm_until: "2026-07-13", lapsing: true, theme_armed: false, triggers: [] },
-      { security_id: "s-nne", ticker: "NNE", verdict: "starter_entry", conviction_grade: "flip", confirmation_grade: "flip", entry_grade: "flip", confidence: 0.33, exit_by: "2026-09-30", arm_until: "2026-07-19", lapsing: false, theme_armed: true, triggers: [] },
+      { security_id: "s-j", ticker: "J", verdict: "starter_entry", conviction_grade: "core", confirmation_grade: "flip", entry_grade: "flip", confidence: 0.54, exit_by: "2026-11-11", arm_until: "2026-07-17", lapsing: false, entry_window_closing: false, theme_armed: false, triggers: [] },
+      { security_id: "s-uuuu", ticker: "UUUU", verdict: "starter_entry", conviction_grade: "core", confirmation_grade: "flip", entry_grade: "flip", confidence: 0.41, exit_by: "2026-07-15", arm_until: "2026-07-13", lapsing: true, entry_window_closing: true, theme_armed: false, triggers: [] },
+      { security_id: "s-nne", ticker: "NNE", verdict: "starter_entry", conviction_grade: "flip", confirmation_grade: "flip", entry_grade: "flip", confidence: 0.33, exit_by: "2026-09-30", arm_until: "2026-07-19", lapsing: false, entry_window_closing: false, theme_armed: true, triggers: [] },
     ],
     watch_members: [
-      { security_id: "s-ztek", ticker: "ZTEK", verdict: null, conviction_grade: null, confirmation_grade: "core", entry_grade: null, confidence: null, exit_by: null, arm_until: "2026-07-21", lapsing: false, theme_armed: false, triggers: [] },
+      { security_id: "s-ztek", ticker: "ZTEK", verdict: null, conviction_grade: null, confirmation_grade: "core", entry_grade: null, confidence: null, exit_by: null, arm_until: "2026-07-21", lapsing: false, entry_window_closing: false, theme_armed: false, triggers: [] },
     ],
   },
   scored: {
@@ -103,7 +106,8 @@ describe("Cockpit — the grouped basket (per-name buckets)", () => {
     }));
     expect(headers).toEqual([
       { label: "Armed", hint: "· act now", ct: "· 1 name" },
-      { label: "Lapsing", hint: "· entry window closing", ct: "· 1 name" },
+      // Q14: `lapsing` is the HOLD clock — never labeled "entry window closing" again
+      { label: "Hold clock closing", hint: "· signal-validity horizon near", ct: "· 1 name" },
       { label: "Theme-armed", hint: "· theme fallback · starter cap", ct: "· 1 name" },
       { label: "Warming", hint: "· conviction in · awaiting confirmation", ct: "· 1 name" },
       { label: "Watch", hint: "· moving · no conviction yet", ct: "· 1 name" },
@@ -162,12 +166,15 @@ describe("Cockpit — the grouped basket (per-name buckets)", () => {
     }
   });
 
-  it("renders the per-name exit-by — amber 'lapses <date>' on a lapsing row, '—' where no clock", () => {
+  it("renders the per-name exit-by — amber 'hold clock closing' on a lapsing row, '—' where no clock", () => {
     // scoped to the table: the rail (CallCard clocks, MemberMenu runway) repeats these strings
     const { container } = renderCockpit();
     const table = within(container.querySelector("table.basket") as HTMLElement);
-    const lapse = table.getByText("lapses Jul 15");
+    // Q14: `lapsing` names the HOLD clock (exit-by), so the Exit-by cell says so — not "lapses"
+    const lapse = table.getByText("Jul 15 · hold clock closing");
     expect(lapse.closest("td")?.className).toContain("lapse");
+    expect(lapse.closest("td")?.getAttribute("title")).toMatch(/^hold clock closing/);
+    expect(table.queryByText(/lapses/)).toBeNull();
     expect(table.getByText("Nov 11")).toBeInTheDocument(); // J's hold horizon, un-tinted
     // the watch row has no conviction clock → a quiet "—"
     const ztekRow = container.querySelector("tr.bkt.bkt-watch");
@@ -189,19 +196,22 @@ describe("Cockpit — the grouped basket (per-name buckets)", () => {
     expect(container.querySelector("tr.bkt.bkt-quiet .tk")?.textContent).toBe("URA");
   });
 
-  it("2b: surfaces the entry-window clock for armed-family rows — loud when closing, muted when far", () => {
+  it("2b: surfaces the entry-window clock for armed-family rows — loud only when the call flags it closing", () => {
     const { container } = renderCockpit(); // asof 2026-07-11
-    // Armed J — arm_until Jul 17, 6d out → shown, loud (.closing, ≤7d). The wording moved to the
-    // Entry-by column header when the two clocks split, so the cell is the date + countdown alone.
+    // Armed J — arm_until Jul 17, 6d (5 trading sessions) out → shown, MUTED: Q14 retired the FE's
+    // own "≤7 calendar days" rule; loudness is the call's `entry_window_closing` (false here).
     const jWin = container.querySelector("tr.bkt.bkt-armed .entry-window");
     expect(jWin?.textContent).toContain("Jul 17");
     expect(jWin?.textContent).toContain("6d");
-    expect(jWin?.className).toContain("closing");
-    // Lapsing UUUU — arm_until Jul 13, 2d → shown, loud
+    expect(jWin?.className).not.toContain("closing");
+    expect(jWin?.textContent).not.toContain("entry window closing");
+    // Hold-clock-closing UUUU — arm_until Jul 13, 1 session left, flagged → loud + labeled
     const uWin = container.querySelector("tr.bkt.bkt-lapsing .entry-window");
     expect(uWin?.textContent).toContain("Jul 13");
+    expect(uWin?.textContent).toContain("entry window closing");
     expect(uWin?.className).toContain("closing");
-    // Theme-armed NNE — arm_until Jul 19, 8d → shown, MUTED (far, >7d)
+    expect(uWin?.getAttribute("title")).toMatch(/^entry window closing/);
+    // Theme-armed NNE — arm_until Jul 19, not flagged → shown, MUTED
     const nWin = container.querySelector("tr.bkt.bkt-theme .entry-window");
     expect(nWin?.textContent).toContain("Jul 19");
     expect(nWin?.className).not.toContain("closing");
@@ -220,6 +230,7 @@ describe("Cockpit — the grouped basket (per-name buckets)", () => {
     expect(jWin?.textContent).toContain("Jul 17");
     expect(jWin?.textContent).toContain("lapsed");
     expect(jWin?.textContent).not.toMatch(/\d+d/); // "· lapsed", not a "· Nd" countdown
-    expect(jWin?.className).toContain("closing"); // lapsed is ≤7d → loud
+    // loudness is the CALL's flag, never an FE date rule (Q14) — J's card says not closing
+    expect(jWin?.className).not.toContain("closing");
   });
 });

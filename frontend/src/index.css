@@ -241,7 +241,8 @@ tr.bkt-quiet .tk { color: var(--txt-2); }
 table.basket td.exitby.lapse { color: var(--warm); }
 /* the entry-window (confirmation) clock, its own column beside exit-by — the clock that actually
    governs how long an armed-family member stays armed (arm_until), and the one that closes first.
-   Quiet by default; loud (--warm, matching the lapse tint) once within a week or already lapsed. */
+   Quiet by default; loud (--warm, matching the lapse tint) only when the call flags the entry
+   window closing (`entry_window_closing` — the last trading sessions, decided server-side, Q14). */
 .entry-window { color: var(--txt-3); }
 .entry-window.closing { color: var(--warm); }
 
@@ -489,6 +490,9 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .mm-conv { color: var(--txt-4); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
 /* M5b: a calm amber "theme" badge — armed on the theme conviction (the fallback), not its own signal */
 .mm-theme { color: var(--warm); background: rgba(224, 162, 60, 0.1); border: 1px solid rgba(224, 162, 60, 0.28); border-radius: 5px; padding: 1px 6px; font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+/* Q14: the entry window closing (the last trading sessions through arm_until) — a quiet amber chip,
+   armed rows only (the assembler never sets it elsewhere) */
+.mm-ewc { color: var(--warm); font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
 .mm-runway { margin-left: auto; color: var(--txt-3); font-size: 10px; }
 .mm-sub { font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--txt-4); margin: 10px 0 5px; }
 .mm-row.watch { opacity: 0.7; }
@@ -535,6 +539,8 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .clock-row .x { font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--txt-3); line-height: 1.35; }
 .clock-row.entry { border-color: rgba(255, 87, 51, 0.3); background: rgba(255, 87, 51, 0.05); }
 .clock-row.entry .cd { color: var(--armed); }
+/* Q14: the entry window closing — the words carry it; the label brightens to the clock's own color */
+.clock-row.entry.closing .x { color: var(--armed); font-weight: 700; }
 /* not-yet card: the confirmation clock is informational (decaying), not a loud act-by deadline */
 .clock-row.entry.quiet { border-color: rgba(224, 162, 60, 0.25); background: rgba(224, 162, 60, 0.04); }
 .clock-row.entry.quiet .cd { color: var(--warm); }
