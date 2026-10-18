@@ -2324,6 +2324,11 @@ export interface components {
          *     ``split_defects_new`` (T4) are the labels of the split-basis defects that pass flagged as NEW
          *     (``"<ticker> <kind> x<factor> (<date>)"`` — a ``problems`` line with the benign marker: a vendor tape
          *     defect, flag only).
+         *
+         *     X5 (measurement only, from the artifact's ``timings`` block — ``pipeline/pass_timings.py``):
+         *     ``pass_total_s`` is the WHOLE pass's wall time, the legs after the per-thesis loop included (unlike
+         *     ``duration_s``, which ends with the loop); ``top_leg`` / ``top_leg_s`` name the leg it spent the most
+         *     time in (``other`` = time no named leg claimed). All ``null`` on an artifact written before X5.
          */
         AdminRunOut: {
             /** Ran At */
@@ -2394,6 +2399,12 @@ export interface components {
              * @default []
              */
             split_defects_new: string[];
+            /** Pass Total S */
+            pass_total_s?: number | null;
+            /** Top Leg */
+            top_leg?: string | null;
+            /** Top Leg S */
+            top_leg_s?: number | null;
         };
         /**
          * AdminRunsOut

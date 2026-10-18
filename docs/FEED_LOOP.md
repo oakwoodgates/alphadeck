@@ -512,6 +512,109 @@ changed**: what is stored, skipped, counted (`form4_skipped` on each thesis line
 CLI or on-promote ingest (no baseline) prints everything, and no raising path became a swallow-and-count.
 The P1 `REJECT insider txn` lines (impossible transaction dates) are untouched and stay loud.
 
+### Where a pass spends its time — the `timings` block (X5, 2026-10-17)  `[BUILT]`
+
+**Measurement only.** Before the cron grows (more names, more theses) and moves off the laptop, two questions
+needed numbers: where does a pass spend its time and memory, and how does that scale? The artifact carried a
+start, a finish and a per-thesis `edgar_fetches`, nothing per leg. `pipeline/pass_timings.py` adds a meter;
+it changes nothing that is ingested, recorded, paged or scored, and nothing reads it back into the pass.
+
+**How it is wired.** `run_daily_pass` starts one `PassTimer` and makes it ACTIVE for the pass through a
+`ContextVar` (the seam is `ingest/instrument.py`, so `ingest` never imports `pipeline`). The instrumented
+sites need no new parameter and are a no-op wherever no pass runs (the Workbench, a standalone CLI, the
+suite): `per_thesis(...)` wraps the loop's iterable (each thesis is a scope), `timed(leg)` wraps a call, and
+`note(kind, n)` counts on the innermost open leg.
+
+- **Per-thesis legs** (summed over the thesis's names): `form4`, `form8k`, `schedule13`, `price`,
+  `fund_shares` (`ingest_thesis`), `submissions` (the EDGAR client's reads of a company's submissions index,
+  fetch or cache read plus parse, whichever leg made them — mostly inside `form4`, the first reader),
+  `fundamentals` (the Q17 filing-gated refresh), `call` (the assemble), `notify` (a transition push),
+  `record` (`record_if_changed`). Whatever no leg claimed is the thesis's `other`: the master reads, the
+  tape-edge and delisting reads, the feed-recency judgment (its Form 25 class reads included), the prior-call
+  read, the commit.
+- **Pass legs:** `benchmarks`, `baselines` (the previous-artifact reads for the skip / stale-tape /
+  name-error diffs; the split and successor baselines are read inside their own scans), `split_scan`,
+  `rename_probe`, `successor_scan`, `self_audit`, `artifact_write`, `health_page`, `shell_sweep`,
+  `spac_radar`; the gaps between them are the pass's `other`. **Not in the process:** the nightly backup is a
+  separate `python -m pipeline.backup` the sidecar runs after the pass, so it is not measured here. The
+  printed report runs in `main` after the artifact is final; it is stdout formatting only and is not timed.
+- **Counts:** `sec_live` / `sec_cached` / `sec_cached_404` (the EDGAR client's network decision for each
+  request: a fetch, a disk-cache answer, a negative-cache answer; `sec_live` is the same decision
+  `edgar_fetches` counts), `http:<host>` (every attempt of the polite GET, retries included — the Yahoo price
+  pulls are `http:query1.finance.yahoo.com` / `query2`), `http_retry:<host>`, `backoff_s` (seconds slept
+  before a retry), `rate_wait_s` (seconds a proactive rate limiter slept). No new network call is made.
+
+**Exclusive time.** A leg's seconds are its SELF time: a leg timed inside another (`submissions` inside
+`form4`) is subtracted from the outer one, so a thesis's legs sum to its `total_s` and the pass's legs sum
+to the pass `total_s`. Legs only: one clock pair per leg per name, never per row or per filing.
+
+**Memory.** `peak_rss_kb` is `getrusage(RUSAGE_SELF).ru_maxrss` (KB on Linux) for the pass process. The
+sidecar runs every pass as its own `python -m pipeline.daily`, and the Admin "Run daily now" runs it in a
+spawned child (`pipeline/bounded_pass.py`), so in both cases the measured process IS the pass.
+`peak_rss_children_kb` is `RUSAGE_CHILDREN` (the pass spawns no child today). Each thesis records the peak and
+the current RSS (`/proc/self/statm`) at its end, so growth across the loop shows (a climbing current RSS is a
+leak; a peak with a falling current RSS is a spike). `resource` and `/proc` do not exist on Windows, where
+the suite runs: those fields are `null` there.
+
+**The artifact field** (`build_run_payload`):
+
+```json
+"timings": {
+  "v": 1,
+  "total_s": 912.4,
+  "legs": {"submissions": 301.2, "form4": 190.7, "price": 160.3, "call": 88.1, "other": 41.0, "...": 0},
+  "counts": {
+    "submissions": {"sec_live": 731, "sec_cached": 2193, "rate_wait_s": 61.3},
+    "form4": {"sec_live": 12, "http:www.sec.gov": 12},
+    "price": {"http:query1.finance.yahoo.com": 740}
+  },
+  "theses": [
+    {"id": "…", "name": "Example thesis", "total_s": 108.3,
+     "legs": {"submissions": 40.1, "price": 30.2, "form4": 20.0, "other": 9.8, "...": 0},
+     "counts": {"submissions": {"sec_live": 196, "sec_cached": 588}},
+     "rss_kb": 301244, "peak_rss_kb": 355120}
+  ],
+  "peak_rss_kb": 412300, "peak_rss_children_kb": 0, "rss_kb": 390112,
+  "errors": []
+}
+```
+
+(The numbers above illustrate the SHAPE; they are not a measurement.) `null` on a pass that carried no meter
+and on every artifact written before X5. `errors` lists instrumentation faults (capped at 20): a timer that
+raises is recorded there and the work runs untimed, never failed.
+
+**One block, rewritten in place.** The artifact is first written with the snapshot taken just before it; the
+health page, the shell sweep and the SPAC radar run after that write, so `run_daily_pass` then REPLACES the
+block in place with the final one (`cron_run_log.amend_run_timings`: only a file that reads `finished` and
+carries this pass's `started_at`). During the loop the meter also writes its snapshot onto the START artifact
+after every thesis (only while it reads `running`), so a pass KILLED mid-loop (the C2 timeout, the OOM
+killer, the VM) still leaves where it spent its time, and `mark_run_crashed` carries the snapshot at a
+Python-visible crash. `timings.total_s` runs from the lock to the end of the SPAC radar; `duration_s` keeps
+its meaning (`started_at` to the end of the per-thesis loop).
+
+**The printed report** ends with one line: `timings: 912.4 s total · top legs submissions 301.2 s, form4
+190.7 s, price 160.3 s · slowest thesis Example thesis 108.3 s · peak RSS 403 MB` (the same illustrative
+numbers). The Admin run line
+shows the whole-pass total and the slowest leg (`AdminRunOut.pass_total_s` / `top_leg` / `top_leg_s`).
+
+**The "before" picture (MEASURED from prod's existing artifacts, 2026-10-17, read-only).** 79 artifacts
+(2026-07-17 to 2026-10-17); none carries per-leg data, so this is the coarse baseline X5 replaces:
+
+- Warm nightly passes at today's size (12 theses, 740 name-memberships), 22 live non-catch-up passes since
+  09-14: `duration_s` median **730 s**, min 578, max 1,250; `edgar_fetches` median 757. By universe size,
+  median `duration_s`: 255 memberships 55 s, 335 230 s, 494 426 s, 706 649 s, 740 731 s.
+- Cold passes (the first pass after names were added): 2026-07-18 **4,171 s** (255 memberships, 18,190
+  fetches), 2026-08-05 **5,587 s** (494, 29,294), 2026-09-01 **21,632 s** (690, 46,208 — about 0.47 s per
+  fetch). Today's 5,400 s run timeout would stop a cold pass that size; the per-thesis checkpoint is what
+  leaves its timings behind.
+- Per thesis, from the call-of-record `recorded_at` stamps of the 22 passes in which every thesis appended
+  (the gap between consecutive theses' stamps — `recorded_at` is the call step's transaction start, so each
+  gap is shifted by one call step; the first thesis's gap includes the benchmark refresh):
+  the FIRST thesis in the loop takes a median **357 s** for its 90 names (4.0 s per name, about half the
+  pass); the four other large theses (79 to 196 names) take 44 to 108 s, about 0.55 s per name, and the rest
+  under 20 s each. Why the first thesis runs seven times slower per name is the first question the per-leg
+  block answers.
+
 ### The tape monitor, part 2 — split-basis defects (T4, 2026-10-16)  `[BUILT]`
 
 **The defect.** The price leg owns no corporate-action data (`ingest/prices/source.py`: no `get_splits`); it

@@ -366,6 +366,28 @@ def test_runs_empty_when_no_artifacts(client):
     assert client.get("/admin/runs").json() == {"runs": []}
 
 
+def test_runs_show_the_WHOLE_pass_time_and_its_slowest_leg_from_the_timings_block(
+    client, cron_runs_dir
+):
+    """X5 — measurement only: the row carries the artifact's whole-pass total and its slowest leg; an
+    artifact written before X5 (no `timings`) reads null, never an unparseable row."""
+    timings = {
+        "v": 1,
+        "total_s": 905.25,
+        "legs": {"form4": 300.5, "submissions": 200.0, "other": 12.0},
+        "theses": [],
+    }
+    _artifact(asof=_MON, at=datetime(2026, 7, 20, 22, 30, tzinfo=timezone.utc), timings=timings)
+    _artifact(asof=_FRI, at=datetime(2026, 7, 17, 22, 30, tzinfo=timezone.utc))  # pre-X5 shape
+
+    new, old = client.get("/admin/runs").json()["runs"]
+    assert (new["pass_total_s"], new["top_leg"], new["top_leg_s"]) == (905.25, "form4", 300.5)
+    assert (old["pass_total_s"], old["top_leg"], old["top_leg_s"]) == (None, None, None)
+    assert (
+        new["healthy"] is True and old["healthy"] is True
+    )  # a measurement never moves the verdict
+
+
 # --- the pure-ops invariant: the reads WRITE NOTHING ---
 
 

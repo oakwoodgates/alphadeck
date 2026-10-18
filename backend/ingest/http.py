@@ -13,6 +13,9 @@ import threading
 import time
 from collections.abc import Callable
 from typing import Any
+from urllib.parse import urlsplit
+
+from ingest.instrument import note
 
 
 class RateLimiter:
@@ -43,6 +46,7 @@ class RateLimiter:
         if (
             wait > 0
         ):  # sleep OUTSIDE the lock — the slot is already reserved, so others don't block on it
+            note("rate_wait_s", wait)  # X5 — the proactive throttle's share of the leg's time
             time.sleep(wait)
 
 
@@ -61,6 +65,14 @@ def _retry_after_seconds(resp: Any) -> float | None:
         return float(raw)
     except (TypeError, ValueError):
         return None
+
+
+def _host(url: str) -> str:
+    """The URL's host for the X5 request counters (never the path or query — no ticker, no CIK)."""
+    try:
+        return urlsplit(url).hostname or "unknown"
+    except Exception:  # noqa: BLE001 — a counter label never costs the request
+        return "unknown"
 
 
 def polite_get(
@@ -82,10 +94,16 @@ def polite_get(
     last retry is spent. ``sleep`` is injectable (tests pass a no-op)."""
     import httpx
 
+    host = _host(url)
     attempt = 0
     while True:
+        if attempt:
+            note(f"http_retry:{host}")  # X5 — a retry after a 429 / 5xx / transport blip
         if pre is not None:
             pre()  # the shared rate-limiter runs before EVERY attempt (incl. retries) — never per-call/bypassed
+        note(
+            f"http:{host}"
+        )  # X5 — every request that goes out, by host (`pipeline/pass_timings.py`)
         try:
             resp = httpx.get(url, headers=headers, timeout=timeout)
         except httpx.TransportError:
@@ -93,7 +111,9 @@ def polite_get(
             # parallel discovery fan-out fail wholesale on a single flaky request. Retry it with backoff like a
             # 5xx; re-raise only after the budget is spent (then discover()'s per-page guard skips/threshold it).
             if attempt < max_retries:
-                sleep(min(backoff_base * (2**attempt), backoff_cap))
+                backoff = min(backoff_base * (2**attempt), backoff_cap)
+                note("backoff_s", backoff)  # X5 — time lost to a retry's backoff
+                sleep(backoff)
                 attempt += 1
                 continue
             raise
@@ -101,6 +121,7 @@ def polite_get(
             delay = _retry_after_seconds(resp)
             if delay is None:
                 delay = min(backoff_base * (2**attempt), backoff_cap)
+            note("backoff_s", delay)  # X5 — time lost to a retry's backoff
             sleep(delay)
             attempt += 1
             continue

@@ -482,6 +482,18 @@ describe("Admin — honest loudness on the freshness widget", () => {
     expect(screen.getAllByTestId("adm-cron").at(-1)?.textContent).not.toContain("skipped");
   });
 
+  it("the run line names the WHOLE pass time and its slowest leg (X5), and nothing on a pre-X5 artifact", () => {
+    const TIMED_RUN = { ...OK_RUN, pass_total_s: 4200.0, top_leg: "form4", top_leg_s: 1500.0 };
+    h.status = { ...h.status, data: { ...STATUS_CURRENT, last_run: TIMED_RUN } };
+    renderAdmin();
+    expect(screen.getByTestId("adm-cron").textContent).toContain(
+      "65 min · whole pass 70 min · slowest leg form4 25 min",
+    );
+    h.status = { ...h.status, data: { ...STATUS_CURRENT, last_run: OK_RUN } };
+    renderAdmin();
+    expect(screen.getAllByTestId("adm-cron").at(-1)?.textContent).not.toContain("whole pass");
+  });
+
   it("a GAPPY record is loud: gappy styling + the missed nights listed, and the cron chip says so", () => {
     h.status = { ...h.status, data: STATUS_GAPPY };
     renderAdmin();

@@ -4290,6 +4290,39 @@
             "type": "array",
             "title": "Split Defects New",
             "default": []
+          },
+          "pass_total_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pass Total S"
+          },
+          "top_leg": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top Leg"
+          },
+          "top_leg_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top Leg S"
           }
         },
         "type": "object",
@@ -4310,7 +4343,7 @@
           "catch_up"
         ],
         "title": "AdminRunOut",
-        "description": "One daily pass, as the run-of-record artifact recorded it (``pipeline/cron_run_log.py`` \u2014 the\nfield names are the ARTIFACT's, not inventions): counts + outcomes only, value-free. ``healthy`` /\n``problems`` are ``assess_health`` re-read from the same numbers, so the freeze detector\n(``edgar_fetches == 0`` on a live run), withheld calls, thesis errors, and a failed BENCHMARK\nrefresh (the shared SPY/IWM tape ``benchmark_rs`` reads \u2014 a fail-open passenger leg whose faults\nused to reach stdout only) surface on every row \u2014 a bad run can never hide behind a green\nhistory. The benchmark counts live on the artifact for exactly that reason; a row written before\nthey existed reads clean, never broken. ``mode`` is ``\"live\" | \"no-live\"`` (the R2\nrecording-gate signal); ``ran_at`` is the artifact's ``started_at`` (UTC ISO). ``catch_up`` = a\n``--catch-up`` pass (the sidecar's boot / late-wake catch-up): its ~0 EDGAR fetches are expected\n(it runs inside the cache TTL), so the freeze check is skipped for that row; an artifact written\nbefore the key existed reads ``False``.\n\nPhase 1B (each ``null`` / empty on an artifact written before it existed \u2014 never an alarm by absence):\n``code_sha`` / ``config_hash`` / ``run_kind`` + ``env`` are the pass's RUN IDENTITY and non-secret env\nfingerprint (I1/I2); ``audit`` is its nightly SELF-AUDIT (V1) \u2014 a failed check is a ``problems`` line\nand makes ``healthy`` false; ``name_errors_new`` are the ``\"<ticker> (<leg>)\"`` labels of names whose\ningest leg started failing that night (O1 \u2014 a ``problems`` line with the benign marker: the thesis\nstill recorded) and ``name_errors_known`` the quiet count of names failing the same way as the pass\nbefore.\n\n``skipped`` (M2) = theses a ``--catch-up`` pass left alone because an ON-TIME call-of-record for the\nnight already stood (a catch-up never re-records one); ``0`` on every other pass and on an artifact\nwritten before M2.\n\n``split_defects_new`` (T4) are the labels of the split-basis defects that pass flagged as NEW\n(``\"<ticker> <kind> x<factor> (<date>)\"`` \u2014 a ``problems`` line with the benign marker: a vendor tape\ndefect, flag only)."
+        "description": "One daily pass, as the run-of-record artifact recorded it (``pipeline/cron_run_log.py`` \u2014 the\nfield names are the ARTIFACT's, not inventions): counts + outcomes only, value-free. ``healthy`` /\n``problems`` are ``assess_health`` re-read from the same numbers, so the freeze detector\n(``edgar_fetches == 0`` on a live run), withheld calls, thesis errors, and a failed BENCHMARK\nrefresh (the shared SPY/IWM tape ``benchmark_rs`` reads \u2014 a fail-open passenger leg whose faults\nused to reach stdout only) surface on every row \u2014 a bad run can never hide behind a green\nhistory. The benchmark counts live on the artifact for exactly that reason; a row written before\nthey existed reads clean, never broken. ``mode`` is ``\"live\" | \"no-live\"`` (the R2\nrecording-gate signal); ``ran_at`` is the artifact's ``started_at`` (UTC ISO). ``catch_up`` = a\n``--catch-up`` pass (the sidecar's boot / late-wake catch-up): its ~0 EDGAR fetches are expected\n(it runs inside the cache TTL), so the freeze check is skipped for that row; an artifact written\nbefore the key existed reads ``False``.\n\nPhase 1B (each ``null`` / empty on an artifact written before it existed \u2014 never an alarm by absence):\n``code_sha`` / ``config_hash`` / ``run_kind`` + ``env`` are the pass's RUN IDENTITY and non-secret env\nfingerprint (I1/I2); ``audit`` is its nightly SELF-AUDIT (V1) \u2014 a failed check is a ``problems`` line\nand makes ``healthy`` false; ``name_errors_new`` are the ``\"<ticker> (<leg>)\"`` labels of names whose\ningest leg started failing that night (O1 \u2014 a ``problems`` line with the benign marker: the thesis\nstill recorded) and ``name_errors_known`` the quiet count of names failing the same way as the pass\nbefore.\n\n``skipped`` (M2) = theses a ``--catch-up`` pass left alone because an ON-TIME call-of-record for the\nnight already stood (a catch-up never re-records one); ``0`` on every other pass and on an artifact\nwritten before M2.\n\n``split_defects_new`` (T4) are the labels of the split-basis defects that pass flagged as NEW\n(``\"<ticker> <kind> x<factor> (<date>)\"`` \u2014 a ``problems`` line with the benign marker: a vendor tape\ndefect, flag only).\n\nX5 (measurement only, from the artifact's ``timings`` block \u2014 ``pipeline/pass_timings.py``):\n``pass_total_s`` is the WHOLE pass's wall time, the legs after the per-thesis loop included (unlike\n``duration_s``, which ends with the loop); ``top_leg`` / ``top_leg_s`` name the leg it spent the most\ntime in (``other`` = time no named leg claimed). All ``null`` on an artifact written before X5."
       },
       "AdminRunsOut": {
         "properties": {

@@ -75,9 +75,12 @@ from domain.thesis import Thesis
 from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
 from ingest.edgar.form25 import delisted_class_is_other
 from notify import ArmedName, HealthEvent, Notifier, TransitionEvent, get_notifier
+from pipeline import pass_timings
 from pipeline.call_for_thesis import call_for_thesis
 from pipeline.cron_run_log import (
+    RUN_STATUS_RUNNING,
     already_ran_live,
+    amend_run_timings,
     mark_run_crashed,
     previous_ingest_skips,
     previous_name_errors,
@@ -92,6 +95,7 @@ from pipeline.ingest_skips import SkipDiff, diff_skips, known_keys
 from pipeline.ingest_thesis import NameResult, ingest_thesis, print_withheld_line
 from pipeline.name_errors import NameIngestError, dedup_name_errors, name_errors_of
 from pipeline.night_coverage import NightTiming, night_timing, read_on_time_theses
+from pipeline.pass_timings import per_thesis, timed
 from pipeline.price_feed import (
     ExpectedPriceMiss,
     excuse_expected_misses,
@@ -243,6 +247,7 @@ class ThesisRunResult:
     fundamentals_error: str | None = None
 
 
+@timed("fundamentals")  # X5 — the step's wall time on a metered pass (`pipeline/pass_timings.py`)
 def _refresh_fundamentals(
     conn: psycopg.Connection,
     thesis: Thesis,
@@ -406,7 +411,8 @@ def run_daily(
     # Q17 — the fundamentals refresh's pass memory: one companyfacts pull per company per pass
     fund_memo = PassMemo()
     out: list[ThesisRunResult] = []
-    for thesis in thesis_repo.list_all(conn):
+    # X5 — `per_thesis` makes each thesis a timing scope on a metered pass (a pass-through otherwise)
+    for thesis in per_thesis(thesis_repo.list_all(conn)):
         res = ThesisRunResult(thesis_id=thesis.id, name=thesis.name)
         on_time_at = skip.get(thesis.id)
         if on_time_at is not None:
@@ -551,7 +557,9 @@ def run_daily(
             continue
         # (2)+(3) assemble today's call WITHOUT writing, then append only if it changed.
         try:
-            card = call_for_thesis(conn, thesis.id, asof, known_at=known_at, cfg=cfg, record=False)
+            card = timed("call")(call_for_thesis)(
+                conn, thesis.id, asof, known_at=known_at, cfg=cfg, record=False
+            )
             # (4) TRANSITION DETECTION (the notify seam): compare state/verdict against the
             # call-of-record AT OR BEFORE this as-of — the material-change line (trigger churn /
             # provenance noise version the log via record_if_changed without being transitions; a
@@ -629,12 +637,12 @@ def run_daily(
                     # N1 — a push about a past or LATE night says so ("asof D, recorded late")
                     timing=_push_timing(asof),
                 )
-                notifier.notify(evt)
+                timed("notify")(notifier.notify)(evt)
                 res.transition = evt.label
             # R2b — stamp the run's ingest health on the recorded row (PROVENANCE, off the card). We reach
             # here only on a healthy OR partial ingest; ingest_fresh False marks the partial one so the
             # Scoreboard can discount a call resting on names that failed to refresh.
-            res.recorded = calls_repo.record_if_changed(
+            res.recorded = timed("record")(calls_repo.record_if_changed)(
                 conn,
                 card,
                 thesis.tenant_id,
@@ -817,6 +825,9 @@ class DailyPassOutcome:
     # Q18 — the skipped-filing diff (``pipeline/ingest_skips.py``): computed ONCE in the pass, so the
     # artifact and the Admin poll payload carry the same inventory, the same known counts and the same new
     skips: SkipDiff = field(default_factory=SkipDiff)
+    # X5 — where the pass spent its time, requests and memory (`pipeline/pass_timings.py`): the snapshot the
+    # artifact was first written with, replaced by the FINAL block once the post-artifact legs ran
+    timings: dict | None = None
 
     def payload_kwargs(self) -> dict:
         """Every run-level field ``cron_run_log.build_run_payload`` / ``write_cron_run_log`` take, from this
@@ -846,6 +857,7 @@ class DailyPassOutcome:
             "rename_probe": self.rename_probe,
             "successor": self.successor,
             "skips": self.skips,
+            "timings": self.timings,
         }
 
 
@@ -891,12 +903,18 @@ def run_daily_pass(
     lock = run_lock
     resolved_asof = asof
     started_at: datetime | None = None
+    timer: pass_timings.PassTimer | None = None
+    timer_token = None
     try:
         resolved_asof = asof or market_today()
         if lock is None:
             lock = acquire_pass_lock(holder=run_kind)
         started_at = datetime.now(timezone.utc)
-        _write_start_artifact(
+        # X5 — the pass's meter (`pipeline/pass_timings.py`), ACTIVE for the whole pass: measurement only,
+        # fail-open (a meter that cannot start leaves the pass unmeasured, never failed)
+        timer = pass_timings.start()
+        timer_token = pass_timings.activate(timer)
+        start_path = _write_start_artifact(
             notifier,
             asof=resolved_asof,
             allow_live=allow_live,
@@ -904,12 +922,13 @@ def run_daily_pass(
             catch_up=catch_up,
             run_kind=run_kind,
         )
+        _checkpoint_timings(timer, start_path, started_at)
         if on_started is not None:
             try:
                 on_started(started_at, resolved_asof)
             except Exception:  # noqa: BLE001 — a hook never fails or masks the pass
                 _log.exception("the on_started hook failed (fail-open — the pass runs regardless)")
-        return _run_daily_pass_locked(
+        outcome = _run_daily_pass_locked(
             asof=resolved_asof,
             allow_live=allow_live,
             notifier=notifier,
@@ -917,17 +936,57 @@ def run_daily_pass(
             run_kind=run_kind,
             started_at=started_at,
         )
+        _finish_timings(outcome, timer)
+        return outcome
     except PassAlreadyRunning:
         raise  # a refusal, not a crash — nothing ran, nothing to page
     except BaseException as exc:
         if not isinstance(exc, (SystemExit, GeneratorExit)):
             _page_crash(notifier, resolved_asof, exc)
             if started_at is not None:
-                _mark_crashed(started_at, exc)
+                _mark_crashed(started_at, exc, timer)
         raise
     finally:
+        pass_timings.deactivate(timer_token)
         if lock is not None:
             lock.release()
+
+
+def _checkpoint_timings(
+    timer: pass_timings.PassTimer | None, start_path: Path | None, started_at: datetime
+) -> None:
+    """X5 — after each thesis, write the timings so far onto this pass's START artifact (still ``running``),
+    so a pass that is KILLED mid-loop (the C2 run timeout, the OOM killer, the VM) still leaves where it
+    spent its time — the cold-ingest pass the timeout stops is the one the scale question is about. In place
+    and only while the file reads ``running`` and is this pass's (``amend_run_timings``); fail-open.
+    """
+    if timer is None or start_path is None:
+        return
+
+    def _checkpoint(timings: dict) -> None:
+        amend_run_timings(
+            start_path, started_at=started_at, timings=timings, status=RUN_STATUS_RUNNING
+        )
+
+    timer.on_thesis_end = _checkpoint
+
+
+def _finish_timings(outcome: DailyPassOutcome, timer: pass_timings.PassTimer | None) -> None:
+    """X5 — the FINAL timings block, taken after the post-artifact legs (the health page, the shell sweep,
+    the SPAC radar): onto the outcome (so the Admin poll payload and the printed summary read it) and into
+    the finished artifact in place (``amend_run_timings`` — only while it reads ``finished`` and is this
+    pass's). Fail-open: a fault here leaves the artifact's first snapshot standing."""
+    try:
+        final = pass_timings.snapshot(timer)
+        if final is None:
+            return
+        outcome.timings = final
+        if outcome.log_path is not None:
+            amend_run_timings(outcome.log_path, started_at=outcome.started_at, timings=final)
+    except Exception:  # noqa: BLE001 — measurement never costs the pass
+        _log.exception(
+            "final pass timings failed (fail-open — the artifact keeps its first snapshot)"
+        )
 
 
 def _write_start_artifact(
@@ -938,13 +997,14 @@ def _write_start_artifact(
     started_at: datetime,
     catch_up: bool,
     run_kind: str,
-) -> None:
+) -> Path | None:
     """M1 — the pass's START artifact (``cron_run_log.write_run_start``), carrying the same identity the
     finalized artifact will (``Settings.image_sha``, the ``DEFAULT_CONFIG`` hash, the run kind, the non-secret
     env fingerprint). FAIL-OPEN as a whole — the identity reads included: a pass whose start record cannot
-    be written still runs (and still finalizes its artifact at the end)."""
+    be written still runs (and still finalizes its artifact at the end). Returns the start file's path (X5
+    checkpoints the timings onto it), or ``None``."""
     try:
-        write_run_start(
+        return write_run_start(
             asof=asof,
             allow_live=allow_live,
             started_at=started_at,
@@ -956,15 +1016,21 @@ def _write_start_artifact(
         )
     except Exception:  # noqa: BLE001 — the start record is best-effort, never the pass's driver
         _log.exception("cron start artifact failed (fail-open — the pass runs regardless)")
+        return None
 
 
-def _mark_crashed(started_at: datetime, exc: BaseException) -> None:
-    """M1 — re-mark this pass's start artifact ``crashed`` on the H3 crash path. Fail-open against
-    EVERYTHING (``BaseException``): it runs while another exception is propagating and must never replace
-    it."""
+def _mark_crashed(
+    started_at: datetime, exc: BaseException, timer: pass_timings.PassTimer | None = None
+) -> None:
+    """M1 — re-mark this pass's start artifact ``crashed`` on the H3 crash path, carrying the X5 timings
+    up to the crash. Fail-open against EVERYTHING (``BaseException``): it runs while another exception is
+    propagating and must never replace it."""
     try:
         mark_run_crashed(
-            started_at=started_at, crashed_at=datetime.now(timezone.utc), error=_crash_label(exc)
+            started_at=started_at,
+            crashed_at=datetime.now(timezone.utc),
+            error=_crash_label(exc),
+            timings=pass_timings.snapshot(timer) if timer is not None else None,
         )
     except BaseException:  # noqa: BLE001 — the marker can never mask the original exception
         _log.exception("the crash marker itself failed (fail-open — re-raising the original)")
@@ -1033,7 +1099,9 @@ def _run_daily_pass_locked(
             # reason run_daily force-refreshes ingest_thesis).
             bench_conn = _pass_connect()
             try:
-                bench_results = ingest_benchmarks(bench_conn, allow_live=True, force_refresh=True)
+                bench_results = timed("benchmarks")(ingest_benchmarks)(
+                    bench_conn, allow_live=True, force_refresh=True
+                )
             finally:
                 bench_conn.close()
             bench_bars = sum(r.bars_appended for r in bench_results)
@@ -1060,7 +1128,7 @@ def _run_daily_pass_locked(
     # record it without re-printing, and the diff below counts it. `None` (no baseline yet) mutes nothing.
     # The read is fail-open by construction (`previous_ingest_skips` skips a bad artifact) and changes
     # only what is PRINTED — what is stored, skipped or raised is identical.
-    prior_skips = previous_ingest_skips()
+    prior_skips = timed("baselines")(previous_ingest_skips)()
     conn = _pass_connect()
     try:
         results = run_daily(
@@ -1117,7 +1185,7 @@ def _run_daily_pass_locked(
         # The baseline is PER THESIS (`cron_run_log.carried_inventory`): each thesis as the newest pass that
         # COVERED it saw it — so a --catch-up that skipped theses (M2) counts for the ones it covered, a name
         # it first flagged pages once, and a name it saw clear pages again when it comes back.
-        prior = previous_stale_tapes()
+        prior = timed("baselines")(previous_stale_tapes)()
         new_keys = sorted(current) if prior is None else sorted(set(current) - prior)
         tape_stale_new = tuple(
             StaleFeedLabel(kind=current[k].kind, label=current[k].label) for k in new_keys
@@ -1135,7 +1203,7 @@ def _run_daily_pass_locked(
     name_errors_known = 0
     if name_errors_evaluated:
         current_errors = dedup_name_errors(name_errors_of(x for r in results for x in r.ingested))
-        prior_errors = previous_name_errors()
+        prior_errors = timed("baselines")(previous_name_errors)()
         new_error_keys = (
             sorted(current_errors)
             if prior_errors is None
@@ -1158,7 +1226,7 @@ def _run_daily_pass_locked(
     # is written, for the same reason as the two diffs above (once the artifact exists it would be its own
     # baseline). Flag only: nothing it finds reaches a detector or the card (Q10 is open). Fail-open for
     # the pass — a scan fault comes back as `split.error`, which the self-audit fails on (and so pages).
-    split = run_split_scan(
+    split = timed("split_scan")(run_split_scan)(
         asof=asof,
         allow_live=allow_live,
         connect=_pass_connect,
@@ -1171,7 +1239,7 @@ def _run_daily_pass_locked(
     # RECOMMENDATION only — it writes nothing; the operator's Adopt on the Admin page applies it. Fail-open
     # for the pass (a fault rides `rename_probe.error`, printed loud and shown on Admin). Nothing to probe
     # (the common night) opens no connection and makes no request.
-    rename_probe = run_rename_probe(
+    rename_probe = timed("rename_probe")(run_rename_probe)(
         results=results,
         asof=asof,
         allow_live=allow_live,
@@ -1183,7 +1251,7 @@ def _run_daily_pass_locked(
     # CIK = the company now files under a successor issuer, and our filing legs read the dead CIK. A pending
     # RECOMMENDATION (the operator's Adopt applies it); BEFORE the artifact, so its own rows are never the
     # baseline it diffs against. Fail-open for the pass (a fault rides `successor.error`).
-    successor = run_successor_scan(
+    successor = timed("successor_scan")(run_successor_scan)(
         results=results,
         allow_live=allow_live,
         connect=_pass_connect,
@@ -1213,7 +1281,7 @@ def _run_daily_pass_locked(
             connect=_pass_connect,
             split=split,
         )
-        audit: tuple[AuditResult, ...] = tuple(run_audit(audit_ctx))
+        audit: tuple[AuditResult, ...] = tuple(timed("self_audit")(run_audit)(audit_ctx))
     except Exception as e:  # noqa: BLE001 — a broken audit is an alarm, never a failed pass
         audit = (AuditResult("audit", False, f"the self-audit could not start: {_crash_label(e)}"),)
     outcome = DailyPassOutcome(
@@ -1242,11 +1310,15 @@ def _run_daily_pass_locked(
         rename_probe=rename_probe,
         successor=successor,
         skips=skips,
+        # X5 — the timings so far; `run_daily_pass` amends the artifact with the final block (post-legs)
+        timings=pass_timings.snapshot(),
     )
     # R3 — the cron's run-of-record, so the next freeze is noticed by the platform, not by eye. Written
     # AFTER the run from the collected results (write-only, no DB); fail-open, so it never fails the cron.
     # M1 — the path is the started-at instant, so this FINALIZES the start artifact (status "finished").
-    outcome.log_path = write_cron_run_log(results, **outcome.payload_kwargs())
+    outcome.log_path = timed("artifact_write")(write_cron_run_log)(
+        results, **outcome.payload_kwargs()
+    )
     # R4 — the DURABLE page: a freeze / withheld / errored run alerts through the notifier (Slack when
     # configured, else a loud log line). Healthy runs are silent. This is what makes the platform notice its
     # own blindness — the gap that let R1 hide 11+ days. Fail-open (notify_health never raises). A catch-up
@@ -1270,7 +1342,7 @@ def _run_daily_pass_locked(
         successor_cik_new=successor.new_labels,
     )
     if health is not None:
-        notifier.notify_health(health)
+        timed("health_page")(notifier.notify_health)(health)
     # The SPAC shell sweep (facts-only blank-check enrichment) — BEFORE the radar leg, so the same
     # night's run_spac_radar (which reads known_shell_ciks at its start) sees freshly-enriched
     # shells and collects their 8-K/proxy/25 events. The units-U / "Acquisition Corp" pattern only
@@ -1287,7 +1359,9 @@ def _run_daily_pass_locked(
 
             sweep_conn = _pass_connect()
             try:
-                sw = run_shell_sweep(sweep_conn, allow_live=True, reenrich=(asof.weekday() == 0))
+                sw = timed("shell_sweep")(run_shell_sweep)(
+                    sweep_conn, allow_live=True, reenrich=(asof.weekday() == 0)
+                )
             finally:
                 sweep_conn.close()
             print(f"shell sweep: {sw.summary}")
@@ -1309,7 +1383,7 @@ def _run_daily_pass_locked(
 
             radar_conn = _pass_connect()
             try:
-                rr = run_spac_radar(
+                rr = timed("spac_radar")(run_spac_radar)(
                     radar_conn, until=asof, days=3, allow_live=True, notifier=notifier
                 )
             finally:
@@ -1718,6 +1792,10 @@ def main(argv: list[str] | None = None) -> None:
         successor=outcome.successor,
         skips=outcome.skips,
     )  # the per-thesis summary + the errored count, printed either way
+    # X5 — ONE timings line: the total, the three slowest legs, the slowest thesis, the peak RSS
+    timings_line = pass_timings.summary_line(outcome.timings)
+    if timings_line:
+        print(timings_line)
     # F4 — WHAT A NON-ZERO EXIT MEANS TO A WRAPPER: this night has NO call-of-record at all (the pass
     # crashed, or every thesis was withheld/errored for a real reason). It no longer means "some thesis
     # errored": the sidecar retries on this code, and a 20-minute pause plus a guard no-op bought nothing

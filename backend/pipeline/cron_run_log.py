@@ -189,12 +189,17 @@ def mark_run_crashed(
     crashed_at: datetime,
     error: str,
     base_dir: Path | None = None,
+    timings: dict | None = None,
 ) -> Path | None:
     """M1 — re-mark a pass's START artifact ``status: "crashed"`` (+ ``crashed_at`` and the one-line
     ``error``) when an exception escaped the pass. ONLY a file still reading ``running`` is touched: a pass
     that already FINALIZED and then raised in a post-leg keeps its finished record (overwriting it would
     throw the night's summary away), and a missing or unreadable start file is left alone. Fail-open —
-    called from the crash path, so it must never raise over the exception being reported."""
+    called from the crash path, so it must never raise over the exception being reported.
+
+    X5 — ``timings`` (the pass meter's snapshot at the crash) replaces the file's ``timings`` block when
+    given; ``None`` keeps whatever the last per-thesis checkpoint left (the Admin parent, which stops a pass
+    from outside, has no meter)."""
     try:
         path = _artifact_path(base_dir or _DEFAULT_CRON_RUNS, started_at)
         if not path.exists():
@@ -208,10 +213,43 @@ def mark_run_crashed(
         doc["status"] = RUN_STATUS_CRASHED
         doc["crashed_at"] = crashed_at.isoformat()
         doc["error"] = error
+        if timings is not None:
+            doc["timings"] = timings
         _write_atomic(path, doc)
         return path
     except Exception:  # noqa: BLE001 — fail-open by contract
         _log.exception("cron crash marker write failed (fail-open)")
+        return None
+
+
+def amend_run_timings(
+    path: Path,
+    *,
+    started_at: datetime,
+    timings: dict,
+    status: str = RUN_STATUS_FINISHED,
+) -> Path | None:
+    """X5 — replace the ``timings`` block of THIS pass's artifact at ``path`` in place, touching nothing
+    else. Two writers: the per-thesis CHECKPOINT onto the start artifact (``status`` ``"running"`` — a pass
+    killed mid-loop still leaves where it spent its time) and the FINAL block after the post-artifact legs
+    (``"finished"`` — the health page, the shell sweep and the SPAC radar run after the artifact is first
+    written). Only a file that reads ``status`` AND carries this pass's ``started_at`` is rewritten, so it
+    can never re-open a finished record as running, revive a crashed one, or touch another pass's file.
+    Atomic like every writer here; fail-open (a logged exception and ``None``, never a failed pass).
+    """
+    try:
+        if not path.exists():
+            return None
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(doc, dict) or run_status(doc) != status:
+            return None
+        if doc.get("started_at") != started_at.isoformat():
+            return None  # not THIS pass's artifact
+        doc["timings"] = timings
+        _write_atomic(path, doc)
+        return path
+    except Exception:  # noqa: BLE001 — fail-open by contract: measurement never fails the cron
+        _log.exception("cron run timings write failed (fail-open — the pass is unaffected)")
         return None
 
 
@@ -241,6 +279,7 @@ def build_run_payload(
     rename_probe: RenameProbe | None = None,
     successor: SuccessorScan | None = None,
     skips: SkipDiff | None = None,
+    timings: dict | None = None,
 ) -> dict:
     """The run-of-record payload — PURE (no I/O), extracted from the artifact writer so the admin
     "run now" job can shape its poll result IDENTICALLY to a parsed artifact (one schema, two readers).
@@ -346,6 +385,15 @@ def build_run_payload(
     `ingest_skips` (`[{kind, accession}]`, the filings ITS legs skipped — attributed like `name_errors`):
     that per-thesis list is what `previous_ingest_skips` (below) carries forward as the next baseline.
     `skips=None` writes the not-evaluated empty block; readers use `.get`.
+
+    X5 — WHERE THE PASS SPENT ITS TIME (`pipeline/pass_timings.py`, measurement only): `timings` =
+    `{v, total_s, legs: {leg: s}, counts: {leg: {kind: n}}, theses: [{id, name, total_s, legs, counts,
+    rss_kb, peak_rss_kb}], peak_rss_kb, peak_rss_children_kb, rss_kb, errors}` — exclusive seconds per leg
+    (each thesis's legs sum to its `total_s`, the pass's to the pass's; unclaimed time is `other`), request
+    counts per leg (`sec_live` / `sec_cached` / `sec_cached_404`, `http:<host>`, `http_retry:<host>`,
+    `rate_wait_s`, `backoff_s`), peak RSS in KB (`null` where unmeasurable). The pass writes its snapshot
+    here, then REPLACES it in place with the final block once the post-artifact legs ran
+    (`amend_run_timings`). `null` on a pass that carried no meter and on every artifact written before X5.
     """
     recorded = sum(1 for r in results if r.recorded)
     edgar_fetches = sum(r.edgar_fetches for r in results)
@@ -413,6 +461,8 @@ def build_run_payload(
             # M2 — theses a --catch-up left alone because an on-time row already stood
             "skipped": sum(1 for r in results if r.skipped),
         },
+        # X5 — where the pass spent its time, requests and memory (null = not measured)
+        "timings": timings,
         "theses": [
             {
                 "id": str(r.thesis_id),
@@ -519,6 +569,7 @@ def write_cron_run_log(
     rename_probe: RenameProbe | None = None,
     successor: SuccessorScan | None = None,
     skips: SkipDiff | None = None,
+    timings: dict | None = None,
 ) -> Path | None:
     """Dump one cron pass (``build_run_payload``, above — the payload's meaning lives there) to
     ``<base>/<utc-timestamp>.json``; return the path (or ``None`` fail-open). The whole write — payload
@@ -554,6 +605,7 @@ def write_cron_run_log(
             rename_probe=rename_probe,
             successor=successor,
             skips=skips,
+            timings=timings,
         )
         run_dir = base_dir or _DEFAULT_CRON_RUNS
         run_dir.mkdir(parents=True, exist_ok=True)

@@ -13,6 +13,7 @@ from domain.market_time import market_tz
 from domain.settings import get_settings
 from ingest import CacheMiss
 from ingest.http import RateLimiter, polite_get
+from ingest.instrument import note, timed
 
 # Runtime cache lives under the repo's gitignored data/; tests pass a fixtures dir instead.
 _DEFAULT_CACHE = Path(__file__).resolve().parents[3] / "data" / "edgar_cache"
@@ -221,6 +222,7 @@ class EdgarClient:
             # allow_live=False (tests / --no-live) a stale hit is still served — better stale than a
             # CacheMiss; the TTL only forces a refetch when we can actually fetch.
             if not self.allow_live or not self._is_stale(path, cache_key):
+                note("sec_cached")  # X5 — a request answered from the disk cache (no network)
                 return path.read_text(encoding="utf-8")
         elif not self.allow_live:
             raise CacheMiss(f"{cache_key} not cached (live pulls disabled)")
@@ -229,9 +231,12 @@ class EdgarClient:
             # negative cache, with no request and no `live_fetches` count (nothing reached out).
             observed = marker.stat().st_mtime
             if not self._gate_due(observed, cache_key):
+                note("sec_cached_404")  # X5 — answered from the negative cache (no network)
                 raise CachedNotFound(cache_key, datetime.fromtimestamp(observed, timezone.utc))
         # decided to hit the network (a cache miss or a stale-mutable refresh) — the freeze detector
         self.live_fetches += 1
+        # X5 — the same decision, counted on the pass leg that made it (`pipeline/pass_timings.py`)
+        note("sec_live")
         try:
             text = self._fetch(url)
         except Exception as exc:
@@ -247,6 +252,13 @@ class EdgarClient:
         return text
 
     def get_json(self, url: str, cache_key: str) -> dict[str, Any]:
+        if cache_key.startswith("submissions/"):
+            # X5 — a company's submissions index (fetch or cache read + parse) is timed as its OWN leg
+            # inside whichever pass leg read it; a no-op outside a metered pass (`ingest/instrument.py`)
+            return timed("submissions")(self._get_json)(url, cache_key)
+        return self._get_json(url, cache_key)
+
+    def _get_json(self, url: str, cache_key: str) -> dict[str, Any]:
         return json.loads(self.get_text(url, cache_key))
 
     def _fetch(self, url: str) -> str:

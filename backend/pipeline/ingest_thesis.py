@@ -81,6 +81,7 @@ from ingest.skips import (
     clip_reason,
     is_known,
 )
+from pipeline.pass_timings import timed
 from repositories import thesis_repo
 from securities import master
 
@@ -216,6 +217,8 @@ def _is_not_found(e: Exception) -> bool:
     return isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 404
 
 
+# X5 — each leg's wall time on a metered pass (`pipeline/pass_timings.py`); a no-op anywhere else
+@timed("form4")
 def _form4_leg(
     conn: psycopg.Connection,
     client: EdgarClient,
@@ -288,6 +291,7 @@ def _form4_leg(
     return appended, skipped, txn_rejected, tuple(skips)
 
 
+@timed("form8k")
 def _form8k_leg(
     conn: psycopg.Connection, client: EdgarClient, sec: Security, *, tenant_id: UUID
 ) -> tuple[int, int]:
@@ -306,6 +310,7 @@ def _form8k_leg(
     return res.appended, res.reversioned
 
 
+@timed("schedule13")
 def _schedule13_leg(
     conn: psycopg.Connection,
     client: EdgarClient,
@@ -466,7 +471,7 @@ def ingest_thesis(
         px_appended, px_reversioned, px_withheld = 0, 0, 0
         px_not_found = False
         try:
-            bars = ingest_bars_for_security(
+            bars = timed("price")(ingest_bars_for_security)(  # X5 — the price leg's wall time
                 conn,
                 sec,
                 tenant_id=thesis.tenant_id,
@@ -529,7 +534,7 @@ def ingest_thesis(
                 print(f"  warn: {sec.ticker or sec.id} delisting read failed: {e}")
         fs_appended, fs_reversioned = 0, 0
         try:
-            shares = ingest_fund_shares_for_security(
+            shares = timed("fund_shares")(ingest_fund_shares_for_security)(  # X5
                 conn,
                 sec,
                 tenant_id=thesis.tenant_id,
