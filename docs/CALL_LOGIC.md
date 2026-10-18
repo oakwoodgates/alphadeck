@@ -238,10 +238,23 @@ only *coincide* for insider buys, which is exactly why the two conviction source
   4/As before any detector sees it. A 4/A is stored as filed and linked to the original it amends; what it
   does depends on its **disposition**: a clean **1:1 correction** (shares / price / code — including `A`→`P`
   — / date) is applied automatically, its rows replacing the original's; a **clerical** one (Table I
-  identical) changes nothing and never double-counts; a **void** (a zero-row amendment of an original with
-  rows), **duplicates** (a 1→N void of filing-agent copies), a **partial** / **consolidation** /
-  **addition** / **restatement**, and an **ambiguous** link are routed to the operator (Admin, *Insider
-  amendments*). **The operator's condition:** while a cancellation (void / duplicates) is pending it
+  identical AND no signal row's owner role / name / 10b5-1 flag moved) changes nothing and never
+  double-counts; a **field change** (Table I identical, but the role / name / 10b5-1 flag on a code-`P`/`S`
+  row changed — FRHC's CFO restated "Special Advisor to CEO" on a sale) is never "clerical"; a **void** (a
+  zero-row amendment of an original with rows), **duplicates** (a 1→N void of filing-agent copies), a
+  **partial** / **consolidation** / **addition** / **restatement** / **field change**, and an **ambiguous**
+  link are the routed kinds. **The signal-effect rule (operator-approved 2026-10-18):** a routed amendment
+  goes to the operator (Admin, *Insider amendments*) only when its effect changes a row a call signal
+  reads — the `(code, date, shares, price, 10b5-1 flag, owner role, owner name)` of a row whose code is in
+  the signal code set, compared before vs after as a multiset; an **ambiguous** link always goes (its
+  original is unknown). The signal code set is derived in ONE place from the detectors' own declarations
+  (`Detector.txn_codes` + `horizons()` → `signals.horizons.insider_signal_codes`: today `{P: 210 days,
+  S: 120 days}`; a detector that reads `fact_insider_txn` without declaring codes raises). A routed
+  amendment with NO signal effect (a void of grant-only rows, an addition of a code-`M` exercise beside an
+  unchanged sale) is applied by the SYSTEM at ingest — an append-only `apply` decision with basis
+  `system:no-signal-effect`, listed in Admin as "applied — no signal effect" with its Undo (which returns it
+  to the queue), never paged. Decided by CONTENT only — never by date window or screen. **The operator's
+  condition:** while a cancellation (void / duplicates) is pending it
   SUPPRESSES the affected original rows — buys and sells — so a cancelled buy never fires; *Ratify void*
   keeps the suppression, *Keep original* restores the rows (a zero-row 4/A can just attach a power of
   attorney — AZTA's CFO buy stands). The other routed kinds have no effect until applied (MEASURED: none of

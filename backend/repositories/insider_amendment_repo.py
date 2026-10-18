@@ -30,7 +30,7 @@ The caller owns the transaction (commit after a successful write; roll back on a
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any
@@ -44,12 +44,16 @@ from domain.insider_amendments import (
     ACTION_LINK,
     AMBIGUOUS,
     AUTO_DISPOSITIONS,
+    BASIS_NO_SIGNAL_EFFECT,
     INERT_DISPOSITIONS,
     ROUTED_DISPOSITIONS,
     STATUS_PENDING,
     VERDICTS,
     Effective,
+    before_after,
+    changed_signal_rows,
     effect_of,
+    in_window_codes,
     latest_by_accession,
     link_to_candidate,
     standing_decisions,
@@ -85,9 +89,15 @@ class AmendmentItem:
     why: str
     link_recorded_at: datetime
     decisions: list[dict[str, Any]] = field(default_factory=list)  # every decision, oldest first
-    originals: dict[str, list[dict[str, Any]]] = field(
-        default_factory=dict
-    )  # accession -> stored rows
+    # accession -> its stored rows
+    originals: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    # the signal-effect rule: does its effect change a row a call signal reads; was it resolved by the SYSTEM
+    # (a standing ``system:no-signal-effect`` apply); which signal codes' changed rows sit inside the live read
+    # horizon at the read's asof (the urgency); does either side carry a code-P buy
+    signal_effect: bool = True
+    auto_resolved: bool = False
+    in_window: tuple[str, ...] = ()
+    touches_buy: bool = False
 
     @property
     def needs_operator(self) -> bool:
@@ -157,8 +167,13 @@ def decide(
     links = _lock(conn, security_id, accession)
     eff, link_d, verdict = _state(links, _decisions(conn, security_id, accession), accession)
     if verdict is not None:
+        who = (
+            "the system (no signal effect)"
+            if verdict.get("basis") == BASIS_NO_SIGNAL_EFFECT
+            else "you"
+        )
         raise AmendmentConflict(
-            f"{accession}: a '{verdict['action']}' decision already stands — undo it first"
+            f"{accession}: a '{verdict['action']}' decision by {who} already stands — undo it first"
         )
     disp = eff.disposition
     if disp == AMBIGUOUS and link_d is None:
@@ -194,10 +209,13 @@ def link_candidate(
     *,
     reason: str,
     basis: str,
+    signal_codes: Collection[str] | None = None,
 ) -> dict[str, Any]:
     """Link an AMBIGUOUS amendment to the candidate original ``target``: the disposition against the target's
-    full stored rows is computed now and stored on the decision. ``AmendmentConflict`` unless the amendment
+    full stored rows is computed now (with the signal codes — a role change on a signal row is a
+    ``field_change``, never clerical) and stored on the decision. ``AmendmentConflict`` unless the amendment
     is ambiguous, unlinked by the operator, and ``target`` is one of its candidates."""
+    codes = frozenset(signal_codes) if signal_codes is not None else frozenset(default_horizons())
     if not reason.strip() or not basis.strip():
         raise ValueError("a link needs a reason and a basis")
     links = _lock(conn, security_id, accession)
@@ -222,7 +240,7 @@ def link_candidate(
         row = cur.fetchone()
     amend_rows = (row or {}).get("rows") or []
     held = stored_rows_by_accession(conn, security_id, tenant_id=link["tenant_id"])
-    disposition, originals = link_to_candidate(amend_rows, target, held.get(target, []))
+    disposition, originals = link_to_candidate(amend_rows, target, held.get(target, []), codes)
     return _insert(
         conn,
         {
@@ -283,11 +301,21 @@ def revoke(
 
 
 def items(
-    conn: psycopg.Connection, *, security_ids: Iterable[UUID] | None = None
+    conn: psycopg.Connection,
+    *,
+    security_ids: Iterable[UUID] | None = None,
+    asof: date | None = None,
+    horizons: Mapping[str, int | None] | None = None,
 ) -> list[AmendmentItem]:
     """Every linked amendment (optionally of these securities) with its CURRENT effective state — the Admin
-    panel's whole read, and the nightly scan's. Ordered by ticker, then acceptance (newest first). Read-only.
-    """
+    panel's whole read, and the nightly scan's. Ordered by URGENCY: owed a decision AND changing a signal row
+    inside a signal's live read horizon at ``asof`` first (``in_window``), then the rest by ticker and
+    acceptance (newest first). ``horizons`` is ``{code: days}`` from the detectors' own declarations
+    (``signals.horizons.insider_signal_codes``; its keys are the signal codes) — derived when omitted; without
+    ``asof`` nothing is in-window. Read-only."""
+    if horizons is None:
+        horizons = default_horizons()
+    codes = frozenset(horizons)
     sid_filter = list(security_ids) if security_ids is not None else None
     where = "" if sid_filter is None else " WHERE x.security_id = ANY(%(ids)s)"
     p: dict[str, Any] = {"ids": sid_filter}
@@ -328,6 +356,17 @@ def items(
                 | set(eff.original_accessions)
                 | set(eff.voided_accessions)
             )
+            amend_rows = list(f.get("rows") or [])
+            before, after = before_after(
+                eff.disposition,
+                original_accessions=eff.original_accessions,
+                voided_accessions=eff.voided_accessions,
+                candidate_accessions=eff.candidate_accessions,
+                stored=held_cache[sid],
+                amend_rows=amend_rows,
+            )
+            changed = changed_signal_rows(eff.disposition, before, after, codes)
+            auto = verdict is not None and verdict.get("basis") == BASIS_NO_SIGNAL_EFFECT
             out.append(
                 AmendmentItem(
                     security_id=sid,
@@ -351,10 +390,17 @@ def items(
                         key=lambda d: (d["recorded_at"], str(d["id"])),
                     ),
                     originals={a: held_cache[sid].get(a, []) for a in sorted(wanted)},
+                    signal_effect=bool(changed),
+                    auto_resolved=auto and eff.status == "applied",
+                    in_window=(
+                        in_window_codes(changed, asof, horizons) if asof is not None else ()
+                    ),
+                    touches_buy=any(r.get("txn_code") == "P" for r in (*before, *after)),
                 )
             )
     out.sort(
         key=lambda i: (
+            not (i.needs_operator and i.in_window),
             i.ticker or "",
             -(i.accepted.timestamp() if i.accepted else i.recorded_at.timestamp()),
             i.accession,
@@ -363,13 +409,28 @@ def items(
     return out
 
 
+def default_horizons() -> dict[str, int | None]:
+    """``{code: days}`` a CALL signal reads from ``fact_insider_txn`` — the registered detectors' own
+    declarations under the config the cron runs (lazy: the detector registry sits above the repository).
+    """
+    from domain.config import DEFAULT_CONFIG
+    from signals.horizons import insider_signal_codes
+
+    return insider_signal_codes(DEFAULT_CONFIG)
+
+
 def pending_keys(
-    conn: psycopg.Connection, *, security_ids: Iterable[UUID]
+    conn: psycopg.Connection,
+    *,
+    security_ids: Iterable[UUID],
+    asof: date | None = None,
+    horizons: Mapping[str, int | None] | None = None,
 ) -> dict[str, AmendmentItem]:
     """``"<security_id>:<accession>" -> item`` for every amendment OWED an operator decision among these
-    securities — the nightly scan's inventory (it pages the NEW ones once)."""
+    securities — the nightly scan's inventory (it pages the NEW ones once), urgency-ordered (``items``). The
+    ones the system resolved (no signal effect) are applied, so never here and never paged."""
     return {
         f"{i.security_id}:{i.accession}": i
-        for i in items(conn, security_ids=security_ids)
+        for i in items(conn, security_ids=security_ids, asof=asof, horizons=horizons)
         if i.needs_operator
     }

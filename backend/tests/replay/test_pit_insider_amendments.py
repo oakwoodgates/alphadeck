@@ -36,10 +36,11 @@ _KEY = ("accession", "insider_name", "valid_from", "txn_seq")
 
 def _seed(db) -> dict[str, object]:
     """Every disposition the resolver acts on, from the real filings: ATCH corrections, the FLS void, the TDG
-    duplicates, the SKYT ambiguous pair, the AZTA power-of-attorney void, and a VWAV other-issuer filing
-    stored the way the leg stored it before R8-A."""
+    duplicates, the SKYT ambiguous pair, the AZTA power-of-attorney void, the AVAV grant-only void the
+    system resolved (its ``system:no-signal-effect`` decision rides the mirror too), the FRHC field change,
+    and a VWAV other-issuer filing stored the way the leg stored it before R8-A."""
     sids: dict[str, object] = {}
-    for t in ("ATCH", "FLS", "TDG", "SKYT", "AZTA"):
+    for t in ("ATCH", "FLS", "TDG", "SKYT", "AZTA", "AVAV", "FRHC"):
         sid = make_security(db, t)
         ingest_originals(db, sid, t, recorded_at=T_ORIG)
         for acc in amendments_of(t):

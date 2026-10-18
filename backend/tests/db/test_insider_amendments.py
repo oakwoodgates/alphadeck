@@ -243,6 +243,104 @@ def test_an_ambiguous_link_suppresses_nothing_until_linked_and_applied(db):
     assert _rows(db, sid, asof) == original
 
 
+# --- the signal-effect rule (operator-approved 2026-10-18) -------------------------------------------------
+
+
+def _decisions(db, sid) -> list[dict]:
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT * FROM insider_amendment_decision WHERE security_id = %s ORDER BY recorded_at, id",
+            (sid,),
+        )
+        return cur.fetchall()
+
+
+def _item(db, sid, accession):
+    return next(
+        i for i in insider_amendment_repo.items(db, security_ids=[sid]) if i.accession == accession
+    )
+
+
+def test_a_grant_only_void_is_resolved_by_the_system_and_its_undo_routes_it(db):
+    """AVAV: a zero-row 4/A voiding an original of code-A grants only — no call signal reads those rows, so
+    the ingest appends the system's apply (basis system:no-signal-effect) in its own transaction; the Undo
+    returns it to the operator, pending."""
+    sid = make_security(db, "AVAV")
+    ingest_originals(db, sid, "AVAV")
+    out = ingest_amendment(db, sid, "0001538012-26-000006")
+    assert out.link.auto_resolved and not out.link.signal_effect
+    (d,) = _decisions(db, sid)
+    assert (d["action"], d["basis"]) == ("apply", "system:no-signal-effect")
+    it = _item(db, sid, "0001538012-26-000006")
+    assert it.auto_resolved and not it.needs_operator and it.effective.status == "applied"
+    asof = date(2026, 7, 31)
+    assert _rows(db, sid, asof) == []  # the void applies (grants suppressed) — no call reads them
+    assert _count(db, "fact_insider_txn", sid) == 2  # suppressed at read, never deleted
+    insider_amendment_repo.revoke(db, d["id"], reason="look at it", basis="operator:revoke")
+    db.commit()
+    it = _item(db, sid, "0001538012-26-000006")
+    assert it.needs_operator and not it.auto_resolved  # back in the operator queue
+    insider_amendment_repo.decide(
+        db, sid, "0001538012-26-000006", "keep", reason="a holdings fix", basis="operator:keep"
+    )
+    db.commit()
+    assert len(_rows(db, sid, asof)) == 2  # the grants stand
+
+
+def test_an_identical_signal_row_addition_is_resolved_by_the_system(db):
+    """MASS: the 4/A adds a code-M row beside the original's UNCHANGED sale — applied by the system, the
+    sale reads exactly as before (the amendment's own row now)."""
+    sid = make_security(db, "MASS")
+    ingest_originals(db, sid, "MASS")
+    asof = date(2026, 3, 31)
+    sale_before = [(r["txn_code"], float(r["shares"])) for r in _rows(db, sid, asof)]
+    out = ingest_amendment(db, sid, "0002115341-26-000008")
+    assert (out.link.disposition, out.link.auto_resolved) == ("addition", True)
+    after = _rows(db, sid, asof)
+    assert sorted(r["txn_code"] for r in after) == ["M", "S"]
+    assert [
+        (r["txn_code"], float(r["shares"])) for r in after if r["txn_code"] == "S"
+    ] == sale_before
+
+
+def test_frhc_role_restatement_routes_to_the_operator_and_applies_on_ratify(db):
+    sid = make_security(db, "FRHC")
+    ingest_originals(db, sid, "FRHC")
+    out = ingest_amendment(db, sid, "0000929638-26-003399")
+    assert (out.link.disposition, out.link.status) == ("field_change", "pending")
+    assert _decisions(db, sid) == []  # nothing decided for the operator
+    asof = date(2026, 8, 31)
+    assert {r["insider_role"] for r in _rows(db, sid, asof)} == {
+        "Chief Financial Officer"
+    }  # pending
+    d = insider_amendment_repo.decide(
+        db, sid, "0000929638-26-003399", "apply", reason="title corrected", basis="operator:apply"
+    )
+    db.commit()
+    assert {r["insider_role"] for r in _rows(db, sid, asof)} == {"Special Advisor to CEO"}
+    insider_amendment_repo.revoke(db, d["id"], reason="undo", basis="operator:revoke")
+    db.commit()
+    assert {r["insider_role"] for r in _rows(db, sid, asof)} == {"Chief Financial Officer"}
+
+
+def test_the_urgency_marks_what_sits_inside_tonights_signal_windows(db):
+    """In-window = a changed signal row inside a signal's live read horizon (the detectors' own) at asof."""
+    sids = {t: seed(db, t) for t in ("FLS", "AZTA", "TDG", "FRHC")}
+    asof = date(2026, 10, 16)
+    got = {
+        i.ticker: i.in_window
+        for i in insider_amendment_repo.items(db, security_ids=list(sids.values()), asof=asof)
+    }
+    assert got == {
+        "FLS": ("P",),
+        "TDG": ("S",),
+        "FRHC": ("S",),
+        "AZTA": (),
+    }  # AZTA's buy is 2025-08-11
+    first = insider_amendment_repo.items(db, security_ids=list(sids.values()), asof=asof)
+    assert [i.ticker for i in first][-1] == "AZTA"  # in-window items first
+
+
 # --- PIT: the link's recorded_at gates it -------------------------------------------------------------------
 
 

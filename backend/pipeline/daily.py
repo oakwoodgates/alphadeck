@@ -663,6 +663,7 @@ def assess_health(
     split_defects_new: tuple[str, ...] = (),
     successor_cik_new: tuple[str, ...] = (),
     insider_amendments_new: tuple[str, ...] = (),
+    insider_amendments_more: int = 0,
 ) -> HealthEvent | None:
     """R4 — the run's pageable health, or None when the run was clean (loudness marks the exception). Unhealthy
     = a FREEZE (a live run whose EDGAR fetches summed to ZERO across present theses — the R1 cache-never-
@@ -717,7 +718,8 @@ def assess_health(
     data gap the operator's Adopt repairs, not a cron fault — it pages once.
 
     R8-A — ``insider_amendments_new`` are the labels of Form 4/A amendments NEWLY owed the operator's
-    decision (``pipeline/insider_amendment_scan.py``). Benign-class the same way: the decision is the
+    decision inside tonight's signal windows (every one named), ``insider_amendments_more`` the count of the
+    other new ones (``pipeline/insider_amendment_scan.py``). Benign-class the same way: the decision is the
     operator's, the run did its job — it pages once.
     """
     theses = len(results)
@@ -741,6 +743,7 @@ def assess_health(
         or split_defects_new
         or successor_cik_new
         or insider_amendments_new
+        or insider_amendments_more
     ):
         return None  # healthy — no page
     return HealthEvent(
@@ -759,6 +762,7 @@ def assess_health(
         split_defects_new=tuple(split_defects_new),
         successor_cik_new=tuple(successor_cik_new),
         insider_amendments_new=tuple(insider_amendments_new),
+        insider_amendments_more=insider_amendments_more,
     )
 
 
@@ -1261,6 +1265,7 @@ def _run_daily_pass_locked(
     # whole from the amendment tables and diffed against the last evaluated pass so a NEW one pages once.
     # BEFORE the artifact, for the same reason as the diffs above. Fail-open (a fault rides `error`).
     amendments = timed("amendment_scan")(run_amendment_scan)(
+        asof=asof,
         allow_live=allow_live,
         connect=_pass_connect,
         previous=previous_amendment_keys,
@@ -1351,6 +1356,7 @@ def _run_daily_pass_locked(
         successor_cik_new=successor.new_labels,
         # R8-A — the NEW Form 4/A amendments owed a decision page once (benign-class)
         insider_amendments_new=amendments.new_labels,
+        insider_amendments_more=amendments.new_more,
     )
     if health is not None:
         timed("health_page")(notifier.notify_health)(health)

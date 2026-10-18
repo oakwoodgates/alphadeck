@@ -299,10 +299,13 @@ class HealthEvent:
     # benign-class like a stale feed: it pages once and never makes the Admin verdict unhealthy.
     successor_cik_new: tuple[str, ...] = ()
     # R8-A — Form 4/A amendments NEW since the previous evaluated pass and OWED the operator's decision
-    # (``pipeline/insider_amendment_scan.py``), each a ``"<ticker> <accession>: <disposition> — ..."`` label.
-    # Benign-class (the run did its job; the decision is the operator's): it pages once, never re-pages a
-    # known one, and never makes the Admin verdict unhealthy. Applied 1:1 corrections never page.
+    # (``pipeline/insider_amendment_scan.py``): ``insider_amendments_new`` NAMES every one inside tonight's
+    # signal windows (a ``"<ticker> <accession>: <disposition> — ..."`` label each, never collapsed into a
+    # count) and ``insider_amendments_more`` COUNTS the rest. Benign-class (the run did its job; the decision
+    # is the operator's): it pages once, never re-pages a known one, and never makes the Admin verdict
+    # unhealthy. Applied corrections and the system-resolved no-signal-effect amendments never page.
     insider_amendments_new: tuple[str, ...] = ()
+    insider_amendments_more: int = 0
 
     @property
     def withheld(self) -> int:
@@ -369,11 +372,12 @@ class HealthEvent:
                 "page, not a cron error"
             )
         # R8-A — a Form 4/A owed the operator's decision (a pending void suppresses its original meanwhile)
-        if self.insider_amendments_new:
+        if self.insider_amendments_new or self.insider_amendments_more:
+            n = len(self.insider_amendments_new) + self.insider_amendments_more
             bits.append(
-                f"{len(self.insider_amendments_new)} Form 4/A amendment(s) NEW and owed your decision: "
-                f"{page_text(self.insider_amendments_new)} — ratify on the Admin Insider amendments panel, "
-                "not a cron error"
+                f"{n} Form 4/A amendment(s) NEW and owed your decision: "
+                f"{page_text(self.insider_amendments_new, self.insider_amendments_more)} — ratify on the "
+                "Admin Insider amendments panel, not a cron error"
             )
         return f"cron {self.asof}: " + " · ".join(bits)
 

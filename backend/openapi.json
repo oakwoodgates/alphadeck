@@ -2547,7 +2547,7 @@
           "admin"
         ],
         "summary": "List Amendments",
-        "description": "Every stored Form 4/A with its link, disposition, effective status and evidence, bucketed for the\npanel (pending loud; decided / applied / inert quiet). Read-only.",
+        "description": "Every stored Form 4/A with its link, disposition, effective status and evidence, bucketed for the\npanel (pending loud, the ones inside today's signal windows first; decided / applied \u2014 no signal effect /\napplied / inert quiet). Read-only.",
         "operationId": "list_amendments_admin_insider_amendments_get",
         "responses": {
           "200": {
@@ -3683,6 +3683,23 @@
             "type": "boolean",
             "title": "Touches Buy",
             "default": false
+          },
+          "signal_effect": {
+            "type": "boolean",
+            "title": "Signal Effect",
+            "default": true
+          },
+          "auto_resolved": {
+            "type": "boolean",
+            "title": "Auto Resolved",
+            "default": false
+          },
+          "in_window": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "In Window"
           }
         },
         "type": "object",
@@ -3695,7 +3712,7 @@
           "status"
         ],
         "title": "AdminInsiderAmendmentOut",
-        "description": "One Form 4/A and everything the operator needs to ratify it.\n\n``disposition`` is what it changed (``domain.insider_amendments``); ``status`` its EFFECTIVE state \u2014\n``pending`` (owed a decision; a pending void/duplicates SUPPRESSES its target meanwhile), ``applied``\n(auto-applied correction, or ratified), ``kept`` (the original stands) or ``inert`` (nothing to do).\n``suppressing`` = the original accession(s) it currently removes from every read; ``undo_id`` = the\nstanding decision an Undo reverses (the verdict first, else the link). ``touches_buy`` = a code-P row on\neither side (the loudness hint). ``filing_url`` = the 4/A's EDGAR filing index."
+        "description": "One Form 4/A and everything the operator needs to ratify it.\n\n``disposition`` is what it changed (``domain.insider_amendments``); ``status`` its EFFECTIVE state \u2014\n``pending`` (owed a decision; a pending void/duplicates SUPPRESSES its target meanwhile), ``applied``\n(auto-applied correction, or ratified), ``kept`` (the original stands) or ``inert`` (nothing to do).\n``suppressing`` = the original accession(s) it currently removes from every read; ``undo_id`` = the\nstanding decision an Undo reverses (the verdict first, else the link). ``touches_buy`` = a code-P row on\neither side (the loudness hint). ``filing_url`` = the 4/A's EDGAR filing index.\n\nThe signal-effect rule (2026-10-18): ``signal_effect`` = its effect changes a row a call signal reads (a\ncode a registered detector declares, compared with the owner's role / name and the 10b5-1 flag);\n``auto_resolved`` = the SYSTEM applied it because it has none (basis ``system:no-signal-effect`` \u2014 its Undo\nreturns it to the operator queue); ``in_window`` = the signal codes whose changed rows sit inside a\nsignal's live read horizon today (the detectors' own horizons) \u2014 it can move tonight's call."
       },
       "AdminInsiderAmendmentsOut": {
         "properties": {
@@ -3712,6 +3729,13 @@
             },
             "type": "array",
             "title": "Decided"
+          },
+          "auto": {
+            "items": {
+              "$ref": "#/components/schemas/AdminInsiderAmendmentOut"
+            },
+            "type": "array",
+            "title": "Auto"
           },
           "applied": {
             "items": {
@@ -3731,11 +3755,23 @@
             "type": "integer",
             "title": "Total",
             "default": 0
+          },
+          "asof": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asof"
           }
         },
         "type": "object",
         "title": "AdminInsiderAmendmentsOut",
-        "description": "The \"Insider amendments\" panel. ``pending`` is LOUD (owed a decision, newest first per name);\n``decided`` (a standing operator decision, each undoable), ``applied`` (auto-applied 1:1 corrections,\neach overrulable with Keep original) and ``inert`` (clerical / no Table I rows / no stored original \u2014\nnothing to do) are QUIET lists, still visible (#9 / WB#2). Read live from the amendment tables."
+        "description": "The \"Insider amendments\" panel. ``pending`` is LOUD (owed a decision \u2014 the IN-WINDOW ones first, those\nthat can move tonight's call); ``decided`` (a standing operator decision, each undoable), ``auto``\n(\"applied \u2014 no signal effect\": resolved by the system because no call signal reads a row it changes, each\nwith its Undo), ``applied`` (auto-applied 1:1 corrections, each overrulable with Keep original) and\n``inert`` (clerical / no Table I rows / no stored original \u2014 nothing to do) are QUIET lists, still visible\n(#9 / WB#2). ``asof`` is the market day the in-window urgency was judged at. Read live from the tables."
       },
       "AdminInsiderDecisionOut": {
         "properties": {

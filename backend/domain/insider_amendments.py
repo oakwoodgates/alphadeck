@@ -21,7 +21,11 @@ rows — what ``fact_insider_txn`` stores) on the fields the detectors read: cod
 disposition         when                                        effect (see ``effect_of``)
 ==================  ==========================================  =========================================
 ``no_rows``         no Table I rows on either side              none (inert)
-``clerical``        Table I identical                           none (inert) — never double-counts
+``clerical``        Table I identical and no signal row         none (inert) — never double-counts
+                    changes in any other field
+``field_change``    Table I identical, but a field a call       PENDING; no provisional effect (applied:
+                    signal reads changed on a signal row (the   the amendment's rows replace — FRHC's
+                    owner's role or name, the 10b5-1 flag)      CFO -> "Special Advisor to CEO")
 ``unlinked``        no stored original found                    none (inert, listed)
 ``correction``      same row count, every changed row pairs     AUTO-APPLIED: the amendment's rows replace
                     1:1 (same date+code, else date, else           the original's, as of the link's
@@ -43,6 +47,19 @@ disposition         when                                        effect (see ``ef
                                                                 original; surfaced loudly with the
                                                                 candidates until the operator links one
 ==================  ==========================================  =========================================
+
+THE SIGNAL-EFFECT RULE (operator-approved 2026-10-18). A routed amendment (void / duplicates / partial /
+consolidation / addition / restatement) whose effect changes NO row a CALL signal reads has no call effect, so
+it is RESOLVED BY THE SYSTEM — applied, with an append-only ``apply`` decision whose basis is
+``system:no-signal-effect`` (``BASIS_NO_SIGNAL_EFFECT``), visible on Admin as "applied — no signal effect" with
+its Undo, and never paged. Decided by CONTENT, never by date window or detector screen: the "signal rows" are
+the rows whose transaction code a registered call detector reads (``signal_codes`` — derived from each
+detector's declared ``txn_codes``, ``signals.horizons.insider_signal_codes``; today ``P`` and ``S``), compared
+on code, date, shares, price, the 10b5-1 flag (as the screens read it — only an explicit ``True`` is planned)
+AND the reporting owner's role and name (seniority reads the role). An AMBIGUOUS link always routes (it has
+no target to apply), and an operator-linked one waits for the operator. MEASURED 2026-10-18 on the first-night
+backlog (prod, read-only): of the 181 formerly routed, 56 change a signal row and 4 are ambiguous; 7 field
+changes the old Table-I-only clerical rule hid join them -> 67 owed the operator; 121 resolve themselves.
 
 Why partial / consolidation / addition / restatement carry NO provisional effect while a void does: the
 operator's condition is about CANCELLATIONS, and only a zero-row amendment (or a named duplicate) states
@@ -75,15 +92,16 @@ never screens the predecessor's own history. An empty ``own_ciks`` or a NULL ``i
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
-from datetime import date, datetime
+from collections.abc import Collection, Iterable, Mapping, Sequence
+from dataclasses import dataclass, field, replace
+from datetime import date, datetime, timedelta
 from typing import Any
 
 # --- the vocabulary -----------------------------------------------------------------------------------
 
 NO_ROWS = "no_rows"
 CLERICAL = "clerical"
+FIELD_CHANGE = "field_change"
 UNLINKED = "unlinked"
 CORRECTION = "correction"
 VOID = "void"
@@ -97,6 +115,7 @@ AMBIGUOUS = "ambiguous"
 DISPOSITIONS: tuple[str, ...] = (
     NO_ROWS,
     CLERICAL,
+    FIELD_CHANGE,
     UNLINKED,
     CORRECTION,
     VOID,
@@ -114,8 +133,11 @@ AUTO_DISPOSITIONS = frozenset({CORRECTION})
 # routed to the operator; a CANCELLATION suppresses its target while it is pending
 SUPPRESS_WHILE_PENDING = frozenset({VOID, DUPLICATES})
 # routed to the operator; nothing changes until the operator applies it
-ROUTED_NO_PROVISIONAL = frozenset({PARTIAL, CONSOLIDATION, ADDITION, RESTATEMENT})
+ROUTED_NO_PROVISIONAL = frozenset({PARTIAL, CONSOLIDATION, ADDITION, RESTATEMENT, FIELD_CHANGE})
 ROUTED_DISPOSITIONS = SUPPRESS_WHILE_PENDING | ROUTED_NO_PROVISIONAL
+
+# the author of a system resolution: a routed amendment that changes no signal row (the signal-effect rule)
+BASIS_NO_SIGNAL_EFFECT = "system:no-signal-effect"
 
 # the link cascade's methods
 METHOD_ORIG_DATE_OWNER = "orig_date_owner"  # issuer (the member) + owner + dateOfOriginalSubmission
@@ -140,18 +162,14 @@ VERDICTS = frozenset({ACTION_APPLY, ACTION_KEEP})
 # the key an EMITTED (amended) row carries: the original accession it supersedes (provenance, #6)
 AMENDS_ACCESSION = "amends_accession"
 
-# A page names at most this many amendments (the count is always whole; the rest are on the Admin panel and in
-# the run artifact): the first pass after deploy finds the whole two-year backlog at once (MEASURED 2026-10-17:
-# ~180 owed a decision), and a page listing 180 carries less than one naming the few that move a call — the
-# nightly scan orders them buy-touching first, then suppressing.
-PAGE_NAMED = 8
 
-
-def page_text(labels: Sequence[str]) -> str:
-    """A page's list of amendment labels: the first ``PAGE_NAMED``, then ``(+N more on the Admin panel)``."""
-    shown = ", ".join(labels[:PAGE_NAMED])
-    more = len(labels) - PAGE_NAMED
-    return f"{shown} (+{more} more on the Admin panel)" if more > 0 else shown
+def page_text(named: Sequence[str], more: int) -> str:
+    """A page's list of NEW amendments owed a decision: EVERY in-window one named (an item that can move
+    tonight's call is never collapsed into a count), the rest counted — ``(+N more in Admin)``."""
+    if not named:
+        return f"none inside tonight's signal windows (+{more} in Admin)" if more else ""
+    shown = ", ".join(named)
+    return f"{shown} (+{more} more in Admin)" if more else shown
 
 
 # ``fact_insider_txn``'s columns, in table order — the shape every resolved row has, so an emitted row reads
@@ -183,13 +201,23 @@ INSIDER_TXN_COLUMNS: tuple[str, ...] = (
 )
 
 
-def status_for(disposition: str) -> str:
-    """The status the SYSTEM gives a link of ``disposition`` (before any decision)."""
+def status_for(disposition: str, signal_effect: bool = True) -> str:
+    """The status the SYSTEM gives a link of ``disposition`` (before any operator decision): a correction is
+    applied; a routed one that changes no signal row is applied BY THE SYSTEM (the signal-effect rule — the
+    ingest records its ``system:no-signal-effect`` decision); a routed one that does, and every ambiguous one,
+    is pending; the rest are inert."""
     if disposition in AUTO_DISPOSITIONS:
         return STATUS_APPLIED
-    if disposition in ROUTED_DISPOSITIONS or disposition == AMBIGUOUS:
+    if disposition == AMBIGUOUS:
         return STATUS_PENDING
+    if disposition in ROUTED_DISPOSITIONS:
+        return STATUS_PENDING if signal_effect else STATUS_APPLIED
     return STATUS_INERT
+
+
+def auto_resolves(disposition: str, signal_effect: bool) -> bool:
+    """Does the system resolve this amendment itself (a routed disposition that changes no signal row)?"""
+    return disposition in ROUTED_DISPOSITIONS and not signal_effect
 
 
 def norm_cik(raw: object) -> str | None:
@@ -230,6 +258,96 @@ def signature(row: Mapping[str, Any]) -> tuple[Any, ...]:
     return (row.get("txn_code"), _row_date(row), _num(row.get("shares")), _num(row.get("price")))
 
 
+def _norm_text(v: object) -> str:
+    """casefold + collapse whitespace — the seniority match is a casefolded keyword test, so a pure case or
+    spacing difference in a role or name is not a change a signal can see."""
+    return " ".join(str(v or "").casefold().split())
+
+
+def signal_signature(row: Mapping[str, Any]) -> tuple[Any, ...]:
+    """Everything a CALL signal reads on one row: the Table I identity, the 10b5-1 flag AS THE SCREENS READ IT
+    (only an explicit ``True`` is planned — ``None`` and ``False`` read the same), and the reporting owner's
+    role and name (seniority and the distinct-insider count read them)."""
+    return (
+        *signature(row),
+        row.get("aff_10b5_1") is True,
+        _norm_text(row.get("insider_role")),
+        _norm_text(row.get("insider_name")),
+    )
+
+
+def signal_rows(
+    rows: Iterable[Mapping[str, Any]], signal_codes: Collection[str]
+) -> Counter[tuple[Any, ...]]:
+    """The multiset of signal signatures of the rows a call signal reads (code in ``signal_codes``)."""
+    return Counter(signal_signature(r) for r in rows if r.get("txn_code") in signal_codes)
+
+
+def before_after(
+    disposition: str,
+    *,
+    original_accessions: Sequence[str],
+    voided_accessions: Sequence[str],
+    candidate_accessions: Sequence[str],
+    stored: Mapping[str, Sequence[Mapping[str, Any]]],
+    amend_rows: Sequence[Mapping[str, Any]],
+) -> tuple[list[Mapping[str, Any]], list[Mapping[str, Any]]]:
+    """``(the stored rows the amendment acts on, the rows it would leave in their place)`` — a void/duplicates
+    removes its targets, every other disposition replaces its originals with the amendment's rows (an
+    ambiguous one with every candidate, its target being unknown)."""
+    if disposition == DUPLICATES:
+        return [r for a in voided_accessions for r in stored.get(a, ())], []
+    if disposition == AMBIGUOUS:
+        return [r for a in candidate_accessions for r in stored.get(a, ())], list(amend_rows)
+    before = [r for a in original_accessions for r in stored.get(a, ())]
+    return before, ([] if disposition == VOID else list(amend_rows))
+
+
+def changed_signal_rows(
+    disposition: str,
+    before: Sequence[Mapping[str, Any]],
+    after: Sequence[Mapping[str, Any]],
+    signal_codes: Collection[str],
+) -> list[Mapping[str, Any]]:
+    """The signal rows the amendment CHANGES: the rows on either side outside the common multiset (by
+    ``signal_signature``). For an AMBIGUOUS link every signal row on either side (its target is unknown).
+    Empty = no signal effect."""
+    if disposition == AMBIGUOUS:
+        return [r for r in (*before, *after) if r.get("txn_code") in signal_codes]
+    common = signal_rows(before, signal_codes) & signal_rows(after, signal_codes)
+    out: list[Mapping[str, Any]] = []
+    for side in (before, after):
+        left = Counter(common)
+        for r in side:
+            if r.get("txn_code") not in signal_codes:
+                continue
+            s = signal_signature(r)
+            if left[s] > 0:
+                left[s] -= 1
+            else:
+                out.append(r)
+    return out
+
+
+def in_window_codes(
+    changed: Iterable[Mapping[str, Any]], asof: date, horizons: Mapping[str, int | None]
+) -> tuple[str, ...]:
+    """The signal codes whose CHANGED rows fall inside the live read horizon at ``asof`` — a row of code ``c``
+    dated on/after ``asof - horizons[c]`` (``None`` = unbounded: any date). ``horizons`` is the detectors' own
+    declaration (``signals.horizons.insider_signal_codes``). Empty = nothing that can move tonight's call.
+    """
+    out: set[str] = set()
+    for r in changed:
+        code = r.get("txn_code")
+        d = _row_date(r)
+        if code not in horizons or d is None or d > asof:
+            continue
+        days = horizons[code]
+        if days is None or d >= asof - timedelta(days=days):
+            out.add(str(code))
+    return tuple(sorted(out))
+
+
 def _pairs_one_to_one(
     amend: Sequence[Mapping[str, Any]], orig: Sequence[Mapping[str, Any]]
 ) -> bool:
@@ -260,9 +378,13 @@ def _pairs_one_to_one(
 
 
 def classify(
-    amend_rows: Sequence[Mapping[str, Any]], original_rows: Sequence[Mapping[str, Any]]
+    amend_rows: Sequence[Mapping[str, Any]],
+    original_rows: Sequence[Mapping[str, Any]],
+    signal_codes: Collection[str],
 ) -> str:
-    """What one amendment changed against ONE linked original's stored rows (see the module table)."""
+    """What one amendment changed against ONE linked original's stored rows (see the module table). With Table
+    I identical it is CLERICAL only when no signal row changed in another field a signal reads (the owner's role
+    or name, the 10b5-1 flag) — else FIELD_CHANGE, which routes (never "clerical / no change")."""
     if not amend_rows and not original_rows:
         return NO_ROWS
     if not amend_rows:
@@ -270,6 +392,8 @@ def classify(
     if not original_rows:
         return ADDITION
     if Counter(signature(r) for r in amend_rows) == Counter(signature(r) for r in original_rows):
+        if signal_rows(amend_rows, signal_codes) != signal_rows(original_rows, signal_codes):
+            return FIELD_CHANGE
         return CLERICAL
     if len(amend_rows) == len(original_rows):
         return CORRECTION if _pairs_one_to_one(amend_rows, original_rows) else RESTATEMENT
@@ -307,6 +431,10 @@ class LinkResult:
     candidate_accessions: tuple[str, ...] = ()
     owner_ciks: tuple[str, ...] = ()
     why: str = ""
+    # the signal-effect rule: does its effect change a row a call signal reads, and so does the SYSTEM resolve
+    # it (a routed disposition with no signal effect — the ingest records a ``system:no-signal-effect`` apply)
+    signal_effect: bool = True
+    auto_resolved: bool = False
 
 
 def _owner_keys(owners: Iterable[tuple[str | None, str | None]]) -> tuple[set[str], set[str]]:
@@ -338,6 +466,35 @@ def link_amendment(
     amendment: AmendmentFacts,
     stored: Mapping[str, Sequence[Mapping[str, Any]]],
     filed_by_accession: Mapping[str, date],
+    signal_codes: Collection[str],
+) -> LinkResult:
+    """PURE — link the 4/A (``_cascade``), then apply the signal-effect rule: ``signal_effect`` = its effect
+    changes a row a call signal reads (``signal_codes``); a routed disposition without one is resolved by the
+    system (``auto_resolved``, status ``applied``)."""
+    base = _cascade(amendment, stored, filed_by_accession, signal_codes)
+    pool = {acc: rows for acc, rows in stored.items() if acc != amendment.accession and rows}
+    before, after = before_after(
+        base.disposition,
+        original_accessions=base.original_accessions,
+        voided_accessions=base.voided_accessions,
+        candidate_accessions=base.candidate_accessions,
+        stored=pool,
+        amend_rows=list(amendment.rows),
+    )
+    effect = bool(changed_signal_rows(base.disposition, before, after, signal_codes))
+    return replace(
+        base,
+        signal_effect=effect,
+        status=status_for(base.disposition, effect),
+        auto_resolved=auto_resolves(base.disposition, effect),
+    )
+
+
+def _cascade(
+    amendment: AmendmentFacts,
+    stored: Mapping[str, Sequence[Mapping[str, Any]]],
+    filed_by_accession: Mapping[str, date],
+    signal_codes: Collection[str],
 ) -> LinkResult:
     """PURE — find the 4/A's original among the security's STORED Form 4 rows and classify the change.
 
@@ -359,7 +516,7 @@ def link_amendment(
     pool = {acc: rows for acc, rows in stored.items() if acc != amendment.accession and rows}
 
     def linked(method: str, original: str, why: str) -> LinkResult:
-        disp = classify(amend_rows, pool[original])
+        disp = classify(amend_rows, pool[original], signal_codes)
         return LinkResult(
             method=method,
             disposition=disp,
@@ -464,11 +621,13 @@ def link_to_candidate(
     amend_rows: Sequence[Mapping[str, Any]],
     target: str,
     target_rows: Sequence[Mapping[str, Any]],
+    signal_codes: Collection[str],
 ) -> tuple[str, tuple[str, ...]]:
     """The operator's ``link`` of an AMBIGUOUS amendment to ``target``: ``(disposition, originals)`` computed
     against the target's stored rows — stored on the decision, so the read applies it without recomputing.
-    """
-    return classify(amend_rows, target_rows), (target,)
+    An operator-linked amendment then waits for the operator's verdict (never resolved by the system: the
+    operator is already deciding it)."""
+    return classify(amend_rows, target_rows, signal_codes), (target,)
 
 
 # --- the effective state at one read -------------------------------------------------------------------

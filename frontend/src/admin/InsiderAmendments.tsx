@@ -26,7 +26,9 @@ type Amendment = Omit<
   | "amendment_rows"
   | "originals"
   | "decisions"
+  | "in_window"
 > & {
+  in_window: string[];
   owners: string[];
   footnotes: string[];
   suppressing: string[];
@@ -38,6 +40,7 @@ type Amendment = Omit<
 
 const norm = (a: AdminInsiderAmendmentOut): Amendment => ({
   ...a,
+  in_window: a.in_window ?? [],
   owners: a.owners ?? [],
   footnotes: a.footnotes ?? [],
   suppressing: a.suppressing ?? [],
@@ -47,7 +50,10 @@ const norm = (a: AdminInsiderAmendmentOut): Amendment => ({
   decisions: a.decisions ?? [],
 });
 
-const bucket = (d: AdminInsiderAmendmentsOut, k: "pending" | "decided" | "applied" | "inert") =>
+const bucket = (
+  d: AdminInsiderAmendmentsOut,
+  k: "pending" | "decided" | "auto" | "applied" | "inert",
+) =>
   (d[k] ?? []).map(norm);
 
 /** What each disposition means, in the operator's words (backend: domain/insider_amendments.py). */
@@ -59,6 +65,7 @@ const DISPOSITION: Record<string, string> = {
   addition: "ADDITION — more rows than the original",
   restatement: "RESTATEMENT — rows that do not pair 1:1 with the original's",
   ambiguous: "AMBIGUOUS — more than one original it could amend",
+  field_change: "FIELD CHANGE — Table I unchanged, but the owner's role / name or the 10b5-1 flag on a buy or sale changed",
   correction: "CORRECTION — 1:1 rows, applied automatically",
   clerical: "clerical — Table I unchanged",
   no_rows: "no Table I rows on either side",
@@ -111,7 +118,9 @@ function Evidence({ a }: { a: Amendment }) {
   );
 }
 
-function Header({ a }: { a: Amendment }) {
+/** `owed` = the row sits in the decision queue — only there does "inside today's window" mark the exception
+ *  (honest loudness); a decided amendment in a window is already settled. */
+function Header({ a, owed = false }: { a: Amendment; owed?: boolean }) {
   return (
     <div>
       <b>{a.ticker ?? a.security_id}</b> — Form 4/A{" "}
@@ -124,16 +133,26 @@ function Header({ a }: { a: Amendment }) {
       )}{" "}
       filed {a.filed ?? "—"} by {a.owners.join(", ") || "—"} · {DISPOSITION[a.disposition] ?? a.disposition}
       {a.touches_buy ? " · touches a code-P buy" : ""}
+      {owed && a.in_window.length > 0 && (
+        <span className="adm-loud" data-testid="adm-amend-in-window">
+          {" "}
+          · in today's {a.in_window.join("/")} signal window — can move tonight's call
+        </span>
+      )}
     </div>
   );
 }
 
-/** The "Insider amendments" panel (R8-A): every stored Form 4/A, LOUD only where a decision is owed — a
- *  void or a duplicates set (each SUPPRESSING its original meanwhile, so a cancelled buy never fires), a
- *  partial / consolidation / addition / restatement (no effect until applied), an ambiguous link (pick the
- *  original). The auto-applied 1:1 corrections, the decided ones and the inert ones are QUIET lists that open
- *  (still visible, never dropped — #9/WB#2). Every action has its Undo beside it (WB#1); nothing here is
- *  decided by the system (#3). Renders nothing when no amendment is stored (honest loudness). */
+/** The "Insider amendments" panel (R8-A): every stored Form 4/A, LOUD only where a decision is owed — an
+ *  amendment whose effect changes a buy or sale a call signal reads (a void or a duplicates set SUPPRESSES
+ *  its original meanwhile, so a cancelled buy never fires; a partial / consolidation / addition /
+ *  restatement / field change has no effect until applied), or an ambiguous link (pick the original). The
+ *  ones inside today's signal windows sort first and say so (the server orders them by the detectors' own
+ *  horizons). An amendment that changes NO signal row is applied by the system (basis
+ *  `system:no-signal-effect`) and listed quietly as "applied — no signal effect" with its Undo, which
+ *  returns it to the queue. The auto-applied 1:1 corrections, the decided ones and the inert ones are QUIET
+ *  lists that open too (still visible, never dropped — #9/WB#2). Every action has its Undo beside it (WB#1).
+ *  Renders nothing when no amendment is stored (honest loudness). */
 export function InsiderAmendments() {
   const q = useInsiderAmendments();
   const apply = useApplyAmendment();
@@ -155,6 +174,7 @@ export function InsiderAmendments() {
   const data = {
     pending: bucket(q.data, "pending"),
     decided: bucket(q.data, "decided"),
+    auto: bucket(q.data, "auto"),
     applied: bucket(q.data, "applied"),
     inert: bucket(q.data, "inert"),
   };
@@ -175,7 +195,7 @@ export function InsiderAmendments() {
               const ambiguous = a.disposition === "ambiguous" && !linkDecision;
               return (
                 <li key={`${a.security_id}:${a.accession}`} data-testid="adm-amend-row">
-                  <Header a={a} />
+                  <Header a={a} owed />
                   <div className="adm-sub">
                     {a.suppressing.length
                       ? `Suppressing ${a.suppressing.join(", ")} from every call until you decide.`
@@ -265,6 +285,36 @@ export function InsiderAmendments() {
                     Undo
                   </button>
                 )}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
+      {data.auto.length > 0 && (
+        <details className="adm-quietlist" data-testid="adm-amend-auto">
+          <summary className="adm-line adm-quiet">
+            {data.auto.length} applied — no signal effect (resolved by the system, never paged; each undoable)
+          </summary>
+          <ul className="adm-problems adm-quietrows">
+            {data.auto.map((a) => (
+              <li key={`${a.security_id}:${a.accession}`} data-testid="adm-amend-auto-row">
+                <Header a={a} />
+                <span className="adm-sub">
+                  applied by the system — it changes no buy or sale a call signal reads
+                  {a.suppressing.length ? ` · suppressing ${a.suppressing.join(", ")}` : ""}
+                </span>{" "}
+                {a.undo_id && (
+                  <button
+                    type="button"
+                    className="adm-minibtn"
+                    disabled={busy}
+                    onClick={() => revoke.mutate({ decisionId: a.undo_id! })}
+                  >
+                    Undo
+                  </button>
+                )}
+                <Evidence a={a} />
               </li>
             ))}
           </ul>

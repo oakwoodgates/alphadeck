@@ -29,7 +29,7 @@ def _accessions(db, sid, asof):
 
 def _by_acc(body: dict) -> dict[str, tuple[str, dict]]:
     out = {}
-    for bucket in ("pending", "decided", "applied", "inert"):
+    for bucket in ("pending", "decided", "auto", "applied", "inert"):
         for it in body[bucket]:
             out[it["accession"]] = (bucket, it)
     return out
@@ -142,3 +142,35 @@ def test_nothing_to_ratify_on_an_inert_amendment(client, db):
     assert r.status_code == 409 and "clerical" in r.json()["detail"]
     assert client.post(f"{BASE}/{sid}/0000000000-00-000000/apply").status_code == 404
     assert client.post(f"{BASE}/{sid}/not-an-accession/apply").status_code == 422
+
+
+def test_a_no_signal_effect_amendment_is_listed_applied_by_the_system_with_its_undo(client, db):
+    """AVAV's grant-only void resolved itself (basis system:no-signal-effect): the panel lists it quietly as
+    "applied — no signal effect" with an Undo, and the Undo puts it in the operator queue."""
+    sid = seed(db, "AVAV")
+    acc = "0001538012-26-000006"
+    bucket, it = _by_acc(client.get(BASE).json())[acc]
+    assert bucket == "auto"
+    assert (it["status"], it["auto_resolved"], it["signal_effect"]) == ("applied", True, False)
+    assert it["undo_id"] and it["suppressing"] == ["0001538012-26-000004"]
+    system = next(d for d in it["decisions"] if d["standing"])
+    assert (system["action"], system["basis"]) == ("apply", "system:no-signal-effect")
+    assert client.post(f"{BASE}/{sid}/{acc}/keep").status_code == 409  # undo the system's first
+    undone = client.post(f"{BASE}/decisions/{it['undo_id']}/revoke").json()
+    assert undone["status"] == "pending" and not undone["auto_resolved"]
+    assert _by_acc(client.get(BASE).json())[acc][0] == "pending"
+
+
+def test_pending_lists_the_in_window_items_first(client, db, monkeypatch):
+    """The panel judges the urgency at today's market day; pinned here to 2026-10-16 so the real filings
+    sit where they did that night: FLS / TDG / FRHC inside a signal window, AZTA (2025) outside."""
+    from app.routers import admin_insider_amendments as router_mod
+
+    monkeypatch.setattr(router_mod, "market_today", lambda: date(2026, 10, 16))
+    for t in ("AZTA", "FLS", "TDG", "FRHC"):
+        seed(db, t)
+    body = client.get(BASE).json()
+    assert body["asof"] == "2026-10-16"
+    order = [(i["ticker"], i["in_window"]) for i in body["pending"]]
+    assert order[-1] == ("AZTA", [])
+    assert {t for t, w in order[:-1]} == {"FLS", "TDG", "FRHC"} and all(w for _, w in order[:-1])

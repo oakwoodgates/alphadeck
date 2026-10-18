@@ -35,6 +35,7 @@ from psycopg.types.json import Json
 
 from db.session import DEFAULT_TENANT_ID
 from domain.insider_amendments import (
+    BASIS_NO_SIGNAL_EFFECT,
     STATUS_PENDING,
     AmendmentFacts,
     LinkResult,
@@ -68,6 +69,16 @@ class ParsedAmendment:
     footnotes: tuple[dict[str, str], ...]
     rows: tuple[dict[str, Any], ...]  # the non-derivative transactions, ``parse_form4``'s row shape
     derivative_count: int
+
+
+def default_signal_codes() -> frozenset[str]:
+    """The codes a CALL signal reads from ``fact_insider_txn``, derived from the registered detectors' declared
+    ``txn_codes`` under the config the cron runs (``signals.horizons.insider_signal_codes``). Imported lazily:
+    the detector registry sits above the ingest."""
+    from domain.config import DEFAULT_CONFIG
+    from signals.horizons import insider_signal_codes
+
+    return frozenset(insider_signal_codes(DEFAULT_CONFIG))
 
 
 def _opt_date(raw: str | None) -> date | None:
@@ -129,7 +140,8 @@ def stored_rows_by_accession(
     with conn.cursor() as cur:
         cur.execute(
             "SELECT DISTINCT ON (accession, insider_name, valid_from, txn_seq) "
-            "accession, insider_name, valid_from, txn_seq, txn_code, shares, price, rpt_owner_cik, accepted "
+            "accession, insider_name, insider_role, valid_from, txn_seq, txn_code, shares, price, usd, "
+            "aff_10b5_1, rpt_owner_cik, accepted "
             "FROM fact_insider_txn WHERE tenant_id = %s AND security_id = %s "
             "ORDER BY accession, insider_name, valid_from, txn_seq, recorded_at DESC, id DESC",
             (tenant_id, security_id),
@@ -180,10 +192,18 @@ def ingest_form4a(
     tenant_id: UUID = DEFAULT_TENANT_ID,
     recorded_at: datetime | None = None,
     stored: Mapping[str, list[dict[str, Any]]] | None = None,
+    signal_codes: Collection[str] | None = None,
 ) -> AmendmentIngest:
     """Parse one 4/A, screen it, link it against the security's stored Form 4 rows and append the filing +
-    its link (the caller owns the transaction — both rows share its ``now()``). ``stored`` may be passed in
-    (the leg loads it once per security); else it is read here."""
+    its link (the caller owns the transaction — every row shares its ``now()``). ``stored`` may be passed in
+    (the leg loads it once per security); else it is read here.
+
+    THE SIGNAL-EFFECT RULE (2026-10-18): ``signal_codes`` (default: derived from the registered detectors,
+    ``signals.horizons.insider_signal_codes``) names the codes a call signal reads. A routed amendment that
+    changes none of those rows is resolved here, in the same transaction: an append-only ``apply`` decision
+    with basis ``system:no-signal-effect`` (undoable on Admin like any decision)."""
+    if signal_codes is None:
+        signal_codes = default_signal_codes()
     parsed = parse_form4a(xml)
     member = norm_cik(member_cik)
     if member is not None and parsed.issuer_cik is not None and parsed.issuer_cik != member:
@@ -216,7 +236,7 @@ def ingest_form4a(
         if stored is not None
         else stored_rows_by_accession(conn, security_id, tenant_id=tenant_id)
     )
-    link = link_amendment(facts, held, filed_by_accession)
+    link = link_amendment(facts, held, filed_by_accession, signal_codes)
     common: dict[str, Any] = {"tenant": tenant_id, "sid": security_id, "acc": accession}
     stamp = "%(rec)s" if recorded_at is not None else "now()"
     if recorded_at is not None:
@@ -258,10 +278,33 @@ def ingest_form4a(
                 "method": link.method,
                 "disp": link.disposition,
                 "status": link.status,
-                "detail": Json({"why": link.why, "rejected_rows": rejected}),
+                "detail": Json(
+                    {
+                        "why": link.why,
+                        "rejected_rows": rejected,
+                        "signal_effect": link.signal_effect,
+                        "auto_resolved": link.auto_resolved,
+                        "signal_codes": sorted(signal_codes),
+                    }
+                ),
                 "accepted": accepted,
             },
         )
+        if link.auto_resolved:
+            # the system's resolution, recorded exactly like an operator's (append-only, undoable)
+            cur.execute(
+                "INSERT INTO insider_amendment_decision (tenant_id, security_id, amendment_accession, action, "
+                "reason, basis, detail, recorded_at) VALUES (%(tenant)s, %(sid)s, %(acc)s, 'apply', "
+                f"%(reason)s, %(basis)s, %(ddetail)s, {stamp})",  # noqa: S608 — stamp is one of two literals
+                {
+                    **common,
+                    "reason": "changes no row a call signal reads (no signal effect)",
+                    "basis": BASIS_NO_SIGNAL_EFFECT,
+                    "ddetail": Json(
+                        {"disposition": link.disposition, "signal_codes": sorted(signal_codes)}
+                    ),
+                },
+            )
     return AmendmentIngest(
         accession=accession,
         issuer_cik=parsed.issuer_cik,
@@ -308,6 +351,7 @@ def ingest_amendments(
     tenant_id: UUID = DEFAULT_TENANT_ID,
     known_skips: Collection[str] | None = None,
     tolerable: Callable[[Exception], bool] | None = None,
+    signal_codes: Collection[str] | None = None,
 ) -> tuple[AmendmentLegResult, tuple[IngestSkip, ...]]:
     """The 4/A leg for one security: every 4/A in its submissions feed not already stored is fetched (the
     immutable ``forms/`` cache — a re-run costs no request), parsed, screened, linked and stored. Returns the
@@ -331,6 +375,7 @@ def ingest_amendments(
     filed_by = filed_dates(filings_of(dict(submissions), "4"))
     # the stored Form 4 rows, read ONCE (the Form 4 leg above already appended tonight's originals)
     held = stored_rows_by_accession(conn, security_id, tenant_id=tenant_id)
+    codes = frozenset(signal_codes) if signal_codes is not None else default_signal_codes()
     for f in reversed(todo):  # the feed is newest-first
         acc = f["accession"]
         url = form4_doc_url(cik, acc, f["primary_doc"])
@@ -352,6 +397,7 @@ def ingest_amendments(
                 accepted=parse_acceptance(f.get("accepted")),
                 tenant_id=tenant_id,
                 stored=held,
+                signal_codes=codes,
             )
         except Exception as e:
             # tolerated only BEFORE this filing's first write: parse + link run before either INSERT

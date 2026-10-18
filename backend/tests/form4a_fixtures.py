@@ -27,6 +27,15 @@ What each one is (MEASURED 2026-10-17, see ``domain/insider_amendments.py``):
 - RPAY: a 4/A that changes only the acquired/disposed flag -> CLERICAL (Table I identical).
 - SKYT: two different Form 4s by the same owner on the original date -> AMBIGUOUS.
 - VWAV: VisionWave's own Form 4 as REPORTING OWNER of SaverOne stock -> the other-issuer screen.
+
+Added for the signal-effect rule (2026-10-18; the 4/As from the same research corpus, the originals from prod's
+cache, same provenance as above):
+- FRHC ``0000929638-26-003399``: Table I identical to ``-003183``, but the reporting owner's role on its code-S
+  rows goes "Chief Financial Officer" -> "Special Advisor to CEO" -> FIELD_CHANGE, routed (never clerical).
+- AVAV ``0001538012-26-000006``: a zero-row 4/A voiding ``-000004``, whose only rows are code ``A`` (grants) ->
+  a void with NO signal effect, resolved by the system.
+- MASS ``0002115341-26-000008``: adds a code-``M`` row beside ``-000005``'s unchanged sale -> an addition with
+  NO signal effect, resolved by the system.
 """
 
 from __future__ import annotations
@@ -124,6 +133,21 @@ FILINGS: dict[str, Filing] = {
     ),
     # VWAV (CIK 2038439) — its own Form 4 as reporting owner of SaverOne (issuer CIK 1894693)
     "0001731122-26-000909": _f("4", "2026-07-06", "2026-07-06T14:07:15.000Z", "0002038439", "VWAV"),
+    # FRHC (CIK 924805) — Table I identical, the CFO's role restated "Special Advisor to CEO" (field change)
+    "0000929638-26-003183": _f("4", "2026-08-21", "2026-08-21T20:00:27.000Z", "0000924805", "FRHC"),
+    "0000929638-26-003399": _f(
+        "4/A", "2026-09-01", "2026-09-01T13:15:44.000Z", "0000924805", "FRHC"
+    ),
+    # AVAV (CIK 1368622) — a zero-row 4/A voiding a GRANT-only (code A) original: no signal effect
+    "0001538012-26-000004": _f("4", "2026-07-06", "2026-07-07T01:04:59.000Z", "0001368622", "AVAV"),
+    "0001538012-26-000006": _f(
+        "4/A", "2026-07-15", "2026-07-15T21:51:57.000Z", "0001368622", "AVAV"
+    ),
+    # MASS (CIK 1555279) — an addition of a code-M row beside an UNCHANGED sale: no signal effect
+    "0002115341-26-000005": _f("4", "2026-03-04", "2026-03-05T02:07:13.000Z", "0001555279", "MASS"),
+    "0002115341-26-000008": _f(
+        "4/A", "2026-03-05", "2026-03-06T02:50:42.000Z", "0001555279", "MASS"
+    ),
 }
 
 CIKS = {f.ticker: f.cik for f in FILINGS.values()}

@@ -1037,21 +1037,36 @@ stored rows against the amendments, links and operator decisions recorded at/bef
 effect: `docs/CALL_LOGIC.md` §3 (insider). The data contract: `docs/DATA_SOURCES.md` §Form 4/A.
 
 **Paging.** After the per-thesis loop, `pipeline/insider_amendment_scan.py` reads every amendment of the active
-basket union OWED the operator's decision (a pending void / duplicates — each suppressing its original
-meanwhile — a partial / consolidation / addition / restatement, an ambiguous link) and diffs it against the
-newest live, finished pass that evaluated it; a NEW one pages ONCE through the run's health event
-(benign-class: it never makes the Admin cron verdict unhealthy), a known one is one quiet line, and an
-applied 1:1 correction never pages. The inventory is read WHOLE from the tables every pass, so the newest
-evaluated pass is a complete baseline — T4's split-scan rule, not the per-thesis carry-forward (a catch-up
-that skipped theses read the same tables). A decision takes an item out of the inventory; its Undo puts it
-back and it pages once more. Artifact block: `insider_amendments` (`cron_run_log.build_run_payload`). A page
-keeps the whole COUNT but NAMES at most 8 items (`domain.insider_amendments.PAGE_NAMED`), the buy-touching
-ones first, then the suppressing ones — because the first pass after deploy finds the whole backlog at once:
-MEASURED read-only on prod 2026-10-17 (the research corpus' two-year window linked against today's stored
-rows), **181 owed a decision** (79 void, 49 partial, 18 restatement, 16 addition, 14 consolidation, 4
-ambiguous, 1 duplicates), **11** of them touching a code-`P` buy, **80** suppressing while pending — of which
-4 touch a buy (FLS, MNKD, AZTA, AVEX). The live leg reads the whole `recent` window, which can reach back
-further than two years for a light filer, so the real first-night count can be somewhat higher.
+basket union OWED the operator's decision and diffs it against the newest live, finished pass that evaluated
+it; a NEW one pages ONCE through the run's health event (benign-class: it never makes the Admin cron verdict
+unhealthy), a known one is one quiet line, and an applied 1:1 correction never pages. **What is owed (the
+signal-effect rule, operator-approved 2026-10-18 — `docs/CALL_LOGIC.md` §3 insider):** a routed amendment
+(void / duplicates / partial / consolidation / addition / restatement / field change) whose effect changes a
+row a call signal reads (code in the derived signal code set — today `P`, `S` — compared on code, date,
+shares, price, 10b5-1 flag, owner role and name), plus EVERY ambiguous link. A routed amendment that changes
+no signal row is applied by the system at ingest (`system:no-signal-effect`, undoable on Admin) and never
+pages. A pending void / duplicates still suppresses its original meanwhile; the other pending kinds have no
+effect until applied. The inventory is read WHOLE from the tables every pass, so the newest evaluated pass is
+a complete baseline — T4's split-scan rule, not the per-thesis carry-forward (a catch-up that skipped theses
+read the same tables). A decision takes an item out of the inventory; its Undo puts it back and it pages once
+more. Artifact block: `insider_amendments` (`cron_run_log.build_run_payload`).
+
+**Urgency — the page names every IN-WINDOW item.** An owed item is *in-window* when one of its changed signal
+rows of code `c` is dated on/after `asof − horizon(c)`, the horizon being the detectors' OWN declaration (the
+oldest row that can still enter that signal: `signals.horizons.insider_signal_codes` — `P` 210 days, `S` 120
+days at today's config; never a copied number). Admin and the scan list in-window items first (then
+buy-touching, then suppressing); the page NAMES every new in-window item and counts the rest as "+N more in
+Admin" (this replaced the flat cap of 8 names). The page-once baseline is unchanged. **Re-measured read-only on
+prod 2026-10-18** (the research corpus' two-year window linked against today's stored rows, the final
+resolver): **67 owed a decision** — void 16, partial 19, restatement 10, field change 7, addition 6,
+consolidation 4, ambiguous 4, duplicates 1; **12** touch a code-`P` row, 55 code `S` only — and **121 applied
+by the system** (void 63, partial 30, addition 10, consolidation 10, restatement 8). The 7 field changes are
+ETR, FRHC, RIOT, KN ×2, CRCW, SKYT (5 flip the 10b5-1 flag, 2 restate the owner's role — FRHC, CRCW). **In-window
+at asof 2026-10-16: 11** — FLS and AVEX (code-`P` voids), and IEHC, FRHC, MRCY, TDG, MRAM ×3, KN
+(0001196914-26-000004), SMR (code `S`). In-window means the row CAN still enter a signal, not that it moves a
+card tonight (TDG's sells sit inside the 120-day horizon but outside the live sell cluster — no card moved for
+them, below). The live leg reads the whole `recent` window, which can reach back further than two years for a
+light filer, so the real first-night count can be somewhat higher.
 
 **No history annotation — and the condition it rested on, MEASURED (prod, read-only, 2026-10-17).** The
 operator's decision was "no annotation of past rows" ON CONDITION that no thesis-level arm would have flipped.

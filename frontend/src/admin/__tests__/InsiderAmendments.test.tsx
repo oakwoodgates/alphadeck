@@ -6,9 +6,10 @@ import { InsiderAmendments } from "../InsiderAmendments";
 
 // The Insider amendments panel (R8-A) over mocked hooks. The rows are the shapes GET
 // /admin/insider-amendments returns for the REAL filings the backend suite ingests
-// (backend/tests/form4a_fixtures.py): the FLS cancellation (a pending void), the SKYT ambiguous pair, an
-// AZTA keep the operator decided, the ARBE auto-applied correction, the RPAY clerical one. The gates: no
-// decision fires on mount, LOUD only where a decision is owed, and every action has its inverse beside it.
+// (backend/tests/form4a_fixtures.py): the FLS cancellation (a pending void inside tonight's P window), the
+// SKYT ambiguous pair, an AZTA keep the operator decided, the AVAV grant-only void the SYSTEM applied (no
+// signal effect), the ARBE auto-applied correction, the RPAY clerical one. The gates: no decision fires on
+// mount, LOUD only where a decision is owed, and every action has its inverse beside it.
 
 const FLS_ID = "e8ff1562-99a2-4402-a06c-994667aa6006";
 const SKYT_ID = "531613b9-fe18-4850-a795-d256e12fbef4";
@@ -32,6 +33,9 @@ const base = {
   undo_id: null as string | null,
   touches_buy: false,
   filing_url: null as string | null,
+  signal_effect: true,
+  auto_resolved: false,
+  in_window: [] as string[],
 };
 
 const FLS = {
@@ -69,6 +73,7 @@ const FLS = {
     },
   ],
   touches_buy: true,
+  in_window: ["P"],
   filing_url: "https://www.sec.gov/Archives/edgar/data/30625/000162828026037326/",
 };
 
@@ -99,6 +104,24 @@ const AZTA_KEPT = {
   undo_id: "9a1d2c3e-0000-4000-8000-000000000001",
 };
 
+const AVAV_AUTO = {
+  ...base,
+  security_id: "6f1c3a52-7d0e-4c3b-9d7a-2b8e5f4a1c90",
+  ticker: "AVAV",
+  accession: "0001538012-26-000006",
+  filed: "2026-07-15",
+  owners: ["Nawabi Wahid"],
+  disposition: "void",
+  method: "orig_date_owner",
+  status: "applied",
+  verdict: "apply",
+  signal_effect: false,
+  auto_resolved: true,
+  original_accessions: ["0001538012-26-000004"],
+  suppressing: ["0001538012-26-000004"],
+  undo_id: "9a1d2c3e-0000-4000-8000-000000000002",
+};
+
 const ARBE = {
   ...base,
   security_id: "b4adecfe-296d-4193-b6e1-48efd767ca33",
@@ -122,6 +145,7 @@ const RPAY = {
   disposition: "clerical",
   method: "orig_date_owner",
   status: "inert",
+  signal_effect: false,
 };
 
 const h = vi.hoisted(() => ({
@@ -154,15 +178,16 @@ beforeEach(() => {
   serve({
     pending: [FLS, SKYT],
     decided: [AZTA_KEPT],
+    auto: [AVAV_AUTO],
     applied: [ARBE],
     inert: [RPAY],
-    total: 5,
+    total: 6,
   });
 });
 
 describe("InsiderAmendments", () => {
   it("renders nothing when no amendment is stored", () => {
-    serve({ pending: [], decided: [], applied: [], inert: [], total: 0 });
+    serve({ pending: [], decided: [], auto: [], applied: [], inert: [], total: 0 });
     const { container } = render(<InsiderAmendments />);
     expect(container).toBeEmptyDOMElement();
   });
@@ -174,6 +199,8 @@ describe("InsiderAmendments", () => {
     expect(within(pending).getAllByTestId("adm-amend-row")).toHaveLength(2);
     // the quiet buckets are collapsed lists, still present (#9)
     expect(screen.getByTestId("adm-amend-decided")).not.toHaveAttribute("open");
+    expect(screen.getByTestId("adm-amend-auto")).not.toHaveAttribute("open");
+    expect(screen.getByTestId("adm-amend-auto")).toHaveTextContent("1 applied — no signal effect");
     expect(screen.getByTestId("adm-amend-applied")).toHaveTextContent("1 correction(s) applied automatically");
     expect(screen.getByTestId("adm-amend-inert")).toHaveTextContent("1 with nothing to apply");
     for (const mm of [h.apply, h.keep, h.link, h.revoke]) {
@@ -231,5 +258,29 @@ describe("InsiderAmendments", () => {
       securityId: ARBE.security_id,
       accession: ARBE.accession,
     });
+  });
+
+  it("tags the in-window pending item — and only that one", () => {
+    render(<InsiderAmendments />);
+    const [fls, skyt] = screen.getAllByTestId("adm-amend-row");
+    expect(within(fls).getByTestId("adm-amend-in-window")).toHaveTextContent(
+      "in today's P signal window — can move tonight's call",
+    );
+    expect(within(skyt).queryByTestId("adm-amend-in-window")).toBeNull();
+  });
+
+  it("lists a system resolution as applied — no signal effect, with its Undo", async () => {
+    render(<InsiderAmendments />);
+    const auto = screen.getByTestId("adm-amend-auto");
+    const row = within(auto).getByTestId("adm-amend-auto-row");
+    expect(row).toHaveTextContent("applied by the system — it changes no buy or sale a call signal reads");
+    expect(row).toHaveTextContent("suppressing 0001538012-26-000004");
+    // the system decided nothing the operator cannot reverse (WB#1): Undo returns it to the queue
+    await userEvent.click(within(row).getByRole("button", { name: "Undo" }));
+    expect((h.revoke as { mutate: ReturnType<typeof vi.fn> }).mutate).toHaveBeenCalledWith({
+      decisionId: AVAV_AUTO.undo_id,
+    });
+    // never loud: an auto row is not in the owed list
+    expect(within(screen.getByTestId("adm-amend-pending")).queryByText(/AVAV/)).toBeNull();
   });
 });

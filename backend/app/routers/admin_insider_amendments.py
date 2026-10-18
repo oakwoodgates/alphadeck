@@ -18,6 +18,12 @@ What the operator can do here, and its inverse:
   is computed against that original then and stored.
 - **Undo** -> a ``revoke`` row naming the decision. A link is undone only after the verdict under it.
 
+Resolved by the SYSTEM (the signal-effect rule, operator-approved 2026-10-18): a routed amendment that changes
+no row a call signal reads is applied at ingest by an ``apply`` decision with basis ``system:no-signal-effect``
+— listed quietly as "applied — no signal effect", never paged, and its **Undo** (the same revoke) returns it
+to the operator queue. The pending list is ordered by URGENCY: the items whose changed signal rows sit inside
+a signal's live read horizon today come first.
+
 Every write is append-only, names the operator as its author (``basis``), and runs in one transaction under a
 lock on the amendment. The change reaches calls at the next read (a live call reads ``known_at = now``) and
 re-records a card only where the resolved rows actually changed. Auth stays deferred project-wide.
@@ -42,6 +48,7 @@ from domain.insider_amendments import (
     ACTION_LINK,
     AUTO_DISPOSITIONS,
 )
+from domain.market_time import market_today
 from domain.settings import get_settings
 from repositories import insider_amendment_repo
 from repositories.insider_amendment_repo import AmendmentConflict, AmendmentItem
@@ -105,7 +112,13 @@ class AdminInsiderAmendmentOut(BaseModel):
     (auto-applied correction, or ratified), ``kept`` (the original stands) or ``inert`` (nothing to do).
     ``suppressing`` = the original accession(s) it currently removes from every read; ``undo_id`` = the
     standing decision an Undo reverses (the verdict first, else the link). ``touches_buy`` = a code-P row on
-    either side (the loudness hint). ``filing_url`` = the 4/A's EDGAR filing index."""
+    either side (the loudness hint). ``filing_url`` = the 4/A's EDGAR filing index.
+
+    The signal-effect rule (2026-10-18): ``signal_effect`` = its effect changes a row a call signal reads (a
+    code a registered detector declares, compared with the owner's role / name and the 10b5-1 flag);
+    ``auto_resolved`` = the SYSTEM applied it because it has none (basis ``system:no-signal-effect`` — its Undo
+    returns it to the operator queue); ``in_window`` = the signal codes whose changed rows sit inside a
+    signal's live read horizon today (the detectors' own horizons) — it can move tonight's call."""
 
     security_id: UUID
     ticker: str | None = None
@@ -133,20 +146,27 @@ class AdminInsiderAmendmentOut(BaseModel):
     decisions: list[AdminInsiderDecisionOut] = Field(default_factory=list)
     undo_id: UUID | None = None
     touches_buy: bool = False
+    signal_effect: bool = True
+    auto_resolved: bool = False
+    in_window: list[str] = Field(default_factory=list)
 
 
 class AdminInsiderAmendmentsOut(BaseModel):
-    """The "Insider amendments" panel. ``pending`` is LOUD (owed a decision, newest first per name);
-    ``decided`` (a standing operator decision, each undoable), ``applied`` (auto-applied 1:1 corrections,
-    each overrulable with Keep original) and ``inert`` (clerical / no Table I rows / no stored original —
-    nothing to do) are QUIET lists, still visible (#9 / WB#2). Read live from the amendment tables.
+    """The "Insider amendments" panel. ``pending`` is LOUD (owed a decision — the IN-WINDOW ones first, those
+    that can move tonight's call); ``decided`` (a standing operator decision, each undoable), ``auto``
+    ("applied — no signal effect": resolved by the system because no call signal reads a row it changes, each
+    with its Undo), ``applied`` (auto-applied 1:1 corrections, each overrulable with Keep original) and
+    ``inert`` (clerical / no Table I rows / no stored original — nothing to do) are QUIET lists, still visible
+    (#9 / WB#2). ``asof`` is the market day the in-window urgency was judged at. Read live from the tables.
     """
 
     pending: list[AdminInsiderAmendmentOut] = Field(default_factory=list)
     decided: list[AdminInsiderAmendmentOut] = Field(default_factory=list)
+    auto: list[AdminInsiderAmendmentOut] = Field(default_factory=list)
     applied: list[AdminInsiderAmendmentOut] = Field(default_factory=list)
     inert: list[AdminInsiderAmendmentOut] = Field(default_factory=list)
     total: int = 0
+    asof: date | None = None
 
 
 class AdminInsiderReasonIn(BaseModel):
@@ -224,9 +244,6 @@ def item_out(item: AmendmentItem) -> AdminInsiderAmendmentOut:
         )
         for a, rows in item.originals.items()
     ]
-    touches_buy = any(r.get("txn_code") == "P" for r in item.rows) or any(
-        r.get("txn_code") == "P" for rows in item.originals.values() for r in rows
-    )
     return AdminInsiderAmendmentOut(
         security_id=item.security_id,
         ticker=item.ticker,
@@ -253,17 +270,25 @@ def item_out(item: AmendmentItem) -> AdminInsiderAmendmentOut:
         originals=originals,
         decisions=decisions,
         undo_id=eff.verdict_id or eff.link_decision_id,
-        touches_buy=touches_buy,
+        touches_buy=item.touches_buy,
+        signal_effect=item.signal_effect,
+        auto_resolved=item.auto_resolved,
+        in_window=list(item.in_window),
     )
 
 
-def amendments_out(items: list[AmendmentItem]) -> AdminInsiderAmendmentsOut:
-    """Bucket the items for the panel: pending (loud) / decided / applied / inert (quiet)."""
-    out = AdminInsiderAmendmentsOut(total=len(items))
+def amendments_out(
+    items: list[AmendmentItem], *, asof: date | None = None
+) -> AdminInsiderAmendmentsOut:
+    """Bucket the items for the panel: pending (loud, in-window first — ``items`` already orders by urgency) /
+    decided / auto (no signal effect) / applied / inert (quiet)."""
+    out = AdminInsiderAmendmentsOut(total=len(items), asof=asof)
     for it in items:
         o = item_out(it)
         if o.status == "pending":
             out.pending.append(o)
+        elif o.auto_resolved:
+            out.auto.append(o)
         elif o.undo_id is not None:
             out.decided.append(o)
         elif o.disposition in AUTO_DISPOSITIONS and o.status == "applied":
@@ -295,7 +320,7 @@ def _commit(conn: psycopg.Connection, fn: Callable[[], object]) -> object:
 
 
 def _one(conn: psycopg.Connection, security_id: UUID, accession: str) -> AdminInsiderAmendmentOut:
-    for it in insider_amendment_repo.items(conn, security_ids=[security_id]):
+    for it in insider_amendment_repo.items(conn, security_ids=[security_id], asof=market_today()):
         if it.accession == accession:
             return item_out(it)
     raise HTTPException(
@@ -306,9 +331,11 @@ def _one(conn: psycopg.Connection, security_id: UUID, accession: str) -> AdminIn
 @router.get("", response_model=AdminInsiderAmendmentsOut)
 def list_amendments(conn: psycopg.Connection = Depends(get_conn)) -> AdminInsiderAmendmentsOut:
     """Every stored Form 4/A with its link, disposition, effective status and evidence, bucketed for the
-    panel (pending loud; decided / applied / inert quiet). Read-only."""
+    panel (pending loud, the ones inside today's signal windows first; decided / applied — no signal effect /
+    applied / inert quiet). Read-only."""
+    asof = market_today()
     try:
-        return amendments_out(insider_amendment_repo.items(conn))
+        return amendments_out(insider_amendment_repo.items(conn, asof=asof), asof=asof)
     finally:
         conn.rollback()  # a read: end the transaction, hold no snapshot
 

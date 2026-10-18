@@ -8,18 +8,21 @@ with direct inputs (no outcome is fitted: each input is the shape the ingest sto
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from uuid import uuid4
 
 import pytest
 
+from domain.config import DEFAULT_CONFIG
 from domain.insider_amendments import (
+    ADDITION,
     AMBIGUOUS,
     AMENDS_ACCESSION,
     CLERICAL,
     CONSOLIDATION,
     CORRECTION,
     DUPLICATES,
+    FIELD_CHANGE,
     METHOD_ORIG_DATE_OWNER,
     NO_ROWS,
     PARTIAL,
@@ -30,12 +33,16 @@ from domain.insider_amendments import (
     AmendmentFacts,
     classify,
     effect_of,
+    in_window_codes,
     is_other_issuer,
     link_amendment,
+    page_text,
     resolve_insider_rows,
+    signal_signature,
 )
 from ingest.edgar.form4 import parse_form4
 from ingest.edgar.form4a import _json_row, parse_form4a
+from signals.horizons import insider_signal_codes
 from tests.form4a_fixtures import (
     FILINGS,
     amendments_of,
@@ -45,6 +52,8 @@ from tests.form4a_fixtures import (
 )
 
 T0 = datetime(2026, 10, 18, 2, 30, tzinfo=timezone.utc)
+# the signal code set as the cron derives it from the registered detectors' declared txn_codes
+CODES = frozenset(insider_signal_codes(DEFAULT_CONFIG))
 
 
 def _stored(ticker: str) -> dict[str, list[dict]]:
@@ -62,6 +71,8 @@ def _stored(ticker: str) -> dict[str, list[dict]]:
                     "txn_code": t["txn_code"],
                     "shares": t["shares"],
                     "price": t["price"],
+                    "insider_role": t["insider_role"],
+                    "aff_10b5_1": t["aff_10b5_1"],
                     "rpt_owner_cik": t["rpt_owner_cik"],
                     "accepted": FILINGS[acc].accepted,
                 }
@@ -85,7 +96,7 @@ def _facts(accession: str) -> AmendmentFacts:
 
 def _link(accession: str):
     t = FILINGS[accession].ticker
-    return link_amendment(_facts(accession), _stored(t), filed_by_accession(t))
+    return link_amendment(_facts(accession), _stored(t), filed_by_accession(t), CODES)
 
 
 # --- the parse ------------------------------------------------------------------------------------------
@@ -174,11 +185,11 @@ def test_classify_against_the_skyt_candidate_the_amendment_corrects_is_partial()
     stored = _stored("SKYT")
     rows = parse_form4a(xml("0001856680-26-000016")).rows
     # one corrected S row against the original's M + two S rows: a (code, date) key it omits -> partial
-    assert classify(rows, stored["0001856680-26-000013"]) == PARTIAL
+    assert classify(rows, stored["0001856680-26-000013"], CODES) == PARTIAL
 
 
 def test_classify_no_rows_either_side_and_consolidation_rule():
-    assert classify([], []) == NO_ROWS
+    assert classify([], [], CODES) == NO_ROWS
     # the rule's contract with direct inputs (the SHAPE BHVN's 4/A had on 2026-10-17 — N rows of one
     # (code, date) restated as fewer rows of the same (code, date); the numbers here are placeholders)
     orig = [
@@ -186,7 +197,119 @@ def test_classify_no_rows_either_side_and_consolidation_rule():
         for s in (1, 2, 3)
     ]
     amend = [{"txn_code": "P", "txn_date": "2025-03-04", "shares": 6.0, "price": 30.0}]
-    assert classify(amend, orig) == CONSOLIDATION
+    assert classify(amend, orig, CODES) == CONSOLIDATION
+
+
+# --- the signal-effect rule (operator-approved 2026-10-18) -------------------------------------------------
+
+
+def test_the_signal_codes_are_the_detectors_codes():
+    assert CODES == {"P", "S"}  # derived: insider_conviction reads P, insider_sell reads S
+
+
+def test_frhc_role_restatement_is_a_field_change_routed_never_clerical():
+    """Table I identical, but the owner's role on the code-S rows goes CFO -> "Special Advisor to CEO"
+    (seniority reads the role): routed to the operator, not "clerical / no change"."""
+    link = _link("0000929638-26-003399")
+    assert link.original_accessions == ("0000929638-26-003183",)
+    assert (link.disposition, link.status) == (FIELD_CHANGE, STATUS_PENDING)
+    assert link.signal_effect and not link.auto_resolved
+
+
+def test_avav_grant_only_void_resolves_itself():
+    """A zero-row 4/A voiding an original whose only rows are code A (grants): no call signal reads them."""
+    link = _link("0001538012-26-000006")
+    assert link.original_accessions == ("0001538012-26-000004",)
+    assert link.disposition == VOID
+    assert (link.signal_effect, link.auto_resolved, link.status) == (False, True, STATUS_APPLIED)
+
+
+def test_mass_addition_with_identical_signal_rows_resolves_itself():
+    """Adds a code-M row beside the original's UNCHANGED sale: the signal rows are identical on both sides."""
+    link = _link("0002115341-26-000008")
+    assert link.disposition == ADDITION
+    assert (link.signal_effect, link.auto_resolved, link.status) == (False, True, STATUS_APPLIED)
+
+
+def test_signal_touching_routed_amendments_still_wait_for_the_operator():
+    for acc in (
+        "0001628280-26-037326",
+        "0001193125-25-282945",
+        "0001352573-26-000011",
+    ):  # FLS, AZTA, TDG
+        link = _link(acc)
+        assert link.signal_effect and not link.auto_resolved and link.status == STATUS_PENDING
+
+
+def test_an_ambiguous_link_always_routes_even_without_a_signal_row():
+    """The rule's contract with direct inputs: an ambiguous link has no target to apply, so it routes even
+    when no candidate carries a signal row (SKYT's real pair does carry them — it routes too, above).
+    """
+    grant = {
+        "txn_code": "A",
+        "valid_from": date(2026, 3, 16),
+        "shares": 1.0,
+        "price": 0.0,
+        "insider_name": "X",
+        "rpt_owner_cik": "1",
+    }
+    stored = {"O1": [dict(grant, accession="O1")], "O2": [dict(grant, accession="O2", shares=2.0)]}
+    facts = AmendmentFacts(
+        "A1",
+        (("1", "X"),),
+        date(2026, 3, 18),
+        date(2026, 3, 20),
+        None,
+        ({"txn_code": "A", "txn_date": date(2026, 3, 16), "shares": 3.0, "price": 0.0},),
+    )
+    link = link_amendment(facts, stored, {"O1": date(2026, 3, 18), "O2": date(2026, 3, 18)}, CODES)
+    assert link.disposition == AMBIGUOUS and not link.signal_effect
+    assert link.status == STATUS_PENDING and not link.auto_resolved
+
+
+def test_signal_signature_reads_the_role_and_the_planned_flag_as_the_screens_do():
+    base = {
+        "txn_code": "S",
+        "valid_from": date(2026, 8, 19),
+        "shares": 500.0,
+        "price": 10.0,
+        "insider_name": "Ler Evgeny",
+        "insider_role": "Chief Financial Officer",
+        "aff_10b5_1": None,
+    }
+    assert signal_signature(base) == signal_signature(
+        dict(base, aff_10b5_1=False)
+    )  # unknown == clear
+    assert signal_signature(base) != signal_signature(
+        dict(base, aff_10b5_1=True)
+    )  # planned is screened
+    assert signal_signature(base) == signal_signature(
+        dict(base, insider_role="chief  financial officer")
+    )
+    assert signal_signature(base) != signal_signature(
+        dict(base, insider_role="Special Advisor to CEO")
+    )
+
+
+def test_in_window_uses_the_detectors_own_horizons():
+    horizons = insider_signal_codes(DEFAULT_CONFIG)  # {'P': conviction's horizon, 'S': sell's}
+    asof = date(2026, 10, 16)
+    edge_p = asof - timedelta(days=horizons["P"])
+    edge_s = asof - timedelta(days=horizons["S"])
+    rows = [
+        {"txn_code": "P", "valid_from": edge_p},
+        {"txn_code": "S", "valid_from": edge_s - timedelta(days=1)},
+    ]
+    assert in_window_codes(rows, asof, horizons) == ("P",)
+    assert in_window_codes([{"txn_code": "S", "valid_from": edge_s}], asof, horizons) == ("S",)
+    assert in_window_codes([{"txn_code": "A", "valid_from": asof}], asof, horizons) == ()
+
+
+def test_the_page_names_every_in_window_item_and_counts_the_rest():
+    named = tuple(f"T{i}" for i in range(12))  # never collapsed, however many
+    assert page_text(named, 3) == ", ".join(named) + " (+3 more in Admin)"
+    assert page_text(named, 0) == ", ".join(named)
+    assert page_text((), 5) == "none inside tonight's signal windows (+5 in Admin)"
 
 
 # --- the effective-state machine (the operator's decisions) -----------------------------------------------

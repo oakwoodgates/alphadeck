@@ -144,21 +144,40 @@ def test_the_page_is_benign_class():
     assert len(lines) == 1 and _BENIGN_MARK in lines[0]
 
 
-def test_a_backlog_page_names_the_first_few_and_counts_the_rest():
-    """The first pass after deploy finds the whole backlog (~180 items MEASURED): the page keeps the whole
-    COUNT but names only the first PAGE_NAMED (the scan put the buy-touching ones first)."""
-    from domain.insider_amendments import PAGE_NAMED, page_text
-
-    labels = tuple(f"T{i} 0000000000-00-{i:06d}: void" for i in range(PAGE_NAMED + 3))
-    text = page_text(labels)
-    assert text.endswith("(+3 more on the Admin panel)") and labels[PAGE_NAMED] not in text
+def test_the_page_names_every_in_window_item_and_counts_the_rest(db):
+    """At the pass's asof the page NAMES every new item whose changed signal rows sit inside a signal's live
+    read horizon (the detectors' own) — FLS's buy, AVEX's buy, TDG's duplicate sells, FRHC's role-restated
+    sales — and only COUNTS the rest (AZTA's 2025 buy). AVAV's grant-only void resolved itself: never paged.
+    """
+    sids = [seed(db, t) for t in ("FLS", "AVEX", "TDG", "FRHC", "AZTA", "AVAV")]
+    _place(db, sids)
+    scan = run_amendment_scan(
+        asof=date(2026, 10, 16),
+        allow_live=True,
+        connect=connect,
+        previous=lambda: None,
+        clock=lambda: 0.0,
+    )
+    assert {p.ticker for p in scan.pending} == {"FLS", "AVEX", "TDG", "FRHC", "AZTA"}
+    named = scan.new_labels
+    assert len(named) == 4 and scan.new_more == 1
+    for t in ("FLS", "AVEX", "TDG", "FRHC"):
+        assert any(label.startswith(t + " ") for label in named), t
+    assert not any(label.startswith("AZTA ") for label in named)
+    assert [p.ticker for p in scan.pending][-1] == "AZTA"  # the in-window items lead
     health = daily.assess_health(
         [],
-        asof=date(2026, 10, 17),
+        asof=date(2026, 10, 16),
         allow_live=True,
         freeze_check=False,
-        insider_amendments_new=labels,
+        insider_amendments_new=named,
+        insider_amendments_more=scan.new_more,
     )
-    assert f"{PAGE_NAMED + 3} Form 4/A amendment(s) NEW" in health.label
-    assert "(+3 more on the Admin panel)" in health.label
-    assert page_text(labels[:2]) == ", ".join(labels[:2])
+    assert "5 Form 4/A amendment(s) NEW" in health.label
+    assert all(label in health.label for label in named)
+    assert health.label.count("(+1 more in Admin)") == 1
+    doc = scan.payload()
+    assert new_labels_of(doc) == named  # the Admin history re-derives the same page
+    from pipeline.insider_amendment_scan import new_more_of
+
+    assert new_more_of(doc) == 1

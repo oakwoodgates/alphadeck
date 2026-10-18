@@ -437,9 +437,16 @@ Depth: the submissions `recent` window, the same accepted depth as Form 4.
   several with IDENTICAL Table I are filing-agent duplicates, several that differ are ambiguous. (2) Else an
   earlier Form 4 of the same owner sharing transaction dates (a tie is ambiguous). (3) Else unlinked.
 - **The dispositions** and what each does to the read are in `CALL_LOGIC.md` §3 (insider) and
-  `domain/insider_amendments.py`. Applied automatically: clean 1:1 corrections. Routed to the operator: voids,
-  duplicates, partial / consolidation / addition / restatement, ambiguous links. Inert: clerical, no Table I
-  rows, no stored original.
+  `domain/insider_amendments.py`. Applied automatically: clean 1:1 corrections. Routed: voids, duplicates,
+  partial / consolidation / addition / restatement, **field change** (Table I identical but a signal row's
+  owner role / name / 10b5-1 flag moved — migration 0051 adds it to the link's disposition check), ambiguous
+  links. Of the routed ones, only those whose effect changes a code-`P`/`S` row (the signal code set,
+  derived from the detectors — `signals.horizons.insider_signal_codes`) go to the operator, plus every
+  ambiguous link; the rest are applied by the system at ingest (`system:no-signal-effect`, undoable). Inert:
+  clerical, no Table I rows, no stored original. MEASURED 2026-10-18 on prod's 552 linked (security, 4/A)
+  pairs: **67 owed the operator** (void 16 · partial 19 · restatement 10 · field change 7 · addition 6 ·
+  consolidation 4 · ambiguous 4 · duplicates 1; 12 touch a code-`P` row, 55 code `S` only), **121 applied
+  by the system** (void 63 · partial 30 · addition 10 · consolidation 10 · restatement 8).
 - **The other-issuer screen.** A company's own submissions feed lists every ownership filing it is a party to —
   including the ones it filed as the REPORTING OWNER of another company's stock (147 such rows across 11
   tickers sat on member tapes on 2026-10-17; 25 of them code `P`). A Form 4 or 4/A whose `issuerCik` is not

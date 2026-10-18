@@ -1387,7 +1387,8 @@ export interface paths {
         /**
          * List Amendments
          * @description Every stored Form 4/A with its link, disposition, effective status and evidence, bucketed for the
-         *     panel (pending loud; decided / applied / inert quiet). Read-only.
+         *     panel (pending loud, the ones inside today's signal windows first; decided / applied — no signal effect /
+         *     applied / inert quiet). Read-only.
          */
         get: operations["list_amendments_admin_insider_amendments_get"];
         put?: never;
@@ -1881,6 +1882,12 @@ export interface components {
          *     ``suppressing`` = the original accession(s) it currently removes from every read; ``undo_id`` = the
          *     standing decision an Undo reverses (the verdict first, else the link). ``touches_buy`` = a code-P row on
          *     either side (the loudness hint). ``filing_url`` = the 4/A's EDGAR filing index.
+         *
+         *     The signal-effect rule (2026-10-18): ``signal_effect`` = its effect changes a row a call signal reads (a
+         *     code a registered detector declares, compared with the owner's role / name and the 10b5-1 flag);
+         *     ``auto_resolved`` = the SYSTEM applied it because it has none (basis ``system:no-signal-effect`` — its Undo
+         *     returns it to the operator queue); ``in_window`` = the signal codes whose changed rows sit inside a
+         *     signal's live read horizon today (the detectors' own horizons) — it can move tonight's call.
          */
         AdminInsiderAmendmentOut: {
             /**
@@ -1950,19 +1957,35 @@ export interface components {
              * @default false
              */
             touches_buy: boolean;
+            /**
+             * Signal Effect
+             * @default true
+             */
+            signal_effect: boolean;
+            /**
+             * Auto Resolved
+             * @default false
+             */
+            auto_resolved: boolean;
+            /** In Window */
+            in_window?: string[];
         };
         /**
          * AdminInsiderAmendmentsOut
-         * @description The "Insider amendments" panel. ``pending`` is LOUD (owed a decision, newest first per name);
-         *     ``decided`` (a standing operator decision, each undoable), ``applied`` (auto-applied 1:1 corrections,
-         *     each overrulable with Keep original) and ``inert`` (clerical / no Table I rows / no stored original —
-         *     nothing to do) are QUIET lists, still visible (#9 / WB#2). Read live from the amendment tables.
+         * @description The "Insider amendments" panel. ``pending`` is LOUD (owed a decision — the IN-WINDOW ones first, those
+         *     that can move tonight's call); ``decided`` (a standing operator decision, each undoable), ``auto``
+         *     ("applied — no signal effect": resolved by the system because no call signal reads a row it changes, each
+         *     with its Undo), ``applied`` (auto-applied 1:1 corrections, each overrulable with Keep original) and
+         *     ``inert`` (clerical / no Table I rows / no stored original — nothing to do) are QUIET lists, still visible
+         *     (#9 / WB#2). ``asof`` is the market day the in-window urgency was judged at. Read live from the tables.
          */
         AdminInsiderAmendmentsOut: {
             /** Pending */
             pending?: components["schemas"]["AdminInsiderAmendmentOut"][];
             /** Decided */
             decided?: components["schemas"]["AdminInsiderAmendmentOut"][];
+            /** Auto */
+            auto?: components["schemas"]["AdminInsiderAmendmentOut"][];
             /** Applied */
             applied?: components["schemas"]["AdminInsiderAmendmentOut"][];
             /** Inert */
@@ -1972,6 +1995,8 @@ export interface components {
              * @default 0
              */
             total: number;
+            /** Asof */
+            asof?: string | null;
         };
         /**
          * AdminInsiderDecisionOut
