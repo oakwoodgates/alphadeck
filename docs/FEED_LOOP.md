@@ -1044,7 +1044,14 @@ newest live, finished pass that evaluated it; a NEW one pages ONCE through the r
 applied 1:1 correction never pages. The inventory is read WHOLE from the tables every pass, so the newest
 evaluated pass is a complete baseline — T4's split-scan rule, not the per-thesis carry-forward (a catch-up
 that skipped theses read the same tables). A decision takes an item out of the inventory; its Undo puts it
-back and it pages once more. Artifact block: `insider_amendments` (`cron_run_log.build_run_payload`).
+back and it pages once more. Artifact block: `insider_amendments` (`cron_run_log.build_run_payload`). A page
+keeps the whole COUNT but NAMES at most 8 items (`domain.insider_amendments.PAGE_NAMED`), the buy-touching
+ones first, then the suppressing ones — because the first pass after deploy finds the whole backlog at once:
+MEASURED read-only on prod 2026-10-17 (the research corpus' two-year window linked against today's stored
+rows), **181 owed a decision** (79 void, 49 partial, 18 restatement, 16 addition, 14 consolidation, 4
+ambiguous, 1 duplicates), **11** of them touching a code-`P` buy, **80** suppressing while pending — of which
+4 touch a buy (FLS, MNKD, AZTA, AVEX). The live leg reads the whole `recent` window, which can reach back
+further than two years for a light filer, so the real first-night count can be somewhat higher.
 
 **No history annotation — and the condition it rested on, MEASURED (prod, read-only, 2026-10-17).** The
 operator's decision was "no annotation of past rows" ON CONDITION that no thesis-level arm would have flipped.

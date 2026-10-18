@@ -25,6 +25,7 @@ from typing import Literal, Protocol
 from uuid import UUID
 
 from domain.feed_kinds import StaleFeedLabel, stale_feed_bits
+from domain.insider_amendments import page_text
 from domain.settings import get_settings
 from notify.policy import LOUD_KINDS, PushKind, classify, grade_direction, names_direction
 
@@ -371,7 +372,7 @@ class HealthEvent:
         if self.insider_amendments_new:
             bits.append(
                 f"{len(self.insider_amendments_new)} Form 4/A amendment(s) NEW and owed your decision: "
-                f"{', '.join(self.insider_amendments_new)} — ratify on the Admin Insider amendments panel, "
+                f"{page_text(self.insider_amendments_new)} — ratify on the Admin Insider amendments panel, "
                 "not a cron error"
             )
         return f"cron {self.asof}: " + " · ".join(bits)

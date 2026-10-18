@@ -140,6 +140,20 @@ VERDICTS = frozenset({ACTION_APPLY, ACTION_KEEP})
 # the key an EMITTED (amended) row carries: the original accession it supersedes (provenance, #6)
 AMENDS_ACCESSION = "amends_accession"
 
+# A page names at most this many amendments (the count is always whole; the rest are on the Admin panel and in
+# the run artifact): the first pass after deploy finds the whole two-year backlog at once (MEASURED 2026-10-17:
+# ~180 owed a decision), and a page listing 180 carries less than one naming the few that move a call — the
+# nightly scan orders them buy-touching first, then suppressing.
+PAGE_NAMED = 8
+
+
+def page_text(labels: Sequence[str]) -> str:
+    """A page's list of amendment labels: the first ``PAGE_NAMED``, then ``(+N more on the Admin panel)``."""
+    shown = ", ".join(labels[:PAGE_NAMED])
+    more = len(labels) - PAGE_NAMED
+    return f"{shown} (+{more} more on the Admin panel)" if more > 0 else shown
+
+
 # ``fact_insider_txn``'s columns, in table order — the shape every resolved row has, so an emitted row reads
 # exactly like a stored one to every consumer. ``tests/db/test_insider_amendments.py`` pins this against the
 # live table, so a new column fails there, never as a silently missing key.

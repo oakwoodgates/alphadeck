@@ -133,6 +133,9 @@ def scan_pending(conn: psycopg.Connection) -> tuple[PendingAmendment, ...]:
                 touches_buy=touches,
             )
         )
+    # the order a reader needs: what touches a code-P buy first, then what is suppressing rows meanwhile, then
+    # by name — so a page that can show only the first few shows the ones that move a call
+    out.sort(key=lambda p: (not p.touches_buy, not p.suppressing, p.ticker or "", p.accession))
     return tuple(out)
 
 

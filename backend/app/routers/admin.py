@@ -53,6 +53,7 @@ from app.schemas_api import (
     BackupsOut,
 )
 from domain.feed_kinds import PRICE, StaleFeedLabel, feed_kind, stale_feed_bits
+from domain.insider_amendments import page_text
 from domain.market_time import market_now, market_tz
 from domain.settings import get_settings
 from notify import HealthEvent
@@ -174,7 +175,7 @@ def _problems(health: HealthEvent | None) -> list[str]:
     if health.insider_amendments_new:
         out.append(
             f"{len(health.insider_amendments_new)} Form 4/A amendment(s) newly owed a decision: "
-            f"{', '.join(health.insider_amendments_new)} — ratify on the Insider amendments panel, "
+            f"{page_text(health.insider_amendments_new)} — ratify on the Insider amendments panel, "
             f"{_BENIGN_MARK} in this run"
         )
     return out

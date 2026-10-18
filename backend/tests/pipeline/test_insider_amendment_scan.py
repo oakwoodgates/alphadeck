@@ -56,6 +56,8 @@ def test_only_what_is_owed_a_decision_is_in_the_inventory(db):
     assert fls.suppressing == ("0001628280-26-035913",) and fls.touches_buy
     assert "suppressing 0001628280-26-035913 until you decide" in fls.label
     assert scan.new == scan.pending  # no baseline: the whole inventory pages ONCE
+    # what touches a code-P buy leads (a page names only the first few): FLS's cancelled buy before TDG's sells
+    assert [p.ticker for p in scan.pending] == ["FLS", "TDG"]
 
 
 def test_a_known_item_stays_quiet_and_a_decision_and_its_undo_move_it(db):
@@ -140,3 +142,23 @@ def test_the_page_is_benign_class():
 
     lines = _problems(health)
     assert len(lines) == 1 and _BENIGN_MARK in lines[0]
+
+
+def test_a_backlog_page_names_the_first_few_and_counts_the_rest():
+    """The first pass after deploy finds the whole backlog (~180 items MEASURED): the page keeps the whole
+    COUNT but names only the first PAGE_NAMED (the scan put the buy-touching ones first)."""
+    from domain.insider_amendments import PAGE_NAMED, page_text
+
+    labels = tuple(f"T{i} 0000000000-00-{i:06d}: void" for i in range(PAGE_NAMED + 3))
+    text = page_text(labels)
+    assert text.endswith("(+3 more on the Admin panel)") and labels[PAGE_NAMED] not in text
+    health = daily.assess_health(
+        [],
+        asof=date(2026, 10, 17),
+        allow_live=True,
+        freeze_check=False,
+        insider_amendments_new=labels,
+    )
+    assert f"{PAGE_NAMED + 3} Form 4/A amendment(s) NEW" in health.label
+    assert "(+3 more on the Admin panel)" in health.label
+    assert page_text(labels[:2]) == ", ".join(labels[:2])
