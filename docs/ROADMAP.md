@@ -200,9 +200,10 @@ insider `Ins 30d`/`Ins 90d`, three lenses (call-state · business-type · value-
    **point-in-time basket** (`basket_member` is full-replace, no timestamps — `INVARIANTS.md` §Known gaps): the
    precondition for a reconstructed night ever being scoreable and for a past-asof recompute (the Board/Cockpit
    scrub-back, replay) to stop being a labeled counterfactual.
-2. **Notify DELIVERY** — the pipe + transition detection are built (`backend/notify`, the daily's material-
-   transition compare); picking a channel (email / push / webhook) is one adapter behind `get_notifier()`.
-   Deferred by operator call ("other things coming").
+2. **Notify DELIVERY** — BUILT: the Slack adapter (#165–#175) behind `get_notifier()`, under the Q13 push
+   policy (loud = a real arm; quiet = a weaker / mixed move while armed + the nightly newly-armed digest; one
+   SPAC push per announcement — `FEED_LOOP.md` §"The push policy"). Another channel (email / Telegram) is one
+   more same-shape adapter.
 3. **Cron scaling refinement** — decouple "record ALL theses" (cheap, keep daily) from "ingest ALL theses
    daily" (live pulls): ingest active theses daily, dormant less often. Fine at today's scale; jotted.
 4. **Re-draft drift detection** — flag an accepted name when its underlying data changed since acceptance

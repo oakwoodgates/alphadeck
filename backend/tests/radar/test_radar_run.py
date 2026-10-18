@@ -311,9 +311,10 @@ def test_announced_transition_on_a_matched_company_pages_once(db, cache):
     assert r.status_notifications == 1 and len(notifier.spac_status) == 1
     evt = notifier.spac_status[0]
     assert evt.cik == "0000002222" and evt.ticker == "NEWS"  # 1111 (unmatched) did NOT page
-    assert evt.thesis_id == thesis.id and evt.thesis_name == "Rainbow"
-    assert evt.signal_terms == ("psilocybin",) and evt.broad_terms == ()
-    assert evt.accession == "0002222222-26-000002"
+    (m,) = evt.matches
+    assert m.thesis_id == thesis.id and m.thesis_name == "Rainbow"
+    assert m.signal_terms == ("psilocybin",) and m.broad_terms == ()
+    assert evt.accession == m.accession == "0002222222-26-000002"
     assert "announced" in evt.label and "Rainbow" in evt.label
 
 

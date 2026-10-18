@@ -257,9 +257,10 @@ per-thesis; **archived theses are skipped by the list's default**, the archive s
 2. **Assemble TODAY's call WITHOUT writing** — `call_for_thesis(asof=today, known_at=now, record=False)`.
 3. **Detect a MATERIAL TRANSITION** — state or verdict changed vs the call-of-record **at or before**
    this as-of →
-   emit a `TransitionEvent` through the **notify seam** (`backend/notify`: a `Notifier` protocol; v1
-   ships `LogNotifier` — a loud log line + the summary's TRANSITIONS block, printed only when there are
-   any. DELIVERY is deferred: a channel is one adapter behind `get_notifier()`, zero cron rework). This
+   emit a `TransitionEvent` through the **notify seam** (`backend/notify`: a `Notifier` protocol; the
+   `LogNotifier` records every move — a loud log line + the summary's TRANSITIONS block, printed only when
+   there are any — and the `SlackNotifier`, when `SLACK_WEBHOOK_URL` is set, pushes by the Q13 push policy
+   below; a further channel is one adapter behind `get_notifier()`, zero cron rework). This
    is also the calls-log **material-change line**: clock/trigger churn versions the log via
    `record_if_changed` *without* being a transition; a state/verdict MOVE is what an operator would want
    to be told about.
@@ -276,6 +277,7 @@ per-thesis; **archived theses are skipped by the list's default**, the archive s
    **A push about a past or late night names it (N1, 2026-10-17):** the event carries `timing`
    (`current` | `past` | `late`, `night_coverage.night_timing` at the push instant), and the Slack header
    appends "(asof D, recorded late)" / "(asof D)" — so a catch-up's arm is never read as tonight's.
+   **The push policy (Q13, operator 2026-10-17: O3 + O4 + SPAC grouping)** — below.
 4. **Append the call-of-record — GATED, and only if it changed** — `calls_repo.record_if_changed`, *unless the
    recording gate withholds it* (below).
 
@@ -370,6 +372,55 @@ per-thesis; **archived theses are skipped by the list's default**, the archive s
   pass that ran past midnight) reads "(asof 2026-10-12)" — `TransitionEvent.timing`, judged by
   `night_coverage.night_timing` at the push instant; tonight's push is unchanged, and the label is
   fail-open (a clock fault reads as tonight's, never costs the record).
+- **The push policy (Q13, operator 2026-10-17: O3 + O4 + SPAC grouping)** `[BUILT]`. Inverse loudness (#7)
+  for the Slack pushes, so loudness marks a REAL arm and nothing else. *Why:* the push used to fire on "the
+  move lands IN armed", so any verdict change while a thesis STAYED armed read like a new arm — the red "ARMED"
+  header even when the setup got WEAKER (MEASURED: DAT 2026-09-23, core_entry → starter_entry with 4 → 2
+  armed names; Nuclear Buildout 2026-10-07, core_entry → starter_entry with 4 → 3) — while a NAME arming
+  inside an already-armed thesis pushed nothing at all. The rule (`notify/policy.py`, pure; the cards are
+  read by `pipeline/push_policy.py`, so the notifier stays pure — the #309 seam):
+  - **Into Armed** from any other state → **LOUD**, the existing 🔴 ARMED push. **Unchanged.**
+  - **Out of or short of Armed** (a de-arm, warming, incubating, managing) → **recorded, never pushed.**
+    **Unchanged** — a de-arm has never pushed, and Incubating never nags.
+  - **Armed → Armed** (a verdict change while armed — the event trigger itself is unchanged) compares two
+    numbers read straight off the CallCard: the thesis call's **grade** = `CallCard.entry_grade` (the weaker
+    key, the one that drives the verdict; `flip` < `core`) and the **armed-name count** = the distinct
+    `security_id`s in `CallCard.armed_members`. Something rose and nothing fell → **UPGRADE, LOUD**: the
+    ARMED style with an up marker and what improved ("🔴 Nuclear Buildout — ARMED ↑ now core, +2 names
+    (starter_entry → core_entry)" + the company lines). Something fell and nothing rose → **DOWNGRADE,
+    QUIET**: no emoji, no capitals, worded honestly ("Nuclear Buildout — still armed, weaker: core → flip;
+    4 → 3 names (core_entry → starter_entry)") with, on a second line, the reason the card carries — the
+    names no longer armed, each with the de-arm signal the new card holds for it ("no longer armed: GHM
+    (structural break, fast breakdown)"), and the confirmation key's own detail when its grade moved.
+    **Opposite directions** (grade up but names down, or the reverse) → **QUIET, both stated** ("still
+    armed, mixed: flip → core; 2 → 1 names") — a weaker side never rides a loud header. Neither moved (e.g.
+    `flip_only` ↔ `starter_entry`, a validity-window change at the same grade) → a quiet "still armed,
+    changed" note.
+  - **The nightly digest (O4).** ONE quiet message per pass, at the pass end after the per-thesis loop,
+    listing the names that NEWLY armed inside theses that were already Armed and stayed Armed — the new
+    card's armed set against the SAME baseline row the transition compare and `record_if_changed` read
+    (F2), so a same-day second pass never re-announces a name. Grouped by thesis in the compact #309 shape
+    ("Modern Defense: LMT catalyst, breakout · HONA insider buy, breakout"); a name with no resolved ticker
+    is counted, never dropped (#9). Excluded: the names that thesis's own push already listed (an upgrade
+    push lists every armed name — only when its enrichment resolved them); a thesis ENTERING Armed (its loud
+    push is the news); reconstructed rows (`pipeline.backfill` imports no notifier — pinned by its import
+    guard). **No names, no message** — never a "nothing new" ping. A catch-up or late pass carries N1's
+    label on the digest header. Built per thesis AFTER that thesis's commit and sent once after the loop,
+    both fail-open: a digest fault never costs a record or another push.
+  - **One SPAC push per announcement.** The radar's →announced page is ONE event per transitioned company,
+    listing every matched thesis and its matched terms (`radar.spac.announcements`); it used to page once
+    per (company, thesis).
+  - **Deliberately NOT a push:** an armed thesis whose armed-name count moves while its verdict holds still
+    emits no `TransitionEvent` (the trigger is unchanged); its newly armed names reach the operator through
+    the digest. MEASURED alternative (not built): making a names-only move a thesis-level event would have
+    added 80 loud upgrades + 80 quiet downgrades over the record, against 26 loud pushes in all as built.
+  - **MEASURED replay** over the honest prod record (642 non-reconstructed rows, 74 passes, through
+    2026-10-16; the F2 baseline as of each row's write): loud pushes **34 → 26** (17 entering Armed, 9
+    upgrades), **8** quiet (5 downgrades, 3 mixed — the 17 armed → armed events used to be 17 loud), **46**
+    digest messages carrying **288** names, **21** duplicates suppressed (names an upgrade push listed). The
+    309 name-level arms (164 distinct thesis × name pairs) all reach the operator now: 288 in a digest, 21 on
+    an upgrade push. SPAC, over every recorded radar run: **221 → 136** pages, 62 multi-thesis
+    announcements collapsed (2 to 5 theses each).
 - **The health pager (R4, #199).** `assess_health` emits a `HealthEvent` through the notify seam
   (Slack via `SLACK_WEBHOOK_URL`, **fail-open**; `LogNotifier` otherwise) when a run is a **FREEZE**
   (`frozen = allow_live and theses > 0 and edgar_fetches == 0`), has **withheld** calls, has **thesis

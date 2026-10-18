@@ -9,8 +9,11 @@ would want to be woken for (the calls-log material-change question, answered whe
 v1 ships ONE adapter: ``LogNotifier`` — a loud log line + the transitions block in the daily
 summary. No email / push / webhook until the operator picks a channel; when they do, it is one new
 adapter behind ``get_notifier()`` and zero rework in the cron. Inverse loudness (#7) lives in the
-ADAPTER: the log notifier records every transition (a log is a record, not a nag); a future push
-adapter filters to the loud ones (→ armed) and stays silent for the quiet states.
+ADAPTER: the log notifier records every transition (a log is a record, not a nag); the push adapter
+(``SlackNotifier``) pushes by the Q13 PUSH POLICY (``notify.policy``, operator 2026-10-17): entering Armed
+and an armed -> armed UPGRADE are loud; an armed -> armed downgrade / mixed / other change is a QUIET push;
+names newly armed inside an already-armed thesis ride ONE quiet digest per pass (``DigestEvent``); a de-arm
+or any other quiet move is recorded only. A SPAC announcement is ONE push listing every matched thesis.
 """
 
 from __future__ import annotations
@@ -21,9 +24,9 @@ from datetime import date
 from typing import Literal, Protocol
 from uuid import UUID
 
-from domain.enums import State
 from domain.feed_kinds import StaleFeedLabel, stale_feed_bits
 from domain.settings import get_settings
+from notify.policy import LOUD_KINDS, PushKind, classify, grade_direction, names_direction
 
 _log = logging.getLogger(__name__)
 
@@ -37,6 +40,20 @@ class ArmedName:
     ticker: str | None
     trigger_kinds: tuple[str, ...] = ()
     grade: str | None = None  # entry_grade.value (FLIP/CORE) — carried for future richer formats
+
+
+Timing = Literal["current", "past", "late"]
+
+
+def _timing_note(timing: Timing, asof: date) -> str:
+    """N1 — ``"(asof 2026-10-12, recorded late)"`` / ``"(asof 2026-10-12)"`` for a past or late night; ``""``
+    for tonight's (the push reads exactly as before N1). Shared by the transition push and the digest.
+    """
+    if timing == "late":
+        return f"(asof {asof}, recorded late)"
+    if timing == "past":
+        return f"(asof {asof})"
+    return ""
 
 
 @dataclass(frozen=True)
@@ -56,7 +73,20 @@ class TransitionEvent:
     # (a pass that ran past midnight); "late" = recorded after the night's next EDGAR open (a catch-up or a
     # --late-ok pass — the Scoreboard sets such a row aside, L1). Defaulted, so every existing construction
     # reads as tonight's, unchanged.
-    timing: Literal["current", "past", "late"] = "current"
+    timing: Timing = "current"
+    # Q13 / O3 — the two numbers the push policy reads (``notify.policy.classify``), off the PRIOR and the NEW
+    # CallCard: the thesis call's grade (``CallCard.entry_grade``) and the count of distinct armed names
+    # (``CallCard.armed_members``). Filled by ``pipeline.push_policy``; defaulted, so an older construction
+    # classifies as before Q13 (into armed = loud, anything else = record only; armed -> armed = "changed").
+    from_grade: str | None = None
+    to_grade: str | None = None
+    from_armed: int | None = None
+    to_armed: int | None = None
+    # Q13 — the card-carried REASONS a quiet armed -> armed push states (a downgrade / mixed move): the names
+    # no longer armed, each with the de-arm signal the new card carries for it ("MSTR (structural break)"),
+    # and the confirmation key's own detail when its grade moved. Deterministic text off the card, never an
+    # LLM's (#3); empty when the card carries no reason — then the push says only what moved.
+    reasons: tuple[str, ...] = ()
 
     @property
     def label(self) -> str:
@@ -69,39 +99,107 @@ class TransitionEvent:
     def timing_note(self) -> str:
         """``"(asof 2026-10-12, recorded late)"`` / ``"(asof 2026-10-12)"`` — the night a past or late push
         is about; ``""`` for tonight's (the push reads exactly as before N1)."""
-        if self.timing == "late":
-            return f"(asof {self.asof}, recorded late)"
-        if self.timing == "past":
-            return f"(asof {self.asof})"
-        return ""
+        return _timing_note(self.timing, self.asof)
+
+    @property
+    def push_kind(self) -> PushKind:
+        """The Q13 push class (``notify.policy`` — the rule, documented there)."""
+        return classify(
+            from_state=self.from_state,
+            to_state=self.to_state,
+            from_grade=self.from_grade,
+            to_grade=self.to_grade,
+            from_armed=self.from_armed,
+            to_armed=self.to_armed,
+        )
+
+    @property
+    def loud(self) -> bool:
+        """Entering Armed or an armed -> armed upgrade: the only moves that earn the loud header (#7)."""
+        return self.push_kind in LOUD_KINDS
+
+
+@dataclass(frozen=True)
+class DigestThesis:
+    """One already-armed thesis's names that NEWLY armed tonight (O4), in the card's rank order, each
+    resolved like the armed push's names (ticker + distinct trigger kinds; ``ticker=None`` = unresolved,
+    still counted — never dropped, #9)."""
+
+    thesis_id: UUID
+    thesis_name: str
+    names: tuple[ArmedName, ...]
+
+
+@dataclass(frozen=True)
+class DigestEvent:
+    """O4 — the pass-end QUIET digest: the names that newly armed inside theses that were ALREADY Armed and
+    stayed Armed, grouped by thesis. ONE per live pass and ONLY when there is at least one name (never a
+    "nothing new" ping). A name already listed on the same pass's thesis-level push for that thesis (an
+    upgrade push lists every armed name) is not repeated here. A catch-up or late pass carries N1's timing
+    label, exactly like a transition push."""
+
+    asof: date
+    theses: tuple[DigestThesis, ...]
+    timing: Timing = "current"
+
+    @property
+    def timing_note(self) -> str:
+        return _timing_note(self.timing, self.asof)
+
+    @property
+    def name_count(self) -> int:
+        return sum(len(t.names) for t in self.theses)
+
+    @property
+    def label(self) -> str:
+        parts = [
+            f"{t.thesis_name}: " + ", ".join(n.ticker or "(no ticker)" for n in t.names)
+            for t in self.theses
+        ]
+        note = f" {self.timing_note}" if self.timing_note else ""
+        return f"newly armed in already-armed theses{note}: " + " · ".join(parts)
+
+
+@dataclass(frozen=True)
+class SpacThesisMatch:
+    """One thesis whose term set hit an announcing company's DA-class filing (the provenance, #6)."""
+
+    thesis_id: UUID
+    thesis_name: str
+    accession: str
+    signal_terms: tuple[str, ...] = ()  # SIGNAL-tier term strings that hit the DA doc
+    broad_terms: tuple[str, ...] = ()  # BROAD-tier term strings that hit
+    url: str | None = None  # this match's DA filing link (usually the announcement's own)
 
 
 @dataclass(frozen=True)
 class SpacStatusEvent:
     """One SPAC shell's deal-state transition INTO ``announced`` (a DA), for a company whose DA-class
-    filing MATCHED a thesis's term set. ANNOUNCED-ONLY by design (the operator's loudness call): a deal
-    announcement is the actionable milestone; ``terminated`` / ``completed`` moves are not paged. The
-    trigger is the deterministic ``radar.state.deal_state`` derive (#3 — never an LLM), and a page is
-    emitted only on the (transitioned CIK × matched thesis) intersection, so loudness marks the
-    exception (#7). One event per (transitioned CIK, matched thesis)."""
+    filing MATCHED at least one thesis's term set. ANNOUNCED-ONLY by design (the operator's loudness call):
+    a deal announcement is the actionable milestone; ``terminated`` / ``completed`` moves are not paged.
+    The trigger is the deterministic ``radar.state.deal_state`` derive (#3 — never an LLM), and a page is
+    emitted only for a transitioned company that matched, so loudness marks the exception (#7).
+
+    Q13 — ONE event per ANNOUNCEMENT (the transitioned CIK), listing EVERY matched thesis in ``matches``
+    (sorted by thesis name). It used to be one event per (CIK, thesis): MEASURED over the radar tape through
+    2026-10-16, 221 pages for 136 announcements."""
 
     cik: str
     company_name: str
     ticker: str | None
-    thesis_id: UUID
-    thesis_name: str
-    accession: str
+    accession: str  # the announcement's lead DA filing (the one most matched theses cite)
     filed: date
-    signal_terms: tuple[
-        str, ...
-    ] = ()  # SIGNAL-tier term strings that hit the DA doc (provenance #6)
-    broad_terms: tuple[str, ...] = ()  # BROAD-tier term strings that hit
-    url: str | None = None  # the DA filing's EDGAR link (#6 — every page traces to its filing)
+    matches: tuple[SpacThesisMatch, ...] = ()
+    url: str | None = None  # the lead DA filing's EDGAR link (#6 — every page traces to its filing)
+
+    @property
+    def thesis_names(self) -> tuple[str, ...]:
+        return tuple(m.thesis_name for m in self.matches)
 
     @property
     def label(self) -> str:
         who = self.ticker or self.company_name or self.cik
-        return f"{who} → announced (matches {self.thesis_name})"
+        return f"{who} → announced (matches {', '.join(self.thesis_names)})"
 
 
 @dataclass(frozen=True)
@@ -245,6 +343,8 @@ class Notifier(Protocol):
         self, event: SpacStatusEvent
     ) -> None: ...  # pragma: no cover — a Protocol
 
+    def notify_digest(self, event: DigestEvent) -> None: ...  # pragma: no cover — a Protocol
+
 
 class LogNotifier:
     """v1: the transition is RECORDED loudly, delivered nowhere (the deferred-delivery adapter)."""
@@ -252,7 +352,10 @@ class LogNotifier:
     def notify(self, event: TransitionEvent) -> None:
         # N1 — a late night's log record says so too
         late = ", recorded late" if event.timing == "late" else ""
-        _log.warning("TRANSITION %s (asof %s%s)", event.label, event.asof, late)
+        # Q13 — an armed -> armed move's record names its push class (the rest read as before)
+        kind = event.push_kind
+        tag = f" [{kind}]" if event.from_state == event.to_state == "armed" else ""
+        _log.warning("TRANSITION %s%s (asof %s%s)", event.label, tag, event.asof, late)
 
     def notify_health(self, event: HealthEvent) -> None:
         # a run-health page is a RECORD (a bad cron night, logged loud); delivery is the Slack adapter's job
@@ -261,6 +364,10 @@ class LogNotifier:
     def notify_spac_status(self, event: SpacStatusEvent) -> None:
         # a SPAC → announced page is a RECORD (logged loud); delivery is the Slack adapter's job
         _log.warning("SPAC ANNOUNCED %s (filed %s)", event.label, event.filed)
+
+    def notify_digest(self, event: DigestEvent) -> None:
+        # O4 — the pass's newly-armed-names digest is a RECORD too (an empty one is never emitted)
+        _log.warning("DIGEST %s", event.label)
 
 
 _KIND_LABELS = {
@@ -280,6 +387,17 @@ def _kind_label(kind: str) -> str:
     return _KIND_LABELS.get(kind, kind.replace("_", " "))
 
 
+def _improved(event: TransitionEvent) -> str:
+    """What an armed -> armed UPGRADE improved, for its loud header: ``"now core"``, ``"+2 names"``, or both."""
+    bits: list[str] = []
+    if grade_direction(event.from_grade, event.to_grade) > 0:
+        bits.append(f"now {event.to_grade}")
+    if names_direction(event.from_armed, event.to_armed) > 0:
+        n = (event.to_armed or 0) - (event.from_armed or 0)
+        bits.append(f"+{n} name{'s' if n > 1 else ''}")
+    return ", ".join(bits)
+
+
 class SlackNotifier:
     """The loud DELIVERY channel: an incoming-webhook POST, gated by inverse loudness (#7).
 
@@ -287,14 +405,18 @@ class SlackNotifier:
 
     1. **RECORD every transition** — delegates to a ``LogNotifier`` so the log line still fires for every move,
        exactly as when Slack is off (a log is a record, not a nag; the record stays regardless of delivery).
-    2. **PUSH only a → armed move** — a state change INTO ``armed`` is the transition an operator wants NOW;
-       every quieter move (warming / watch / lapsing / managing) is a no-op for Slack, still logged by (1).
+    2. **PUSH by the Q13 policy** (``notify.policy.classify``, the rule in words there): a move INTO ``armed``
+       and an armed -> armed UPGRADE push LOUD (the 🔴 ARMED header); an armed -> armed downgrade, mixed move
+       or other verdict change pushes QUIET (no red header, worded honestly — "still armed, weaker: ...");
+       every move out of or short of armed (a de-arm, warming, incubating, managing) is a no-op for Slack,
+       still logged by (1) — Incubating never nags.
 
     FAIL-OPEN BY CONTRACT: ``notify()`` NEVER raises. Its only caller (``pipeline.daily``) runs it *before*
     ``record_if_changed`` + ``commit`` inside a shared ``try/except`` that would ``rollback`` on any exception —
     so a raising notifier would DROP the call-of-record and falsely fail the thesis. The whole POST therefore
     sits inside a broad fail-open ``except`` (delivery is best-effort; the cron's job is the record). A Slack
-    outage, bad URL, or network error is logged and swallowed — it can never corrupt the record.
+    outage, bad URL, or network error is logged and swallowed — it can never corrupt the record. The same
+    contract holds for every other method here.
     """
 
     def __init__(self) -> None:
@@ -303,23 +425,51 @@ class SlackNotifier:
     def notify(self, event: TransitionEvent) -> None:
         # (1) record every transition, always — before any push decision
         self._log_sink.notify(event)
-        # (2) inverse loudness (#7): push ONLY on a → armed move; every quieter move is a no-op for Slack
-        if event.to_state != State.ARMED:
+        # (2) inverse loudness (#7), by the Q13 policy: record-only moves never push. Fail-open (the class
+        # docstring): the class is computed inside the guard too, so not even a malformed event can raise.
+        try:
+            if event.push_kind == "record_only":
+                return
+            text = self._format(event)
+        except Exception:  # noqa: BLE001 — a formatting fault never breaks the cron/record
+            _log.warning(
+                "slack notify could not format %s (fail-open, logged only)",
+                event.label,
+                exc_info=True,
+            )
             return
-        # fail-open: the whole POST is best-effort. notify() must NEVER raise (see the class docstring) — a
-        # Slack outage / bad URL / network error is logged and swallowed, it can never corrupt the record.
+        self._post(text, "notify", event.label)
+
+    def notify_digest(self, event: DigestEvent) -> None:
+        """O4 — the pass-end QUIET digest of names newly armed inside already-armed theses. Records first,
+        then pushes; an EMPTY digest never pushes (no "nothing new" ping — the cron never builds one, and this
+        guards the seam too). FAIL-OPEN like the others."""
+        self._log_sink.notify_digest(event)
+        try:
+            if not event.theses:
+                return
+            text = self._format_digest(event)
+        except Exception:  # noqa: BLE001 — a formatting fault never breaks the cron
+            _log.warning("slack digest could not format (fail-open, logged only)", exc_info=True)
+            return
+        self._post(text, "digest", f"asof {event.asof}")
+
+    @staticmethod
+    def _post(text: str, what: str, subject: str) -> None:
+        """The one best-effort webhook POST every push shares. NEVER raises: a Slack outage / bad URL /
+        network error / 4xx-5xx is logged and swallowed, so it can never corrupt the record."""
         try:
             import httpx  # lazy (repo convention) — the package imports without a live HTTP client
 
             s = get_settings()
             url = s.slack_webhook_url
-            if not url:  # defensive: no webhook => no push (the transition is already logged above)
+            if not url:  # defensive: no webhook => no push (the event is already logged)
                 return
-            resp = httpx.post(url, json={"text": self._format(event)}, timeout=s.http_timeout_s)
+            resp = httpx.post(url, json={"text": text}, timeout=s.http_timeout_s)
             resp.raise_for_status()
         except Exception:  # noqa: BLE001 — best-effort delivery, never breaks the cron/record
             _log.warning(
-                "slack notify failed for %s (fail-open, logged only)", event.label, exc_info=True
+                "slack %s failed for %s (fail-open, logged only)", what, subject, exc_info=True
             )
 
     def notify_health(self, event: HealthEvent) -> None:
@@ -351,7 +501,8 @@ class SlackNotifier:
     def notify_spac_status(self, event: SpacStatusEvent) -> None:
         """A thesis-matched SPAC shell reached ``announced`` (a DA). ANNOUNCED-ONLY loudness (#7): the radar
         calls this ONLY on a →announced transition for a thesis-matched company (deterministic #3, never an
-        LLM), so — like ``notify_health`` — every call is by construction the rare exception a push is for.
+        LLM), ONCE per announcement however many theses it matched (Q13), so — like ``notify_health`` —
+        every call is by construction the rare exception a push is for.
         Records loud first (the log line survives regardless of delivery), then best-effort pushes. FAIL-OPEN
         like the others: a Slack outage / bad URL / network error is logged and swallowed — this method must
         NEVER raise, so a delivery fault can never fail the radar leg or the cron that runs it."""
@@ -377,18 +528,29 @@ class SlackNotifier:
 
     @staticmethod
     def _format(event: TransitionEvent) -> str:
-        """The compact company-level push: line 1 the thesis header (the state move), line 2 the armed
-        tickers, line 3 per-company its friendly trigger tail. FALLS BACK to today's exact thesis-only
-        header line when no armed name resolved to a ticker (back-compat + graceful degrade — a Slack
-        push never depends on the enrichment having succeeded). N1: a push about a PAST or LATE night names
-        it on the header (``timing_note`` — "(asof 2026-10-12, recorded late)"), so a catch-up's arm is
-        never read as tonight's; tonight's push is unchanged."""
-        head = f"🔴 {event.thesis_name} — ARMED ({event.from_state} → {event.to_state})"
+        """The push text for one move, by its Q13 class. LOUD (entering Armed, an upgrade) = the compact
+        company-level push: line 1 the thesis header, line 2 the armed tickers, line 3 per-company its
+        friendly trigger tail; it FALLS BACK to the thesis-only header line when no armed name resolved to a
+        ticker (graceful degrade — a push never depends on the enrichment having succeeded). An upgrade's
+        header carries an explicit up marker and what improved ("ARMED ↑ now core, +2 names"). QUIET (a
+        downgrade, a mixed move, any other change while armed) = ``_format_quiet``. N1: a push about a PAST or
+        LATE night names it on the header (``timing_note``), so a catch-up's arm is never read as tonight's.
+        """
+        kind = event.push_kind
+        if kind not in LOUD_KINDS:
+            return SlackNotifier._format_quiet(event)
+        if kind == "upgrade":
+            head = (
+                f"🔴 {event.thesis_name} — ARMED ↑ {_improved(event)} "
+                f"({event.from_verdict} → {event.to_verdict})"
+            )
+        else:  # entering Armed — exactly the pre-Q13 header
+            head = f"🔴 {event.thesis_name} — ARMED ({event.from_state} → {event.to_state})"
         if event.timing_note:
             head += f" {event.timing_note}"
         named = [a for a in event.armed if a.ticker]  # only names that resolved to a ticker
         if not named:
-            return head  # thesis-only fallback — identical to today's message
+            return head  # thesis-only fallback
         lines = [head, f"{', '.join(a.ticker for a in named)} armed"]
         tails = [
             f"{a.ticker} {', '.join(_kind_label(k) for k in a.trigger_kinds)}"
@@ -400,17 +562,75 @@ class SlackNotifier:
         return "\n".join(lines)
 
     @staticmethod
+    def _format_quiet(event: TransitionEvent) -> str:
+        """A QUIET armed -> armed push (#7 — loudness is reserved for a real arm): no emoji, no red header, no
+        capitals, worded honestly. Line 1 says what moved — "still armed, weaker: core → flip; 4 → 3 names",
+        "still armed, mixed: flip → core; 2 → 1 names" (BOTH sides of an opposite-direction move), or
+        "still armed, changed" for a verdict move at the same grade and count — then the verdict arrow and
+        any timing note. Line 2, only when the card carries one, the REASON: the names no longer armed, each
+        with the de-arm signal on the new card, and the confirmation key's own detail when its grade moved.
+        """
+        kind = event.push_kind
+        parts: list[str] = []
+        if grade_direction(event.from_grade, event.to_grade):
+            parts.append(f"{event.from_grade} → {event.to_grade}")
+        if names_direction(event.from_armed, event.to_armed):
+            parts.append(f"{event.from_armed} → {event.to_armed} names")
+        word = {"downgrade": "weaker", "mixed": "mixed"}.get(kind, "changed")
+        head = f"{event.thesis_name} — still armed, {word}"
+        if parts:
+            head += ": " + "; ".join(parts)
+        head += f" ({event.from_verdict} → {event.to_verdict})"
+        if event.timing_note:
+            head += f" {event.timing_note}"
+        if not event.reasons:
+            return head
+        return head + "\n" + "; ".join(event.reasons)
+
+    @staticmethod
+    def _format_digest(event: DigestEvent) -> str:
+        """The QUIET digest: a plain header (+ N1's timing note), then one line per thesis in the compact #309
+        shape — ``Thesis: TICK insider buy, breakout · TICK2 breakout``. A name with no resolved ticker is
+        COUNTED on its thesis's line, never dropped (#9)."""
+        head = "Newly armed in already-armed theses"
+        if event.timing_note:
+            head += f" {event.timing_note}"
+        lines = [head]
+        for t in event.theses:
+            named = [n for n in t.names if n.ticker]
+            items = [
+                (
+                    f"{n.ticker} {', '.join(_kind_label(k) for k in n.trigger_kinds)}"
+                    if n.trigger_kinds
+                    else n.ticker
+                )
+                for n in named
+            ]
+            unnamed = len(t.names) - len(named)
+            if unnamed:
+                items.append(f"{unnamed} name{'s' if unnamed > 1 else ''} without a ticker")
+            lines.append(f"{t.thesis_name}: " + " · ".join(items))
+        return "\n".join(lines)
+
+    @staticmethod
     def _format_spac(event: SpacStatusEvent) -> str:
-        """The compact SPAC-announced push: line 1 the company + which thesis it matched, line 2 the
-        matched terms (the provenance behind the match, #6), line 3 the DA filing link. American English.
+        """The compact SPAC-announced push, ONE per announcement. One matched thesis reads exactly as before
+        Q13: line 1 the company + the thesis it matched, line 2 the matched terms (the provenance behind the
+        match, #6), line 3 the DA filing link. Several matched theses: line 1 names them all, then one
+        "<thesis> matched: ..." line each, then every distinct DA link the matches cite. American English.
         """
         who = f"{event.ticker} ({event.company_name})" if event.ticker else event.company_name
-        lines = [f"🟢 {who} — SPAC deal ANNOUNCED · matches {event.thesis_name}"]
-        terms = [*event.signal_terms, *event.broad_terms]
-        if terms:
-            lines.append("matched: " + ", ".join(terms))
-        if event.url:
-            lines.append(event.url)
+        lines = [f"🟢 {who} — SPAC deal ANNOUNCED · matches {', '.join(event.thesis_names)}"]
+        single = len(event.matches) == 1
+        for m in event.matches:
+            terms = [*m.signal_terms, *m.broad_terms]
+            if terms:
+                lines.append(
+                    ("" if single else f"{m.thesis_name} ") + "matched: " + ", ".join(terms)
+                )
+        urls = [event.url] if event.url else []
+        urls += sorted({m.url for m in event.matches if m.url and m.url != event.url})
+        lines.extend(urls)
         return "\n".join(lines)
 
 

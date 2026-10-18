@@ -299,7 +299,12 @@ ingest (incremental Form 4 + EOD, with the **re-version pass** — a split re-ba
 → assemble today's call → **transition detection** (state/verdict vs the prior as-of's call-of-record —
 the material-change line; churn is not a transition) → append the call-of-record only if it changed.
 Transitions print in a loud `TRANSITIONS:` block **only when there are any**, and emit through the notify
-seam (`backend/notify` — delivery deferred; a channel is one adapter). The next morning's Board is the
+seam (`backend/notify`: Slack when `SLACK_WEBHOOK_URL` is set, else a log line). **Push loudness follows the
+Board's (#7, the Q13 push policy, `FEED_LOOP.md` §"The push policy"):** only a real arm is loud — a thesis
+ENTERING Armed, or an armed thesis that genuinely strengthened (its grade rose or more names armed, nothing
+fell). A weaker or mixed move while armed is a quiet, honestly worded push ("still armed, weaker: core → flip;
+4 → 3 names"); names that arm inside an already-armed thesis ride ONE quiet digest per pass; a de-arm and
+every pre-Armed move are recorded, never pushed — Incubating never nags. The next morning's Board is the
 first thing the platform already checked without the operator.
 
 ## What the Board never does (decisions, not gaps)
