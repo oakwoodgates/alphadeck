@@ -5,7 +5,7 @@ labeled "entry window closing" in the UI — wrong for 69% of arm-window expirie
 audit A3). Q14 relabels it "hold clock closing" (meaning unchanged, pinned below) and adds a SEPARATE
 flag on the real entry window, ``arm_until``: on once ``entry_window_closing_sessions`` (2) or fewer
 TRADING sessions remain after the card's asof, counted on the cron's Mon-Fri calendar
-(``pipeline.schedule.is_scheduled_day``).
+(``domain.trading_days.is_scheduled_day``, which ``pipeline.schedule`` imports — one definition).
 
 REAL SHAPES. Every event set below is a recorded armed member read off the PROD call-of-record
 (read-only, 2026-10-18): the trigger kinds, grades and fire dates are the card's own, the liveness
@@ -303,8 +303,12 @@ def test_the_flag_is_recomputable_from_the_cards_own_asof_and_window():
 
 def test_no_ambient_clock_on_the_flag_path():
     """Structural guard: neither the assembler nor the calendar predicate it borrows reads a clock."""
+    from domain import trading_days
     from pipeline import schedule
 
-    for src in (inspect.getsource(assembler), inspect.getsource(schedule.is_scheduled_day)):
+    for src in (inspect.getsource(assembler), inspect.getsource(trading_days)):
         for needle in ("date.today(", "datetime.now(", "market_today(", "market_now("):
             assert needle not in src, needle
+    # ONE definition: the cron schedule reads the very same predicate the call path counts with
+    assert schedule.is_scheduled_day is trading_days.is_scheduled_day
+    assert assembler.is_scheduled_day is trading_days.is_scheduled_day

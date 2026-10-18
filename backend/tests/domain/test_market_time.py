@@ -132,7 +132,8 @@ def test_it_does_NO_trading_calendar_logic(monkeypatch):
     """market_today() is "today in market time", NOT "the last trading day": no weekend skip, no holiday
     calendar. 2026-07-18 is a SATURDAY and must come back as itself. Pinned deliberately — teaching this
     helper to skip weekends would silently move every asof, every bitemporal valid_from, and every
-    staleness read that calls it. The Mon-Fri schedule math lives in pipeline/schedule.py."""
+    staleness read that calls it. The Mon-Fri schedule math lives in pipeline/schedule.py (its weekday
+    predicate in domain/trading_days.py)."""
     saturday = datetime(2026, 7, 18, 16, 0, tzinfo=timezone.utc)  # 12:00 EDT, a Saturday
     _pin(monkeypatch, saturday)
     assert market_today() == date(2026, 7, 18)

@@ -12,7 +12,7 @@ from domain.config import CallConfig
 from domain.enums import Grade, Kind, Role, State, Verdict
 from domain.signal import SignalEvent
 from domain.thesis import Catalyst, Thesis
-from pipeline.schedule import is_scheduled_day
+from domain.trading_days import is_scheduled_day
 from signals.common import entry_signal_is_live
 from signals.conviction_source import is_computed_conviction
 from signals.revenue_acceleration import DETECTOR_NAME as REVENUE_ACCEL_DETECTOR
@@ -585,7 +585,7 @@ def sessions_left(asof: date, until: date) -> int:
     """Trading sessions strictly AFTER ``asof`` through ``until`` (inclusive) — how many more sessions an
     inclusive window ending on ``until`` stays open once ``asof``'s session is done (the cron records after
     the close). ``0`` when ``until <= asof``. Counted on the cron's Mon-Fri calendar
-    (``pipeline.schedule.is_scheduled_day``) rather than a hand-rolled one; that calendar does NOT know
+    (``domain.trading_days.is_scheduled_day``) rather than a hand-rolled one; that calendar does NOT know
     exchange holidays, so a holiday inside the window counts as a session (documented in CALL_LOGIC §6).
     Pure: both dates are parameters, never a wall clock."""
     n = 0

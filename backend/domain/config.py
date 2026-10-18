@@ -313,7 +313,7 @@ class CallConfig(DomainModel):
     # in its entry window — the sessions strictly after the card's asof, through ``arm_until`` (inclusive:
     # the confirmation is live on arm_until itself, CALL_LOGIC §2). 2 = on the night two sessions are left
     # (asof Mon, arm_until Wed) and off at three. Sessions are counted with the cron's Mon-Fri calendar
-    # (``pipeline.schedule.is_scheduled_day``) — it does NOT model exchange holidays, so a holiday inside
+    # (``domain.trading_days.is_scheduled_day``) — it does NOT model exchange holidays, so a holiday inside
     # the last few days counts as a session and the flag comes on one session LATE (CALL_LOGIC §6). Read
     # only by ``_member_call`` to set the flag; it never touches state, verdict, grade, ranking or the
     # confidence bar (#4), and only an armed member can carry it (#7 — Watch / Warming stay quiet).

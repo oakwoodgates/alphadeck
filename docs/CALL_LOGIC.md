@@ -390,7 +390,8 @@ actually ends an arm. Its meaning is unchanged; only its words are. The wire nam
 purpose: `MemberCall` is a strict schema (`extra="forbid"`), so renaming the field would make every
 recorded card unparseable and break the API contract, for no change in behavior.
 
-`entry_window_closing` counts sessions with the cron's Mon-Fri calendar (`pipeline.schedule.is_scheduled_day`):
+`entry_window_closing` counts sessions with the cron's Mon-Fri calendar (`domain.trading_days.is_scheduled_day`
+— the one definition `pipeline/schedule.py` also imports; `calls/` never imports `pipeline/`):
 asof Mon with `arm_until` Wed = 2 left (Tue, Wed) → on; the Friday before = 3 → off; Thu with a Monday
 close = 2 (Fri, Mon) → on, though it is four calendar days; a weekend `arm_until` (a calendar-day window
 can end on a Saturday) adds no session, so Friday is the last. **Holidays are not modeled** — that calendar
