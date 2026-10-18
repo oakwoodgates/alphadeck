@@ -40,7 +40,32 @@ class ArmedName:
     ticker: str | None
     trigger_kinds: tuple[str, ...] = ()
     grade: str | None = None  # entry_grade.value (FLIP/CORE) — carried for future richer formats
+    # Q13 review — NAMES, NEVER COUNTS (#9): a name with no ticker is still listed, by its company name from
+    # the security master; with neither, by its security id. Every push and the digest show ``display``.
+    name: str | None = None
+    security_id: UUID | None = None
 
+    @property
+    def display(self) -> str:
+        return name_label(self.ticker, self.name, self.security_id)
+
+
+def name_label(ticker: str | None, name: str | None, security_id: UUID | None) -> str:
+    """How a push NAMES a company — never collapsed into a count (#9, operator 2026-10-17): its ticker; else
+    ``"<company name> (no ticker)"`` from the security master; else ``"<security id> (no ticker)"`` (the
+    master read failed, or holds no row) — the one identity left, still listed, never dropped."""
+    if ticker:
+        return ticker
+    if name:
+        return f"{name} (no ticker)"
+    if security_id is not None:
+        return f"{security_id} (no ticker)"
+    return "an unidentified name (no ticker)"
+
+
+# the digest's mark on a RE-ARM (a name armed in this thesis before, de-armed, and armed again); a first-time
+# arm is unmarked
+REARM = "(re-arm)"
 
 Timing = Literal["current", "past", "late"]
 
@@ -121,22 +146,29 @@ class TransitionEvent:
 
 @dataclass(frozen=True)
 class DigestThesis:
-    """One already-armed thesis's names that NEWLY armed tonight (O4), in the card's rank order, each
-    resolved like the armed push's names (ticker + distinct trigger kinds; ``ticker=None`` = unresolved,
-    still counted — never dropped, #9)."""
+    """One already-armed thesis's names that NEWLY armed tonight (O4), each resolved like the armed push's
+    names (ticker + distinct trigger kinds; a name with no ticker is LISTED by its company name — never
+    counted, never dropped, #9). ``names`` = the FIRST-TIME arms (never armed in this thesis on any earlier
+    honest recorded row), ``rearms`` = the RE-ARMS (armed before, de-armed, armed again — the flapping
+    names); each in the card's rank order, and a line always lists the first-time arms first."""
 
     thesis_id: UUID
     thesis_name: str
     names: tuple[ArmedName, ...]
+    rearms: tuple[ArmedName, ...] = ()
+
+    @property
+    def all_names(self) -> tuple[ArmedName, ...]:
+        return (*self.names, *self.rearms)
 
 
 @dataclass(frozen=True)
 class DigestEvent:
     """O4 — the pass-end QUIET digest: the names that newly armed inside theses that were ALREADY Armed and
-    stayed Armed, grouped by thesis. ONE per live pass and ONLY when there is at least one name (never a
-    "nothing new" ping). A name already listed on the same pass's thesis-level push for that thesis (an
-    upgrade push lists every armed name) is not repeated here. A catch-up or late pass carries N1's timing
-    label, exactly like a transition push."""
+    stayed Armed, grouped by thesis, first-time arms before re-arms (``DigestThesis``). ONE per live pass and
+    ONLY when there is at least one name (never a "nothing new" ping). A name already listed on the same
+    pass's thesis-level push for that thesis (an upgrade push lists every armed name) is not repeated here.
+    A catch-up or late pass carries N1's timing label, exactly like a transition push."""
 
     asof: date
     theses: tuple[DigestThesis, ...]
@@ -148,12 +180,13 @@ class DigestEvent:
 
     @property
     def name_count(self) -> int:
-        return sum(len(t.names) for t in self.theses)
+        return sum(len(t.all_names) for t in self.theses)
 
     @property
     def label(self) -> str:
         parts = [
-            f"{t.thesis_name}: " + ", ".join(n.ticker or "(no ticker)" for n in t.names)
+            f"{t.thesis_name}: "
+            + ", ".join([n.display for n in t.names] + [f"{n.display} {REARM}" for n in t.rearms])
             for t in self.theses
         ]
         note = f" {self.timing_note}" if self.timing_note else ""
@@ -387,6 +420,15 @@ def _kind_label(kind: str) -> str:
     return _KIND_LABELS.get(kind, kind.replace("_", " "))
 
 
+def _name_tail(a: ArmedName, mark: str = "") -> str:
+    """``"TICK insider buy, breakout"`` — a name (``display``: ticker, else company name) + an optional mark +
+    its friendly trigger kinds, if any."""
+    who = f"{a.display} {mark}" if mark else a.display
+    if not a.trigger_kinds:
+        return who
+    return f"{who} {', '.join(_kind_label(k) for k in a.trigger_kinds)}"
+
+
 def _improved(event: TransitionEvent) -> str:
     """What an armed -> armed UPGRADE improved, for its loud header: ``"now core"``, ``"+2 names"``, or both."""
     bits: list[str] = []
@@ -529,9 +571,10 @@ class SlackNotifier:
     @staticmethod
     def _format(event: TransitionEvent) -> str:
         """The push text for one move, by its Q13 class. LOUD (entering Armed, an upgrade) = the compact
-        company-level push: line 1 the thesis header, line 2 the armed tickers, line 3 per-company its
-        friendly trigger tail; it FALLS BACK to the thesis-only header line when no armed name resolved to a
-        ticker (graceful degrade — a push never depends on the enrichment having succeeded). An upgrade's
+        company-level push: line 1 the thesis header, line 2 EVERY armed name, line 3 per-company its
+        friendly trigger tail. A name with no ticker is listed by its company name ("Acme Uranium Corp (no
+        ticker)") — never skipped, never counted (#9). It FALLS BACK to the thesis-only header line only when
+        the enrichment produced no names at all (it failed open — a push never depends on it). An upgrade's
         header carries an explicit up marker and what improved ("ARMED ↑ now core, +2 names"). QUIET (a
         downgrade, a mixed move, any other change while armed) = ``_format_quiet``. N1: a push about a PAST or
         LATE night names it on the header (``timing_note``), so a catch-up's arm is never read as tonight's.
@@ -548,15 +591,10 @@ class SlackNotifier:
             head = f"🔴 {event.thesis_name} — ARMED ({event.from_state} → {event.to_state})"
         if event.timing_note:
             head += f" {event.timing_note}"
-        named = [a for a in event.armed if a.ticker]  # only names that resolved to a ticker
-        if not named:
-            return head  # thesis-only fallback
-        lines = [head, f"{', '.join(a.ticker for a in named)} armed"]
-        tails = [
-            f"{a.ticker} {', '.join(_kind_label(k) for k in a.trigger_kinds)}"
-            for a in named
-            if a.trigger_kinds
-        ]
+        if not event.armed:
+            return head  # thesis-only fallback (the enrichment failed open)
+        lines = [head, f"{', '.join(a.display for a in event.armed)} armed"]
+        tails = [_name_tail(a) for a in event.armed if a.trigger_kinds]
         if tails:
             lines.append(" · ".join(tails))
         return "\n".join(lines)
@@ -590,25 +628,15 @@ class SlackNotifier:
     @staticmethod
     def _format_digest(event: DigestEvent) -> str:
         """The QUIET digest: a plain header (+ N1's timing note), then one line per thesis in the compact #309
-        shape — ``Thesis: TICK insider buy, breakout · TICK2 breakout``. A name with no resolved ticker is
-        COUNTED on its thesis's line, never dropped (#9)."""
+        shape — ``Thesis: TICK insider buy, breakout · TICK2 (re-arm) breakout``. The FIRST-TIME arms come
+        first, unmarked; the RE-ARMS follow, marked "(re-arm)". Every name is LISTED — a name with no ticker
+        by its company name, never a count (#9)."""
         head = "Newly armed in already-armed theses"
         if event.timing_note:
             head += f" {event.timing_note}"
         lines = [head]
         for t in event.theses:
-            named = [n for n in t.names if n.ticker]
-            items = [
-                (
-                    f"{n.ticker} {', '.join(_kind_label(k) for k in n.trigger_kinds)}"
-                    if n.trigger_kinds
-                    else n.ticker
-                )
-                for n in named
-            ]
-            unnamed = len(t.names) - len(named)
-            if unnamed:
-                items.append(f"{unnamed} name{'s' if unnamed > 1 else ''} without a ticker")
+            items = [_name_tail(n) for n in t.names] + [_name_tail(n, REARM) for n in t.rearms]
             lines.append(f"{t.thesis_name}: " + " · ".join(items))
         return "\n".join(lines)
 

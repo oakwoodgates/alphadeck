@@ -400,13 +400,22 @@ per-thesis; **archived theses are skipped by the list's default**, the archive s
     listing the names that NEWLY armed inside theses that were already Armed and stayed Armed — the new
     card's armed set against the SAME baseline row the transition compare and `record_if_changed` read
     (F2), so a same-day second pass never re-announces a name. Grouped by thesis in the compact #309 shape
-    ("Modern Defense: LMT catalyst, breakout · HONA insider buy, breakout"); a name with no resolved ticker
-    is counted, never dropped (#9). Excluded: the names that thesis's own push already listed (an upgrade
-    push lists every armed name — only when its enrichment resolved them); a thesis ENTERING Armed (its loud
-    push is the news); reconstructed rows (`pipeline.backfill` imports no notifier — pinned by its import
-    guard). **No names, no message** — never a "nothing new" ping. A catch-up or late pass carries N1's
-    label on the digest header. Built per thesis AFTER that thesis's commit and sent once after the loop,
-    both fail-open: a digest fault never costs a record or another push.
+    ("Modern Defense: LMT catalyst, breakout · HONA (re-arm) insider buy, breakout"). Within each thesis's
+    line the **FIRST-TIME arms come first, unmarked, then the RE-ARMS, marked "(re-arm)"** (the flapping
+    names), each group in the card's rank order. THE ONE DEFINITION (`pipeline/push_policy.py`
+    `_EVER_ARMED_SQL`): a name is a re-arm when it is an armed member of an ARMED, non-reconstructed
+    call-of-record of THIS thesis at an as-of on or before the night, earlier than this pass's own row; read
+    once per pass, read-only, at digest-build time — and if that read fails every name reads first-time
+    (nothing dropped, the failure logged). Excluded: the names that thesis's own push already listed (an
+    upgrade push lists every armed name — unless its enrichment failed open); a thesis ENTERING Armed (its
+    loud push is the news); reconstructed rows (`pipeline.backfill` imports no notifier — pinned by its
+    import guard). **No names, no message** — never a "nothing new" ping. A catch-up or late pass carries
+    N1's label on the digest header. Built per thesis AFTER that thesis's commit and sent once after the
+    loop, both fail-open: a digest fault never costs a record or another push.
+  - **Names, never counts (#9 — operator, Q13 review).** Every push LISTS every name — the digest, the loud
+    push's company lines, a quiet push's "no longer armed" reason: by ticker; a name the master holds with no
+    ticker by its company name ("Acme Uranium Corp (no ticker)"); and if even the master read failed, by its
+    security id. No format collapses names into a count.
   - **One SPAC push per announcement.** The radar's →announced page is ONE event per transitioned company,
     listing every matched thesis and its matched terms (`radar.spac.announcements`); it used to page once
     per (company, thesis).
@@ -417,7 +426,8 @@ per-thesis; **archived theses are skipped by the list's default**, the archive s
   - **MEASURED replay** over the honest prod record (642 non-reconstructed rows, 74 passes, through
     2026-10-16; the F2 baseline as of each row's write): loud pushes **34 → 26** (17 entering Armed, 9
     upgrades), **8** quiet (5 downgrades, 3 mixed — the 17 armed → armed events used to be 17 loud), **46**
-    digest messages carrying **288** names, **21** duplicates suppressed (names an upgrade push listed). The
+    digest messages carrying **288** names — **140 first-time arms, 148 re-arms** — and **21** duplicates
+    suppressed (names an upgrade push listed). The
     309 name-level arms (164 distinct thesis × name pairs) all reach the operator now: 288 in a digest, 21 on
     an upgrade push. SPAC, over every recorded radar run: **221 → 136** pages, 62 multi-thesis
     announcements collapsed (2 to 5 theses each).

@@ -303,7 +303,8 @@ seam (`backend/notify`: Slack when `SLACK_WEBHOOK_URL` is set, else a log line).
 Board's (#7, the Q13 push policy, `FEED_LOOP.md` §"The push policy"):** only a real arm is loud — a thesis
 ENTERING Armed, or an armed thesis that genuinely strengthened (its grade rose or more names armed, nothing
 fell). A weaker or mixed move while armed is a quiet, honestly worded push ("still armed, weaker: core → flip;
-4 → 3 names"); names that arm inside an already-armed thesis ride ONE quiet digest per pass; a de-arm and
+4 → 3 names"); names that arm inside an already-armed thesis ride ONE quiet digest per pass (first-time
+arms before the marked re-arms; every name listed, never a count); a de-arm and
 every pre-Armed move are recorded, never pushed — Incubating never nags. The next morning's Board is the
 first thing the platform already checked without the operator.
 

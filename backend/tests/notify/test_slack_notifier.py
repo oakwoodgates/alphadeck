@@ -147,10 +147,12 @@ def test_kind_label_maps_friendly_and_falls_back_to_underscores_to_spaces():
     assert _kind_label("some_new_kind") == "some new kind"  # unmapped → underscores to spaces
 
 
-def test_armed_push_falls_back_to_the_thesis_only_line_when_nothing_resolves(monkeypatch):
-    """Back-compat + graceful degrade: with no resolved armed name the push is EXACTLY today's thesis-only
-    header line. Covers both armed=() (enrichment produced nothing / failed open) and a name whose ticker
-    never resolved (ticker=None is skipped)."""
+def test_armed_push_falls_back_to_the_thesis_only_line_only_when_the_enrichment_produced_nothing(
+    monkeypatch,
+):
+    """Graceful degrade: armed=() (the enrichment failed open) is EXACTLY the thesis-only header line. But a
+    name with no ticker is NEVER skipped (Q13 review, #9): it is listed by its company name, or — with no
+    company name either — by its security id."""
     _enable_slack(monkeypatch)
 
     # (a) armed=() — the default / degraded-enrichment case
@@ -160,10 +162,23 @@ def test_armed_push_falls_back_to_the_thesis_only_line_when_nothing_resolves(mon
         "🔴 AI Memory & Storage Supercycle — ARMED (warming → armed)"
     )
 
-    # (b) an ArmedName that never resolved to a ticker (ticker=None) → skipped → same fallback
+    # (b) names that never resolved to a ticker are LISTED, by company name, else by security id
     calls2 = _capture_post(monkeypatch)
-    SlackNotifier().notify(_armed_event(thesis_name="Solo", armed=(ArmedName(None, ("insider",)),)))
-    assert calls2[0]["json"]["text"] == "🔴 Solo — ARMED (warming → armed)"
+    sid = uuid4()
+    SlackNotifier().notify(
+        _armed_event(
+            thesis_name="Solo",
+            armed=(
+                ArmedName(None, ("insider",), name="Acme Uranium Corp"),
+                ArmedName(None, (), security_id=sid),
+            ),
+        )
+    )
+    assert calls2[0]["json"]["text"] == (
+        "🔴 Solo — ARMED (warming → armed)\n"
+        f"Acme Uranium Corp (no ticker), {sid} (no ticker) armed\n"
+        "Acme Uranium Corp (no ticker) insider buy"
+    )
 
 
 def test_armed_push_omits_the_tail_line_when_no_member_has_triggers(monkeypatch):
@@ -630,7 +645,10 @@ def test_the_digest_pushes_one_QUIET_message_grouped_by_thesis(monkeypatch):
         _digest(
             DigestThesis(uuid4(), "Nuclear Buildout", (ArmedName("PCG", ("insider", "catalyst")),)),
             DigestThesis(
-                uuid4(), "Rainbow Rush", (ArmedName("CYCN", ()), ArmedName(None, ("insider",)))
+                uuid4(),
+                "Rainbow Rush",
+                names=(ArmedName(None, ("insider",), name="Acme Uranium Corp"),),
+                rearms=(ArmedName("CYCN", ()),),
             ),
             timing="late",
         )
@@ -640,8 +658,8 @@ def test_the_digest_pushes_one_QUIET_message_grouped_by_thesis(monkeypatch):
     assert call["json"]["text"] == (
         "Newly armed in already-armed theses (asof 2026-10-12, recorded late)\n"
         "Nuclear Buildout: PCG insider buy, catalyst\n"
-        "Rainbow Rush: CYCN · 1 name without a ticker"
-    )
+        "Rainbow Rush: Acme Uranium Corp (no ticker) insider buy · CYCN (re-arm)"
+    )  # first-time arms first, re-arms after and marked; a ticker-less name by its company name
     assert "🔴" not in call["json"]["text"]
 
 

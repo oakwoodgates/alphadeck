@@ -631,7 +631,7 @@ def run_daily(
     # O4 (Q13) — ONE quiet digest per pass, after the loop, only when a name newly armed (fail-open: a digest
     # fault never costs a record or another push). A catch-up / late pass carries N1's label.
     if digest:
-        push_policy.send_digest(notifier, digest, asof=asof, timing=_push_timing(asof))
+        push_policy.send_digest(conn, notifier, digest, asof=asof, timing=_push_timing(asof))
     return out
 
 
