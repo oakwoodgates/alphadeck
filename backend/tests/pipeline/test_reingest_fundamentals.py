@@ -113,6 +113,14 @@ def test_the_dry_run_plans_on_a_read_only_connection_and_writes_nothing(db, worl
     # with the same number) — the +84 the dev dry run printed for AMD
     assert amd.count(revenue=True, supersedes=False) == 84 and amd.count(revenue=False) == 0
     assert by["VICR"].count(revenue=True, supersedes=True) == 1  # the 2025-08-01 Q2-2025 conflict
+    # the FY2025 10-K's Q3-2025 "quarter" carrying the year: screened, reported, not planned
+    [scr] = by["VICR"].screened
+    assert (scr.reason, scr.period_end, scr.value) == (
+        "fy_total_in_quarter",
+        date(2025, 9, 30),
+        407_701_000,
+    )
+    assert not [v for v in by["VICR"].planned if v.point.value == 407_701_000]
     assert by["ZZNC"].source == RF.NOT_CACHED and by["ZZ404"].source == RF.KNOWN_404
 
 
@@ -161,6 +169,12 @@ def test_the_cli_dry_run_then_apply_then_rerun(db, world, monkeypatch, tmp_path,
     out = capsys.readouterr().out
     assert "DRY-RUN" in out and "would append" in out and "AMD: label Revenues -> " in out
     assert "series end 2017-09-30 -> 2026-06-27" in out
+    # every screened row is printed in the dry run (VICR's year-in-a-quarter row), and counted
+    assert (
+        "screened fy_total_in_quarter: quarter ending 2025-09-30 filed 2026-03-02 value 407,701,000"
+        in out
+    )
+    assert "screened out 1 row(s) in 1 companies" in out
     assert _count(db) == before and not (tmp_path / "repairs").exists()
 
     RF.main(["--apply", "--no-live"])

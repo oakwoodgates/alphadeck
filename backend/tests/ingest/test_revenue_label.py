@@ -3,9 +3,12 @@
 The bug: ``_usd_duration_rows`` took the FIRST ``REVENUE_CONCEPTS`` label present — ``us-gaap:Revenues`` —
 and most filers moved to a ``RevenueFromContractWithCustomer*`` tag around ASC 606, so they kept a dead series
 (MEASURED on prod: 163 of 495 active companies with revenue; AMD's ended 2017-09-30). The fix
-(``ingest.fundamentals.select_revenue``): the label whose newest quarter ends latest, never joined with
-another; and on a filing where a stored old-label number differs from the current label's, the current
-label's number is appended as a version of THAT filing (``plan_versions``).
+(``ingest.fundamentals.select_revenue``): the label whose newest quarter ends latest — on a tie, the one with
+more quarters, then the list order — never joined with another; two total-revenue tags appended to the list
+(utilities, banks); a data-quality screen that keeps rows no genuine quarter can be out of the series (a
+fiscal-year total under a quarter context; a derived Q4 across a restatement); and on a filing where a stored
+old-label number differs from the current label's, the current label's number is appended as a version of
+THAT filing (``plan_versions``).
 
 Every company here is a REAL companyfacts document trimmed to its revenue nodes
 (``tests/fundamentals_fixtures.py``). The ``plan_versions`` / tie contract tests at the bottom state the
@@ -25,12 +28,16 @@ from domain.config import DEFAULT_CONFIG
 from domain.market_time import known_at_for_asof
 from domain.security import Security
 from ingest.edgar.client import EdgarClient
-from ingest.edgar.extract import _REVENUE, _days, _first, _has_annual_revenue
+from ingest.edgar.extract import _REVENUE, REVENUE_CONCEPTS, _days, _first, _has_annual_revenue
 from ingest.fundamentals import (
     REVENUE_METRIC,
+    SCREEN_FY_IN_QUARTER,
+    SCREEN_RESTATED_FY_Q4,
+    SCREEN_YEAR_IN_Q4,
     SHARES_OUT_METRIC,
     HeldFiling,
     QuarterPoint,
+    _label_series,
     _quarters_from_rows,
     _stampable_usd_duration_rows,
     extract_revenue_quarters,
@@ -47,11 +54,30 @@ from tests.fundamentals_fixtures import COMPANYFACTS_CIK, companyfacts_cache, co
 
 RFC_EX = "RevenueFromContractWithCustomerExcludingAssessedTax"
 RFC_IN = "RevenueFromContractWithCustomerIncludingAssessedTax"
+UTILITY = "RegulatedAndUnregulatedOperatingRevenue"
+BANK = "RevenuesNetOfInterestExpense"
 
 
 def _label_quarters(cf: dict, concept: str) -> list[QuarterPoint]:
-    """One label's own quarters — what the old rule stored when that label was first present."""
+    """One label's own quarters (screened) — the series that label supplies when it is chosen."""
     return _quarters_from_rows(_stampable_usd_duration_rows(cf["facts"]["us-gaap"].get(concept)))
+
+
+def _old_rule_quarters(cf: dict) -> list[QuarterPoint]:
+    """What the PRE-FIX ingest stored: the first-present ``Revenues`` label's quarters with no screen. The
+    screen only REMOVES rows, so the old output is the screened series plus the screened rows — exact when
+    every screened row is a declined derived Q4 (asserted: no ``Revenues`` label here holds a quarter-context
+    total, whose removal would also have let a derived Q4 in)."""
+    pts, screened = _label_series(_stampable_usd_duration_rows(cf["facts"]["us-gaap"]["Revenues"]))
+    assert all(x.reason == SCREEN_RESTATED_FY_Q4 for x in screened)
+    back = [  # the old code kept a derived Q4 only when it was positive
+        QuarterPoint(
+            REVENUE_METRIC, x.period_end, x.value, x.filed, x.accession, "derived", "Q4", None
+        )
+        for x in screened
+        if x.value > 0
+    ]
+    return sorted(pts + back, key=lambda p: (p.period_end, p.filed))
 
 
 def _first_public(cf: dict) -> dict[tuple[date, float], date]:
@@ -74,7 +100,9 @@ def _first_public(cf: dict) -> dict[tuple[date, float], date]:
     [
         ("AMD", RFC_EX, date(2017, 9, 30), date(2026, 6, 27)),
         ("HON", RFC_EX, date(2012, 6, 30), date(2026, 6, 30)),
-        ("NEE", RFC_IN, date(2013, 9, 30), date(2026, 3, 31)),
+        # NEE's contract tag and the utility tag both run to 2026-03-31; the utility tag (total operating
+        # revenue) has the longer history, 162 quarters to 68
+        ("NEE", UTILITY, date(2013, 9, 30), date(2026, 3, 31)),
     ],
 )
 def test_a_switched_company_gets_its_current_label(ticker, label, old_end, new_end):
@@ -131,6 +159,165 @@ def test_purity_branch_sees_annual_revenue_under_any_label():
     assert first == facts["us-gaap"]["Revenues"]["units"]["USD"]
     assert not any(r.get("start") and _days(r) > 300 and float(r["val"]) > 0 for r in first)
     assert _has_annual_revenue(facts) is True
+
+
+# --------------------------------------------------------------------------------------------------------
+# the tie-break and the two appended tags (pure, real documents)
+# --------------------------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(("ticker", "short", "long_"), [("TTMI", 4, 70), ("KULR", 29, 52)])
+def test_a_tie_goes_to_the_label_with_more_quarters(ticker, short, long_):
+    """Both labels' newest quarter ends on the same date; the list order would keep ``Revenues`` (TTMI's has 4
+    quarters — the detector could evaluate nothing). The longer history wins, still from ONE label.
+    """
+    cf = companyfacts_revenue(ticker)
+    sel = select_revenue(cf)
+    assert sel.labels["Revenues"][2] == sel.labels[RFC_EX][2]  # a genuine tie on the newest quarter
+    assert (sel.labels["Revenues"][0], sel.labels[RFC_EX][0]) == (short, long_)
+    assert sel.concept == RFC_EX and sel.points == _label_quarters(cf, RFC_EX)
+
+
+def test_the_appended_tags_come_after_the_original_three():
+    """Appended, so the list-order fallback is unchanged for every company the original three cover."""
+    assert [c for _t, c in REVENUE_CONCEPTS] == [
+        "Revenues",
+        RFC_EX,
+        RFC_IN,
+        UTILITY,
+        BANK,
+    ]
+
+
+@pytest.mark.parametrize(
+    ("ticker", "label", "old_end", "new_end", "new_value"),
+    [
+        ("XEL", UTILITY, date(2019, 9, 30), date(2026, 6, 30), 3_119_000_000),
+        ("HAPN", BANK, date(2020, 12, 31), date(2026, 6, 30), 262_855_000),
+    ],
+)
+def test_a_utility_and_a_bank_get_their_total_revenue_tag(
+    ticker, label, old_end, new_end, new_value
+):
+    """XEL (a utility) and HAPN (a bank) stopped tagging any of the original three years ago; their current
+    total revenue lives under the industry tag (``RegulatedAndUnregulatedOperatingRevenue`` = total operating
+    revenue; ``RevenuesNetOfInterestExpense`` = net interest income + noninterest income)."""
+    cf = companyfacts_revenue(ticker)
+    sel = select_revenue(cf)
+    assert max(v[2] for c, v in sel.labels.items() if c not in (UTILITY, BANK)) == old_end
+    assert sel.concept == label and sel.points == _label_quarters(cf, label)
+    assert (sel.points[-1].period_end, sel.points[-1].value) == (new_end, new_value)
+
+
+# --------------------------------------------------------------------------------------------------------
+# the data-quality screen (real documents, then the guards with direct inputs)
+# --------------------------------------------------------------------------------------------------------
+
+
+def _screened(ticker: str) -> list[tuple[str, date, date, float, float]]:
+    return [
+        (x.reason, x.period_end, x.filed, x.value, x.reference)
+        for x in select_revenue(companyfacts_revenue(ticker)).screened
+    ]
+
+
+def test_screen_a_fiscal_year_total_filed_under_a_quarter_context():
+    """VICR's FY2025 10-K tags Q3-2025 as $407,701,000 — the whole year (its 10-Q said $110,423,000). The row
+    is screened, never stored; Q3-2025 keeps the 10-Q's figure."""
+    assert _screened("VICR") == [
+        (SCREEN_FY_IN_QUARTER, date(2025, 9, 30), date(2026, 3, 2), 407_701_000.0, 407_701_000.0)
+    ]
+    q3 = [
+        (p.filed, p.value)
+        for p in select_revenue(companyfacts_revenue("VICR")).points
+        if p.period_end == date(2025, 9, 30)
+    ]
+    assert q3 == [(date(2025, 10, 29), 110_423_000.0)]
+
+
+def test_screen_both_lhx_quarter_context_years():
+    """LHX's 2026 10-K files FY2024's $21.325B under a Q4 context beside the FY row (shape 1), and FY2025's
+    $21.865B ONLY under a Q4 context — no FY row at all — while the 9-month YTD was $16.217B (shape 2).
+    Q4-2024 now comes from FY − 9-month ($5.523B, from the 2025 10-K, a year earlier than the bad row);
+    Q4-2025 has no honest figure, so it is absent and the detector declines across it."""
+    assert _screened("LHX") == [
+        (SCREEN_FY_IN_QUARTER, date(2025, 1, 3), date(2026, 2, 12), 21_325e6, 21_325e6),
+        (SCREEN_YEAR_IN_Q4, date(2026, 1, 2), date(2026, 2, 12), 21_865e6, 16_217e6),
+    ]
+    pts = select_revenue(companyfacts_revenue("LHX")).points
+    q4_2024 = [(p.filed, p.value, p.basis) for p in pts if p.period_end == date(2025, 1, 3)]
+    assert q4_2024 == [
+        (date(2025, 2, 14), 5_523e6, "derived"),
+        (date(2026, 2, 12), 5_523e6, "derived"),
+    ]
+    assert not [p for p in pts if p.period_end == date(2026, 1, 2)]
+
+
+def test_screen_a_derived_q4_across_a_restatement():
+    """LFMD restated FY2024 to $154,824,075 (continuing operations) on 2026-03-10; its 9-month last moved on
+    2025-11-17 with the previous restatement. FY − 9-month = $5,487,012, against ~$50M quarters: screened.
+    The two earlier pairings, each on one basis, stay ($64.25M from the original 10-K, $59.50M from the
+    2025-11-17 10-Q that restated both)."""
+    assert _screened("LFMD") == [
+        (SCREEN_RESTATED_FY_Q4, date(2024, 12, 31), date(2026, 3, 10), 5_487_012.0, 154_824_075.0)
+    ]
+    q4 = [
+        (p.filed, p.value)
+        for p in select_revenue(companyfacts_revenue("LFMD")).points
+        if p.period_end == date(2024, 12, 31)
+    ]
+    assert q4 == [(date(2025, 3, 11), 64_254_572.0), (date(2025, 11, 17), 59_502_219.0)]
+
+
+def test_a_recast_on_one_basis_is_kept_one_across_bases_is_not():
+    """TTMI recast FY2019 on 2021-02-22 after its 9-month 2019 was recast in the Q3-2020 10-Q: one basis, so
+    Q4-2019 = $535.7M stands. FY2018 was recast the same day but its 9-month never was: the would-be
+    $101.4M Q4 is screened. HON's FY2023 recast for the Solstice spin (2026-02-17) against a never-recast
+    9-month is the same shape ($5.787B "Q4" screened)."""
+    ttmi = select_revenue(companyfacts_revenue("TTMI"))
+    q4_2019 = [(p.filed, p.value) for p in ttmi.points if p.period_end == date(2019, 12, 30)]
+    assert (date(2021, 2, 22), 535_715_000.0) in q4_2019
+    assert [(x.reason, x.period_end, x.filed) for x in ttmi.screened] == [
+        (SCREEN_RESTATED_FY_Q4, date(2018, 12, 31), date(2021, 2, 22))
+    ]
+    assert _screened("HON") == [
+        (SCREEN_RESTATED_FY_Q4, date(2023, 12, 31), date(2026, 2, 17), 5_787e6, 33_009e6)
+    ]
+
+
+def _row(start: str, end: str, val: float, filed: str, form: str = "10-Q", accn: str = "a") -> dict:
+    return {"start": start, "end": end, "val": val, "filed": filed, "accn": accn, "form": form}
+
+
+def test_screen_guard_a_year_earned_in_one_quarter_keeps_that_quarter():
+    """Contract (direct inputs): a quarter equal to its year's total is a genuine quarter when every other
+    quarter of that year is zero (a milestone payment) — tiny, lumpy revenue is real data."""
+    rows = [
+        _row("2025-01-01", "2025-03-31", 0, "2025-05-01"),
+        _row("2025-04-01", "2025-06-30", 0, "2025-08-01"),
+        _row("2025-07-01", "2025-09-30", 0, "2025-11-01"),
+        _row("2025-10-01", "2025-12-31", 5_000_000, "2026-03-01", "10-K", "k"),
+        _row("2025-01-01", "2025-12-31", 5_000_000, "2026-03-01", "10-K", "k"),
+    ]
+    pts, screened = _label_series(rows)
+    assert screened == [] and (date(2025, 12, 31), 5_000_000.0) in [
+        (p.period_end, p.value) for p in pts
+    ]
+
+
+def test_screen_guard_a_big_genuine_q4_beside_its_fy_row_is_kept():
+    """Contract (direct inputs): a Q4 larger than the first three quarters together passes when the 10-K states
+    the year beside it — shape 2 fires only when the annual report has NO FY total."""
+    rows = [
+        _row("2025-01-01", "2025-03-31", 100, "2025-05-01"),
+        _row("2025-04-01", "2025-06-30", 100, "2025-08-01"),
+        _row("2025-07-01", "2025-09-30", 100, "2025-11-01"),
+        _row("2025-01-01", "2025-09-30", 300, "2025-11-01"),
+        _row("2025-10-01", "2025-12-31", 900, "2026-03-01", "10-K", "k"),
+        _row("2025-01-01", "2025-12-31", 1200, "2026-03-01", "10-K", "k"),
+    ]
+    pts, screened = _label_series(rows)
+    assert screened == [] and (date(2025, 12, 31), 900.0) in [(p.period_end, p.value) for p in pts]
 
 
 # --------------------------------------------------------------------------------------------------------
@@ -260,10 +447,9 @@ def _count(db, sid) -> int:
 
 
 def _store_as_prod_held_it(db, sec: Security, ticker: str) -> int:
-    """The pre-fix store: the first-present label's quarters through the REAL writer (prod's stamp)."""
-    n = store_quarters(
-        db, sec.id, _label_quarters(companyfacts_revenue(ticker), "Revenues")
-    ).appended
+    """The pre-fix store: the first-present label's unscreened quarters through the REAL writer (prod's
+    stamp)."""
+    n = store_quarters(db, sec.id, _old_rule_quarters(companyfacts_revenue(ticker))).appended
     db.commit()
     return n
 
@@ -280,7 +466,7 @@ def _reingest(db, sec: Security, tmp_path, ticker: str):
     return res
 
 
-@pytest.mark.parametrize("ticker", ["AMD", "HON", "NEE"])
+@pytest.mark.parametrize("ticker", ["AMD", "HON", "NEE", "XEL", "TTMI", "KULR", "LFMD"])
 def test_reingest_appends_the_current_label_once_count_the_table(db, tmp_path, ticker):
     """The pre-fix store, then the fixed ingest over the same document: it appends exactly the current
     label's versions not held, each stamped at its own filing (R17 — never now()); a re-run appends ZERO,
@@ -290,7 +476,7 @@ def test_reingest_appends_the_current_label_once_count_the_table(db, tmp_path, t
     held = _store_as_prod_held_it(db, sec, ticker)
     assert _count(db, sec.id) == held
     cf = companyfacts_revenue(ticker)
-    old = {(p.period_end, p.filed): p.value for p in _label_quarters(cf, "Revenues")}
+    old = {(p.period_end, p.filed): p.value for p in _old_rule_quarters(cf)}
     current = select_revenue(cf).points
     # a filing that reported the SAME number under both labels is already held (AMD: the two 2017 quarters
     # the 2018 10-Qs tagged both ways); everything else of the current label is new
@@ -300,10 +486,12 @@ def test_reingest_appends_the_current_label_once_count_the_table(db, tmp_path, t
 
     r1 = _reingest(db, sec, tmp_path, ticker)
     assert r1.appended == len(expect) and r1.skipped == len(shared)
+    assert r1.screened == len(select_revenue(cf).screened)  # counted on the receipt...
     assert _count(db, sec.id) == held + len(expect)
     with db.cursor() as cur:
         cur.execute(
-            "SELECT valid_from, recorded_at, period_end FROM fact_fundamentals WHERE security_id = %s",
+            "SELECT valid_from, recorded_at, period_end, value FROM fact_fundamentals "
+            "WHERE security_id = %s",
             (sec.id,),
         )
         rows = cur.fetchall()
@@ -311,6 +499,9 @@ def test_reingest_appends_the_current_label_once_count_the_table(db, tmp_path, t
         r["recorded_at"] == datetime.combine(r["valid_from"], datetime.min.time(), timezone.utc)
         for r in rows
     )  # every version: valid_from = recorded_at = its filing (no backdating, no now())
+    stored = {(r["period_end"], r["valid_from"], float(r["value"])) for r in rows}
+    for x in select_revenue(cf).screened:  # ...and never stored
+        assert (x.period_end, x.filed, x.value) not in stored
 
     r2 = _reingest(db, sec, tmp_path, ticker)
     assert r2.appended == 0 and _count(db, sec.id) == held + len(expect)
@@ -374,7 +565,9 @@ def test_first_knowability_survives_the_reingest(db, tmp_path):
     assert q[KNOWABLE_SOURCE] == "0000002488-25-000047"
 
 
-@pytest.mark.parametrize("ticker", ["AMD", "HON", "NEE", "VICR", "LHX"])
+@pytest.mark.parametrize(
+    "ticker", ["AMD", "HON", "NEE", "VICR", "LHX", "LFMD", "TTMI", "KULR", "XEL", "HAPN"]
+)
 def test_the_reingest_creates_no_phantom_past_event(db, tmp_path, ticker):
     """Walk every week from 2024-01-01 to 2026-10-20 through the REAL point-in-time read (``known_at`` capped
     at each as-of's market-day end, the serve path's scrub-back) and the REAL detector, after the re-ingest.
@@ -398,8 +591,9 @@ def test_the_reingest_creates_no_phantom_past_event(db, tmp_path, ticker):
             assert ev.asof == public[(pe, float(row["value"]))], (d, pe, ev.asof)
             assert ev.provenance[0].ref == row[KNOWABLE_SOURCE]
         d += timedelta(days=7)
-    # not vacuous: every one of these real series fires in the window except HON's (flat through its spin)
-    assert events > 0 or ticker == "HON"
+    # not vacuous: these real series fire in the window, except HON's (flat through its spin), LHX's (its
+    # screened Q4-2025 leaves a hole the detector declines across) and HAPN's
+    assert events > 0 or ticker in ("HON", "LHX", "HAPN")
 
 
 def test_a_same_filing_label_conflict_reads_the_current_labels_number(db, tmp_path):

@@ -523,8 +523,8 @@ def first_filed(versions: list[Version]) -> dict[date, tuple[date, str]]:
 # --- REAL companyfacts documents, trimmed to their revenue nodes (the label-switch fix, 2026-10-20) --------
 #
 # ``tests/fixtures/edgar/companyfacts_revenue/<TICKER>.json`` = data.sec.gov companyfacts as the dev EDGAR cache
-# held it (fetched by the nightly at 2026-09-12 02:30 UTC), cut to ``cik`` / ``entityName`` and the three
-# ``REVENUE_CONCEPTS`` nodes, every row verbatim (the source's own spelling and keys). Nothing is edited.
+# held it (fetched by the nightly 2026-09-12, 02:30 UTC), cut to ``cik`` / ``entityName`` and the
+# ``REVENUE_CONCEPTS`` nodes present, every row verbatim (the source's own spelling and keys). Nothing is edited.
 #
 # - ``AMD`` — tagged ``Revenues`` for two 2017 quarters, then ``RevenueFromContract…ExcludingAssessedTax``
 #   to 2026-06-27; the old first-present rule kept the 2017 pair (MEASURED on prod: its stored revenue
@@ -535,6 +535,16 @@ def first_filed(versions: list[Version]) -> dict[date, tuple[date, str]]:
 #   2025-08-01 10-Q's Q2-2025 is 141,046,000 under ``Revenues`` and 96,046,000 under the contract tag (the
 #   9-month YTDs differ by the same 45,000,000). The overlap case, and the same-filing supersession.
 # - ``LHX`` — a ``Revenues`` node whose rows extract to NO quarter; the old rule picked it and stored no revenue.
+#   Also the data-quality screen's two quarter-context cases: the 2026 10-K files FY2024's $21.325B under a Q4
+#   context (beside the FY row), and FY2025's $21.865B ONLY under a Q4 context (no FY row at all).
+# - ``LFMD`` — FY2024 restated to $154.8M (continuing operations) on 2026-03-10, after its 9-month last moved on
+#   2025-11-17: FY − 9-month = a $5.5M "Q4" (the screen's restated-basis case).
+# - ``TTMI`` — the tie-break (``Revenues`` 4 quarters vs the contract tag 70, both to 2026-06-29), and a recast
+#   that IS on one basis (FY2019 recast 2021-02-22 after its 9-month was recast) beside one that is not (FY2018).
+# - ``KULR`` — the tie-break again (29 vs 52 quarters, both to 2026-06-30).
+# - ``XEL`` / ``HAPN`` — the two tags appended to ``REVENUE_CONCEPTS``: a utility's
+#   ``RegulatedAndUnregulatedOperatingRevenue`` and a bank's ``RevenuesNetOfInterestExpense``; their listed tags
+#   stop in 2019 / 2020. ``NEE`` carries the utility tag too (162 quarters vs the contract tag's 68).
 COMPANYFACTS_REVENUE_DIR = (
     Path(__file__).resolve().parent / "fixtures" / "edgar" / "companyfacts_revenue"
 )
@@ -544,6 +554,11 @@ COMPANYFACTS_CIK = {
     "NEE": "0000753308",
     "VICR": "0000751978",
     "LHX": "0000202058",
+    "LFMD": "0000948320",
+    "TTMI": "0001116942",
+    "KULR": "0001662684",
+    "XEL": "0000072903",
+    "HAPN": "0001409970",
 }
 
 

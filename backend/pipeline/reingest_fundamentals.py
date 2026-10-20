@@ -26,6 +26,9 @@ WHAT IT WRITES — exactly what the nightly's own parse would (``ingest.fundamen
   stays dated at the filing that first made it public);
 - any missing share-count version the same parse yields (normally none: the nightly keeps those current).
 
+Never a row the data-quality screen rejects (a fiscal-year total under a quarter context; a derived Q4 across
+a restatement — ``ingest.fundamentals.ScreenedRow``): each is counted and PRINTED, dry run and apply alike.
+
 Nothing is updated or deleted (the table is append-only). The trigger's rule is untouched; it reads the
 right numbers.
 
@@ -45,7 +48,7 @@ SAFETY (the ``repair_benchmark_bars`` / ``backfill`` shape):
 - **Dry-run is the DEFAULT.** Its connection is READ ONLY and it never goes to the network: a company whose
   companyfacts is not cached is reported (``--apply`` fetches it) and a known 404 is reported as such. It
   prints, per company: the label chosen (and the old rule's), the versions to add, the stored revenue series
-  end and the series end after.
+  end and the series end after, and every screened row (reason, quarter, filing, value vs its reference).
 - **The cache first.** ``--apply`` reads each company's companyfacts from the EDGAR cache where it is cached
   (whatever its age — the nightly's Q17 gate keeps it current, and this CLI never refreshes it) and fetches
   only an uncached one, through the ordinary client (declared User-Agent, rate limit). A company with a cached
@@ -88,6 +91,7 @@ from ingest.edgar.extract import REVENUE_CONCEPTS, companyfacts_url
 from ingest.fundamentals import (
     REVENUE_METRIC,
     PlannedVersion,
+    ScreenedRow,
     append_planned,
     extract_share_points,
     held_versions,
@@ -130,6 +134,8 @@ class CompanyPlan:
     old_end: date | None = None  # the stored revenue series' last period end
     new_end: date | None = None  # ...after these versions
     planned: list[PlannedVersion] = field(default_factory=list)
+    # the current label's rows the data-quality screen kept out of the series (never stored)
+    screened: list[ScreenedRow] = field(default_factory=list)
 
     def count(self, *, revenue: bool, supersedes: bool | None = None) -> int:
         return sum(
@@ -155,11 +161,16 @@ class ReingestResult:
         return sum(len(c.planned) for c in self.companies)
 
 
+# The tags the OLD rule knew: the first three ``REVENUE_CONCEPTS`` (the two appended on 2026-10-20 were never
+# read before, so nothing was ever stored from them).
+_OLD_RULE_CONCEPTS = REVENUE_CONCEPTS[:3]
+
+
 def first_present_label(companyfacts: dict[str, Any]) -> str | None:
-    """The label the OLD rule stored — the first ``REVENUE_CONCEPTS`` tag with any stampable USD duration
-    row, whether or not it yields a quarter. Reported beside the new choice, never used to store."""
+    """The label the OLD rule stored — the first of its three tags with any stampable USD duration row,
+    whether or not it yields a quarter. Reported beside the new choice, never used to store."""
     facts = companyfacts.get("facts", {})
-    for tax, concept in REVENUE_CONCEPTS:
+    for tax, concept in _OLD_RULE_CONCEPTS:
         rows = (facts.get(tax, {}).get(concept) or {}).get("units", {}).get("USD", [])
         if any(
             r.get("start")
@@ -248,6 +259,7 @@ def plan_company(
         label=sel.concept,
         old_label=first_present_label(doc),
         labels=sel.labels,
+        screened=sel.screened,
         old_end=max(held_ends, default=None),
         new_end=max(new_ends, default=None),
         planned=planned,
@@ -363,6 +375,17 @@ def build_payload(result: ReingestResult) -> dict[str, Any]:
                 "revenue_new_filings": c.count(revenue=True, supersedes=False),
                 "revenue_supersessions": c.count(revenue=True, supersedes=True),
                 "share_versions": c.count(revenue=False),
+                "screened": [
+                    {
+                        "reason": x.reason,
+                        "period_end": _iso(x.period_end),
+                        "filed": _iso(x.filed),
+                        "value": x.value,
+                        "reference": x.reference,
+                        "accession": x.accession,
+                    }
+                    for x in c.screened
+                ],
                 "superseded": [
                     {
                         "period_end": _iso(v.point.period_end),
@@ -376,7 +399,7 @@ def build_payload(result: ReingestResult) -> dict[str, Any]:
                 ],
             }
             for c in result.companies
-            if c.planned or c.error or c.source not in (CACHED, FETCHED)
+            if c.planned or c.screened or c.error or c.source not in (CACHED, FETCHED)
         ],
     }
 
@@ -404,6 +427,8 @@ def _short(label: str | None) -> str:
         "Revenues": "Revenues",
         "RevenueFromContractWithCustomerExcludingAssessedTax": "RevenueFromContract…ExcludingAssessedTax",
         "RevenueFromContractWithCustomerIncludingAssessedTax": "RevenueFromContract…IncludingAssessedTax",
+        "RegulatedAndUnregulatedOperatingRevenue": "RegulatedAndUnregulatedOperatingRevenue",
+        "RevenuesNetOfInterestExpense": "RevenuesNetOfInterestExpense",
     }.get(label, label)
 
 
@@ -420,7 +445,7 @@ def report(result: ReingestResult, *, verbose: bool = False) -> None:
             }[c.source]
             print(f"  {name}: {why}")
             continue
-        if not c.planned and not verbose:
+        if not c.planned and not c.screened and not verbose:
             continue
         rev, sup = c.count(revenue=True, supersedes=False), c.count(revenue=True, supersedes=True)
         shares = c.count(revenue=False)
@@ -431,12 +456,19 @@ def report(result: ReingestResult, *, verbose: bool = False) -> None:
         )
         extra = f", {sup} same-filing supersession(s)" if sup else ""
         extra += f", {shares} share version(s)" if shares else ""
+        extra += f", {len(c.screened)} row(s) screened out" if c.screened else ""
         print(
             f"  {name}: label {switched} · +{rev} revenue version(s){extra} · series end "
             f"{_iso(c.old_end) or 'none'} -> {_iso(c.new_end) or 'none'}"
             + (" · fetched" if c.source == FETCHED else "")
         )
+        for x in c.screened:  # every rejected row, printed — never silently dropped
+            print(
+                f"      screened {x.reason}: quarter ending {_iso(x.period_end)} filed "
+                f"{_iso(x.filed)} value {x.value:,.0f} vs {x.reference:,.0f} ({x.accession})"
+            )
     touched = [c for c in result.companies if c.planned]
+    screened = sum(len(c.screened) for c in result.companies)
     by_source: dict[str, int] = {}
     for c in result.companies:
         by_source[c.source] = by_source.get(c.source, 0) + 1
@@ -449,7 +481,8 @@ def report(result: ReingestResult, *, verbose: bool = False) -> None:
     print(
         f"SUMMARY: {len(result.companies)} securities ({sources}) · {len(touched)} with versions to add · "
         f"{verb} {n} (revenue {rev} + same-filing supersessions {sup} + share {shares}) · "
-        f"fact_fundamentals rows {result.rows_before} -> {result.rows_after}"
+        f"screened out {screened} row(s) in {sum(1 for c in result.companies if c.screened)} "
+        f"companies · fact_fundamentals rows {result.rows_before} -> {result.rows_after}"
     )
 
 
