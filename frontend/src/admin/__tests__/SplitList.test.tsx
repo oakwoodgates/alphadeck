@@ -1,0 +1,283 @@
+import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { SplitList } from "../SplitList";
+
+// The Splits panel (split plan S1) over mocked hooks. MI, BTOC and LRHC are the rows GET /admin/splits
+// returned for the REAL backfill the backend suite runs (backend/tests/app/test_admin_split_list_api.py, on
+// the real Polygon pages and filings in backend/tests/fixtures/splits): MI needs review (its window holds
+// only the proxy's authorized RANGE), BTOC was auto-confirmed (SEC 8-K + Polygon agree), LRHC 01-26 was
+// rejected by the operator. DISAGREE is the matcher's direct-input contract case (BTOC's real filing
+// against a Polygon row carrying another ratio — backend/tests/domain/test_splits.py), the one shape that
+// offers two Confirm buttons. The gates: nothing fires on mount, LOUD only for needs-review, set-aside rows
+// stay listed and grayed, and every action has its inverse beside it.
+
+const MI = {
+  version_id: "575a1f15-3c17-4a32-9de0-c2adcd2888f6",
+  security_id: "c47d4687-5c27-4dd5-b8c5-20e7f3c84b60",
+  ticker: "MI",
+  name: null,
+  key_date: "2026-05-18",
+  effective_date: "2026-05-18",
+  ratio_from: "80",
+  ratio_to: "1",
+  price_factor: "80",
+  direction: "reverse",
+  label: "1-for-80 reverse split",
+  status: "needs_review",
+  confirmed_via: null,
+  value_source: "polygon",
+  author: "system:backfill_splits",
+  action: "backfill",
+  recorded_at: "2026-10-20T07:41:10.811647Z",
+  decided_by: "the backfill",
+  valid_from: "2026-05-18",
+  note:
+    "Polygon only to confirm: SEC 6-K 0001213900-26-046153 (filed 2026-04-21) mentions a split but the extractor abstained — only an authorized range of ratios (one-for-two hundred, 1:200, one-for-five, 1:5) — no ratio set. 3 SEC filing(s) in the window could not be read.",
+  sec: {
+    accession: "0001213900-26-046153",
+    form: "6-K",
+    filed: "2026-04-21",
+    url: "https://www.sec.gov/Archives/edgar/data/1958713/000121390026046153/0001213900-26-046153-index.htm",
+    passage:
+      "Share Consolidation Proposal As an ordinary resolution, subject to the approval and implementation of the Share Capital Increase, to authorize the Company’s board of directors (the “ Board of Directors ”, “ Board ” or “ Directors ”) to effect a share consolidation of the Company’s authorised and issued share capital (the “ Share Consolidation ”), at a ratio of up to one-for-two hundred (1:200), but in any case at a ratio of not less than one-for-five (1:5)",
+    document: "6-K ea0286883-6k_nftlimited.htm",
+    effective_date: null,
+    date_kind: null,
+    ratio_from: null,
+    ratio_to: null,
+    ratio_label: null,
+    abstain_reason: "only an authorized range of ratios (one-for-two hundred, 1:200, one-for-five, 1:5) — no ratio set",
+  },
+  polygon: {
+    id: "Ecf29c5790778cc129833171fe99752c46d272885f1c55981a3c3cc8118499dd2",
+    ticker: "MI",
+    execution_date: "2026-05-18",
+    split_from: "80",
+    split_to: "1",
+    ratio_label: "1-for-80 reverse split",
+  },
+  confirm_options: [
+    {
+      source: "polygon",
+      ratio_from: "80",
+      ratio_to: "1",
+      effective_date: "2026-05-18",
+      label: "1-for-80 reverse split, first session 2026-05-18",
+    },
+  ],
+  actions: ["confirm:polygon", "reject"],
+  restore_to: null,
+};
+
+const BTOC_SEC = {
+  accession: "0001213900-26-108468",
+  form: "8-K",
+  filed: "2026-10-09",
+  url: "https://www.sec.gov/Archives/edgar/data/1972529/000121390026108468/0001213900-26-108468-index.htm",
+  passage:
+    "On September 21, 2026, the Board of Directors (the “ Board ”) of Armlogi Holding Corp., a Nevada corporation (the “ Company ”), approved a one-for-sixteen (1-for-16) reverse stock split of the Company’s issued and unissued shares of common stock, par value $0.00001 per share (the “ Common Stock ”) (the “ Reverse Stock Split ”). … Beginning with the opening of trading on October 15, 2026, the Company’s Common Stock will trade on a post-Reverse Stock Split basis on the Nasdaq Capital Market under the same symbol, “BTOC,” but under a new CUSIP number of 042255208.",
+  document: "8-K ea0308207-8k_armlogi.htm",
+  effective_date: "2026-10-15",
+  date_kind: "trading",
+  ratio_from: "16",
+  ratio_to: "1",
+  ratio_label: "1-for-16 reverse split",
+  abstain_reason: null,
+};
+
+const BTOC = {
+  ...MI,
+  version_id: "a7e2b0a6-0363-4442-9a8a-f0ddbe292172",
+  security_id: "3ea77e40-01b5-4710-a6e6-81f1bab4b889",
+  ticker: "BTOC",
+  key_date: "2026-10-15",
+  effective_date: "2026-10-15",
+  ratio_from: "16",
+  price_factor: "16",
+  label: "1-for-16 reverse split",
+  status: "confirmed",
+  confirmed_via: "auto:sec+polygon",
+  value_source: "both",
+  decided_by: "auto: SEC + Polygon",
+  valid_from: "2026-10-09",
+  note: "SEC 8-K 0001213900-26-108468 (filed 2026-10-09): 1-for-16 reverse split, first session 2026-10-15 and Polygon agree.",
+  sec: BTOC_SEC,
+  polygon: {
+    id: "Eb0d633e7928bc00cc4d81c33249b70882b041aa3065f78b56abc32c72775dc2c",
+    ticker: "BTOC",
+    execution_date: "2026-10-15",
+    split_from: "16",
+    split_to: "1",
+    ratio_label: "1-for-16 reverse split",
+  },
+  confirm_options: [],
+  actions: ["revoke"],
+};
+
+const LRHC_REJECTED = {
+  ...MI,
+  version_id: "786a17f9-f200-4b93-bc0d-20a4591e9a9e",
+  security_id: "2eeb1c00-097a-41a0-84ee-5d295d25720c",
+  ticker: "LRHC",
+  key_date: "2026-01-26",
+  effective_date: "2026-01-26",
+  ratio_from: "10",
+  price_factor: "10",
+  label: "1-for-10 reverse split",
+  status: "rejected",
+  author: "operator",
+  action: "reject",
+  decided_by: "rejected by you, 10-20",
+  valid_from: "2026-01-26",
+  note: "Polygon only — no SEC filing read in the window states this split (0 filing(s) read).",
+  sec: null,
+  polygon: {
+    id: "E11cfdd1b0c368c198cfac9c6e22b2e78c1de83567e22b906a2a4483afa65677b",
+    ticker: "LRHC",
+    execution_date: "2026-01-26",
+    split_from: "10",
+    split_to: "1",
+    ratio_label: "1-for-10 reverse split",
+  },
+  confirm_options: [],
+  actions: ["restore"],
+  restore_to: "needs_review",
+};
+
+const DISAGREE = {
+  ...MI,
+  version_id: "0b6f0c55-0000-4000-8000-0000000000d1",
+  ticker: "BTOC",
+  key_date: "2026-10-15",
+  effective_date: "2026-10-15",
+  ratio_from: "15",
+  label: "1-for-15 reverse split",
+  note: "SEC 8-K 0001213900-26-108468 (filed 2026-10-09): 1-for-16 reverse split, first session 2026-10-15; Polygon: 1-for-15 reverse split, first session 2026-10-15 — the ratios differ.",
+  sec: BTOC_SEC,
+  polygon: {
+    id: "Ex",
+    ticker: "BTOC",
+    execution_date: "2026-10-15",
+    split_from: "15",
+    split_to: "1",
+    ratio_label: "1-for-15 reverse split",
+  },
+  confirm_options: [
+    { source: "sec", ratio_from: "16", ratio_to: "1", effective_date: "2026-10-15", label: "1-for-16 reverse split, first session 2026-10-15" },
+    { source: "polygon", ratio_from: "15", ratio_to: "1", effective_date: "2026-10-15", label: "1-for-15 reverse split, first session 2026-10-15" },
+  ],
+  actions: ["confirm:sec", "confirm:polygon", "reject"],
+};
+
+const h = vi.hoisted(() => ({
+  q: {} as Record<string, unknown>,
+  confirm: {} as Record<string, unknown>,
+  reject: {} as Record<string, unknown>,
+  revoke: {} as Record<string, unknown>,
+  restore: {} as Record<string, unknown>,
+}));
+
+vi.mock("../../api/hooks", () => ({
+  useSplitList: () => h.q,
+  useConfirmSplit: () => h.confirm,
+  useRejectSplit: () => h.reject,
+  useRevokeSplit: () => h.revoke,
+  useRestoreSplit: () => h.restore,
+}));
+
+const m = () => ({ mutate: vi.fn(), isPending: false, isError: false, error: null });
+const fn = (x: Record<string, unknown>) => (x as { mutate: ReturnType<typeof vi.fn> }).mutate;
+
+function serve(data: Record<string, unknown>) {
+  h.q = { data, isError: false, error: null };
+}
+
+beforeEach(() => {
+  h.confirm = m();
+  h.reject = m();
+  h.revoke = m();
+  h.restore = m();
+  serve({ needs_review: [MI], announced: [], confirmed: [BTOC], set_aside: [LRHC_REJECTED], total: 3 });
+});
+
+describe("SplitList", () => {
+  it("renders nothing when the list is empty", () => {
+    serve({ needs_review: [], announced: [], confirmed: [], set_aside: [], total: 0 });
+    const { container } = render(<SplitList />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("is LOUD only for what needs review, and fires nothing on mount", () => {
+    render(<SplitList />);
+    const review = screen.getByTestId("adm-splits-review");
+    expect(review.querySelector(".adm-loud")).toHaveTextContent("1 split(s) need your review");
+    expect(within(review).getAllByTestId("adm-split-review-row")).toHaveLength(1);
+    // the confirmed and set-aside lists are collapsed and quiet, still present (#9 / WB#2)
+    const confirmed = screen.getByTestId("adm-splits-confirmed");
+    expect(confirmed).not.toHaveAttribute("open");
+    expect(confirmed.querySelector(".adm-loud")).toBeNull();
+    expect(confirmed).toHaveTextContent("1 confirmed");
+    expect(confirmed).toHaveTextContent("BTOC — 1-for-16 reverse split · first session 2026-10-15");
+    expect(confirmed).toHaveTextContent("auto: SEC + Polygon");
+    expect(screen.getByTestId("adm-splits-set-aside")).toHaveTextContent("1 rejected or revoked (kept, grayed)");
+    for (const mm of [h.confirm, h.reject, h.revoke, h.restore]) expect(fn(mm)).not.toHaveBeenCalled();
+  });
+
+  it("shows the SEC passage and Polygon's row side by side, with one Confirm when one source states both", async () => {
+    render(<SplitList />);
+    const row = screen.getByTestId("adm-split-review-row");
+    const sec = within(row).getByTestId("adm-split-sec");
+    expect(sec).toHaveTextContent("the extractor abstained — only an authorized range of ratios");
+    expect(within(sec).getByTestId("adm-split-passage")).toHaveTextContent(
+      "at a ratio of up to one-for-two hundred (1:200)",
+    );
+    expect(within(sec).getByRole("link", { name: "0001213900-26-046153" })).toHaveAttribute("href", MI.sec.url);
+    const poly = within(row).getByTestId("adm-split-polygon");
+    expect(poly).toHaveTextContent("MI · 1-for-80 reverse split");
+    expect(poly).toHaveTextContent("first session 2026-05-18");
+    expect(within(row).queryByRole("button", { name: /Confirm SEC values/ })).toBeNull();
+    await userEvent.click(within(row).getByRole("button", { name: "Confirm" }));
+    expect(fn(h.confirm)).toHaveBeenCalledWith({ versionId: MI.version_id, source: "polygon" });
+    await userEvent.click(within(row).getByRole("button", { name: "Reject" }));
+    expect(fn(h.reject)).toHaveBeenCalledWith({ versionId: MI.version_id });
+  });
+
+  it("offers both sources' values when they differ", async () => {
+    serve({ needs_review: [DISAGREE], announced: [], confirmed: [], set_aside: [], total: 1 });
+    render(<SplitList />);
+    const row = screen.getByTestId("adm-split-review-row");
+    expect(within(row).getByTestId("adm-split-sec")).toHaveTextContent("1-for-16 reverse split");
+    expect(within(row).getByTestId("adm-split-sec")).toHaveTextContent("first session 2026-10-15");
+    expect(within(row).getByTestId("adm-split-polygon")).toHaveTextContent("1-for-15 reverse split");
+    await userEvent.click(within(row).getByRole("button", { name: "Confirm SEC values" }));
+    expect(fn(h.confirm)).toHaveBeenCalledWith({ versionId: DISAGREE.version_id, source: "sec" });
+    await userEvent.click(within(row).getByRole("button", { name: "Confirm Polygon values" }));
+    expect(fn(h.confirm)).toHaveBeenCalledWith({ versionId: DISAGREE.version_id, source: "polygon" });
+  });
+
+  it("keeps the inverse beside every decision: Revoke on a confirmed split, Restore on a set-aside one", async () => {
+    render(<SplitList />);
+    await userEvent.click(within(screen.getByTestId("adm-splits-confirmed")).getByRole("button", { name: "Revoke" }));
+    expect(fn(h.revoke)).toHaveBeenCalledWith({ versionId: BTOC.version_id });
+    const setAside = screen.getByTestId("adm-split-set-aside-row");
+    expect(setAside).toHaveClass("adm-grayed");
+    expect(setAside).toHaveTextContent("rejected · rejected by you, 10-20");
+    const restore = within(setAside).getByRole("button", { name: "Restore" });
+    expect(restore).toHaveAttribute("title", "back to needs review");
+    await userEvent.click(restore);
+    expect(fn(h.restore)).toHaveBeenCalledWith({ versionId: LRHC_REJECTED.version_id });
+  });
+
+  it("shows a failed read and a refused action", () => {
+    h.q = { data: undefined, isError: true, error: { detail: "boom" } };
+    const { unmount } = render(<SplitList />);
+    expect(screen.getByTestId("adm-splits")).toHaveTextContent("Splits");
+    unmount();
+    serve({ needs_review: [MI], announced: [], confirmed: [], set_aside: [], total: 1 });
+    h.confirm = { ...m(), isError: true, error: { detail: "this split changed since you looked — reload the panel" } };
+    render(<SplitList />);
+    expect(screen.getByTestId("adm-splits")).toHaveTextContent("this split changed since you looked");
+  });
+});

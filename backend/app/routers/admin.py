@@ -28,6 +28,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.deps import get_conn
 from app.routers.admin_price_feed import price_repairs_out
+from app.routers.admin_splits import count_needs_review as splits_needs_review_count
 from app.schemas_api import (
     AdminAuditCheckOut,
     AdminCronOut,
@@ -1024,6 +1025,15 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
             "price-feed repairs panel failed (fail-open — the status read is unaffected)"
         )
 
+    # split plan S1 — how many splits on the list one source could not settle (the panel's loud count). A
+    # SELECT in a SAVEPOINT, fail-open like the repairs panel: a fault costs the count (null), never the read.
+    splits_needs_review = None
+    try:
+        with conn.transaction():
+            splits_needs_review = splits_needs_review_count(conn)
+    except Exception:  # noqa: BLE001 — the count is a passenger on the status read
+        _log.exception("split list count failed (fail-open — the status read is unaffected)")
+
     return AdminStatusOut(
         record=AdminRecordOut(
             edge=edge,
@@ -1076,6 +1086,7 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
         unfinished_run=unfinished,
         split_defects=split_defects,
         price_repairs=price_repairs,
+        splits_needs_review=splits_needs_review,
     )
 
 

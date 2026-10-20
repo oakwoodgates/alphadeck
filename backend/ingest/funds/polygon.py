@@ -49,6 +49,11 @@ _RETRY_WAIT_S = 61.0
 _LIMITER = RateLimiter(max_per_sec=1.0 / _MIN_INTERVAL_S)
 _SLEEP = time.sleep  # the 429-wait sleeper (polite_get's `sleep=` seam), injectable for tests
 
+# The ONE Polygon request budget, public: the split reference (``ingest/polygon_splits.py``) paces against
+# this same limiter, so a split backfill and the fund-shares leg never spend the free tier twice.
+LIMITER = _LIMITER
+RETRY_WAIT_S = _RETRY_WAIT_S
+
 _STATUS_HINTS = {
     401: " — bad POLYGON_API_KEY",
     403: " — the key's plan does not cover this endpoint",

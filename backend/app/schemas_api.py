@@ -2313,6 +2313,10 @@ class AdminStatusOut(BaseModel):
     splice-verified successors to Adopt, unpriceable names to Set / Acknowledge / Remove, members whose
     company now files under a successor CIK to Adopt, the quiet closed and acknowledged names, and every
     standing operator repair with its Undo. A feed matter, never the cron verdict.
+
+    ``splits_needs_review`` (split plan S1) is how many splits on the split list one source could not settle
+    (one source only, a disagreement, an extractor abstain) — the "Splits" panel (``GET /admin/splits``) holds
+    them. ``null`` when the count could not be read; never a cron verdict.
     """
 
     record: AdminRecordOut
@@ -2325,6 +2329,7 @@ class AdminStatusOut(BaseModel):
     unfinished_run: AdminUnfinishedRunOut | None = None
     split_defects: AdminSplitOut | None = None
     price_repairs: AdminPriceRepairsOut | None = None
+    splits_needs_review: int | None = None
 
 
 class AdminRunsOut(BaseModel):

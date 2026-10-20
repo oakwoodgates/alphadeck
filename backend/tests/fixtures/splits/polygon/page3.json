@@ -1,0 +1,27 @@
+{
+ "results": [
+  {
+   "execution_date": "2026-09-28",
+   "id": "Ed6584adfe3869bc861cfe9fd099549fe71910e2605a94822a58dd35489362694",
+   "split_from": 8,
+   "split_to": 1,
+   "ticker": "BTLN"
+  },
+  {
+   "execution_date": "2026-09-29",
+   "id": "E2e8f4a1c2211f87df766e43027ef7ec18837285e8c0dc4c1f6a934e458db5778",
+   "split_from": 10,
+   "split_to": 1,
+   "ticker": "VRME"
+  },
+  {
+   "execution_date": "2026-10-15",
+   "id": "Eb0d633e7928bc00cc4d81c33249b70882b041aa3065f78b56abc32c72775dc2c",
+   "split_from": 16,
+   "split_to": 1,
+   "ticker": "BTOC"
+  }
+ ],
+ "status": "OK",
+ "request_id": "9609bb5d245380de77f6ed1c5323d528"
+}

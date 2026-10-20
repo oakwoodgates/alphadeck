@@ -1,0 +1,84 @@
+{
+ "results": [
+  {
+   "execution_date": "2025-08-07",
+   "id": "Ef6b0800bbb742230f3b9fe2f90b4a37b4bb54d811894510265634fa4a59e8ce7",
+   "split_from": 7,
+   "split_to": 1,
+   "ticker": "SMX"
+  },
+  {
+   "execution_date": "2025-08-29",
+   "id": "Ee93c4b9ceea98a98be2652765af7b85a2314384097e1a3dd2575dcaddb15fbe4",
+   "split_from": 10,
+   "split_to": 1,
+   "ticker": "SEGG"
+  },
+  {
+   "execution_date": "2025-10-23",
+   "id": "E8a0feab8c00f199a27ffd96003278fd5859208acde93e4a2616eeb4441a95413",
+   "split_from": 10.89958,
+   "split_to": 1,
+   "ticker": "SMX"
+  },
+  {
+   "execution_date": "2025-10-27",
+   "id": "Ecd22092c231e27c16c5f2106636d28ca3c2016757aaa566309b374f5891cd0c3",
+   "split_from": 50,
+   "split_to": 1,
+   "ticker": "YYAI"
+  },
+  {
+   "execution_date": "2025-11-18",
+   "id": "E58e1cce997357f5bd1bf34d8d7c0b90a64d4470f970493fe80a73a2d8ab38c65",
+   "split_from": 8,
+   "split_to": 1,
+   "ticker": "SMX"
+  },
+  {
+   "execution_date": "2026-01-26",
+   "id": "E11cfdd1b0c368c198cfac9c6e22b2e78c1de83567e22b906a2a4483afa65677b",
+   "split_from": 10,
+   "split_to": 1,
+   "ticker": "LRHC"
+  },
+  {
+   "execution_date": "2026-02-02",
+   "id": "P64a9c268cf53d4b331a07c209343812e34f69556c059566f315218e22a72fa1e",
+   "split_from": 6.25,
+   "split_to": 1,
+   "ticker": "PBM"
+  },
+  {
+   "execution_date": "2026-02-17",
+   "id": "Ed1160f80e4434ba92ac045117f5a957c783710a387e5f1dd82ea89277b52ab4d",
+   "split_from": 4.8828125,
+   "split_to": 1,
+   "ticker": "SMX"
+  },
+  {
+   "execution_date": "2026-03-02",
+   "id": "E0d0e28f823752dd80328819a6e15985f83d50093228765b1f657214203850f89",
+   "split_from": 4.99,
+   "split_to": 1,
+   "ticker": "BURU"
+  },
+  {
+   "execution_date": "2026-03-06",
+   "id": "E7d0d909103304a226c0e005be47a15d025c2c07b35c92361d34d28cd2e7e9d1f",
+   "split_from": 25,
+   "split_to": 1,
+   "ticker": "DUKR"
+  },
+  {
+   "execution_date": "2026-03-10",
+   "id": "Ecc01c0b763f7fd4583ccee64cbe6596a3476ccc59a0970f4bb3c44fd16e8370c",
+   "split_from": 3,
+   "split_to": 1,
+   "ticker": "ARTL"
+  }
+ ],
+ "status": "OK",
+ "request_id": "754dce1cf2613be4af6d6cac0b40cd13",
+ "next_url": "https://api.polygon.io/v3/reference/splits?cursor=YXA9MTAwMCZhcz0mZXhlY3V0aW9uX2RhdGUuZ3RlPTIwMjUtMDgtMDEmbGltaXQ9MTAwMCZvcmRlcj1hc2Mmc29ydD1leGVjdXRpb25fZGF0ZQ"
+}

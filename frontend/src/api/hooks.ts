@@ -1414,6 +1414,82 @@ export function useRevokeAmendmentDecision() {
   });
 }
 
+// --- Splits (split plan S1): the operator's ratification of the split list ---
+// Its own read (the split list, live) and its WRITES, each fired ONLY by an explicit click with a visible
+// inverse (Confirm ⇄ Revoke, Reject / Revoke ⇄ Restore). Every write names the version it acts on, so a stale
+// card is refused (409) rather than applied. retry:false — a decision is never auto-retried. Every success
+// refreshes this read and the status (its "N splits need review" count).
+export type AdminSplitListOut = components["schemas"]["AdminSplitListOut"];
+export type AdminSplitListEntryOut = components["schemas"]["AdminSplitListEntryOut"];
+
+export function useSplitList() {
+  return useQuery({
+    queryKey: ["admin-splits"] as const,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/admin/splits");
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+function useSplitAction<TVars, TData>(fn: (vars: TVars) => Promise<TData>) {
+  const qc = useQueryClient();
+  return useMutation({
+    retry: false,
+    mutationFn: fn,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-splits"] });
+      qc.invalidateQueries({ queryKey: ["admin-status"] });
+    },
+  });
+}
+
+// CONFIRM a split that needs review with one source's values (its ratio and first session).
+export function useConfirmSplit() {
+  return useSplitAction(async (vars: { versionId: string; source: "sec" | "polygon" }) => {
+    const { data, error } = await api.POST("/admin/splits/{version_id}/confirm", {
+      params: { path: { version_id: vars.versionId } },
+      body: { source: vars.source },
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
+// REJECT a split that needs review (or an announced one) — kept on the list, grayed.
+export function useRejectSplit() {
+  return useSplitAction(async (vars: { versionId: string }) => {
+    const { data, error } = await api.POST("/admin/splits/{version_id}/reject", {
+      params: { path: { version_id: vars.versionId } },
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
+// REVOKE a confirmed split, auto-confirmed or not — kept on the list, grayed.
+export function useRevokeSplit() {
+  return useSplitAction(async (vars: { versionId: string }) => {
+    const { data, error } = await api.POST("/admin/splits/{version_id}/revoke", {
+      params: { path: { version_id: vars.versionId } },
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
+// RESTORE a rejected or revoked split to exactly the state before.
+export function useRestoreSplit() {
+  return useSplitAction(async (vars: { versionId: string }) => {
+    const { data, error } = await api.POST("/admin/splits/{version_id}/restore", {
+      params: { path: { version_id: vars.versionId } },
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
 // --- Backups (Slice 4): the operator DB-snapshot button — create + list (NEVER restore) ---
 export type BackupOut = components["schemas"]["BackupOut"];
 export type BackupsOut = components["schemas"]["BackupsOut"];

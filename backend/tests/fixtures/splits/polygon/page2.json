@@ -1,0 +1,133 @@
+{
+ "results": [
+  {
+   "execution_date": "2026-04-20",
+   "id": "E688ebc71d6375765605817b399b95333a093d003d7e15110cbc2e66b7a630b7e",
+   "split_from": 10,
+   "split_to": 1,
+   "ticker": "LRHC"
+  },
+  {
+   "execution_date": "2026-05-11",
+   "id": "E4011a771447071153a6d2e4abf73941624009bf8da7d5adbf1cca0b8882bb2ff",
+   "split_from": 20,
+   "split_to": 1,
+   "ticker": "SMX"
+  },
+  {
+   "execution_date": "2026-05-13",
+   "id": "Ea9727fdd5e74cf2e7e4d8b4e84f4ae735a34f49335665663917467d8c2f3b0d8",
+   "split_from": 300,
+   "split_to": 1,
+   "ticker": "WNRS"
+  },
+  {
+   "execution_date": "2026-05-18",
+   "id": "Ecf29c5790778cc129833171fe99752c46d272885f1c55981a3c3cc8118499dd2",
+   "split_from": 80,
+   "split_to": 1,
+   "ticker": "MI"
+  },
+  {
+   "execution_date": "2026-05-18",
+   "id": "Ecdbeae302e2b2168757d602e74300cd05353b6634d4b6116ed1a1a1ea7dc40f1",
+   "split_from": 40,
+   "split_to": 1,
+   "ticker": "YYAI"
+  },
+  {
+   "execution_date": "2026-06-01",
+   "id": "E486fc8ad27fd73ccdafac1a3517df99f985a58a533de56922e16687706d6a148",
+   "split_from": 2.285,
+   "split_to": 1,
+   "ticker": "SMX"
+  },
+  {
+   "execution_date": "2026-06-09",
+   "id": "Ee73350161745297842316ed0f19946ae099dea2820b888355050e607bff52a6d",
+   "split_from": 10,
+   "split_to": 1,
+   "ticker": "OPAD"
+  },
+  {
+   "execution_date": "2026-07-13",
+   "id": "E11e5b1c5b90b872b32c6a5290fcfc1b711f4463a89fb2acc7d711325e02a1b22",
+   "split_from": 10,
+   "split_to": 1,
+   "ticker": "CPOP"
+  },
+  {
+   "execution_date": "2026-08-03",
+   "id": "Efc0794a2097832e58a7776f285d61759f4df5adfe38a85c6e9120bb8b4cf6e5c",
+   "split_from": 7,
+   "split_to": 1,
+   "ticker": "SEGG"
+  },
+  {
+   "execution_date": "2026-08-17",
+   "id": "E1e7388b18792e1607aa59d852328bb0e973b800c558022d791d11b56139b6c3a",
+   "split_from": 20,
+   "split_to": 1,
+   "ticker": "YYAI"
+  },
+  {
+   "execution_date": "2026-08-25",
+   "id": "E54900860492d8da3724ff20da98c29de5500c46eb6a5d7fcb3cdce3c18bc3079",
+   "split_from": 10,
+   "split_to": 1,
+   "ticker": "REAX"
+  },
+  {
+   "execution_date": "2026-08-31",
+   "id": "E511469a4202b5d7f2befb955a54f59d9855b558e2b9dbf9cfaf9299dec1ba4f5",
+   "split_from": 9,
+   "split_to": 1,
+   "ticker": "ARTL"
+  },
+  {
+   "execution_date": "2026-09-02",
+   "id": "Eab765781569d547ea9e03ddfd4de51087ca39628c7a505c7dcef145e0ad103dd",
+   "split_from": 40,
+   "split_to": 1,
+   "ticker": "BURU"
+  },
+  {
+   "execution_date": "2026-09-08",
+   "id": "E0d4451f271399bb66ac3de6690872bc044d78403fbf8a38f20af8d6bd88af395",
+   "split_from": 6,
+   "split_to": 1,
+   "ticker": "LRHC"
+  },
+  {
+   "execution_date": "2026-09-14",
+   "id": "Ef3b98fa995f9f71d91a064ea63bf1f8f0f8a12d3f38519002b96cdf55142c62e",
+   "split_from": 15,
+   "split_to": 1,
+   "ticker": "CPOP"
+  },
+  {
+   "execution_date": "2026-09-14",
+   "id": "Ea3d695d7701d733cb512e993cdf37c7bfd43f120b72118e0900fa7dd91e68ca8",
+   "split_from": 30,
+   "split_to": 1,
+   "ticker": "OPTT"
+  },
+  {
+   "execution_date": "2026-09-16",
+   "id": "E70a543806fc2f5099cb723794e6e0d3ad5468dca3f3c0e7074055e7e1f124a1f",
+   "split_from": 20,
+   "split_to": 1,
+   "ticker": "MPU"
+  },
+  {
+   "execution_date": "2026-09-22",
+   "id": "E1eb6681669540d96ea115c3a267fd2a2e924f7fce51123c31ee8375260df0220",
+   "split_from": 20,
+   "split_to": 1,
+   "ticker": "VWAV"
+  }
+ ],
+ "status": "OK",
+ "request_id": "a994bdf7ca478f7f990806fa294e5de1",
+ "next_url": "https://api.polygon.io/v3/reference/splits?cursor=YXA9MjAwMCZhcz0mZXhlY3V0aW9uX2RhdGUuZ3RlPTIwMjUtMDgtMDEmbGltaXQ9MTAwMCZvcmRlcj1hc2Mmc29ydD1leGVjdXRpb25fZGF0ZQ"
+}

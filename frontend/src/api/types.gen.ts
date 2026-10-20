@@ -1489,6 +1489,117 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/splits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Splits
+         * @description Every split on the list (its newest version) with both sources' evidence, bucketed for the panel:
+         *     needs review (loud), announced / confirmed / rejected-or-revoked (quiet). Read-only.
+         */
+        get: operations["list_splits_admin_splits_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/splits/{version_id}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm Split
+         * @description CONFIRM a split that needs review with one source's values (``source`` = ``sec`` | ``polygon``): its
+         *     ratio and its first session become the list's (a first session still ahead lands as ``announced``). Undo
+         *     with ``POST /admin/splits/{version_id}/revoke``. **404** unknown version, **409** not the split's newest
+         *     version / not awaiting review / that source states no complete value / another split is listed on that
+         *     date.
+         */
+        post: operations["confirm_split_admin_splits__version_id__confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/splits/{version_id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reject Split
+         * @description REJECT a split that needs review (or an announced one): it stays listed, grayed. Undo with
+         *     ``POST /admin/splits/{version_id}/restore``. **404** unknown version, **409** not the newest version / a
+         *     confirmed split (revoke it instead).
+         */
+        post: operations["reject_split_admin_splits__version_id__reject_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/splits/{version_id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revoke Split
+         * @description REVOKE a confirmed split, auto-confirmed or not: it stays listed, grayed. Undo with
+         *     ``POST /admin/splits/{version_id}/restore``. **404** unknown version, **409** not the newest version /
+         *     not confirmed.
+         */
+        post: operations["revoke_split_admin_splits__version_id__revoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/splits/{version_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore Split
+         * @description RESTORE a rejected or revoked split to exactly the state before (a rejected split back to review, a
+         *     revoked one back to confirmed). **404** unknown version, **409** not the newest version / not set
+         *     aside.
+         */
+        post: operations["restore_split_admin_splits__version_id__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/radar/spac": {
         parameters: {
             query?: never;
@@ -2780,6 +2891,185 @@ export interface components {
             events: number;
         };
         /**
+         * AdminSplitListConfirmIn
+         * @description Whose values to confirm: the SEC filing's or Polygon's.
+         */
+        AdminSplitListConfirmIn: {
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "sec" | "polygon";
+        };
+        /**
+         * AdminSplitListEntryOut
+         * @description One split on the list (its NEWEST version). ``version_id`` names that version — every action posts it,
+         *     and a stale one is refused. ``ratio_from`` -> ``ratio_to`` = old shares -> new shares; ``price_factor`` =
+         *     old / new (prices before the split x it). ``decided_by`` is the source label the panel shows ("auto: SEC +
+         *     Polygon", "you, 10-20"). ``actions`` = what the status allows; ``restore_to`` = where Restore returns it.
+         */
+        AdminSplitListEntryOut: {
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker?: string | null;
+            /** Name */
+            name?: string | null;
+            /**
+             * Key Date
+             * Format: date
+             */
+            key_date: string;
+            /**
+             * Effective Date
+             * Format: date
+             */
+            effective_date: string;
+            /** Ratio From */
+            ratio_from: string;
+            /** Ratio To */
+            ratio_to: string;
+            /** Price Factor */
+            price_factor: string;
+            /** Direction */
+            direction: string;
+            /** Label */
+            label: string;
+            /** Status */
+            status: string;
+            /** Confirmed Via */
+            confirmed_via?: string | null;
+            /** Value Source */
+            value_source: string;
+            /** Author */
+            author: string;
+            /** Action */
+            action: string;
+            /**
+             * Recorded At
+             * Format: date-time
+             */
+            recorded_at: string;
+            /** Decided By */
+            decided_by: string;
+            /**
+             * Valid From
+             * Format: date
+             */
+            valid_from: string;
+            /** Note */
+            note?: string | null;
+            sec?: components["schemas"]["AdminSplitListSecOut"] | null;
+            polygon?: components["schemas"]["AdminSplitListPolygonOut"] | null;
+            /** Confirm Options */
+            confirm_options?: components["schemas"]["AdminSplitListOptionOut"][];
+            /** Actions */
+            actions?: string[];
+            /** Restore To */
+            restore_to?: string | null;
+        };
+        /**
+         * AdminSplitListOptionOut
+         * @description One value the operator can confirm a needs-review split with.
+         */
+        AdminSplitListOptionOut: {
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "sec" | "polygon";
+            /** Ratio From */
+            ratio_from: string;
+            /** Ratio To */
+            ratio_to: string;
+            /**
+             * Effective Date
+             * Format: date
+             */
+            effective_date: string;
+            /** Label */
+            label: string;
+        };
+        /**
+         * AdminSplitListOut
+         * @description The "Splits" panel. ``needs_review`` is the one LOUD list (one source could not settle it);
+         *     ``announced`` (both sources agree, the first session is still ahead), ``confirmed`` and ``set_aside``
+         *     (rejected / revoked — kept, grayed) are QUIET lists. ``total`` = every split on the list. Read live.
+         */
+        AdminSplitListOut: {
+            /** Needs Review */
+            needs_review?: components["schemas"]["AdminSplitListEntryOut"][];
+            /** Announced */
+            announced?: components["schemas"]["AdminSplitListEntryOut"][];
+            /** Confirmed */
+            confirmed?: components["schemas"]["AdminSplitListEntryOut"][];
+            /** Set Aside */
+            set_aside?: components["schemas"]["AdminSplitListEntryOut"][];
+            /**
+             * Total
+             * @default 0
+             */
+            total: number;
+        };
+        /**
+         * AdminSplitListPolygonOut
+         * @description Polygon's split-reference row: ``split_from`` old shares -> ``split_to`` new shares.
+         */
+        AdminSplitListPolygonOut: {
+            /** Id */
+            id: string;
+            /** Ticker */
+            ticker?: string | null;
+            /** Execution Date */
+            execution_date?: string | null;
+            /** Split From */
+            split_from?: string | null;
+            /** Split To */
+            split_to?: string | null;
+            /** Ratio Label */
+            ratio_label?: string | null;
+        };
+        /**
+         * AdminSplitListSecOut
+         * @description The SEC filing behind a split: the extractor's reading and the LOCATED passage, verbatim.
+         *     ``date_kind`` = ``trading`` (the filing states the first session) or ``legal`` (a legal effective date);
+         *     ``abstain_reason`` = why no single ratio was read.
+         */
+        AdminSplitListSecOut: {
+            /** Accession */
+            accession: string;
+            /** Form */
+            form?: string | null;
+            /** Filed */
+            filed?: string | null;
+            /** Url */
+            url?: string | null;
+            /** Passage */
+            passage?: string | null;
+            /** Document */
+            document?: string | null;
+            /** Effective Date */
+            effective_date?: string | null;
+            /** Date Kind */
+            date_kind?: string | null;
+            /** Ratio From */
+            ratio_from?: string | null;
+            /** Ratio To */
+            ratio_to?: string | null;
+            /** Ratio Label */
+            ratio_label?: string | null;
+            /** Abstain Reason */
+            abstain_reason?: string | null;
+        };
+        /**
          * AdminSplitOut
          * @description The split-basis panel (T4), read from the newest run artifact whose scan EVALUATED — like ``tape``,
          *     artifact-sourced so this surface still owns no tables. ``asof`` / ``ran_at`` name that pass;
@@ -2906,6 +3196,10 @@ export interface components {
          *     splice-verified successors to Adopt, unpriceable names to Set / Acknowledge / Remove, members whose
          *     company now files under a successor CIK to Adopt, the quiet closed and acknowledged names, and every
          *     standing operator repair with its Undo. A feed matter, never the cron verdict.
+         *
+         *     ``splits_needs_review`` (split plan S1) is how many splits on the split list one source could not settle
+         *     (one source only, a disagreement, an extractor abstain) — the "Splits" panel (``GET /admin/splits``) holds
+         *     them. ``null`` when the count could not be read; never a cron verdict.
          */
         AdminStatusOut: {
             record: components["schemas"]["AdminRecordOut"];
@@ -2920,6 +3214,8 @@ export interface components {
             unfinished_run?: components["schemas"]["AdminUnfinishedRunOut"] | null;
             split_defects?: components["schemas"]["AdminSplitOut"] | null;
             price_repairs?: components["schemas"]["AdminPriceRepairsOut"] | null;
+            /** Splits Needs Review */
+            splits_needs_review?: number | null;
         };
         /**
          * AdminSuccessorCandidateOut
@@ -8572,6 +8868,154 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdminInsiderAmendmentOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_splits_admin_splits_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminSplitListOut"];
+                };
+            };
+        };
+    };
+    confirm_split_admin_splits__version_id__confirm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminSplitListConfirmIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminSplitListEntryOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reject_split_admin_splits__version_id__reject_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminSplitListEntryOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_split_admin_splits__version_id__revoke_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminSplitListEntryOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_split_admin_splits__version_id__restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminSplitListEntryOut"];
                 };
             };
             /** @description Validation Error */

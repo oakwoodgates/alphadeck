@@ -10,6 +10,7 @@ from app.routers import (
     admin,
     admin_insider_amendments,
     admin_price_feed,
+    admin_splits,
     backtest,
     radar,
     scoreboard,
@@ -48,6 +49,7 @@ app.include_router(admin.router)
 # T2 + Q8 — the operator's price-feed repairs (Adopt / Set / Acknowledge, each with its exact inverse)
 app.include_router(admin_price_feed.router)
 app.include_router(admin_insider_amendments.router)  # R8-A
+app.include_router(admin_splits.router)  # split plan S1 — the split list's review panel
 app.include_router(radar.router)
 # /backtest is ARTIFACT-served and dev/sig-only BY DATA AVAILABILITY -- it is registered
 # unconditionally and reports `available: false` where no store exists (prod), so there is no
