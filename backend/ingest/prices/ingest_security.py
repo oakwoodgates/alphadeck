@@ -16,11 +16,24 @@ implementation means the invariants can't fork:
   WHOLE history on every split, while this ingest is incremental, so a name splitting mid-thesis used to
   accumulate mixed-basis stored bars (old-basis history + new-basis appends → a false cliff for the
   breakout detector, a mis-graded volume gate). Now the fresh pull's OVERLAP with stored history is
-  compared per date: where the fresh bar differs beyond float noise, a NEW VERSION is appended (same
-  ``d``, a new ``recorded_at`` — the bitemporal store's native move; the as-of read's DISTINCT ON picks
-  the latest, so the series snaps to the new basis within one pass, price AND volume). A replay with a
-  ``known_at`` BEFORE the re-version still sees the old basis — transaction-time honesty, exactly what
-  the bitemporal store exists for. The mixed-basis window is at most one cron tick.
+  compared per date: where the fresh bar was RESTATED, a NEW VERSION is appended (same ``d``, a new
+  ``recorded_at`` — the bitemporal store's native move; the as-of read's DISTINCT ON picks the latest, so
+  the series snaps to the new basis within one pass, price AND volume). A replay with a ``known_at`` BEFORE
+  the re-version still sees the old basis — transaction-time honesty, exactly what the bitemporal store
+  exists for. A hole (a date inside the overlap that was never stored) is always stored.
+- **What counts as restated (Q11, operator decision 2026-10-17 — the rules live in ``restatement.py``)**:
+  a bar in the fresh pull's trailing ``RECENT_SESSIONS`` (3) session dates keeps the EXACT compare
+  (``_restated``, rel_tol 1e-9 — the vendor's late volume settling lands there); an OLDER bar re-versions
+  only when its close moved >= 0.5% or its volume >= 5% (T6 — MEASURED: of the 27,367 member-bar
+  re-versions stored 2026-09-01..10-16, 8,772 were sub-tolerance wiggles on older bars). A split moves both
+  by an integer factor, so it still lands, in the same pass.
+- **Revert hysteresis (Q11 / T5)** — the older restated set is decided ALL-OR-NOTHING per (security, pass):
+  when EVERY bar of it goes back to a value the store already held and replaced (a REVERT — the vendor
+  flipping a history between the adjusted and the unadjusted basis), the set is HELD until a pull on a
+  later market date agrees; ``price_restatement_hold`` (migration 0047, operational state) remembers what
+  the previous pull said. One bar the store never held makes the set FIRST-TIME → applied now, so a genuine
+  split re-base is never held back. A hold is never silent: ``BarsResult.held`` carries the count into the
+  run artifact and the cron prints one quiet line per held name; this module logs one line per hold too.
 - **Settled bars only (D2)** — the fresh pull goes through ``settle.withhold_unsettled`` FIRST, so a bar
   for a session that has not closed and settled (today's, before ``Settings.price_settle_time``) is
   neither appended nor allowed to re-version a stored bar. An Admin "Run daily now" in market hours, a
@@ -34,17 +47,29 @@ not apply to them; what they feed (the market cap) stays display until the opera
 
 from __future__ import annotations
 
+import json
+import logging
 import math
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from uuid import UUID
 
 import psycopg
 
+from domain.market_time import market_tz
 from domain.security import Security
-from ingest.prices.eod_loader import ingest_prices, latest_bar_date, stored_bars
+from ingest.prices.eod_loader import bar_versions, ingest_prices, latest_bar_date, stored_bars
+from ingest.prices.restatement import (
+    HeldRevert,
+    classify,
+    decide,
+    restated_old,
+    trailing_window_start,
+)
 from ingest.prices.settle import withhold_unsettled
 from ingest.prices.source import PriceSource, YahooPriceSource
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -53,12 +78,15 @@ class BarsResult:
     tail); ``reversioned`` = overlap bars re-stored because the source RESTATED them (a split
     re-base) or backfilled a hole — the exceptional path, surfaced loudly only when nonzero;
     ``withheld`` = fresh bars NOT stored because their session had not settled (D2 — today's bar on a
-    pass before the settle time; written by the next settled pass). Not part of ``total``: nothing landed.
+    pass before the settle time; written by the next settled pass); ``held`` = older restated bars NOT
+    stored because they REVERT to a value the store held before and only one pull has said so (Q11 / T5 —
+    written once a pull on a later market date agrees). Neither is part of ``total``: nothing landed.
     """
 
     appended: int
     reversioned: int
     withheld: int = 0
+    held: int = 0
 
     @property
     def total(self) -> int:
@@ -71,8 +99,10 @@ def _num(x: object) -> float | None:
 
 def _moved(fresh: dict, stored: dict, field: str) -> bool:
     """Did ONE bar field move beyond float noise? Both absent = unchanged; one absent = moved; else
-    ``math.isclose`` at rel_tol 1e-9 (repr/Decimal round-trip jitter is ~1e-12). The single tolerance
-    rule shared by ``_restated`` and the Q3 benchmark repair (``pipeline.repair_benchmark_bars``).
+    ``math.isclose`` at rel_tol 1e-9 (repr/Decimal round-trip jitter is ~1e-12). The EXACT rule shared by
+    ``_restated`` and the Q3 benchmark repair (``pipeline.repair_benchmark_bars``) — deliberately left
+    exact by Q11: the repair compares stored vs vendor for EXPLICIT dates, and the old-bar tolerance lives
+    in ``restatement.restated_old``, applied only by this module's older-bar compare.
     """
     a, b = _num(fresh.get(field)), _num(stored.get(field))
     if a is None and b is None:
@@ -86,8 +116,95 @@ def _restated(fresh: dict, stored: dict) -> bool:
     """A restatement = close or volume moved beyond float noise. A split re-base moves both ~10×;
     repr/Decimal round-trip jitter is ~1e-12 — rel_tol 1e-9 separates them cleanly. Close + volume
     are the fields the detectors read (the breakout close, the volume-confirmation gate); OHL cannot
-    be re-based without close moving, so they don't need their own compare."""
+    be re-based without close moving, so they don't need their own compare. The EXACT compare: this
+    module's trailing window and the SPY/IWM leg's (``pipeline.ingest_benchmarks``, unchanged by Q11).
+    """
     return any(_moved(fresh, stored, field) for field in ("close", "volume"))
+
+
+@dataclass(frozen=True)
+class OverlapPlan:
+    """The fresh pull's overlap with the stored tape, split three ways (pure — ``plan_overlap``):
+    ``holes`` = overlap dates never stored (always stored); ``recent`` = trailing-window bars restated
+    under the EXACT compare (always stored); ``old`` = older bars restated beyond the T6 tolerance (the
+    set T5 decides, all-or-nothing)."""
+
+    holes: list[dict]
+    recent: list[dict]
+    old: list[dict]
+
+
+def plan_overlap(fresh: list[dict], stored: dict[date, dict], *, last: date) -> OverlapPlan:
+    """PURE: split the fresh settled pull's OVERLAP (``d <= last``, the latest stored date) against the
+    latest stored version per date. The trailing window is the pull's newest ``RECENT_SESSIONS`` session
+    dates (``restatement.trailing_window_start`` — D1's count): a bar on/after its first date is compared
+    exactly, an older one under the T6 tolerance."""
+    window = trailing_window_start(fresh)
+    holes: list[dict] = []
+    recent: list[dict] = []
+    old: list[dict] = []
+    for r in fresh:
+        if r["d"] > last:
+            continue  # the tail, appended by the caller
+        prior = stored.get(r["d"])
+        if prior is None:
+            # unseen d inside the overlap = a hole the source backfilled — store it (new info, not a
+            # restatement, but the same honest append)
+            holes.append(r)
+        elif window is not None and r["d"] >= window:
+            if _restated(r, prior):
+                recent.append(r)
+        elif restated_old(r, prior):
+            old.append(r)
+    return OverlapPlan(holes, recent, old)
+
+
+# --- the T5 pending state (migration 0047): operational, replaced and deleted freely ----------------------
+
+
+def load_hold(conn: psycopg.Connection, security_id: UUID, *, tenant_id: UUID) -> HeldRevert | None:
+    """The held revert carried from an earlier pass for this security, or None."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT pull_date, bars FROM price_restatement_hold "
+            "WHERE tenant_id = %s AND security_id = %s",
+            (tenant_id, security_id),
+        )
+        row = cur.fetchone()
+    if row is None:
+        return None
+    return HeldRevert(
+        row["pull_date"], {date.fromisoformat(d): bar for d, bar in (row["bars"] or {}).items()}
+    )
+
+
+def save_hold(
+    conn: psycopg.Connection,
+    security_id: UUID,
+    state: HeldRevert | None,
+    *,
+    tenant_id: UUID,
+) -> None:
+    """Persist (upsert) or clear (``None``) this security's held revert. The caller owns the transaction,
+    so the state commits or rolls back WITH the bars of the same pass."""
+    with conn.cursor() as cur:
+        if state is None:
+            cur.execute(
+                "DELETE FROM price_restatement_hold WHERE tenant_id = %s AND security_id = %s",
+                (tenant_id, security_id),
+            )
+            return
+        bars = {
+            d.isoformat(): {"close": _num(b.get("close")), "volume": _num(b.get("volume"))}
+            for d, b in state.bars.items()
+        }
+        cur.execute(
+            "INSERT INTO price_restatement_hold (tenant_id, security_id, pull_date, bars) "
+            "VALUES (%s, %s, %s, %s::jsonb) "
+            "ON CONFLICT (tenant_id, security_id) DO UPDATE SET "
+            "pull_date = EXCLUDED.pull_date, bars = EXCLUDED.bars, updated_at = now()",
+            (tenant_id, security_id, state.pull_date, json.dumps(bars, sort_keys=True)),
+        )
 
 
 def ingest_bars_for_security(
@@ -107,9 +224,12 @@ def ingest_bars_for_security(
     construction: a second run over the same fresh series appends the tail (now empty) and finds no
     overlap diffs — COUNT-the-table guarded. The caller owns the transaction.
 
-    ``now`` (an AWARE instant; default the UTC wall clock) is the settle guard's clock — the only thing
-    it drives: bars whose session has not settled by ``now`` are withheld (D2). ``recorded_at`` still
-    comes from the DB default ``now()``, unchanged."""
+    ``now`` (an AWARE instant; default the UTC wall clock) is the settle guard's clock AND the T5 pull
+    date (its market date): bars whose session has not settled by ``now`` are withheld (D2), and a held
+    revert is confirmed only by a pull on a later market date. ``recorded_at`` still comes from the DB
+    default ``now()``, unchanged. Only a pull that really re-fetched (``force_refresh`` with
+    ``allow_live``) may start, confirm or clear a hold — a cache-served read re-reads a pull that already
+    happened."""
     if not sec.ticker:
         return BarsResult(0, 0)
     now = now or datetime.now(timezone.utc)
@@ -136,18 +256,54 @@ def ingest_bars_for_security(
 
     # the re-version pass: only meaningful when the fresh pull overlaps stored history (a cache-first
     # re-click returns the very series already ingested → zero diffs → a no-op)
-    reversioned = 0
-    if last is not None:
-        overlap = [r for r in fresh if r["d"] <= last]
-        if overlap:
-            stored = stored_bars(conn, sec.id, tenant_id=tenant_id)
-            restated = [
-                r
-                for r in overlap
-                # unseen d inside the overlap = a hole the source backfilled — store it (new info,
-                # not a restatement, but the same honest append)
-                if (prior := stored.get(r["d"])) is None or _restated(r, prior)
-            ]
-            reversioned = ingest_prices(conn, sec.id, restated, tenant_id=tenant_id)
+    reversioned = held = 0
+    if last is not None and any(r["d"] <= last for r in fresh):
+        plan = plan_overlap(fresh, stored_bars(conn, sec.id, tenant_id=tenant_id), last=last)
+        refreshed = force_refresh and allow_live
+        old: list[dict] = []
+        if plan.old or refreshed:
+            old, held = _resolve_older(
+                conn, sec, plan.old, fresh, tenant_id=tenant_id, now=now, refreshed=refreshed
+            )
+        reversioned = ingest_prices(
+            conn, sec.id, plan.holes + plan.recent + old, tenant_id=tenant_id
+        )
 
-    return BarsResult(appended, reversioned, withheld)
+    return BarsResult(appended, reversioned, withheld, held)
+
+
+def _resolve_older(
+    conn: psycopg.Connection,
+    sec: Security,
+    old: list[dict],
+    fresh: list[dict],
+    *,
+    tenant_id: UUID,
+    now: datetime,
+    refreshed: bool,
+) -> tuple[list[dict], int]:
+    """T5 for one pass: classify the older restated set against its superseded versions, decide with the
+    pending state, persist the state when it changed. Returns ``(bars to write, bars held)`` — the whole
+    set or none of it."""
+    pending = load_hold(conn, sec.id, tenant_id=tenant_id)
+    history = bar_versions(conn, sec.id, (r["d"] for r in old), tenant_id=tenant_id)
+    kind, _ = classify(old, {d: vs[:-1] for d, vs in history.items()})
+    decision = decide(
+        kind,
+        old=old,
+        pending=pending,
+        covered={r["d"] for r in fresh},
+        pull_date=now.astimezone(market_tz()).date(),
+        refreshed=refreshed,
+    )
+    if decision.state is not pending:
+        save_hold(conn, sec.id, decision.state, tenant_id=tenant_id)
+    if not decision.apply:
+        _log.info(
+            "price restatement held: %s — %d older bar(s) revert to a value stored before; stored once "
+            "a pull on a later market date agrees (Q11/T5)",
+            sec.ticker,
+            decision.held,
+        )
+        return [], decision.held
+    return old, 0
