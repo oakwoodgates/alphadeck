@@ -10,9 +10,36 @@ used to be backdated to ``filed 00:00 UTC`` — see ``store_quarters``). A DETER
 sources the number (#3).
 
 REUSE (one source of truth): it reads the SAME companyfacts client the Workbench AUTO tier uses and the SAME
-revenue concepts (``ingest.edgar.extract.REVENUE_CONCEPTS`` — ``us-gaap:Revenues`` then the two
-``RevenueFromContractWithCustomer*`` tags, first present wins, mirroring ``_first`` in that module), so "which
-XBRL tag IS revenue" can never drift between the extractor and this ingest.
+revenue concepts (``ingest.edgar.extract.REVENUE_CONCEPTS`` — ``us-gaap:Revenues`` and the two
+``RevenueFromContractWithCustomer*`` tags), so "which XBRL tag IS revenue" can never drift between the
+extractor and this ingest.
+
+WHICH LABEL — the company's CURRENT one (``select_revenue``; the 2026-10-20 label-switch fix). Most filers
+reported ``Revenues`` until ASC 606 (~2018) and then moved to a ``RevenueFromContractWithCustomer*`` tag. The
+old rule kept the FIRST label present, so such a company kept only its dead series (MEASURED on prod: 163 of
+495 active companies with revenue had a revenue series ending more than a year before their share counts —
+AMD's stopped at 2017-09-30), and ``revenue_acceleration`` could never fire on its real recent quarters. Now:
+
+  * the CURRENT label is the one whose newest extractable quarter ends LATEST; a tie keeps the
+    ``REVENUE_CONCEPTS`` order, so a company already on its newest label is unchanged;
+  * the series is that ONE label's quarters — never a per-period join of two labels. A join splices two
+    definitions of revenue and fakes an acceleration at the switch: MEASURED on the dev copy (2026-10-20),
+    of the 533 filings on which a switched company reported a quarter under both labels, 127 disagree, some
+    by 30-99% (a ``Revenues`` that is total revenue beside a contract-revenue subset, or the reverse). Even
+    the narrowest join — an older label's EARLIER periods, only where the two agree exactly on every shared
+    filing — rescued none of the 107 companies whose latest quarter the detector cannot evaluate, and its one
+    live change was a phantom (TTMI: a Q2-2025 quarter dated at its 2026-08-05 comparative).
+
+A label switch can leave a stored old-label number on the SAME filing the current label reports differently
+(the store's key is the filing, not the label — MEASURED: 111 such filings in 27 companies). ``plan_versions``
+then appends the current label's number as a version of that filing, one microsecond after it
+(``valid_from`` unchanged, so its knowability is unchanged), and the read picks it: within one filing the
+series never mixes the two labels, and the number is dated at the filing that first reported it — not at a
+year-later comparative (the D3 phantom). The stored history is kept, never rewritten. Only the revenue
+metric does this; the share series keep their skip-on-key behavior.
+
+What is NOT re-labeled: periods only the old label ever reported stay in the store as they were (append-only;
+for a pre-2018 switch they lie years before any live read).
 
 The quarterly series is:
   * every NATIVE ~3-month duration fact (Q1/Q2/Q3 arrive natively, each with its own ``filed``/``accn`` —
@@ -40,7 +67,8 @@ mixes concepts inside one computation (issued vs outstanding differ by treasury 
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Iterable
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any
 from uuid import UUID
@@ -125,34 +153,69 @@ def _span_days(row: dict[str, Any]) -> int | None:
     return (date.fromisoformat(e) - date.fromisoformat(s)).days
 
 
-def _usd_duration_rows(companyfacts: dict[str, Any]) -> list[dict[str, Any]]:
-    """The USD duration rows of the FIRST present revenue concept (``_first`` semantics — one concept, no
-    mixing tags). Only rows carrying every field the knowability stamp needs (start/end/val/filed/accn) are
-    kept; anything sparse is dropped (honest — an unstampable row is not fabricated into one)."""
+def _stampable_usd_duration_rows(node: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """One concept's USD duration rows that carry every field the knowability stamp needs
+    (start/end/val/filed/accn); anything sparse is dropped (honest — an unstampable row is not fabricated
+    into one)."""
+    rows = node.get("units", {}).get("USD", []) if node else []
+    return [
+        r
+        for r in rows
+        if r.get("start")
+        and r.get("end")
+        and r.get("val") is not None
+        and r.get("filed")
+        and r.get("accn")
+    ]
+
+
+@dataclass(frozen=True)
+class RevenueSelection:
+    """``select_revenue``'s answer: the company's CURRENT revenue label and its series.
+
+    - ``concept`` — the chosen us-gaap concept name (``None`` when no label yields a single quarter).
+    - ``points`` — that label's quarterly points (native + derived Q4), sorted — the series to store.
+    - ``labels`` — per label with at least one quarter: ``(quarters, first period end, last period end)``,
+      in ``REVENUE_CONCEPTS`` order (the re-ingest CLI reports it)."""
+
+    concept: str | None
+    points: list[QuarterPoint]
+    labels: dict[str, tuple[int, date, date]] = field(default_factory=dict)
+
+
+def select_revenue(companyfacts: dict[str, Any]) -> RevenueSelection:
+    """Pure, deterministic (no LLM, #3): which revenue label is this company's CURRENT one, and its series.
+
+    The rule (module docstring): among the ``REVENUE_CONCEPTS`` labels that yield at least one quarter, the
+    one whose newest quarter ends LATEST; a tie keeps the ``REVENUE_CONCEPTS`` order. The series is that one
+    label's quarters, never joined with another's. A label whose rows yield no quarter (only an odd span, a
+    lone annual) is never chosen — MEASURED: the old first-present rule picked such a ``Revenues`` node for 13
+    basket companies (LHX, TDY, STX, AEIS …) and stored no revenue for them at all."""
     facts = companyfacts.get("facts", {})
+    per: dict[str, list[QuarterPoint]] = {}
     for tax, concept in REVENUE_CONCEPTS:
-        node = facts.get(tax, {}).get(concept)
-        rows = node.get("units", {}).get("USD", []) if node else []
-        rows = [
-            r
-            for r in rows
-            if r.get("start")
-            and r.get("end")
-            and r.get("val") is not None
-            and r.get("filed")
-            and r.get("accn")
-        ]
-        if rows:
-            return rows
-    return []
+        pts = _quarters_from_rows(_stampable_usd_duration_rows(facts.get(tax, {}).get(concept)))
+        if pts:
+            per[concept] = pts
+    if not per:
+        return RevenueSelection(concept=None, points=[])
+    labels = {c: (len(p), p[0].period_end, max(q.period_end for q in p)) for c, p in per.items()}
+    newest = max(last for _n, _first, last in labels.values())
+    current = next(c for c in per if labels[c][2] == newest)  # dict order == REVENUE_CONCEPTS order
+    return RevenueSelection(concept=current, points=per[current], labels=labels)
 
 
 def extract_revenue_quarters(companyfacts: dict[str, Any]) -> list[QuarterPoint]:
     """Pure, deterministic: a companyfacts dict -> the quarterly revenue points (native quarters + derived
-    Q4), each stamped at its OWN filing. Testable offline against a hand-built companyfacts fixture (the
-    ``extract_facts`` precedent — the caller owns fetching). Never raises on a sparse/odd doc — it yields
-    fewer points."""
-    rows = _usd_duration_rows(companyfacts)
+    Q4) of the company's CURRENT revenue label (``select_revenue``), each stamped at its OWN filing. Testable
+    offline against a companyfacts fixture (the ``extract_facts`` precedent — the caller owns fetching).
+    Never raises on a sparse/odd doc — it yields fewer points."""
+    return select_revenue(companyfacts).points
+
+
+def _quarters_from_rows(rows: list[dict[str, Any]]) -> list[QuarterPoint]:
+    """ONE label's stampable USD duration rows -> its quarterly points: native ~3-month facts + a derived Q4
+    (FY − same-year 9-month YTD) where no native quarter ends at the FY end. Never mixes labels."""
     # dedup by (period_end, filed) — companyfacts can repeat a fact; the first wins (deterministic).
     points: dict[tuple[date, date], QuarterPoint] = {}
 
@@ -255,26 +318,58 @@ def extract_share_points(companyfacts: dict[str, Any]) -> list[QuarterPoint]:
     return sorted(points.values(), key=lambda p: (p.metric_key, p.period_end, p.filed))
 
 
-def _existing_versions(
-    conn: psycopg.Connection, security_id: UUID, tenant_id: UUID
-) -> set[tuple[str, date, date]]:
-    """The (metric_key, period_end, filed=valid_from) versions already stored for this security — the
-    idempotency set. A re-ingest skips these, so the append-only table never silently grows (count-the-table).
+# The metric whose stored value on a filing follows the CURRENT label (see the module docstring): a label
+# switch can leave an old-label number on a filing the current label reports differently. The share series
+# are stored per concept under their own metric_keys and never switch, so they keep plain skip-on-key.
+_LABEL_FOLLOWING_METRICS = frozenset({REVENUE_METRIC})
+
+
+@dataclass(frozen=True)
+class HeldFiling:
+    """What the store holds for one (metric_key, period_end, filed): how many versions, and the value the
+    as-of read picks on that filing (the latest-recorded one)."""
+
+    versions: int
+    value: float
+
+
+@dataclass(frozen=True)
+class PlannedVersion:
+    """One version ``plan_versions`` would append: the point and — for a label-switch supersession — the
+    value the filing held before (``None`` for a plain new filing). No stamp: ``recorded_at`` is the
+    writer's honest transaction time (``append_planned``), never a property of the plan.
     """
+
+    point: QuarterPoint
+    supersedes_value: float | None = None
+
+
+def held_versions(
+    conn: psycopg.Connection, security_id: UUID, tenant_id: UUID = DEFAULT_TENANT_ID
+) -> dict[tuple[str, date, date], HeldFiling]:
+    """The (metric_key, period_end, filed=valid_from) filings already stored for this security, each with
+    its version count and the value the read picks there (``recorded_at, id`` order — the as-of pick). The
+    idempotency map: a re-ingest skips what is held, so the append-only table never silently grows
+    (count-the-table)."""
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT metric_key, period_end, valid_from FROM fact_fundamentals "
-            "WHERE tenant_id = %s AND security_id = %s",
+            "SELECT metric_key, period_end, valid_from, value FROM fact_fundamentals "
+            "WHERE tenant_id = %s AND security_id = %s ORDER BY recorded_at, id",
             (tenant_id, security_id),
         )
-        return {(r["metric_key"], r["period_end"], r["valid_from"]) for r in cur.fetchall()}
+        held: dict[tuple[str, date, date], HeldFiling] = {}
+        for r in cur.fetchall():
+            key = (r["metric_key"], r["period_end"], r["valid_from"])
+            prior = held.get(key)
+            held[key] = HeldFiling((prior.versions if prior else 0) + 1, float(r["value"]))
+        return held
 
 
 def fundamentals_row(
     security_id: UUID, q: QuarterPoint, *, tenant_id: UUID = DEFAULT_TENANT_ID
 ) -> dict[str, Any]:
     """One quarter as its ``fact_fundamentals`` column values — everything EXCEPT ``recorded_at``, which is
-    the writer's transaction-time stamp (``store_quarters``), never a property of the quarter."""
+    the writer's transaction-time stamp (``append_planned``), never a property of the quarter."""
     return {
         "tenant_id": tenant_id,
         "security_id": security_id,
@@ -291,17 +386,46 @@ def fundamentals_row(
     }
 
 
-def store_quarters(
+def plan_versions(
+    held: dict[tuple[str, date, date], HeldFiling], quarters: Iterable[QuarterPoint]
+) -> tuple[list[PlannedVersion], int]:
+    """PURE: which of ``quarters`` to append over what the store ``held`` -> (the versions, skipped count).
+
+    - A filing not held -> append (``valid_from`` = its filing date, R17).
+    - A filing held with the same number -> skip (the idempotency rule: a re-run appends ZERO).
+    - A REVENUE filing held with a DIFFERENT number -> the label-switch case: append the current label's
+      number as a new version of that same filing. ``valid_from`` stays the filing date, so its knowable date
+      is the filing's (D3a); the writer's honest stamp is later than every version already held, so it is
+      the latest-recorded version of that filing and the read picks it.
+    - A share filing held with a different number -> skip (unchanged behavior for those series).
+
+    ``held`` is not mutated."""
+    held = dict(held)
+    out: list[PlannedVersion] = []
+    skipped = 0
+    for q in quarters:
+        key = (q.metric_key, q.period_end, q.filed)
+        prior = held.get(key)
+        if prior is None:
+            out.append(PlannedVersion(q))
+            held[key] = HeldFiling(1, q.value)
+        elif prior.value == q.value or q.metric_key not in _LABEL_FOLLOWING_METRICS:
+            skipped += 1
+        else:
+            out.append(PlannedVersion(q, supersedes_value=prior.value))
+            held[key] = HeldFiling(prior.versions + 1, q.value)
+    return out, skipped
+
+
+def append_planned(
     conn: psycopg.Connection,
     security_id: UUID,
-    quarters: list[QuarterPoint],
+    planned: Iterable[PlannedVersion],
     *,
     tenant_id: UUID = DEFAULT_TENANT_ID,
-) -> FundamentalsResult:
-    """Append each quarter as a bitemporal fact: ``valid_from = filed`` (its public knowability — R17) and
-    ``recorded_at`` = the DATABASE instant this call stored it (the honest transaction time). Idempotent: a
-    (metric, period_end, filed) already stored is skipped, so a re-run appends ZERO — and the table's UNIQUE
-    on exactly that key (migration 0057) makes a duplicate a loud error, never a silent extra row.
+) -> int:
+    """Append each planned version as a bitemporal fact: ``valid_from = filed`` (its public knowability —
+    R17) and ``recorded_at`` = the DATABASE instant this call stored it (the honest transaction time).
     Append-only; the caller owns the txn (no commit here).
 
     THE STAMP (migration 0057, 2026-10-21; the §2.4 acceptance bar — "no backdated recorded_at on the live
@@ -320,23 +444,36 @@ def store_quarters(
     were in hand. Not injectable — a production writer with a stamp argument is the backdating door this
     closes.
     """
-    existing = _existing_versions(conn, security_id, tenant_id)
-    appended = skipped = 0
+    n = 0
     stamp: datetime | None = None
-    for q in quarters:
-        if (q.metric_key, q.period_end, q.filed) in existing:
-            skipped += 1
-            continue
+    for v in planned:
         if stamp is None:  # read once, and only when something is new (a no-op re-run asks nothing)
             stamp = db_now(conn)
         append_fact(
             conn,
             "fact_fundamentals",
-            {**fundamentals_row(security_id, q, tenant_id=tenant_id), "recorded_at": stamp},
+            {**fundamentals_row(security_id, v.point, tenant_id=tenant_id), "recorded_at": stamp},
         )
-        existing.add((q.metric_key, q.period_end, q.filed))
-        appended += 1
-    return FundamentalsResult(appended, skipped)
+        n += 1
+    return n
+
+
+def store_quarters(
+    conn: psycopg.Connection,
+    security_id: UUID,
+    quarters: list[QuarterPoint],
+    *,
+    tenant_id: UUID = DEFAULT_TENANT_ID,
+) -> FundamentalsResult:
+    """Append each quarter as a bitemporal fact per ``plan_versions``: ``valid_from = filed`` (its public
+    knowability — R17) and ``recorded_at`` = the honest database instant of this batch (``append_planned``).
+    Idempotent: a filing already held with the same number is skipped, so a re-run appends ZERO — and the
+    table's UNIQUE on the filing (migration 0057) makes a duplicate a loud error, never a silent extra row.
+    Append-only; the caller owns the txn (no commit here)."""
+    planned, skipped = plan_versions(held_versions(conn, security_id, tenant_id), quarters)
+    return FundamentalsResult(
+        append_planned(conn, security_id, planned, tenant_id=tenant_id), skipped
+    )
 
 
 def ingest_fundamentals_for_security(
@@ -369,9 +506,16 @@ __all__ = [
     "SHARE_CONCEPTS",
     "QuarterPoint",
     "FundamentalsResult",
+    "RevenueSelection",
+    "HeldFiling",
+    "PlannedVersion",
+    "select_revenue",
     "extract_revenue_quarters",
     "extract_share_points",
     "fundamentals_row",
+    "held_versions",
+    "plan_versions",
+    "append_planned",
     "store_quarters",
     "ingest_fundamentals_for_security",
 ]

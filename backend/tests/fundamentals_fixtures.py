@@ -28,7 +28,9 @@ What each one is for:
 
 from __future__ import annotations
 
+import json
 from datetime import date, datetime, time, timezone
+from pathlib import Path
 from uuid import UUID
 
 import psycopg
@@ -516,3 +518,49 @@ def first_filed(versions: list[Version]) -> dict[date, tuple[date, str]]:
         if pe not in out or filed < out[pe][0]:
             out[pe] = (filed, accn)
     return out
+
+
+# --- REAL companyfacts documents, trimmed to their revenue nodes (the label-switch fix, 2026-10-20) --------
+#
+# ``tests/fixtures/edgar/companyfacts_revenue/<TICKER>.json`` = data.sec.gov companyfacts as the dev EDGAR cache
+# held it (fetched by the nightly at 2026-09-12 02:30 UTC), cut to ``cik`` / ``entityName`` and the three
+# ``REVENUE_CONCEPTS`` nodes, every row verbatim (the source's own spelling and keys). Nothing is edited.
+#
+# - ``AMD`` — tagged ``Revenues`` for two 2017 quarters, then ``RevenueFromContract…ExcludingAssessedTax``
+#   to 2026-06-27; the old first-present rule kept the 2017 pair (MEASURED on prod: its stored revenue
+#   series ended 2017-09-30).
+# - ``HON`` — ``Revenues`` 2008-2012, the contract tag 2017-2026 (it also restates 2025 for the Solstice spin).
+# - ``NEE`` — ``Revenues`` 2008-2013, ``RevenueFromContract…IncludingAssessedTax`` 2018-2026.
+# - ``VICR`` — both labels on the SAME filings in 2024-2025, equal on every shared filing but one: the
+#   2025-08-01 10-Q's Q2-2025 is 141,046,000 under ``Revenues`` and 96,046,000 under the contract tag (the
+#   9-month YTDs differ by the same 45,000,000). The overlap case, and the same-filing supersession.
+# - ``LHX`` — a ``Revenues`` node whose rows extract to NO quarter; the old rule picked it and stored no revenue.
+COMPANYFACTS_REVENUE_DIR = (
+    Path(__file__).resolve().parent / "fixtures" / "edgar" / "companyfacts_revenue"
+)
+COMPANYFACTS_CIK = {
+    "AMD": "0000002488",
+    "HON": "0000773840",
+    "NEE": "0000753308",
+    "VICR": "0000751978",
+    "LHX": "0000202058",
+}
+
+
+def companyfacts_revenue(ticker: str) -> dict:
+    """One trimmed real companyfacts document (see above)."""
+    return json.loads((COMPANYFACTS_REVENUE_DIR / f"{ticker}.json").read_text(encoding="utf-8"))
+
+
+def companyfacts_cache(cache_dir: Path, *tickers: str) -> Path:
+    """Lay the fixtures out as an EDGAR cache (``companyfacts/CIK<10>.json``) under ``cache_dir`` — what a
+    cache-first ``EdgarClient(cache_dir=..., allow_live=False)`` reads, so the REAL fetch path runs offline.
+    """
+    fc = cache_dir / "companyfacts"
+    fc.mkdir(parents=True, exist_ok=True)
+    for t in tickers:
+        name = f"CIK{int(COMPANYFACTS_CIK[t]):010d}.json"
+        (fc / name).write_text(
+            (COMPANYFACTS_REVENUE_DIR / f"{t}.json").read_text(encoding="utf-8"), encoding="utf-8"
+        )
+    return cache_dir

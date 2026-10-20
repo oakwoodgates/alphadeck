@@ -395,6 +395,14 @@ only *coincide* for insider buys, which is exactly why the two conviction source
   2026-08-15 — an absolute **acceleration** floor (`revenue_accel_min_accel` = **2pp**), so a sub-2pp wiggle
   (UNH re-accelerated ~0.4pp — noise, not a genuine re-acceleration) never mints a CORE. Knowability from the filing's
   `filed` date (#1); reads companyfacts via `fact_fundamentals` (migration 0036).
+  **The series is the company's CURRENT revenue label (2026-10-20).** The ingest used to keep the FIRST
+  `REVENUE_CONCEPTS` tag present (`Revenues`), and most filers moved to a `RevenueFromContractWithCustomer*` tag
+  around ASC 606 — MEASURED on prod, 163 of 495 active companies with revenue were on a series that had stopped
+  (AMD's at 2017-09-30), so this trigger could not fire on their real quarters. Now the tag whose newest quarter
+  ends latest supplies the series (a tie keeps the list order), never joined with another tag (a join splices two
+  definitions of revenue); where a stored old-tag number sits on a filing the current tag reports differently,
+  the current tag's number is appended as a version of that same filing (`ingest.fundamentals.plan_versions`).
+  The rule above is unchanged — it reads the right numbers. Re-ingest: `python -m pipeline.reingest_fundamentals`.
   **Knowability is FIRST knowability (D3a, operator-approved 2026-10-16).** Every 10-Q re-reports the year-ago
   quarter as its comparative, and the ingest stores that as a new version dated at the LATER filing; dated by the
   latest version, a year-old inflection re-fired as fresh for another 180 days. The as-of read now annotates each

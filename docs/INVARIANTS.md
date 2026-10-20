@@ -242,7 +242,10 @@ replay stays honest.
   *Enforced by:* `tests/db/test_first_knowability.py` (fixed `known_at` pins between and after the filings, a
   restatement, a reverted value, the shared-filing tie-break, and a sweep proving nothing recorded after `known_at`
   moves the pick or the annotation — all on real prod version histories) and `tests/replay/test_pit_first_knowability.py`
-  (row-for-row + event-for-event parity, scoped and prefetched).
+  (row-for-row + event-for-event parity, scoped and prefetched), and `tests/ingest/test_revenue_label.py` (the
+  label-fix re-ingest on real companyfacts — the 2026-10-20 revenue-label fix: first knowability survives it,
+  and a weekly sweep dates every revenue-acceleration event at the filing that first made its number public —
+  never before, never after).
 - *Also honored by (migration 0057, 2026-10-21 — the fundamentals write path; the public-clock rule's
   bookkeeping half):* `fact_fundamentals` was the last writer to backdate its bookkeeping stamp (`recorded_at =
   filed 00:00 UTC` — MEASURED all 120,876 prod rows, a median ~6.2 years before the row was actually written,
