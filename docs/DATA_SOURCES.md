@@ -10,7 +10,7 @@
 
 | Source | What it gives | Powers |
 |---|---|---|
-| **SEC EDGAR** — submissions API, **full-text search (EFTS)**, daily index/RSS | 8-Ks, Form 4 (insider), 10-K/Q, S-1/S-3 (offerings), 13D/G, 13F | filing intelligence, insider-conviction, dilution clock, language-diff, first-footprint, **the EDGAR-first name-discovery universe** (`DISCOVERY.md`) |
+| **SEC EDGAR** — submissions API, **full-text search (EFTS)**, daily index/RSS | 8-Ks, Form 4 + Form 4/A (insider; amendments resolved at read — §Form 4/A), 10-K/Q, S-1/S-3 (offerings), 13D/G, 13F | filing intelligence, insider-conviction, dilution clock, language-diff, first-footprint, **the EDGAR-first name-discovery universe** (`DISCOVERY.md`) |
 | **EDGAR — XBRL financial datasets + 10-Q/10-K filing text** | structured financials (cash, burn, shares) + the filing passages | dilution clock, fundamentals (§2.2 revenue + the Band 03 S4 shares-outstanding series: three companyfacts share concepts stored `_xbrl`-keyed for the `share_creep` risk detector), **the Workbench scoring-fact extractor** (10-Q/10-K → candidate purity / shares / burn facts) |
 | **EDGAR — N-1A / 485 registrations** | new fund/ETF registrations & launches | **ETF radar** (coming launches = emergence signal) |
 | **SEC `company_tickers.json`** (one file: ticker → CIK → name) | the full US filer universe | **the broadener** (`populate_master`) — seeds the security master so the extract → ratify → score loop runs on any name |
@@ -414,6 +414,48 @@ so any sales-derived signal would be dominated by autopilot and be actively misl
   `dilution_clock` remains the only `RISK_SIGNAL`. Whether discretionary selling should feed the counter-case
   is **unspecified in `CALL_LOGIC.md`** and is the operator's call — a test asserts a buy scores identically
   whether planned, discretionary, or unknown.
+
+## Form 4/A — amendments, stored as filed and resolved at read `[BUILT — R8-A]`
+
+**The gap it closes.** The Form 4 leg matched the form type exactly (`filings_of(subs, "4")`), so a **Form 4/A**
+was never ingested: an amended-away buy kept firing and a corrected one never did. MEASURED 2026-10-17 over two
+years across the 687 member CIKs: **556 4/As against 39,001 Form 4s (1.4%)**, 46 touching a buy.
+
+**What is ingested now.** The same Form 4 leg (`pipeline.ingest_thesis._form4_leg`), from the SAME cached
+submissions document, then walks every `4/A` not yet stored (`ingest.edgar.form4a`): the document is fetched
+through the immutable `forms/` cache (a re-run costs no request), parsed (every reporting owner,
+`dateOfOriginalSubmission`, `periodOfReport`, remarks, footnotes, Table I rows), screened, and stored in
+`insider_amendment` — **never** in `fact_insider_txn` (the natural key carries the accession, so a 4/A's rows
+there would sit beside the original's: a clerical amendment would double-count, a zero-row void would remove
+nothing). An append-only `insider_amendment_link` names the original(s) and the disposition (migration 0050).
+Depth: the submissions `recent` window, the same accepted depth as Form 4.
+
+- **The link cascade** (deterministic; MEASURED on the 553 unique 4/As: 422 linked uniquely by step 1, 18 more
+  by step 2, 4 ambiguous): (1) a stored Form 4 of this security **filed** on `dateOfOriginalSubmission` (the
+  submissions index's `filingDate` — an acceptance after 17:30 ET files the next business day, so the
+  acceptance instant is not a substitute) whose rows belong to one of the amendment's reporting owners;
+  several with IDENTICAL Table I are filing-agent duplicates, several that differ are ambiguous. (2) Else an
+  earlier Form 4 of the same owner sharing transaction dates (a tie is ambiguous). (3) Else unlinked.
+- **The dispositions** and what each does to the read are in `CALL_LOGIC.md` §3 (insider) and
+  `domain/insider_amendments.py`. Applied automatically: clean 1:1 corrections. Routed: voids, duplicates,
+  partial / consolidation / addition / restatement, **field change** (Table I identical but a signal row's
+  owner role / name / 10b5-1 flag moved — migration 0051 adds it to the link's disposition check), ambiguous
+  links. Of the routed ones, only those whose effect changes a code-`P`/`S` row (the signal code set,
+  derived from the detectors — `signals.horizons.insider_signal_codes`) go to the operator, plus every
+  ambiguous link; the rest are applied by the system at ingest (`system:no-signal-effect`, undoable). Inert:
+  clerical, no Table I rows, no stored original. MEASURED 2026-10-18 on prod's 552 linked (security, 4/A)
+  pairs: **67 owed the operator** (void 16 · partial 19 · restatement 10 · field change 7 · addition 6 ·
+  consolidation 4 · ambiguous 4 · duplicates 1; 12 touch a code-`P` row, 55 code `S` only), **121 applied
+  by the system** (void 63 · partial 30 · addition 10 · consolidation 10 · restatement 8).
+- **The other-issuer screen.** A company's own submissions feed lists every ownership filing it is a party to —
+  including the ones it filed as the REPORTING OWNER of another company's stock (147 such rows across 11
+  tickers sat on member tapes on 2026-10-17; 25 of them code `P`). A Form 4 or 4/A whose `issuerCik` is not
+  the member's is no longer stored (a `form4_other_issuer` Q18 skip — known ones counted, never re-printed);
+  the rows already stored are KEPT and screened at read (the ADR keep-and-screen precedent — deleting them is
+  a separate data repair needing the operator's go). The member's CIK set is the master's plus every T7
+  CIK-change re-point, so a successor-CIK adopt never screens the predecessor's own history.
+- **Backfill.** The first nightly pass after deploy ingests every 4/A in the window (~550 document fetches,
+  rate-limited) with `recorded_at = now`, so no past replay moves; its pending items page once.
 
 ## 8-K item codes — the corporate-event tape `[BUILT — Band 03 S3; corporate_risk LIVE]`
 

@@ -85,3 +85,34 @@ def display_horizons() -> list[Mapping[str, int | None]]:
 def display_bounds() -> dict[str, int | None]:
     """The DISPLAY PIT's read bounds (the ``/display-signals`` route) — derived, never hand-typed."""
     return derive_bounds(display_horizons())
+
+
+INSIDER_TABLE = "fact_insider_txn"
+
+
+def insider_signal_codes(cfg: CallConfig) -> dict[str, int | None]:
+    """R8-A — ``{Form 4 transaction code: the furthest-back days before asof any CALL detector reading that code
+    can use}``, DERIVED from the registry: every registered detector that declares ``fact_insider_txn`` in its
+    horizons contributes its declared ``txn_codes`` with that horizon (the max per code; ``None`` = unbounded
+    wins). The keys are the amendment classifier's signal code set (``domain.insider_amendments`` — a 4/A that
+    changes no row of these codes has no call effect and resolves itself); the values set the "in tonight's
+    window" urgency. A detector that reads the table without declaring its codes is a registry error, raised
+    here and failed by ``tests/signals/test_insider_signal_codes.py`` — never a silently narrower set.
+    """
+    out: dict[str, int | None] = {}
+    for det in registered_detectors():
+        h = det.horizons(cfg)
+        if INSIDER_TABLE not in h:
+            continue
+        if not det.txn_codes:
+            raise ValueError(
+                f"detector {det.name!r} reads {INSIDER_TABLE} but declares no txn_codes — the amendment "
+                "classifier cannot know which rows it reads"
+            )
+        days = h[INSIDER_TABLE]
+        for code in det.txn_codes:
+            if code in out and out[code] is None:
+                continue
+            prior = out.get(code)
+            out[code] = None if days is None else max(days, prior or 0)
+    return out

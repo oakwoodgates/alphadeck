@@ -15,6 +15,11 @@ over prod's cache + DB: 76 Form 4 lines + 365 schedule-13 lines a night, about 7
   deliberate precision cut (#290), never a dropped subject row.
 - ``schedule13_identity`` — ``ingest_schedule13``: the filer-identity fetch/parse failed; the row is STORED
   with NULL identity (#9) and retried each pass. None on prod at the audit.
+- ``form4_other_issuer`` — ``pipeline.ingest_thesis._form4_leg`` (Form 4 and 4/A, R8-A): an ownership filing in
+  a company's own feed whose ISSUER is a different company — the member was the REPORTING OWNER of someone
+  else's stock (Honeywell buying Garrett Motion, Novartis selling Aileron). Not this security's insider flow:
+  never stored (the twin of ``schedule13_outbound``). The rows stored before the screen existed are KEPT and
+  screened at read (``domain.insider_amendments.is_other_issuer``).
 
 This module only DESCRIBES a skip. Which ones are "known" (failed on the previous finished pass, so they are
 counted instead of printed) is decided against the run artifact by ``pipeline.daily`` — the O1 name-error
@@ -31,7 +36,13 @@ from uuid import UUID
 FORM4_UNPARSEABLE = "form4_unparseable"
 SCHEDULE13_OUTBOUND = "schedule13_outbound"
 SCHEDULE13_IDENTITY = "schedule13_identity"
-SKIP_KINDS: tuple[str, ...] = (FORM4_UNPARSEABLE, SCHEDULE13_OUTBOUND, SCHEDULE13_IDENTITY)
+FORM4_OTHER_ISSUER = "form4_other_issuer"
+SKIP_KINDS: tuple[str, ...] = (
+    FORM4_UNPARSEABLE,
+    SCHEDULE13_OUTBOUND,
+    SCHEDULE13_IDENTITY,
+    FORM4_OTHER_ISSUER,
+)
 
 # the reason is kept for a reader (the artifact), not to grep a traceback out of
 MAX_REASON_CHARS = 200

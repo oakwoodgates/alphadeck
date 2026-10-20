@@ -12,6 +12,7 @@ import psycopg
 from psycopg import sql
 from psycopg.rows import tuple_row
 
+from db import insider_resolution
 from domain.market_time import market_tz
 
 # Whitelist of bitemporal fact tables -> the natural-key columns that identify one logical fact
@@ -279,6 +280,12 @@ def _as_of(
 
     A ``_FIRST_KNOWABILITY`` table (``fact_fundamentals``) reads every VISIBLE version under the SAME gate
     and picks in Python (``first_knowable_versions``) — the same row, plus the D3a annotation.
+
+    ``fact_insider_txn`` is then RESOLVED against the Form 4/A amendments, links and operator decisions
+    recorded at/before ``known_at`` (R8-A, ``db.insider_resolution`` -> the pure
+    ``domain.insider_amendments.resolve_insider_rows``, shared with the replay mirror): a suppressed original
+    leaves the read, an applied correction's rows replace it, an other-issuer row is screened. A security no
+    amendment touches is returned unchanged.
     """
     if table not in _FACT_IDENTITY:
         raise ValueError(f"unknown fact table: {table!r}")
@@ -310,7 +317,13 @@ def _as_of(
         return _first_knowable_read(conn, table, query, params, _FACT_IDENTITY[table])
     with conn.cursor() as cur:
         cur.execute(query, params)
-        return cur.fetchall()
+        rows = cur.fetchall()
+    if table == insider_resolution.RESOLVED_TABLE and scope_col == "security_id":
+        inputs = insider_resolution.load_inputs(
+            conn, [scope_id], known_at=known_at, tenant_id=tenant_id
+        )
+        rows = inputs.resolve(scope_id, rows, asof=asof, lower=None)
+    return rows
 
 
 def _first_knowable_read(
@@ -390,6 +403,9 @@ def as_of_many(
     ``valid_from``: ``valid_from`` varies across that table's versions, so a SQL floor could cut the version
     history the run walks and date a fact later than it was knowable. Post-pick it is exactly the per-security
     ``as_of`` trimmed in Python — the PIT fallback's own rule.
+
+    ``fact_insider_txn`` is resolved against the Form 4/A amendments exactly as the scoped ``as_of`` does
+    (R8-A), in ONE load for the whole basket, with the floor applied to the amended rows too.
     """
     if table not in _FACT_IDENTITY:
         raise ValueError(f"unknown fact table: {table!r}")
@@ -429,6 +445,13 @@ def as_of_many(
         cur.execute(query, params)
         for row in cur.fetchall():
             out[row["security_id"]].append(row)
+    if table == insider_resolution.RESOLVED_TABLE:
+        # R8-A — the SAME resolution the scoped ``as_of`` applies, over the whole basket in one load; the
+        # floor rides along so an amended row dated before it stays out (row-for-row the scoped read
+        # trimmed in Python — the PIT fallback's rule)
+        inputs = insider_resolution.load_inputs(conn, ids, known_at=known_at, tenant_id=tenant_id)
+        for sid in ids:
+            out[sid] = inputs.resolve(sid, out[sid], asof=asof, lower=valid_from_lower)
     return out
 
 

@@ -1,0 +1,99 @@
+<?xml version="1.0"?>
+<ownershipDocument>
+
+    <schemaVersion>X0609</schemaVersion>
+
+    <documentType>4/A</documentType>
+
+    <periodOfReport>2026-06-18</periodOfReport>
+
+    <dateOfOriginalSubmission>2026-06-22</dateOfOriginalSubmission>
+
+    <notSubjectToSection16>false</notSubjectToSection16>
+
+    <issuer>
+        <issuerCik>0001260221</issuerCik>
+        <issuerName>TransDigm Group INC</issuerName>
+        <issuerTradingSymbol>TDG</issuerTradingSymbol>
+        <issuerForeignTradingSymbol></issuerForeignTradingSymbol>
+    </issuer>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001352573</rptOwnerCik>
+            <rptOwnerName>Howley W Nicholas</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerNonUSAddressFlag>false</rptOwnerNonUSAddressFlag>
+            <rptOwnerStreet1>1350 EUCLID AVE</rptOwnerStreet1>
+            <rptOwnerStreet2>SUITE 1600</rptOwnerStreet2>
+            <rptOwnerCity>CLEVELAND</rptOwnerCity>
+            <rptOwnerState>OH</rptOwnerState>
+            <rptOwnerZipCode>44115</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>true</isDirector>
+            <isOfficer>false</isOfficer>
+            <isTenPercentOwner>false</isTenPercentOwner>
+            <isOther>false</isOther>
+            <officerTitle></officerTitle>
+            <otherText></otherText>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <aff10b5One>true</aff10b5One>
+
+    <nonDerivativeTable>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Common Stock</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2026-06-18</value>
+            </transactionDate>
+            <deemedExecutionDate></deemedExecutionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>J</transactionCode>
+                <equitySwapInvolved>false</equitySwapInvolved>
+            </transactionCoding>
+            <transactionTimeliness></transactionTimeliness>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>0.00</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>0.00</value>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>D</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>21547.513</value>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>I</value>
+                </directOrIndirectOwnership>
+                <natureOfOwnership>
+                    <value>W. Nicholas Howley Family Trust u/a/d 4/23/99</value>
+                </natureOfOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+    </nonDerivativeTable>
+
+    <derivativeTable></derivativeTable>
+
+    <footnotes></footnotes>
+
+    <remarks>This Form 4/A is being filed to correct an administrative error by the filing agent, Morgan Stanley. The transaction identified in Accession No. 0001352573-26-000008, filed on June 22, 2026, is the sole correct and complete report of the transaction. Accession Nos. 0001352573-26-000009 and 0001352573-26-000010, also filed on June 22, 2026, were duplicate filings made in error and are superseded by this amendment. No additional transactions occurred.</remarks>
+
+    <ownerSignature>
+        <signatureName>/s/ Rachel L. Quinlan as attorney in fact for W. Nicholas Howley</signatureName>
+        <signatureDate>2026-06-24</signatureDate>
+    </ownerSignature>
+</ownershipDocument>

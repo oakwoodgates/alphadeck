@@ -53,6 +53,7 @@ from typing import TYPE_CHECKING
 from domain.feed_kinds import StaleFeedLabel, feed_kind
 from ingest.skips import dedup_skips
 from pipeline.ingest_skips import SkipDiff
+from pipeline.insider_amendment_scan import AmendmentScan
 from pipeline.name_errors import NameIngestError, name_errors_of
 from pipeline.rename_probe import RenameProbe
 from pipeline.split_basis import SplitScan, defect_keys_of
@@ -280,6 +281,7 @@ def build_run_payload(
     successor: SuccessorScan | None = None,
     skips: SkipDiff | None = None,
     timings: dict | None = None,
+    amendments: AmendmentScan | None = None,
 ) -> dict:
     """The run-of-record payload — PURE (no I/O), extracted from the artifact writer so the admin
     "run now" job can shape its poll result IDENTICALLY to a parsed artifact (one schema, two readers).
@@ -377,6 +379,12 @@ def build_run_payload(
     recommendation the Admin panel offers for the operator's Adopt), and `new` = what PAGED. `successor=None`
     writes the not-evaluated block; readers use `.get`.
 
+    R8-A — THE FORM 4/A INVENTORY. `insider_amendments` (`pipeline/insider_amendment_scan.AmendmentScan
+    .payload`) — `{evaluated, error, baseline, duration_s, pending: [{key, security_id, ticker, accession,
+    disposition, suppressing, touches_buy, label}], new: [{key, label}]}` — every amendment owed the
+    operator's decision (read whole from the amendment tables), and `new` = what PAGED. `amendments=None`
+    writes the not-evaluated block; readers use `.get`.
+
     Q18 — THE SKIPPED FILINGS (`pipeline/ingest_skips.SkipDiff.payload`): `ingest_skips_evaluated` (a
     LIVE pass — the only kind that is a baseline) and `ingest_skips`, one block per kind
     (`form4_unparseable` / `schedule13_outbound` / `schedule13_identity`) with `total`, `known`, `new`
@@ -427,6 +435,8 @@ def build_run_payload(
         **(successor or SuccessorScan()).payload(),
         # Q18 — the skipped-filing inventory + its diff (known ones counted, new ones named)
         **(skips or SkipDiff()).payload(),
+        # R8-A — the Form 4/A inventory owed an operator decision + what paged (pending; never applied)
+        **(amendments or AmendmentScan()).payload(),
         # THE FREEZE DETECTOR: total EDGAR network pulls this run. A frozen index and a healthy
         # nothing-filed night both show 0 new facts — this is the number that differs. 0 on a `live`
         # run = the cache never refreshed = a freeze (R4 pages on it); a healthy night is in the hundreds.
@@ -573,6 +583,7 @@ def write_cron_run_log(
     successor: SuccessorScan | None = None,
     skips: SkipDiff | None = None,
     timings: dict | None = None,
+    amendments: AmendmentScan | None = None,
 ) -> Path | None:
     """Dump one cron pass (``build_run_payload``, above — the payload's meaning lives there) to
     ``<base>/<utc-timestamp>.json``; return the path (or ``None`` fail-open). The whole write — payload
@@ -609,6 +620,7 @@ def write_cron_run_log(
             successor=successor,
             skips=skips,
             timings=timings,
+            amendments=amendments,
         )
         run_dir = base_dir or _DEFAULT_CRON_RUNS
         run_dir.mkdir(parents=True, exist_ok=True)

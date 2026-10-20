@@ -18,6 +18,7 @@ import {
 import { scoreboardPath } from "../nav";
 import { hoursLate } from "../scoreboard/late";
 import { errText } from "../workbench/format";
+import { InsiderAmendments } from "./InsiderAmendments";
 import { PriceFeedRepairs, repairHandledIds } from "./PriceFeedRepairs";
 
 interface Props {
@@ -508,6 +509,11 @@ export function Admin({ header }: Props) {
               acknowledged names, and every standing repair with its Undo. Renders only when there is
               something in it; every action is the operator's click with its inverse beside it. */}
           {status.price_repairs && <PriceFeedRepairs repairs={status.price_repairs} />}
+
+          {/* 1c — INSIDER AMENDMENTS (R8-A): the stored Form 4/As owed a decision (a void suppresses its
+              original meanwhile) with the evidence and Ratify / Keep / Link, each with its Undo; the
+              auto-applied corrections and the inert ones quiet. Its own read; renders nothing when empty. */}
+          <InsiderAmendments />
 
           {/* 2 — cron health: the one-word verdict + the last run */}
           <section className="adm-card" data-testid="adm-cron">

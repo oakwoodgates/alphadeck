@@ -17,6 +17,7 @@ from ingest.prices.eod_loader import ingest_prices, ingest_prices_backfill, pars
 from pipeline.call_for_thesis import call_for_thesis
 from repositories import thesis_repo
 from securities import master
+from tests.form4a_fixtures import as_issuer
 
 _SEED = Path(__file__).resolve().parent.parent.parent / "seed_data"
 _WELLS_ACCESSION = "0001773751-26-000086"
@@ -39,6 +40,9 @@ def _seed_hims_thesis(db, security_id, *, recorded_at: datetime | None = None) -
     06-01 recompute must NOT see that — which is precisely the serve-path leak. An explicit ``recorded_at``
     stamps EVERY fact at that instant: how the leak test builds the measured thaw shape on purpose.
     """
+    as_issuer(
+        db, security_id, "0001773751"
+    )  # R8-A: the security IS the Wells Form 4's issuer (HIMS)
     ingest_form4(
         db,
         security_id,

@@ -378,6 +378,12 @@ class Detector:
     name: str
     detect: DetectorFn
     horizons: HorizonsFn
+    # The Form 4 transaction codes this detector reads from ``fact_insider_txn`` (``P`` for insider_conviction,
+    # ``S`` for insider_sell) — REQUIRED of any detector that declares ``fact_insider_txn`` in its horizons.
+    # The union over the registry is the R8-A amendment classifier's signal code set
+    # (``signals.horizons.insider_signal_codes``): a future detector reading another code widens it by declaring
+    # it here, and ``tests/signals/test_insider_signal_codes.py`` fails a detector that reads an undeclared one.
+    txn_codes: frozenset[str] = frozenset()
 
     def __call__(
         self,

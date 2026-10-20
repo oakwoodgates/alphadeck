@@ -12,6 +12,9 @@ from signals.common import entry_signal_is_live, fired_signal, source_provenance
 from signals.registry import register_detector
 
 DETECTOR_NAME = "insider_conviction"
+# the Form 4 codes this detector reads (open-market OR private purchase) — declared on the Detector so the R8-A
+# amendment classifier's signal code set is DERIVED from it (signals.horizons.insider_signal_codes)
+TXN_CODES: frozenset[str] = frozenset({"P"})
 
 
 def _is_senior(role: str | None, keywords: frozenset[str]) -> bool:
@@ -252,7 +255,7 @@ def score(
     p_buys = [
         t
         for t in txns
-        if t.get("txn_code") == "P"
+        if t.get("txn_code") in TXN_CODES
         and t.get("valid_from") is not None
         and t["valid_from"] <= asof
         and _is_open_market_buy(t, lows, cfg)
@@ -353,4 +356,6 @@ def horizons(cfg: CallConfig) -> dict[str, int | None]:
     return {"fact_insider_txn": days, "fact_price_eod": days}
 
 
-DETECTOR = register_detector(Detector(name=DETECTOR_NAME, detect=detect, horizons=horizons))
+DETECTOR = register_detector(
+    Detector(name=DETECTOR_NAME, detect=detect, horizons=horizons, txn_codes=TXN_CODES)
+)

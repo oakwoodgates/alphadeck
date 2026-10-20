@@ -1329,6 +1329,91 @@ export function useUndoCikChange() {
   });
 }
 
+// --- Insider amendments (R8-A): the operator's ratification of the stored Form 4/As ---
+// Its own read (the amendment tables, live — not the run artifact) and its WRITES, each fired ONLY by an
+// explicit click with a visible inverse (Ratify / Keep / Link ⇄ Undo). retry:false — a decision is never
+// auto-retried; a 409 (nothing to ratify / a decision already stands) is shown, not re-sent. Every success
+// refreshes this read and the status (its run history shows the page the pass emitted).
+export type AdminInsiderAmendmentsOut = components["schemas"]["AdminInsiderAmendmentsOut"];
+export type AdminInsiderAmendmentOut = components["schemas"]["AdminInsiderAmendmentOut"];
+export type AdminInsiderTxnOut = components["schemas"]["AdminInsiderTxnOut"];
+export type AdminInsiderOriginalOut = components["schemas"]["AdminInsiderOriginalOut"];
+
+export function useInsiderAmendments() {
+  return useQuery({
+    queryKey: ["admin-insider-amendments"] as const,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/admin/insider-amendments");
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+function useAmendmentDecision<TVars, TData>(fn: (vars: TVars) => Promise<TData>) {
+  const qc = useQueryClient();
+  return useMutation({
+    retry: false,
+    mutationFn: fn,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-insider-amendments"] });
+      qc.invalidateQueries({ queryKey: ["admin-status"] });
+    },
+  });
+}
+
+type AmendmentRef = { securityId: string; accession: string; reason?: string };
+
+const reasonBody = (reason?: string) => (reason?.trim() ? { reason: reason.trim() } : {});
+
+// RATIFY a pending amendment (a void keeps suppressing; a restatement replaces the original's rows).
+export function useApplyAmendment() {
+  return useAmendmentDecision(async (vars: AmendmentRef) => {
+    const { data, error } = await api.POST("/admin/insider-amendments/{security_id}/{accession}/apply", {
+      params: { path: { security_id: vars.securityId, accession: vars.accession } },
+      body: reasonBody(vars.reason),
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
+// KEEP THE ORIGINAL — the amendment changes nothing (lifts a pending void; overrules a correction).
+export function useKeepOriginal() {
+  return useAmendmentDecision(async (vars: AmendmentRef) => {
+    const { data, error } = await api.POST("/admin/insider-amendments/{security_id}/{accession}/keep", {
+      params: { path: { security_id: vars.securityId, accession: vars.accession } },
+      body: reasonBody(vars.reason),
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
+// LINK an ambiguous amendment to one of its candidate originals.
+export function useLinkAmendment() {
+  return useAmendmentDecision(async (vars: AmendmentRef & { target: string }) => {
+    const { data, error } = await api.POST("/admin/insider-amendments/{security_id}/{accession}/link", {
+      params: { path: { security_id: vars.securityId, accession: vars.accession } },
+      body: { target_accession: vars.target, ...reasonBody(vars.reason) },
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
+// UNDO a standing decision (appends a revoke naming it).
+export function useRevokeAmendmentDecision() {
+  return useAmendmentDecision(async (vars: { decisionId: string }) => {
+    const { data, error } = await api.POST("/admin/insider-amendments/decisions/{decision_id}/revoke", {
+      params: { path: { decision_id: vars.decisionId } },
+      body: {},
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
 // --- Backups (Slice 4): the operator DB-snapshot button — create + list (NEVER restore) ---
 export type BackupOut = components["schemas"]["BackupOut"];
 export type BackupsOut = components["schemas"]["BackupsOut"];

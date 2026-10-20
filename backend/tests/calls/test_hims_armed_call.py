@@ -13,6 +13,7 @@ from ingest.edgar.form4 import ingest_form4
 from ingest.prices.eod_loader import ingest_prices, parse_yahoo_chart
 from signals import insider_conviction, volume_breakout
 from signals.base import PointInTimeData
+from tests.form4a_fixtures import as_issuer
 
 # M3 Checkpoint A: the computed Armed call on REAL HIMS data (committed fixtures), proven in a test
 # before any UI. David Wells' $1.17M open-market buy (Key 1, CORE) + the 2026-06-01 momentum breakout
@@ -23,6 +24,9 @@ _WELLS_ACCESSION = "0001773751-26-000086"
 
 
 def _seed_hims(db, security_id):
+    as_issuer(
+        db, security_id, "0001773751"
+    )  # R8-A: the security IS the Wells Form 4's issuer (HIMS)
     ingest_form4(
         db,
         security_id,

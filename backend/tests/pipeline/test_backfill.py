@@ -37,6 +37,7 @@ from pipeline.backfill_log import write_backfill_log
 from pipeline.call_for_thesis import call_for_thesis
 from pipeline.cron_run_log import build_run_payload
 from repositories import calls_repo
+from tests.form4a_fixtures import as_issuer
 
 _TESTS = Path(__file__).resolve().parents[1]
 _SEED = _TESTS.parent / "seed_data"
@@ -93,6 +94,9 @@ def _seed_split_clock_thesis(db, security_id):
     platform recorded only AFTER the pin. Real detectors over real facts — no fixture fakes a shape.
     """
     tid = _thesis(db, "Split clock", members=[("DEVCO", security_id)])
+    as_issuer(
+        db, security_id, "0001773751"
+    )  # R8-A: the security IS the Wells Form 4's issuer (HIMS)
     ingest_prices_backfill(db, security_id, _HIMS_BARS)  # recorded_at = bar date (before the pin)
     ingest_form4(db, security_id, _WELLS_XML, _WELLS_ACCESSION, recorded_at=_LATE)  # after the pin
     db.commit()

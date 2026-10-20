@@ -212,6 +212,18 @@ replay stays honest.
   design (the no-lookahead rule binds the decision, not the measurement of it). Full detail, the registry
   table and the NULL rates: `docs/BACKTEST.md`. *Enforced by:* `tests/replay/` (the parity gate runs on
   `clock="record"` and stays byte-identical; the public-clock exclusion + NULL-count tests).
+- *Also honored by (R8-A — Form 4/A amendments):* an amendment changes what the insider read returns only from
+  the moment THIS system held it. The 4/A, its link and every operator decision carry their own `recorded_at`,
+  and the resolver (`domain/insider_amendments.resolve_insider_rows`, shared verbatim by the Postgres read and
+  the DuckDB mirror) counts each iff `recorded_at <= known_at`; `accepted` (the SEC acceptance) only orders two
+  amendments of one original and is displayed, never a gate. So a replay pinned before tonight's link reads the
+  original exactly as stored, and one pinned before a ratification reads the pending state; the backfill of the
+  existing 4/As (stamped `recorded_at = now`) moves no past replay. An amended row is dated by its OWN
+  transaction date (`valid_from <= asof`, and the registry floor, apply to it too). The public-clock mirror
+  stamps a 4/A and its link at its acceptance, and carries only the operator's STANDING decisions, stamped the
+  same — the ratified-table hindsight caveat, named. *Enforced by:* `tests/db/test_insider_amendments.py`
+  (a read pinned before the link / before a decision), `tests/replay/test_pit_insider_amendments.py` (row-for-row
+  parity at four pins, both read shapes; the public-clock acceptance).
 
 ## 5. Tenant isolation; production is a fresh tenant, never a destructive wipe
 
@@ -439,6 +451,23 @@ surfaced to the operator, not silently resolved in code.**
   is a visible, reversible, still-promotable collapse (excluded rows, the To-Review "Low signal" / "No listed
   ticker" drawers) and the sort/filter VIEW never changes what Save persists — precision is the operator pruning
   visible names, never a filter that silently eats one (`TRIAGE.md`).
+- *Also honored by (R8-A — Form 4/A amendments and the other-issuer screen):* no insider row is DELETED and no
+  amendment is silently dropped. A 4/A is stored as filed (never written into, never subtracted from,
+  `fact_insider_txn`); what it does is decided per disposition and SHOWN on Admin with its evidence — an
+  auto-applied correction, a clerical / no-rows / unlinked one, and every routed one stay listed, and the
+  only provisional removal is the operator's own condition (a pending void suppresses the original it
+  cancels; *Keep original* restores it, an AMBIGUOUS link suppresses nothing). A routed amendment with NO
+  signal effect (the signal-effect rule, 2026-10-18: it changes no code-`P`/`S` row's code, date, shares,
+  price, 10b5-1 flag, owner role or name) is applied by the system — a deterministic content comparison,
+  never a date window or screen, recorded as an append-only `system:no-signal-effect` decision — and it is
+  LISTED on Admin as "applied — no signal effect" with its Undo (which returns it to the operator's queue),
+  never hidden; what such a void suppresses is by construction no row a call signal reads (AVAV's voided
+  grant-only Form 4). An ambiguous link is never system-resolved. Rows stored before the
+  other-issuer screen existed are KEPT and screened at read (keep-and-screen); the screen keeps any row whose
+  issuer or member CIK is unknown, and counts every CIK the security has been known by (the T7 change log),
+  so a successor-CIK re-point never hides the predecessor's own history. A filing the ingest no longer stores
+  is recorded as a `form4_other_issuer` skip, never silently. *Enforced by:* `tests/db/test_insider_amendments.py`
+  (the stored rows are counted before and after; the screened rows are still in the table).
 
 ## 10. The LLM recommends; the operator decides — a recommendation is pending until confirmed, never auto-applied
 
@@ -507,16 +536,14 @@ a checkable answer. When a guard/assertion you added fires unexpectedly, the def
 something," not "the guard is in the way." This is the argument for building the boring instrument (the run
 log, the fetch counter, the recording gate): they pay off outside their brief.
 
-**Known gap — an amended-away insider buy still fires Key-1 (a false POSITIVE in the arm path).** Form 4/A
-amendments are not reconciled: `accession` is part of the `fact_insider_txn` natural key (`db/bitemporal.py`),
-so a 4/A is a *distinct* surviving row rather than a supersession; the `supersedes` column exists but has zero
-writers/readers (vestigial); and `signals/insider_conviction.py` filters on `txn_code == "P"` with no
-amendment check. So a canceled/amended-away code-P buy remains a live open-market buy to the conviction
-detector and can turn Key-1 on its own. The fix is **non-trivial** (dropping `accession` from the key or
-naively ingesting the 4/A both *double-count*), so it is **measure-first, MARK-don't-correct**, and it is
-**held behind the operator's signal-change hold** — no change to signal/call logic until the operator lifts it.
-Measured prevalence (2026-07-17): 1,126 Form 4/A · 1.8% of Form 4s · 162 of 250 names (amended *buys* a smaller
-subset). Relates to #1 (no model-sourced firings — this is a deterministic-path gap) and #4 (no lookahead).
+**Closed (R8-A, 2026-10-17 / 18) — an amended-away insider buy no longer fires Key-1.** Form 4/A amendments
+were not reconciled (the 4/A was never ingested at all, and `accession` in the natural key meant a naive ingest
+would double-count), so a cancelled code-`P` buy stayed live to the conviction detector (FLS's $164k director
+buy, cancelled by the broker, was a CORE trigger). R8-A stores each 4/A as filed in `insider_amendment` (never
+in `fact_insider_txn`), links it to its original, and resolves every as-of insider read through one pure
+resolver shared with the replay mirror — a pending void suppresses its original, a 1:1 correction applies, the
+rest wait for the operator or, with no signal effect, are applied by the system and listed with an Undo. The
+`supersedes` column is still vestigial. See `DATA_SOURCES.md` §Form 4/A and `CALL_LOGIC.md` §3 (insider).
 
 **Known gap — basket composition is point-in-time from 2026-09-15 FORWARD, and unknowable before it.**
 `basket_member` is full-replace on promote with no timestamps, so which names were in a basket on a past

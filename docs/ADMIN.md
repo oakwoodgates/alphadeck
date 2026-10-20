@@ -245,6 +245,40 @@ Undo is exact the same way: each change row stores the PRIOR and NEW value of ev
 (cik, name, the submissions-sourced identity, `enriched_source` / `enriched_at`); Undo writes the prior ones
 back verbatim, only for the name's newest standing change, and refuses (409) if the master drifted since.
 
+### Insider amendments — "which Form 4/As owe me a decision?"  `[BUILT, R8-A]`
+
+A sibling card (its own read, `GET /admin/insider-amendments`, live from the amendment tables of migration
+0050; the writes are `/admin/insider-amendments/*`). Every Form 4/A the nightly leg stored, with what it changed
+(the disposition — `CALL_LOGIC.md` §3 insider) and the EVIDENCE to ratify on: the amendment's remarks and
+footnotes, a link to its EDGAR filing index, and its Table I rows beside each original's (role `original`,
+`voided` for a duplicate, `candidate` for an ambiguous link). Rendered only when an amendment is stored.
+
+- **Owed a decision** (loud) — only an amendment whose effect changes a buy or sale a call signal reads (the
+  signal-effect rule — `CALL_LOGIC.md` §3 insider), plus every ambiguous link: a **void** or **duplicates** set
+  (the line says it is SUPPRESSING the original from every call until you decide — the operator's condition: a
+  cancelled buy never fires) with **Ratify void** and **Keep original**; a **partial / consolidation / addition
+  / restatement / field change** (no effect until applied) with **Apply amendment** and **Keep original**; an
+  **ambiguous** link (suppresses nothing) with one **Link to <accession>** per candidate — linking computes its
+  disposition against that original, and a routed one is then owed a ratification. **In-window first:** an item
+  whose changed rows sit inside a signal's own read horizon today (`P` 210 days, `S` 120 days — derived from
+  the detectors) sorts to the top and says "in today's P/S signal window — can move tonight's call". Each pages
+  ONCE when new; the page names every in-window item and counts the rest (`FEED_LOOP.md` §the amendment leg).
+- **Decided by you** (quiet) — every standing decision with its **Undo**.
+- **Applied — no signal effect** (quiet) — a routed amendment that changes no row a call signal reads (a void
+  of a grant-only Form 4, an exercise added beside an unchanged sale), applied by the SYSTEM at ingest (basis
+  `system:no-signal-effect`) and never paged, each with its **Undo** — which returns it to the owed list.
+- **Applied automatically** (quiet) — the clean 1:1 corrections (never paged), each with **Keep original** to
+  overrule it.
+- **Nothing to apply** (quiet) — clerical, no Table I rows, or no stored original — still listed (#9).
+
+Every decision is an append-only `insider_amendment_decision` row naming its author (`operator:apply` / `keep`
+/ `link` / `revoke`, or `system:no-signal-effect` for the system's apply); **Undo** appends a `revoke` naming it,
+and the amendment
+returns to the state before. At most one standing link and one standing verdict per amendment — a second is
+refused (409, undo the first), and a link cannot be undone while a verdict decided under it stands. A decision
+reaches calls at the next read and re-records a card only where the resolved rows change; a replay pinned
+before it reads the pending state the system held (#1).
+
 #### ETF fund-shares tapes — "is every sleeve still being sampled?"  `[BUILT, F1]`
 
 The same silent-end class, one layer over. An ETF sleeve's shares-outstanding sample is what the net-flow
@@ -561,6 +595,11 @@ the freeze it is adjacent to: `POSTMORTEM_CRON_FREEZE_2026-07.md`.
 | `POST /admin/price-feed/acks/{ack_id}/revoke` | → the revoke row | 404 when no active acknowledgment |
 | `POST /admin/price-feed/{security_id}/adopt-cik` | `{cik}` → the CIK change row | the detector's recommended successor only (409 otherwise / master moved / CIK held by another row); no network |
 | `POST /admin/price-feed/cik-changes/{change_id}/undo` | → the undo row | exact restore; 409 already undone / a later change stands / the master moved |
+| `GET /admin/insider-amendments` | the Form 4/A panel: `pending` (in-window first) / `decided` / `auto` / `applied` / `inert`, plus `asof` | read-only, live from the 0050 tables |
+| `POST /admin/insider-amendments/{security_id}/{accession}/apply` | `{reason?}` → the amendment | ratify (a void keeps suppressing); 409 nothing to ratify / a verdict stands / ambiguous and unlinked |
+| `POST /admin/insider-amendments/{security_id}/{accession}/keep` | `{reason?}` → the amendment | the original stands (lifts a pending void, overrules a correction); 409 a verdict stands |
+| `POST /admin/insider-amendments/{security_id}/{accession}/link` | `{target_accession, reason?}` → the amendment | an ambiguous amendment's candidate only; 409 otherwise / already linked |
+| `POST /admin/insider-amendments/decisions/{decision_id}/revoke` | → the amendment | Undo; 404 unknown / already undone, 409 a verdict stands under the link |
 | `GET /admin/runs?limit=` | the run-of-record history, newest first | read-only file parse; skip-unreadable |
 | `POST /admin/run-daily` | **202** + `job_id` | the cron's exact unit, in a child process bounded by the run timeout; 409 when any process runs a pass (C1 lock) or the slot is busy; 503 DB unreachable |
 | `GET /admin/run-daily/jobs/{job_id}` | job status → run-history row | 404 → "lost from view", never a spinner |

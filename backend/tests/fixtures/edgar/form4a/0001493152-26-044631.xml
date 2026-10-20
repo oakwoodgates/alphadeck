@@ -1,0 +1,139 @@
+<?xml version="1.0"?>
+<ownershipDocument>
+
+    <schemaVersion>X0609</schemaVersion>
+
+    <documentType>4/A</documentType>
+
+    <periodOfReport>2026-09-24</periodOfReport>
+
+    <dateOfOriginalSubmission>2026-09-28</dateOfOriginalSubmission>
+
+    <notSubjectToSection16>0</notSubjectToSection16>
+
+    <issuer>
+        <issuerCik>0001963088</issuerCik>
+        <issuerName>AtlasClear Holdings, Inc.</issuerName>
+        <issuerTradingSymbol>ATCH</issuerTradingSymbol>
+        <issuerForeignTradingSymbol></issuerForeignTradingSymbol>
+    </issuer>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001843626</rptOwnerCik>
+            <rptOwnerName>Schaible John Martin</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerNonUSAddressFlag>false</rptOwnerNonUSAddressFlag>
+            <rptOwnerStreet1>C/O ATLASCLEAR HOLDINGS, INC.</rptOwnerStreet1>
+            <rptOwnerStreet2>4350 WEST CYPRESS STREET, SUITE 270</rptOwnerStreet2>
+            <rptOwnerCity>TAMPA</rptOwnerCity>
+            <rptOwnerState>FL</rptOwnerState>
+            <rptOwnerZipCode>33607</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>1</isDirector>
+            <isOfficer>1</isOfficer>
+            <isTenPercentOwner>0</isTenPercentOwner>
+            <isOther>0</isOther>
+            <officerTitle>Executive Chairman</officerTitle>
+            <otherText></otherText>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <aff10b5One>0</aff10b5One>
+
+    <nonDerivativeTable>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Common Stock</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2026-09-24</value>
+            </transactionDate>
+            <deemedExecutionDate></deemedExecutionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>P</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+                <footnoteId id="F1"/>
+            </transactionCoding>
+            <transactionTimeliness></transactionTimeliness>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>35100</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>0.2139</value>
+                    <footnoteId id="F2"/>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>A</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>1021942</value>
+                    <footnoteId id="F3"/>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>D</value>
+                </directOrIndirectOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Common Stock</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2026-09-25</value>
+            </transactionDate>
+            <deemedExecutionDate></deemedExecutionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>P</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+                <footnoteId id="F1"/>
+            </transactionCoding>
+            <transactionTimeliness></transactionTimeliness>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>64900</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>0.187</value>
+                    <footnoteId id="F4"/>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>A</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>1086842</value>
+                    <footnoteId id="F3"/>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>D</value>
+                </directOrIndirectOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+    </nonDerivativeTable>
+
+    <footnotes>
+        <footnote id="F1">On September 28, 2026, the Reporting Person filed a Form 4 which inadvertently used Transaction Code &quot;A&quot; to report certain open market purchases of shares of Common Stock. As reported in this amendment, the correct Transaction Code is &quot;P.&quot;</footnote>
+        <footnote id="F2">The price reported in Column 4 is a weighted average price. These shares were purchased in multiple transactions at prices ranging from $0.2139 to $0.2146, inclusive. The reporting person undertakes to provide to the Issuer, any security holder of the Issuer, or the staff of the Securities and Exchange Commission (the &quot;SEC&quot;), upon request, full information regarding the number of shares purchased at each separate price within the foregoing range.</footnote>
+        <footnote id="F3">Includes 286,842 shares of restricted stock which vest in full on June 30, 2027 (subject to continued employment through such date).</footnote>
+        <footnote id="F4">The price reported in Column 4 is a weighted average price. These shares were purchased in multiple transactions at prices ranging from $0.1865 to $0.1875, inclusive. The reporting person undertakes to provide to the Issuer, any security holder of the Issuer, or the staff of the SEC, upon request, full information regarding the number of shares purchased at each separate price within the foregoing range.</footnote>
+    </footnotes>
+
+    <ownerSignature>
+        <signatureName>/s/ Jason Simon, Attorney-in-Fact</signatureName>
+        <signatureDate>2026-09-28</signatureDate>
+    </ownerSignature>
+</ownershipDocument>

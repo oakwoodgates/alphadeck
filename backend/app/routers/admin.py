@@ -53,6 +53,7 @@ from app.schemas_api import (
     BackupsOut,
 )
 from domain.feed_kinds import PRICE, StaleFeedLabel, feed_kind, stale_feed_bits
+from domain.insider_amendments import page_text
 from domain.market_time import market_now, market_tz
 from domain.settings import get_settings
 from notify import HealthEvent
@@ -70,6 +71,8 @@ from pipeline.cron_run_log import (
 )
 from pipeline.daily import ThesisRunResult, assess_health
 from pipeline.daily_job import DailyRunInFlight, get_job, start_daily_job
+from pipeline.insider_amendment_scan import new_labels_of as amendment_new_labels
+from pipeline.insider_amendment_scan import new_more_of as amendment_new_more
 from pipeline.night_coverage import NightCoverage, read_night_coverage
 from pipeline.run_lock import probe_pass_lock
 from pipeline.schedule import (
@@ -167,6 +170,15 @@ def _problems(health: HealthEvent | None) -> list[str]:
             f"{len(health.successor_cik_new)} name(s) now file under a NEW CIK: "
             f"{', '.join(health.successor_cik_new)} — Adopt on the Price feed repairs panel, "
             f"{_BENIGN_MARK} in this run"
+        )
+    # R8-A — a Form 4/A NEWLY owed the operator's decision: the decision is the operator's, not a cron fault,
+    # so benign-marked (it paged; the standing list lives on the Insider amendments panel)
+    if health.insider_amendments_new or health.insider_amendments_more:
+        n = len(health.insider_amendments_new) + health.insider_amendments_more
+        out.append(
+            f"{n} Form 4/A amendment(s) newly owed a decision: "
+            f"{page_text(health.insider_amendments_new, health.insider_amendments_more)} — ratify on the "
+            f"Insider amendments panel, {_BENIGN_MARK} in this run"
         )
     return out
 
@@ -279,6 +291,9 @@ def _admin_run_out(payload: dict) -> AdminRunOut:
         split_defects_new=split_defects_new,
         # T7 — re-derive the successor-CIK page, so the history shows the same page the run emitted
         successor_cik_new=successor_new_labels(payload),
+        # R8-A — re-derive the Form 4/A page, so the history shows the same page the run emitted
+        insider_amendments_new=amendment_new_labels(payload),
+        insider_amendments_more=amendment_new_more(payload),
     )
     summary = payload["summary"]
     pass_total_s, top_leg, top_leg_s = _timings_headline(payload)
