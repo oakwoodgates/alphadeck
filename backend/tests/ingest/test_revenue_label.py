@@ -18,6 +18,7 @@ function's contract with direct inputs; they fabricate no outcome. The DB tests 
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
@@ -59,8 +60,10 @@ BANK = "RevenuesNetOfInterestExpense"
 
 
 def _label_quarters(cf: dict, concept: str) -> list[QuarterPoint]:
-    """One label's own quarters (screened) — the series that label supplies when it is chosen."""
-    return _quarters_from_rows(_stampable_usd_duration_rows(cf["facts"]["us-gaap"].get(concept)))
+    """One label's own quarters (screened) — the series that label supplies when it is chosen, each point
+    stamped with its tag (as ``select_revenue`` stamps it)."""
+    rows = _stampable_usd_duration_rows(cf["facts"]["us-gaap"].get(concept))
+    return [replace(p, concept=concept) for p in _quarters_from_rows(rows)]
 
 
 def _old_rule_quarters(cf: dict) -> list[QuarterPoint]:
@@ -305,6 +308,67 @@ def test_screen_guard_a_year_earned_in_one_quarter_keeps_that_quarter():
     ]
 
 
+def test_screen_never_judges_a_quarter_by_a_later_filing():
+    """Contract (direct inputs; the independent review's case): a genuine $10.0M milestone Q1 filed
+    2025-05-12, a $30K Q2, and the FY total ($10.03M) filed 2026-03-02. Judged against rows filed by its
+    OWN filing, the Q1 has no year to equal — it is kept, so the store never depends on whether the company
+    was first ingested before or after the 10-K."""
+    rows = [
+        _row("2025-01-01", "2025-03-31", 10_000_000, "2025-05-12", "10-Q", "q1"),
+        _row("2025-04-01", "2025-06-30", 30_000, "2025-08-11", "10-Q", "q2"),
+        _row("2025-01-01", "2025-12-31", 10_030_000, "2026-03-02", "10-K", "k"),
+    ]
+    pts, screened = _label_series(rows)
+    assert screened == []
+    assert (date(2025, 3, 31), 10_000_000.0) in [(p.period_end, p.value) for p in pts]
+
+
+def test_screen_guard_other_quarters_must_be_a_material_share_of_the_year():
+    """Contract (direct inputs): the 10-K files a Q4-context row equal to its own FY total, but the year's
+    other quarters are $30K of $10.03M (0.3% — under the 5% share): a year earned in one quarter, kept.
+    """
+    rows = [
+        _row("2025-01-01", "2025-03-31", 30_000, "2025-05-12", "10-Q", "q1"),
+        _row("2025-10-01", "2025-12-31", 10_000_000, "2026-03-02", "10-K", "k"),
+        _row("2025-01-01", "2025-12-31", 10_030_000, "2026-03-02", "10-K", "k"),
+    ]
+    pts, screened = _label_series(rows)
+    assert screened == [] and (date(2025, 12, 31), 10_000_000.0) in [
+        (p.period_end, p.value) for p in pts
+    ]
+
+
+def test_a_tie_never_prefers_a_subset_tag():
+    """Contract (direct inputs): two tags end on the same quarter; the one with MORE quarters is smaller on
+    every filing both carry — a component of revenue, never the total. The tie goes to the total despite its
+    shorter history; tags that agree on their shared filings still go to the longer history."""
+
+    def q(end: str, start: str, val: float, filed: str) -> dict:
+        return {"start": start, "end": end, "val": val, "filed": filed, "accn": filed, "fy": 2026}
+
+    longer_subset = [
+        q("2025-03-31", "2025-01-01", 60, "2025-05-01"),
+        q("2025-06-30", "2025-04-01", 60, "2025-08-01"),
+        q("2025-09-30", "2025-07-01", 60, "2025-11-01"),
+        q("2026-03-31", "2026-01-01", 70, "2026-05-01"),
+    ]
+    total = [
+        q("2025-09-30", "2025-07-01", 100, "2025-11-01"),
+        q("2026-03-31", "2026-01-01", 110, "2026-05-01"),
+    ]
+
+    def cf(a: list[dict], b: list[dict]) -> dict:
+        return {
+            "facts": {"us-gaap": {"Revenues": {"units": {"USD": a}}, RFC_EX: {"units": {"USD": b}}}}
+        }
+
+    assert (
+        select_revenue(cf(total, longer_subset)).concept == "Revenues"
+    )  # the total, 2 quarters vs 4
+    same = [dict(r, val=v) for r, v in zip(longer_subset, (100, 100, 100, 110))]
+    assert select_revenue(cf(total, same)).concept == RFC_EX  # they agree: the longer history
+
+
 def test_screen_guard_a_big_genuine_q4_beside_its_fy_row_is_kept():
     """Contract (direct inputs): a Q4 larger than the first three quarters together passes when the 10-K states
     the year beside it — shape 2 fires only when the annual report has NO FY total."""
@@ -486,7 +550,7 @@ def test_reingest_appends_the_current_label_once_count_the_table(db, tmp_path, t
 
     r1 = _reingest(db, sec, tmp_path, ticker)
     assert r1.appended == len(expect) and r1.skipped == len(shared)
-    assert r1.screened == len(select_revenue(cf).screened)  # counted on the receipt...
+    assert r1.screened == tuple(select_revenue(cf).screened)  # carried on the receipt...
     assert _count(db, sec.id) == held + len(expect)
     with db.cursor() as cur:
         cur.execute(
@@ -565,8 +629,56 @@ def test_first_knowability_survives_the_reingest(db, tmp_path):
     assert q[KNOWABLE_SOURCE] == "0000002488-25-000047"
 
 
+def test_a_period_superseded_on_two_filings_dates_at_its_first(db, tmp_path):
+    """MTRN's Q1-2018 is $303,467,000 under the contract tag on its 2018-04-26 10-Q and every later filing;
+    the old store held the ``Revenues`` sub-line ($11,680,000) on the 2018-04-26 10-Q and on the 2019-05-02
+    comparative. The re-ingest supersedes BOTH filings, so the versions interleave (11.68M, 303M, 303M, 11.68M,
+    303M, 303M). D3a's run counts each filing once, by its latest version, so the number dates at
+    2018-04-26 — not at the 2019-05-02 comparative the superseded row used to break it at."""
+    sec = _security(db, "MTRN")
+    _store_as_prod_held_it(db, sec, "MTRN")
+    _reingest(db, sec, tmp_path, "MTRN")
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT valid_from, value FROM fact_fundamentals WHERE security_id = %s AND "
+            "period_end = '2018-03-30' ORDER BY recorded_at, id",
+            (sec.id,),
+        )
+        versions = [(r["valid_from"], float(r["value"])) for r in cur.fetchall()]
+    assert versions == [
+        (date(2018, 4, 26), 11_680_000.0),
+        (date(2018, 4, 26), 303_467_000.0),
+        (date(2019, 2, 14), 303_467_000.0),
+        (date(2019, 5, 2), 11_680_000.0),
+        (date(2019, 5, 2), 303_467_000.0),
+        (date(2020, 2, 13), 303_467_000.0),
+    ]
+    q = _revenue(db, sec.id, date(2026, 10, 20))[date(2018, 3, 30)]
+    assert float(q["value"]) == 303_467_000
+    assert q[KNOWABLE_FROM] == date(2018, 4, 26)
+    assert q[KNOWABLE_SOURCE] == "0001104657-18-000032"
+
+
+def test_a_stored_revenue_row_names_its_tag(db, tmp_path):
+    """#6: two tags can share one accession, so each re-ingested revenue row records which tag it came
+    from (``source = companyfacts:<concept>``); the old rows and the share series keep ``companyfacts``.
+    """
+    sec = _security(db, "VICR")
+    _store_as_prod_held_it(db, sec, "VICR")
+    _reingest(db, sec, tmp_path, "VICR")
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT source, count(*) AS n FROM fact_fundamentals WHERE security_id = %s GROUP BY source",
+            (sec.id,),
+        )
+        by_source = {r["source"]: r["n"] for r in cur.fetchall()}
+    assert set(by_source) == {"companyfacts", f"companyfacts:{RFC_EX}"}
+    assert by_source["companyfacts"] == len(_old_rule_quarters(companyfacts_revenue("VICR")))
+
+
 @pytest.mark.parametrize(
-    "ticker", ["AMD", "HON", "NEE", "VICR", "LHX", "LFMD", "TTMI", "KULR", "XEL", "HAPN"]
+    "ticker",
+    ["AMD", "HON", "NEE", "VICR", "LHX", "LFMD", "TTMI", "KULR", "XEL", "HAPN", "MTRN"],
 )
 def test_the_reingest_creates_no_phantom_past_event(db, tmp_path, ticker):
     """Walk every week from 2024-01-01 to 2026-10-20 through the REAL point-in-time read (``known_at`` capped
@@ -592,8 +704,8 @@ def test_the_reingest_creates_no_phantom_past_event(db, tmp_path, ticker):
             assert ev.provenance[0].ref == row[KNOWABLE_SOURCE]
         d += timedelta(days=7)
     # not vacuous: these real series fire in the window, except HON's (flat through its spin), LHX's (its
-    # screened Q4-2025 leaves a hole the detector declines across) and HAPN's
-    assert events > 0 or ticker in ("HON", "LHX", "HAPN")
+    # screened Q4-2025 leaves a hole the detector declines across), HAPN's and MTRN's
+    assert events > 0 or ticker in ("HON", "LHX", "HAPN", "MTRN")
 
 
 def test_a_same_filing_label_conflict_reads_the_current_labels_number(db, tmp_path):

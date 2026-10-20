@@ -232,6 +232,11 @@ replay stays honest.
   version recorded after `known_at` can influence nothing. Detectors date, cite and age a fundamentals fact by
   `knowable_from`, never `valid_from` — the 10-Q comparative re-dating had kept year-old revenue inflections
   live (CALL_LOGIC.md §2, the GEV example). Both the date and the pick are on the PUBLIC clock (the filing).
+  The run counts each filing ONCE, by its latest-recorded version (the revenue-label fix, 2026-10-20: a
+  same-filing re-parse under the current tag replaces the old tag's number — migration 0060), so a superseded
+  old-tag version between two filings of the current number can never break the run and date it at the
+  year-later comparative (MEASURED on the dev copy 2026-10-20: 55 periods in 10 companies would otherwise date
+  late) — the same per-filing collapse the public-clock read applies.
   *(Until migration 0057 the per-version date read `max(valid_from, market date of recorded_at)` — D3a's
   held-date term, retired with the operator's approval 2026-10-21 — and the pick was `recorded_at DESC, id
   DESC`; on every row stored before 0057 — `recorded_at = valid_from 00:00 UTC`, all 120,876 on prod — both are

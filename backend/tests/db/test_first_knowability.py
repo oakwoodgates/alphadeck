@@ -439,3 +439,26 @@ def test_a_recorded_at_tie_picks_the_greater_id_like_distinct_on():
     for order in ([lo, hi], [hi, lo]):
         (row,) = _pick(order)
         assert row["accession"] == "hi" and row[KNOWABLE_SOURCE] == "hi"
+
+
+def test_a_filing_counts_once_in_the_run_by_its_latest_version():
+    """The revenue-label supersession's shape (the review's A3; real instances on the dev copy: 55 periods in
+    10 companies — MTRN's in ``tests/ingest/test_revenue_label.py``): an old tag's X and the current tag's Y
+    on the SAME two filings, Y one microsecond after X each time. Each filing takes part in the run by its
+    latest version only, so Y — public since F1 — dates at F1, not at the F2 comparative the superseded X
+    between them used to break the run at. The pick is unchanged."""
+    f1, f2 = date(2024, 8, 5), date(2025, 8, 4)
+    us = timedelta(microseconds=1)
+    rows = [
+        _v(100, f1, _stamp(f1), accn="f1"),
+        _v(90, f1, _stamp(f1) + us, accn="f1"),
+        _v(100, f2, _stamp(f2), accn="f2"),
+        _v(90, f2, _stamp(f2) + us, accn="f2"),
+    ]
+    (row,) = _pick(rows)
+    assert row["value"] == 90 and row["valid_from"] == f2  # the pick: the latest version overall
+    assert row[KNOWABLE_FROM] == f1 and row[KNOWABLE_SOURCE] == "f1"
+    # a genuine change across filings is still new knowledge: Y on F1, then Z on F2 dates at F2
+    rows[3] = _v(80, f2, _stamp(f2) + us, accn="f2")
+    (row,) = _pick(rows)
+    assert row["value"] == 80 and row[KNOWABLE_FROM] == f2

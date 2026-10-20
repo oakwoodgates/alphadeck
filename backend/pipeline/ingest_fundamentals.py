@@ -49,7 +49,7 @@ from db.write_lock import CompanyLockBusy, acquire_company_lock
 from domain.security import Security
 from domain.settings import get_settings
 from ingest.edgar.client import RECURRING_CACHE_TTL_S, CachedNotFound, EdgarClient
-from ingest.fundamentals import ingest_fundamentals_for_security
+from ingest.fundamentals import ScreenedRow, ingest_fundamentals_for_security
 from repositories import thesis_repo
 from securities import master
 
@@ -67,6 +67,10 @@ class NameResult:
     skipped: int = 0
     error: str | None = None
     known_absent: bool = False
+    # the revenue rows the data-quality screen kept out of this name's series (never stored), carried so the
+    # nightly prints and records WHY a filing's figure is absent (``pipeline.daily._print_fundamentals``,
+    # the run artifact's per-thesis ``fundamentals_screened``) — a dropped data row is never silent (#9)
+    screened: tuple[ScreenedRow, ...] = ()
 
 
 @dataclass
@@ -132,7 +136,13 @@ def ingest_fundamentals_for_securities(
             if cik is not None:
                 memo.companies.setdefault(cik, None)
             results.append(
-                NameResult(sec.ticker, sec.id, appended=res.appended, skipped=res.skipped)
+                NameResult(
+                    sec.ticker,
+                    sec.id,
+                    appended=res.appended,
+                    skipped=res.skipped,
+                    screened=res.screened,
+                )
             )
         except Exception as e:  # noqa: BLE001 — fail-visible: capture, roll back, keep going
             conn.rollback()
@@ -207,8 +217,11 @@ def _report(results: list[NameResult]) -> int:
         else:
             # skips (already-stored versions) surface only when nonzero — loudness marks the exception
             sk = f", {r.skipped} already stored" if r.skipped else ""
-            print(f"  {r.ticker or r.security_id}: +{r.appended} quarters{sk}")
-    print(f"done: {len(results)} names, +{total_new} quarterly facts, {len(errored)} errored")
+            sc = f", {len(r.screened)} row(s) screened out" if r.screened else ""
+            print(f"  {r.ticker or r.security_id}: +{r.appended} quarters{sk}{sc}")
+    screened = sum(len(r.screened) for r in results)
+    sc = f", {screened} revenue row(s) screened out (data quality)" if screened else ""
+    print(f"done: {len(results)} names, +{total_new} quarterly facts{sc}, {len(errored)} errored")
     return len(errored)
 
 

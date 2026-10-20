@@ -22,7 +22,9 @@ AMD's stopped at 2017-09-30), and ``revenue_acceleration`` could never fire on i
 
   * the CURRENT label is the one whose newest extractable quarter ends LATEST. When two end on the same date,
     the one with MORE quarters (MEASURED: 81 basket companies tie, and the list order kept TTMI on a
-    ``Revenues`` tag 4 quarters old beside a contract tag of 70); then the ``REVENUE_CONCEPTS`` order;
+    ``Revenues`` tag 4 quarters old beside a contract tag of 70) — but never a tag another tied tag
+    DOMINATES on their shared filings (a part of revenue cannot exceed the whole, ``_dominated``); then the
+    ``REVENUE_CONCEPTS`` order. Each stored revenue row names its tag (``source = companyfacts:<concept>``);
   * the series is that ONE label's quarters — never a per-period join of two labels. A join splices two
     definitions of revenue and fakes an acceleration at the switch: MEASURED on the dev copy (2026-10-20),
     of the 533 filings on which a switched company reported a quarter under both labels, 127 disagree, some
@@ -32,13 +34,13 @@ AMD's stopped at 2017-09-30), and ``revenue_acceleration`` could never fire on i
     live change was a phantom (TTMI: a Q2-2025 quarter dated at its 2026-08-05 comparative).
 
 A label switch can leave a stored old-label number on the SAME filing the current label reports differently
-(the store's key is the filing, not the label — MEASURED: 228 such filings in 38 companies). ``plan_versions``
+(the store's key is the filing, not the label — MEASURED: 302 such filings in 40 companies). ``plan_versions``
 then appends the current label's number as a version of that filing, one microsecond after it
 (``valid_from`` unchanged, so its knowability is unchanged), and the read picks it: within one filing the
 series never mixes the two labels, and the number is dated at the filing that first reported it — not at a
 year-later comparative (the D3 phantom). The one exception: a held number the current label itself reports
 for that period on a LATER filing is kept (it IS the current definition's number, public since this filing;
-24 of the 228, so 204 are superseded). The stored history is kept, never rewritten. Only the revenue metric
+24 of the 302, so 278 are superseded). The stored history is kept, never rewritten. Only the revenue metric
 does this; the share series keep their skip-on-key behavior.
 
 What is NOT re-labeled: periods only the old label ever reported stay in the store as they were (append-only;
@@ -49,8 +51,10 @@ out of the series — counted and reported (``ScreenedRow``; the re-ingest CLI p
 a fiscal-year total under a quarter context (``_fy_total_in_quarter`` — VICR's FY2025 10-K tags Q3-2025 as
 the year's $407.7M; LHX's 10-Ks put the year under a Q4 context), and a derived Q4 whose FY total was
 restated onto a basis its 9-month YTD never reached (``_same_basis`` — LFMD's $5.5M "Q4" against ~$50M
-quarters; HON's Solstice recast). MEASURED on the dev copy: 135 rows in 67 companies. Rows ALREADY stored by
-the old ingest are not touched by the screen (append-only): 86 such rows in 39 companies remain in the store.
+quarters; HON's Solstice recast). Every judgment uses only rows filed on or before the judged row's own
+filing — a later filing never decides whether a public quarter exists. The nightly counts the rejections on
+its summary line and records each on the run artifact (``pipeline.daily`` / ``pipeline.cron_run_log``). Rows
+ALREADY stored by the old ingest are not touched by the screen (append-only) and remain in the store.
 
 The quarterly series is:
   * every NATIVE ~3-month duration fact (Q1/Q2/Q3 arrive natively, each with its own ``filed``/``accn`` —
@@ -79,7 +83,7 @@ mixes concepts inside one computation (issued vs outstanding differ by treasury 
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime
 from typing import Any
 from uuid import UUID
@@ -130,6 +134,10 @@ _ANNUAL_MAX_DAYS = 380
 # quarter row equal to its fiscal year's FY total, and an FY total not MATERIALLY restated (a rounding
 # re-report stays on its basis). A data-parse dial like the spans above, never call-engine tuning.
 _SAME_TOTAL_TOL = 0.005
+# ...and "the year's other quarters are a material share of it" (shape 1's guard): at least 5% of the total.
+# Below that, a quarter equal to the year is a year earned in one quarter (a milestone beside a $30K
+# quarter), which is real data and kept.
+_OTHER_QUARTERS_MIN_SHARE = 0.05
 
 # Why ``_label_series`` rejected a row (``ScreenedRow.reason``).
 SCREEN_FY_IN_QUARTER = "fy_total_in_quarter"  # a fiscal-year total filed under a quarter context
@@ -159,17 +167,23 @@ class QuarterPoint:
     unit: str = (
         "USD"  # 'USD' (revenue) | 'shares' (the S4 share-count series) — the stored unit column
     )
+    # the XBRL concept a revenue point was read from (``select_revenue`` stamps it). Stored in the ``source``
+    # column as ``companyfacts:<concept>``, so a card citing an accession can say WHICH tag's number it used
+    # — two tags can share one accession (#6). Not a D3a value column: dating never reads it.
+    concept: str | None = None
 
 
 @dataclass(frozen=True)
 class FundamentalsResult:
     """The ingest receipt: ``appended`` = new (security, metric, period_end, filed) versions stored;
     ``skipped`` = already-stored versions (the idempotency counter — a re-run appends ZERO, count-the-table
-    guarded); ``screened`` = revenue rows the data-quality screen rejected (never stored)."""
+    guarded); ``screened`` = the revenue rows the data-quality screen rejected (never stored) — carried
+    whole, not as a count, so the nightly can print and record WHY (``pipeline.ingest_fundamentals``).
+    """
 
     appended: int
     skipped: int
-    screened: int = 0
+    screened: tuple[ScreenedRow, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -255,11 +269,36 @@ def select_revenue(companyfacts: dict[str, Any]) -> RevenueSelection:
         c: (len(p), p[0].period_end, max(q.period_end for q in p)) for c, (p, _s) in per.items()
     }
     newest = max(last for _n, _first, last in labels.values())
-    # newest end, then the longest history, then the list order (``per`` is in REVENUE_CONCEPTS order and
-    # ``max`` keeps the first of equal keys)
-    current = max((c for c in per if labels[c][2] == newest), key=lambda c: labels[c][0])
+    tied = [c for c in per if labels[c][2] == newest]
+    # a tie never prefers a PART of revenue over the whole: drop a tag that another tied tag dominates on
+    # the filings both carry (``_dominated``); then the longest history, then the list order (``per`` is in
+    # REVENUE_CONCEPTS order and ``max`` keeps the first of equal keys)
+    whole = [c for c in tied if not any(_dominated(per[c][0], per[o][0]) for o in tied if o != c)]
+    current = max(whole or tied, key=lambda c: labels[c][0])
     pts, screened = per[current]
-    return RevenueSelection(concept=current, points=pts, labels=labels, screened=screened)
+    return RevenueSelection(
+        concept=current,
+        points=[replace(p, concept=current) for p in pts],
+        labels=labels,
+        screened=screened,
+    )
+
+
+def _dominated(part: list[QuarterPoint], whole: list[QuarterPoint]) -> bool:
+    """Is tag ``part`` a SUBSET of tag ``whole``? True when they share at least one filing of a period and
+    ``whole`` reports at least ``part``'s number on every shared filing (within 0.5%) and more on at least
+    one. A component of revenue can never exceed the total, so on a tie the dominated tag is never chosen,
+    however long its history. MEASURED on the dev copy: 6 ties go to the whole over a longer part (KOPN, LUNR,
+    AEE, NRXP, MELI, SOFI); KOPN's 178-quarter ``Revenues`` carried a $3.0M partial Q2-2025 beside the total
+    tag's $8.45M, a fake +322% YoY that was a live trigger."""
+    mine = {(p.period_end, p.filed): p.value for p in part}
+    pairs = [(mine[k], q.value) for q in whole if (k := (q.period_end, q.filed)) in mine]
+    if not pairs:
+        return False
+    tol = _SAME_TOTAL_TOL
+    return all(w >= v - tol * abs(v) for v, w in pairs) and any(
+        w > v + tol * abs(v) for v, w in pairs
+    )
 
 
 def extract_revenue_quarters(companyfacts: dict[str, Any]) -> list[QuarterPoint]:
@@ -298,30 +337,42 @@ def _fy_total_in_quarter(
     was judged against)``, else ``None``. Two shapes, neither of which a genuine quarter can have:
 
     1. ``fy_total_in_quarter`` — ``r`` equals (within 0.5%) a positive FY total whose period contains it, AND
-       another quarter of that fiscal year reports positive revenue that is not itself the total, so the
-       quarters would sum past the year. (A year with revenue in one quarter only — a milestone payment —
-       keeps that quarter: then it IS the year.)
+       the year's OTHER quarters add up to a material share of that total (``_OTHER_QUARTERS_MIN_SHARE``), so
+       the quarters would sum well past the year. A year earned almost all in one quarter — a milestone
+       payment beside a $30K quarter — keeps that quarter: then it IS (nearly) the year.
     2. ``year_in_q4_context`` — ``r`` closes a fiscal year (it starts within a week after that year's 9-month
        YTD ends), comes from an annual report that carries NO FY total for that year, and is at least the
        9-month YTD. An annual report always states the year; when its only full-year-sized revenue figure
        sits in a quarter context, that figure is the year (MEASURED: LHX's FY2025 10-K — the $21.865B year
        under a Q4 context, no FY row — where shape 1 has no total to compare against). A genuine Q4 bigger
-       than the first three quarters still passes, because its 10-K states the year beside it."""
+       than the first three quarters still passes, because its 10-K states the year beside it.
+
+    Both judge ``r`` ONLY against rows filed on or before ``r``'s own filing: a later filing must never decide
+    whether a quarter that was already public exists (else the store would depend on when a company was
+    first ingested, and a replay before that later filing would miss a public number). Every measured catch
+    rests on rows the bad row's own annual report — or an earlier one — carried."""
     val = float(r["val"])
+    known = r["filed"]
     for a in annuals:
         a_val = float(a["val"])
-        if a_val <= 0 or not (a["start"] <= r["start"] and r["end"] <= a["end"]):
+        if a["filed"] > known or a_val <= 0:
             continue
-        if not _near(val, a_val):
+        if not (a["start"] <= r["start"] and r["end"] <= a["end"]) or not _near(val, a_val):
             continue
-        if any(
-            q["end"] != r["end"]
-            and a["start"] <= q["start"]
-            and q["end"] <= a["end"]
-            and float(q["val"]) > 0
-            and not _near(float(q["val"]), a_val)
-            for q in quarters
-        ):
+        # the year's other quarters as of r's filing: the latest version of each, by its filing
+        latest: dict[str, tuple[str, float]] = {}
+        for q in quarters:
+            if (
+                q["filed"] <= known
+                and q["end"] != r["end"]
+                and a["start"] <= q["start"]
+                and q["end"] <= a["end"]
+            ):
+                prior = latest.get(q["end"])
+                if prior is None or q["filed"] >= prior[0]:
+                    latest[q["end"]] = (q["filed"], float(q["val"]))
+        others = sum(v for _f, v in latest.values() if v > 0 and not _near(v, a_val))
+        if others >= _OTHER_QUARTERS_MIN_SHARE * a_val:
             return SCREEN_FY_IN_QUARTER, a_val
     if not str(r.get("form", "")).startswith(_ANNUAL_FORMS):
         return None
@@ -332,6 +383,8 @@ def _fy_total_in_quarter(
         return None  # the filing states the year: shape 1 already judged the row against it
     r_start, r_end = date.fromisoformat(r["start"]), date.fromisoformat(r["end"])
     for y in ytd9:
+        if y["filed"] > known:
+            continue
         y_val = float(y["val"])
         gap = (r_start - date.fromisoformat(y["end"])).days
         year = (r_end - date.fromisoformat(y["start"])).days
@@ -572,7 +625,9 @@ def fundamentals_row(
         "unit": q.unit,
         "basis": q.basis,
         "accession": q.accession,
-        "source": "companyfacts",
+        # a revenue row names its XBRL tag (``select_revenue`` stamps ``concept``) — two tags can share one
+        # accession, so the accession alone cannot say which tag's number a card cites (#6)
+        "source": f"companyfacts:{q.concept}" if q.concept else "companyfacts",
         "valid_from": q.filed,  # KNOWABILITY: the filing acceptance date, never today
     }
 
@@ -704,7 +759,7 @@ def ingest_fundamentals_for_security(
     )
     sel = select_revenue(cf)
     res = store_quarters(conn, sec.id, sel.points + extract_share_points(cf), tenant_id=tenant_id)
-    return FundamentalsResult(res.appended, res.skipped, screened=len(sel.screened))
+    return FundamentalsResult(res.appended, res.skipped, screened=tuple(sel.screened))
 
 
 __all__ = [

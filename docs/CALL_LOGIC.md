@@ -406,7 +406,14 @@ only *coincide* for insider buys, which is exactly why the two conviction source
   as a version of that same filing (`ingest.fundamentals.plan_versions`). A **data-quality screen** keeps two row
   shapes no genuine quarter can have out of the series — counted and reported, never stored: a fiscal-year total
   filed under a quarter context (LHX, VICR) and a derived Q4 across a restatement (LFMD). The rule above is
-  unchanged — it reads the right numbers. Re-ingest: `python -m pipeline.reingest_fundamentals`.
+  unchanged — it reads the right numbers. Re-ingest: `python -m pipeline.reingest_fundamentals`. Each revenue row
+  now records its tag (`source = companyfacts:<concept>`), since two tags can share one accession (#6).
+  **Hindsight caveat (a definition chosen today).** The tag is chosen from TODAY's companyfacts document, and
+  under R17 the re-ingested versions — the same-filing supersessions included — are dated at their own filings.
+  So every past as-of read (the slider and scrub-back, `pipeline.backfill`, a D3b re-run, the Scoreboard
+  re-run) now sees the current tag's number for those filings where it used to see the old tag's. No number
+  becomes visible before its filing (no lookahead); what changed with hindsight is which public number counts
+  as "revenue" — the same kind of caveat as the ratified tables' announcement-date clock.
   **Knowability is FIRST knowability (D3a, operator-approved 2026-10-16).** Every 10-Q re-reports the year-ago
   quarter as its comparative, and the ingest stores that as a new version dated at the LATER filing; dated by the
   latest version, a year-old inflection re-fired as fresh for another 180 days. The as-of read now annotates each

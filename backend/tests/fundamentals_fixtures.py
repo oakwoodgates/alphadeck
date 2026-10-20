@@ -545,6 +545,9 @@ def first_filed(versions: list[Version]) -> dict[date, tuple[date, str]]:
 # - ``XEL`` / ``HAPN`` — the two tags appended to ``REVENUE_CONCEPTS``: a utility's
 #   ``RegulatedAndUnregulatedOperatingRevenue`` and a bank's ``RevenuesNetOfInterestExpense``; their listed tags
 #   stop in 2019 / 2020. ``NEE`` carries the utility tag too (162 quarters vs the contract tag's 68).
+# - ``MTRN`` — a ``Revenues`` that is a sub-line ($11.68M) beside the contract tag's total ($303.5M) on the SAME
+#   filings, both reported again a year later: Q1-2018 is superseded on its 2018-04-26 10-Q AND its 2019-05-02
+#   comparative — the shape that broke D3a's run before the per-filing collapse.
 COMPANYFACTS_REVENUE_DIR = (
     Path(__file__).resolve().parent / "fixtures" / "edgar" / "companyfacts_revenue"
 )
@@ -559,6 +562,7 @@ COMPANYFACTS_CIK = {
     "KULR": "0001662684",
     "XEL": "0000072903",
     "HAPN": "0001409970",
+    "MTRN": "0001104657",
 }
 
 

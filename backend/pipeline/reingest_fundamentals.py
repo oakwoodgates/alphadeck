@@ -37,9 +37,9 @@ WHY THE FILING STAMP, NOT ``now()``. The fundamentals table stamps both clocks a
 version at ``max(valid_from, the market date of recorded_at)``. Stamped ``now()``, every re-ingested quarter
 — years of history — would read as first knowable TODAY, and ``revenue_acceleration`` would cite an
 inflection years old as fresh for 180 days. MEASURED on the dev copy (2026-10-20, the 647 active companies
-with cached companyfacts): with the filing stamp, 97 carry a live event today (71 before; 26 gained, 0 lost);
-stamped ``now()``, 198 would (127 gained — 102 of them citing a quarter the filing stamp does not fire on
-today: phantoms). And the nightly
+with cached companyfacts): with the filing stamp, 97 carry a live event today (71 before; 27 gained, 1 lost —
+KOPN's, a fake the subset guard removed); stamped ``now()``, 212 would (141 gained — 117 of them citing a
+quarter the filing stamp does not fire on today: phantoms). And the nightly
 writes these same rows with the filing stamp, so the CLI must stamp them identically or the store would
 depend on which ran first.
 
