@@ -50,7 +50,14 @@ class MemberCall(DomainModel):
     confidence: float | None = None  # armed only
     exit_by: date | None = None  # the LIVENESS horizon (hold clock) = the "runway" the ranking uses
     arm_until: date | None = None  # the entry window (confirmation clock)
-    lapsing: bool = False  # armed + runway below the dial; ranks below fresh members
+    # The HOLD clock closing: armed + exit_by runway below `headline_lapsing_soon_days`; ranks below fresh
+    # members. Labeled "hold clock closing" — it is NOT the entry window. The wire name stays `lapsing`:
+    # renaming it would break every recorded card (strict schema, extra="forbid") and the API contract.
+    lapsing: bool = False
+    # The ENTRY window closing (Q14): armed + at most `entry_window_closing_sessions` trading sessions left
+    # through `arm_until`. Labeled "entry window closing". Display/timing context only — computed from the
+    # card's own asof and arm_until (no ambient clock), never an input to state/verdict/grade/ranking.
+    entry_window_closing: bool = False
     theme_armed: bool = (
         False  # armed via the THEME-conviction FALLBACK (M5b), not its own conviction
     )

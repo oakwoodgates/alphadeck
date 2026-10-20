@@ -4,6 +4,7 @@ import itertools
 import re
 
 from calls.assembler import _expression
+from domain.config import DEFAULT_CONFIG
 from domain.enums import Grade, State
 
 # Invariant #4/#5 (CLAUDE.md, docs/INVARIANTS.md): the expression is advisory research context —
@@ -36,8 +37,8 @@ _FORBIDDEN_TOKENS = (
     "enter ",
 )
 
-# The de-armed branch (untouched by this change) deliberately says "...not a sell" to AFFIRM the
-# de-arm is a signal-validity event, never a sell instruction (#4/#5) — see
+# The de-armed branch (three grade-specific strings since Q12) deliberately says "...not a sell" to
+# AFFIRM the de-arm is a signal-validity event, never a sell instruction (#4/#5) — see
 # test_breakdown_dearm.py::test_dearm_expression_reads_as_signal_validity_never_a_sell, which
 # strips this same negation before checking for a residual bare "sell". Strip it here too so that
 # compliant disclaimer prose doesn't trip the "sell"/"buy" tokens meant to catch a real
@@ -60,10 +61,17 @@ def test_expression_never_prescribes_size_instrument_or_orders():
     states = list(State)
     grades: list[Grade | None] = [None, Grade.FLIP, Grade.CORE]
     bools = (False, True)
+    # Q12: the de-arm copy is chosen by which breakdowns de-armed — every set, incl. the empty one
+    dearm_sets = [
+        frozenset(),
+        frozenset({Grade.FLIP}),
+        frozenset({Grade.CORE}),
+        frozenset({Grade.FLIP, Grade.CORE}),
+    ]
 
     violations: list[str] = []
     for combo in itertools.product(
-        states, grades, grades, bools, bools, bools, bools, bools, bools
+        states, grades, grades, bools, bools, bools, bools, bools, bools, dearm_sets
     ):
         (
             state,
@@ -75,6 +83,7 @@ def test_expression_never_prescribes_size_instrument_or_orders():
             conviction_on,
             confirmation_on,
             conviction_holdable,
+            dearm_grades,
         ) = combo
         text = _expression(
             state,
@@ -86,6 +95,7 @@ def test_expression_never_prescribes_size_instrument_or_orders():
             conviction_on,
             confirmation_on,
             conviction_holdable,
+            dearm_grades=dearm_grades,
         )
         hits = _forbidden_hits(text)
         if hits:
@@ -131,3 +141,47 @@ def test_approved_expression_copy_is_the_expected_text():
         "FLIP setup only — a fast, short-lived trigger; the structural core setup isn't "
         "confirmed yet."
     )
+
+
+def _dearmed(grades: frozenset[Grade]) -> str:
+    return _expression(
+        State.WARMING,
+        Grade.CORE,
+        Grade.CORE,
+        True,
+        True,
+        False,
+        True,
+        True,
+        True,
+        dearm_grades=grades,
+    )
+
+
+def test_approved_dearm_copy_is_the_expected_text():
+    """Q12 — the three operator-approved de-arm strings (2026-10-18), verbatim, keyed on WHICH
+    breakdowns de-armed the arm. The real-record cases live in test_dearm_copy.py."""
+    assert _dearmed(frozenset({Grade.FLIP})) == (
+        "De-armed on a fast breakdown — the close fell back below the 8-day breakout base, so the "
+        "flip entry signal is no longer valid (a signal-validity event, not a sell). It re-arms if "
+        "price reclaims that base while the breakout is still live, or on a fresh breakout."
+    )
+    assert _dearmed(frozenset({Grade.CORE})) == (
+        "De-armed on a structural break — the close fell below the 200-day base, so the core entry "
+        "signal is no longer valid (a signal-validity event, not a sell). It re-arms if price "
+        "reclaims the 200-day base while the entry triggers are live, or on a fresh confirmation."
+    )
+    mixed = (
+        "De-armed on a breakdown — armed names gave back their bases (see the counter-case); a "
+        "signal-validity event, not a sell."
+    )
+    assert _dearmed(frozenset({Grade.FLIP, Grade.CORE})) == mixed
+    # an empty set never comes out of assemble_call; a direct caller gets the grade-neutral copy
+    assert _dearmed(frozenset()) == mixed
+
+
+def test_the_dearm_copy_numbers_match_the_detector_dials():
+    """The approved prose writes "8-day" and "200-day"; the detectors read these dials. A retune that
+    moves either must fail here and send the copy back to the operator, never drift silently."""
+    assert DEFAULT_CONFIG.breakout_base_window == 8  # breakdown.flip_score's base
+    assert DEFAULT_CONFIG.breakdown_core_sma_window == 200  # breakdown.core_score's SMA

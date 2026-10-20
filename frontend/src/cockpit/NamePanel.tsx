@@ -214,7 +214,9 @@ export function NamePanel({ row, def, card, thesisId, position, display, asof, o
       {(call?.arm_until || call?.exit_by) && (
         <div className="np-clocks">
           {call.arm_until && (
-            <div className="clock-row entry">
+            // entry_window_closing (Q14) rides ONLY an armed member (the assembler never sets it on
+            // watch/managing), so the "closing" words can't land on a decaying confirmation clock.
+            <div className={`clock-row entry${call.entry_window_closing ? " closing" : ""}`}>
               <span className="cd">{fmtDate(call.arm_until)}</span>
               <span className="x">
                 {call.verdict ? "Entry window · confirmation clock" : "Confirmation clock"}
@@ -224,17 +226,20 @@ export function NamePanel({ row, def, card, thesisId, position, display, asof, o
                     : call.verdict
                       ? ` · act within ${armDays}d`
                       : ` · decays in ${armDays}d`)}
+                {call.entry_window_closing && " · entry window closing"}
               </span>
             </div>
           )}
           {call.exit_by && (
+            // `lapsing` = the HOLD clock closing (the exit-by inside the freshness dial) — not the
+            // entry window, which is the row above.
             <div className={`clock-row hold${call.lapsing ? " lapse" : ""}`}>
               <span className="cd">{fmtDate(call.exit_by)}</span>
               <span className="x">
                 Hold exit-by · conviction clock
                 {exitDays !== null &&
                   exitDays >= 0 &&
-                  (call.lapsing ? ` · lapses in ${exitDays}d` : ` · ${exitDays}d`)}
+                  (call.lapsing ? ` · hold clock closing · ${exitDays}d` : ` · ${exitDays}d`)}
               </span>
             </div>
           )}

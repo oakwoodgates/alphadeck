@@ -81,6 +81,36 @@ The lifecycle is a **loop**, not a ratchet: `Incubating → Warming → Armed �
 > the fast flip exit for an H3 measurement. The two switches read as "whether" (`breakdown_dearm_enabled`) and
 > "which" (`breakdown_dearm_scope`); the scope dial never means off.
 
+> **The de-arm copy names the breakdown that de-armed it `[BUILT — Q12, operator-approved 2026-10-18]`.**
+> The old single string ("De-armed on a structural break … Re-arms only on a fresh confirmation") was false
+> on both counts — MEASURED (audit A1): all 30 recorded de-arm rows were fast breakdowns (28 purely, 2 mixed
+> with a structural break), and 46 of 219 flip de-arms re-armed on the same breakout. The expression is now
+> picked by the `dearm_grade` of every breakdown that **actually de-armed** a member (`_is_dearming` passes
+> one only when it matches its member's entry grade, so this is the set of entry grades the broken-down
+> names carried):
+>
+> | De-arming breakdowns | Expression (verbatim) |
+> |---|---|
+> | only fast (flip) | "De-armed on a fast breakdown — the close fell back below the 8-day breakout base, so the flip entry signal is no longer valid (a signal-validity event, not a sell). It re-arms if price reclaims that base while the breakout is still live, or on a fresh breakout." |
+> | only structural (core) | "De-armed on a structural break — the close fell below the 200-day base, so the core entry signal is no longer valid (a signal-validity event, not a sell). It re-arms if price reclaims the 200-day base while the entry triggers are live, or on a fresh confirmation." |
+> | both | "De-armed on a breakdown — armed names gave back their bases (see the counter-case); a signal-validity event, not a sell." |
+>
+> **Not the card's own `entry_grade`:** a de-armed card is graded across the whole live basket (no armed
+> security to scope to), so it can read `core` while the only de-arm was a fast breakdown — 16 of the 28
+> pure fast-breakdown rows on the record did. Each clause was checked against the code: the flip base is the
+> 8-day breakout base (`breakdown.flip_score`, `breakout_base_window` = 8) and the break lifts when the close
+> reclaims it or a fresh breakout resets it while Key 2 is live; the core base is the 200-day SMA
+> (`breakdown.core_score`, `breakdown_core_sma_window` = 200) and the break lifts on a reclaim (no live
+> downward cross) or once a fresh confirmation post-dates it (`_is_dearming`'s post-date gate). Both dials
+> are pinned by a test, so a retune sends the copy back for review. **The re-arm routes the copy names are
+> real but not exhaustive** — two more exist in the code: (1) *flip*: when the broken 8-day breakout ages out
+> of its 10-day window while ANOTHER confirmation keeps Key 2 live (a 45-day 52-week breakout, a 15-day
+> laggard), `_recent_flip_base` finds no live breakout, the flip breakdown stops firing, and the member re-arms
+> with no reclaim and no fresh breakout; (2) *core*: a fresh **conviction** (a new insider buy, a ratified
+> catalyst) that post-dates the break moves `_arm_date` past it just as a fresh confirmation does, so the
+> old break stops counting while price is still below the 200-day base. Neither contradicts the copy (it
+> never says "only"); both are listed so the record can be read honestly.
+
 > **Theme menu = a ranked per-member view `[BUILT — M5a/M5b]`.** When several basket members are
 > independently armed (a theme thesis), the call computes a call **per member** and **ranks** them —
 > `calls/assembler.rank_members`, best-first `(is_fresh, entry-grade, is_own, runway, conviction_score, id)`:
@@ -88,7 +118,8 @@ The lifecycle is a **loop**, not a ratchet: `Incubating → Warming → Armed �
 > runway/score. The headline = the top-ranked **actionable** member (Board + Decision Queue show it + a `+N`
 > depth hint — one name per thesis, anti-flooding); the rest are the ranked menu; confirmation-only names sit
 > in a non-actionable **watch** tier. Because freshness is primary, **a fresh starter can out-rank a lapsing
-> core** — a `core` arm three weeks from lapsing (LEU → 2026-06-30) does *not* auto-headline over a `starter`
+> core** ("lapsing" here = the HOLD clock, `exit_by`, inside the freshness band — labeled "hold clock
+> closing" in the UI, never the entry window; see §6) — a `core` arm three weeks from lapsing (LEU → 2026-06-30) does *not* auto-headline over a `starter`
 > with years of runway (OKLO → 2029). **M5b** adds an operator-ratified, thesis-level **theme conviction**
 > that supplies Key 1 as a *fallback* for a confirmed member with no own conviction (a capped, flagged
 > `theme_armed` starter that ranks below own-conviction names within a band); see §3 + `docs/THEME_CONVICTION.md`.
@@ -343,6 +374,37 @@ strength of the conviction (and the detector's lookback reaches at least as far,
 would drop from the re-derived stream early). Undated/fuzzy catalysts (no `when_date`) are shown for context
 but excluded from the surface filter. The Cockpit flags binary events that fall within `catalyst_surface`;
 that inclusion is not an instruction to close the trade at the event or window end.
+
+**The two clock FLAGS on an armed member (Q14, 2026-10-18).** Each clock has its own flag on
+`MemberCall`, and each is labeled for the clock it reads — they used to share one label, and it was the
+wrong one:
+
+| Flag (wire field) | Reads | On when | UI label |
+|---|---|---|---|
+| `lapsing` | the **hold clock**, `exit_by` | `exit_by − asof < headline_lapsing_soon_days` (45) — the same freshness band the menu ranking uses | **"hold clock closing"** |
+| `entry_window_closing` | the **entry window**, `arm_until` | at most `entry_window_closing_sessions` (2) **trading sessions** remain after the card's `asof`, through `arm_until` inclusive | **"entry window closing"** |
+
+`lapsing` was labeled "entry window closing" until Q14; MEASURED on the record (audit A3), 69% of
+arm-window expiries never showed it — it tracks the 45-day hold band, not the confirmation clock that
+actually ends an arm. Its meaning is unchanged; only its words are. The wire name stays `lapsing` on
+purpose: `MemberCall` is a strict schema (`extra="forbid"`), so renaming the field would make every
+recorded card unparseable and break the API contract, for no change in behavior.
+
+`entry_window_closing` counts sessions with the cron's Mon-Fri calendar (`domain.trading_days.is_scheduled_day`
+— the one definition `pipeline/schedule.py` also imports; `calls/` never imports `pipeline/`):
+asof Mon with `arm_until` Wed = 2 left (Tue, Wed) → on; the Friday before = 3 → off; Thu with a Monday
+close = 2 (Fri, Mon) → on, though it is four calendar days; a weekend `arm_until` (a calendar-day window
+can end on a Saturday) adds no session, so Friday is the last. **Holidays are not modeled** — that calendar
+fires the cron on market holidays too — so a holiday inside the last few days counts as a session and the
+flag comes on **one session late** (Labor Day 2026: `arm_until` Mon 09-07 read 3 on Wed 09-02, where an
+exchange calendar reads 2). The flag is computed from the card's own `asof` and the member's own
+`arm_until` — no wall clock, so no lookahead — and only for an **armed** member: a watch member's
+confirmation clock is a decay, not an entry, and a held (Managing) member is past its entry, so neither ever
+carries it (#7). It is **display and timing context only (#4)**: computed after every decision and read by
+none of them — state, verdict, grade, ranking and setup strength are identical at any dial value (golden-
+tested). The Cockpit shows it on the Entry-by cell, the per-name panel and the CallCard's entry clock (the
+headline member's), and the MemberMenu chips it; it replaced the Entry-by cell's old front-end "within 7
+calendar days" tint, so there is one definition of "closing".
 
 **The displayed trigger date (`event_date`).** Each fired trigger on the call card carries `event_date =
 event.asof` (its fire date), rendered as a muted right-aligned date on the row and used to order the list

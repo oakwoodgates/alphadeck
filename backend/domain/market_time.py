@@ -16,7 +16,9 @@ precisely because there was nothing to reach for.)
 calendar date in the configured exchange timezone, nothing more. It does **NO trading-calendar logic** —
 **no weekend skip, no holiday calendar, no half-day handling**. It is **not** "the last trading day", and
 on a Saturday it returns Saturday. The Mon-Fri + ``RUN_AT`` schedule math lives in ``pipeline/schedule.py``
-and **stays there** (the shell's sleep-loop in ``scripts/daily_cron.sh`` is its other half). Teaching this
+and **stays there** (the shell's sleep-loop in ``scripts/daily_cron.sh`` is its other half); its bare
+weekday predicate, ``is_scheduled_day``, is the sibling ``domain/trading_days.py`` — built ON TOP, as this
+paragraph asks, so the call path can share it — and this helper is untouched by it. Teaching this
 helper to skip weekends/holidays would silently change every ``asof``, every bitemporal ``valid_from``, and
 every staleness read that calls it — a behavior change, deliberately out of scope. If you need "the last
 *trading* day", build that on top; do not reach in here.

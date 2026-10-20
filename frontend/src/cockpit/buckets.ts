@@ -36,7 +36,16 @@ export interface BucketDef {
 export const BUCKETS: BucketDef[] = [
   { key: "managing", label: "Managing", hint: "in position", cls: "bkt-managing" },
   { key: "armed", label: "Armed", hint: "act now", cls: "bkt-armed" },
-  { key: "lapsing", label: "Lapsing", hint: "entry window closing", cls: "bkt-lapsing" },
+  // `lapsing` = the HOLD clock (exit_by) inside the freshness dial — NOT the entry window. It was
+  // labeled "entry window closing" until Q14 (2026-10-18), which was wrong for most arm-window
+  // expiries (69% never showed it, MEASURED). The key + CSS class keep the wire name; only the
+  // words changed. The entry window's own flag is `entry_window_closing`, shown on the Entry-by cell.
+  {
+    key: "lapsing",
+    label: "Hold clock closing",
+    hint: "signal-validity horizon near",
+    cls: "bkt-lapsing",
+  },
   { key: "theme_armed", label: "Theme-armed", hint: "theme fallback · starter cap", cls: "bkt-theme" },
   { key: "warming", label: "Warming", hint: "conviction in · awaiting confirmation", cls: "bkt-warming" },
   { key: "watch", label: "Watch", hint: "moving · no conviction yet", cls: "bkt-watch" },
@@ -81,8 +90,9 @@ export interface BucketGroup {
  *
  *  Bucket precedence (mutually exclusive, evaluated in this order):
  *    verdict === "managing"  →  managing        (render-if-present)
- *    in armed_members        →  lapsing if `lapsing` (the clock is the urgent fact — it wins over
- *                               the theme flag, which stays visible as a chip), else theme_armed
+ *    in armed_members        →  lapsing if `lapsing` (the hold clock closing — the clock is the
+ *                               urgent fact, so it wins over the theme flag, which stays visible
+ *                               as a chip), else theme_armed
  *                               if `theme_armed`, else armed
  *    in watch_members        →  watch           (checked BEFORE the trigger join — a watch member's
  *                               breakout is itself in triggers_fired)

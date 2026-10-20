@@ -8613,6 +8613,11 @@
             "title": "Lapsing",
             "default": false
           },
+          "entry_window_closing": {
+            "type": "boolean",
+            "title": "Entry Window Closing",
+            "default": false
+          },
           "theme_armed": {
             "type": "boolean",
             "title": "Theme Armed",

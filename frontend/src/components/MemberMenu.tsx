@@ -52,8 +52,18 @@ function ArmedRow({ m, headline }: { m: Member; headline: boolean }) {
       ) : (
         m.conviction_grade && <span className="mm-conv">{m.conviction_grade} thesis</span>
       )}
+      {/* Q14: the ENTRY window's own flag (few trading sessions left through arm_until) — distinct
+          from `lapsing` below, which is the HOLD clock. */}
+      {m.entry_window_closing && (
+        <span
+          className="mm-ewc"
+          title="entry window closing — the last trading sessions in which this entry signal is valid"
+        >
+          entry window closing
+        </span>
+      )}
       <span className="mm-runway">
-        {m.lapsing ? "lapses " : "runway to "}
+        {m.lapsing ? "hold clock closing · " : "runway to "}
         {fmtDate(m.exit_by)}
       </span>
     </div>

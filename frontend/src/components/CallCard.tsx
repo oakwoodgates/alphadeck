@@ -71,6 +71,10 @@ export function CallCard({
   const risks = [...(card.risk_signals ?? [])].sort(byEventDateDesc);
   const armDays = daysFrom(card.asof, card.arm_until);
   const exitDays = daysFrom(card.asof, card.exit_by);
+  // The headline's entry-window flag (Q14). On an Armed card `arm_until` IS the headline member's
+  // (armed_members[0]) confirmation clock, so its flag describes exactly the row drawn below. Read,
+  // never re-derived: the trading-session count is the assembler's. Armed-only (#7).
+  const entryClosing = armed && Boolean(card.armed_members[0]?.entry_window_closing);
 
   return (
     <div className={`callcard cc-${sc}`}>
@@ -176,7 +180,9 @@ export function CallCard({
             {card.arm_until && (
               // Armed: the entry window is an act-by deadline. Not-yet: there's no entry to act on,
               // so it's informational — the confirmation (market move) is just aging, not a go-cue.
-              <div className={`clock-row entry${armed ? "" : " quiet"}`}>
+              <div
+                className={`clock-row entry${armed ? "" : " quiet"}${entryClosing ? " closing" : ""}`}
+              >
                 <span className="cd">{fmtDate(card.arm_until)}</span>
                 <span className="x">
                   {armed ? "Entry window · confirmation clock" : "Confirmation clock"}
@@ -186,6 +192,7 @@ export function CallCard({
                       : armed
                         ? ` · act within ${armDays}d`
                         : ` · decays in ${armDays}d`)}
+                  {entryClosing && " · entry window closing"}
                 </span>
               </div>
             )}

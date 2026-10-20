@@ -304,7 +304,20 @@ class CallConfig(DomainModel):
     # left is "lapsing-soon" and ranks below any "fresh" member regardless of grade (so a core arm about to
     # lapse doesn't headline over a long-runway starter). Calibration dial — Phase-1 recalibration tunes
     # how aggressively runway demotes grade; the default isn't load-bearing.
+    # The SAME band is surfaced per member as ``MemberCall.lapsing`` — the HOLD clock (exit_by) closing,
+    # labeled "hold clock closing" in the UI. It is NOT the entry window (see the next dial).
     headline_lapsing_soon_days: int = 45
+
+    # --- the ENTRY-WINDOW flag (Q14) — DISPLAY context only, never a call input ---
+    # An ARMED member's ``entry_window_closing`` turns on once this many TRADING sessions or fewer remain
+    # in its entry window — the sessions strictly after the card's asof, through ``arm_until`` (inclusive:
+    # the confirmation is live on arm_until itself, CALL_LOGIC §2). 2 = on the night two sessions are left
+    # (asof Mon, arm_until Wed) and off at three. Sessions are counted with the cron's Mon-Fri calendar
+    # (``domain.trading_days.is_scheduled_day``) — it does NOT model exchange holidays, so a holiday inside
+    # the last few days counts as a session and the flag comes on one session LATE (CALL_LOGIC §6). Read
+    # only by ``_member_call`` to set the flag; it never touches state, verdict, grade, ranking or the
+    # confidence bar (#4), and only an armed member can carry it (#7 — Watch / Warming stay quiet).
+    entry_window_closing_sessions: int = 2
 
     # --- volume_breakout / Key 2 (deliberately minimal placeholder) — STARTING calibration ---
     # A price breakout (new short-term closing high + a multi-day return thrust) is the entry; VOLUME

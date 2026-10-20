@@ -88,9 +88,14 @@ per row:
   `security_id` (a take logged **on a name** — per-member Managing attribution, `CALL_LOGIC.md` §4).
   An unattributed position (a thesis-level take; the seed-era stored columns) emits no member
   verdict, so the group stays empty — **render-if-present** either way, never a guessed name.
-- **Armed** / **Lapsing** / **Theme-armed** — the `armed_members` tier, split by its flags. When a
-  member is lapsing *and* theme-armed, **Lapsing wins the bucket** (the clock is the urgent fact;
-  the theme basis stays visible on the panel).
+- **Armed** / **Hold clock closing** / **Theme-armed** — the `armed_members` tier, split by its flags.
+  The middle bucket is the `lapsing` flag (bucket key + CSS class keep that wire name): the member's
+  **hold clock** (`exit_by`) is inside the freshness dial — header "Hold clock closing · signal-validity
+  horizon near". It was headed "Lapsing · entry window closing" until Q14 (2026-10-18), which named the
+  wrong clock: `lapsing` never read `arm_until` (69% of arm-window expiries never showed it, MEASURED).
+  When a member is lapsing *and* theme-armed, **the hold-clock bucket wins** (the clock is the urgent
+  fact; the theme basis stays visible on the panel). The entry window's own flag,
+  `entry_window_closing`, is not a bucket — it rides the Entry-by cell (below).
 - **Warming** — the coverage bucket the wire forces: a conviction-only name sits in NEITHER
   `armed_members` NOR `watch_members` (watch is confirmation-only) yet its firing is live on the
   rail. Joined by ticker from `triggers_fired` (`TriggerRefOut` carries no security_id), so
@@ -181,15 +186,19 @@ one laid out in a flowing document.
 one stacked cell until the basket-table containment pass; separating them makes each **independently
 sortable**, and "which entry window closes soonest" is the sort the armed bucket actually wants.
 
-- **Entry-by** — the member's entry-window (`arm_until`) clock, "‹date› · Nd", loud within a week or
-  once lapsed (Slice 2, #209). This is the **confirmation** clock, which governs how long the member
+- **Entry-by** — the member's entry-window (`arm_until`) clock, "‹date› · Nd". **Loud only when the
+  call flags it** — `entry_window_closing` (Q14): at most two trading sessions left, decided by the
+  assembler (`CALL_LOGIC.md` §6), and then the cell also reads "· entry window closing". That replaced the
+  cell's own front-end "within a week" tint (Slice 2, #209), so "closing" has one definition. This is the
+  **confirmation** clock, which governs how long the member
   STAYS armed, and it can fall a month before its `exit_by` (the live CRVO/MPLT confusion: "Armed ·
   Dec 8" yet de-armed Jul 19). Rendered for the armed family ONLY (`ENTRY_WINDOW_BUCKETS` — Armed /
-  Lapsing / Theme-armed): a **Watch**-tier row carries `arm_until` on the wire too but must NOT light
+  Hold clock closing / Theme-armed): a **Watch**-tier row carries `arm_until` on the wire too but must NOT light
   it up, because watch is confirmation without conviction, so its clock is a **decay** rather than an
   entry the system endorses. The gate is bucket-based, not presence-based (the load-bearing negative),
   and the SAME set gates the sort key — a sort must rank what the cell shows, never a hidden value.
-- **Exit-by** — the member's **own** signal-validity horizon (amber "lapses ‹date›" on a Lapsing row).
+- **Exit-by** — the member's **own** signal-validity horizon (amber "‹date› · hold clock closing" on a
+  `lapsing` row — formerly "lapses ‹date›").
 
 **Sorting — within-group, reversible, FE-only.** Clicking a column header ranks the basket by that
 column **inside each group** — the call hierarchy stays put (the biggest mover inside Quiet surfaces
@@ -211,7 +220,8 @@ Esc / ✕ / re-clicking the row closes it; the rail dims, never hides). Top to b
 
 - **The call · this name** — its own verdict + grade chips + setup-strength bar (wire field `confidence`), or the honest degrade
   line ("conviction fired — awaiting confirmation" / "moving, no conviction yet" / "no live signals
-  at this as-of"), plus its two clocks (a lapsing signal-validity clock reads amber, "lapses in Nd").
+  at this as-of"), plus its two clocks (a lapsing signal-validity clock reads amber, "hold clock closing ·
+  Nd"; a flagged entry window adds "· entry window closing" to the entry row).
 - **Triggers · this name's own** — `MemberCallOut.triggers` with grade + source links (#6); a
   Warming name's come from `triggers_fired` filtered by ticker. **Risk signals · this name** —
   `risk_signals`, ticker-filtered.
@@ -262,7 +272,8 @@ State-classed (its accent follows the lifecycle), recomputed at `card.asof`. Top
 - **Counter-case** — deterministic: active risk signals + the authored kill criteria + the missing
   triggers.
 - **The two clocks** (sticky-on-confirmation, §6): `arm_until` — the **entry window** (confirmation's
-  clock; on an Armed card it's an act-by deadline, "act within Nd"; informational decay otherwise) — and
+  clock; on an Armed card it's an act-by deadline, "act within Nd", plus "· entry window closing" when the
+  headline member's `entry_window_closing` is set; informational decay otherwise) — and
   `exit_by` — the **signal-validity horizon** (conviction's clock and post-fill monitoring/scoring yardstick,
   not a mandatory exit or sell-by date).
 - **Decision capture — the action row** (`DecisionActions`): every button **logs**, nothing routes (#5).
@@ -286,7 +297,8 @@ State-classed (its accent follows the lifecycle), recomputed at `card.asof`. Top
 
 Below the card, when a theme has more than one moving name: the **ranked armed rows** (the headline is
 [0]; ranking = freshness band on the liveness runway first, grade within — `CALL_LOGIC.md`; `lapsing`
-flags a member below the freshness dial; `theme-armed` marks one armed via the theme-conviction fallback
+flags a member below the freshness dial — its runway reads "hold clock closing · ‹date›"; an
+"entry window closing" chip marks `entry_window_closing`; `theme-armed` marks one armed via the theme-conviction fallback
 rather than its own conviction) and the quiet **watch tier** ("moving, no conviction yet"). A single-name
 thesis IS its headline card — the menu self-hides. The menu stays the ranked *summary*; the per-name
 panel (above) is the deep view — the thesis-wide lists are no longer the only per-member read.

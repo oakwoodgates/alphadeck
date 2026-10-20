@@ -19,7 +19,9 @@ Two deliberate modeling choices:
 EARMARK (consultant watch-item): this is still the SECOND home of the Mon-Fri + RUN_AT contract — the
 shell's sleep-loop is the first, and ``market_today()`` does NOT unify them (it answers "what day is it in
 market time", deliberately doing NO trading-calendar logic — no weekend skip, no holidays). The Mon-Fri
-schedule math belongs HERE; the remaining consolidation is shrinking the shell to a dumb trigger. Until
+schedule math belongs HERE (the bare weekday predicate ``is_scheduled_day`` is defined in
+``domain/trading_days.py`` and imported, so the call path can share it without importing ``pipeline``);
+the remaining consolidation is shrinking the shell to a dumb trigger. Until
 then keep the two in step — concretely, the shell's ``is_weekday`` / ``next_weekday`` /
 ``last_expected_asof`` mirror ``is_scheduled_day`` / ``last_expected_asof`` here, and since 2026-09-10 the
 shell's BOOT path targets ``last_expected_asof(now)`` too (the last expected night — exactly one, never
@@ -39,17 +41,18 @@ from __future__ import annotations
 from collections.abc import Collection
 from datetime import date, datetime, time, timedelta
 
+# The cron's Mon-Fri gate (the shell's ``date +%u <= 5``) — holidays included, weekends out. DEFINED in
+# ``domain/trading_days.py`` since Q14 (the call path counts entry-window sessions with it, and ``calls``
+# must never import ``pipeline``); imported here so this module's math and every
+# ``from pipeline.schedule import is_scheduled_day`` caller read the ONE definition.
+from domain.trading_days import is_scheduled_day
+
 
 def parse_run_at(raw: str) -> time:
     """``"HH:MM"`` -> ``time`` (the sidecar's RUN_AT format, e.g. ``"22:30"``). Raises ``ValueError`` on
     garbage — a malformed ``ALPHADECK_CRON_AT`` is a deploy error that must be LOUD, never a silently
     wrong schedule read."""
     return time.fromisoformat(raw.strip())
-
-
-def is_scheduled_day(d: date) -> bool:
-    """The cron's Mon-Fri gate (the shell's ``date +%u <= 5``) — holidays included, weekends out."""
-    return d.weekday() < 5
 
 
 def last_expected_asof(now: datetime, run_at: time) -> date:
