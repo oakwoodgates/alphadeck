@@ -32,7 +32,7 @@ from ingest import CacheMiss
 from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
 from ingest.edgar.dailyindex import IndexFiling, fetch_daily_index
 from ingest.edgar.submissions import fetch_submissions, parse_identity, parse_item_codes
-from notify import Notifier, SpacStatusEvent
+from notify import Notifier, SpacStatusEvent, SpacThesisMatch
 from radar import matcher, repo
 from radar.state import StateEvent, deal_state
 from repositories import thesis_repo
@@ -162,9 +162,10 @@ def run_spac_radar(
     (append-only if-changed). The caller may pass its own ``edgar_client`` (tests: a fixture-cache
     client with ``allow_live=False``).
 
-    ``notifier`` (the nightly cron passes one; the CLI passes none) fires an ANNOUNCED-only Slack page
-    per (CIK, thesis) when a shell's deal-state transitions INTO ``announced`` this run AND its DA-class
-    filing matched that thesis's term set — deterministic (#3, ``deal_state``), loudness-marks-the-
+    ``notifier`` (the nightly cron passes one; the CLI passes none) fires ONE ANNOUNCED-only Slack page
+    per announcement (per transitioned CIK, listing every matched thesis — Q13) when a shell's deal-state
+    transitions INTO ``announced`` this run AND its DA-class filing matched at least one thesis's term
+    set — deterministic (#3, ``deal_state``), loudness-marks-the-
     exception (#7), and naturally idempotent (the baseline is the prior RECORDED state, so a re-scan over
     already-stored events pages nothing). It runs AFTER the commits below and is fail-open, so a notify
     fault can never roll back committed radar facts nor fail the run."""
@@ -367,14 +368,16 @@ def _notify_announced(
     *,
     tenant_id: UUID,
 ) -> None:
-    """Emit ONE ANNOUNCED page per (transitioned CIK, matched thesis). A CIK transitioned when its
-    deal-state moved INTO ``announced`` this run (prior != announced AND new == announced); ``new`` is the
-    prior RECORDED history MERGED with this run's observed events (this run's version wins per accession),
-    so a re-scan over already-stored events yields prior == new and pages nothing (idempotent). The
-    intersection with ``matches`` (this run's DA-class term hits) makes loudness mark the exception (#7): a
-    transitioned-but-unmatched shell and an unchanged status both page nothing, and terminated / completed
-    moves never reach here (they are not → announced). Enrichment reads are isolated so a fault never
-    poisons the committed radar txn."""
+    """Emit ONE ANNOUNCED page per ANNOUNCEMENT — a transitioned CIK — listing every thesis it matched (Q13;
+    it used to be one page per (CIK, thesis): MEASURED over the tape, one announcement paged up to five times).
+    A CIK
+    transitioned when its deal-state moved INTO ``announced`` this run (prior != announced AND new ==
+    announced); ``new`` is the prior RECORDED history MERGED with this run's observed events (this run's
+    version wins per accession), so a re-scan over already-stored events yields prior == new and pages
+    nothing (idempotent). The intersection with ``matches`` (this run's DA-class term hits) makes loudness
+    mark the exception (#7): a transitioned-but-unmatched shell and an unchanged status both page nothing,
+    and terminated / completed moves never reach here (they are not → announced). Enrichment reads are
+    isolated so a fault never poisons the committed radar txn."""
     new_by_cik: dict[str, dict[str, StateEvent]] = {c: dict(v) for c, v in prior_by_cik.items()}
     for ev in events:
         new_by_cik.setdefault(ev.cik, {})[ev.accession] = StateEvent(
@@ -392,19 +395,8 @@ def _notify_announced(
     }
     if not transitioned:
         return
-    # ONE page per (CIK, thesis): dedup this run's matches on the transitioned CIKs, keeping the most
-    # informative (most terms) when a CIK filed more than one DA this run — a single transition, one page.
-    best: dict[tuple[str, UUID], repo.SpacMatch] = {}
-    for m in matches:
-        if m.cik not in transitioned:
-            continue
-        key = (m.cik, m.thesis_id)
-        cur = best.get(key)
-        if cur is None or (len(m.matched_signal) + len(m.matched_broad)) > (
-            len(cur.matched_signal) + len(cur.matched_broad)
-        ):
-            best[key] = m
-    if not best:
+    by_cik = announcements(transitioned, matches)
+    if not by_cik:
         return
     company_by_cik = {ev.cik: ev.company_name for ev in events}
     url_by_accession = {ev.accession: ev.source_ref for ev in events}
@@ -415,24 +407,66 @@ def _notify_announced(
         conn.rollback()
         ticker_by_sid = {}
     thesis_name = {t.id: t.name for t in thesis_repo.list_all(conn)}
-    for key in sorted(best, key=lambda k: (k[0], str(k[1]))):
-        m = best[key]
-        name = thesis_name.get(m.thesis_id)
-        if name is None:  # a match on an archived/deleted thesis — never a ghost page
+    for cik in sorted(by_cik):
+        # a match on an archived/deleted thesis — never a ghost line (nor a ghost page)
+        live = [m for m in by_cik[cik] if m.thesis_id in thesis_name]
+        if not live:
             continue
-        sid = sid_by_cik.get(m.cik)
-        notifier.notify_spac_status(
-            SpacStatusEvent(
-                cik=m.cik,
-                company_name=company_by_cik.get(m.cik, m.cik),
-                ticker=ticker_by_sid.get(sid) if sid else None,
+        thesis_matches = tuple(
+            SpacThesisMatch(
                 thesis_id=m.thesis_id,
-                thesis_name=name,
+                thesis_name=thesis_name[m.thesis_id],
                 accession=m.accession,
-                filed=m.filed,
                 signal_terms=tuple(m.matched_signal),
                 broad_terms=tuple(m.matched_broad),
                 url=url_by_accession.get(m.accession, m.source_ref),
             )
+            for m in sorted(live, key=lambda m: (thesis_name[m.thesis_id], str(m.thesis_id)))
+        )
+        lead = _lead_match(live)
+        sid = sid_by_cik.get(cik)
+        notifier.notify_spac_status(
+            SpacStatusEvent(
+                cik=cik,
+                company_name=company_by_cik.get(cik, cik),
+                ticker=ticker_by_sid.get(sid) if sid else None,
+                accession=lead.accession,
+                filed=lead.filed,
+                matches=thesis_matches,
+                url=url_by_accession.get(lead.accession, lead.source_ref),
+            )
         )
         result.status_notifications += 1
+
+
+def announcements(
+    transitioned: set[str], matches: list[repo.SpacMatch]
+) -> dict[str, list[repo.SpacMatch]]:
+    """Group this run's matches into ANNOUNCEMENTS (Q13): per transitioned CIK, ONE match per thesis — the
+    most informative (most terms) when the CIK filed more than one DA-class document this run — so a single
+    → announced transition is a single page however many theses (or documents) it matched. Pure: the radar
+    pass and the Q13 replay read the same grouping. CIKs with no match are absent."""
+    best: dict[tuple[str, UUID], repo.SpacMatch] = {}
+    for m in matches:
+        if m.cik not in transitioned:
+            continue
+        key = (m.cik, m.thesis_id)
+        cur = best.get(key)
+        if cur is None or (len(m.matched_signal) + len(m.matched_broad)) > (
+            len(cur.matched_signal) + len(cur.matched_broad)
+        ):
+            best[key] = m
+    out: dict[str, list[repo.SpacMatch]] = {}
+    for (cik, _), m in sorted(best.items(), key=lambda kv: (kv[0][0], str(kv[0][1]))):
+        out.setdefault(cik, []).append(m)
+    return out
+
+
+def _lead_match(matches: list[repo.SpacMatch]) -> repo.SpacMatch:
+    """The announcement's LEAD filing among its matches: the accession the most matched theses cite (ties:
+    the earliest filed, then the accession) — the page's headline link; any other cited filing is listed too.
+    """
+    cites: dict[str, int] = {}
+    for m in matches:
+        cites[m.accession] = cites.get(m.accession, 0) + 1
+    return min(matches, key=lambda m: (-cites[m.accession], m.filed, m.accession))

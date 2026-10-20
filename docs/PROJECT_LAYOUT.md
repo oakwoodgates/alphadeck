@@ -113,7 +113,8 @@ alphadeck/
     │   ├── draft_run_log.py        #   the DISCOVER run-of-record: one WRITE-ONLY JSON per completed draft job (data/draft_runs/; fail-open, never a read path)
     │   ├── run_loader.py           #   the read-only reader behind the RunPicker (list / read a saved draft run)
     │   └── triage_store.py         #   the TRIAGE prune-session store: one mutable JSON blob per thesis (resumable operator working state)
-    ├── notify/                     # the notify seam: TransitionEvent / HealthEvent + Notifier protocol + LogNotifier / SlackNotifier
+    ├── notify/                     # the notify seam: TransitionEvent / DigestEvent / SpacStatusEvent / HealthEvent + Notifier protocol + LogNotifier / SlackNotifier
+    │   ├── policy.py               #   Q13: the pure push-policy RULE (classify: entering Armed / upgrade = loud; downgrade / mixed / changed = quiet; record-only)
     │   └── page.py                 #   H3: the cron shell's DB-free failure page (`python -m notify.page`; never raises, exits 0)
     ├── calls/                      # THE CALL-ASSEMBLER (the product) — pure + golden-tested
     │   └── assembler.py · grading.py · confidence.py · counter_case.py
@@ -148,6 +149,7 @@ alphadeck/
     │   ├── call_for_thesis.py · run.py · seed.py · core.py
     │   ├── ingest_thesis.py        #   M2: per-thesis back-half ingest (Form 4 + EOD; incremental, fail-visible)
     │   ├── daily.py · daily_job.py · cron_run_log.py · schedule.py   #   the daily call-of-record cron (ingest → assemble → TRANSITION → recording-GATE → record_if_changed) · the admin "run daily" job · the append-only run-of-record · the Mon–Fri/RUN_AT schedule math [#196–#200]
+    │   ├── push_policy.py              #   Q13: the CallCard side of the push policy — the TransitionEvent's grade/count/reasons (fail-open SAVEPOINT enrichment) + the pass-end newly-armed digest (O4)
     │   ├── backup.py · backup_job.py   #   the pg_dump snapshots (unlabeled keep-N; labeled 90 days or the newest 20, Q16) + the admin "create snapshot" job (#215)
     │   ├── ingest_skips.py             #   Q18: the cross-pass diff of skipped filings (known = a count, new = loud), the O1 twin
     │   ├── annotate_phantom_arms.py    #   D3b CLI: re-assemble each honest row D3a-off vs D3a-on at its own known_at; annotate phantom arms (exclude) / composition changes (note), dry-run default

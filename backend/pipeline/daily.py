@@ -67,15 +67,14 @@ import psycopg
 
 from db.session import connect, set_statement_timeout
 from domain.config import DEFAULT_CONFIG, config_hash
-from domain.enums import State
 from domain.feed_kinds import FEED_KINDS, StaleFeedLabel, feed_kind
 from domain.market_time import market_now, market_today, market_tz
 from domain.settings import Settings, get_settings
 from domain.thesis import Thesis
 from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
 from ingest.edgar.form25 import delisted_class_is_other
-from notify import ArmedName, HealthEvent, Notifier, TransitionEvent, get_notifier
-from pipeline import pass_timings
+from notify import DigestThesis, HealthEvent, Notifier, TransitionEvent, get_notifier
+from pipeline import pass_timings, push_policy
 from pipeline.call_for_thesis import call_for_thesis
 from pipeline.cron_run_log import (
     RUN_STATUS_RUNNING,
@@ -410,6 +409,8 @@ def run_daily(
     acknowledged = _acknowledged_ids(conn) if allow_live else set()
     # Q17 — the fundamentals refresh's pass memory: one companyfacts pull per company per pass
     fund_memo = PassMemo()
+    # O4 (Q13) — this pass's newly-armed-names digest, one line per already-armed thesis
+    digest: list[DigestThesis] = []
     out: list[ThesisRunResult] = []
     # X5 — `per_thesis` makes each thesis a timing scope on a metered pass (a pass-through otherwise)
     for thesis in per_thesis(thesis_repo.list_all(conn)):
@@ -585,57 +586,17 @@ def run_daily(
             prior = next(
                 (c for c in calls_repo.latest_for_thesis(conn, thesis.id) if c.asof <= asof), None
             )
+            evt: TransitionEvent | None = None
             if prior is not None and (
                 prior.state is not card.state or prior.verdict is not card.verdict
             ):
-                # Company-level detail for the compact armed push: resolve each armed member to its
-                # ticker + its distinct entry-trigger kinds. FAIL-OPEN in its OWN try/except — the
-                # notifier.notify below runs inside the shared try/except that ROLLS BACK the call-of-
-                # record on any exception, so this DB-touching enrichment must NEVER raise. It degrades
-                # to an empty payload (the notifier then falls back to the thesis-only line). Only built
-                # on a → armed transition (armed_members is empty otherwise).
-                armed_payload: tuple[ArmedName, ...] = ()
-                if card.state is State.ARMED and card.armed_members:
-                    try:
-                        sids = {m.security_id for m in card.armed_members}
-                        # SAVEPOINT: isolate the enrichment read from the record's transaction. The outer
-                        # conn is transactional (record_if_changed + conn.commit below), so a query-SPECIFIC
-                        # fault on this SELECT — a statement timeout, a lock, a serialization failure, a
-                        # transient blip — would otherwise poison the outer txn and cost this thesis its
-                        # call-of-record even though the DB is writable. conn.transaction() rolls back to
-                        # HERE on any fault and re-raises into the except → the outer txn stays clean for
-                        # the record write. The tuple-build stays OUTSIDE the savepoint (pure Python, no DB).
-                        with conn.transaction():
-                            tickers = master.tickers_for(conn, sids, tenant_id=thesis.tenant_id)
-                        armed_payload = tuple(
-                            ArmedName(
-                                ticker=tickers.get(m.security_id),
-                                # distinct, order-preserving (headline kind first)
-                                trigger_kinds=tuple(
-                                    dict.fromkeys(t.kind.value for t in m.triggers)
-                                ),
-                                grade=(m.entry_grade.value if m.entry_grade else None),
-                            )
-                            for m in card.armed_members
-                        )
-                    except Exception:  # noqa: BLE001 — enrichment never risks the record
-                        _log.warning(
-                            "armed-notify enrichment failed for %s (fail-open)",
-                            thesis.id,
-                            exc_info=True,
-                        )
-                        armed_payload = ()
-                evt = TransitionEvent(
-                    thesis_id=thesis.id,
-                    thesis_name=thesis.name,
-                    asof=asof,
-                    from_state=prior.state.value,
-                    to_state=card.state.value,
-                    from_verdict=prior.verdict.value,
-                    to_verdict=card.verdict.value,
-                    armed=armed_payload,
-                    # N1 — a push about a past or LATE night says so ("asof D, recorded late")
-                    timing=_push_timing(asof),
+                # The event carries what the Q13 push policy classifies on (grade + armed-name count, off
+                # the two cards) and, enriched FAIL-OPEN inside a SAVEPOINT, the company-level detail and a
+                # quiet push's card-carried reasons (`pipeline/push_policy.py` — the SAVEPOINT-in-the-cron-
+                # loop trap is documented there: this runs inside the try that rolls the record back).
+                # N1 — a push about a past or LATE night says so ("asof D, recorded late").
+                evt = push_policy.transition_event(
+                    conn, thesis, prior, card, asof=asof, timing=_push_timing(asof)
                 )
                 timed("notify")(notifier.notify)(evt)
                 res.transition = evt.label
@@ -655,10 +616,25 @@ def run_daily(
                 run_kind=run_kind,
             )
             conn.commit()
+            # O4 (Q13) — names newly armed inside an already-armed thesis, for the pass-end digest. AFTER
+            # the commit (the record is safe) and never raising; a name this thesis's push already listed
+            # (an upgrade push) is not repeated.
+            entry = push_policy.digest_entry(
+                conn, thesis, prior, card, covered=push_policy.covers_names(evt)
+            )
+            if entry is not None:
+                digest.append(entry)
         except Exception as e:  # noqa: BLE001 — one thesis's call never aborts the cron
             conn.rollback()
             res.error = (f"{res.error}; " if res.error else "") + f"call: {e}"
         out.append(res)
+    # O4 (Q13) — ONE quiet digest per pass, after the loop, only when a name newly armed (fail-open: a digest
+    # fault never costs a record or another push). A catch-up / late pass carries N1's label.
+    if digest:
+        # X5 — its own pass-level leg (the re-arm history read + the push)
+        timed("digest")(push_policy.send_digest)(
+            conn, notifier, digest, asof=asof, timing=_push_timing(asof)
+        )
     return out
 
 

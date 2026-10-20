@@ -16,10 +16,13 @@ import pytest
 from domain.settings import get_settings
 from notify import (
     ArmedName,
+    DigestEvent,
+    DigestThesis,
     HealthEvent,
     LogNotifier,
     SlackNotifier,
     SpacStatusEvent,
+    SpacThesisMatch,
     TransitionEvent,
     get_notifier,
 )
@@ -144,10 +147,12 @@ def test_kind_label_maps_friendly_and_falls_back_to_underscores_to_spaces():
     assert _kind_label("some_new_kind") == "some new kind"  # unmapped → underscores to spaces
 
 
-def test_armed_push_falls_back_to_the_thesis_only_line_when_nothing_resolves(monkeypatch):
-    """Back-compat + graceful degrade: with no resolved armed name the push is EXACTLY today's thesis-only
-    header line. Covers both armed=() (enrichment produced nothing / failed open) and a name whose ticker
-    never resolved (ticker=None is skipped)."""
+def test_armed_push_falls_back_to_the_thesis_only_line_only_when_the_enrichment_produced_nothing(
+    monkeypatch,
+):
+    """Graceful degrade: armed=() (the enrichment failed open) is EXACTLY the thesis-only header line. But a
+    name with no ticker is NEVER skipped (Q13 review, #9): it is listed by its company name, or — with no
+    company name either — by its security id."""
     _enable_slack(monkeypatch)
 
     # (a) armed=() — the default / degraded-enrichment case
@@ -157,10 +162,23 @@ def test_armed_push_falls_back_to_the_thesis_only_line_when_nothing_resolves(mon
         "🔴 AI Memory & Storage Supercycle — ARMED (warming → armed)"
     )
 
-    # (b) an ArmedName that never resolved to a ticker (ticker=None) → skipped → same fallback
+    # (b) names that never resolved to a ticker are LISTED, by company name, else by security id
     calls2 = _capture_post(monkeypatch)
-    SlackNotifier().notify(_armed_event(thesis_name="Solo", armed=(ArmedName(None, ("insider",)),)))
-    assert calls2[0]["json"]["text"] == "🔴 Solo — ARMED (warming → armed)"
+    sid = uuid4()
+    SlackNotifier().notify(
+        _armed_event(
+            thesis_name="Solo",
+            armed=(
+                ArmedName(None, ("insider",), name="Acme Uranium Corp"),
+                ArmedName(None, (), security_id=sid),
+            ),
+        )
+    )
+    assert calls2[0]["json"]["text"] == (
+        "🔴 Solo — ARMED (warming → armed)\n"
+        f"Acme Uranium Corp (no ticker), {sid} (no ticker) armed\n"
+        "Acme Uranium Corp (no ticker) insider buy"
+    )
 
 
 def test_armed_push_omits_the_tail_line_when_no_member_has_triggers(monkeypatch):
@@ -393,12 +411,18 @@ def _spac_event(*, ticker="NEWS", signal=("psilocybin",), broad=(), url="https:/
         cik="0000002222",
         company_name="New Shell Acquisition Corp",
         ticker=ticker,
-        thesis_id=uuid4(),
-        thesis_name="Rainbow",
         accession="0002222222-26-000002",
         filed=date(2026, 8, 3),
-        signal_terms=signal,
-        broad_terms=broad,
+        matches=(
+            SpacThesisMatch(
+                thesis_id=uuid4(),
+                thesis_name="Rainbow",
+                accession="0002222222-26-000002",
+                signal_terms=signal,
+                broad_terms=broad,
+                url=url,
+            ),
+        ),
         url=url,
     )
 
@@ -460,3 +484,196 @@ def test_spac_status_records_loud_even_with_no_webhook(monkeypatch, caplog):
         LogNotifier().notify_spac_status(_spac_event())
     assert calls == []  # nothing pushed (no webhook)
     assert any("SPAC ANNOUNCED" in r.message and "Rainbow" in r.message for r in caplog.records)
+
+
+def test_spac_status_with_SEVERAL_matched_theses_is_ONE_page_naming_each(monkeypatch):
+    """Q13 — one page per announcement: line 1 names every matched thesis, then one "<thesis> matched:"
+    line each (the provenance per thesis, #6), then every distinct DA link the matches cite."""
+    _enable_slack(monkeypatch)
+    calls = _capture_post(monkeypatch)
+    evt = SpacStatusEvent(
+        cik="0000002222",
+        company_name="New Shell Acquisition Corp",
+        ticker="NEWS",
+        accession="0002222222-26-000002",
+        filed=date(2026, 8, 3),
+        matches=(
+            SpacThesisMatch(uuid4(), "AI Memory", "0002222222-26-000002", ("HBM",), (), "u1"),
+            SpacThesisMatch(uuid4(), "Rainbow", "0002222222-26-000003", ("TMS",), ("DMT",), "u2"),
+        ),
+        url="u1",
+    )
+
+    SlackNotifier().notify_spac_status(evt)
+
+    assert len(calls) == 1
+    assert calls[0]["json"]["text"] == (
+        "🟢 NEWS (New Shell Acquisition Corp) — SPAC deal ANNOUNCED · matches AI Memory, Rainbow\n"
+        "AI Memory matched: HBM\n"
+        "Rainbow matched: TMS, DMT\n"
+        "u1\n"
+        "u2"
+    )
+    assert evt.label == "NEWS → announced (matches AI Memory, Rainbow)"
+
+
+# --- Q13 / O3: armed -> armed moves are classified before they are formatted -------------------------------
+
+
+def _a2a(**kw) -> TransitionEvent:
+    base = dict(
+        thesis_id=uuid4(),
+        thesis_name="Nuclear Buildout",
+        asof=date(2026, 10, 7),
+        from_state="armed",
+        to_state="armed",
+        from_verdict="core_entry",
+        to_verdict="starter_entry",
+    )
+    return TransitionEvent(**{**base, **kw})
+
+
+def test_a_DOWNGRADE_pushes_QUIET_text_with_its_reasons(monkeypatch):
+    _enable_slack(monkeypatch)
+    calls = _capture_post(monkeypatch)
+
+    SlackNotifier().notify(
+        _a2a(
+            from_grade="core",
+            to_grade="flip",
+            from_armed=5,
+            to_armed=3,
+            reasons=("no longer armed: AAA (fast breakdown), BBB",),
+        )
+    )
+
+    (call,) = calls
+    assert call["json"]["text"] == (
+        "Nuclear Buildout — still armed, weaker: core → flip; 5 → 3 names "
+        "(core_entry → starter_entry)\n"
+        "no longer armed: AAA (fast breakdown), BBB"
+    )
+
+
+def test_a_MIXED_move_states_both_sides_and_a_CHANGED_note_is_quiet_too(monkeypatch):
+    _enable_slack(monkeypatch)
+    calls = _capture_post(monkeypatch)
+
+    SlackNotifier().notify(
+        _a2a(
+            from_verdict="starter_entry",
+            to_verdict="core_entry",
+            from_grade="flip",
+            to_grade="core",
+            from_armed=2,
+            to_armed=1,
+        )
+    )
+    SlackNotifier().notify(
+        _a2a(
+            from_verdict="flip_only",
+            to_verdict="starter_entry",
+            from_grade="flip",
+            to_grade="flip",
+            from_armed=2,
+            to_armed=2,
+            timing="late",
+        )
+    )
+
+    assert [c["json"]["text"] for c in calls] == [
+        "Nuclear Buildout — still armed, mixed: flip → core; 2 → 1 names (starter_entry → core_entry)",
+        "Nuclear Buildout — still armed, changed (flip_only → starter_entry) "
+        "(asof 2026-10-07, recorded late)",
+    ]
+
+
+def test_an_UPGRADE_is_LOUD_with_an_up_marker_and_what_improved(monkeypatch):
+    _enable_slack(monkeypatch)
+    calls = _capture_post(monkeypatch)
+
+    SlackNotifier().notify(
+        _a2a(
+            from_verdict="flip_only",
+            to_verdict="starter_entry",
+            from_grade="flip",
+            to_grade="flip",
+            from_armed=1,
+            to_armed=3,
+            armed=(ArmedName("CEG", ("catalyst",)),),
+        )
+    )
+
+    assert calls[0]["json"]["text"] == (
+        "🔴 Nuclear Buildout — ARMED ↑ +2 names (flip_only → starter_entry)\nCEG armed\nCEG catalyst"
+    )
+
+
+def test_a_DE_ARM_is_recorded_never_pushed(monkeypatch, caplog):
+    """De-arm pushes are unchanged by Q13: there were none (a de-arm is a record, not a nag)."""
+    import logging
+
+    _enable_slack(monkeypatch)
+    calls = _capture_post(monkeypatch)
+    with caplog.at_level(logging.WARNING):
+        SlackNotifier().notify(_a2a(to_state="warming", to_verdict="not_yet"))
+    assert calls == []
+    assert any("TRANSITION" in r.message for r in caplog.records)
+
+
+def test_the_record_sink_tags_an_armed_to_armed_move_with_its_class(caplog):
+    import logging
+
+    with caplog.at_level(logging.WARNING):
+        LogNotifier().notify(_a2a(from_grade="core", to_grade="flip", from_armed=4, to_armed=3))
+    (msg,) = [r.getMessage() for r in caplog.records if "TRANSITION" in r.getMessage()]
+    assert "[downgrade]" in msg and msg.endswith("(asof 2026-10-07)")
+
+
+# --- Q13 / O4: the digest ----------------------------------------------------------------------------------
+
+
+def _digest(*theses, timing="current") -> DigestEvent:
+    return DigestEvent(asof=date(2026, 10, 12), theses=tuple(theses), timing=timing)
+
+
+def test_the_digest_pushes_one_QUIET_message_grouped_by_thesis(monkeypatch):
+    _enable_slack(monkeypatch)
+    calls = _capture_post(monkeypatch)
+
+    SlackNotifier().notify_digest(
+        _digest(
+            DigestThesis(uuid4(), "Nuclear Buildout", (ArmedName("PCG", ("insider", "catalyst")),)),
+            DigestThesis(
+                uuid4(),
+                "Rainbow Rush",
+                names=(ArmedName(None, ("insider",), name="Acme Uranium Corp"),),
+                rearms=(ArmedName("CYCN", ()),),
+            ),
+            timing="late",
+        )
+    )
+
+    (call,) = calls
+    assert call["json"]["text"] == (
+        "Newly armed in already-armed theses (asof 2026-10-12, recorded late)\n"
+        "Nuclear Buildout: PCG insider buy, catalyst\n"
+        "Rainbow Rush: Acme Uranium Corp (no ticker) insider buy · CYCN (re-arm)"
+    )  # first-time arms first, re-arms after and marked; a ticker-less name by its company name
+    assert "🔴" not in call["json"]["text"]
+
+
+def test_an_EMPTY_digest_never_pushes(monkeypatch, caplog):
+    _enable_slack(monkeypatch)
+    calls = _capture_post(monkeypatch)
+    SlackNotifier().notify_digest(_digest())
+    assert calls == []
+
+
+def test_the_digest_push_is_FAIL_OPEN(monkeypatch):
+    _enable_slack(monkeypatch)
+    calls = _capture_post(monkeypatch, raises=httpx.ConnectError("slack is down"))
+    SlackNotifier().notify_digest(
+        _digest(DigestThesis(uuid4(), "Rainbow Rush", (ArmedName("CYCN", ()),)))
+    )  # must not raise
+    assert len(calls) == 1

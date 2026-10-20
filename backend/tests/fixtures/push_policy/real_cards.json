@@ -1,0 +1,3644 @@
+{
+ "provenance": "Extracted READ-ONLY from the prod `calls` table on 2026-10-17 (psql under default_transaction_read_only=on) for the Q13 push-policy tests. Each entry is the recorded CallCard at that `seq`, PROJECTED: values are verbatim; dropped are the fields the push policy never reads (counter_case, triggers_fired, catalyst_surface, missing, watch_members, safe_sleeve, every trigger's provenance `sources`) and every risk signal except the `breakdown` de-arm signals on names armed in this file's rows for that thesis (the only ones the policy can quote). The four HISTORY-ONLY rows (seq 1170, 1270, 693, 711 — read solely for WHICH names were armed on them) are projected further: no risk signals, each armed member reduced to security_id / verdict / entry_grade. `tickers` is prod security_master's ticker for each armed security_id on the same date. Nothing was edited, invented or re-ordered (armed_members keep their recorded rank order).",
+ "rearm_history": "MEASURED 2026-10-17 over the FULL honest prod record (every non-reconstructed ARMED row of the thesis at an as-of on or before the night, written before the row in question): RE-ARMS — NAKA (DAT 2026-09-24; armed on seq 1168), HONA (Modern Defense 2026-10-16; seq 1170), CYCN (Rainbow Rush 2026-10-12; seq 1270), UUUU (Nuclear Buildout 2026-08-19; seq 711), J (Nuclear Buildout 2026-08-19; seq 693) — each listed seq is the latest earlier row holding it armed and is included here; FIRST-TIME arms (on NO earlier honest row of that thesis) — LMT and FIS (2026-10-16), PCG and MELI (2026-10-12), URG (Nuclear Buildout 2026-08-19).",
+ "tickers": {
+  "029877b2-f6ca-4f39-ba3c-33d759c1249a": "CSGP",
+  "05c9e795-e399-4a40-ab89-be6379bc4ac2": "MELI",
+  "0c29f8a6-8203-4685-96f2-9375fd252e44": "ASST",
+  "241e316b-f721-4cbb-91e7-346908c5c1c5": "ATRO",
+  "2496afa7-561d-4e1d-8687-891d3d2767e9": "MDCX",
+  "2c1ea400-0000-0000-0000-0000000000a2": "OKLO",
+  "3f2cc06b-31b2-4c0e-b5da-f1bf3632cbc9": "CVU",
+  "3fc1ce8d-ffc0-43dd-b299-4f739daeb060": "YYAI",
+  "43bbbfab-7edd-4e60-9d27-83c959e2d5a5": "STUB",
+  "4fe9e619-9400-4587-be23-f35bc48e0f49": "FCEL",
+  "53d13818-845b-4b94-83aa-412d3d5282c7": "OPCH",
+  "58e75255-eba7-4d3e-ada9-71f3a9579d7e": "CME",
+  "5a7a3aa9-4445-45ff-ab9e-bc2b2ccd008a": "ACHV",
+  "5bb5417c-3fe5-4e25-9d64-d80a5636f718": "J",
+  "5c6f8c9f-2854-4dfb-a1bb-fddfda6206be": "INFQ",
+  "5cce1229-0a4b-48a1-9bf3-8fe4180c2c99": "API",
+  "6258a3a0-404c-4b94-931b-3243f65874d6": "HONA",
+  "67777a3f-1839-43bb-9dc0-9b8efdea70c9": "MTUS",
+  "71e2d57d-99da-41fe-9983-cfe62aa580fc": "VOYG",
+  "724c9651-b35f-435e-a0c1-42d0abc27a5f": "SATL",
+  "7e7223f9-ffbe-4f66-a30c-6cb55631f382": "URG",
+  "82b184a3-7e18-4298-811c-09140d2a6056": "DOMH",
+  "833133d4-bd14-4356-b244-e7af0b84fa62": "LTRX",
+  "8c8260eb-b4c5-49aa-884a-81b78a12fe42": "TPCS",
+  "8d2020a7-b43f-4616-8a8c-bf2d6c5a7d97": "HELP",
+  "915700da-2832-485c-8d93-ff05b3d72f4c": "CYCN",
+  "9300b56e-f39b-43b7-989d-e68bb37440f7": "RKLB",
+  "94bacbda-abea-4a5c-9489-2ec2893d583a": "BUKS",
+  "98d5ed2e-23e5-4001-8bc6-5649c110893a": "ENSC",
+  "98e3cad9-a75d-40db-a683-1eec5cd6dd87": "UUUU",
+  "a301bcf7-f01e-4ca2-a1c2-26409e2076d4": "GME",
+  "a72be7c8-a99b-4416-81f9-02c4eb0fe70f": "JAGX",
+  "ac31c76a-3a2b-4973-b6bd-6fc01de412ce": "WSTRF",
+  "b86dc456-1bba-42b0-be67-3c13cd4978b2": "GHM",
+  "bccd43e8-6bfa-418a-b9a7-c97e1aaf624a": "VST",
+  "ce7915ae-1d83-42af-9720-68d5a8776ba0": "CRML",
+  "ce8c3ede-54f9-4d45-8714-8d70a1f5dd3d": "NXL",
+  "cf0d2c46-67a5-45e8-a6f5-7b2263ebd7ff": "MASS",
+  "d0bc4fb0-94ea-40db-bc50-d7defb8dee23": "FEIM",
+  "d2270f62-7301-4c6e-9ea3-67acb104e004": "RIOT",
+  "d2f724fa-6c85-4ba4-88f4-5142bb17ca62": "EU",
+  "d5ebfae2-5733-4def-9134-bc76979b4f96": "KOPN",
+  "d79f8e74-9d4a-41b2-a22f-d284f8154135": "CRVO",
+  "de392033-1478-4ee9-9f83-43732ea039bb": "D",
+  "e873615c-feb2-4a6e-b727-ede4a5b239ff": "AGNT",
+  "e875c4c2-a6c6-485c-8c31-3ae61bbe348f": "CEG",
+  "e8ff1562-99a2-4402-a06c-994667aa6006": "FLS",
+  "eba9c568-a7ef-46ab-bbfb-650ecba16360": "FIS",
+  "f4c7e412-49f7-470b-b669-57838ff405f3": "NAKA",
+  "f55da4d5-b873-4943-a552-7b3026b00ca3": "PCG",
+  "f906fbdc-e7f5-4d56-8911-dc9d2049d9a7": "LMT",
+  "fa8dddcd-7e4e-4dc1-b5de-7aae13614d39": "MARA",
+  "fb56e3d1-15d8-4175-9b3d-d79709a9d958": "GEV"
+ },
+ "rows": {
+  "693": {
+   "thesis": "Nuclear Buildout",
+   "recorded_at": "2026-08-14T05:23:54.265775+00:00",
+   "reconstructed": false,
+   "card": {
+    "asof": "2026-08-14",
+    "state": "armed",
+    "exit_by": "2029-07-01",
+    "verdict": "starter_entry",
+    "arm_until": "2026-08-17",
+    "thesis_id": "a1d266b6-bf48-40db-965b-558d3be090ec",
+    "confidence": 0.55,
+    "expression": "STARTER: a provisional conviction (real but not yet binding) with the market confirming — enter small; build as it firms (a binding deal, or more catalysts), not max size off one early step.",
+    "entry_grade": "flip",
+    "risk_signals": [],
+    "armed_members": [
+     {
+      "security_id": "2c1ea400-0000-0000-0000-0000000000a2",
+      "verdict": "starter_entry",
+      "entry_grade": "flip"
+     },
+     {
+      "security_id": "98e3cad9-a75d-40db-a683-1eec5cd6dd87",
+      "verdict": "starter_entry",
+      "entry_grade": "flip"
+     },
+     {
+      "security_id": "d2f724fa-6c85-4ba4-88f4-5142bb17ca62",
+      "verdict": "starter_entry",
+      "entry_grade": "flip"
+     },
+     {
+      "security_id": "e8ff1562-99a2-4402-a06c-994667aa6006",
+      "verdict": "starter_entry",
+      "entry_grade": "flip"
+     },
+     {
+      "security_id": "5bb5417c-3fe5-4e25-9d64-d80a5636f718",
+      "verdict": "starter_entry",
+      "entry_grade": "flip"
+     },
+     {
+      "security_id": "e875c4c2-a6c6-485c-8c31-3ae61bbe348f",
+      "verdict": "flip_only",
+      "entry_grade": "flip"
+     }
+    ],
+    "key_conviction": {
+     "label": "Conviction",
+     "detail": "A conviction entry trigger fired — the 'why now is real'.",
+     "turned": true
+    },
+    "conviction_grade": "flip",
+    "key_confirmation": {
+     "label": "Confirmation",
+     "detail": "The market is confirming (a volume-backed breakout).",
+     "turned": true
+    },
+    "armed_security_id": "2c1ea400-0000-0000-0000-0000000000a2",
+    "confirmation_grade": "core"
+   }
+  },
+  "711": {
+   "thesis": "Nuclear Buildout",
+   "recorded_at": "2026-08-18T02:35:45.547526+00:00",
+   "reconstructed": false,
+   "card": {
+    "asof": "2026-08-17",
+    "state": "armed",
+    "exit_by": "2026-10-28",
+    "verdict": "core_entry",
+    "arm_until": "2026-08-21",
+    "thesis_id": "a1d266b6-bf48-40db-965b-558d3be090ec",
+    "confidence": 0.9695,
+    "expression": "CORE: spot + options past exit-by; build into the leaders/shovels of the basket.",
+    "entry_grade": "core",
+    "risk_signals": [],
+    "armed_members": [
+     {
+      "security_id": "de392033-1478-4ee9-9f83-43732ea039bb",
+      "verdict": "core_entry",
+      "entry_grade": "core"
+     },
+     {
+      "security_id": "2c1ea400-0000-0000-0000-0000000000a2",
+      "verdict": "starter_entry",
+      "entry_grade": "flip"
+     },
+     {
+      "security_id": "b86dc456-1bba-42b0-be67-3c13cd4978b2",
+      "verdict": "starter_entry",
+      "entry_grade": "flip"
+     },
+     {
+      "security_id": "98e3cad9-a75d-40db-a683-1eec5cd6dd87",
+      "verdict": "starter_entry",
+      "entry_grade": "flip"
+     },
+     {
+      "security_id": "e8ff1562-99a2-4402-a06c-994667aa6006",
+      "verdict": "starter_entry",
+      "entry_grade": "flip"
+     },
+     {
+      "security_id": "fb56e3d1-15d8-4175-9b3d-d79709a9d958",
+      "verdict": "starter_entry",
+      "entry_grade": "flip"
+     }
+    ],
+    "key_conviction": {
+     "label": "Conviction",
+     "detail": "A conviction entry trigger fired — the 'why now is real'.",
+     "turned": true
+    },
+    "conviction_grade": "core",
+    "key_confirmation": {
+     "label": "Confirmation",
+     "detail": "The market is confirming (a volume-backed breakout).",
+     "turned": true
+    },
+    "armed_security_id": "de392033-1478-4ee9-9f83-43732ea039bb",
+    "confirmation_grade": "core"
+   }
+  },
+  "720": {
+   "thesis": "Nuclear Buildout",
+   "recorded_at": "2026-08-19T02:42:55.080761+00:00",
+   "reconstructed": false,
+   "card": {
+    "asof": "2026-08-18",
+    "state": "armed",
+    "exit_by": "2026-10-28",
+    "verdict": "core_entry",
+    "arm_until": "2026-08-21",
+    "thesis_id": "a1d266b6-bf48-40db-965b-558d3be090ec",
+    "confidence": 0.9695,
+    "expression": "CORE: spot + options past exit-by; build into the leaders/shovels of the basket.",
+    "entry_grade": "core",
+    "risk_signals": [
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 14.09 closed below the 200-day base 17.51 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-06-03",
+      "security_id": "98e3cad9-a75d-40db-a683-1eec5cd6dd87"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 14.09 fell back below the 8-day breakout base 14.78 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-08-18",
+      "security_id": "98e3cad9-a75d-40db-a683-1eec5cd6dd87"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 1.07 fell back below the 8-day breakout base 1.31 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-08-18",
+      "security_id": "d2f724fa-6c85-4ba4-88f4-5142bb17ca62"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 1.34 closed below the 200-day base 1.51 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-06-17",
+      "security_id": "7e7223f9-ffbe-4f66-a30c-6cb55631f382"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 1.34 fell back below the 8-day breakout base 1.40 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-08-18",
+      "security_id": "7e7223f9-ffbe-4f66-a30c-6cb55631f382"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 0.44 closed below the 200-day base 0.48 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-05-15",
+      "security_id": "ac31c76a-3a2b-4973-b6bd-6fc01de412ce"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 1004.53 fell back below the 8-day breakout base 1018.53 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-08-18",
+      "security_id": "fb56e3d1-15d8-4175-9b3d-d79709a9d958"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 111.17 fell back below the 8-day breakout base 113.99 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-08-18",
+      "security_id": "b86dc456-1bba-42b0-be67-3c13cd4978b2"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 140.52 closed below the 200-day base 160.60 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-07-24",
+      "security_id": "bccd43e8-6bfa-418a-b9a7-c97e1aaf624a"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 266.83 fell back below the 8-day breakout base 278.36 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-08-18",
+      "security_id": "e875c4c2-a6c6-485c-8c31-3ae61bbe348f"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 78.79 fell back below the 8-day breakout base 80.86 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-08-18",
+      "security_id": "e8ff1562-99a2-4402-a06c-994667aa6006"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 142.86 fell back below the 8-day breakout base 145.07 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-08-18",
+      "security_id": "5bb5417c-3fe5-4e25-9d64-d80a5636f718"
+     }
+    ],
+    "armed_members": [
+     {
+      "exit_by": "2026-10-28",
+      "lapsing": false,
+      "verdict": "core_entry",
+      "triggers": [
+       {
+        "kind": "catalyst",
+        "grade": "core",
+        "label": "Revenue growth re-accelerated — YoY +12% (up from -4%); quarterly acceleration flipped positive at the Q1 ending 2025-03-31",
+        "event_date": "2026-05-01",
+        "security_id": "de392033-1478-4ee9-9f83-43732ea039bb"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "core",
+        "label": "52-week breakout: close 69.83 cleared the 52-week high 69.75 on 1.8x avg volume",
+        "event_date": "2026-07-07",
+        "security_id": "de392033-1478-4ee9-9f83-43732ea039bb"
+       }
+      ],
+      "arm_until": "2026-08-21",
+      "confidence": 0.9695,
+      "entry_grade": "core",
+      "security_id": "de392033-1478-4ee9-9f83-43732ea039bb",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "core"
+     },
+     {
+      "exit_by": "2027-02-10",
+      "lapsing": false,
+      "verdict": "starter_entry",
+      "triggers": [
+       {
+        "kind": "catalyst",
+        "grade": "core",
+        "label": "Revenue growth re-accelerated — YoY +554% (up from -34%); quarterly acceleration flipped positive at the Q2 ending 2026-06-30",
+        "event_date": "2026-08-14",
+        "security_id": "ac31c76a-3a2b-4973-b6bd-6fc01de412ce"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Momentum-only breakout: close 0.44 cleared the 8-day high 0.42, +23% over 10d on 0.0x avg volume",
+        "event_date": "2026-08-18",
+        "security_id": "ac31c76a-3a2b-4973-b6bd-6fc01de412ce"
+       }
+      ],
+      "arm_until": "2026-08-28",
+      "confidence": 0.47,
+      "entry_grade": "flip",
+      "security_id": "ac31c76a-3a2b-4973-b6bd-6fc01de412ce",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "flip"
+     }
+    ],
+    "key_conviction": {
+     "label": "Conviction",
+     "detail": "A conviction entry trigger fired — the 'why now is real'.",
+     "turned": true
+    },
+    "conviction_grade": "core",
+    "key_confirmation": {
+     "label": "Confirmation",
+     "detail": "The market is confirming (a volume-backed breakout).",
+     "turned": true
+    },
+    "armed_security_id": "de392033-1478-4ee9-9f83-43732ea039bb",
+    "confirmation_grade": "core"
+   }
+  },
+  "729": {
+   "thesis": "Nuclear Buildout",
+   "recorded_at": "2026-08-20T03:01:50.109617+00:00",
+   "reconstructed": false,
+   "card": {
+    "asof": "2026-08-19",
+    "state": "armed",
+    "exit_by": "2026-10-28",
+    "verdict": "core_entry",
+    "arm_until": "2026-08-21",
+    "thesis_id": "a1d266b6-bf48-40db-965b-558d3be090ec",
+    "confidence": 0.9695,
+    "expression": "CORE: spot + options past exit-by; build into the leaders/shovels of the basket.",
+    "entry_grade": "core",
+    "risk_signals": [
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 14.85 closed below the 200-day base 17.47 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-06-03",
+      "security_id": "98e3cad9-a75d-40db-a683-1eec5cd6dd87"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 1.08 fell back below the 8-day breakout base 1.31 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-08-19",
+      "security_id": "d2f724fa-6c85-4ba4-88f4-5142bb17ca62"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 1.40 closed below the 200-day base 1.51 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-06-17",
+      "security_id": "7e7223f9-ffbe-4f66-a30c-6cb55631f382"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 0.43 closed below the 200-day base 0.48 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-05-15",
+      "security_id": "ac31c76a-3a2b-4973-b6bd-6fc01de412ce"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 987.46 fell back below the 8-day breakout base 1018.53 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-08-19",
+      "security_id": "fb56e3d1-15d8-4175-9b3d-d79709a9d958"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 104.81 fell back below the 8-day breakout base 113.99 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-08-19",
+      "security_id": "b86dc456-1bba-42b0-be67-3c13cd4978b2"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 142.70 closed below the 200-day base 160.36 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-07-24",
+      "security_id": "bccd43e8-6bfa-418a-b9a7-c97e1aaf624a"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 274.17 fell back below the 8-day breakout base 278.36 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-08-19",
+      "security_id": "e875c4c2-a6c6-485c-8c31-3ae61bbe348f"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 77.89 fell back below the 8-day breakout base 80.86 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-08-19",
+      "security_id": "e8ff1562-99a2-4402-a06c-994667aa6006"
+     }
+    ],
+    "armed_members": [
+     {
+      "exit_by": "2026-10-28",
+      "lapsing": false,
+      "verdict": "core_entry",
+      "triggers": [
+       {
+        "kind": "catalyst",
+        "grade": "core",
+        "label": "Revenue growth re-accelerated — YoY +12% (up from -4%); quarterly acceleration flipped positive at the Q1 ending 2025-03-31",
+        "event_date": "2026-05-01",
+        "security_id": "de392033-1478-4ee9-9f83-43732ea039bb"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "core",
+        "label": "52-week breakout: close 69.83 cleared the 52-week high 69.75 on 1.8x avg volume",
+        "event_date": "2026-07-07",
+        "security_id": "de392033-1478-4ee9-9f83-43732ea039bb"
+       }
+      ],
+      "arm_until": "2026-08-21",
+      "confidence": 0.9695,
+      "entry_grade": "core",
+      "security_id": "de392033-1478-4ee9-9f83-43732ea039bb",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "core"
+     },
+     {
+      "exit_by": "2027-02-10",
+      "lapsing": false,
+      "verdict": "starter_entry",
+      "triggers": [
+       {
+        "kind": "catalyst",
+        "grade": "core",
+        "label": "Revenue growth re-accelerated — YoY +554% (up from -34%); quarterly acceleration flipped positive at the Q2 ending 2026-06-30",
+        "event_date": "2026-08-14",
+        "security_id": "ac31c76a-3a2b-4973-b6bd-6fc01de412ce"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Momentum-only breakout: close 0.43 cleared the 8-day high 0.42, +21% over 10d on 0.1x avg volume",
+        "event_date": "2026-08-18",
+        "security_id": "ac31c76a-3a2b-4973-b6bd-6fc01de412ce"
+       }
+      ],
+      "arm_until": "2026-08-28",
+      "confidence": 0.47,
+      "entry_grade": "flip",
+      "security_id": "ac31c76a-3a2b-4973-b6bd-6fc01de412ce",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "flip"
+     },
+     {
+      "exit_by": "2027-01-04",
+      "lapsing": false,
+      "verdict": "starter_entry",
+      "triggers": [
+       {
+        "kind": "insider",
+        "grade": "core",
+        "label": "2 insiders incl. senior officer bought $1,018,700 open-market (code P) across 2 txns",
+        "event_date": "2026-07-08",
+        "security_id": "98e3cad9-a75d-40db-a683-1eec5cd6dd87"
+       },
+       {
+        "kind": "catalyst",
+        "grade": "core",
+        "label": "Revenue growth re-accelerated — YoY +112% (up from -32%); quarterly acceleration flipped positive at the Q1 ending 2026-03-31",
+        "event_date": "2026-05-06",
+        "security_id": "98e3cad9-a75d-40db-a683-1eec5cd6dd87"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Momentum-only breakout: close 15.10 cleared the 8-day high 14.78, +32% over 10d on 1.0x avg volume",
+        "event_date": "2026-08-14",
+        "security_id": "98e3cad9-a75d-40db-a683-1eec5cd6dd87"
+       }
+      ],
+      "arm_until": "2026-08-24",
+      "confidence": 0.47,
+      "entry_grade": "flip",
+      "security_id": "98e3cad9-a75d-40db-a683-1eec5cd6dd87",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "flip"
+     },
+     {
+      "exit_by": "2026-11-11",
+      "lapsing": false,
+      "verdict": "starter_entry",
+      "triggers": [
+       {
+        "kind": "insider",
+        "grade": "core",
+        "label": "2 insiders incl. senior officer bought $477,650 open-market (code P) across 3 txns",
+        "event_date": "2026-05-15",
+        "security_id": "5bb5417c-3fe5-4e25-9d64-d80a5636f718"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Momentum-only breakout: close 147.33 cleared the 8-day high 145.07, +9% over 10d on 1.0x avg volume",
+        "event_date": "2026-08-10",
+        "security_id": "5bb5417c-3fe5-4e25-9d64-d80a5636f718"
+       }
+      ],
+      "arm_until": "2026-08-20",
+      "confidence": 0.55,
+      "entry_grade": "flip",
+      "security_id": "5bb5417c-3fe5-4e25-9d64-d80a5636f718",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "flip"
+     },
+     {
+      "exit_by": "2026-09-06",
+      "lapsing": true,
+      "verdict": "starter_entry",
+      "triggers": [
+       {
+        "kind": "catalyst",
+        "grade": "core",
+        "label": "Revenue growth re-accelerated — YoY +316% (up from +11%); quarterly acceleration flipped positive at the Q4 ending 2024-12-31",
+        "event_date": "2026-03-10",
+        "security_id": "7e7223f9-ffbe-4f66-a30c-6cb55631f382"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Momentum-only breakout: close 1.42 cleared the 8-day high 1.40, +15% over 10d on 0.9x avg volume",
+        "event_date": "2026-08-10",
+        "security_id": "7e7223f9-ffbe-4f66-a30c-6cb55631f382"
+       }
+      ],
+      "arm_until": "2026-08-20",
+      "confidence": 0.47,
+      "entry_grade": "flip",
+      "security_id": "7e7223f9-ffbe-4f66-a30c-6cb55631f382",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "flip"
+     }
+    ],
+    "key_conviction": {
+     "label": "Conviction",
+     "detail": "A conviction entry trigger fired — the 'why now is real'.",
+     "turned": true
+    },
+    "conviction_grade": "core",
+    "key_confirmation": {
+     "label": "Confirmation",
+     "detail": "The market is confirming (a volume-backed breakout).",
+     "turned": true
+    },
+    "armed_security_id": "de392033-1478-4ee9-9f83-43732ea039bb",
+    "confirmation_grade": "core"
+   }
+  },
+  "1168": {
+   "thesis": "Digital Asset Treasury Complex",
+   "recorded_at": "2026-09-23T02:36:11.602731+00:00",
+   "reconstructed": false,
+   "card": {
+    "asof": "2026-09-22",
+    "state": "armed",
+    "exit_by": "2026-11-24",
+    "verdict": "core_entry",
+    "arm_until": "2026-10-01",
+    "thesis_id": "fb2427ff-5b14-411d-95fd-c49c9f58077c",
+    "confidence": 0.945,
+    "expression": "CORE setup — a structural, volume-confirmed trigger with a durable edge through the exit-by. The signal is strongest among the basket's leaders (see the per-name tape).",
+    "entry_grade": "core",
+    "risk_signals": [],
+    "armed_members": [
+     {
+      "exit_by": "2026-11-24",
+      "lapsing": false,
+      "verdict": "core_entry",
+      "triggers": [
+       {
+        "kind": "insider",
+        "grade": "core",
+        "label": "1 insider incl. senior officer bought $992,628 open-market (code P) across 5 txns",
+        "event_date": "2026-05-28",
+        "security_id": "f4c7e412-49f7-470b-b669-57838ff405f3"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "core",
+        "label": "Volume-backed breakout: close 10.05 cleared the 8-day high 9.17, +24% over 10d on 2.2x avg volume",
+        "event_date": "2026-09-21",
+        "security_id": "f4c7e412-49f7-470b-b669-57838ff405f3"
+       }
+      ],
+      "arm_until": "2026-10-01",
+      "confidence": 0.945,
+      "entry_grade": "core",
+      "security_id": "f4c7e412-49f7-470b-b669-57838ff405f3",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "core"
+     },
+     {
+      "exit_by": "2027-02-06",
+      "lapsing": false,
+      "verdict": "starter_entry",
+      "triggers": [
+       {
+        "kind": "catalyst",
+        "grade": "core",
+        "label": "Revenue growth re-accelerated — YoY +14% (up from +4%); quarterly acceleration flipped positive at the Q2 ending 2026-06-30",
+        "event_date": "2026-08-10",
+        "security_id": "d2270f62-7301-4c6e-9ea3-67acb104e004"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Momentum-only breakout: close 24.18 cleared the 8-day high 23.75, +11% over 10d on 1.5x avg volume",
+        "event_date": "2026-09-21",
+        "security_id": "d2270f62-7301-4c6e-9ea3-67acb104e004"
+       }
+      ],
+      "arm_until": "2026-10-01",
+      "confidence": 0.55,
+      "entry_grade": "flip",
+      "security_id": "d2270f62-7301-4c6e-9ea3-67acb104e004",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "flip"
+     },
+     {
+      "exit_by": "2027-02-02",
+      "lapsing": false,
+      "verdict": "starter_entry",
+      "triggers": [
+       {
+        "kind": "catalyst",
+        "grade": "core",
+        "label": "Revenue growth re-accelerated — YoY +64% (up from +29%); quarterly acceleration flipped positive at the Q2 ending 2025-06-30",
+        "event_date": "2026-08-06",
+        "security_id": "fa8dddcd-7e4e-4dc1-b5de-7aae13614d39"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Momentum-only breakout: close 13.28 cleared the 8-day high 13.24, +17% over 10d on 1.0x avg volume",
+        "event_date": "2026-09-21",
+        "security_id": "fa8dddcd-7e4e-4dc1-b5de-7aae13614d39"
+       }
+      ],
+      "arm_until": "2026-10-01",
+      "confidence": 0.55,
+      "entry_grade": "flip",
+      "security_id": "fa8dddcd-7e4e-4dc1-b5de-7aae13614d39",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "flip"
+     },
+     {
+      "exit_by": "2026-11-07",
+      "lapsing": false,
+      "verdict": "starter_entry",
+      "triggers": [
+       {
+        "kind": "activist_stake",
+        "grade": "core",
+        "label": "SCHEDULE 13D — Vivek Ramaswamy disclosed a >5% activist stake, 8.8% of class (filed 2026-05-11)",
+        "event_date": "2026-05-11",
+        "security_id": "0c29f8a6-8203-4685-96f2-9375fd252e44"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Volume-backed breakout: close 30.33 cleared the 8-day high 30.09, +12% over 10d on 1.8x avg volume",
+        "event_date": "2026-09-21",
+        "security_id": "0c29f8a6-8203-4685-96f2-9375fd252e44"
+       }
+      ],
+      "arm_until": "2026-10-01",
+      "confidence": 0.55,
+      "entry_grade": "flip",
+      "security_id": "0c29f8a6-8203-4685-96f2-9375fd252e44",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "flip"
+     }
+    ],
+    "key_conviction": {
+     "label": "Conviction",
+     "detail": "A conviction entry trigger fired — the 'why now is real'.",
+     "turned": true
+    },
+    "conviction_grade": "core",
+    "key_confirmation": {
+     "label": "Confirmation",
+     "detail": "The market is confirming (a volume-backed breakout).",
+     "turned": true
+    },
+    "armed_security_id": "f4c7e412-49f7-470b-b669-57838ff405f3",
+    "confirmation_grade": "core"
+   }
+  },
+  "1170": {
+   "thesis": "Modern Defense",
+   "recorded_at": "2026-09-23T02:37:57.498401+00:00",
+   "reconstructed": false,
+   "card": {
+    "asof": "2026-09-22",
+    "state": "armed",
+    "exit_by": "2027-03-13",
+    "verdict": "core_entry",
+    "arm_until": "2026-10-26",
+    "thesis_id": "41c022c7-62d5-4b5f-bd67-3748ce43c12a",
+    "confidence": 0.945,
+    "expression": "CORE setup — a structural, volume-confirmed trigger with a durable edge through the exit-by. The signal is strongest among the basket's leaders (see the per-name tape).",
+    "entry_grade": "core",
+    "risk_signals": [],
+    "armed_members": [
+     {
+      "security_id": "d0bc4fb0-94ea-40db-bc50-d7defb8dee23",
+      "verdict": "core_entry",
+      "entry_grade": "core"
+     },
+     {
+      "security_id": "8c8260eb-b4c5-49aa-884a-81b78a12fe42",
+      "verdict": "core_entry",
+      "entry_grade": "core"
+     },
+     {
+      "security_id": "241e316b-f721-4cbb-91e7-346908c5c1c5",
+      "verdict": "core_entry",
+      "entry_grade": "core"
+     },
+     {
+      "security_id": "cf0d2c46-67a5-45e8-a6f5-7b2263ebd7ff",
+      "verdict": "core_entry",
+      "entry_grade": "core"
+     },
+     {
+      "security_id": "3f2cc06b-31b2-4c0e-b5da-f1bf3632cbc9",
+      "verdict": "core_entry",
+      "entry_grade": "core"
+     },
+     {
+      "security_id": "6258a3a0-404c-4b94-931b-3243f65874d6",
+      "verdict": "starter_entry",
+      "entry_grade": "flip"
+     },
+     {
+      "security_id": "5c6f8c9f-2854-4dfb-a1bb-fddfda6206be",
+      "verdict": "starter_entry",
+      "entry_grade": "flip"
+     },
+     {
+      "security_id": "d5ebfae2-5733-4def-9134-bc76979b4f96",
+      "verdict": "starter_entry",
+      "entry_grade": "flip"
+     },
+     {
+      "security_id": "9300b56e-f39b-43b7-989d-e68bb37440f7",
+      "verdict": "starter_entry",
+      "entry_grade": "flip"
+     },
+     {
+      "security_id": "724c9651-b35f-435e-a0c1-42d0abc27a5f",
+      "verdict": "starter_entry",
+      "entry_grade": "flip"
+     },
+     {
+      "security_id": "71e2d57d-99da-41fe-9983-cfe62aa580fc",
+      "verdict": "starter_entry",
+      "entry_grade": "flip"
+     },
+     {
+      "security_id": "ce7915ae-1d83-42af-9720-68d5a8776ba0",
+      "verdict": "core_entry",
+      "entry_grade": "core"
+     },
+     {
+      "security_id": "4fe9e619-9400-4587-be23-f35bc48e0f49",
+      "verdict": "flip_only",
+      "entry_grade": "flip"
+     },
+     {
+      "security_id": "833133d4-bd14-4356-b244-e7af0b84fa62",
+      "verdict": "flip_only",
+      "entry_grade": "flip"
+     }
+    ],
+    "key_conviction": {
+     "label": "Conviction",
+     "detail": "A conviction entry trigger fired — the 'why now is real'.",
+     "turned": true
+    },
+    "conviction_grade": "core",
+    "key_confirmation": {
+     "label": "Confirmation",
+     "detail": "The market is confirming (a volume-backed breakout).",
+     "turned": true
+    },
+    "armed_security_id": "d0bc4fb0-94ea-40db-bc50-d7defb8dee23",
+    "confirmation_grade": "core"
+   }
+  },
+  "1180": {
+   "thesis": "Digital Asset Treasury Complex",
+   "recorded_at": "2026-09-24T02:36:52.353221+00:00",
+   "reconstructed": false,
+   "card": {
+    "asof": "2026-09-23",
+    "state": "armed",
+    "exit_by": "2027-02-06",
+    "verdict": "starter_entry",
+    "arm_until": "2026-10-02",
+    "thesis_id": "fb2427ff-5b14-411d-95fd-c49c9f58077c",
+    "confidence": 0.55,
+    "expression": "Core (structural) thesis, but the breakout is momentum-only — volume hasn't confirmed. It completes into a confirmed core setup only when a real volume breakout lands.",
+    "entry_grade": "flip",
+    "risk_signals": [
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 9.19 closed below the 200-day base 9.20 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-09-23",
+      "security_id": "f4c7e412-49f7-470b-b669-57838ff405f3"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 28.99 fell back below the 8-day breakout base 30.09 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-09-23",
+      "security_id": "0c29f8a6-8203-4685-96f2-9375fd252e44"
+     }
+    ],
+    "armed_members": [
+     {
+      "exit_by": "2027-02-06",
+      "lapsing": false,
+      "verdict": "starter_entry",
+      "triggers": [
+       {
+        "kind": "catalyst",
+        "grade": "core",
+        "label": "Revenue growth re-accelerated — YoY +14% (up from +4%); quarterly acceleration flipped positive at the Q2 ending 2026-06-30",
+        "event_date": "2026-08-10",
+        "security_id": "d2270f62-7301-4c6e-9ea3-67acb104e004"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Momentum-only breakout: close 24.93 cleared the 8-day high 24.18, +12% over 10d on 1.2x avg volume",
+        "event_date": "2026-09-22",
+        "security_id": "d2270f62-7301-4c6e-9ea3-67acb104e004"
+       }
+      ],
+      "arm_until": "2026-10-02",
+      "confidence": 0.55,
+      "entry_grade": "flip",
+      "security_id": "d2270f62-7301-4c6e-9ea3-67acb104e004",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "flip"
+     },
+     {
+      "exit_by": "2027-02-02",
+      "lapsing": false,
+      "verdict": "starter_entry",
+      "triggers": [
+       {
+        "kind": "catalyst",
+        "grade": "core",
+        "label": "Revenue growth re-accelerated — YoY +64% (up from +29%); quarterly acceleration flipped positive at the Q2 ending 2025-06-30",
+        "event_date": "2026-08-06",
+        "security_id": "fa8dddcd-7e4e-4dc1-b5de-7aae13614d39"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Momentum-only breakout: close 13.63 cleared the 8-day high 13.28, +15% over 10d on 0.8x avg volume",
+        "event_date": "2026-09-22",
+        "security_id": "fa8dddcd-7e4e-4dc1-b5de-7aae13614d39"
+       }
+      ],
+      "arm_until": "2026-10-02",
+      "confidence": 0.55,
+      "entry_grade": "flip",
+      "security_id": "fa8dddcd-7e4e-4dc1-b5de-7aae13614d39",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "flip"
+     }
+    ],
+    "key_conviction": {
+     "label": "Conviction",
+     "detail": "A conviction entry trigger fired — the 'why now is real'.",
+     "turned": true
+    },
+    "conviction_grade": "core",
+    "key_confirmation": {
+     "label": "Confirmation",
+     "detail": "Momentum-only — not yet volume-confirmed.",
+     "turned": true
+    },
+    "armed_security_id": "d2270f62-7301-4c6e-9ea3-67acb104e004",
+    "confirmation_grade": "flip"
+   }
+  },
+  "1192": {
+   "thesis": "Digital Asset Treasury Complex",
+   "recorded_at": "2026-09-25T02:36:01.544569+00:00",
+   "reconstructed": false,
+   "card": {
+    "asof": "2026-09-24",
+    "state": "armed",
+    "exit_by": "2026-11-24",
+    "verdict": "core_entry",
+    "arm_until": "2026-10-01",
+    "thesis_id": "fb2427ff-5b14-411d-95fd-c49c9f58077c",
+    "confidence": 0.945,
+    "expression": "CORE setup — a structural, volume-confirmed trigger with a durable edge through the exit-by. The signal is strongest among the basket's leaders (see the per-name tape).",
+    "entry_grade": "core",
+    "risk_signals": [
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 29.94 fell back below the 8-day breakout base 30.09 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-09-24",
+      "security_id": "0c29f8a6-8203-4685-96f2-9375fd252e44"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 12.92 fell back below the 8-day breakout base 13.28 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-09-24",
+      "security_id": "fa8dddcd-7e4e-4dc1-b5de-7aae13614d39"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 23.48 fell back below the 8-day breakout base 24.18 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-09-24",
+      "security_id": "d2270f62-7301-4c6e-9ea3-67acb104e004"
+     }
+    ],
+    "armed_members": [
+     {
+      "exit_by": "2026-11-24",
+      "lapsing": false,
+      "verdict": "core_entry",
+      "triggers": [
+       {
+        "kind": "insider",
+        "grade": "core",
+        "label": "1 insider incl. senior officer bought $992,628 open-market (code P) across 5 txns",
+        "event_date": "2026-05-28",
+        "security_id": "f4c7e412-49f7-470b-b669-57838ff405f3"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "core",
+        "label": "Volume-backed breakout: close 10.05 cleared the 8-day high 9.17, +24% over 10d on 2.2x avg volume",
+        "event_date": "2026-09-21",
+        "security_id": "f4c7e412-49f7-470b-b669-57838ff405f3"
+       }
+      ],
+      "arm_until": "2026-10-01",
+      "confidence": 0.945,
+      "entry_grade": "core",
+      "security_id": "f4c7e412-49f7-470b-b669-57838ff405f3",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "core"
+     }
+    ],
+    "key_conviction": {
+     "label": "Conviction",
+     "detail": "A conviction entry trigger fired — the 'why now is real'.",
+     "turned": true
+    },
+    "conviction_grade": "core",
+    "key_confirmation": {
+     "label": "Confirmation",
+     "detail": "The market is confirming (a volume-backed breakout).",
+     "turned": true
+    },
+    "armed_security_id": "f4c7e412-49f7-470b-b669-57838ff405f3",
+    "confirmation_grade": "core"
+   }
+  },
+  "1270": {
+   "thesis": "Rainbow Rush",
+   "recorded_at": "2026-10-03T02:40:28.205161+00:00",
+   "reconstructed": false,
+   "card": {
+    "asof": "2026-10-02",
+    "state": "armed",
+    "exit_by": "2027-03-28",
+    "verdict": "core_entry",
+    "arm_until": "2026-11-01",
+    "thesis_id": "e7aa7aa2-b61f-46e3-b745-7b66ac95b2ed",
+    "confidence": 0.9985,
+    "expression": "CORE setup — a structural, volume-confirmed trigger with a durable edge through the exit-by. The signal is strongest among the basket's leaders (see the per-name tape).",
+    "entry_grade": "core",
+    "risk_signals": [],
+    "armed_members": [
+     {
+      "security_id": "8d2020a7-b43f-4616-8a8c-bf2d6c5a7d97",
+      "verdict": "core_entry",
+      "entry_grade": "core"
+     },
+     {
+      "security_id": "915700da-2832-485c-8d93-ff05b3d72f4c",
+      "verdict": "core_entry",
+      "entry_grade": "core"
+     },
+     {
+      "security_id": "82b184a3-7e18-4298-811c-09140d2a6056",
+      "verdict": "core_entry",
+      "entry_grade": "core"
+     },
+     {
+      "security_id": "a72be7c8-a99b-4416-81f9-02c4eb0fe70f",
+      "verdict": "core_entry",
+      "entry_grade": "core"
+     },
+     {
+      "security_id": "ce8c3ede-54f9-4d45-8714-8d70a1f5dd3d",
+      "verdict": "starter_entry",
+      "entry_grade": "flip"
+     },
+     {
+      "security_id": "d79f8e74-9d4a-41b2-a22f-d284f8154135",
+      "verdict": "starter_entry",
+      "entry_grade": "flip"
+     },
+     {
+      "security_id": "5a7a3aa9-4445-45ff-ab9e-bc2b2ccd008a",
+      "verdict": "core_entry",
+      "entry_grade": "core"
+     }
+    ],
+    "key_conviction": {
+     "label": "Conviction",
+     "detail": "A conviction entry trigger fired — the 'why now is real'.",
+     "turned": true
+    },
+    "conviction_grade": "core",
+    "key_confirmation": {
+     "label": "Confirmation",
+     "detail": "The market is confirming (a volume-backed breakout).",
+     "turned": true
+    },
+    "armed_security_id": "8d2020a7-b43f-4616-8a8c-bf2d6c5a7d97",
+    "confirmation_grade": "core"
+   }
+  },
+  "1281": {
+   "thesis": "Nuclear Buildout",
+   "recorded_at": "2026-10-06T02:39:09.862655+00:00",
+   "reconstructed": false,
+   "card": {
+    "asof": "2026-10-05",
+    "state": "armed",
+    "exit_by": "2027-02-02",
+    "verdict": "starter_entry",
+    "arm_until": "2026-10-12",
+    "thesis_id": "a1d266b6-bf48-40db-965b-558d3be090ec",
+    "confidence": 0.42,
+    "expression": "Core (structural) thesis, but the breakout is momentum-only — volume hasn't confirmed. It completes into a confirmed core setup only when a real volume breakout lands.",
+    "entry_grade": "flip",
+    "risk_signals": [
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 10.82 closed below the 200-day base 17.11 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-06-03",
+      "security_id": "98e3cad9-a75d-40db-a683-1eec5cd6dd87"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 1.07 fell back below the 8-day breakout base 1.22 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-05",
+      "security_id": "d2f724fa-6c85-4ba4-88f4-5142bb17ca62"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 1.06 closed below the 200-day base 1.51 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-08-28",
+      "security_id": "7e7223f9-ffbe-4f66-a30c-6cb55631f382"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 0.33 closed below the 200-day base 0.47 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-09-01",
+      "security_id": "ac31c76a-3a2b-4973-b6bd-6fc01de412ce"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 90.48 closed below the 200-day base 90.77 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-05",
+      "security_id": "b86dc456-1bba-42b0-be67-3c13cd4978b2"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 144.89 closed below the 200-day base 154.77 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-07-24",
+      "security_id": "bccd43e8-6bfa-418a-b9a7-c97e1aaf624a"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 267.62 closed below the 200-day base 287.30 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-09-09",
+      "security_id": "e875c4c2-a6c6-485c-8c31-3ae61bbe348f"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 61.02 closed below the 200-day base 64.36 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-09-18",
+      "security_id": "de392033-1478-4ee9-9f83-43732ea039bb"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 12.35 closed below the 200-day base 16.51 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-08-28",
+      "security_id": "f55da4d5-b873-4943-a552-7b3026b00ca3"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 74.30 closed below the 200-day base 76.38 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-09-24",
+      "security_id": "e8ff1562-99a2-4402-a06c-994667aa6006"
+     }
+    ],
+    "armed_members": [
+     {
+      "exit_by": "2027-02-02",
+      "lapsing": false,
+      "verdict": "starter_entry",
+      "triggers": [
+       {
+        "kind": "catalyst",
+        "grade": "core",
+        "label": "Revenue growth re-accelerated — YoY +29% (up from +13%); quarterly acceleration flipped positive at the Q1 ending 2026-06-30",
+        "event_date": "2026-08-06",
+        "security_id": "b86dc456-1bba-42b0-be67-3c13cd4978b2"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Volume-backed breakout: close 91.49 cleared the 8-day high 87.80, +9% over 10d on 1.5x avg volume",
+        "event_date": "2026-10-02",
+        "security_id": "b86dc456-1bba-42b0-be67-3c13cd4978b2"
+       }
+      ],
+      "arm_until": "2026-10-12",
+      "confidence": 0.42,
+      "entry_grade": "flip",
+      "security_id": "b86dc456-1bba-42b0-be67-3c13cd4978b2",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "flip"
+     },
+     {
+      "exit_by": "2026-10-19",
+      "lapsing": true,
+      "verdict": "starter_entry",
+      "triggers": [
+       {
+        "kind": "catalyst",
+        "grade": "core",
+        "label": "Revenue growth re-accelerated — YoY +11% (up from +5%); quarterly acceleration flipped positive at the Q1 ending 2025-03-31",
+        "event_date": "2026-04-22",
+        "security_id": "fb56e3d1-15d8-4175-9b3d-d79709a9d958"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Momentum-only breakout: close 962.49 cleared the 8-day high 957.63, +9% over 10d on 0.6x avg volume",
+        "event_date": "2026-09-29",
+        "security_id": "fb56e3d1-15d8-4175-9b3d-d79709a9d958"
+       }
+      ],
+      "arm_until": "2026-10-09",
+      "confidence": 0.55,
+      "entry_grade": "flip",
+      "security_id": "fb56e3d1-15d8-4175-9b3d-d79709a9d958",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "flip"
+     }
+    ],
+    "key_conviction": {
+     "label": "Conviction",
+     "detail": "A conviction entry trigger fired — the 'why now is real'.",
+     "turned": true
+    },
+    "conviction_grade": "core",
+    "key_confirmation": {
+     "label": "Confirmation",
+     "detail": "Momentum-only — not yet volume-confirmed.",
+     "turned": true
+    },
+    "armed_security_id": "b86dc456-1bba-42b0-be67-3c13cd4978b2",
+    "confirmation_grade": "flip"
+   }
+  },
+  "1293": {
+   "thesis": "Nuclear Buildout",
+   "recorded_at": "2026-10-07T02:38:47.316339+00:00",
+   "reconstructed": false,
+   "card": {
+    "asof": "2026-10-06",
+    "state": "armed",
+    "exit_by": "2027-02-28",
+    "verdict": "core_entry",
+    "arm_until": "2026-10-16",
+    "thesis_id": "a1d266b6-bf48-40db-965b-558d3be090ec",
+    "confidence": 0.995,
+    "expression": "CORE setup — a structural, volume-confirmed trigger with a durable edge through the exit-by. The signal is strongest among the basket's leaders (see the per-name tape).",
+    "entry_grade": "core",
+    "risk_signals": [
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 11.26 closed below the 200-day base 17.10 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-06-03",
+      "security_id": "98e3cad9-a75d-40db-a683-1eec5cd6dd87"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 1.12 closed below the 200-day base 1.51 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-08-28",
+      "security_id": "7e7223f9-ffbe-4f66-a30c-6cb55631f382"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 0.35 closed below the 200-day base 0.47 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-09-01",
+      "security_id": "ac31c76a-3a2b-4973-b6bd-6fc01de412ce"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 88.28 closed below the 200-day base 90.90 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-05",
+      "security_id": "b86dc456-1bba-42b0-be67-3c13cd4978b2"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 62.00 closed below the 200-day base 64.37 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-09-18",
+      "security_id": "de392033-1478-4ee9-9f83-43732ea039bb"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 12.50 closed below the 200-day base 16.50 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-08-28",
+      "security_id": "f55da4d5-b873-4943-a552-7b3026b00ca3"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 73.34 closed below the 200-day base 76.40 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-09-24",
+      "security_id": "e8ff1562-99a2-4402-a06c-994667aa6006"
+     }
+    ],
+    "armed_members": [
+     {
+      "exit_by": "2027-02-28",
+      "lapsing": false,
+      "verdict": "core_entry",
+      "triggers": [
+       {
+        "kind": "insider",
+        "grade": "core",
+        "label": "1 insider incl. senior officer bought $1,173,069 open-market (code P) across 3 txns",
+        "event_date": "2026-09-01",
+        "security_id": "bccd43e8-6bfa-418a-b9a7-c97e1aaf624a"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "core",
+        "label": "Volume-backed breakout: close 160.50 cleared the 8-day high 144.89, +14% over 10d on 2.7x avg volume",
+        "event_date": "2026-10-06",
+        "security_id": "bccd43e8-6bfa-418a-b9a7-c97e1aaf624a"
+       }
+      ],
+      "arm_until": "2026-10-16",
+      "confidence": 0.995,
+      "entry_grade": "core",
+      "security_id": "bccd43e8-6bfa-418a-b9a7-c97e1aaf624a",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "core"
+     },
+     {
+      "exit_by": "2027-02-02",
+      "lapsing": false,
+      "verdict": "starter_entry",
+      "triggers": [
+       {
+        "kind": "catalyst",
+        "grade": "core",
+        "label": "Revenue growth re-accelerated — YoY +29% (up from +13%); quarterly acceleration flipped positive at the Q1 ending 2026-06-30",
+        "event_date": "2026-08-06",
+        "security_id": "b86dc456-1bba-42b0-be67-3c13cd4978b2"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Volume-backed breakout: close 91.49 cleared the 8-day high 87.80, +9% over 10d on 1.5x avg volume",
+        "event_date": "2026-10-02",
+        "security_id": "b86dc456-1bba-42b0-be67-3c13cd4978b2"
+       }
+      ],
+      "arm_until": "2026-10-12",
+      "confidence": 0.42,
+      "entry_grade": "flip",
+      "security_id": "b86dc456-1bba-42b0-be67-3c13cd4978b2",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "flip"
+     },
+     {
+      "exit_by": "2026-11-07",
+      "lapsing": true,
+      "verdict": "starter_entry",
+      "triggers": [
+       {
+        "kind": "catalyst",
+        "grade": "core",
+        "label": "Revenue growth re-accelerated — YoY +10% (up from -7%); quarterly acceleration flipped positive at the Q1 ending 2025-03-31",
+        "event_date": "2026-05-11",
+        "security_id": "e875c4c2-a6c6-485c-8c31-3ae61bbe348f"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Volume-backed breakout: close 300.40 cleared the 8-day high 267.62, +14% over 10d on 4.6x avg volume",
+        "event_date": "2026-10-06",
+        "security_id": "e875c4c2-a6c6-485c-8c31-3ae61bbe348f"
+       }
+      ],
+      "arm_until": "2026-10-16",
+      "confidence": 0.55,
+      "entry_grade": "flip",
+      "security_id": "e875c4c2-a6c6-485c-8c31-3ae61bbe348f",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "flip"
+     },
+     {
+      "exit_by": "2026-10-19",
+      "lapsing": true,
+      "verdict": "starter_entry",
+      "triggers": [
+       {
+        "kind": "catalyst",
+        "grade": "core",
+        "label": "Revenue growth re-accelerated — YoY +11% (up from +5%); quarterly acceleration flipped positive at the Q1 ending 2025-03-31",
+        "event_date": "2026-04-22",
+        "security_id": "fb56e3d1-15d8-4175-9b3d-d79709a9d958"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Momentum-only breakout: close 1029.21 cleared the 8-day high 990.00, +8% over 10d on 1.4x avg volume",
+        "event_date": "2026-10-06",
+        "security_id": "fb56e3d1-15d8-4175-9b3d-d79709a9d958"
+       }
+      ],
+      "arm_until": "2026-10-16",
+      "confidence": 0.55,
+      "entry_grade": "flip",
+      "security_id": "fb56e3d1-15d8-4175-9b3d-d79709a9d958",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "flip"
+     }
+    ],
+    "key_conviction": {
+     "label": "Conviction",
+     "detail": "A conviction entry trigger fired — the 'why now is real'.",
+     "turned": true
+    },
+    "conviction_grade": "core",
+    "key_confirmation": {
+     "label": "Confirmation",
+     "detail": "The market is confirming (a volume-backed breakout).",
+     "turned": true
+    },
+    "armed_security_id": "bccd43e8-6bfa-418a-b9a7-c97e1aaf624a",
+    "confirmation_grade": "core"
+   }
+  },
+  "1305": {
+   "thesis": "Nuclear Buildout",
+   "recorded_at": "2026-10-08T02:37:21.018219+00:00",
+   "reconstructed": false,
+   "card": {
+    "asof": "2026-10-07",
+    "state": "armed",
+    "exit_by": "2027-02-28",
+    "verdict": "starter_entry",
+    "arm_until": "2026-10-17",
+    "thesis_id": "a1d266b6-bf48-40db-965b-558d3be090ec",
+    "confidence": 0.55,
+    "expression": "Core (structural) thesis, but the breakout is momentum-only — volume hasn't confirmed. It completes into a confirmed core setup only when a real volume breakout lands.",
+    "entry_grade": "flip",
+    "risk_signals": [
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 10.26 closed below the 200-day base 17.08 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-06-03",
+      "security_id": "98e3cad9-a75d-40db-a683-1eec5cd6dd87"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 1.10 closed below the 200-day base 1.50 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-08-28",
+      "security_id": "7e7223f9-ffbe-4f66-a30c-6cb55631f382"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 0.32 closed below the 200-day base 0.47 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-09-01",
+      "security_id": "ac31c76a-3a2b-4973-b6bd-6fc01de412ce"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 84.34 closed below the 200-day base 91.02 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-05",
+      "security_id": "b86dc456-1bba-42b0-be67-3c13cd4978b2"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 84.34 fell back below the 8-day breakout base 87.80 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-07",
+      "security_id": "b86dc456-1bba-42b0-be67-3c13cd4978b2"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 61.53 closed below the 200-day base 64.38 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-09-18",
+      "security_id": "de392033-1478-4ee9-9f83-43732ea039bb"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 12.79 closed below the 200-day base 16.48 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-08-28",
+      "security_id": "f55da4d5-b873-4943-a552-7b3026b00ca3"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 70.52 closed below the 200-day base 76.41 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-09-24",
+      "security_id": "e8ff1562-99a2-4402-a06c-994667aa6006"
+     }
+    ],
+    "armed_members": [
+     {
+      "exit_by": "2027-02-28",
+      "lapsing": false,
+      "verdict": "starter_entry",
+      "triggers": [
+       {
+        "kind": "insider",
+        "grade": "core",
+        "label": "1 insider incl. senior officer bought $1,173,069 open-market (code P) across 3 txns",
+        "event_date": "2026-09-01",
+        "security_id": "bccd43e8-6bfa-418a-b9a7-c97e1aaf624a"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Momentum-only breakout: close 166.72 cleared the 8-day high 160.50, +21% over 10d on 1.4x avg volume",
+        "event_date": "2026-10-07",
+        "security_id": "bccd43e8-6bfa-418a-b9a7-c97e1aaf624a"
+       }
+      ],
+      "arm_until": "2026-10-17",
+      "confidence": 0.55,
+      "entry_grade": "flip",
+      "security_id": "bccd43e8-6bfa-418a-b9a7-c97e1aaf624a",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "flip"
+     },
+     {
+      "exit_by": "2026-11-07",
+      "lapsing": true,
+      "verdict": "starter_entry",
+      "triggers": [
+       {
+        "kind": "catalyst",
+        "grade": "core",
+        "label": "Revenue growth re-accelerated — YoY +10% (up from -7%); quarterly acceleration flipped positive at the Q1 ending 2025-03-31",
+        "event_date": "2026-05-11",
+        "security_id": "e875c4c2-a6c6-485c-8c31-3ae61bbe348f"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Volume-backed breakout: close 300.40 cleared the 8-day high 267.62, +14% over 10d on 4.6x avg volume",
+        "event_date": "2026-10-06",
+        "security_id": "e875c4c2-a6c6-485c-8c31-3ae61bbe348f"
+       }
+      ],
+      "arm_until": "2026-10-16",
+      "confidence": 0.55,
+      "entry_grade": "flip",
+      "security_id": "e875c4c2-a6c6-485c-8c31-3ae61bbe348f",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "flip"
+     },
+     {
+      "exit_by": "2026-10-19",
+      "lapsing": true,
+      "verdict": "starter_entry",
+      "triggers": [
+       {
+        "kind": "catalyst",
+        "grade": "core",
+        "label": "Revenue growth re-accelerated — YoY +11% (up from +5%); quarterly acceleration flipped positive at the Q1 ending 2025-03-31",
+        "event_date": "2026-04-22",
+        "security_id": "fb56e3d1-15d8-4175-9b3d-d79709a9d958"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Momentum-only breakout: close 1029.21 cleared the 8-day high 990.00, +8% over 10d on 1.4x avg volume",
+        "event_date": "2026-10-06",
+        "security_id": "fb56e3d1-15d8-4175-9b3d-d79709a9d958"
+       }
+      ],
+      "arm_until": "2026-10-16",
+      "confidence": 0.55,
+      "entry_grade": "flip",
+      "security_id": "fb56e3d1-15d8-4175-9b3d-d79709a9d958",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "flip"
+     }
+    ],
+    "key_conviction": {
+     "label": "Conviction",
+     "detail": "A conviction entry trigger fired — the 'why now is real'.",
+     "turned": true
+    },
+    "conviction_grade": "core",
+    "key_confirmation": {
+     "label": "Confirmation",
+     "detail": "Momentum-only — not yet volume-confirmed.",
+     "turned": true
+    },
+    "armed_security_id": "bccd43e8-6bfa-418a-b9a7-c97e1aaf624a",
+    "confirmation_grade": "flip"
+   }
+  },
+  "1329": {
+   "thesis": "Nuclear Buildout",
+   "recorded_at": "2026-10-10T02:39:09.362811+00:00",
+   "reconstructed": false,
+   "card": {
+    "asof": "2026-10-09",
+    "state": "armed",
+    "exit_by": "2027-02-28",
+    "verdict": "starter_entry",
+    "arm_until": "2026-10-17",
+    "thesis_id": "a1d266b6-bf48-40db-965b-558d3be090ec",
+    "confidence": 0.55,
+    "expression": "Core (structural) thesis, but the breakout is momentum-only — volume hasn't confirmed. It completes into a confirmed core setup only when a real volume breakout lands.",
+    "entry_grade": "flip",
+    "risk_signals": [
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 9.96 closed below the 200-day base 17.03 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-06-03",
+      "security_id": "98e3cad9-a75d-40db-a683-1eec5cd6dd87"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 1.01 closed below the 200-day base 1.50 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-08-28",
+      "security_id": "7e7223f9-ffbe-4f66-a30c-6cb55631f382"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 0.31 closed below the 200-day base 0.47 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-09-01",
+      "security_id": "ac31c76a-3a2b-4973-b6bd-6fc01de412ce"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 82.37 closed below the 200-day base 91.21 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-05",
+      "security_id": "b86dc456-1bba-42b0-be67-3c13cd4978b2"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 82.37 fell back below the 8-day breakout base 87.80 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-09",
+      "security_id": "b86dc456-1bba-42b0-be67-3c13cd4978b2"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 61.64 closed below the 200-day base 64.41 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-09-18",
+      "security_id": "de392033-1478-4ee9-9f83-43732ea039bb"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 13.13 closed below the 200-day base 16.45 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-08-28",
+      "security_id": "f55da4d5-b873-4943-a552-7b3026b00ca3"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 72.28 closed below the 200-day base 76.40 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-09-24",
+      "security_id": "e8ff1562-99a2-4402-a06c-994667aa6006"
+     }
+    ],
+    "armed_members": [
+     {
+      "exit_by": "2027-02-28",
+      "lapsing": false,
+      "verdict": "starter_entry",
+      "triggers": [
+       {
+        "kind": "insider",
+        "grade": "core",
+        "label": "1 insider incl. senior officer bought $1,173,069 open-market (code P) across 3 txns",
+        "event_date": "2026-09-01",
+        "security_id": "bccd43e8-6bfa-418a-b9a7-c97e1aaf624a"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Momentum-only breakout: close 166.72 cleared the 8-day high 160.50, +21% over 10d on 1.4x avg volume",
+        "event_date": "2026-10-07",
+        "security_id": "bccd43e8-6bfa-418a-b9a7-c97e1aaf624a"
+       }
+      ],
+      "arm_until": "2026-10-17",
+      "confidence": 0.55,
+      "entry_grade": "flip",
+      "security_id": "bccd43e8-6bfa-418a-b9a7-c97e1aaf624a",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "flip"
+     },
+     {
+      "exit_by": "2026-11-07",
+      "lapsing": true,
+      "verdict": "starter_entry",
+      "triggers": [
+       {
+        "kind": "catalyst",
+        "grade": "core",
+        "label": "Revenue growth re-accelerated — YoY +10% (up from -7%); quarterly acceleration flipped positive at the Q1 ending 2025-03-31",
+        "event_date": "2026-05-11",
+        "security_id": "e875c4c2-a6c6-485c-8c31-3ae61bbe348f"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Volume-backed breakout: close 300.40 cleared the 8-day high 267.62, +14% over 10d on 4.6x avg volume",
+        "event_date": "2026-10-06",
+        "security_id": "e875c4c2-a6c6-485c-8c31-3ae61bbe348f"
+       }
+      ],
+      "arm_until": "2026-10-16",
+      "confidence": 0.55,
+      "entry_grade": "flip",
+      "security_id": "e875c4c2-a6c6-485c-8c31-3ae61bbe348f",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "flip"
+     },
+     {
+      "exit_by": "2026-10-19",
+      "lapsing": true,
+      "verdict": "starter_entry",
+      "triggers": [
+       {
+        "kind": "catalyst",
+        "grade": "core",
+        "label": "Revenue growth re-accelerated — YoY +11% (up from +5%); quarterly acceleration flipped positive at the Q1 ending 2025-03-31",
+        "event_date": "2026-04-22",
+        "security_id": "fb56e3d1-15d8-4175-9b3d-d79709a9d958"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Momentum-only breakout: close 1029.21 cleared the 8-day high 990.00, +8% over 10d on 1.4x avg volume",
+        "event_date": "2026-10-06",
+        "security_id": "fb56e3d1-15d8-4175-9b3d-d79709a9d958"
+       }
+      ],
+      "arm_until": "2026-10-16",
+      "confidence": 0.55,
+      "entry_grade": "flip",
+      "security_id": "fb56e3d1-15d8-4175-9b3d-d79709a9d958",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "flip"
+     }
+    ],
+    "key_conviction": {
+     "label": "Conviction",
+     "detail": "A conviction entry trigger fired — the 'why now is real'.",
+     "turned": true
+    },
+    "conviction_grade": "core",
+    "key_confirmation": {
+     "label": "Confirmation",
+     "detail": "Momentum-only — not yet volume-confirmed.",
+     "turned": true
+    },
+    "armed_security_id": "bccd43e8-6bfa-418a-b9a7-c97e1aaf624a",
+    "confirmation_grade": "flip"
+   }
+  },
+  "1330": {
+   "thesis": "Rainbow Rush",
+   "recorded_at": "2026-10-10T02:40:39.648991+00:00",
+   "reconstructed": false,
+   "card": {
+    "asof": "2026-10-09",
+    "state": "armed",
+    "exit_by": "2027-03-28",
+    "verdict": "core_entry",
+    "arm_until": "2026-11-01",
+    "thesis_id": "e7aa7aa2-b61f-46e3-b745-7b66ac95b2ed",
+    "confidence": 0.9985,
+    "expression": "CORE setup — a structural, volume-confirmed trigger with a durable edge through the exit-by. The signal is strongest among the basket's leaders (see the per-name tape).",
+    "entry_grade": "core",
+    "risk_signals": [
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 3.63 fell back below the 8-day breakout base 4.81 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-09",
+      "security_id": "ce8c3ede-54f9-4d45-8714-8d70a1f5dd3d"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 3.22 fell back below the 8-day breakout base 3.31 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-09",
+      "security_id": "d79f8e74-9d4a-41b2-a22f-d284f8154135"
+     }
+    ],
+    "armed_members": [
+     {
+      "exit_by": "2027-03-28",
+      "lapsing": false,
+      "verdict": "core_entry",
+      "triggers": [
+       {
+        "kind": "insider",
+        "grade": "core",
+        "label": "4 insiders incl. senior officer bought $9,670,162 open-market (code P) across 9 txns",
+        "event_date": "2026-09-29",
+        "security_id": "8d2020a7-b43f-4616-8a8c-bf2d6c5a7d97"
+       },
+       {
+        "kind": "activist_stake",
+        "grade": "core",
+        "label": "SCHEDULE 13D — So Eric H. L. disclosed a >5% activist stake, 5.8% of class (filed 2026-09-09)",
+        "event_date": "2026-09-09",
+        "security_id": "8d2020a7-b43f-4616-8a8c-bf2d6c5a7d97"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "core",
+        "label": "52-week breakout: close 14.02 cleared the 52-week high 13.98 on 1.9x avg volume",
+        "event_date": "2026-09-17",
+        "security_id": "8d2020a7-b43f-4616-8a8c-bf2d6c5a7d97"
+       }
+      ],
+      "arm_until": "2026-11-01",
+      "confidence": 0.9985,
+      "entry_grade": "core",
+      "security_id": "8d2020a7-b43f-4616-8a8c-bf2d6c5a7d97",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "core"
+     },
+     {
+      "exit_by": "2027-03-13",
+      "lapsing": false,
+      "verdict": "starter_entry",
+      "triggers": [
+       {
+        "kind": "activist_stake",
+        "grade": "core",
+        "label": "SCHEDULE 13D — BOKHARI, RAZA disclosed a >5% activist stake, 5.3% of class (filed 2026-09-14) — ESCALATED from a prior 13G passive stake filed 2025-02-10",
+        "event_date": "2026-09-14",
+        "security_id": "2496afa7-561d-4e1d-8687-891d3d2767e9"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Momentum-only breakout: close 5.09 cleared the 8-day high 0.17, +3104% over 10d on 0.2x avg volume",
+        "event_date": "2026-10-08",
+        "security_id": "2496afa7-561d-4e1d-8687-891d3d2767e9"
+       }
+      ],
+      "arm_until": "2026-10-18",
+      "confidence": 0.45,
+      "entry_grade": "flip",
+      "security_id": "2496afa7-561d-4e1d-8687-891d3d2767e9",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "flip"
+     },
+     {
+      "exit_by": "2026-11-11",
+      "lapsing": true,
+      "verdict": "starter_entry",
+      "triggers": [
+       {
+        "kind": "catalyst",
+        "grade": "core",
+        "label": "Revenue growth re-accelerated — YoY +332% (up from +153%); quarterly acceleration flipped positive at the Q1 ending 2025-03-31",
+        "event_date": "2026-05-15",
+        "security_id": "98d5ed2e-23e5-4001-8bc6-5649c110893a"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Volume-backed breakout: close 0.53 cleared the 8-day high 0.46, +28% over 10d on 6.1x avg volume",
+        "event_date": "2026-10-09",
+        "security_id": "98d5ed2e-23e5-4001-8bc6-5649c110893a"
+       }
+      ],
+      "arm_until": "2026-10-19",
+      "confidence": 0.5,
+      "entry_grade": "flip",
+      "security_id": "98d5ed2e-23e5-4001-8bc6-5649c110893a",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "flip"
+     },
+     {
+      "exit_by": "2026-11-03",
+      "lapsing": true,
+      "verdict": "starter_entry",
+      "triggers": [
+       {
+        "kind": "insider",
+        "grade": "core",
+        "label": "4 insiders incl. senior officer bought $1,875,225 open-market (code P) across 4 txns",
+        "event_date": "2026-05-07",
+        "security_id": "53d13818-845b-4b94-83aa-412d3d5282c7"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Momentum-only breakout: close 31.07 cleared the 8-day high 31.05, +35% over 10d on 0.5x avg volume",
+        "event_date": "2026-10-09",
+        "security_id": "53d13818-845b-4b94-83aa-412d3d5282c7"
+       }
+      ],
+      "arm_until": "2026-10-19",
+      "confidence": 0.55,
+      "entry_grade": "flip",
+      "security_id": "53d13818-845b-4b94-83aa-412d3d5282c7",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "flip"
+     }
+    ],
+    "key_conviction": {
+     "label": "Conviction",
+     "detail": "A conviction entry trigger fired — the 'why now is real'.",
+     "turned": true
+    },
+    "conviction_grade": "core",
+    "key_confirmation": {
+     "label": "Confirmation",
+     "detail": "The market is confirming (a volume-backed breakout).",
+     "turned": true
+    },
+    "armed_security_id": "8d2020a7-b43f-4616-8a8c-bf2d6c5a7d97",
+    "confirmation_grade": "core"
+   }
+  },
+  "1332": {
+   "thesis": "The Everything Exchange",
+   "recorded_at": "2026-10-10T02:42:08.204866+00:00",
+   "reconstructed": false,
+   "card": {
+    "asof": "2026-10-09",
+    "state": "armed",
+    "exit_by": "2027-03-31",
+    "verdict": "core_entry",
+    "arm_until": "2026-11-23",
+    "thesis_id": "9e352a1f-a076-432e-8e85-1a00cee33fd9",
+    "confidence": 0.9485,
+    "expression": "CORE setup — a structural, volume-confirmed trigger with a durable edge through the exit-by. The signal is strongest among the basket's leaders (see the per-name tape).",
+    "entry_grade": "core",
+    "risk_signals": [
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 3.72 fell back below the 8-day breakout base 3.87 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-09",
+      "security_id": "e873615c-feb2-4a6e-b727-ede4a5b239ff"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 6.12 closed below the 200-day base 9.06 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-07-09",
+      "security_id": "43bbbfab-7edd-4e60-9d27-83c959e2d5a5"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 4.08 closed below the 200-day base 4.13 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-08",
+      "security_id": "5cce1229-0a4b-48a1-9bf3-8fe4180c2c99"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 0.71 fell back below the 8-day breakout base 0.95 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-09",
+      "security_id": "3fc1ce8d-ffc0-43dd-b299-4f739daeb060"
+     }
+    ],
+    "armed_members": [
+     {
+      "exit_by": "2027-03-31",
+      "lapsing": false,
+      "verdict": "core_entry",
+      "triggers": [
+       {
+        "kind": "insider",
+        "grade": "core",
+        "label": "5 insiders incl. senior officer bought $76,404,218 open-market (code P) across 10 txns",
+        "event_date": "2026-10-02",
+        "security_id": "a301bcf7-f01e-4ca2-a1c2-26409e2076d4"
+       },
+       {
+        "kind": "catalyst",
+        "grade": "core",
+        "label": "Revenue growth re-accelerated — YoY +14% (up from -14%); quarterly acceleration flipped positive at the Q1 ending 2026-05-02",
+        "event_date": "2026-06-11",
+        "security_id": "a301bcf7-f01e-4ca2-a1c2-26409e2076d4"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Momentum-only breakout: close 26.56 cleared the 8-day high 25.28, +14% over 10d on 1.5x avg volume",
+        "event_date": "2026-10-09",
+        "security_id": "a301bcf7-f01e-4ca2-a1c2-26409e2076d4"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "core",
+        "label": "52-week breakout: close 26.56 cleared the 52-week high 26.53 on 1.8x avg volume",
+        "event_date": "2026-10-09",
+        "security_id": "a301bcf7-f01e-4ca2-a1c2-26409e2076d4"
+       }
+      ],
+      "arm_until": "2026-11-23",
+      "confidence": 0.9485,
+      "entry_grade": "core",
+      "security_id": "a301bcf7-f01e-4ca2-a1c2-26409e2076d4",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "core"
+     },
+     {
+      "exit_by": "2027-02-03",
+      "lapsing": false,
+      "verdict": "core_entry",
+      "triggers": [
+       {
+        "kind": "activist_stake",
+        "grade": "core",
+        "label": "SCHEDULE 13D — Stifano Mario disclosed a >5% activist stake, 9.5% of class (filed 2026-08-07)",
+        "event_date": "2026-08-07",
+        "security_id": "3fc1ce8d-ffc0-43dd-b299-4f739daeb060"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "core",
+        "label": "Volume-backed breakout: close 1.03 cleared the 8-day high 0.95, +43% over 10d on 2.1x avg volume",
+        "event_date": "2026-10-02",
+        "security_id": "3fc1ce8d-ffc0-43dd-b299-4f739daeb060"
+       }
+      ],
+      "arm_until": "2026-10-12",
+      "confidence": 0.8313,
+      "entry_grade": "core",
+      "security_id": "3fc1ce8d-ffc0-43dd-b299-4f739daeb060",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "core"
+     },
+     {
+      "exit_by": "2026-11-10",
+      "lapsing": true,
+      "verdict": "starter_entry",
+      "triggers": [
+       {
+        "kind": "catalyst",
+        "grade": "core",
+        "label": "Revenue growth re-accelerated — YoY +12% (up from -16%); quarterly acceleration flipped positive at the Q1 ending 2026-03-31",
+        "event_date": "2026-05-14",
+        "security_id": "43bbbfab-7edd-4e60-9d27-83c959e2d5a5"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Momentum-only breakout: close 6.14 cleared the 8-day high 6.00, +14% over 10d on 0.7x avg volume",
+        "event_date": "2026-10-08",
+        "security_id": "43bbbfab-7edd-4e60-9d27-83c959e2d5a5"
+       }
+      ],
+      "arm_until": "2026-10-18",
+      "confidence": 0.41,
+      "entry_grade": "flip",
+      "security_id": "43bbbfab-7edd-4e60-9d27-83c959e2d5a5",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "flip"
+     }
+    ],
+    "key_conviction": {
+     "label": "Conviction",
+     "detail": "A conviction entry trigger fired — the 'why now is real'.",
+     "turned": true
+    },
+    "conviction_grade": "core",
+    "key_confirmation": {
+     "label": "Confirmation",
+     "detail": "The market is confirming (a volume-backed breakout).",
+     "turned": true
+    },
+    "armed_security_id": "a301bcf7-f01e-4ca2-a1c2-26409e2076d4",
+    "confirmation_grade": "core"
+   }
+  },
+  "1371": {
+   "thesis": "Nuclear Buildout",
+   "recorded_at": "2026-10-13T21:08:42.084408+00:00",
+   "reconstructed": false,
+   "card": {
+    "asof": "2026-10-12",
+    "state": "armed",
+    "exit_by": "2026-11-07",
+    "verdict": "starter_entry",
+    "arm_until": "2026-10-16",
+    "thesis_id": "a1d266b6-bf48-40db-965b-558d3be090ec",
+    "confidence": 0.55,
+    "expression": "Core (structural) thesis, but the breakout is momentum-only — volume hasn't confirmed. It completes into a confirmed core setup only when a real volume breakout lands.",
+    "entry_grade": "flip",
+    "risk_signals": [
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 9.66 closed below the 200-day base 17.00 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-06-03",
+      "security_id": "98e3cad9-a75d-40db-a683-1eec5cd6dd87"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 0.92 closed below the 200-day base 1.50 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-08-28",
+      "security_id": "7e7223f9-ffbe-4f66-a30c-6cb55631f382"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 0.29 closed below the 200-day base 0.47 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-09-01",
+      "security_id": "ac31c76a-3a2b-4973-b6bd-6fc01de412ce"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 81.28 closed below the 200-day base 91.26 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-05",
+      "security_id": "b86dc456-1bba-42b0-be67-3c13cd4978b2"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 81.28 fell back below the 8-day breakout base 87.80 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-12",
+      "security_id": "b86dc456-1bba-42b0-be67-3c13cd4978b2"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 158.13 fell back below the 8-day breakout base 160.50 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-12",
+      "security_id": "bccd43e8-6bfa-418a-b9a7-c97e1aaf624a"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 62.45 closed below the 200-day base 64.43 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-09-18",
+      "security_id": "de392033-1478-4ee9-9f83-43732ea039bb"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 13.16 closed below the 200-day base 16.44 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-08-28",
+      "security_id": "f55da4d5-b873-4943-a552-7b3026b00ca3"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 70.65 closed below the 200-day base 76.40 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-09-24",
+      "security_id": "e8ff1562-99a2-4402-a06c-994667aa6006"
+     }
+    ],
+    "armed_members": [
+     {
+      "exit_by": "2026-11-07",
+      "lapsing": true,
+      "verdict": "starter_entry",
+      "triggers": [
+       {
+        "kind": "catalyst",
+        "grade": "core",
+        "label": "Revenue growth re-accelerated — YoY +10% (up from -7%); quarterly acceleration flipped positive at the Q1 ending 2025-03-31",
+        "event_date": "2026-05-11",
+        "security_id": "e875c4c2-a6c6-485c-8c31-3ae61bbe348f"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Volume-backed breakout: close 300.40 cleared the 8-day high 267.62, +14% over 10d on 4.6x avg volume",
+        "event_date": "2026-10-06",
+        "security_id": "e875c4c2-a6c6-485c-8c31-3ae61bbe348f"
+       }
+      ],
+      "arm_until": "2026-10-16",
+      "confidence": 0.55,
+      "entry_grade": "flip",
+      "security_id": "e875c4c2-a6c6-485c-8c31-3ae61bbe348f",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "flip"
+     },
+     {
+      "exit_by": "2026-10-20",
+      "lapsing": true,
+      "verdict": "starter_entry",
+      "triggers": [
+       {
+        "kind": "insider",
+        "grade": "flip",
+        "label": "1 insider incl. senior officer bought $91,500 open-market (code P) across 1 txns",
+        "event_date": "2026-09-30",
+        "security_id": "f55da4d5-b873-4943-a552-7b3026b00ca3"
+       },
+       {
+        "kind": "catalyst",
+        "grade": "core",
+        "label": "Revenue growth re-accelerated — YoY +15% (up from +3%); quarterly acceleration flipped positive at the Q1 ending 2026-03-31",
+        "event_date": "2026-04-23",
+        "security_id": "f55da4d5-b873-4943-a552-7b3026b00ca3"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Momentum-only breakout: close 13.16 cleared the 8-day high 13.13, +10% over 10d on 0.5x avg volume",
+        "event_date": "2026-10-12",
+        "security_id": "f55da4d5-b873-4943-a552-7b3026b00ca3"
+       }
+      ],
+      "arm_until": "2026-10-22",
+      "confidence": 0.47,
+      "entry_grade": "flip",
+      "security_id": "f55da4d5-b873-4943-a552-7b3026b00ca3",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "flip"
+     },
+     {
+      "exit_by": "2026-10-19",
+      "lapsing": true,
+      "verdict": "starter_entry",
+      "triggers": [
+       {
+        "kind": "catalyst",
+        "grade": "core",
+        "label": "Revenue growth re-accelerated — YoY +11% (up from +5%); quarterly acceleration flipped positive at the Q1 ending 2025-03-31",
+        "event_date": "2026-04-22",
+        "security_id": "fb56e3d1-15d8-4175-9b3d-d79709a9d958"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Momentum-only breakout: close 1029.21 cleared the 8-day high 990.00, +8% over 10d on 1.4x avg volume",
+        "event_date": "2026-10-06",
+        "security_id": "fb56e3d1-15d8-4175-9b3d-d79709a9d958"
+       }
+      ],
+      "arm_until": "2026-10-16",
+      "confidence": 0.55,
+      "entry_grade": "flip",
+      "security_id": "fb56e3d1-15d8-4175-9b3d-d79709a9d958",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "flip"
+     }
+    ],
+    "key_conviction": {
+     "label": "Conviction",
+     "detail": "A conviction entry trigger fired — the 'why now is real'.",
+     "turned": true
+    },
+    "conviction_grade": "core",
+    "key_confirmation": {
+     "label": "Confirmation",
+     "detail": "Momentum-only — not yet volume-confirmed.",
+     "turned": true
+    },
+    "armed_security_id": "e875c4c2-a6c6-485c-8c31-3ae61bbe348f",
+    "confirmation_grade": "flip"
+   }
+  },
+  "1372": {
+   "thesis": "Rainbow Rush",
+   "recorded_at": "2026-10-13T21:10:56.219406+00:00",
+   "reconstructed": false,
+   "card": {
+    "asof": "2026-10-12",
+    "state": "armed",
+    "exit_by": "2027-03-28",
+    "verdict": "core_entry",
+    "arm_until": "2026-11-01",
+    "thesis_id": "e7aa7aa2-b61f-46e3-b745-7b66ac95b2ed",
+    "confidence": 0.9985,
+    "expression": "CORE setup — a structural, volume-confirmed trigger with a durable edge through the exit-by. The signal is strongest among the basket's leaders (see the per-name tape).",
+    "entry_grade": "core",
+    "risk_signals": [
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 2.51 fell back below the 8-day breakout base 3.31 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-12",
+      "security_id": "d79f8e74-9d4a-41b2-a22f-d284f8154135"
+     }
+    ],
+    "armed_members": [
+     {
+      "exit_by": "2027-03-28",
+      "lapsing": false,
+      "verdict": "core_entry",
+      "triggers": [
+       {
+        "kind": "insider",
+        "grade": "core",
+        "label": "4 insiders incl. senior officer bought $9,670,162 open-market (code P) across 9 txns",
+        "event_date": "2026-09-29",
+        "security_id": "8d2020a7-b43f-4616-8a8c-bf2d6c5a7d97"
+       },
+       {
+        "kind": "activist_stake",
+        "grade": "core",
+        "label": "SCHEDULE 13D — So Eric H. L. disclosed a >5% activist stake, 5.8% of class (filed 2026-09-09)",
+        "event_date": "2026-09-09",
+        "security_id": "8d2020a7-b43f-4616-8a8c-bf2d6c5a7d97"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "core",
+        "label": "52-week breakout: close 14.02 cleared the 52-week high 13.98 on 1.9x avg volume",
+        "event_date": "2026-09-17",
+        "security_id": "8d2020a7-b43f-4616-8a8c-bf2d6c5a7d97"
+       }
+      ],
+      "arm_until": "2026-11-01",
+      "confidence": 0.9985,
+      "entry_grade": "core",
+      "security_id": "8d2020a7-b43f-4616-8a8c-bf2d6c5a7d97",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "core"
+     },
+     {
+      "exit_by": "2027-03-14",
+      "lapsing": false,
+      "verdict": "starter_entry",
+      "triggers": [
+       {
+        "kind": "activist_stake",
+        "grade": "core",
+        "label": "SCHEDULE 13D — Venrock Healthcare Capital Partners III, L.P. disclosed a >5% activist stake, 9.9% of class (filed 2026-09-15)",
+        "event_date": "2026-09-15",
+        "security_id": "915700da-2832-485c-8d93-ff05b3d72f4c"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Momentum-only breakout: close 34.04 cleared the 8-day high 33.92, +10% over 10d on 0.8x avg volume",
+        "event_date": "2026-10-12",
+        "security_id": "915700da-2832-485c-8d93-ff05b3d72f4c"
+       }
+      ],
+      "arm_until": "2026-10-22",
+      "confidence": 0.45,
+      "entry_grade": "flip",
+      "security_id": "915700da-2832-485c-8d93-ff05b3d72f4c",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "flip"
+     },
+     {
+      "exit_by": "2026-11-11",
+      "lapsing": true,
+      "verdict": "core_entry",
+      "triggers": [
+       {
+        "kind": "catalyst",
+        "grade": "core",
+        "label": "Revenue growth re-accelerated — YoY +332% (up from +153%); quarterly acceleration flipped positive at the Q1 ending 2025-03-31",
+        "event_date": "2026-05-15",
+        "security_id": "98d5ed2e-23e5-4001-8bc6-5649c110893a"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "core",
+        "label": "Volume-backed breakout: close 0.56 cleared the 8-day high 0.53, +39% over 10d on 1.8x avg volume",
+        "event_date": "2026-10-12",
+        "security_id": "98d5ed2e-23e5-4001-8bc6-5649c110893a"
+       }
+      ],
+      "arm_until": "2026-10-22",
+      "confidence": 0.9365,
+      "entry_grade": "core",
+      "security_id": "98d5ed2e-23e5-4001-8bc6-5649c110893a",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "core"
+     },
+     {
+      "exit_by": "2026-11-03",
+      "lapsing": true,
+      "verdict": "starter_entry",
+      "triggers": [
+       {
+        "kind": "insider",
+        "grade": "core",
+        "label": "4 insiders incl. senior officer bought $1,875,225 open-market (code P) across 4 txns",
+        "event_date": "2026-05-07",
+        "security_id": "53d13818-845b-4b94-83aa-412d3d5282c7"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Momentum-only breakout: close 31.10 cleared the 8-day high 31.07, +36% over 10d on 0.4x avg volume",
+        "event_date": "2026-10-12",
+        "security_id": "53d13818-845b-4b94-83aa-412d3d5282c7"
+       }
+      ],
+      "arm_until": "2026-10-22",
+      "confidence": 0.55,
+      "entry_grade": "flip",
+      "security_id": "53d13818-845b-4b94-83aa-412d3d5282c7",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "flip"
+     }
+    ],
+    "key_conviction": {
+     "label": "Conviction",
+     "detail": "A conviction entry trigger fired — the 'why now is real'.",
+     "turned": true
+    },
+    "conviction_grade": "core",
+    "key_confirmation": {
+     "label": "Confirmation",
+     "detail": "The market is confirming (a volume-backed breakout).",
+     "turned": true
+    },
+    "armed_security_id": "8d2020a7-b43f-4616-8a8c-bf2d6c5a7d97",
+    "confirmation_grade": "core"
+   }
+  },
+  "1374": {
+   "thesis": "The Everything Exchange",
+   "recorded_at": "2026-10-13T21:13:12.712161+00:00",
+   "reconstructed": false,
+   "card": {
+    "asof": "2026-10-12",
+    "state": "armed",
+    "exit_by": "2027-03-31",
+    "verdict": "core_entry",
+    "arm_until": "2026-11-23",
+    "thesis_id": "9e352a1f-a076-432e-8e85-1a00cee33fd9",
+    "confidence": 0.9485,
+    "expression": "CORE setup — a structural, volume-confirmed trigger with a durable edge through the exit-by. The signal is strongest among the basket's leaders (see the per-name tape).",
+    "entry_grade": "core",
+    "risk_signals": [
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 277.24 closed below the 200-day base 278.49 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-12",
+      "security_id": "58e75255-eba7-4d3e-ada9-71f3a9579d7e"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 3.71 fell back below the 8-day breakout base 3.87 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-12",
+      "security_id": "e873615c-feb2-4a6e-b727-ede4a5b239ff"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 5.96 closed below the 200-day base 9.02 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-07-09",
+      "security_id": "43bbbfab-7edd-4e60-9d27-83c959e2d5a5"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 5.96 fell back below the 8-day breakout base 6.00 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-12",
+      "security_id": "43bbbfab-7edd-4e60-9d27-83c959e2d5a5"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 4.11 closed below the 200-day base 4.13 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-08",
+      "security_id": "5cce1229-0a4b-48a1-9bf3-8fe4180c2c99"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 0.73 fell back below the 8-day breakout base 0.95 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-12",
+      "security_id": "3fc1ce8d-ffc0-43dd-b299-4f739daeb060"
+     }
+    ],
+    "armed_members": [
+     {
+      "exit_by": "2027-03-31",
+      "lapsing": false,
+      "verdict": "core_entry",
+      "triggers": [
+       {
+        "kind": "insider",
+        "grade": "core",
+        "label": "5 insiders incl. senior officer bought $76,404,218 open-market (code P) across 10 txns",
+        "event_date": "2026-10-02",
+        "security_id": "a301bcf7-f01e-4ca2-a1c2-26409e2076d4"
+       },
+       {
+        "kind": "catalyst",
+        "grade": "core",
+        "label": "Revenue growth re-accelerated — YoY +14% (up from -14%); quarterly acceleration flipped positive at the Q1 ending 2026-05-02",
+        "event_date": "2026-06-11",
+        "security_id": "a301bcf7-f01e-4ca2-a1c2-26409e2076d4"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Momentum-only breakout: close 27.23 cleared the 8-day high 26.56, +14% over 10d on 0.8x avg volume",
+        "event_date": "2026-10-12",
+        "security_id": "a301bcf7-f01e-4ca2-a1c2-26409e2076d4"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "core",
+        "label": "52-week breakout: close 26.56 cleared the 52-week high 26.53 on 1.8x avg volume",
+        "event_date": "2026-10-09",
+        "security_id": "a301bcf7-f01e-4ca2-a1c2-26409e2076d4"
+       }
+      ],
+      "arm_until": "2026-11-23",
+      "confidence": 0.9485,
+      "entry_grade": "core",
+      "security_id": "a301bcf7-f01e-4ca2-a1c2-26409e2076d4",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "core"
+     },
+     {
+      "exit_by": "2027-02-03",
+      "lapsing": false,
+      "verdict": "core_entry",
+      "triggers": [
+       {
+        "kind": "activist_stake",
+        "grade": "core",
+        "label": "SCHEDULE 13D — Stifano Mario disclosed a >5% activist stake, 9.5% of class (filed 2026-08-07)",
+        "event_date": "2026-08-07",
+        "security_id": "3fc1ce8d-ffc0-43dd-b299-4f739daeb060"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "core",
+        "label": "Volume-backed breakout: close 1.03 cleared the 8-day high 0.95, +43% over 10d on 2.1x avg volume",
+        "event_date": "2026-10-02",
+        "security_id": "3fc1ce8d-ffc0-43dd-b299-4f739daeb060"
+       }
+      ],
+      "arm_until": "2026-10-12",
+      "confidence": 0.8313,
+      "entry_grade": "core",
+      "security_id": "3fc1ce8d-ffc0-43dd-b299-4f739daeb060",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "core"
+     },
+     {
+      "exit_by": "2026-12-08",
+      "lapsing": false,
+      "verdict": "starter_entry",
+      "triggers": [
+       {
+        "kind": "insider",
+        "grade": "core",
+        "label": "2 insiders incl. senior officer bought $1,193,556 open-market (code P) across 3 txns",
+        "event_date": "2026-06-11",
+        "security_id": "05c9e795-e399-4a40-ab89-be6379bc4ac2"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Momentum-only breakout: close 1892.44 cleared the 8-day high 1889.85, +11% over 10d on 0.7x avg volume",
+        "event_date": "2026-10-12",
+        "security_id": "05c9e795-e399-4a40-ab89-be6379bc4ac2"
+       }
+      ],
+      "arm_until": "2026-10-22",
+      "confidence": 0.55,
+      "entry_grade": "flip",
+      "security_id": "05c9e795-e399-4a40-ab89-be6379bc4ac2",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "flip"
+     }
+    ],
+    "key_conviction": {
+     "label": "Conviction",
+     "detail": "A conviction entry trigger fired — the 'why now is real'.",
+     "turned": true
+    },
+    "conviction_grade": "core",
+    "key_confirmation": {
+     "label": "Confirmation",
+     "detail": "The market is confirming (a volume-backed breakout).",
+     "turned": true
+    },
+    "armed_security_id": "a301bcf7-f01e-4ca2-a1c2-26409e2076d4",
+    "confirmation_grade": "core"
+   }
+  },
+  "1404": {
+   "thesis": "Modern Defense",
+   "recorded_at": "2026-10-16T02:36:49.206283+00:00",
+   "reconstructed": false,
+   "card": {
+    "asof": "2026-10-15",
+    "state": "armed",
+    "exit_by": "2027-03-13",
+    "verdict": "core_entry",
+    "arm_until": "2026-10-26",
+    "thesis_id": "41c022c7-62d5-4b5f-bd67-3748ce43c12a",
+    "confidence": 0.945,
+    "expression": "CORE setup — a structural, volume-confirmed trigger with a durable edge through the exit-by. The signal is strongest among the basket's leaders (see the per-name tape).",
+    "entry_grade": "core",
+    "risk_signals": [
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 532.64 closed below the 200-day base 564.31 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-09-01",
+      "security_id": "f906fbdc-e7f5-4d56-8911-dc9d2049d9a7"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 26.76 closed below the 200-day base 31.96 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-09-29",
+      "security_id": "71e2d57d-99da-41fe-9983-cfe62aa580fc"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 55.25 closed below the 200-day base 81.36 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-08-19",
+      "security_id": "9300b56e-f39b-43b7-989d-e68bb37440f7"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 4.11 closed below the 200-day base 5.25 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-08",
+      "security_id": "724c9651-b35f-435e-a0c1-42d0abc27a5f"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 5.40 fell back below the 8-day breakout base 5.74 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-15",
+      "security_id": "8c8260eb-b4c5-49aa-884a-81b78a12fe42"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 14.09 closed below the 200-day base 14.69 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-14",
+      "security_id": "4fe9e619-9400-4587-be23-f35bc48e0f49"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 14.09 fell back below the 8-day breakout base 18.47 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-15",
+      "security_id": "4fe9e619-9400-4587-be23-f35bc48e0f49"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 61.57 closed below the 200-day base 65.58 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-07",
+      "security_id": "241e316b-f721-4cbb-91e7-346908c5c1c5"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 11.89 fell back below the 8-day breakout base 12.69 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-15",
+      "security_id": "cf0d2c46-67a5-45e8-a6f5-7b2263ebd7ff"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 6.95 closed below the 200-day base 9.55 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-06-05",
+      "security_id": "ce7915ae-1d83-42af-9720-68d5a8776ba0"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 5.85 closed below the 200-day base 6.12 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-14",
+      "security_id": "833133d4-bd14-4356-b244-e7af0b84fa62"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 5.85 fell back below the 8-day breakout base 7.22 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-15",
+      "security_id": "833133d4-bd14-4356-b244-e7af0b84fa62"
+     }
+    ],
+    "armed_members": [
+     {
+      "exit_by": "2027-03-13",
+      "lapsing": false,
+      "verdict": "core_entry",
+      "triggers": [
+       {
+        "kind": "catalyst",
+        "grade": "core",
+        "label": "Revenue growth re-accelerated — YoY +70% (up from -23%); quarterly acceleration flipped positive at the Q1 ending 2026-07-31",
+        "event_date": "2026-09-14",
+        "security_id": "d0bc4fb0-94ea-40db-bc50-d7defb8dee23"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "core",
+        "label": "52-week breakout: close 88.38 cleared the 52-week high 79.85 on 4.9x avg volume",
+        "event_date": "2026-09-11",
+        "security_id": "d0bc4fb0-94ea-40db-bc50-d7defb8dee23"
+       }
+      ],
+      "arm_until": "2026-10-26",
+      "confidence": 0.945,
+      "entry_grade": "core",
+      "security_id": "d0bc4fb0-94ea-40db-bc50-d7defb8dee23",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "core"
+     },
+     {
+      "exit_by": "2027-02-09",
+      "lapsing": false,
+      "verdict": "core_entry",
+      "triggers": [
+       {
+        "kind": "catalyst",
+        "grade": "core",
+        "label": "Revenue growth re-accelerated — YoY +23% (up from -15%); quarterly acceleration flipped positive at the Q1 ending 2026-06-30",
+        "event_date": "2026-08-13",
+        "security_id": "8c8260eb-b4c5-49aa-884a-81b78a12fe42"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "core",
+        "label": "Volume-backed breakout: close 5.82 cleared the 8-day high 5.74, +11% over 10d on 1.9x avg volume",
+        "event_date": "2026-10-08",
+        "security_id": "8c8260eb-b4c5-49aa-884a-81b78a12fe42"
+       }
+      ],
+      "arm_until": "2026-10-18",
+      "confidence": 0.8841,
+      "entry_grade": "core",
+      "security_id": "8c8260eb-b4c5-49aa-884a-81b78a12fe42",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "core"
+     },
+     {
+      "exit_by": "2027-01-31",
+      "lapsing": false,
+      "verdict": "core_entry",
+      "triggers": [
+       {
+        "kind": "catalyst",
+        "grade": "core",
+        "label": "Revenue growth re-accelerated — YoY +12% (up from +10%); quarterly acceleration flipped positive at the Q2 ending 2026-06-30",
+        "event_date": "2026-08-04",
+        "security_id": "67777a3f-1839-43bb-9dc0-9b8efdea70c9"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "core",
+        "label": "Volume-backed breakout: close 21.04 cleared the 8-day high 19.89, +13% over 10d on 1.9x avg volume",
+        "event_date": "2026-10-05",
+        "security_id": "67777a3f-1839-43bb-9dc0-9b8efdea70c9"
+       }
+      ],
+      "arm_until": "2026-10-15",
+      "confidence": 0.9815,
+      "entry_grade": "core",
+      "security_id": "67777a3f-1839-43bb-9dc0-9b8efdea70c9",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "core"
+     },
+     {
+      "exit_by": "2027-03-31",
+      "lapsing": false,
+      "verdict": "starter_entry",
+      "triggers": [
+       {
+        "kind": "insider",
+        "grade": "core",
+        "label": "3 insiders incl. senior officer bought $370,641 open-market (code P) across 12 txns",
+        "event_date": "2026-10-02",
+        "security_id": "94bacbda-abea-4a5c-9489-2ec2893d583a"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Momentum-only breakout: close 4.77 cleared the 8-day high 4.64, +15% over 10d on 0.4x avg volume",
+        "event_date": "2026-10-15",
+        "security_id": "94bacbda-abea-4a5c-9489-2ec2893d583a"
+       }
+      ],
+      "arm_until": "2026-10-25",
+      "confidence": 0.55,
+      "entry_grade": "flip",
+      "security_id": "94bacbda-abea-4a5c-9489-2ec2893d583a",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "flip"
+     }
+    ],
+    "key_conviction": {
+     "label": "Conviction",
+     "detail": "A conviction entry trigger fired — the 'why now is real'.",
+     "turned": true
+    },
+    "conviction_grade": "core",
+    "key_confirmation": {
+     "label": "Confirmation",
+     "detail": "The market is confirming (a volume-backed breakout).",
+     "turned": true
+    },
+    "armed_security_id": "d0bc4fb0-94ea-40db-bc50-d7defb8dee23",
+    "confirmation_grade": "core"
+   }
+  },
+  "1406": {
+   "thesis": "Navy Shipbuilding Rebuild",
+   "recorded_at": "2026-10-16T02:36:57.468425+00:00",
+   "reconstructed": false,
+   "card": {
+    "asof": "2026-10-15",
+    "state": "warming",
+    "exit_by": "2027-01-26",
+    "verdict": "not_yet",
+    "arm_until": null,
+    "thesis_id": "e124fe10-6a19-4fab-9d3c-6eeb66333397",
+    "confidence": null,
+    "expression": "Not yet — hold for a volume-confirmed breakout before entering.",
+    "entry_grade": "core",
+    "risk_signals": [
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 532.64 closed below the 200-day base 564.31 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-09-01",
+      "security_id": "f906fbdc-e7f5-4d56-8911-dc9d2049d9a7"
+     }
+    ],
+    "armed_members": [],
+    "key_conviction": {
+     "label": "Conviction",
+     "detail": "A conviction entry trigger fired — the 'why now is real'.",
+     "turned": true
+    },
+    "conviction_grade": "core",
+    "key_confirmation": {
+     "label": "Confirmation",
+     "detail": "Awaiting market confirmation.",
+     "turned": false
+    },
+    "armed_security_id": null,
+    "confirmation_grade": null
+   }
+  },
+  "1410": {
+   "thesis": "The Everything Exchange",
+   "recorded_at": "2026-10-16T02:40:09.27758+00:00",
+   "reconstructed": false,
+   "card": {
+    "asof": "2026-10-15",
+    "state": "armed",
+    "exit_by": "2027-04-11",
+    "verdict": "core_entry",
+    "arm_until": "2026-11-23",
+    "thesis_id": "9e352a1f-a076-432e-8e85-1a00cee33fd9",
+    "confidence": 0.9485,
+    "expression": "CORE setup — a structural, volume-confirmed trigger with a durable edge through the exit-by. The signal is strongest among the basket's leaders (see the per-name tape).",
+    "entry_grade": "core",
+    "risk_signals": [
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 1856.98 fell back below the 8-day breakout base 1889.85 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-15",
+      "security_id": "05c9e795-e399-4a40-ab89-be6379bc4ac2"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 5.76 closed below the 200-day base 8.91 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-07-09",
+      "security_id": "43bbbfab-7edd-4e60-9d27-83c959e2d5a5"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 5.76 fell back below the 8-day breakout base 6.00 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-15",
+      "security_id": "43bbbfab-7edd-4e60-9d27-83c959e2d5a5"
+     }
+    ],
+    "armed_members": [
+     {
+      "exit_by": "2027-04-11",
+      "lapsing": false,
+      "verdict": "core_entry",
+      "triggers": [
+       {
+        "kind": "insider",
+        "grade": "core",
+        "label": "3 insiders incl. senior officer bought $77,473,014 open-market (code P) across 8 txns",
+        "event_date": "2026-10-13",
+        "security_id": "a301bcf7-f01e-4ca2-a1c2-26409e2076d4"
+       },
+       {
+        "kind": "catalyst",
+        "grade": "core",
+        "label": "Revenue growth re-accelerated — YoY +14% (up from -14%); quarterly acceleration flipped positive at the Q1 ending 2026-05-02",
+        "event_date": "2026-06-11",
+        "security_id": "a301bcf7-f01e-4ca2-a1c2-26409e2076d4"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Momentum-only breakout: close 28.02 cleared the 8-day high 27.23, +16% over 10d on 1.0x avg volume",
+        "event_date": "2026-10-15",
+        "security_id": "a301bcf7-f01e-4ca2-a1c2-26409e2076d4"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "core",
+        "label": "52-week breakout: close 26.56 cleared the 52-week high 26.53 on 1.8x avg volume",
+        "event_date": "2026-10-09",
+        "security_id": "a301bcf7-f01e-4ca2-a1c2-26409e2076d4"
+       }
+      ],
+      "arm_until": "2026-11-23",
+      "confidence": 0.9485,
+      "entry_grade": "core",
+      "security_id": "a301bcf7-f01e-4ca2-a1c2-26409e2076d4",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "core"
+     },
+     {
+      "exit_by": "2027-04-12",
+      "lapsing": false,
+      "verdict": "starter_entry",
+      "triggers": [
+       {
+        "kind": "insider",
+        "grade": "core",
+        "label": "1 insider incl. senior officer bought $797,268 open-market (code P) across 21 txns",
+        "event_date": "2026-10-14",
+        "security_id": "5cce1229-0a4b-48a1-9bf3-8fe4180c2c99"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Momentum-only breakout: close 4.50 cleared the 8-day high 4.42, +9% over 10d on 1.3x avg volume",
+        "event_date": "2026-10-15",
+        "security_id": "5cce1229-0a4b-48a1-9bf3-8fe4180c2c99"
+       }
+      ],
+      "arm_until": "2026-10-25",
+      "confidence": 0.55,
+      "entry_grade": "flip",
+      "security_id": "5cce1229-0a4b-48a1-9bf3-8fe4180c2c99",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "flip"
+     },
+     {
+      "exit_by": "2027-03-07",
+      "lapsing": false,
+      "verdict": "starter_entry",
+      "triggers": [
+       {
+        "kind": "activist_stake",
+        "grade": "core",
+        "label": "SCHEDULE 13D — Gratitude 2022 Trust U/A/D 8/26/22 disclosed a >5% activist stake, 10.8% of class (filed 2026-09-08)",
+        "event_date": "2026-09-08",
+        "security_id": "e873615c-feb2-4a6e-b727-ede4a5b239ff"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Momentum-only breakout: close 4.01 cleared the 8-day high 3.87, +14% over 10d on 1.3x avg volume",
+        "event_date": "2026-10-08",
+        "security_id": "e873615c-feb2-4a6e-b727-ede4a5b239ff"
+       }
+      ],
+      "arm_until": "2026-10-18",
+      "confidence": 0.55,
+      "entry_grade": "flip",
+      "security_id": "e873615c-feb2-4a6e-b727-ede4a5b239ff",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "flip"
+     },
+     {
+      "exit_by": "2027-01-31",
+      "lapsing": false,
+      "verdict": "starter_entry",
+      "triggers": [
+       {
+        "kind": "insider",
+        "grade": "core",
+        "label": "1 insider incl. senior officer bought $2,489,837 open-market (code P) across 1 txns",
+        "event_date": "2026-08-04",
+        "security_id": "029877b2-f6ca-4f39-ba3c-33d759c1249a"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Momentum-only breakout: close 32.00 cleared the 8-day high 30.11, +15% over 10d on 1.0x avg volume",
+        "event_date": "2026-10-15",
+        "security_id": "029877b2-f6ca-4f39-ba3c-33d759c1249a"
+       }
+      ],
+      "arm_until": "2026-10-25",
+      "confidence": 0.5031,
+      "entry_grade": "flip",
+      "security_id": "029877b2-f6ca-4f39-ba3c-33d759c1249a",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "flip"
+     },
+     {
+      "exit_by": "2026-10-21",
+      "lapsing": true,
+      "verdict": "starter_entry",
+      "triggers": [
+       {
+        "kind": "catalyst",
+        "grade": "core",
+        "label": "Revenue growth re-accelerated — YoY +10% (up from +6%); quarterly acceleration flipped positive at the Q1 ending 2025-03-31",
+        "event_date": "2026-04-24",
+        "security_id": "58e75255-eba7-4d3e-ada9-71f3a9579d7e"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Momentum-only breakout: close 289.46 cleared the 8-day high 285.59, +9% over 10d on 1.1x avg volume",
+        "event_date": "2026-10-15",
+        "security_id": "58e75255-eba7-4d3e-ada9-71f3a9579d7e"
+       }
+      ],
+      "arm_until": "2026-10-25",
+      "confidence": 0.49,
+      "entry_grade": "flip",
+      "security_id": "58e75255-eba7-4d3e-ada9-71f3a9579d7e",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "flip"
+     }
+    ],
+    "key_conviction": {
+     "label": "Conviction",
+     "detail": "A conviction entry trigger fired — the 'why now is real'.",
+     "turned": true
+    },
+    "conviction_grade": "core",
+    "key_confirmation": {
+     "label": "Confirmation",
+     "detail": "The market is confirming (a volume-backed breakout).",
+     "turned": true
+    },
+    "armed_security_id": "a301bcf7-f01e-4ca2-a1c2-26409e2076d4",
+    "confirmation_grade": "core"
+   }
+  },
+  "1416": {
+   "thesis": "Modern Defense",
+   "recorded_at": "2026-10-17T02:39:01.515608+00:00",
+   "reconstructed": false,
+   "card": {
+    "asof": "2026-10-16",
+    "state": "armed",
+    "exit_by": "2027-03-13",
+    "verdict": "core_entry",
+    "arm_until": "2026-10-26",
+    "thesis_id": "41c022c7-62d5-4b5f-bd67-3748ce43c12a",
+    "confidence": 0.945,
+    "expression": "CORE setup — a structural, volume-confirmed trigger with a durable edge through the exit-by. The signal is strongest among the basket's leaders (see the per-name tape).",
+    "entry_grade": "core",
+    "risk_signals": [
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 552.09 closed below the 200-day base 564.63 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-09-01",
+      "security_id": "f906fbdc-e7f5-4d56-8911-dc9d2049d9a7"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 25.35 closed below the 200-day base 31.95 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-09-29",
+      "security_id": "71e2d57d-99da-41fe-9983-cfe62aa580fc"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 50.84 closed below the 200-day base 81.26 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-08-19",
+      "security_id": "9300b56e-f39b-43b7-989d-e68bb37440f7"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 3.29 closed below the 200-day base 3.75 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-16",
+      "security_id": "d5ebfae2-5733-4def-9134-bc76979b4f96"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 3.84 closed below the 200-day base 5.26 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-08",
+      "security_id": "724c9651-b35f-435e-a0c1-42d0abc27a5f"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 5.43 fell back below the 8-day breakout base 5.74 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-16",
+      "security_id": "8c8260eb-b4c5-49aa-884a-81b78a12fe42"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 13.00 closed below the 200-day base 14.72 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-14",
+      "security_id": "4fe9e619-9400-4587-be23-f35bc48e0f49"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 13.00 fell back below the 8-day breakout base 18.47 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-16",
+      "security_id": "4fe9e619-9400-4587-be23-f35bc48e0f49"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 61.53 closed below the 200-day base 65.67 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-07",
+      "security_id": "241e316b-f721-4cbb-91e7-346908c5c1c5"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 6.97 closed below the 200-day base 9.55 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-06-05",
+      "security_id": "ce7915ae-1d83-42af-9720-68d5a8776ba0"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 5.61 closed below the 200-day base 6.12 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-14",
+      "security_id": "833133d4-bd14-4356-b244-e7af0b84fa62"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 5.61 fell back below the 8-day breakout base 7.22 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-16",
+      "security_id": "833133d4-bd14-4356-b244-e7af0b84fa62"
+     }
+    ],
+    "armed_members": [
+     {
+      "exit_by": "2027-03-13",
+      "lapsing": false,
+      "verdict": "core_entry",
+      "triggers": [
+       {
+        "kind": "catalyst",
+        "grade": "core",
+        "label": "Revenue growth re-accelerated — YoY +70% (up from -23%); quarterly acceleration flipped positive at the Q1 ending 2026-07-31",
+        "event_date": "2026-09-14",
+        "security_id": "d0bc4fb0-94ea-40db-bc50-d7defb8dee23"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "core",
+        "label": "52-week breakout: close 88.38 cleared the 52-week high 79.85 on 4.9x avg volume",
+        "event_date": "2026-09-11",
+        "security_id": "d0bc4fb0-94ea-40db-bc50-d7defb8dee23"
+       }
+      ],
+      "arm_until": "2026-10-26",
+      "confidence": 0.945,
+      "entry_grade": "core",
+      "security_id": "d0bc4fb0-94ea-40db-bc50-d7defb8dee23",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "core"
+     },
+     {
+      "exit_by": "2027-02-09",
+      "lapsing": false,
+      "verdict": "core_entry",
+      "triggers": [
+       {
+        "kind": "catalyst",
+        "grade": "core",
+        "label": "Revenue growth re-accelerated — YoY +23% (up from -15%); quarterly acceleration flipped positive at the Q1 ending 2026-06-30",
+        "event_date": "2026-08-13",
+        "security_id": "8c8260eb-b4c5-49aa-884a-81b78a12fe42"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "core",
+        "label": "Volume-backed breakout: close 5.82 cleared the 8-day high 5.74, +11% over 10d on 1.9x avg volume",
+        "event_date": "2026-10-08",
+        "security_id": "8c8260eb-b4c5-49aa-884a-81b78a12fe42"
+       }
+      ],
+      "arm_until": "2026-10-18",
+      "confidence": 0.8841,
+      "entry_grade": "core",
+      "security_id": "8c8260eb-b4c5-49aa-884a-81b78a12fe42",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "core"
+     },
+     {
+      "exit_by": "2027-01-19",
+      "lapsing": false,
+      "verdict": "core_entry",
+      "triggers": [
+       {
+        "kind": "catalyst",
+        "grade": "core",
+        "label": "Revenue growth re-accelerated — YoY +11% (up from +0%); quarterly acceleration flipped positive at the Q2 ending 2026-06-28",
+        "event_date": "2026-07-23",
+        "security_id": "f906fbdc-e7f5-4d56-8911-dc9d2049d9a7"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "core",
+        "label": "Volume-backed breakout: close 552.09 cleared the 8-day high 532.64, +9% over 10d on 1.5x avg volume",
+        "event_date": "2026-10-16",
+        "security_id": "f906fbdc-e7f5-4d56-8911-dc9d2049d9a7"
+       }
+      ],
+      "arm_until": "2026-10-26",
+      "confidence": 0.8883,
+      "entry_grade": "core",
+      "security_id": "f906fbdc-e7f5-4d56-8911-dc9d2049d9a7",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "core"
+     },
+     {
+      "exit_by": "2027-03-31",
+      "lapsing": false,
+      "verdict": "starter_entry",
+      "triggers": [
+       {
+        "kind": "insider",
+        "grade": "core",
+        "label": "3 insiders incl. senior officer bought $370,641 open-market (code P) across 12 txns",
+        "event_date": "2026-10-02",
+        "security_id": "94bacbda-abea-4a5c-9489-2ec2893d583a"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Momentum-only breakout: close 4.88 cleared the 8-day high 4.78, +18% over 10d on 0.3x avg volume",
+        "event_date": "2026-10-16",
+        "security_id": "94bacbda-abea-4a5c-9489-2ec2893d583a"
+       }
+      ],
+      "arm_until": "2026-10-26",
+      "confidence": 0.55,
+      "entry_grade": "flip",
+      "security_id": "94bacbda-abea-4a5c-9489-2ec2893d583a",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "flip"
+     },
+     {
+      "exit_by": "2027-02-28",
+      "lapsing": false,
+      "verdict": "starter_entry",
+      "triggers": [
+       {
+        "kind": "insider",
+        "grade": "core",
+        "label": "1 insider incl. senior officer bought $998,400 open-market (code P) across 1 txns",
+        "event_date": "2026-09-01",
+        "security_id": "6258a3a0-404c-4b94-931b-3243f65874d6"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Volume-backed breakout: close 168.09 cleared the 8-day high 163.11, +9% over 10d on 2.3x avg volume",
+        "event_date": "2026-10-16",
+        "security_id": "6258a3a0-404c-4b94-931b-3243f65874d6"
+       }
+      ],
+      "arm_until": "2026-10-26",
+      "confidence": 0.55,
+      "entry_grade": "flip",
+      "security_id": "6258a3a0-404c-4b94-931b-3243f65874d6",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "flip"
+     }
+    ],
+    "key_conviction": {
+     "label": "Conviction",
+     "detail": "A conviction entry trigger fired — the 'why now is real'.",
+     "turned": true
+    },
+    "conviction_grade": "core",
+    "key_confirmation": {
+     "label": "Confirmation",
+     "detail": "The market is confirming (a volume-backed breakout).",
+     "turned": true
+    },
+    "armed_security_id": "d0bc4fb0-94ea-40db-bc50-d7defb8dee23",
+    "confirmation_grade": "core"
+   }
+  },
+  "1418": {
+   "thesis": "Navy Shipbuilding Rebuild",
+   "recorded_at": "2026-10-17T02:39:10.004993+00:00",
+   "reconstructed": false,
+   "card": {
+    "asof": "2026-10-16",
+    "state": "armed",
+    "exit_by": "2027-01-19",
+    "verdict": "core_entry",
+    "arm_until": "2026-10-26",
+    "thesis_id": "e124fe10-6a19-4fab-9d3c-6eeb66333397",
+    "confidence": 0.8883,
+    "expression": "CORE setup — a structural, volume-confirmed trigger with a durable edge through the exit-by. The signal is strongest among the basket's leaders (see the per-name tape).",
+    "entry_grade": "core",
+    "risk_signals": [
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 552.09 closed below the 200-day base 564.63 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-09-01",
+      "security_id": "f906fbdc-e7f5-4d56-8911-dc9d2049d9a7"
+     }
+    ],
+    "armed_members": [
+     {
+      "exit_by": "2027-01-19",
+      "lapsing": false,
+      "verdict": "core_entry",
+      "triggers": [
+       {
+        "kind": "catalyst",
+        "grade": "core",
+        "label": "Revenue growth re-accelerated — YoY +11% (up from +0%); quarterly acceleration flipped positive at the Q2 ending 2026-06-28",
+        "event_date": "2026-07-23",
+        "security_id": "f906fbdc-e7f5-4d56-8911-dc9d2049d9a7"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "core",
+        "label": "Volume-backed breakout: close 552.09 cleared the 8-day high 532.64, +9% over 10d on 1.5x avg volume",
+        "event_date": "2026-10-16",
+        "security_id": "f906fbdc-e7f5-4d56-8911-dc9d2049d9a7"
+       }
+      ],
+      "arm_until": "2026-10-26",
+      "confidence": 0.8883,
+      "entry_grade": "core",
+      "security_id": "f906fbdc-e7f5-4d56-8911-dc9d2049d9a7",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "core"
+     }
+    ],
+    "key_conviction": {
+     "label": "Conviction",
+     "detail": "A conviction entry trigger fired — the 'why now is real'.",
+     "turned": true
+    },
+    "conviction_grade": "core",
+    "key_confirmation": {
+     "label": "Confirmation",
+     "detail": "The market is confirming (a volume-backed breakout).",
+     "turned": true
+    },
+    "armed_security_id": "f906fbdc-e7f5-4d56-8911-dc9d2049d9a7",
+    "confirmation_grade": "core"
+   }
+  },
+  "1422": {
+   "thesis": "The Everything Exchange",
+   "recorded_at": "2026-10-17T02:44:05.58322+00:00",
+   "reconstructed": false,
+   "card": {
+    "asof": "2026-10-16",
+    "state": "armed",
+    "exit_by": "2027-04-11",
+    "verdict": "core_entry",
+    "arm_until": "2026-11-23",
+    "thesis_id": "9e352a1f-a076-432e-8e85-1a00cee33fd9",
+    "confidence": 0.8685,
+    "expression": "CORE setup — a structural, volume-confirmed trigger with a durable edge through the exit-by. The signal is strongest among the basket's leaders (see the per-name tape).",
+    "entry_grade": "core",
+    "risk_signals": [
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 1834.00 fell back below the 8-day breakout base 1889.85 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-16",
+      "security_id": "05c9e795-e399-4a40-ab89-be6379bc4ac2"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 3.83 fell back below the 8-day breakout base 3.87 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-16",
+      "security_id": "e873615c-feb2-4a6e-b727-ede4a5b239ff"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 26.81 fell back below the 8-day breakout base 27.23 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-16",
+      "security_id": "a301bcf7-f01e-4ca2-a1c2-26409e2076d4"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Structural break: close 5.86 closed below the 200-day base 8.87 — the core hold's entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-07-09",
+      "security_id": "43bbbfab-7edd-4e60-9d27-83c959e2d5a5"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 5.86 fell back below the 8-day breakout base 6.00 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-16",
+      "security_id": "43bbbfab-7edd-4e60-9d27-83c959e2d5a5"
+     },
+     {
+      "kind": "breakdown",
+      "grade": null,
+      "label": "Fast breakdown: close 4.35 fell back below the 8-day breakout base 4.42 — the flip entry signal is no longer valid (a de-arm, not a sell)",
+      "event_date": "2026-10-16",
+      "security_id": "5cce1229-0a4b-48a1-9bf3-8fe4180c2c99"
+     }
+    ],
+    "armed_members": [
+     {
+      "exit_by": "2027-04-11",
+      "lapsing": false,
+      "verdict": "core_entry",
+      "triggers": [
+       {
+        "kind": "insider",
+        "grade": "core",
+        "label": "3 insiders incl. senior officer bought $77,473,014 open-market (code P) across 8 txns",
+        "event_date": "2026-10-13",
+        "security_id": "a301bcf7-f01e-4ca2-a1c2-26409e2076d4"
+       },
+       {
+        "kind": "catalyst",
+        "grade": "core",
+        "label": "Revenue growth re-accelerated — YoY +14% (up from -14%); quarterly acceleration flipped positive at the Q1 ending 2026-05-02",
+        "event_date": "2026-06-11",
+        "security_id": "a301bcf7-f01e-4ca2-a1c2-26409e2076d4"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Momentum-only breakout: close 28.02 cleared the 8-day high 27.23, +16% over 10d on 1.0x avg volume",
+        "event_date": "2026-10-15",
+        "security_id": "a301bcf7-f01e-4ca2-a1c2-26409e2076d4"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "core",
+        "label": "52-week breakout: close 26.56 cleared the 52-week high 26.53 on 1.8x avg volume",
+        "event_date": "2026-10-09",
+        "security_id": "a301bcf7-f01e-4ca2-a1c2-26409e2076d4"
+       }
+      ],
+      "arm_until": "2026-11-23",
+      "confidence": 0.8685,
+      "entry_grade": "core",
+      "security_id": "a301bcf7-f01e-4ca2-a1c2-26409e2076d4",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "core"
+     },
+     {
+      "exit_by": "2027-01-31",
+      "lapsing": false,
+      "verdict": "starter_entry",
+      "triggers": [
+       {
+        "kind": "insider",
+        "grade": "core",
+        "label": "1 insider incl. senior officer bought $2,489,837 open-market (code P) across 1 txns",
+        "event_date": "2026-08-04",
+        "security_id": "029877b2-f6ca-4f39-ba3c-33d759c1249a"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Momentum-only breakout: close 32.31 cleared the 8-day high 32.00, +18% over 10d on 1.0x avg volume",
+        "event_date": "2026-10-16",
+        "security_id": "029877b2-f6ca-4f39-ba3c-33d759c1249a"
+       }
+      ],
+      "arm_until": "2026-10-26",
+      "confidence": 0.5031,
+      "entry_grade": "flip",
+      "security_id": "029877b2-f6ca-4f39-ba3c-33d759c1249a",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "flip"
+     },
+     {
+      "exit_by": "2026-11-02",
+      "lapsing": true,
+      "verdict": "flip_only",
+      "triggers": [
+       {
+        "kind": "insider",
+        "grade": "flip",
+        "label": "1 insider incl. senior officer bought $57,694 open-market (code P) across 1 txns",
+        "event_date": "2026-10-15",
+        "security_id": "eba9c568-a7ef-46ab-bbfb-650ecba16360"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Momentum-only breakout: close 36.13 cleared the 8-day high 35.47, +9% over 10d on 1.0x avg volume",
+        "event_date": "2026-10-15",
+        "security_id": "eba9c568-a7ef-46ab-bbfb-650ecba16360"
+       }
+      ],
+      "arm_until": "2026-10-25",
+      "confidence": 0.55,
+      "entry_grade": "flip",
+      "security_id": "eba9c568-a7ef-46ab-bbfb-650ecba16360",
+      "theme_armed": false,
+      "conviction_grade": "flip",
+      "confirmation_grade": "flip"
+     },
+     {
+      "exit_by": "2026-10-21",
+      "lapsing": true,
+      "verdict": "starter_entry",
+      "triggers": [
+       {
+        "kind": "catalyst",
+        "grade": "core",
+        "label": "Revenue growth re-accelerated — YoY +10% (up from +6%); quarterly acceleration flipped positive at the Q1 ending 2025-03-31",
+        "event_date": "2026-04-24",
+        "security_id": "58e75255-eba7-4d3e-ada9-71f3a9579d7e"
+       },
+       {
+        "kind": "technical_breakout",
+        "grade": "flip",
+        "label": "Momentum-only breakout: close 293.87 cleared the 8-day high 289.46, +12% over 10d on 1.1x avg volume",
+        "event_date": "2026-10-16",
+        "security_id": "58e75255-eba7-4d3e-ada9-71f3a9579d7e"
+       }
+      ],
+      "arm_until": "2026-10-26",
+      "confidence": 0.49,
+      "entry_grade": "flip",
+      "security_id": "58e75255-eba7-4d3e-ada9-71f3a9579d7e",
+      "theme_armed": false,
+      "conviction_grade": "core",
+      "confirmation_grade": "flip"
+     }
+    ],
+    "key_conviction": {
+     "label": "Conviction",
+     "detail": "A conviction entry trigger fired — the 'why now is real'.",
+     "turned": true
+    },
+    "conviction_grade": "core",
+    "key_confirmation": {
+     "label": "Confirmation",
+     "detail": "The market is confirming (a volume-backed breakout).",
+     "turned": true
+    },
+    "armed_security_id": "a301bcf7-f01e-4ca2-a1c2-26409e2076d4",
+    "confirmation_grade": "core"
+   }
+  }
+ }
+}

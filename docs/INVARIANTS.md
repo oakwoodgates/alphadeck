@@ -299,8 +299,9 @@ stamped a fresh "policy" on every cron night.
   stamp, `calls` untouched); flipping the policy restores the pre-L1 reading exactly. The three filters
   compose by AND (reconstructed always · annotated by its policy · late by this one). The cron still WRITES
   late rows (the log records what was said, and when); every other reader sees them. A push for a late night
-  says so (N1). (`tests/scoreboard/test_late_rows.py`, `tests/pipeline/test_night_coverage.py`,
-  `tests/notify/test_slack_notifier.py`.) See `SCOREBOARD.md`, `FEED_LOOP.md`.
+  says so (N1) — a transition push and the Q13 newly-armed digest alike. (`tests/scoreboard/test_late_rows.py`,
+  `tests/pipeline/test_night_coverage.py`, `tests/notify/test_slack_notifier.py`,
+  `tests/pipeline/test_push_policy.py`.) See `SCOREBOARD.md`, `FEED_LOOP.md`.
 - *CLOSED — "today" is a DOMAIN fact, not an ambient one.* Inside the assembler `asof` is always a
   parameter (above). But at the **edges** that choose the `asof` for a run, "today" was derived from
   `date.today()`, which reads the process's **ambient timezone**. **This bit in production:** a manual

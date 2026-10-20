@@ -255,7 +255,9 @@ def test_daily_armed_transition_threads_company_detail_onto_the_event(db, securi
     evt = cap.events[0]
     assert evt.from_state == "incubating" and evt.to_state == "armed"
     # DEVCO resolved from the security master; the two distinct kinds carried in fire order; grade carried
-    assert evt.armed == (ArmedName("DEVCO", ("insider", "technical_breakout"), "core"),)
+    assert evt.armed == (
+        ArmedName("DEVCO", ("insider", "technical_breakout"), "core", security_id=security_id),
+    )
     assert by[tid].recorded is True and len(_calls(db, tid)) == 2  # the record was still written
 
 
