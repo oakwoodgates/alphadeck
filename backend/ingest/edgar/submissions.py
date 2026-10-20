@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from typing import Any
 
+from domain.edgar_forms import CORPORATE_EVENT_FORMS, ORDINARY_8K_FORMS
 from domain.security import SecurityIdentity
 from domain.settings import get_settings
 from ingest import CacheMiss
@@ -289,9 +290,15 @@ def name_change_filings(submissions: dict[str, Any]) -> tuple[NameChangeFiling, 
     """Every 8-K / 8-K/A in the ``recent`` window that carries item 5.03, newest first — the filing a name
     change is reported under. EVIDENCE for a rename recommendation (display only); deterministic from the
     SAME arrays every other leg walks, so it costs nothing on a pass that already cached the doc. A row with
-    a malformed date is skipped, never guessed."""
+    a malformed date is skipped, never guessed.
+
+    ORDINARY 8-Ks only (``ORDINARY_8K_FORMS``): ``form8k_filings`` also walks the succession reports
+    (8-K12B / 8-K12G3 / 8-K15D5) since 2026-10-17, whose 5.03 is the successor's new charter, not a rename —
+    so this evidence set is unchanged by that widening."""
     out: list[NameChangeFiling] = []
     for f in form8k_filings(submissions):
+        if f["form"] not in ORDINARY_8K_FORMS:
+            continue
         if not f["items"] or "5.03" not in f["items"]:
             continue
         try:
@@ -464,9 +471,15 @@ def parse_item_codes(raw: str | None) -> list[str] | None:
 
 
 def form8k_filings(submissions: dict[str, Any]) -> list[dict[str, Any]]:
-    """List a company's 8-K filings (8-K + 8-K/A, newest first) from a submissions JSON, WITH their
-    item codes: ``{accession, form, filed, items}`` (``items``: ``list[str] | None`` — None = the
-    parallel ``items`` entry is absent/blank, i.e. not yet resolved).
+    """List a company's 8-K-family filings (newest first) from a submissions JSON, WITH their item
+    codes: ``{accession, form, filed, items}`` (``items``: ``list[str] | None`` — None = the parallel
+    ``items`` entry is absent/blank, i.e. not yet resolved).
+
+    The forms are ``domain.edgar_forms.CORPORATE_EVENT_FORMS``: the ordinary ``8-K`` / ``8-K/A`` AND,
+    since 2026-10-17, a successor issuer's 8-K12B / 8-K12G3 / 8-K15D5 (+ amendments). ``form`` rides
+    verbatim, so the stored row says which kind it is: the succession reports are STORED (#9) and the
+    event detectors skip them by form (``signals/corporate_events.event_facts`` — their items describe
+    the reorganization itself, see ``domain/edgar_forms.py``).
 
     The submissions ``recent`` arrays are parallel + reverse-chrono; the ``items`` array parallels
     ``accessionNumber``, so ONE walk captures the whole tape — no per-filing document fetch. Same
@@ -488,7 +501,7 @@ def form8k_filings(submissions: dict[str, Any]) -> list[dict[str, Any]]:
             "items": parse_item_codes(items[i] if i < len(items) else None),
         }
         for i, f in enumerate(forms)
-        if f in ("8-K", "8-K/A")
+        if f in CORPORATE_EVENT_FORMS
     ]
 
 

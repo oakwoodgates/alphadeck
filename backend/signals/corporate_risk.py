@@ -20,6 +20,11 @@ stream — replay stays honest. An 8-K/A is its own tape row; these existence/la
 can't double-count an amendment (the deferred cadence slice, which COUNTS, must dedupe — noted in
 docs/CORPORATE_EVENTS.md).
 
+SUCCESSION REPORTS NEVER FIRE (operator decision, 2026-10-17): a successor issuer's 8-K12B / 8-K12G3 /
+8-K15D5 is stored on the tape, but its 3.01 is the listing TRANSFER and its 3.02 the share exchange, not
+a deficiency or a dilutive sale — ``live_policy_items`` drops it by FORM (``corporate_events.event_facts``),
+so it neither fires nor rides the provenance. A plain 8-K carrying the same items fires as before.
+
 MASTER SWITCH (``corporate_risk_enabled``) — **DEFAULT ON since the operator flip of 2026-08-17**
 (shipped OFF behind the insider_sell precedent; validated on real prod data BEFORE the flip — zero
 spurious arm-withholdings, zero recorded calls changed, so every existing golden stayed

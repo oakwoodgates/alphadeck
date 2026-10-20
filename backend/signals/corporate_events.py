@@ -6,7 +6,15 @@ this module holds the one item-matching walk and the display labels so the two s
 (Unlike the insider buy/sell pair — which deliberately duplicate-with-pointer because they must not
 couple — these two ship as one family over one table; sharing is the point.)
 
-Deterministic throughout (#3): item-code set membership + date arithmetic, nothing else.
+SUCCESSION REPORTS ARE STORED, NEVER READ (operator decision, 2026-10-17). The tape also stores a
+successor issuer's 8-K12B / 8-K12G3 / 8-K15D5 (``domain/edgar_forms.SUCCESSION_8K_FORMS``, #9), whose
+items describe the reorganization itself (3.01 = the listing transfer, 5.02 = the carried-over officers).
+``event_facts`` drops them by FORM — never by item — and every detector over this tape reads through it
+(``live_policy_items`` does, so both sides do), on the live and the replay engine alike (they share these
+functions; only the row source differs). A future reader of this tape (the deferred cadence counter)
+must read through ``event_facts`` too.
+
+Deterministic throughout (#3): form / item-code set membership + date arithmetic, nothing else.
 """
 
 from __future__ import annotations
@@ -15,6 +23,7 @@ from datetime import date
 from typing import Any
 
 from domain.config import CallConfig, CorporateEventItemPolicy
+from domain.edgar_forms import is_succession_8k
 from domain.enums import Role
 from signals.common import entry_signal_is_live
 
@@ -36,6 +45,13 @@ def item_label(item: str) -> str:
     return ITEM_LABELS.get(item, "corporate event")
 
 
+def event_facts(facts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The tape rows an event detector may read: every row EXCEPT a succession report (by form —
+    ``domain.edgar_forms.is_succession_8k``). Order-preserving; the dropped rows stay on the tape (#9)
+    and on the display surfaces, they just never fire, arm, veto or ride a signal's provenance."""
+    return [f for f in facts if not is_succession_8k(f.get("form"))]
+
+
 def live_policy_items(
     facts: list[dict[str, Any]],
     asof: date,
@@ -47,12 +63,14 @@ def live_policy_items(
     A fact contributes one triple per policy-mapped item it carries whose per-item liveness window
     (anchored on the filing date — ``valid_from = filed``) still covers ``asof``; unmapped items and
     NULL (unresolved) items contribute nothing — they stay on the tape (#9), the cut just doesn't
-    read them. ``valid_from <= asof`` is already guaranteed by the as-of read; re-checked here so a
-    caller feeding raw rows (the pure ``score`` tests) gets the same honesty. Output order is the
-    input fact order (the as-of read's); callers pick deterministically via explicit sort keys.
+    read them. A succession report (8-K12B / 8-K12G3 / 8-K15D5) contributes nothing either, whatever
+    its items (``event_facts``). ``valid_from <= asof`` is already guaranteed by the as-of read;
+    re-checked here so a caller feeding raw rows (the pure ``score`` tests) gets the same honesty.
+    Output order is the input fact order (the as-of read's); callers pick deterministically via
+    explicit sort keys.
     """
     out: list[tuple[dict[str, Any], str, CorporateEventItemPolicy]] = []
-    for f in facts:
+    for f in event_facts(facts):
         if f["valid_from"] > asof:
             continue
         for item in f.get("items") or []:
