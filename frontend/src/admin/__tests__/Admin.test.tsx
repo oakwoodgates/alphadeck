@@ -344,6 +344,16 @@ vi.mock("../../api/hooks", () => ({
   useKeepOriginal: () => h.repair,
   useLinkAmendment: () => h.repair,
   useRevokeAmendmentDecision: () => h.repair,
+  // split plan S1 — the Splits panel (its own behavior is in SplitList.test.tsx): empty here
+  useSplitList: () => ({
+    data: { needs_review: [], announced: [], confirmed: [], set_aside: [], total: 0 },
+    isError: false,
+    error: null,
+  }),
+  useConfirmSplit: () => h.repair,
+  useRejectSplit: () => h.repair,
+  useRevokeSplit: () => h.repair,
+  useRestoreSplit: () => h.repair,
 }));
 
 beforeEach(() => {
@@ -1046,5 +1056,19 @@ describe("Admin — the price feed repairs panel takes the rows it can act on (T
     renderAdmin();
     expect(screen.queryByTestId("adm-price-repairs")).toBeNull();
     expect(screen.getByTestId("adm-stale-tapes").textContent).toContain("VRME");
+  });
+});
+
+describe("Admin — the split list's review count (split plan S1)", () => {
+  it("is a loud line only when a split needs review", () => {
+    h.status = { ...h.status, data: { ...STATUS_CURRENT, splits_needs_review: 3 } };
+    renderAdmin();
+    expect(screen.getByTestId("adm-splits-count").textContent).toContain("3 split(s) need your review");
+  });
+
+  it("renders nothing at zero, or from an older backend without the field", () => {
+    h.status = { ...h.status, data: { ...STATUS_CURRENT, splits_needs_review: 0 } };
+    renderAdmin();
+    expect(screen.queryByTestId("adm-splits-count")).toBeNull();
   });
 });

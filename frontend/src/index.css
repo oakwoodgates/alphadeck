@@ -1817,6 +1817,14 @@ tr.adm-row-bad td { background: color-mix(in srgb, var(--warm) 5%, transparent);
 .adm-link { font-size: 11px; color: var(--leader); }
 .adm-quietlist summary { cursor: pointer; list-style-position: inside; }
 .adm-quietrows { color: var(--txt-3); }
+/* split plan S1 — the Splits panel: the SEC passage and Polygon's row side by side (stacked on a phone);
+   a rejected / revoked split stays listed, grayed (WB#2) */
+.adm-split-sides { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; margin: 6px 0 4px; }
+@media (max-width: 720px) { .adm-split-sides { grid-template-columns: minmax(0, 1fr); } }
+.adm-split-side { border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font-size: 11px; color: var(--txt-2); overflow-wrap: anywhere; }
+.adm-split-src { font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--txt-3); margin-bottom: 3px; }
+.adm-passage { margin: 5px 0 0; padding: 4px 8px; border-left: 2px solid var(--line-2); color: var(--txt-2); font-size: 11px; line-height: 1.45; }
+.adm-grayed { opacity: 0.55; }
 
 /* ================= The BACKTEST (research surface) — a recompute, never the record ====================
    Quiet by construction: this page ranks nothing. The pooled block is the loud one because it is the

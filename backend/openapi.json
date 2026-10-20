@@ -2830,6 +2830,214 @@
         }
       }
     },
+    "/admin/splits": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "List Splits",
+        "description": "Every split on the list (its newest version) with both sources' evidence, bucketed for the panel:\nneeds review (loud), announced / confirmed / rejected-or-revoked (quiet). Read-only.",
+        "operationId": "list_splits_admin_splits_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminSplitListOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/splits/{version_id}/confirm": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Confirm Split",
+        "description": "CONFIRM a split that needs review with one source's values (``source`` = ``sec`` | ``polygon``): its\nratio and its first session become the list's (a first session still ahead lands as ``announced``). Undo\nwith ``POST /admin/splits/{version_id}/revoke``. **404** unknown version, **409** not the split's newest\nversion / not awaiting review / that source states no complete value / another split is listed on that\ndate.",
+        "operationId": "confirm_split_admin_splits__version_id__confirm_post",
+        "parameters": [
+          {
+            "name": "version_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Version Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminSplitListConfirmIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminSplitListEntryOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/splits/{version_id}/reject": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Reject Split",
+        "description": "REJECT a split that needs review (or an announced one): it stays listed, grayed. Undo with\n``POST /admin/splits/{version_id}/restore``. **404** unknown version, **409** not the newest version / a\nconfirmed split (revoke it instead).",
+        "operationId": "reject_split_admin_splits__version_id__reject_post",
+        "parameters": [
+          {
+            "name": "version_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Version Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminSplitListEntryOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/splits/{version_id}/revoke": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Revoke Split",
+        "description": "REVOKE a confirmed split, auto-confirmed or not: it stays listed, grayed. Undo with\n``POST /admin/splits/{version_id}/restore``. **404** unknown version, **409** not the newest version /\nnot confirmed.",
+        "operationId": "revoke_split_admin_splits__version_id__revoke_post",
+        "parameters": [
+          {
+            "name": "version_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Version Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminSplitListEntryOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/splits/{version_id}/restore": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Restore Split",
+        "description": "RESTORE a rejected or revoked split to exactly the state before (a rejected split back to review, a\nrevoked one back to confirmed). **404** unknown version, **409** not the newest version / not set\naside.",
+        "operationId": "restore_split_admin_splits__version_id__restore_post",
+        "parameters": [
+          {
+            "name": "version_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Version Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminSplitListEntryOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/radar/spac": {
       "get": {
         "tags": [
@@ -5218,6 +5426,494 @@
         "title": "AdminSplitDefectOut",
         "description": "One flagged split-basis defect (T4, ``pipeline/split_basis.py``): a basket name whose STORED price\ntape mixes two split bases, as the pass's scan found it. ``kind``:\n\n- ``island`` \u2014 a run of bars on another basis than both neighbors (a factor-``k`` step and the inverse\n  step back, the volume moving the other way): the half-adjusted shape (VWAV 2026-09-15..16);\n- ``cliff`` \u2014 a lone UP step whose price stays up and volume stays down by about the same factor: a\n  reverse split the vendor never applied to the history before it;\n- ``flap`` \u2014 a stored bar whose versions changed basis in BOTH directions (the vendor flipped it and\n  flipped it back).\n\n``dates`` are the affected bars (at most the 12 most recent; ``events`` is the full count), ``factor``\nthe step size (>= 1, e.g. 20 for a 1-for-20 split). Evidence for the operator only: nothing here\nchanges a call (whether a price detector should abstain on a flagged name is an open decision)."
       },
+      "AdminSplitListConfirmIn": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "sec",
+              "polygon"
+            ],
+            "title": "Source"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source"
+        ],
+        "title": "AdminSplitListConfirmIn",
+        "description": "Whose values to confirm: the SEC filing's or Polygon's."
+      },
+      "AdminSplitListEntryOut": {
+        "properties": {
+          "version_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Version Id"
+          },
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "key_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Key Date"
+          },
+          "effective_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Effective Date"
+          },
+          "ratio_from": {
+            "type": "string",
+            "title": "Ratio From"
+          },
+          "ratio_to": {
+            "type": "string",
+            "title": "Ratio To"
+          },
+          "price_factor": {
+            "type": "string",
+            "title": "Price Factor"
+          },
+          "direction": {
+            "type": "string",
+            "title": "Direction"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "confirmed_via": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmed Via"
+          },
+          "value_source": {
+            "type": "string",
+            "title": "Value Source"
+          },
+          "author": {
+            "type": "string",
+            "title": "Author"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "recorded_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Recorded At"
+          },
+          "decided_by": {
+            "type": "string",
+            "title": "Decided By"
+          },
+          "valid_from": {
+            "type": "string",
+            "format": "date",
+            "title": "Valid From"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "sec": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdminSplitListSecOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "polygon": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdminSplitListPolygonOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "confirm_options": {
+            "items": {
+              "$ref": "#/components/schemas/AdminSplitListOptionOut"
+            },
+            "type": "array",
+            "title": "Confirm Options"
+          },
+          "actions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Actions"
+          },
+          "restore_to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Restore To"
+          }
+        },
+        "type": "object",
+        "required": [
+          "version_id",
+          "security_id",
+          "key_date",
+          "effective_date",
+          "ratio_from",
+          "ratio_to",
+          "price_factor",
+          "direction",
+          "label",
+          "status",
+          "value_source",
+          "author",
+          "action",
+          "recorded_at",
+          "decided_by",
+          "valid_from"
+        ],
+        "title": "AdminSplitListEntryOut",
+        "description": "One split on the list (its NEWEST version). ``version_id`` names that version \u2014 every action posts it,\nand a stale one is refused. ``ratio_from`` -> ``ratio_to`` = old shares -> new shares; ``price_factor`` =\nold / new (prices before the split x it). ``decided_by`` is the source label the panel shows (\"auto: SEC +\nPolygon\", \"you, 10-20\"). ``actions`` = what the status allows; ``restore_to`` = where Restore returns it."
+      },
+      "AdminSplitListOptionOut": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "sec",
+              "polygon"
+            ],
+            "title": "Source"
+          },
+          "ratio_from": {
+            "type": "string",
+            "title": "Ratio From"
+          },
+          "ratio_to": {
+            "type": "string",
+            "title": "Ratio To"
+          },
+          "effective_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Effective Date"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "ratio_from",
+          "ratio_to",
+          "effective_date",
+          "label"
+        ],
+        "title": "AdminSplitListOptionOut",
+        "description": "One value the operator can confirm a needs-review split with."
+      },
+      "AdminSplitListOut": {
+        "properties": {
+          "needs_review": {
+            "items": {
+              "$ref": "#/components/schemas/AdminSplitListEntryOut"
+            },
+            "type": "array",
+            "title": "Needs Review"
+          },
+          "announced": {
+            "items": {
+              "$ref": "#/components/schemas/AdminSplitListEntryOut"
+            },
+            "type": "array",
+            "title": "Announced"
+          },
+          "confirmed": {
+            "items": {
+              "$ref": "#/components/schemas/AdminSplitListEntryOut"
+            },
+            "type": "array",
+            "title": "Confirmed"
+          },
+          "set_aside": {
+            "items": {
+              "$ref": "#/components/schemas/AdminSplitListEntryOut"
+            },
+            "type": "array",
+            "title": "Set Aside"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "AdminSplitListOut",
+        "description": "The \"Splits\" panel. ``needs_review`` is the one LOUD list (one source could not settle it);\n``announced`` (both sources agree, the first session is still ahead), ``confirmed`` and ``set_aside``\n(rejected / revoked \u2014 kept, grayed) are QUIET lists. ``total`` = every split on the list. Read live."
+      },
+      "AdminSplitListPolygonOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "execution_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Date"
+          },
+          "split_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Split From"
+          },
+          "split_to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Split To"
+          },
+          "ratio_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ratio Label"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "title": "AdminSplitListPolygonOut",
+        "description": "Polygon's split-reference row: ``split_from`` old shares -> ``split_to`` new shares."
+      },
+      "AdminSplitListSecOut": {
+        "properties": {
+          "accession": {
+            "type": "string",
+            "title": "Accession"
+          },
+          "form": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Form"
+          },
+          "filed": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filed"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "passage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Passage"
+          },
+          "document": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document"
+          },
+          "effective_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Date"
+          },
+          "date_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date Kind"
+          },
+          "ratio_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ratio From"
+          },
+          "ratio_to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ratio To"
+          },
+          "ratio_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ratio Label"
+          },
+          "abstain_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Abstain Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "accession"
+        ],
+        "title": "AdminSplitListSecOut",
+        "description": "The SEC filing behind a split: the extractor's reading and the LOCATED passage, verbatim.\n``date_kind`` = ``trading`` (the filing states the first session) or ``legal`` (a legal effective date);\n``abstain_reason`` = why no single ratio was read."
+      },
       "AdminSplitOut": {
         "properties": {
           "asof": {
@@ -5448,6 +6144,17 @@
                 "type": "null"
               }
             ]
+          },
+          "splits_needs_review": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Splits Needs Review"
           }
         },
         "type": "object",
@@ -5456,7 +6163,7 @@
           "cron"
         ],
         "title": "AdminStatusOut",
-        "description": "The admin page's one-GET summary: record freshness + the newest run + the cron verdict + the\nnewest DB snapshot + the feed-freshness panel. READ-ONLY \u2014 the endpoint owns no tables and writes\nnothing (test-proved; the ``last_backup`` join is a pure directory read, and ``tape`` is read from\nthe run artifacts). ``last_backup`` is ``None`` = the quiet \"no snapshots yet\" state; ``tape`` is\n``None`` until a pass has evaluated feed recency (the quiet \"not looked yet\" state).\n\n``backend_sha`` is this backend's OWN ``Settings.image_sha`` (``null`` = built without ``GIT_SHA``) and\n``cron_sha`` the ``code_sha`` the newest CRON-kind run artifact recorded (``null`` = unknown, or no\ncron pass has recorded its identity yet) \u2014 the pair the identity alarm compares (I1). The latest\nself-audit rides ``last_run.audit``.\n\nM1: ``last_run`` is the newest FINISHED pass (a pre-M1 artifact counts as finished); when the newest\nartifact is a pass that has not finished, ``unfinished_run`` describes it (``null`` otherwise).\n\n``split_defects`` (T4) is the split-basis panel \u2014 ``null`` until a finished live pass has scanned (a\npartial catch-up counts: the scan reads the whole basket union); a defect is a FEED problem (flag\nonly), so it never changes ``cron.status``.\n\n``price_repairs`` (T2 + Q8 + T3 + T7) is the \"Price feed repairs\" panel \u2014 renamed names with their\nsplice-verified successors to Adopt, unpriceable names to Set / Acknowledge / Remove, members whose\ncompany now files under a successor CIK to Adopt, the quiet closed and acknowledged names, and every\nstanding operator repair with its Undo. A feed matter, never the cron verdict."
+        "description": "The admin page's one-GET summary: record freshness + the newest run + the cron verdict + the\nnewest DB snapshot + the feed-freshness panel. READ-ONLY \u2014 the endpoint owns no tables and writes\nnothing (test-proved; the ``last_backup`` join is a pure directory read, and ``tape`` is read from\nthe run artifacts). ``last_backup`` is ``None`` = the quiet \"no snapshots yet\" state; ``tape`` is\n``None`` until a pass has evaluated feed recency (the quiet \"not looked yet\" state).\n\n``backend_sha`` is this backend's OWN ``Settings.image_sha`` (``null`` = built without ``GIT_SHA``) and\n``cron_sha`` the ``code_sha`` the newest CRON-kind run artifact recorded (``null`` = unknown, or no\ncron pass has recorded its identity yet) \u2014 the pair the identity alarm compares (I1). The latest\nself-audit rides ``last_run.audit``.\n\nM1: ``last_run`` is the newest FINISHED pass (a pre-M1 artifact counts as finished); when the newest\nartifact is a pass that has not finished, ``unfinished_run`` describes it (``null`` otherwise).\n\n``split_defects`` (T4) is the split-basis panel \u2014 ``null`` until a finished live pass has scanned (a\npartial catch-up counts: the scan reads the whole basket union); a defect is a FEED problem (flag\nonly), so it never changes ``cron.status``.\n\n``price_repairs`` (T2 + Q8 + T3 + T7) is the \"Price feed repairs\" panel \u2014 renamed names with their\nsplice-verified successors to Adopt, unpriceable names to Set / Acknowledge / Remove, members whose\ncompany now files under a successor CIK to Adopt, the quiet closed and acknowledged names, and every\nstanding operator repair with its Undo. A feed matter, never the cron verdict.\n\n``splits_needs_review`` (split plan S1) is how many splits on the split list one source could not settle\n(one source only, a disagreement, an extractor abstain) \u2014 the \"Splits\" panel (``GET /admin/splits``) holds\nthem. ``null`` when the count could not be read; never a cron verdict."
       },
       "AdminSuccessorCandidateOut": {
         "properties": {

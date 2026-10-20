@@ -20,6 +20,7 @@ import { hoursLate } from "../scoreboard/late";
 import { errText } from "../workbench/format";
 import { InsiderAmendments } from "./InsiderAmendments";
 import { PriceFeedRepairs, repairHandledIds } from "./PriceFeedRepairs";
+import { SplitList } from "./SplitList";
 
 interface Props {
   header?: ReactNode;
@@ -428,6 +429,13 @@ export function Admin({ header }: Props) {
                 the Scoreboard (L1). QUIET — informational, never a reason the card turns gappy — and
                 rendered only when there is one. An older backend omits the field. */}
             {lateOnlyNights.length > 0 && <LateOnlyBlock rows={lateOnlyNights} />}
+            {/* split plan S1 — the splits one source could not settle: rendered only when there is one (the
+                Splits panel below holds them with their evidence); an older backend omits the field */}
+            {(status.splits_needs_review ?? 0) > 0 && (
+              <div className="adm-line adm-loud" data-testid="adm-splits-count">
+                <b>{status.splits_needs_review}</b> split(s) need your review — see Splits below
+              </div>
+            )}
             <div className="adm-sub">
               {status.record.reason} · today {status.record.today} · last expected as-of{" "}
               {status.record.expected_asof}
@@ -514,6 +522,12 @@ export function Admin({ header }: Props) {
               original meanwhile) with the evidence and Ratify / Keep / Link, each with its Undo; the
               auto-applied corrections and the inert ones quiet. Its own read; renders nothing when empty. */}
           <InsiderAmendments />
+
+          {/* 1d — SPLITS (split plan S1): the split list the backfill filled from Polygon + each company's SEC
+              filing. Loud only for the splits one source cannot settle (the SEC passage and Polygon's row side
+              by side, Confirm / Reject); the auto-confirmed, announced and set-aside ones quiet. Its own read;
+              renders nothing when the list is empty. */}
+          <SplitList />
 
           {/* 2 — cron health: the one-word verdict + the last run */}
           <section className="adm-card" data-testid="adm-cron">
