@@ -152,6 +152,36 @@ def test_a_ratio_disagreement_keeps_both_sides():
     assert "the ratios differ" in d.note and d.ratio_from == Decimal(15)
 
 
+# --- found by the dev backfill (2026-10-20): real filings, real Polygon rows (fixtures/splits/polygon) ----------
+
+
+def test_the_dev_run_fixes_confirm_against_polygon():
+    """Each was "needs review" before the extractor learned the phrasing; each now agrees with Polygon."""
+    cases = [
+        ("ELBM", "2025-01-02", "0001171843-24-007098.txt", "6-K", "2024-12-30"),
+        ("CMND", "2026-10-05", "0001213900-26-105269.txt", "6-K", "2026-09-30"),
+        ("ERNA", "2025-06-12", "0001641172-25-014877.txt", "8-K", "2025-06-12"),
+        ("SMX", "2025-01-15", "0001493152-25-001874.txt", "6-K", "2025-01-13"),
+        ("NIPG", "2026-07-06", "0001493152-26-031419.txt", "6-K", "2026-07-01"),
+        ("ASNS", "2025-11-18", "0001213900-25-110404.txt", "8-K", "2025-11-14"),
+    ]
+    for ticker, day, name, form, filed in cases:
+        d = decide(polygon_row(ticker, day), [sec(name, form=form, filed=filed)], asof=ASOF)
+        assert (d.status, d.confirmed_via) == (STATUS_CONFIRMED, VIA_AUTO), (ticker, d.note)
+
+
+def test_a_restated_old_ads_change_never_confirms_a_later_split():
+    """LGHL: Polygon lists a 1-for-50 on 2025-03-26; the only filing nearby restates the 2023 ADS change at the
+    same ratio — the dates are years apart, so it is review, never auto-confirmed."""
+    d = decide(
+        polygon_row("LGHL", "2025-03-26"),
+        [sec("0001213900-24-111258.txt", form="6-K", filed="2024-12-20")],
+        asof=ASOF,
+    )
+    assert d.status == STATUS_NEEDS_REVIEW
+    assert "2023-07-13" in d.note and "tolerance" in d.note
+
+
 # --- the date rule's edges, on direct inputs -------------------------------------------------------------------
 
 

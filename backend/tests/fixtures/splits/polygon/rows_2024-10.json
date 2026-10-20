@@ -1,0 +1,54 @@
+{
+ "results": [
+  {
+   "execution_date": "2025-01-02",
+   "id": "E4a3ae24b4ca7910738a16733772b6ea969b0ddc6c8d26d6bff6bd13cf0834820",
+   "split_from": 4,
+   "split_to": 1,
+   "ticker": "ELBM"
+  },
+  {
+   "execution_date": "2025-01-15",
+   "id": "E2d0c08d804e6a9805d3a84b57d614e00f18c075802a91e360a2dc26bbe330f09",
+   "split_from": 28.5,
+   "split_to": 1,
+   "ticker": "SMX"
+  },
+  {
+   "execution_date": "2025-03-26",
+   "id": "Ebf059f204b42aea50819db794361134f2fe22b71ecaa9afb0bb312490bd8fcc5",
+   "split_from": 50,
+   "split_to": 1,
+   "ticker": "LGHL"
+  },
+  {
+   "execution_date": "2025-06-12",
+   "id": "E7fba3185303a48301386a46aaf12eb4d3778b46fc42c7013db6f0d37edd83383",
+   "split_from": 15,
+   "split_to": 1,
+   "ticker": "ERNA"
+  },
+  {
+   "execution_date": "2025-11-18",
+   "id": "Ec87b1b89999cd128a8f5c28b7c5406071c96d88c56e1cde0fedbd1e7f01d5ae0",
+   "split_from": 10,
+   "split_to": 1,
+   "ticker": "ASNS"
+  },
+  {
+   "execution_date": "2026-07-06",
+   "id": "E10418df4f0af3ccebeb295372a57b2803dd706cc251ea8d594d22b6b6eeebcfc",
+   "split_from": 30,
+   "split_to": 1,
+   "ticker": "NIPG"
+  },
+  {
+   "execution_date": "2026-10-05",
+   "id": "E73b8e2e735fe37955afff234852586e1ed3b1472eae0ecbf5f3b42c228a79b81",
+   "split_from": 8,
+   "split_to": 1,
+   "ticker": "CMND"
+  }
+ ],
+ "status": "OK"
+}

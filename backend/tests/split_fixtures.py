@@ -43,9 +43,14 @@ def polygon_pages() -> list[str]:
     return [p.read_text(encoding="utf-8") for p in PAGES]
 
 
+# the real rows (from the dev backfill's 2024-10-01 pull) for the filings added from that run
+DEV_ROWS = FX / "polygon" / "rows_2024-10.json"
+
+
 def polygon_rows() -> list[PolygonEvidence]:
+    """Every real Polygon row in the fixtures: the three 2025-08 pages, then the 2024-10 extract."""
     out: list[PolygonEvidence] = []
-    for text in polygon_pages():
+    for text in [*polygon_pages(), DEV_ROWS.read_text(encoding="utf-8")]:
         rows, _, _ = parse_splits_page(text)
         out.extend(rows)
     return out

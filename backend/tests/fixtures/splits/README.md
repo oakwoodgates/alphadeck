@@ -17,6 +17,12 @@ hand-written or edited; the only change is TRIMMING, and the source's spelling i
 - `polygon/page{1,2,3}.json` — Polygon `/v3/reference/splits?execution_date.gte=2025-08-01` (3 pages, 2,219 rows),
   with `results` filtered to the diagnosis tickers (32 rows); `status`, `request_id` and `next_url` as served
   (the request carried no API key, so none is stored).
+- `polygon/rows_2024-10.json` — the 7 real rows, from the DEV backfill's 2024-10-01 pull (2026-10-20, the
+  cached pages in the dev container), that pair with the filings added from that run (below).
+
+The table's LAST SEVEN rows (ELBM … LGHL) were added from the 2026-10-20 dev backfill: each was copied from
+the dev EDGAR cache (the text the backfill read) and trimmed the same way — filings the first extractor sent to
+review, kept as the regression set for the phrasings it then learned.
 
 | accession | filer | form | what it states |
 |---|---|---|---|
@@ -40,3 +46,10 @@ hand-written or edited; the only change is TRIMMING, and the source's spelling i
 | 0001731122-26-001258 | VWAV | 8-K | 1-for-20, 2026-09-22 |
 | 0001493152-26-039258 | YYAI | 8-K | 1-for-20, 2026-08-17 |
 | 0001213900-26-009093 | PBM | 6-K | 1-for-6.25, moved to 2026-02-02 (restates a past 1-for-7.97) |
+| 0001171843-24-007098 | ELBM | 6-K | "four (4) pre-Reverse Split shares for every one (1) post-Reverse Split share", trading 2025-01-02 |
+| 0001213900-26-105269 | CMND | 6-K | 1-for-8; "will begin trading … after implementation of the reverse split will be Monday, October 5, 2026" |
+| 0001641172-25-014877 | ERNA | 8-K | "Effective June 12, 2025, … at a ratio of 1-for-15" |
+| 0001493152-25-001874 | SMX | 6-K | "every twenty-eight and one half ordinary shares … combined into one", 2025-01-15 |
+| 0001493152-26-031419 | NIPG | 6-K | ADS ratio change, "the same effect as a one-for-thirty reverse ADS split", effective 2026-07-06 |
+| 0001213900-25-110404 | ASNS | 8-K | 1-for-10, 2025-11-18 (plus "… in the aggregate, exceeds 1-for-12", a ceiling) |
+| 0001213900-24-111258 | LGHL | 6-K | interim results restating a PAST (2023-07-13) one-for-fifty ADS ratio change |

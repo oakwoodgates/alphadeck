@@ -124,6 +124,54 @@ REAL = [
     ),
     ("0001493152-26-039258.txt", "20", "1", "2026-08-17", "trading", "at a ratio of 1-for-20"),
     ("0001213900-26-009093.txt", "6.25", "1", "2026-02-02", "trading", "1-for-6.25"),
+    # --- found by the dev backfill (2026-10-20) and fixed: each was "needs review" before ---
+    # ELBM: "four (4) pre-Reverse Split shares for every one (1) post-Reverse Split share" (old for every new)
+    (
+        "0001171843-24-007098.txt",
+        "4",
+        "1",
+        "2025-01-02",
+        "trading",
+        "four (4) pre-Reverse Split shares for every one (1) post-Reverse Split share",
+    ),
+    # CMND: "the first date when … shares will begin trading … after implementation of the reverse split"
+    (
+        "0001213900-26-105269.txt",
+        "8",
+        "1",
+        "2026-10-05",
+        "trading",
+        "after implementation of the reverse split will be Monday, October 5, 2026",
+    ),
+    # ERNA: "Effective June 12, 2025, … to effect a reverse stock split … at a ratio of 1-for-15"
+    ("0001641172-25-014877.txt", "15", "1", "2025-06-12", "legal", "Effective June 12, 2025"),
+    # SMX 2025: "every twenty-eight and one half ordinary shares … combined into one"
+    (
+        "0001493152-25-001874.txt",
+        "28.5",
+        "1",
+        "2025-01-15",
+        "trading",
+        "every twenty-eight and one half ordinary shares",
+    ),
+    # NIPG: an ADS RATIO CHANGE — "the same effect as a one-for-thirty reverse ADS split"
+    (
+        "0001493152-26-031419.txt",
+        "30",
+        "1",
+        "2026-07-06",
+        "legal",
+        "the same effect as a one-for-thirty reverse ADS split",
+    ),
+    # ASNS: the authorization's ceiling ("… in the aggregate, exceeds 1-for-12") is not the ratio set
+    (
+        "0001213900-25-110404.txt",
+        "10",
+        "1",
+        "2025-11-18",
+        "trading",
+        "the Board approved a 1-for-10 reverse stock split",
+    ),
     # MI: the ratio sits in an interim-statements note, beside the AUTHORIZED range ("1-for-5 up to 1-for-200")
     (
         "MI_ex991_0930.htm",
@@ -262,3 +310,22 @@ def test_two_different_first_sessions_give_no_date_but_keep_the_ratio():
     assert (x.ratio_from, x.ratio_to) == (Decimal(5), Decimal(1))
     assert x.effective_date is None
     assert x.date_note == "2 different trading dates stated: 2026-03-02, 2026-03-09"
+
+
+def test_a_past_ads_ratio_change_is_read_with_its_own_old_date():
+    """LGHL's interim-results 6-K (filed 2024-12-20) restates a 2023 ADS ratio change ("had the same effect as
+    a one-for-fifty reverse ADS split … was effective on July 13, 2023") — read with ITS date, so it can never
+    pass for a 2025 split (the matcher sends that pairing to review, ``tests/domain/test_splits.py``).
+    """
+    x = extract_split(documents("0001213900-24-111258.txt"))
+    assert (x.ratio_from, x.ratio_to) == (Decimal(50), Decimal(1))
+    assert (x.effective_date, x.date_kind) == (date(2023, 7, 13), "legal")
+
+
+def test_a_run_on_cover_sentence_is_cut_to_a_verbatim_window():
+    """NIPG's 6-K cover page runs on with no full stop; the passage shows a marked window around the date, not
+    the whole cover."""
+    x = extract_split(documents("0001493152-26-031419.txt"))
+    date_part = x.passage.split(" … ")[-1]
+    assert date_part.startswith("[…] ") and "Effective on July 6, 2026" in date_part
+    assert len(date_part) < 560

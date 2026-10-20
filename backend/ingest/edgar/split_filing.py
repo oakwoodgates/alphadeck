@@ -19,22 +19,30 @@ carries an EARLIER amendment's.
 - ``N:M`` when it sits next to the word "ratio" or a split word — "fixed the split ratio at 8:1", "a 1:300
   reverse stock split" (a clock time such as "5:00 p.m." never qualifies);
 - ``N share(s) for every M`` — "one (1) share for every sixteen (16)", "1 post-split ordinary share for every
-  20 pre-split ordinary shares";
+  20 pre-split ordinary shares", and the other way round, "four (4) pre-Reverse Split shares for every one (1)
+  post-Reverse Split share" (ELBM): the words beside each number (pre / old / outstanding vs post / new) say
+  which side is old;
 - ``every/each M … combined/consolidated/converted … into N`` — "every fifteen (15) … consolidated into one
-  (1)", "each nine (9) pre-split shares … combine into one (1) new share".
+  (1)", "each nine (9) pre-split shares … combine into one (1) new share", "every twenty-eight and one half …
+  combined into one" (SMX; a word number may end "and one half").
 
-The last two state the direction themselves (old shares first, then new). The ``N-for-M`` and ``N:M`` forms
-do not — filings write a 1-for-16 reverse split as "1-for-16" and a 25-for-1 consolidation as "25-for-1" — so
-they are oriented by the filing's own words: "reverse" / "consolidation" / "combined" make it a reverse split
-(old = the larger number), "forward split" / "stock dividend" / "subdivision" a forward one. A ratio is only
-ever read inside a sentence that talks about a split, and "1-for-1" (a share exchange) is not a split.
+The last states the direction itself (old shares first, then new). The ``N-for-M`` and ``N:M`` forms do not —
+filings write a 1-for-16 reverse split as "1-for-16" and a 25-for-1 consolidation as "25-for-1" — so they (and a
+"for every" with no pre/post words) are oriented by the filing's own words: "reverse … split" / "consolidation"
+/ "combined" make it a reverse split (old = the larger number), "forward … split" / "stock dividend" /
+"subdivision" a forward one. A ratio is only ever read inside a sentence that talks about a split, and
+"1-for-1" (a share exchange) is not a split. An ADS RATIO CHANGE counts as a split of the ADS — "the same effect
+as a one-for-thirty reverse ADS split" (NIPG) — because it moves the ADS price exactly like one, and Polygon
+lists it as one.
 
 **What does NOT count as the split's ratio** — the refinement of "more than one distinct ratio abstains" that
 the real filings forced (named so the rule stays checkable):
 
-- an AUTHORIZED RANGE: a ratio within ``_RANGE_LOOKBACK`` characters after "range", "between", "up to", "not
-  less than" … — the proxy language ("at a ratio of up to one-for-two hundred (1:200)", "select a ratio of
-  between 1-for-5 and 1-for-50"). A filing that states ONLY a range abstains: no ratio was set.
+- an AUTHORIZED RANGE, ceiling or illustration: a ratio within ``_RANGE_LOOKBACK`` characters after
+  "range", "between", "up to", "not less than", "exceeds", "assuming" … — the proxy language ("at a ratio of
+  up to one-for-two hundred (1:200)", "select a ratio of between 1-for-5 and 1-for-50", "shall not effect …
+  splits that, in the aggregate, exceeds 1-for-12"). A filing that states ONLY a range abstains: no ratio was
+  set.
 - a PAST split: a ratio whose sentence's every date is more than ``HISTORICAL_GAP_DAYS`` before the filing's
   own effective date (PBM's 6-K restates "a 1-for-7.97 consolidation ratio which was implemented Monday, May 5,
   2025" beside its 1-for-6.25). Only judged when an effective date was read.
@@ -45,14 +53,17 @@ direction stated. It never picks between two values.
 
 **The date** is the first session at the new price. A TRADING sentence (one about trading, carrying a cue
 such as "split-adjusted basis", "post-consolidation basis", "market open", "opening of trading",
-"commencement of trading") states it directly — kind ``trading``. Only when no trading sentence carries a date
-does a LEGAL sentence ("effective as of", "will take effect on", "became effective on") supply one — kind
+"commencement of trading" — or "will begin trading" in a sentence about the split, "the first date when the
+… shares will begin trading … after implementation of the reverse split will be Monday, October 5, 2026",
+CMND) states it directly — kind ``trading``. Only when no trading sentence carries a date does a LEGAL sentence
+about the split ("effective as of", "Effective June 12, 2025", "will take effect on") supply one — kind
 ``legal``, which may be the session before the first one (a 5:00 p.m. effective time). Two different dates of
 the winning kind → no date (named in ``date_note``); the ratio still stands.
 
 **The passage** is the filing's own sentence(s), verbatim after the HTML is stripped (tags removed, entities
 decoded, whitespace collapsed): the sentence that states the ratio and, when it is another one, the sentence
-that states the date.
+that states the date. A run-on sentence (a 6-K cover page has no full stop) is cut to a verbatim window around
+what it states, marked "[…]".
 """
 
 from __future__ import annotations
@@ -65,23 +76,29 @@ from decimal import Decimal, InvalidOperation
 from fractions import Fraction
 
 # a ratio's sentence must have this much of a split in it, or the "N for M" is something else
-_SPLIT_CUE = re.compile(r"revers|split|consolidat|subdivi|combin|reclassif", re.I)
+# (an ADS RATIO CHANGE is a split of the ADS — "the same effect as a one-for-thirty reverse ADS split" (NIPG),
+# and Polygon lists it as one)
+_SPLIT_CUE = re.compile(
+    r"revers|split|consolidat|subdivi|combin|reclassif|ratio\s+change|ADS\s+ratio", re.I
+)
 _REVERSE_CUE = re.compile(
-    r"reverse\s+(?:stock\s+|share\s+)?split|reverse-split|share\s+consolidation|consolidat|combined\s+into|"
+    r"reverse\s+(?:[\w-]+\s+)?split|reverse-split|share\s+consolidation|consolidat|combined\s+into|"
     r"combine\s+into|reclassified\s+into",
     re.I,
 )
 _FORWARD_CUE = re.compile(
-    r"forward\s+(?:stock\s+|share\s+)?split|stock\s+dividend|share\s+subdivision|subdivi", re.I
+    r"forward\s+(?:[\w-]+\s+)?split|stock\s+dividend|share\s+subdivision|subdivi", re.I
 )
 
-# a ratio this close after one of these words is an authorized RANGE / ceiling — or a HYPOTHETICAL ("assuming
-# an Approved Consolidation Ratio of 1:200", MI's proxy) — not the ratio set
+# a ratio this close after one of these words is an authorized RANGE / ceiling ("shall not effect … splits
+# that, in the aggregate, exceeds 1-for-12", ASNS) — or a HYPOTHETICAL ("assuming an Approved Consolidation
+# Ratio of 1:200", MI's proxy) — not the ratio set
 _RANGE_LOOKBACK = 80
 _RANGE_CUE = re.compile(
     r"\b(?:range|ranging|between|up\s+to|not\s+(?:less|more|greater|fewer)\s+than|"
     r"no\s+(?:less|more|greater|fewer)\s+than|maximum|minimum|any\s+whole\s+number|at\s+least|"
-    r"as\s+(?:low|high)\s+as|assum(?:e|es|ed|ing)|hypothetical(?:ly)?|illustrat\w*|for\s+example)\b",
+    r"as\s+(?:low|high)\s+as|exceed(?:s|ed|ing)?|assum(?:e|es|ed|ing)|hypothetical(?:ly)?|illustrat\w*|"
+    r"for\s+example)\b",
     re.I,
 )
 
@@ -129,9 +146,17 @@ _WORDNUM = rf"{_WORD}(?:[\s-]+{_WORD}|(?:(?<=hundred)|(?<=thousand))\s+and\s+{_W
 _DIGNUM = r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?"
 
 
+# "twenty-eight and one-half (28.5)" — SMX's 2025 consolidation
+_HALF = r"\s+and\s+(?:one|a)[\s-]+half"
+
+
 def _num(name: str) -> str:
-    """One number: words with an optional ``(digits)`` restatement, or digits."""
-    return rf"(?:(?P<{name}w>{_WORDNUM})(?:\s*\(\s*(?P<{name}p>{_DIGNUM})\s*\))?|(?P<{name}d>{_DIGNUM}))"
+    """One number: words (with an optional "and one half") and an optional ``(digits)`` restatement, or
+    digits."""
+    return (
+        rf"(?:(?P<{name}w>{_WORDNUM}(?:{_HALF})?)(?:\s*\(\s*(?P<{name}p>{_DIGNUM})\s*\))?|"
+        rf"(?P<{name}d>{_DIGNUM}))"
+    )
 
 
 # "1-for-16", "one-for-sixteen", "one (1) for nine (9)", "twenty five (25) -for- one (1)", "15 for 1"
@@ -197,9 +222,12 @@ _TRADING_CUE = re.compile(
     r"open\s+of\s+(?:the\s+)?(?:market|business|trading)|commencement\s+of\s+trading",
     re.I,
 )
+# "the first date when the Company's ordinary shares will begin trading … after implementation of the reverse
+# split will be Monday, October 5, 2026" (CMND, PLRZ) — a start-of-trading phrase, only in a sentence about a split
+_TRADING_START = re.compile(r"\b(?:begin|commence|start)s?\s+(?:to\s+)?trad(?:e|ing)\b", re.I)
+# "effective as of 5:00 p.m. … on …", "will take effect on …", "Effective June 12, 2025, … filed …" (ERNA)
 _LEGAL_CUE = re.compile(
-    r"effective\s+(?:as\s+of|on|at)\b|becomes?\s+effective|became\s+effective|will\s+be\s+effective|"
-    r"takes?\s+effect|took\s+effect|effected\b[^.;]{0,120}?\bon\b",
+    r"\beffective\b|takes?\s+effect|took\s+effect|effected\b[^.;]{0,120}?\bon\b",
     re.I,
 )
 
@@ -210,7 +238,11 @@ _ABBREV = re.compile(
 )
 _SENTENCE_END = re.compile(r"[.;!?](?=\s+[\"“(A-Z0-9])")
 
-_MAX_SENTENCE = 1200
+# a sentence longer than this (a 6-K cover page runs on with no full stop) is shown as a verbatim WINDOW
+# around what it states, marked […]
+_LONG_SENTENCE = 500
+_WINDOW_BEFORE = 220
+_WINDOW_AFTER = 280
 
 # the document types a split is announced in (the form's own document, a 1-A's offering circular, press
 # releases); everything else in a submission is skipped
@@ -219,13 +251,13 @@ _KEEP_TYPES = ("8-K", "6-K", "1-A", "1-U", "PART II", "EX-99")
 # 1:1 character map for MATCHING only (same length, so every position maps back to the verbatim text)
 _MATCH_MAP = str.maketrans(
     {
-        "‐": "-",
-        "‑": "-",
-        "‒": "-",
-        "–": "-",
-        "—": "-",
-        "−": "-",
-        " ": " ",
+        0x2010: "-",  # hyphen
+        0x2011: "-",  # non-breaking hyphen
+        0x2012: "-",  # figure dash
+        0x2013: "-",  # en dash
+        0x2014: "-",  # em dash
+        0x2212: "-",  # minus sign
+        0x00A0: " ",  # no-break space
     }
 )
 
@@ -312,7 +344,10 @@ def document_text(raw: str) -> str:
 # --- numbers / dates ----------------------------------------------------------------------------------------
 
 
-def _words_value(words: str) -> int | None:
+def _words_value(words: str) -> Decimal | None:
+    half = re.search(_HALF + r"$", words, re.I)
+    if half:
+        words = words[: half.start()]
     total = 0
     current = 0
     seen = False
@@ -331,7 +366,9 @@ def _words_value(words: str) -> int | None:
             seen = True
         else:
             return None
-    return total + current if seen else None
+    if not seen:
+        return None
+    return Decimal(total + current) + (Decimal("0.5") if half else Decimal(0))
 
 
 def _digits(s: str) -> Decimal | None:
@@ -417,6 +454,7 @@ class _Mention:
     doc: int
     sentence: tuple[int, int]
     raw: str
+    pos: int = 0  # where the ratio starts in the document (absolute)
 
     def key(self) -> Fraction | None:
         if self.old is None or self.new is None or self.new == 0:
@@ -460,6 +498,31 @@ def _oriented(a: Decimal, b: Decimal, direction: str | None) -> tuple[Decimal, D
     return None
 
 
+_OLD_SIDE = re.compile(r"\bpre[\s-]|\bold\b|\bexisting\b|\bcurrent\b|\boutstanding\b", re.I)
+_NEW_SIDE = re.compile(r"\bpost[\s-]|\bnew\b", re.I)
+
+
+def _for_every_oriented(
+    m: re.Match, sent: str, a: Decimal, b: Decimal, direction: str | None
+) -> tuple[Decimal, Decimal] | None:
+    """``(old, new)`` for "A … for every B": filings write it BOTH ways — "one (1) share for every sixteen
+    (16)" (new for every old) and "four (4) pre-Reverse Split shares for every one (1) post-Reverse Split
+    share" (ELBM: old for every new) — so the words around each number decide (pre / old / outstanding vs
+    post / new), and only without them the split's direction."""
+    whole = m.group(0)
+    lead = whole[: whole.lower().rfind("for")]  # A and the words after it
+    tail = sent[m.end() : m.end() + 40]  # the words after B
+    if _OLD_SIDE.search(lead) and not _NEW_SIDE.search(lead):
+        return (a, b)
+    if _NEW_SIDE.search(lead):
+        return (b, a)
+    if _NEW_SIDE.search(tail) and not _OLD_SIDE.search(tail):
+        return (a, b)
+    if _OLD_SIDE.search(tail):
+        return (b, a)
+    return _oriented(a, b, direction)
+
+
 def _plausible(v: Decimal | None, *, plain_for: bool) -> bool:
     if v is None or v <= 0 or v > 100000:
         return False
@@ -489,10 +552,14 @@ def _mentions(docs: list[_Doc], doc_direction: str | None) -> list[_Mention]:
                 (a, ca), (b, cb) = _side(m, "a"), _side(m, "b")
                 if not (_plausible(a, plain_for=False) and _plausible(b, plain_for=False)):
                     continue
-                # NEW for every OLD
-                found.append(
-                    (m.start(), m.end(), b, a, "conflict" if ca or cb else "explicit", m.group(0))
-                )
+                if ca or cb:
+                    found.append((m.start(), m.end(), a, b, "conflict", m.group(0)))
+                    continue
+                o = _for_every_oriented(m, sent, a, b, direction)  # type: ignore[arg-type]
+                if o is None:
+                    found.append((m.start(), m.end(), a, b, "undirected", m.group(0)))
+                else:
+                    found.append((m.start(), m.end(), o[0], o[1], "explicit", m.group(0)))
             for m in _FOR.finditer(sent):
                 if any(fs <= m.start() < fe for fs, fe, *_ in found):
                     continue  # already read as "N share for every M"
@@ -530,21 +597,31 @@ def _mentions(docs: list[_Doc], doc_direction: str | None) -> list[_Mention]:
                 elif kind == "explicit":
                     kind = "operative"
                 out.append(
-                    _Mention(old=old, new=new, kind=kind, doc=di, sentence=(s, e), raw=raw.strip())
+                    _Mention(
+                        old=old,
+                        new=new,
+                        kind=kind,
+                        doc=di,
+                        sentence=(s, e),
+                        raw=raw.strip(),
+                        pos=s + start,
+                    )
                 )
     return out
 
 
 def _cued_dates(
     docs: list[_Doc], cue: re.Pattern, *, need_trading: bool
-) -> list[tuple[date, int, tuple[int, int]]]:
-    """``(date, doc, sentence)`` for every sentence carrying ``cue`` (and, for a trading sentence, a word about
-    trading): its only date, or the first date after the cue when it has several."""
+) -> list[tuple[date, int, tuple[int, int], int]]:
+    """``(date, doc, sentence, where)`` for every sentence carrying ``cue`` (and, for a trading sentence, a word
+    about trading): its only date, or the first date after the cue when it has several."""
     out = []
     for di, d in enumerate(docs):
         for s, e in d.spans:
             sent = d.match[s:e]
             cm = cue.search(sent)
+            if cm is None and need_trading and _SPLIT_CUE.search(sent):
+                cm = _TRADING_START.search(sent)  # "begin trading … after … the reverse split"
             if cm is None:
                 continue
             if need_trading and not _TRADING_WORD.search(sent):
@@ -555,11 +632,11 @@ def _cued_dates(
             if not ds:
                 continue
             if len({x for _, x in ds}) == 1:
-                out.append((ds[0][1], di, (s, e)))
+                out.append((ds[0][1], di, (s, e), s + ds[0][0]))
                 continue
-            after = [x for pos, x in ds if pos >= cm.start()]
+            after = [(pos, x) for pos, x in ds if pos >= cm.start()]
             if after:
-                out.append((after[0], di, (s, e)))
+                out.append((after[0][1], di, (s, e), s + after[0][0]))
     return out
 
 
@@ -572,17 +649,30 @@ def _label(old: Decimal, new: Decimal) -> str:
     return f"{_fmt(old)}->{_fmt(new)}"
 
 
-def _passage(docs: list[_Doc], parts: list[tuple[int, tuple[int, int]]]) -> tuple[str, str | None]:
-    seen: list[tuple[int, tuple[int, int]]] = []
+def _passage(
+    docs: list[_Doc], parts: list[tuple[int, tuple[int, int], int]]
+) -> tuple[str, str | None]:
+    """The verbatim passage: each part's sentence — or, for a run-on sentence, a window of it around what it
+    states (``pos``) — joined with " … ". The label names the first part's document."""
+    seen: list[tuple[int, tuple[int, int], int]] = []
     for p in parts:
-        if p not in seen:
+        if all((p[0], p[1]) != (q[0], q[1]) for q in seen):
             seen.append(p)
     texts = []
-    for di, (s, e) in seen:
-        t = docs[di].text[s:e].strip()
-        if len(t) > _MAX_SENTENCE:
-            t = t[:_MAX_SENTENCE].rstrip() + " […]"
-        texts.append(t)
+    for di, (s, e), pos in seen:
+        text = docs[di].text
+        lo, hi = s, e
+        if e - s > _LONG_SENTENCE:
+            lo = max(s, pos - _WINDOW_BEFORE)
+            hi = min(e, pos + _WINDOW_AFTER)
+            if lo > s:
+                cut = text.find(" ", lo, pos)
+                lo = cut + 1 if cut != -1 else lo
+            if hi < e:
+                cut = text.rfind(" ", pos, hi)
+                hi = cut if cut != -1 else hi
+        t = text[lo:hi].strip()
+        texts.append(("[…] " if lo > s else "") + t + (" […]" if hi < e else ""))
     label = docs[seen[0][0]].label if seen else None
     return " … ".join(texts), label
 
@@ -614,14 +704,14 @@ def extract_split(documents: list[FilingDocument]) -> SplitExtraction:
     effective: date | None = None
     kind: str | None = None
     date_note: str | None = None
-    date_at: tuple[int, tuple[int, int]] | None = None
+    date_at: tuple[int, tuple[int, int], int] | None = None
     for cand, k in ((trading, "trading"), (legal, "legal")):
         if not cand:
             continue
-        distinct = sorted({x for x, _, _ in cand})
+        distinct = sorted({c[0] for c in cand})
         if len(distinct) == 1:
             effective, kind = distinct[0], k
-            date_at = (cand[0][1], cand[0][2])
+            date_at = (cand[0][1], cand[0][2], cand[0][3])
         else:
             date_note = f"{len(distinct)} different {k} dates stated: " + ", ".join(
                 x.isoformat() for x in distinct
@@ -658,7 +748,7 @@ def extract_split(documents: list[FilingDocument]) -> SplitExtraction:
             distinct.setdefault(k, m)
 
     def abstain(reason: str, at: list[_Mention]) -> SplitExtraction:
-        parts = [(m.doc, m.sentence) for m in at[:2]]
+        parts = [(m.doc, m.sentence, m.pos) for m in at[:2]]
         if date_at is not None:
             parts.append(date_at)
         passage, label = _passage(docs, parts) if parts else ("", None)
@@ -703,7 +793,7 @@ def extract_split(documents: list[FilingDocument]) -> SplitExtraction:
                 [only, *undirected],
             )
     chosen = next(iter(distinct.values()))
-    parts = [(chosen.doc, chosen.sentence)]
+    parts = [(chosen.doc, chosen.sentence, chosen.pos)]
     if date_at is not None:
         parts.append(date_at)
     passage, label = _passage(docs, parts)
