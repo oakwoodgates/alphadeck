@@ -115,6 +115,9 @@ class _FakePIT:
         # correct and recall-safe (#9) — the security_name sibling shape. No stakes here to screen.
         return None
 
+    def split_events(self, security_id: UUID) -> list[dict]:
+        return []  # no split listed (S2 — the insider price screen's scale)
+
 
 def _thesis() -> Thesis:
     return Thesis(

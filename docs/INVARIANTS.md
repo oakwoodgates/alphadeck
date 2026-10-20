@@ -347,6 +347,19 @@ replay stays honest.
   filing counts from that filing's publication, so a past view reads today's best reading of what was public
   (`tests/db/test_public_clock.py::test_a_reparse_shares_its_filings_public_instant_so_the_best_parse_is_read`).
   New builds add no record-clock replay proofs (the rule block above).
+- *Also honored by (S2 — the split list on the call path):* a split changes what a reader computes only from
+  the moment THIS system recorded it. `PointInTimeData.split_events` (and its DuckDB twin) returns the newest
+  version of each listed split with `recorded_at <= known_at`; the insider price screens and the market cap
+  apply only splits IN FORCE (confirmed, or announced with the first session arrived) with a first session
+  after the trade / count date and on or before the MARKET DAY OF `known_at` — not of `asof`, deliberately:
+  the bars the same view reads are the versions recorded by `known_at`, which carry every split the system
+  had applied by then (a pin-mode backtest or a later read of a past `asof` reads the repaired tape), so the
+  factor must carry the same ones; on every live path and every serve-path scrub-back the two days coincide.
+  The repair (`pipeline.repair_split_basis`) and the loader write NEW versions stamped now — a replay pinned
+  before the stamp reads the old scale. A mirror exported before S2 carries no `security_split.parquet` and
+  reads no splits. *Enforced by:* `tests/signals/test_insider_split_scale.py` (a split recorded after `known_at`
+  is not applied; Postgres vs mirror parity at two pins; the pre-S2 mirror), `tests/pipeline/test_repair_split_basis.py`
+  (the as-of read before / after the stamp; count-the-table on apply and re-run).
 
 ## 5. Tenant isolation; production is a fresh tenant, never a destructive wipe
 

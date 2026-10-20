@@ -226,6 +226,35 @@ def latest_versions(
         return [SplitVersion(**r) for r in cur.fetchall()]
 
 
+def as_of_rows(
+    conn: psycopg.Connection,
+    *,
+    tenant_id: UUID,
+    security_ids: list[UUID],
+    known_at: datetime,
+) -> dict[UUID, list[dict[str, Any]]]:
+    """The split list as the CALL path reads it (split plan S2): per security, the newest version of each
+    logical split recorded by ``known_at`` — the table's own columns only (no master join), every status, so
+    the replay mirror's twin (``replay.pit.ReplayPointInTimeData.split_events``) returns the same rows. The
+    same pick as ``latest_versions`` (``DISTINCT ON`` the natural key, ``recorded_at DESC, id DESC``). No
+    valid-time gate: a reader decides by first session (``domain.splits.scale_after``), and a split the
+    system had recorded by ``known_at`` is knowledge it held. An entry for EVERY requested id (``[]`` when
+    none), so "nothing listed" is memoized."""
+    out: dict[UUID, list[dict[str, Any]]] = {sid: [] for sid in security_ids}
+    if not security_ids:
+        return out
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT DISTINCT ON (security_id, key_date) * FROM security_split "
+            "WHERE tenant_id = %s AND security_id = ANY(%s) AND recorded_at <= %s "
+            "ORDER BY security_id, key_date, recorded_at DESC, id DESC",
+            (tenant_id, list(security_ids), known_at),
+        )
+        for r in cur.fetchall():
+            out.setdefault(r["security_id"], []).append(dict(r))
+    return out
+
+
 def history(
     conn: psycopg.Connection, *, tenant_id: UUID, security_id: UUID, key_date: date
 ) -> list[SplitVersion]:

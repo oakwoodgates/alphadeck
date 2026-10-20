@@ -126,11 +126,10 @@ The EOD price source sits behind an interface, so swapping it is changing an **a
   BEFORE the operator promotes. Same incremental / cache-first / no-lookahead rules on both paths — the
   interactive path stays `force_refresh=False` (a first pull is a cache miss and fetches live; the daily
   cron owns force-refresh).
-- **The contract is "a source of EOD bars," not "Yahoo's adjusted bars."** Deliberately **no `get_splits`**
-  yet: owning the split adjustment ourselves (adjusting at read time from raw bars) is a larger storage+read
-  change that would EXTEND this interface if/when we adopt such a source — the seam eases that swap, it does
-  not pre-build it. (Today's Yahoo bars are already split-adjusted + re-based on every split — a property of
-  the Yahoo adapter, documented in `DATA_SOURCES.md`, not baked into the contract.)
+- **The contract is "a source of EOD bars," not "Yahoo's adjusted bars."** Still **no `get_splits`** on the
+  seam: since S2 (2026-10-20) Alpha Deck owns the adjustment for every split on its OWN list — the price leg
+  puts each vendor bar on the list's scale before storing it (§The split list, below), whatever the vendor
+  serves.
 - **The modularity template.** This is the pattern the other sources (EDGAR/Form 4) can follow when they need
   the same swappability; this slice set it for prices (the source that was biting), not for everything.
 
@@ -1223,6 +1222,42 @@ nothing it finds reaches a detector, the CallCard, or a stored bar. Whether pric
 a flagged name (plan Q10) and any repair of stored bars are separate, undecided steps. The two-agreeing-pulls
 hysteresis on a vendor REVERT (T5) is built in the price leg itself — see "Price restatements" above; it does
 not read this monitor.
+
+### The split list — one scale for the stored tape (S2, 2026-10-20)  `[BUILT]`
+
+**Why.** T5 delays a vendor's flip back to an unadjusted basis by one night; it cannot protect a repair
+(MEASURED, split-tape diagnosis §6: a repaired tape fed today's real Yahoo pull is a REVERT on every bar —
+held night 1, re-applied night 2). So the price leg now reads the split list (`security_split`, S1).
+
+**The loader** (`ingest/prices/split_normalize.py`, called by `ingest_bars_for_security` after the settle
+guard and BEFORE the tail / overlap split). For every split IN FORCE (confirmed, or announced once its first
+session has arrived — `domain.splits.applicable`), each fresh bar dated before it is read against the stored
+bar: lacking listed splits the store carries (the vendor unadjusted, still or again) → scaled by them and then
+equal to the stored bar, nothing written; carrying one twice where the store is already on the new scale
+(PBM) → divided back; a whole segment off by one consistent factor beyond 3% vendor noise (ATRO's 0.7981 for a
+0.8333 distribution) → divided back; the same scale, or a genuine correction → T6/T5 unchanged. **First
+night**: when the store holds no bar on or after a split's first session yet and its pre-split run reads raw
+against the vendor's first post-split bar (x3 or more, no bar already on the new scale in the run), the
+history is put on the new scale that night — MEASURED on the dev history, VRME 09-29 (its fake +1,276%
+breakout arm), YYAI 08-17 and LRHC 09-08 each arrived as the raw history plus the first post-split bar. No
+retirement: a pass-through costs nothing. `BarsResult.normalized` counts bars read that way.
+
+**The repair** (`python -m pipeline.repair_split_basis`, operator-run). Labels every STORED bar before a split
+in force RAW / ADJUSTED / OVER-ADJUSTED / MIS-FACTORED by continuity with the bars after it
+(`pipeline/split_repair.py`: islands first, then a min-cost path where a vendor may change scale only at a
+split, a few sessions off one, or at its own two-year window edge); the last two labels only from independent
+raw prints (`--spot-file pipeline/split_evidence/polygon_raw_2026-10.json`). One unlabeled bar refuses the
+company. Gates: T4 clean, no split-sized step left, raw prints within 1% (3% reported as vendor noise).
+`--apply` holds the call-of-record lock, appends corrected versions under one stamp (never an UPDATE / DELETE),
+clears the T5 hold, counts the table, writes `data/repairs/<utc>-split-basis.json`; `--revoke STAMP` appends
+the old values back.
+
+**The readers.** The insider price screens (`insider_conviction`, `insider_sell`, the display flow, the
+Scoreboard ledger) put a Form 4's as-traded price on the tape's scale (`domain.splits.tape_scale`: the splits
+recorded by the view's `known_at` with a first session after the trade and on or before `known_at`'s market
+day); the Workbench market cap divides a share count dated before a split by its factor. The replay mirror
+exports `security_split.parquet`; a mirror from before S2 opens unchanged and reads no splits. The self-audit
+`splits_applied` check pages a recent split still showing its step and names the older backlog quietly.
 
 ### The tape monitor, part 3 — price-feed repairs: renamed, unpriceable, expected 404s (T2 + Q8 + T3, 2026-10-17)  `[BUILT]`
 

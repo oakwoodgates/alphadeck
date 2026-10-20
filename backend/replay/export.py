@@ -305,6 +305,41 @@ def _read_aux(
     return schema, rows, 0
 
 
+# S2 — the SPLIT LIST (migration 0052) beside the fact tables: what the insider price screen reads
+# (``PointInTimeData.split_events``) to put a Form 4's as-traded price on the tape's scale. Not a fact table
+# (``db.bitemporal._FACT_IDENTITY`` stays the fact set, so ``connect_mirror``'s every-file rule is untouched):
+# it rides as ONE optional file, written by every export since S2. A mirror from before has no file and reads
+# as "no splits listed" — exactly what the system knew then, so a frozen backtest mirror still opens and
+# replays as it always did.
+SPLIT_TABLE = "security_split"
+
+
+def _read_splits(
+    conn: psycopg.Connection, tenant_id: UUID, clock: str
+) -> tuple[pa.Schema, list[dict]]:
+    """The split list for the mirror. ``record`` — every version, untouched (the parity mode). ``public`` —
+    the version standing at export for each logical split, stamped at its ``valid_from`` (when the split
+    became public): right on the data axis, hindsight on the decision axis (an operator's later confirm or
+    revoke is applied from the split's public date) — the insider-decision caveat ``_read_aux`` names.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT * FROM security_split WHERE tenant_id = %(t)s ORDER BY recorded_at, id",
+            {"t": tenant_id},
+        )
+        rows = cur.fetchall()
+        schema = pa.schema(
+            [(d.name, _OID_ARROW.get(d.type_code, pa.string())) for d in cur.description]
+        )
+    if clock != "public":
+        return schema, rows
+    newest: dict[tuple[Any, Any], dict] = {}
+    for r in rows:  # ascending (recorded_at, id): the last version per logical split wins
+        newest[(r["security_id"], r["key_date"])] = r
+    kept = [{**r, "recorded_at": _as_utc(r["valid_from"])} for r in newest.values()]
+    return schema, kept
+
+
 def blind_detectors(excluded: list[str]) -> list[str]:
     """Which registered detectors read ONLY excluded tables — i.e. which ones cannot fire in this mirror.
 
@@ -390,6 +425,11 @@ def export_snapshot(
         coerced = [{k: _coerce(v) for k, v in row.items()} for row in rows]
         pq.write_table(pa.Table.from_pylist(coerced, schema=schema), out / f"{table}.parquet")
         manifest["aux_tables"][table] = {"rows": len(rows), "rows_dropped_null_clock": dropped}
+    # S2 — the split list, ALWAYS written (empty or not), so a mirror either has it or is from before it
+    schema, rows = _read_splits(conn, tenant_id, clock)
+    coerced = [{k: _coerce(v) for k, v in row.items()} for row in rows]
+    pq.write_table(pa.Table.from_pylist(coerced, schema=schema), out / f"{SPLIT_TABLE}.parquet")
+    manifest["split_table"] = {"rows": len(rows)}
     (out / MANIFEST_NAME).write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n"
     )

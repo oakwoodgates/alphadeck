@@ -568,6 +568,9 @@ class _FakePit:
     def security_name(self, security_id):
         return self._name
 
+    def split_events(self, security_id):
+        return []  # no split listed (S2)
+
 
 def test_the_master_switch_now_defaults_on_but_still_gates_detect():
     """The switch is now LIVE by default (insider_sell_enabled=True, ratified on the 2026-08-19

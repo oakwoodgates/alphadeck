@@ -18,12 +18,15 @@ a pure filter on the same rows (no re-screen, no lookahead). The Cockpit basket 
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date, timedelta
 from typing import Any
 from uuid import UUID
 
 from domain.insider_internal_transfers import is_internal_transfer
 from domain.insider_joint_reports import joint_labels
+from domain.market_time import market_tz
+from domain.splits import tape_scale
 from signals.display.base import (
     DisplayBasis,
     DisplayEvent,
@@ -102,20 +105,24 @@ def _is_implausible(txn: dict[str, Any]) -> bool:
     return float(txn.get("usd") or 0.0) > MAX_PLAUSIBLE_TXN_USD
 
 
-def _is_below_day_low(txn: dict[str, Any], day_lows: dict[date, float]) -> bool:
+def _is_below_day_low(
+    txn: dict[str, Any],
+    day_lows: dict[date, float],
+    price_scale: Callable[[date], float] | None = None,
+) -> bool:
     """Priced materially below the security's own EOD low that day → an offer-price primary-market
     subscription (an IPO allocation / PIPE / placement files as code P at the OFFER price — PBLS: RA
     Capital's $394M subscription at $20 vs a $29.65-$34.47 tape). Recall-safe (#9): no day low / no
     price → False (KEEP — we cannot prove it was off-market); a genuine open-market print is within the
-    day's [low, high], so this cannot exclude one (save a name that REVERSE-split between the buy and
-    asof, a documented limitation shared with the call)."""
+    day's [low, high], so this cannot exclude one. ``price_scale`` (``domain.splits.tape_scale``, S2) puts
+    the as-traded price on the tape's split scale first — the call's rule, so a genuine buy before a
+    reverse split is no longer read as below its adjusted day low."""
     price = txn.get("price")
     low = day_lows.get(txn.get("valid_from"))
-    return (
-        price is not None
-        and low is not None
-        and float(price) < low * (1.0 - OFFMARKET_BELOW_LOW_FRAC)
-    )
+    if price is None or low is None:
+        return False
+    scale = price_scale(txn["valid_from"]) if price_scale is not None else 1.0
+    return float(price) * scale < low * (1.0 - OFFMARKET_BELOW_LOW_FRAC)
 
 
 def _norm_entity(name: str | None) -> str:
@@ -144,7 +151,12 @@ def _is_issuer_self(txn: dict[str, Any], issuer_name: str | None) -> bool:
     return bool(filer) and filer == issuer
 
 
-def _screen(txn: dict[str, Any], day_lows: dict[date, float], issuer_name: str | None) -> str:
+def _screen(
+    txn: dict[str, Any],
+    day_lows: dict[date, float],
+    issuer_name: str | None,
+    price_scale: Callable[[date], float] | None = None,
+) -> str:
     """Which CHARACTER does this code-P buy carry? Ordered most-structural first (implausible data,
     then identity — the issuer itself, then a transfer from a linked filer (the read's tag) — then price,
     mirroring ``insider_sell._screen``) so a row tripping several screens
@@ -162,12 +174,16 @@ def _screen(txn: dict[str, Any], day_lows: dict[date, float], issuer_name: str |
         return SELF_FILING
     if is_internal_transfer(txn):
         return INTERNAL_TRANSFER
-    if _is_below_day_low(txn, day_lows):
+    if _is_below_day_low(txn, day_lows, price_scale):
         return PRIMARY_MARKET
     return OPEN_MARKET
 
 
-def _is_open_market_buy(txn: dict[str, Any], day_lows: dict[date, float]) -> bool:
+def _is_open_market_buy(
+    txn: dict[str, Any],
+    day_lows: dict[date, float],
+    price_scale: Callable[[date], float] | None = None,
+) -> bool:
     """Does this code-P buy belong in the OPEN-MARKET total? (mirrors the call's screen, re-implemented
     locally — the display seam can't import ``signals.insider_conviction`` / ``CallConfig``; see ``base.py``).
 
@@ -184,7 +200,7 @@ def _is_open_market_buy(txn: dict[str, Any], day_lows: dict[date, float]) -> boo
     Recall-safe (#9): no day low → KEEP (never silently drop). Set-aside rows stay in
     ``fact_insider_txn``; only this open-market READING skips them (and the basis note says how much).
     """
-    return not _is_implausible(txn) and not _is_below_day_low(txn, day_lows)
+    return not _is_implausible(txn) and not _is_below_day_low(txn, day_lows, price_scale)
 
 
 def _basis_note(
@@ -256,6 +272,7 @@ def compute(
     rows: list[dict[str, Any]],
     asof: date,
     day_lows: dict[date, float] | None = None,
+    price_scale: Callable[[date], float] | None = None,
 ) -> DisplaySignal | None:
     """Pure trailing-window flow over ingested Form 4 rows (any order; filtered here).
 
@@ -289,7 +306,7 @@ def compute(
     for r in windowed:
         if r.get("txn_code") != BUY:
             continue
-        (buys if _is_open_market_buy(r, lows) else offmarket).append(r)
+        (buys if _is_open_market_buy(r, lows, price_scale) else offmarket).append(r)
     sells = [r for r in windowed if r.get("txn_code") == SELL]
     # the 30d sub-window: the subset of the ALREADY-screened open-market buys whose valid_from sits
     # inside the tighter trailing window (asof-30, asof]. A pure filter on the same rows — no
@@ -364,7 +381,14 @@ def display(pit: DisplayPointInTimeData, security_id: UUID, asof: date) -> Displ
     day_lows = {
         b["d"]: float(b["low"]) for b in pit.price_history(security_id) if b.get("low") is not None
     }
-    return compute(pit.insider_txns(security_id), asof, day_lows=day_lows)
+    return compute(
+        pit.insider_txns(security_id),
+        asof,
+        day_lows=day_lows,
+        price_scale=tape_scale(
+            pit.split_events(security_id), through=pit.known_at.astimezone(market_tz()).date()
+        ),
+    )
 
 
 # The READ-HORIZON declaration (``signals/horizons.py``).

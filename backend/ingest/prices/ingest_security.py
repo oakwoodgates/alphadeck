@@ -40,6 +40,14 @@ implementation means the invariants can't fork:
   daytime boot catch-up, or a Workbench pull mid-session therefore stores yesterday's close and nothing of
   today; the next settled pass appends today's bar as an ordinary tail bar (withholding never loses one).
   ``BarsResult.withheld`` carries the count so the pass can say so ONCE, quietly.
+- **The split list (S2, 2026-10-20)** — after the settle guard and BEFORE the tail / overlap split, every fresh
+  bar dated before a split IN FORCE (``domain.splits.applicable``: confirmed, or announced once its first
+  session has arrived) is put on the store's scale (``split_normalize.normalize``): a vendor still / again
+  serving the unadjusted basis is scaled by the listed factor and then equals the stored bar, so nothing is
+  written; a vendor that applied a split twice, or a consistent different factor, is divided back; a genuine
+  correction passes unchanged into T6/T5. Without it a REPAIRED tape was undone in two nights (the T5 guard
+  holds a flip back once, then re-applies it). Bars on or after the last split are untouched.
+  ``BarsResult.normalized`` counts the bars read that way (most write nothing).
 
 Price bars are FEED data (like Form 4s), not operator-ratified facts — the recommend→confirm seam does
 not apply to them; what they feed (the market cap) stays display until the operator acts.
@@ -58,6 +66,7 @@ import psycopg
 
 from domain.market_time import market_tz
 from domain.security import Security
+from domain.splits import ListedSplit, applicable, listed_from_row
 from ingest.prices.eod_loader import bar_versions, ingest_prices, latest_bar_date, stored_bars
 from ingest.prices.restatement import (
     HeldRevert,
@@ -68,6 +77,8 @@ from ingest.prices.restatement import (
 )
 from ingest.prices.settle import withhold_unsettled
 from ingest.prices.source import PriceSource, YahooPriceSource
+from ingest.prices.split_normalize import normalize
+from repositories import split_repo
 
 _log = logging.getLogger(__name__)
 
@@ -87,6 +98,9 @@ class BarsResult:
     reversioned: int
     withheld: int = 0
     held: int = 0
+    # S2 — fresh bars put onto the split list's scale before the compare (``split_normalize``): a vendor flip
+    # back to an unadjusted basis it absorbs writes nothing, so this counts bars READ differently, not written
+    normalized: int = 0
 
     @property
     def total(self) -> int:
@@ -246,6 +260,25 @@ def ingest_bars_for_security(
         src.get_bars(price_symbol, allow_live=allow_live, force_refresh=force_refresh), now=now
     )
     last = latest_bar_date(conn, sec.id, tenant_id=tenant_id)
+    stored = stored_bars(conn, sec.id, tenant_id=tenant_id) if last is not None else {}
+
+    # S2 — the split list: every fresh bar before a split in force is put on the store's (the list's) scale
+    # BEFORE the tail / overlap split, so the restatement compare below sees the vendor's flip back to an
+    # unadjusted basis as no change at all (``split_normalize``)
+    normalized = 0
+    in_force = splits_in_force(
+        conn, sec.id, tenant_id=tenant_id, on=now.astimezone(market_tz()).date()
+    )
+    if in_force:
+        norm = normalize(fresh, stored, in_force)
+        fresh, normalized = norm.bars, norm.total
+        if norm.total:
+            _log.info(
+                "price split normalization: %s — %s%s",
+                sec.ticker,
+                ", ".join(f"{n} {why.replace('_', ' ')}" for why, n in sorted(norm.scaled.items())),
+                f" (first night: {'; '.join(norm.first_night)})" if norm.first_night else "",
+            )
 
     appended = ingest_prices(
         conn,
@@ -258,7 +291,7 @@ def ingest_bars_for_security(
     # re-click returns the very series already ingested → zero diffs → a no-op)
     reversioned = held = 0
     if last is not None and any(r["d"] <= last for r in fresh):
-        plan = plan_overlap(fresh, stored_bars(conn, sec.id, tenant_id=tenant_id), last=last)
+        plan = plan_overlap(fresh, stored, last=last)
         refreshed = force_refresh and allow_live
         old: list[dict] = []
         if plan.old or refreshed:
@@ -269,7 +302,17 @@ def ingest_bars_for_security(
             conn, sec.id, plan.holes + plan.recent + old, tenant_id=tenant_id
         )
 
-    return BarsResult(appended, reversioned, withheld, held)
+    return BarsResult(appended, reversioned, withheld, held, normalized)
+
+
+def splits_in_force(
+    conn: psycopg.Connection, security_id: UUID, *, tenant_id: UUID, on: date
+) -> list[ListedSplit]:
+    """The split list's splits IN FORCE for one security on market day ``on`` — the newest version of each
+    (``split_repo.latest_versions``, as of the database clock now) that is confirmed, or announced with its
+    first session arrived (``domain.splits.applicable``)."""
+    rows = split_repo.latest_versions(conn, tenant_id=tenant_id, security_ids=[security_id])
+    return applicable([listed_from_row(v.model_dump()) for v in rows], on=on)
 
 
 def _resolve_older(

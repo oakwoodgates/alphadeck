@@ -14,6 +14,7 @@ from db.public_clock import Clock
 from db.session import DEFAULT_TENANT_ID
 from domain.config import CallConfig
 from domain.signal import SignalEvent
+from repositories import split_repo
 
 
 def window_prices(
@@ -100,6 +101,7 @@ class PointInTimeData:
         self._identity: dict[UUID, tuple[str | None, str | None]] = {}  # sid -> (name, cik)
         self._identity_prefetched = False
         self._bench_ids: dict[str, UUID | None] = {}
+        self._splits: dict[UUID, list[dict[str, Any]]] = {}  # sid -> the split list as of known_at
 
     # --- the memo + prefetch seam (every fact accessor below goes through here) ---------------------
 
@@ -315,6 +317,27 @@ class PointInTimeData:
         """Thesis-scoped (not co-located): the operator-ratified theme convictions for a thesis (M5b)."""
         return self._thesis_rows("fact_theme_conviction", thesis_id)
 
+    def split_events(self, security_id: UUID) -> list[dict[str, Any]]:
+        """The SPLIT LIST for this security as this view knows it (split plan S2): the newest version of each
+        logical split RECORDED by ``known_at`` (``split_repo.as_of_rows``) — every status; a reader applies
+        ``domain.splits`` (``applicable`` / ``scale_after``) to decide which are in force.
+
+        Why a reader needs it: the stored tape is on the list's scale (the price loader normalizes every bar
+        before a split in force, ``ingest.prices.split_normalize``), while a Form 4 states the price AS
+        TRADED. Comparing the two needs the factor between them. No lookahead on the transaction axis (#1):
+        a split recorded after ``known_at`` is invisible here, exactly like a fact. No valid-time gate: the
+        bars this view reads carry every split the system had applied by ``known_at`` — including one whose
+        first session is after ``asof`` (a past-asof read pinned at a later ``known_at``) — so the factor
+        must too. Memoized; the basket's lists load in ONE query on the first touch."""
+        if security_id not in self._splits:
+            ids = list(self._basket) if security_id in self._basket else [security_id]
+            self._splits.update(
+                split_repo.as_of_rows(
+                    self.conn, tenant_id=self.tenant_id, security_ids=ids, known_at=self.known_at
+                )
+            )
+        return list(self._splits.get(security_id, []))
+
     def security_name(self, security_id: UUID) -> str | None:
         """The security's display name from ``security_master`` — an IDENTITY read, NOT a bitemporal fact.
 
@@ -365,6 +388,8 @@ class SignalPointInTimeData(Protocol):
     def activist_stake_facts(self, security_id: UUID) -> list[dict[str, Any]]: ...
 
     def theme_conviction_facts(self, thesis_id: UUID) -> list[dict[str, Any]]: ...
+
+    def split_events(self, security_id: UUID) -> list[dict[str, Any]]: ...
 
     def security_name(self, security_id: UUID) -> str | None: ...
 

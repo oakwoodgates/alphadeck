@@ -30,11 +30,12 @@ disagreeing values.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal
 from fractions import Fraction
+from typing import Any
 
 STATUS_ANNOUNCED = "announced"
 STATUS_CONFIRMED = "confirmed"
@@ -123,6 +124,125 @@ def price_factor(ratio_from: Decimal | int, ratio_to: Decimal | int) -> Fraction
     """k = old / new: prices before the split are multiplied by k (16 for a 1-for-16 reverse split, 1/2 for a
     2-for-1), volumes divided by it. Exact."""
     return Fraction(Decimal(ratio_from)) / Fraction(Decimal(ratio_to))
+
+
+# --- READING the list (split plan S2): which splits are IN FORCE, and the tape's scale ----------------------
+#
+# The list is read by the price loader (one scale for the stored tape), the repair tool, the insider price
+# screen and the market cap. They share ONE rule for which listed splits count, and ONE product for the scale.
+
+
+@dataclass(frozen=True)
+class ListedSplit:
+    """One split as a reader of the list sees it: the newest version of one logical split (as-of whatever
+    ``known_at`` the read used). ``factor`` = k = old / new (``price_factor``), exact."""
+
+    key_date: date
+    effective_date: date
+    ratio_from: Decimal
+    ratio_to: Decimal
+    status: str
+    sec_accession: str | None = None
+    version_id: str | None = None
+
+    @property
+    def factor(self) -> Fraction:
+        return price_factor(self.ratio_from, self.ratio_to)
+
+    @property
+    def label(self) -> str:
+        return ratio_label(self.ratio_from, self.ratio_to)
+
+
+def listed_from_row(row: Mapping[str, Any]) -> ListedSplit:
+    """A ``security_split`` row (a DB dict, a replay-mirror dict, or a ``SplitVersion`` dump) as a
+    ``ListedSplit``. Numerics arrive as Decimal (Postgres) or float (the Parquet mirror); a float goes through
+    ``repr`` so 6.25 stays 6.25 and the factor stays exact."""
+
+    def dec(v: Any) -> Decimal:
+        return v if isinstance(v, Decimal) else Decimal(repr(v) if isinstance(v, float) else str(v))
+
+    def day(v: Any) -> date:
+        return v if isinstance(v, date) else date.fromisoformat(str(v)[:10])
+
+    vid = row.get("id")
+    return ListedSplit(
+        key_date=day(row["key_date"]),
+        effective_date=day(row["effective_date"]),
+        ratio_from=dec(row["ratio_from"]),
+        ratio_to=dec(row["ratio_to"]),
+        status=str(row["status"]),
+        sec_accession=row.get("sec_accession"),
+        version_id=None if vid is None else str(vid),
+    )
+
+
+def is_applicable(status: str, effective_date: date, *, on: date) -> bool:
+    """Is a listed split IN FORCE on market day ``on``? ``confirmed``, or ``announced`` once its first session
+    has arrived (an announced split already had two sources agree — S1's rule — so a split filed in advance is
+    in force on its own first night). Never before its first session, whatever the status. ``needs_review`` /
+    ``rejected`` / ``revoked`` never are: a split the operator has not settled is not applied to anything.
+    """
+    if effective_date > on:
+        return False
+    return status in (STATUS_CONFIRMED, STATUS_ANNOUNCED)
+
+
+def applicable(splits: Sequence[ListedSplit], *, on: date) -> list[ListedSplit]:
+    """The splits in force on ``on``, oldest first."""
+    return sorted(
+        (s for s in splits if is_applicable(s.status, s.effective_date, on=on)),
+        key=lambda s: (s.effective_date, s.key_date),
+    )
+
+
+def pending(splits: Sequence[ListedSplit], *, on: date) -> list[ListedSplit]:
+    """The LIVE splits that are not in force on ``on`` — ``needs_review``, or ``announced`` with a first
+    session still ahead. A reader leaves their dates alone (it neither applies nor undoes them) and says it is
+    waiting for them; rejected / revoked splits are not splits and are not returned."""
+    return sorted(
+        (
+            s
+            for s in splits
+            if s.status in (STATUS_NEEDS_REVIEW, STATUS_ANNOUNCED)
+            and not is_applicable(s.status, s.effective_date, on=on)
+        ),
+        key=lambda s: (s.effective_date, s.key_date),
+    )
+
+
+def tape_scale(rows: Sequence[Mapping[str, Any]], *, through: date) -> Callable[[date], float]:
+    """``f(trade_date) -> factor``: puts a price AS TRADED on ``trade_date`` onto the stored tape's scale —
+    the product of k over the listed splits in force on ``through`` with a first session after the trade date
+    and on or before ``through`` (``scale_after``). ``rows`` are the split list as the reader's view knows it
+    (``PointInTimeData.split_events``: recorded by its ``known_at``); ``through`` is the market day of that
+    ``known_at`` — the bars the view reads carry every split the system had applied by then, so the factor
+    must carry them too. A split the view did not know is not in ``rows`` and is never applied (#1). 1.0 when
+    nothing applies. Dollar amounts (shares x price) are split-invariant: only a PER-SHARE value is scaled.
+    """
+    splits = applicable([listed_from_row(r) for r in rows], on=through)
+    if not splits:
+        return lambda d: 1.0
+    memo: dict[date, float] = {}
+
+    def factor(d: date) -> float:
+        if d not in memo:
+            memo[d] = float(scale_after(splits, d, through=through))
+        return memo[d]
+
+    return factor
+
+
+def scale_after(splits: Sequence[ListedSplit], d: date, *, through: date) -> Fraction:
+    """The cumulative price factor that puts a value AS TRADED on ``d`` onto the scale of ``through``: the
+    product of k over the splits in force on ``through`` whose first session is after ``d`` and on or before
+    ``through`` (chained splits multiply). 1 when none. Prices are multiplied by it, share counts and share
+    volumes divided."""
+    k = Fraction(1)
+    for s in applicable(splits, on=through):
+        if d < s.effective_date <= through:
+            k *= s.factor
+    return k
 
 
 def same_ratio(a_from: Decimal, a_to: Decimal, b_from: Decimal, b_to: Decimal) -> bool:

@@ -48,6 +48,7 @@ honest ingest date (``ingested_at`` on a public read) — bookkeeping, never the
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -156,6 +157,7 @@ def episode_insider_buys(
     known_at: datetime,
     day_lows: dict[date, float],
     clock: Clock = "record",
+    price_scale: Callable[[date], float] | None = None,
 ) -> list[dict[str, Any]]:
     """The window's code-P insider buys, as-of-capped on both axes, each carrying its ``character``.
 
@@ -216,7 +218,7 @@ def episode_insider_buys(
                 "ingested": _ingested(r),
                 # the buy's server-classified character (deterministic field predicates, #3);
                 # set-asides ride grayed-and-labeled instead of hidden (option (a) — WB #2)
-                "character": _screen(r, day_lows, issuer_name),
+                "character": _screen(r, day_lows, issuer_name, price_scale),
                 # an internal transfer's counterparties (the read's tag) — None on every other buy
                 "transfer_with": list(transfer_with(r)) or None,
                 "private_passage": note.passage if note else None,
@@ -253,6 +255,7 @@ def episode_insider_sells(
     known_at: datetime,
     day_lows: dict[date, float],
     clock: Clock = "record",
+    price_scale: Callable[[date], float] | None = None,
 ) -> list[dict[str, Any]]:
     """The window's code-S insider sales, as-of-capped on both axes, each carrying its ``character``
     (Slice B — the sell mirror of ``episode_insider_buys``).
@@ -303,7 +306,7 @@ def episode_insider_sells(
                 # the CALL-side screen bucket (deterministic field predicates, #3), wire-mapped;
                 # screened rows ride grayed-and-labeled instead of hidden (WB #2)
                 "character": sell_character_wire(
-                    _sell_screen(r, day_lows, issuer_name, DEFAULT_CONFIG)
+                    _sell_screen(r, day_lows, issuer_name, DEFAULT_CONFIG, price_scale)
                 ),
                 # an internal transfer's counterparties (the read's tag) — None on every other sale
                 "transfer_with": list(transfer_with(r)) or None,

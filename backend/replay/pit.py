@@ -34,7 +34,7 @@ from db.bitemporal import (
 from db.insider_resolution import RESOLVED_TABLE
 from db.session import DEFAULT_TENANT_ID
 from domain.insider_amendments import ResolutionInputs, group_inputs
-from replay.export import AUX_PUBLIC_COL, AUX_TABLES, FACT_TABLES, read_mirror_manifest
+from replay.export import AUX_PUBLIC_COL, AUX_TABLES, FACT_TABLES, SPLIT_TABLE, read_mirror_manifest
 from signals.base import window_prices
 
 # the aux columns the export wrote as JSON strings (jsonb / text[]) — decoded back to the Postgres shape
@@ -157,8 +157,42 @@ def connect_mirror(parquet_dir: str | Path) -> duckdb.DuckDBPyConnection:
     for table in present:
         path = (base / f"{table}.parquet").as_posix().replace("'", "''")
         con.execute(f"CREATE TABLE {table} AS SELECT * FROM read_parquet('{path}')")
+    # S2 — the split list: present in every mirror exported since S2, absent from older ones. An old mirror
+    # opens unchanged and reads "no splits listed" (``_splits_of``) — what the system knew when it was written.
+    split_file = base / f"{SPLIT_TABLE}.parquet"
+    if split_file.is_file():
+        path = split_file.as_posix().replace("'", "''")
+        con.execute(f"CREATE TABLE {SPLIT_TABLE} AS SELECT * FROM read_parquet('{path}')")
     _aux_of(con)  # prime the per-connection aux cache now, so no view pays a query for it
+    _splits_of(con)
     return con
+
+
+# S2 — the split list per mirror connection, read ONCE (it is tiny and immutable for the connection's life),
+# grouped by security (text id), every version; each view applies its own gate in Python. ``None`` = the
+# mirror predates the list (no table): every view then reads no splits.
+_SPLITS: weakref.WeakKeyDictionary[duckdb.DuckDBPyConnection, dict[str, list[dict]] | None] = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def _splits_of(con: duckdb.DuckDBPyConnection) -> dict[str, list[dict]] | None:
+    if con in _SPLITS:
+        return _SPLITS[con]
+    found = con.execute(
+        "SELECT count(*) FROM information_schema.tables WHERE table_name = ?", [SPLIT_TABLE]
+    ).fetchone()
+    if not (found and found[0]):
+        _SPLITS[con] = None
+        return None
+    res = con.execute(f"SELECT * FROM {SPLIT_TABLE}")  # noqa: S608 — a trusted constant
+    cols = [d[0] for d in res.description]
+    grouped: dict[str, list[dict]] = {}
+    for r in res.fetchall():
+        row = dict(zip(cols, r))
+        grouped.setdefault(str(row["security_id"]), []).append(row)
+    _SPLITS[con] = grouped
+    return grouped
 
 
 def _partition_cols(table: str) -> list[str]:
@@ -470,6 +504,24 @@ class ReplayPointInTimeData:
 
     def theme_conviction_facts(self, thesis_id: UUID) -> list[dict[str, Any]]:
         return self._as_of("fact_theme_conviction", "thesis_id", thesis_id)
+
+    def split_events(self, security_id: UUID) -> list[dict[str, Any]]:
+        """The mirror twin of ``PointInTimeData.split_events`` (S2): the newest version of each logical split
+        (``security_id, key_date``) recorded by ``known_at`` — the SAME pick as ``split_repo.as_of_rows``
+        (``recorded_at DESC, id DESC``), in key-date order. A mirror exported before the split list existed
+        has no table and returns ``[]`` (``_splits_of``) — what the system knew when it was written.
+        """
+        grouped = _splits_of(self.con)
+        if not grouped:
+            return []
+        tenant = str(self.tenant_id)
+        newest: dict[Any, dict[str, Any]] = {}
+        for r in sorted(
+            grouped.get(str(security_id), ()), key=lambda r: (r["recorded_at"], str(r["id"]))
+        ):
+            if str(r["tenant_id"]) == tenant and r["recorded_at"] <= self.known_at:
+                newest[r["key_date"]] = r
+        return [newest[k] for k in sorted(newest)]
 
     def security_name(self, security_id: UUID) -> str | None:
         """Satisfies the protocol; the replay mirror holds FACT tables only, not ``security_master``

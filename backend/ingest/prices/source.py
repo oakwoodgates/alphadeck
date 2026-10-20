@@ -7,12 +7,12 @@ default) and ``StooqPriceSource`` (the formalized fallback). ``ingest_thesis`` d
 on a concrete fetcher.
 
 The contract is deliberately **"a source of EOD bars", NOT "Yahoo's adjusted bars"** — so a future adapter
-(e.g. a raw-prices + corporate-actions source) isn't boxed out. And there is deliberately **no
-``get_splits``**: owning the split adjustment ourselves (adjusting at read time from raw bars) is a larger
-storage + read change that would EXTEND this interface if/when we adopt such a source; this seam eases that
-swap, it does not pre-build it. (Today's Yahoo bars are already split-adjusted + re-based on every split —
-a property of the Yahoo adapter, documented in ``docs/DATA_SOURCES.md``, not an assumption baked into the
-contract.)
+(e.g. a raw-prices + corporate-actions source) isn't boxed out. There is still **no ``get_splits``** on the
+seam: since S2 (2026-10-20) Alpha Deck owns the adjustment for every split on its OWN list (the
+``security_split`` table, S1) — the price leg puts each vendor bar on the list's scale before storing it
+(``split_normalize``), whatever the vendor serves — so the seam needs no corporate-action feed. (Yahoo's
+bars are USUALLY split-adjusted + re-based, but not always and not stably: the split-tape diagnosis measured
+14 companies stored on two scales, and vendor flips between them — ``docs/DATA_SOURCES.md``.)
 """
 
 from __future__ import annotations

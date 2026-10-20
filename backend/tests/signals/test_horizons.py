@@ -217,6 +217,10 @@ class _RecordingPIT:
     def security_cik(self, security_id):
         return self._inner.security_cik(security_id)
 
+    def split_events(self, security_id):
+        # the split list (S2) is not a fact table — no horizon to declare (a handful of rows, read whole)
+        return self._inner.split_events(security_id)
+
     def __getattr__(self, name):
         table = self._TABLE.get(name)
         if table is None:

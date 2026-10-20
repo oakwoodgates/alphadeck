@@ -59,6 +59,7 @@ documented duplicate-with-pointer pattern. If the buy side's screens recalibrate
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date, timedelta
 from typing import Any
 from uuid import UUID
@@ -67,7 +68,9 @@ from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.enums import Kind, Role
 from domain.insider_internal_transfers import is_internal_transfer, screened_label
 from domain.insider_joint_reports import JOINT_REPORTERS, joint_accessions, joint_labels, roles_of
+from domain.market_time import market_tz
 from domain.signal import SignalEvent
+from domain.splits import tape_scale
 from signals.base import Detector, SignalPointInTimeData
 from signals.common import entry_signal_is_live, fired_signal, source_provenance
 from signals.registry import register_detector
@@ -166,6 +169,7 @@ def _screen(
     day_lows: dict[date, float],
     issuer_name: str | None,
     cfg: CallConfig,
+    price_scale: Callable[[date], float] | None = None,
 ) -> str:
     """Which bucket does this code-S row land in? Ordered most-structural first (implausible data, then
     the wrong-INSTRUMENT foreign line, then identity — the issuer itself, then a transfer to a linked filer —
@@ -173,7 +177,9 @@ def _screen(
     several screens has ONE deterministic attribution. Absent price context only disables the below-low
     screen — a sale with no day low is KEPT (recall-safe, #9: we cannot prove it was off-market). Note the
     direction of error is inverted vs the buy side: over-screening SELLS makes the platform MORE bullish,
-    which is exactly why every set-aside is counted and named (#6)."""
+    which is exactly why every set-aside is counted and named (#6). ``price_scale`` puts the as-traded
+    price on the tape's split scale first (S2, the buy side's ``_is_open_market_buy`` rule; absent = 1.0).
+    """
     if float(txn.get("usd") or 0.0) > cfg.insider_max_plausible_txn_usd:
         return _IMPLAUSIBLE
     if _is_foreign_ordinary(txn):  # S2c: a home-market ordinary sale mis-filed on the ADR's tape
@@ -187,7 +193,8 @@ def _screen(
     price = txn.get("price")
     low = day_lows.get(txn.get("valid_from"))
     if price is not None and low is not None:
-        if float(price) < low * (1.0 - cfg.insider_offmarket_below_low_frac):
+        scale = price_scale(txn["valid_from"]) if price_scale is not None else 1.0
+        if float(price) * scale < low * (1.0 - cfg.insider_offmarket_below_low_frac):
             return _BELOW_LOW
     if txn.get("aff_10b5_1") is True:  # only an EXPLICIT True screens; None (unknown) is kept
         return _PLANNED
@@ -215,6 +222,7 @@ def score(
     cfg: CallConfig = DEFAULT_CONFIG,
     day_lows: dict[date, float] | None = None,
     issuer_name: str | None = None,
+    price_scale: Callable[[date], float] | None = None,
 ) -> SignalEvent | None:
     """Pure: score a clustered discretionary open-market sell episode into a RISK SignalEvent (or None).
 
@@ -252,7 +260,7 @@ def score(
         return None
     buckets: dict[str, list[dict[str, Any]]] = {b: [] for b in SELL_SCREEN_BUCKETS}
     for t in rows:
-        buckets[_screen(t, lows, issuer_name, cfg)].append(t)
+        buckets[_screen(t, lows, issuer_name, cfg, price_scale)].append(t)
     kept = buckets[_KEPT]
     if not kept:
         return None
@@ -400,6 +408,9 @@ def detect(
         cfg,
         day_lows=day_lows,
         issuer_name=pit.security_name(security_id),
+        price_scale=tape_scale(
+            pit.split_events(security_id), through=pit.known_at.astimezone(market_tz()).date()
+        ),
     )
 
 

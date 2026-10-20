@@ -45,6 +45,13 @@ PHASE-7 CHECK (the settle guard, audited — 2026-10-21):
   the window and why it never reaches before the guard shipped), so each stored bar is judged by one pass
   and a historical, pre-guard violation never pages.
 
+S2 CHECK (the split list):
+
+- ``splits_applied`` — every split in force on the list is applied to its stored tape (no step the size of the
+  split at its first session). FAILS for a recent one (the price leg applies a split on its first night, so a
+  standing step days later is the prevention not working); an older one is the repair tool's backlog, named
+  in the detail and passed — the T4 check's reason not to page a standing, known defect every night.
+
 ADDING A CHECK: write ``def check_x(ctx: AuditContext) -> AuditResult`` (pure over ``ctx``; open the DB only
 through ``ctx.conn()``), append it to ``DEFAULT_CHECKS``. Each check is isolated: one that RAISES is reported
 as a FAILED check naming the exception (a broken audit is itself an alarm — never a silent skip), and the
@@ -392,6 +399,83 @@ def check_no_unsettled_bars(ctx: AuditContext) -> AuditResult:
         f"{dates}; {labels}{more} (a close the store claims was known before its session settled — a writer "
         "bypassed ingest/prices/settle.py, or backdated its stamp)",
     )
+# S2 — how recent a split's first session must be for an unapplied one to FAIL the audit: the loader applies a
+# split in force on its first night (``ingest.prices.split_normalize``), so one still showing its step a few
+# sessions later is the prevention not working. Older unapplied splits are the repair tool's backlog — reported,
+# not paged nightly (the inverse-loudness reason ``check_split_defects_flagged`` gives).
+SPLIT_APPLIED_RECENT_SESSIONS = 5
+
+
+def check_splits_applied(ctx: AuditContext) -> AuditResult:
+    """(f) S2 — "every split in force is applied to the stored tape": for each split on the list in force on
+    the pass's as-of, over the active basket union, the stored latest-version tape shows no step the size of
+    the split at its first session (``split_normalize.boundary``: a k-sized move with the inverse volume move
+    reads ``STORE_RAW``). FAILS for one whose first session is within ``SPLIT_APPLIED_RECENT_SESSIONS`` sessions
+    (the price leg should have applied it); an older unapplied one passes with its ticker named (run
+    ``python -m pipeline.repair_split_basis``). A split too small to read on the tape (under x1.8) is never
+    reported. Not applicable to a ``--no-live`` pass."""
+    from db.session import DEFAULT_TENANT_ID
+    from domain.splits import applicable, listed_from_row, session_distance
+    from ingest.prices.split_normalize import STORE_RAW, boundary
+    from pipeline.split_basis import _UNION
+    from repositories import split_repo
+
+    name = "splits_applied"
+    if not ctx.allow_live:
+        return AuditResult(name, None, "not applicable — a --no-live pass re-pulls no tape")
+    conn = ctx.conn()
+    with conn.cursor() as cur:
+        cur.execute(_UNION)
+        ids = sorted({r["security_id"] for r in cur.fetchall()})
+    versions = split_repo.latest_versions(conn, tenant_id=DEFAULT_TENANT_ID, security_ids=ids)
+    by_sid: dict = {}
+    tickers: dict = {}
+    for v in versions:
+        by_sid.setdefault(v.security_id, []).append(listed_from_row(v.model_dump()))
+        tickers[v.security_id] = v.ticker
+    checked, recent, backlog = 0, [], []
+    for sid, splits in by_sid.items():
+        for s in applicable(splits, on=ctx.asof):
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT DISTINCT ON (d) d, close, volume FROM fact_price_eod "
+                    "WHERE tenant_id = %s AND security_id = %s AND d BETWEEN %s AND %s "
+                    "ORDER BY d, recorded_at DESC, id DESC",
+                    (
+                        DEFAULT_TENANT_ID,
+                        sid,
+                        s.effective_date - timedelta(days=14),
+                        s.effective_date + timedelta(days=14),
+                    ),
+                )
+                window = {r["d"]: r for r in cur.fetchall()}
+            state, first_night = boundary(window, (), s)
+            if first_night:
+                continue  # no bar on/after the first session stored yet: nothing to judge
+            checked += 1
+            if state != STORE_RAW:
+                continue
+            label = f"{tickers.get(sid) or str(sid)[:8]} {s.label} {s.effective_date.isoformat()}"
+            if session_distance(s.effective_date, ctx.asof) <= SPLIT_APPLIED_RECENT_SESSIONS:
+                recent.append(label)
+            else:
+                backlog.append(label)
+    if recent:
+        return AuditResult(
+            name,
+            False,
+            f"{len(recent)} recent split(s) in force NOT applied to the stored tape (the price leg's first "
+            f"night did not take): {'; '.join(recent[:12])}",
+        )
+    if backlog:
+        return AuditResult(
+            name,
+            True,
+            f"{checked} split(s) in force checked; {len(backlog)} older one(s) not yet applied to the stored "
+            f"tape — run python -m pipeline.repair_split_basis: {'; '.join(backlog[:12])}"
+            + (f" (+{len(backlog) - 12} more)" if len(backlog) > 12 else ""),
+        )
+    return AuditResult(name, True, f"every split in force is applied ({checked} checked)")
 
 
 DEFAULT_CHECKS: tuple[AuditCheck, ...] = (
@@ -400,6 +484,7 @@ DEFAULT_CHECKS: tuple[AuditCheck, ...] = (
     check_every_thesis_finished,
     check_split_defects_flagged,
     check_no_unsettled_bars,
+    check_splits_applied,
 )
 
 

@@ -26,12 +26,13 @@ from app.schemas_api import (
 )
 from db.clock import db_now
 from db.session import DEFAULT_TENANT_ID
-from domain.market_time import known_at_for_asof, market_now, serve_view
+from domain.market_time import known_at_for_asof, market_now, market_tz, serve_view
 from domain.settings import get_settings
+from domain.splits import tape_scale
 from domain.thesis import Thesis
 from pipeline.schedule import expected_runs_behind, last_expected_asof, parse_run_at
 from replay.metrics import MetricResult
-from repositories import calls_repo
+from repositories import calls_repo, split_repo
 from scoreboard.artifact import read_snapshot
 from scoreboard.assemble import assemble_scoreboard
 from scoreboard.overlays import (
@@ -355,6 +356,16 @@ def get_price_window(
     # The offer-price insider screen needs the EOD low on each trade date — built from the SAME asof-capped
     # price view (no lookahead); an absent low keeps the buy (recall-safe, #9).
     day_lows = {b["d"]: b["low"] for b in warmup if b.get("low") is not None}
+    # S2 — the bars above are the stored tape on the split list's scale (read as of the reader's
+    # ``known_at``, the scorer's axis) and a Form 4 price is as traded: the screens put it on the tape's
+    # scale with the splits the store held at that same instant (``domain.splits.tape_scale``) — the call's
+    # own rule
+    price_scale = tape_scale(
+        split_repo.as_of_rows(
+            conn, tenant_id=tenant, security_ids=[security_id], known_at=reader.known_at
+        )[security_id],
+        through=reader.known_at.astimezone(market_tz()).date(),
+    )
     # ONE knowability cap for every event family (Slice B): min(now, asof-EOD) — the two-axis
     # no-lookahead every dated overlay read shares (invariant #1).
     # ``now`` from the DATABASE clock (``db.clock``): for a PAST asof the market-day cap dominates and
@@ -375,6 +386,7 @@ def get_price_window(
         known_at=known_at,
         clock=clock,
         day_lows=day_lows,
+        price_scale=price_scale,
     )
     sells = episode_insider_sells(
         conn,
@@ -386,6 +398,7 @@ def get_price_window(
         known_at=known_at,
         clock=clock,
         day_lows=day_lows,  # the below-day-low secondary screen reads the SAME asof-capped lows
+        price_scale=price_scale,
     )
     corp_events = episode_corporate_events(
         conn,

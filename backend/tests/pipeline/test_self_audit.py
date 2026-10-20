@@ -273,6 +273,7 @@ def test_the_phase_1_checks_are_registered():
         "check_every_thesis_finished",
         "check_split_defects_flagged",  # T4 — its branches are proved in tests/pipeline/test_split_basis.py
         "check_no_unsettled_bars",  # the settle guard — tests/pipeline/test_settle_audit.py
+        "check_splits_applied",  # S2 — proved on real tapes in tests/pipeline/test_repair_split_basis.py
     ]
 
 
@@ -321,12 +322,14 @@ def test_the_PASS_writes_the_audit_into_the_artifact_and_PAGES_a_failure(db, mon
         "every_thesis_finished",
         "split_defects_flagged",
         "no_unsettled_bars",
+        "splits_applied",
     }
     assert (
         checks["split_defects_flagged"].ok is True
     )  # the real scan ran over the (clean) test tapes
     # the settle check ran over the real table (the pass wrote no bar) through the pass's own window
     assert checks["no_unsettled_bars"].ok is True, checks["no_unsettled_bars"].detail
+    assert checks["splits_applied"].ok is True  # no split listed on the test tapes
     assert checks["code_sha_known"].ok is False
     doc = json.loads(next(tmp_path.glob("*.json")).read_text(encoding="utf-8"))
     assert {a["check"]: a["ok"] for a in doc["audit"]}["code_sha_known"] is False

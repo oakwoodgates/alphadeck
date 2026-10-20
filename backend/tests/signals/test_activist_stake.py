@@ -647,6 +647,9 @@ class _PIT:
     def security_cik(self, security_id: UUID) -> str | None:
         return self._subject_cik
 
+    def split_events(self, security_id: UUID) -> list[dict]:
+        return []  # no split listed (S2)
+
 
 def test_two_key_gate_a_13d_alone_warms_and_arms_only_with_a_colocated_breakout():
     """The two-key gate through the REAL pipeline: a live 13D conviction alone WARMS (never arms);
