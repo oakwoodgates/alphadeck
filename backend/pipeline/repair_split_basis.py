@@ -786,6 +786,11 @@ def main(argv: list[str] | None = None) -> None:
         "--today", type=date.fromisoformat, help="the market day to judge from (default: today)"
     )
     p.add_argument("--quiet", action="store_true", help="omit the Cockpit / forecast lines")
+    p.add_argument(
+        "--cache-dir",
+        type=Path,
+        help="the vendor cache the forecast READS (default: the price leg's; never fetched, never written)",
+    )
     args = p.parse_args(argv)
     if args.apply and args.revoke:
         p.error("--apply and --revoke are separate runs")
@@ -810,7 +815,9 @@ def main(argv: list[str] | None = None) -> None:
         conn = connect()
         try:
             conn.read_only = True
-            plans = plan_all(conn, tickers=tickers, today=args.today, spots=spots)
+            plans = plan_all(
+                conn, tickers=tickers, today=args.today, spots=spots, cache_dir=args.cache_dir
+            )
             conn.rollback()
         finally:
             conn.close()
@@ -818,7 +825,9 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     def run(conn: psycopg.Connection) -> None:
-        plans = plan_all(conn, tickers=tickers, today=args.today, spots=spots)
+        plans = plan_all(
+            conn, tickers=tickers, today=args.today, spots=spots, cache_dir=args.cache_dir
+        )
         report(plans, verbose=not args.quiet)
         bad = [p for p in plans if p.status not in (REPAIR, CLEAN)]
         if bad:
