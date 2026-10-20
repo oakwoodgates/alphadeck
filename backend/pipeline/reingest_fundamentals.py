@@ -21,7 +21,9 @@ WHAT IT WRITES — exactly what the nightly's own parse would (``ingest.fundamen
 - the current label's quarters not yet stored, each stamped ``valid_from = recorded_at = its filing date``
   (R17, the stamp every one of the table's rows carries — never ``now()``; see "Why the filing stamp");
 - where a stored old-label number sits on a filing the current label reports differently, the current
-  label's number as a version of that same filing, one microsecond later (it is what the read picks there);
+  label's number as a version of that same filing, one microsecond later (it is what the read picks there)
+  — unless the stored number is one the current label itself reports for that period later (kept, so it
+  stays dated at the filing that first made it public);
 - any missing share-count version the same parse yields (normally none: the nightly keeps those current).
 
 Nothing is updated or deleted (the table is append-only). The trigger's rule is untouched; it reads the
@@ -31,9 +33,10 @@ WHY THE FILING STAMP, NOT ``now()``. The fundamentals table stamps both clocks a
 (migration 0036, R17), and the first-knowability read (D3a, ``db.bitemporal.version_knowable_date``) dates a
 version at ``max(valid_from, the market date of recorded_at)``. Stamped ``now()``, every re-ingested quarter
 — years of history — would read as first knowable TODAY, and ``revenue_acceleration`` would cite an
-inflection years old as fresh for 180 days. MEASURED on the dev copy (2026-10-20): with the filing stamp, 97
-active companies carry a live event today (71 before; 26 gained, 0 lost); stamped ``now()``, 199 would (128
-gained — 103 of them citing a quarter the filing stamp does not fire on today: phantoms). And the nightly
+inflection years old as fresh for 180 days. MEASURED on the dev copy (2026-10-20, the 647 active companies
+with cached companyfacts): with the filing stamp, 97 carry a live event today (71 before; 26 gained, 0 lost);
+stamped ``now()``, 198 would (127 gained — 102 of them citing a quarter the filing stamp does not fire on
+today: phantoms). And the nightly
 writes these same rows with the filing stamp, so the CLI must stamp them identically or the store would
 depend on which ran first.
 

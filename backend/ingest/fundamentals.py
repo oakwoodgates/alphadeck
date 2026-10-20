@@ -35,8 +35,10 @@ A label switch can leave a stored old-label number on the SAME filing the curren
 then appends the current label's number as a version of that filing, one microsecond after it
 (``valid_from`` unchanged, so its knowability is unchanged), and the read picks it: within one filing the
 series never mixes the two labels, and the number is dated at the filing that first reported it — not at a
-year-later comparative (the D3 phantom). The stored history is kept, never rewritten. Only the revenue
-metric does this; the share series keep their skip-on-key behavior.
+year-later comparative (the D3 phantom). The one exception: a held number the current label itself reports
+for that period on a LATER filing is kept (it IS the current definition's number, public since this filing;
+24 of the 111, so 87 are superseded). The stored history is kept, never rewritten. Only the revenue metric
+does this; the share series keep their skip-on-key behavior.
 
 What is NOT re-labeled: periods only the old label ever reported stay in the store as they were (append-only;
 for a pre-2018 switch they lie years before any live read).
@@ -397,10 +399,21 @@ def plan_versions(
       number as a new version of that same filing. ``valid_from`` stays the filing date, so its knowable date
       is the filing's (D3a); the writer's honest stamp is later than every version already held, so it is
       the latest-recorded version of that filing and the read picks it.
+    - ...EXCEPT when the held number is one ``quarters`` reports for that period on a LATER filing: then it
+      is the current label's own number, first made public on THIS filing under the old tag, and
+      superseding it would date it at the later filing instead (MEASURED on the dev copy: PSQH's Q2-2024,
+      $5,985,228 under ``Revenues`` on 2024-08-14 and under the contract tag only from 2025-08-12 — the
+      contract tag said $2,290,574 on the 2024 filing; superseded, a swept event was dated a year late).
+      Skipped; the read keeps the number and D3a dates it at this filing.
     - A share filing held with a different number -> skip (unchanged behavior for those series).
 
     ``held`` is not mutated."""
     held = dict(held)
+    quarters = list(quarters)
+    # (metric, period_end) -> every (filed, value) the incoming series reports for it
+    reported: dict[tuple[str, date], list[tuple[date, float]]] = {}
+    for q in quarters:
+        reported.setdefault((q.metric_key, q.period_end), []).append((q.filed, q.value))
     out: list[PlannedVersion] = []
     skipped = 0
     for q in quarters:
@@ -411,6 +424,12 @@ def plan_versions(
             held[key] = HeldFiling(1, q.value)
         elif prior.value == q.value or q.metric_key not in _LABEL_FOLLOWING_METRICS:
             skipped += 1
+        elif any(
+            f > q.filed and v == prior.value for f, v in reported[(q.metric_key, q.period_end)]
+        ):
+            skipped += (
+                1  # the held number IS the current label's, filed later under it — keep its date
+            )
         else:
             out.append(PlannedVersion(q, supersedes_value=prior.value))
             held[key] = HeldFiling(prior.versions + 1, q.value)

@@ -183,6 +183,21 @@ def test_plan_supersedes_a_revenue_filing_held_with_another_labels_number():
     assert again == [] and skipped == 1
 
 
+def test_plan_keeps_a_held_number_the_current_label_reports_later():
+    """The PSQH shape (MEASURED on the dev copy): the old tag's number on a filing is the number the current
+    tag itself reports for that period on a LATER filing — the current tag said something else at first. The
+    held number is the current definition's, public since THIS filing; superseding it would date it a year
+    late. Skipped, so D3a dates it here; a held number the current tag never reports is still superseded.
+    """
+    f1, f2 = date(2024, 8, 14), date(2025, 8, 12)
+    key = (REVENUE_METRIC, date(2025, 6, 30), f1)
+    later = [_pt(2_290_574.0, filed=f1), _pt(5_985_228.0, filed=f2)]
+    planned, skipped = plan_versions({key: HeldFiling(1, 5_985_228.0)}, later)
+    assert skipped == 1 and [(v.point.filed, v.supersedes_value) for v in planned] == [(f2, None)]
+    planned, _ = plan_versions({key: HeldFiling(1, 1_000_000.0)}, later)
+    assert [(v.point.filed, v.supersedes_value) for v in planned] == [(f1, 1_000_000.0), (f2, None)]
+
+
 def test_plan_never_supersedes_a_share_filing():
     """The share series are stored per concept and never switch labels; a held share filing is skipped
     whatever its number (the behavior before the fix)."""
