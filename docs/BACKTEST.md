@@ -241,6 +241,69 @@ This is enforced structurally, not by convention:
   below the pooled panel, ordered by NAME. A drill-down is how a reader checks a pooled number against its
   rows; an outcome-ordered one would be a ranking. The order is fixed by the writer and a test pins it.
 
+## Sliced by market cap: what an event does depends on company size
+
+**The rule (operator, 2026-10-20):** every report on what an event did to companies is broken down by
+**market-cap tier at the event**. A pooled number never stands alone. The rule covers:
+- a backtest slice;
+- the signal report card;
+- a research study (e.g. price moves around splits);
+- the daily "what happened" reports.
+
+In the operator's words: "different things happen to different companies at different market caps,
+sometimes shady dealings and dilutions happen with micro caps where majors and those coming up price/vol
+differently."
+
+**Why this does not break the no-leaderboard rule above.** A tier is a property of the COMPANY at the event, not
+of the thesis. Slicing by tier still pools across theses, so no thesis is ranked, and invariant #4 is untouched.
+A tier is never a call input, never sizing, and never a return of the retired size-tier "archetype".
+
+### The bands
+
+| Tier | Market cap at the event |
+|---|---|
+| nano | < $50M |
+| micro | $50M – $300M |
+| small | $300M – $2B |
+| mid | $2B – $10B |
+| large | ≥ $10B |
+
+Where it helps, add a **liquidity cut** by 20-day average dollar volume before the event, and say which bands
+were used. Thin names behave differently even at the same market cap.
+
+### Measuring market cap at the event
+
+- **Formula:** the **as-traded close** on the session before the event × the **last share count reported before
+  the event** (the shares fact as known then, or the filing's cover-page / `dei` count with both the period end
+  and the filed date before the event).
+- **Same basis on both sides.** Never multiply a split-adjusted price by a pre-split share count. After a 1-for-16
+  reverse split, that overstates the cap 16×. It is the same trap as the live market-cap figure (`workbench/scoring.py`
+  `_market_cap`) after a split.
+- **ADRs:** divide the ordinary-share count by the ADS ratio (the `ads_ratio_status` rule in `_market_cap`).
+- **Label every value approximate.** When it cannot be pinned down, leave it blank and **count the blanks**.
+  Never guess.
+
+### How results are reported, per tier
+
+- **Every number carries four things:**
+  - its **horizon** (e.g. +1 day, +5, +21, +63 sessions);
+  - its **comparison** (minus IWM or SPY, or the random-day / same-basket nulls in §"The two nulls");
+  - **n**;
+  - **how often it held** (% rose, or the hit rate).
+- **Name any tier with n < 10 as too small to read.** Don't draw a conclusion from it.
+- **Keep the pooled table below the tiered one**, labeled as pooled, so a reader can see what pooling hid.
+- **Never write "X works" or "X doesn't work".** Describe what happened, with the numbers.
+
+### Status
+
+- **The rule is DECIDED.** `PooledReport` does not yet carry a market-cap slice.
+- **When code adds one:**
+  - define the bands **once** (a `domain/` constant mirroring the table above);
+  - compute the cap with the as-of rules above;
+  - add the tier to every outcome CSV as a column.
+- **First applied** in the 2026-10-20 split-move study. Its pooled result (100 reverse splits, mostly micro
+  caps with listing-deficiency notices) is exactly the kind of number that needs the tier cut.
+
 ## `/backtest` — the surface
 
 Four read-only routes, artifact-served: `GET /backtest/runs` (the registry + `dial_trials`),
