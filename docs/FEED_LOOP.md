@@ -672,9 +672,68 @@ dies with its connection — no stale lock can block the next night. A second pa
 `ALREADY RUNNING — … held by pid N (alphadeck-pass:<kind>, …)`, writes nothing, pages nothing, and the CLI
 **exits 75** (`EXIT_ALREADY_RUNNING`) — distinct from 0 (it produced no record) and 1 (the night is not
 failed; the holder is making its record). `main` takes the lock itself and re-checks the `--catch-up` guard
-under it. The Admin button probes it (409 naming the holder). **Not covered:** the Workbench's on-promote
-ingest (facts only, never `calls`) takes no lock — under an overlap with the cron it can append duplicate
-identical fact versions (the bitemporal read dedups them; the table grows), unchanged from before.
+under it. The Admin button probes it (409 naming the holder). The Workbench's on-promote ingest and the
+CLI ingest never take this lock (they write facts, never `calls`) — they are serialized PER COMPANY instead
+(W1, next paragraph), so a Workbench ingest can never make a pass exit 75.
+
+**One writer per COMPANY — the per-company write lock (W1, 2026-10-21).** Every fact ingest is a
+read-compare-append (read what is stored — `existing_accessions`, `latest_bar_date`, the stored versions —
+then append what is new), so two writers walking the SAME company at once can each read "not stored yet" and
+each append: a duplicate version that hides behind the as-of read's dedup while the table grows. MEASURED on
+prod 2026-10-21 (read-only, identical payload to the version immediately before it, `recorded_at` within
+60 s): **1,519 such pairs** — 1,128 `fact_price_eod` bars across 217 securities, 354 `fact_insider_txn` rows
+across 33, 28 `fact_corporate_event`, 6 `fact_activist_stake`, 1 `fact_fund_shares`, 0 `fact_fundamentals`,
+0 `insider_amendment` — **every one on 2026-09-09 13:15–13:22 UTC, all within 5 s** (most within 10 ms): the
+two overlapping daily passes C1 now refuses (the `calls` log shows the same 17 rows / 12 theses in that
+window). No pair from any other writer pairing exists yet; 6 further identical insider versions are > 10 min
+apart (not concurrency). Repair was out of scope (report only). The open/close intraday runs coming next
+make the overlap routine, which is why the guard is per company rather than per pass:
+- **The mechanism** (`db/write_lock.py`): two Postgres SESSION advisory locks taken together on the writer's
+  OWN working connection — the company lock `(0x414443 "ADC", first 32 bits of security_id)` EXCLUSIVE, and
+  the fact-writer gate `(0x41444B, 2)` SHARED. Session-level, so the company stays held across the legs'
+  per-leg commits and rollbacks and dies with a dead writer's session (nothing stale); re-entrant on its
+  session; released only after the writes it guards commit. Every acquisition is a TRY or a bounded poll of
+  tries — no session ever blocks inside Postgres on these, so no deadlock involving them can form.
+- **Who takes it:** `pipeline.ingest_thesis` per member (so the nightly's per-thesis ingest, the Workbench
+  on-promote job and `python -m pipeline.ingest_thesis` all do), the nightly's Q17 fundamentals refresh and
+  `python -m pipeline.ingest_fundamentals` per name, `ingest_benchmarks` per benchmark (SPY/IWM can be a
+  thesis's ETF sleeve), the Workbench per-name price pull, and `pipeline.backfill_fund_shares` per date.
+  Every fact REPAIR takes the gate EXCLUSIVELY after the call-of-record lock (`run_lock.acquire_repair_lock`:
+  `repair_insider_filer_text`, `repair_insider_ownership`, `repair_benchmark_bars`, `relink_amendments`,
+  and — new — `dedup_identical_versions`, `backfill_accepted`, `backfill_aff10b5_1`,
+  `repair_adr_insider_misattribution`, `repair_activist_misattribution`, `repair_impossible_txn_dates`), so a
+  repair never runs beside any company writer and none starts under it.
+- **The lock order (the deadlock rule):** call-of-record lock → the fact-writer gate → a company lock, never
+  the reverse. The nightly holds call-of-record and takes gate(shared)+company per company; a repair holds
+  call-of-record, then the gate (exclusive); the Workbench and the CLI take only gate(shared)+company. A
+  writer holds ONE company at a time (no hold-and-wait across companies), and one writer unit uses one
+  connection for its locks and its writes. Pinned by `tests/db/test_write_lock.py` and
+  `tests/pipeline/test_ingest_write_lock.py` (incl. two writers walking three companies in opposite orders).
+- **The waits** (`domain.settings`): `ingest_lock_wait_s` = 180 s for a batch writer (the nightly, the
+  on-promote job, the CLIs) — and `ingest_thesis` first TRIES every company without waiting, DEFERS a held
+  one to the end of its walk and only then waits, so a busy company never delays the free ones;
+  `ingest_lock_request_wait_s` = 15 s for the Workbench price pull (then a **409** naming the holder, never
+  a hung request); `repair_lock_wait_s` = 60 s for a repair waiting for writers to drain (then exit 75,
+  nothing written).
+- **What the nightly does with a held company:** waits (deferred, bounded), then ingests it — a quiet line
+  and `company_lock_waits: [{…, ingested: true, waited_s}]` on the thesis's artifact entry. One STILL held
+  after the wait is not ingested by THIS pass (the holder is writing those very facts): `NameResult.lock_busy`
+  names the holder, the monitor facts (edges, stop facts) are still read, and it is **never an error** — it
+  does not count toward `ingest_errors` or the recording gate, so a Workbench ingest can never withhold or
+  fail a night — but the call does rest on a name this pass did not refresh, so the row is stamped
+  `ingest_fresh=false` (R2b's meaning). Loud: a `COMPANY LOCK — N name(s) NOT ingested by this pass` block
+  in the report and `ingested: false` + `holder` on the artifact. The Workbench on-promote job reports the
+  mirror case on its poll (a visible failed job: "N not ingested here because another ingest was writing
+  the same company"), and the CLI ingest exits 1 for it.
+- **Not covered (named):** `pipeline.seed` (the boot demo seed writes its fixture facts in ONE transaction
+  committed at the end, so serializing it would mean holding every seed company until that commit; its
+  guards make it a no-op on an already-seeded DB, leaving a first-boot-only window); the Workbench
+  RATIFY writes (`/facts` — operator-typed `fact_shares_outstanding` / `fact_revenue_mix` / `fact_catalyst`
+  / `fact_cash_burn`, keyed by source and written by no ingest) and the operator's Form 4/A decisions; the
+  pass's pre-loop Form 4/A sweep (decisions only, under the call-of-record lock; an ingest stores a new
+  4/A and its decision in ONE leg transaction, so the sweep never sees one undecided); the SPAC radar's
+  `fact_spac_*` (one writer, the nightly). The deploy wrapper deliberately ignores company locks
+  (`docs/DEPLOY.md`).
 
 **What the pass now leaves behind (Phase 1B).** Beyond the counts, the run-of-record artifact carries:
 the **run identity** (`code_sha`, `config_hash`, `run_kind`) and a **non-secret env fingerprint** (`TZ`, the

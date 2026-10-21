@@ -42,6 +42,7 @@ import psycopg
 from psycopg.rows import dict_row
 
 from db.session import DEFAULT_TENANT_ID, database_url
+from pipeline.run_lock import repair_lock_or_exit
 from signals.activist_stake import _norm_cik  # the SAME normalization _is_misattributed uses
 
 # The latest version per logical filing (tenant, security, accession) — the same grain the as-of read
@@ -175,6 +176,12 @@ def main(argv: list[str] | None = None) -> None:
 
     url = args.database_url or database_url()
     print(f"target DB : {_redact(url)}")
+    # W1 — a writing run excludes the nightly pass AND every company writer (pipeline.run_lock); exit 75 if busy
+    lock = (
+        repair_lock_or_exit(holder="repair_activist_misattribution", conninfo=url)
+        if args.apply
+        else None
+    )
     conn = psycopg.connect(url, row_factory=dict_row)
     try:
         with conn.cursor() as cur:
@@ -186,6 +193,8 @@ def main(argv: list[str] | None = None) -> None:
             conn.rollback()  # a dry-run writes nothing
     finally:
         conn.close()
+        if lock is not None:
+            lock.release()
 
 
 if __name__ == "__main__":

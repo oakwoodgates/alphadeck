@@ -119,7 +119,7 @@ from ingest.prices.settle import is_settled, settle_instant
 from ingest.prices.source import DEFAULT_RANGE as NIGHTLY_RANGE
 from ingest.prices.source import PriceSource, YahooPriceSource
 from pipeline.ingest_benchmarks import DEFAULT_RANGE
-from pipeline.run_lock import EXIT_ALREADY_RUNNING, PassAlreadyRunning, acquire_pass_lock
+from pipeline.run_lock import EXIT_ALREADY_RUNNING, PassAlreadyRunning, acquire_repair_lock
 from securities.benchmarks import BENCHMARKS, benchmark_ids
 
 _log = logging.getLogger("alphadeck.repair_benchmark_bars")
@@ -760,7 +760,7 @@ def main(argv: list[str] | None = None) -> None:
         f"vendor: live Yahoo pull ({rng}, force-refresh, throwaway cache dir)"
     )
     try:
-        lock = acquire_pass_lock(holder="repair") if args.apply else None
+        lock = acquire_repair_lock(holder="repair") if args.apply else None
     except PassAlreadyRunning as exc:
         print(f"repair: ALREADY RUNNING — {exc}. Nothing was written (exit {EXIT_ALREADY_RUNNING})")
         raise SystemExit(EXIT_ALREADY_RUNNING) from None

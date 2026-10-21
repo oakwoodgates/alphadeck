@@ -59,8 +59,16 @@ bash scripts/deploy.sh --env-only cron                                    # a cr
     `EST5EDT` rule instead;
   - a pass in flight, or the call-of-record lock held. A pass in flight is `/admin/status`
     `cron.status == running`, or an `unfinished_run` still inside its timeout. The lock is held by a
-    daily pass or a backfill (`pipeline/run_lock.py`); the script only reads `pg_locks`, it never
-    takes the lock.
+    daily pass, a backfill or a fact repair (`pipeline/run_lock.py`; a repair holds it with the
+    fact-writer gate, W1); the script only reads `pg_locks`, it never takes the lock.
+
+    The check deliberately does NOT refuse on a held **per-company write lock** (W1,
+    `db/write_lock.py` — namespace `0x414443`, `classid 4277315` in `pg_locks`). Those are held by a
+    Workbench on-promote ingest, the Workbench price pull or a CLI ingest for one company at a time, and
+    killing one by a rebuild is safe: every ingest leg is one transaction (an interrupted leg rolls back
+    whole), the dead session releases its lock, and the unit is incremental, so the next run (the nightly
+    at the latest) appends exactly what was missing. Refusing on them would make a deploy flaky during
+    ordinary Workbench use for no protection.
 
   It lists every refusal in one run. A bad invocation, such as an unknown service or no `--label`,
   exits 2.

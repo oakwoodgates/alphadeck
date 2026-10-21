@@ -54,7 +54,7 @@ from ingest import CacheMiss
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.form4a import accepted_times, filed_dates
 from ingest.edgar.submissions import fetch_submissions, filings_of
-from pipeline.run_lock import EXIT_ALREADY_RUNNING, PassAlreadyRunning, acquire_pass_lock
+from pipeline.run_lock import EXIT_ALREADY_RUNNING, PassAlreadyRunning, acquire_repair_lock
 from repositories import insider_amendment_repo as repo
 
 
@@ -187,7 +187,7 @@ def run(
     *, apply: bool, cache_dir: Path | None, report_json: Path | None
 ) -> repo.RelinkResult | None:
     client = EdgarClient(cache_dir=cache_dir, allow_live=False)  # cache-only: never an SEC request
-    lock = acquire_pass_lock(holder="relink_amendments") if apply else None
+    lock = acquire_repair_lock(holder="relink_amendments") if apply else None
     try:
         conn = connect()
         try:

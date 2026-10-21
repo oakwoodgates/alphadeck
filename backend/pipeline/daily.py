@@ -65,7 +65,7 @@ from uuid import UUID
 
 import psycopg
 
-from db.session import connect, set_statement_timeout
+from db.session import connect, name_session, set_statement_timeout
 from domain.config import DEFAULT_CONFIG, config_hash
 from domain.feed_kinds import FEED_KINDS, StaleFeedLabel, feed_kind
 from domain.market_time import market_now, market_today, market_tz
@@ -155,6 +155,8 @@ def _pass_connect() -> psycopg.Connection:
     except BaseException:
         conn.close()
         raise
+    # W1 — the name another writer sees when it finds a company this pass holds (fail-open, cosmetic)
+    name_session(conn, "alphadeck-writer:daily-pass")
     return conn
 
 
@@ -293,6 +295,10 @@ def _refresh_fundamentals(
     secs = []
     for n in names:
         if n.security_id in memo.securities:
+            continue
+        if getattr(n, "lock_busy", None):
+            # W1 — the ingest did not walk it (another writer held the company past the wait): it is not
+            # refreshed here either, rather than waiting out the same holder a second time
             continue
         sec = master.get(conn, n.security_id, tenant_id=thesis.tenant_id)
         if sec is not None:
@@ -572,6 +578,11 @@ def run_daily(
         #     errored. NOT "appended 0" — a current thesis appends 0 on a HEALTHY run and MUST still record.
         # A partial failure (some errored, some clean) DOES record, marked via ingest_fresh (R2b).
         ingest_errors = sum(1 for x in res.ingested if x.error)
+        # W1 — names whose company another writer (a Workbench ingest, a CLI run) held past the bounded wait:
+        # their legs did not run in THIS pass. NOT errors — they never count toward the recording gate below,
+        # so a Workbench ingest can never withhold (or fail) a night — but the call does rest on a name this
+        # pass did not refresh, so the row is stamped `ingest_fresh=false` (R2b's meaning, exactly).
+        lock_busy = sum(1 for x in res.ingested if getattr(x, "lock_busy", None))
         if res.error:
             res.withheld_reason = "total ingest failure"  # Source C (the ingest raised)
         elif not allow_live:
@@ -634,7 +645,7 @@ def run_daily(
                 conn,
                 card,
                 thesis.tenant_id,
-                ingest_fresh=(ingest_errors == 0),
+                ingest_fresh=(ingest_errors == 0 and lock_busy == 0),
                 ingest_errors=ingest_errors,
                 # 0044 — the RUN IDENTITY, stamped beside the ingest health and outside `_canonical`'s
                 # compare, so a deploy or a dial edit alone never re-records an unchanged card.
@@ -1488,6 +1499,37 @@ def _run_daily_pass_locked(
     return outcome
 
 
+def print_lock_waits(results: list[ThesisRunResult]) -> None:
+    """W1 — what the per-company write lock cost this pass, deduped per security across theses; nothing at
+    all on the common night when no other writer held a company.
+
+    - LOUD, one line per name: a company another writer (a Workbench ingest, a CLI run) held past the bounded
+      wait, so THIS pass did not run its legs — the holder was writing them; the thesis recorded anyway with
+      ``ingest_fresh=false``. Never dropped (#9): it is on the artifact as ``company_lock_waits``.
+    - quiet, ONE line: the names the pass waited for and then ingested (the wait worked as designed).
+    """
+    busy: dict[UUID, str] = {}
+    waited: dict[UUID, float] = {}
+    for r in results:
+        for x in r.ingested:
+            if getattr(x, "lock_busy", None):
+                busy[x.security_id] = f"{x.ticker or x.security_id}: {x.lock_busy}"
+            elif getattr(x, "lock_waited_s", 0.0):
+                waited[x.security_id] = max(x.lock_waited_s, waited.get(x.security_id, 0.0))
+    if busy:
+        print(
+            f"COMPANY LOCK — {len(busy)} name(s) NOT ingested by this pass (another writer held the "
+            "company past the wait; its theses recorded with ingest_fresh=false):"
+        )
+        for line in busy.values():
+            print(f"  {line}")
+    if waited:
+        print(
+            f"{len(waited)} name(s) waited for another writer's company lock, then ingested "
+            f"(longest {max(waited.values()):.0f}s)"
+        )
+
+
 def _report(
     results: list[ThesisRunResult],
     *,
@@ -1570,6 +1612,8 @@ def _report(
         print("TRANSITIONS:")
         for t in transitions:
             print(f"  {t}")
+    # W1 — the per-company write lock (`db/write_lock.py`), deduped ACROSS theses per security
+    print_lock_waits(results)
     # G5a/F1 — the stale-feed inventory, deduped ACROSS theses per (kind, security) — one dead feed, not one
     # per holder — and printed only when there is one (loudness marks the exception). ONE BLOCK PER FEED
     # KIND, each headed with that feed's own noun and repair advice from `domain/feed_kinds`, because the

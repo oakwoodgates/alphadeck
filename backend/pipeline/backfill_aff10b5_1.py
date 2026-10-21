@@ -59,6 +59,7 @@ from psycopg.rows import dict_row
 from db.bitemporal import append_fact
 from db.session import database_url
 from ingest.edgar.form4 import parse_form4
+from pipeline.run_lock import repair_lock_or_exit
 
 # The runtime cache home (mirrors ingest.edgar.client._DEFAULT_CACHE — repo-root/data/edgar_cache
 # locally, /data/edgar_cache in the containers via the appdata volume).
@@ -404,6 +405,12 @@ def main(argv: list[str] | None = None) -> None:
     url = args.database_url or database_url()
     print(f"target DB : {_redact(url)}")
     print(f"cache dir : {args.cache_dir}")
+    # W1 — a writing run excludes the nightly pass AND every company writer (pipeline.run_lock); exit 75 if busy
+    lock = (
+        repair_lock_or_exit(holder="backfill_aff10b5_1", conninfo=url)
+        if args.execute and not args.verify
+        else None
+    )
     conn = psycopg.connect(url, row_factory=dict_row)
     try:
         with conn.cursor() as cur:
@@ -421,6 +428,8 @@ def main(argv: list[str] | None = None) -> None:
             _print_backfill(bres)
     finally:
         conn.close()
+        if lock is not None:
+            lock.release()
 
 
 if __name__ == "__main__":

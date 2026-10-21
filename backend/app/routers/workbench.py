@@ -56,7 +56,8 @@ from app.schemas_api import (
     TriageSessionPut,
     WorkbenchScored,
 )
-from db.session import connect
+from db.session import connect, name_session
+from db.write_lock import CompanyLockBusy, acquire_company_lock
 from domain.enums import Authorship, InstrumentKind, TermTier
 from domain.extraction import ExtractedFact, ExtractionResult, Tier
 from domain.market_time import serve_known_at
@@ -503,9 +504,23 @@ def ingest_security_prices(
         ) as exc:  # noqa: BLE001 — fail-open: a resolution failure never blocks the pull
             conn.rollback()
             _log.warning("price-symbol resolve failed for %s (fail-open): %s", sec.ticker, exc)
+    # W1 — the per-company write lock (`db/write_lock.py`): this pull is a read-compare-append on the same
+    # `fact_price_eod` rows the nightly pass and the on-promote ingest write, so it runs only while it holds
+    # the company. A REQUEST must never hang behind a long writer: it waits at most
+    # `Settings.ingest_lock_request_wait_s`, then answers 409 naming the holder (the holder is writing these
+    # very bars — a re-click a moment later is a cheap incremental no-op or the remaining tail).
     try:
-        bars = ingest_bars_for_security(conn, sec, tenant_id=tenant_id)
-        conn.commit()
+        lock = acquire_company_lock(conn, sec.id, wait_s=get_settings().ingest_lock_request_wait_s)
+    except CompanyLockBusy as busy:
+        raise HTTPException(
+            status_code=409,
+            detail=f"another ingest is writing this company's facts right now ({busy}); "
+            "try the pull again in a moment",
+        ) from busy
+    try:
+        with lock:  # released only after the commit below — the commit must happen under the lock
+            bars = ingest_bars_for_security(conn, sec, tenant_id=tenant_id)
+            conn.commit()
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001 — source unreachable -> a clear 502, never a silent 500
@@ -592,6 +607,10 @@ def _run_member_ingest(thesis_id: UUID, ids: frozenset[UUID]) -> dict[str, int]:
     name's legs errored — the per-name isolation inside ``ingest_thesis`` means what succeeded is
     already committed; the message says what landed and what failed."""
     own = connect()
+    # W1 — the per-company write lock: `ingest_thesis` takes each company's lock on THIS connection, so a
+    # concurrent nightly (or another job) never interleaves with it on the same company; the name is what
+    # such a writer reports as the holder while it waits
+    name_session(own, "alphadeck-writer:workbench-ingest")
     try:
         results = ingest_thesis_mod.ingest_thesis(own, thesis_id, only_security_ids=ids)
     finally:
@@ -608,12 +627,25 @@ def _run_member_ingest(thesis_id: UUID, ids: frozenset[UUID]) -> dict[str, int]:
     }
     # the failure summary counts NAMES, not rows (dedup by security_id, mirroring `members` above)
     errored = list({r.security_id: r for r in results if r.error}.values())
-    if errored:
-        ok = summary["members"] - len(errored)
-        detail = "; ".join(f"{r.ticker or r.security_id}: {r.error}" for r in errored)
+    # W1 — names another writer (the nightly pass, another job) held past the bounded wait: this job did not
+    # run their legs. Not an error of the name — the holder is writing those very facts — but the job did not
+    # finish its scope, so it says so on the poll (a visible failed job), naming who held them.
+    busy = list({r.security_id: r for r in results if r.lock_busy and not r.error}.values())
+    if errored or busy:
+        ok = summary["members"] - len(errored) - len(busy)
+        parts = []
+        if errored:
+            detail = "; ".join(f"{r.ticker or r.security_id}: {r.error}" for r in errored)
+            parts.append(f"{len(errored)} failed — {detail}")
+        if busy:
+            detail = "; ".join(f"{r.ticker or r.security_id}: {r.lock_busy}" for r in busy)
+            parts.append(
+                f"{len(busy)} not ingested here because another ingest was writing the same company "
+                f"(it lands from there) — {detail}"
+            )
         raise ingest_jobs.IngestJobError(
             f"ingested {ok} of {summary['members']} new names (+{summary['form4']} insider txns, "
-            f"+{summary['price_bars']} price bars); {len(errored)} failed — {detail}"
+            f"+{summary['price_bars']} price bars); " + "; ".join(parts)
         )
     return summary
 

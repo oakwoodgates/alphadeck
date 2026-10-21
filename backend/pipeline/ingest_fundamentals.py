@@ -40,9 +40,12 @@ from dataclasses import dataclass, field
 from uuid import UUID
 
 import psycopg
+from psycopg.pq import TransactionStatus
 
-from db.session import connect
+from db.session import connect, name_session
+from db.write_lock import CompanyLockBusy, acquire_company_lock
 from domain.security import Security
+from domain.settings import get_settings
 from ingest.edgar.client import RECURRING_CACHE_TTL_S, CachedNotFound, EdgarClient
 from ingest.fundamentals import ingest_fundamentals_for_security
 from repositories import thesis_repo
@@ -103,9 +106,27 @@ def ingest_fundamentals_for_securities(
                 continue
             # pulled earlier this pass: read the copy just written, never the network again
             reader = EdgarClient(cache_dir=client.cache_dir, allow_live=False)
+        # W1 — the per-company write lock (`db/write_lock.py`): the store is a read-compare-append on this
+        # security's `fact_fundamentals` versions, so it runs only while this connection holds the company —
+        # a concurrent writer (a hand-run CLI vs the nightly) can never interleave with it. A company still
+        # held after the bounded wait is reported as this name's error (visible, never silent, never cached
+        # in the memo — the next pass re-tries it); the fundamentals step is a passenger either way.
+        if conn.info.transaction_status == TransactionStatus.INERROR:
+            conn.rollback()
+        else:
+            conn.commit()  # never wait for a lock "idle in transaction" (every name already committed)
         try:
-            res = ingest_fundamentals_for_security(conn, sec, client=reader, tenant_id=tenant_id)
-            conn.commit()
+            lock = acquire_company_lock(conn, sec.id, wait_s=get_settings().ingest_lock_wait_s)
+        except CompanyLockBusy as busy:
+            memo.securities.discard(sec.id)  # a later thesis holding it this pass may try again
+            results.append(NameResult(sec.ticker, sec.id, error=f"not refreshed: {busy}"))
+            continue
+        try:
+            with lock:  # released after the commit — the commit happens under the lock
+                res = ingest_fundamentals_for_security(
+                    conn, sec, client=reader, tenant_id=tenant_id
+                )
+                conn.commit()
             if cik is not None:
                 memo.companies.setdefault(cik, None)
             results.append(
@@ -202,6 +223,8 @@ def main(argv: list[str] | None = None) -> None:
     args = p.parse_args(argv)
 
     conn = connect()
+    # W1 — how a writer waiting for one of this run's companies names it
+    name_session(conn, "alphadeck-writer:cli-fundamentals")
     try:
         results = ingest_fundamentals(
             conn,

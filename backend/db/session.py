@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from uuid import UUID
 
@@ -29,6 +30,26 @@ def current_tenant_id() -> UUID:
 def connect() -> psycopg.Connection:
     """Open a psycopg connection with dict rows. The caller owns the transaction (commit/rollback)."""
     return psycopg.connect(database_url(), row_factory=dict_row)
+
+
+def name_session(conn: psycopg.Connection, name: str) -> None:
+    """Name the session in ``pg_stat_activity`` (``application_name``) — what a writer that finds a company
+    lock held (``db/write_lock.py``) reports as the holder: "pid 123 (alphadeck-writer:daily-pass, …)".
+
+    COSMETIC and FAIL-OPEN: a name only makes a holder easier to recognize, so a failure here is logged and
+    swallowed — it never costs the caller its connection. Committed at once for the same reason as
+    ``set_statement_timeout`` (a ``SET`` left in an open transaction is undone by the caller's first
+    ``rollback()``); call it on a FRESH connection."""
+    try:
+        conn.execute("SELECT set_config('application_name', %s, false)", (name[:63],))
+        if not conn.autocommit:
+            conn.commit()
+    except Exception:  # noqa: BLE001 — a name is a convenience, never a reason to fail
+        logging.getLogger("alphadeck.db").debug("naming the session failed", exc_info=True)
+        try:
+            conn.rollback()  # never hand the caller an aborted transaction
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def set_statement_timeout(conn: psycopg.Connection, seconds: float) -> None:
