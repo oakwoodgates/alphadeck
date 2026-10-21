@@ -62,12 +62,14 @@ from domain.insider_amendments import (
     effect_of,
     filer_text,
     in_window_codes,
+    is_legacy_whole,
     is_other_issuer,
     link_amendment,
     made_public_after,
     match_rows,
     originals_rows,
     page_text,
+    rederive_scope,
     relink_rule,
     resolve_insider_rows,
     review_bucket,
@@ -1291,6 +1293,123 @@ def test_the_resolver_composes_every_applied_amendment_of_one_original():
         ("A2", "M"),
     ]
     assert {r[AMENDS_ACCESSION] for r in out if r["accession"] != "O"} == {"O"}
+
+
+# --- the R8 re-derivation of the legacy whole-original decisions (2026-10-21) -------------------------------
+
+
+def test_a_legacy_whole_decision_is_a_standing_system_apply_with_no_row_match_on_a_matched_disposition():
+    link = _link_rec(PARTIAL)
+    legacy = _dec("apply", basis=BASIS_NO_SIGNAL_EFFECT, replaced_rows=None)
+    assert is_legacy_whole(effect_of(link, None, legacy), legacy)
+    matched = _dec("apply", basis=BASIS_NO_SIGNAL_EFFECT, replaced_rows=["O#0"])
+    assert not is_legacy_whole(effect_of(link, None, matched), matched)
+    # the operator's "Use the correction" is whole by the operator's choice, never the system's to re-derive
+    operator = _dec("apply", basis="operator:apply")
+    assert not is_legacy_whole(effect_of(link, None, operator), operator)
+    # a 1:1 correction replaces its whole original by meaning; a void / duplicates set removes, never matches
+    corr = _link_rec(CORRECTION, status=STATUS_APPLIED)
+    assert not is_legacy_whole(effect_of(corr, None, legacy), legacy)
+    assert not is_legacy_whole(effect_of(_link_rec(VOID), None, legacy), legacy)
+    keep = _dec("keep", basis=BASIS_NO_RETRACTION)
+    assert not is_legacy_whole(effect_of(link, None, keep), keep)
+    assert not is_legacy_whole(effect_of(link, None, None), None)
+
+
+def _legacy_state(ticker: str):
+    """The ticker's real originals and 4/As as prod's FIRST live night stored them: each 4/A linked by the cascade
+    and applied by the SYSTEM with no row match (``replaced_rows`` NULL — written before the row match existed).
+    """
+    stored = _stored(ticker)
+    rows = [r for rs in stored.values() for r in rs]
+    links, recs, decs, replaced, originals = [], [], [], {}, {}
+    for acc in amendments_of(ticker):
+        lk = _link(acc)
+        p = parse_form4a(xml(acc))
+        amend_rows = [_json_row(r) for r in p.rows]
+        recs.append({**_rec(acc, *amend_rows, accepted=FILINGS[acc].accepted), "id": uuid4()})
+        links.append(
+            {
+                **_link_rec(
+                    lk.disposition, originals=lk.original_accessions, status=STATUS_APPLIED
+                ),
+                "amendment_accession": acc,
+                "security_id": "s",
+            }
+        )
+        d = {
+            **_dec("apply", basis=BASIS_NO_SIGNAL_EFFECT, replaced_rows=None),
+            "amendment_accession": acc,
+        }
+        decs.append(d)
+        m = match_rows(
+            amend_rows,
+            originals_rows(lk.original_accessions, stored),
+            CODES,
+            filer_text(p.remarks, p.footnotes),
+        )
+        replaced[str(d["id"])] = m.replaced
+        originals[str(d["id"])] = lk.original_accessions
+    return rows, links, recs, decs, replaced, originals
+
+
+def test_czr_legacy_decisions_are_rederived_because_their_row_match_restores_what_whole_dropped():
+    """CZR (real filings, ``tests/form4a_fixtures.py``): two partials of one merger-day Form 4, applied whole by
+    the first live night. The later one (``-014616``, the 2017-05-01 withholding as 2,859 shares) then replaced the
+    whole original AND superseded the earlier one: the read held one row. Their row matches (``-012327`` accounts
+    for none of the 11 lines — its 33,118-share ``A`` line is kept beside the 33,031 one by R8-B's non-P/S leftover
+    rule; ``-014616`` accounts for the one withholding it restates) restore the ten other original lines and the
+    33,118 — so BOTH are re-derived, and nothing the read held is lost."""
+    rows, links, recs, decs, replaced, originals = _legacy_state("CZR")
+    late, early = "0000899243-17-014616", "0000899243-17-012327"
+    by_acc = {d["amendment_accession"]: str(d["id"]) for d in decs}
+    assert replaced[by_acc[early]] == ()
+    assert replaced[by_acc[late]] == ("0000899243-17-011774#3",)
+    picked, gained, lost = rederive_scope(
+        rows,
+        amendments=recs,
+        links=links,
+        decisions=decs,
+        replaced=replaced,
+        originals_of=originals,
+    )
+    assert picked == frozenset(by_acc.values())
+    assert lost == []
+    assert sorted((r["accession"], r["txn_seq"]) for r in gained) == sorted(
+        [("0000899243-17-011774", i) for i in (0, 1, 2, 4, 5, 6, 7, 8, 9, 10)] + [(early, 0)]
+    )
+    assert {r["txn_code"] for r in gained} == {"A", "M", "F"}  # no buy or sale: no call reads them
+
+
+def test_a_legacy_decision_whose_row_match_reads_the_same_is_left_as_it_is():
+    """The no-churn contract (direct inputs): a legacy whole apply whose row match accounts for every original
+    row — and no other amendment of that original — reads the same either way, so nothing is re-derived.
+    """
+    rows = [
+        {**_row("O", 0, code="F"), "shares": 10.0, "price": 5.0, "insider_name": "X"},
+        {**_row("O", 1, code="M"), "shares": 3.0, "price": 0.0, "insider_name": "X"},
+    ]
+    am = _rec(
+        "A",
+        {**_line(0, "F", 12.0, 5.0, "2026-09-24")},
+        {**_line(1, "M", 3.0, 0.0, "2026-09-24")},
+    )
+    link = {**_link_rec(RESTATEMENT, status=STATUS_APPLIED), "security_id": "s"}
+    legacy = _dec("apply", basis=BASIS_NO_SIGNAL_EFFECT, replaced_rows=None)
+    m = match_rows(am["rows"], originals_rows(["O"], {"O": rows}), CODES)
+    assert m.replaced == (
+        "O#0",
+        "O#1",
+    )  # a share fix + an identical line: every original row accounted for
+    picked, gained, lost = rederive_scope(
+        rows,
+        amendments=[am],
+        links=[link],
+        decisions=[legacy],
+        replaced={str(legacy["id"]): m.replaced},
+        originals_of={str(legacy["id"]): ("O",)},
+    )
+    assert (picked, gained, lost) == (frozenset(), [], [])
 
 
 def test_other_issuer_screen_is_keep_when_unknown():

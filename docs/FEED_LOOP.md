@@ -1495,12 +1495,79 @@ resolver vs this one, every security with a stored 4/A, full history at asof 202
   CZR (A 33,118), BHVN (three J lines), ASTH (J 1,664,054), ONTO (A 3,901). Every one is a legacy
   `system:no-signal-effect` decision written with NULL before the row match existed (no code-P/S row). An
   applied void or duplicates set on an original that also has an applied emitting amendment (FCEL ×3, RTX) is
-  outside the composition (a void emits nothing), unchanged.
+  outside the composition (a void emits nothing), unchanged. *(Re-measured by the re-derivation, §below: three of
+  the four are legacy decisions and are re-derived; ONTO's A 3,901 is not — a 1:1 CORRECTION, whole by meaning,
+  drops it — and the legacy NULLs reach far beyond these four: 279 decisions on 273 originals.)*
 - **Call effect** (main's resolver on today's links vs this resolver plus the re-link): forward, the 12 active
   theses at asof 2026-10-21 — **0 card fields change**; history (the method above, every link and standing
   decision known at its SEC acceptance) — of the 666 honest rows, the **409** whose roster ever held a re-linked
   or composed security re-assembled **all identical: 0 thesis-level flips, 0 changes of any card field**; the
   other 257 read identical inputs by construction. Every restored row is outside every live signal window.
+
+### The R8 re-derivation — the first night's whole-original system decisions get their row match (2026-10-21)  `[BUILT]`
+
+**The leftover.** The first live night (2026-10-20) applied every resolvable 4/A BEFORE the row match existed, so
+its system decisions carry `replaced_rows` NULL — and the resolver reads NULL as the WHOLE original: an original
+line the amendment never mentions leaves the read, and (under the composition above) a later NULL supersedes every
+earlier amendment's lines too. R8-B writes a row match on every matched disposition, so these are the only NULLs
+of their kind. Rows silently vanish from the read: a recall issue (#9), on non-call codes.
+
+**Which.** A standing SYSTEM `apply` with `replaced_rows` NULL on a MATCHED disposition — partial, consolidation,
+addition, restatement, field change (`domain.insider_amendments.is_legacy_whole`). Never a 1:1 correction (whole
+is its meaning), a void, a duplicates set, a keep, or an operator verdict (the operator's **Use the correction** is
+whole by the operator's choice). Its row match is computed exactly as R8-B computes it at ingest — `match_for`
+against the FULL stored originals with the filer's words — and its basis by the signal effect under that match.
+
+**Only where the read changes** (`rederive_scope`, one pure function over the whole-history 4/A resolution): the
+read with every legacy decision re-derived vs the read as stored. An ORIGINAL whose read changes has EVERY legacy
+decision amending it re-derived (its chain then reads as R8-B composes it); a legacy decision whose originals read
+the same is left exactly as it is (no churn). If re-deriving only those does not reproduce the fully re-derived
+read (one amendment spanning originals), the whole security's legacy decisions are re-derived — so after an apply
+the read IS the fully re-derived one and a re-run plans nothing. An UNRESOLVED match (R8-B would owe it to the
+operator) is reported, never moved; an amendment the operator ever decided is never touched.
+
+**The CLI — `python -m pipeline.rederive_amendment_matches`** (dry-run by default, on a read-only connection;
+`--apply` takes the call-of-record lock, appends in ONE transaction and counts `insider_amendment_decision` before
+commit; `--report-json PATH` writes the plan). Append-only, the re-link's mechanics: per decision a SYSTEM `revoke`
+(basis `system:rederive`) of the legacy decision and the system's `apply` carrying the row match (`via` =
+`rederive`, the revoke's `detail` naming the reading and the rows), both at `recorded_at = now` — a read pinned
+before it reads exactly what the system held then (#1). The review reads it as before (`auto`): the system's own
+revoke is not the operator's Undo.
+
+**MEASURED on prod, read-only, 2026-10-21** (the branch's dry run over the stored tables; the effects with the
+planned decisions injected in memory, nothing written):
+- **The plan:** **372** legacy decisions — every one `system:no-signal-effect` (partial 213, addition 90,
+  consolidation 43, restatement 26; no field change), 0 operator-touched, 0 unresolved. **279 re-derived** on 113
+  securities (partial 207, consolidation 41, restatement 23, addition 8; reading exact 238, add 36, fix 5); **93
+  unchanged**, left as they are — 87 whose match accounts for every original line (82 additions), and 6 partials
+  whose original an applied void already removes (RTX, FCEL ×3) or a later applied amendment of the same original
+  already settles (AVAV ×2). 6.0 s.
+- **The read gains 541 rows on 273 originals and loses none** — by code A 191, M 153, F 113, J 31, D 28, C 13, G 12;
+  **no `P` / `S` row**; dated 2008 → 2026-08-24. 269 originals regain only their own unaccounted lines (R8-B's rule:
+  an original line the amendment does not account for STANDS — including the operator-approved clause that a
+  non-`P`/`S` leftover with no decisive words is kept beside the addition); 4 also regain an earlier amendment's
+  lines (the composition): CZR `-17-011774` (ten original lines + `-012327`'s A 33,118 — the test fixture), BHVN
+  `-22-007074` (24 original lines + `-007103`'s three J lots), ASTH `-17-001361` (the correction `-001403`'s J
+  1,664,054) and ONTO `-20-000030` (`-000045`'s four lines).
+- **Known limit — a STACK, by the composition rule as built:** in ASTH `-17-001361` and ONTO `-20-000030` the later
+  amendment restates the EARLIER AMENDMENT's lines (ONTO `-000102`: "supersedes the amendment filed on February 11,
+  2020", the withholdings re-counted; ASTH `-18-000259`: the J line re-computed as two) but accounts for no
+  ORIGINAL line by exact shape, so the composition reads them as different trades and both stand — the documented
+  contract "a pure addition never consumes an earlier one's rows" (`tests/domain/test_insider_amendments.py::
+  test_compose_a_row_level_amendment_after_a_whole_one_replaces_what_it_accounts_for`). 5 rows (F / A / J — no call
+  reads them); a FRESH R8-B ingest of the same pair reads the same. PROPOSED, not built: let the composition treat a
+  later amendment as the same trade when it accounts for an earlier AMENDMENT's rows by (owner, date, code), or
+  read "supersedes the amendment" words — a read-time change to `compose_statements`, no data repair (the stored
+  `replaced_rows` stay right).
+- **ONTO's A 3,901** (named in §composition above) is NOT a legacy decision's: original `-20-000038`'s later 4/A
+  `-000094` is a 1:1 CORRECTION, whole by meaning, so it supersedes `-000040`'s grant line — unchanged here (out of
+  this repair's scope).
+- **Call effect:** forward, the 12 active theses at asof 2026-10-21 (known_at = now) through the production funnel,
+  as stored vs re-derived — **0 of 12 cards change**. History (R8-A's method: each honest row at its own `(asof,
+  known_at = recorded_at)`, every 4/A record, latest link and standing decision treated as known at its SEC
+  acceptance, as stored vs re-derived): of the **666** honest rows, the **371** whose roster held a re-derived
+  security were re-assembled — **all identical card-for-card, 0 thesis-level flips**; the other 295 read identical
+  inputs by construction (the resolver is per-security).
 
 ## The scheduling sidecar — the `cron` service + `scripts/daily_cron.sh`  `[BUILT #73]`
 

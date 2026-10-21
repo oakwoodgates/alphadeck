@@ -244,6 +244,12 @@ replay stays honest.
   one, all stamped `recorded_at = now` (`pipeline.relink_amendments`); a read pinned before the re-link reads the
   old link exactly as held. *Enforced by:* `tests/pipeline/test_relink_amendments.py::
   test_the_iehc_mislink_is_relinked_append_only_and_an_earlier_read_is_unchanged`.
+- *Also honored by (the R8 re-derivation, 2026-10-21):* a legacy system decision written before the row match
+  (`replaced_rows` NULL — the whole original) is RE-DERIVED forward, never rewritten — the system's `revoke`
+  (`system:rederive`) and its `apply` carrying the row match, both stamped `recorded_at = now`
+  (`pipeline.rederive_amendment_matches`); a read pinned before reads the whole-original state the system held.
+  *Enforced by:* `tests/pipeline/test_rederive_amendment_matches.py::
+  test_czrs_legacy_whole_decisions_are_rederived_append_only_and_an_earlier_read_is_unchanged`.
 - *Also honored by (joint reports — one trade several persons reported, counted once; migration 0054):* the
   collapse (`domain/insider_joint_reports.py`) is one pure function inside the same resolver seam, so both engines
   read it identically, and it acts only on the ownership evidence a row carries. On stored history that evidence

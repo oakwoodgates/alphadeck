@@ -26,6 +26,11 @@ THE VERBS, each with its visible inverse (WB#1):
   row tie-break settles), the system's ``revoke`` (``system:relink``) of its stale decision and its decision
   against the new original — never on an amendment the operator decided or linked. Idempotent: once applied
   the stored link IS the fixed cascade's.
+- ``rederive`` (the R8 re-derivation, a SYSTEM write — ``pipeline.rederive_amendment_matches``) — for a LEGACY
+  system ``apply`` written before the row match (``replaced_rows`` NULL on a matched disposition) whose row match
+  changes the read, appends the system's ``revoke`` (``system:rederive``) of it and the system's ``apply``
+  carrying the row match — never on an amendment the operator ever decided. Idempotent: a re-derived decision
+  carries its row match, so a re-run finds nothing.
 
 EXACTNESS RULES (why a decision can be trusted):
 
@@ -45,13 +50,14 @@ from __future__ import annotations
 
 from collections.abc import Callable, Collection, Iterable, Mapping
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Any
 from uuid import UUID
 
 import psycopg
 from psycopg.types.json import Json
 
+from db.insider_resolution import load_inputs
 from domain.insider_amendments import (
     ACTION_ADD,
     ACTION_APPLY,
@@ -60,6 +66,7 @@ from domain.insider_amendments import (
     AMBIGUOUS,
     AUTO_DISPOSITIONS,
     BASIS_HELD,
+    BASIS_REDERIVE,
     BASIS_RELINK,
     INERT_DISPOSITIONS,
     REVIEW_AUTO,
@@ -79,6 +86,7 @@ from domain.insider_amendments import (
     effect_of,
     filer_text,
     in_window_codes,
+    is_legacy_whole,
     is_system_basis,
     latest_by_accession,
     link_amendment,
@@ -86,6 +94,7 @@ from domain.insider_amendments import (
     link_to_candidate,
     match_for,
     norm_cik,
+    rederive_scope,
     relink_rule,
     review_bucket,
     standing_decisions,
@@ -937,6 +946,276 @@ def relink(
         decisions=n_dec,
         applied=tuple(applied),
         skipped=tuple(skipped),
+    )
+
+
+# --- the R8 RE-DERIVATION of the legacy whole-original decisions (2026-10-21) --------------------------------
+
+
+@dataclass(frozen=True)
+class RederiveItem:
+    """One LEGACY system ``apply`` (``replaced_rows`` NULL on a matched disposition — ``is_legacy_whole``) and
+    what R8-B records for it instead: its row match against the FULL stored originals and the filer's words
+    (``match_rows`` — ``replaced_rows`` it replaces, ``kept_rows`` that stand beside it, ``added`` amendment rows
+    that match no original row, the ``reading`` and the ``passage`` that settled the leftovers) and the system
+    basis under that match (``signal_effect`` — does it change a row a call signal reads)."""
+
+    security_id: UUID
+    ticker: str | None
+    accession: str
+    disposition: str
+    original_accessions: tuple[str, ...]
+    stale: Mapping[str, Any]
+    replaced_rows: tuple[str, ...]
+    kept_rows: tuple[str, ...]
+    added: int
+    reading: str
+    passage: str | None
+    basis: str | None
+    signal_effect: bool
+
+
+@dataclass
+class RederivePlan:
+    """What a re-derivation pass would do. ``items`` = the legacy decisions to re-derive (an original they
+    amend reads differently under the row match — ``rederive_scope``); ``unchanged`` = legacy decisions whose
+    row match changes no read (left exactly as they are); ``unresolved`` = legacy decisions whose row match is
+    UNRESOLVED (R8-B would owe the operator; never moved here — reported); ``operator_held`` = legacy decisions
+    on an amendment the operator ever decided (never touched). ``gained`` / ``lost`` = the rows the read gains /
+    loses once ``items`` are re-derived, ``(ticker, security_id, row)``."""
+
+    considered: int = 0
+    items: list[RederiveItem] = field(default_factory=list)
+    unchanged: list[RederiveItem] = field(default_factory=list)
+    unresolved: list[RederiveItem] = field(default_factory=list)
+    operator_held: list[RederiveItem] = field(default_factory=list)
+    gained: list[tuple[str | None, UUID, dict[str, Any]]] = field(default_factory=list)
+    lost: list[tuple[str | None, UUID, dict[str, Any]]] = field(default_factory=list)
+
+
+_FAR_KNOWN_AT = datetime(9999, 12, 31, tzinfo=timezone.utc)
+
+
+def _full_insider_rows(
+    conn: psycopg.Connection, security_id: UUID, tenant_id: UUID
+) -> list[dict[str, Any]]:
+    """The security's stored insider rows — the latest version of each (the as-of read's natural key), every
+    column, no time gate: what a read of the whole history resolves."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT DISTINCT ON (accession, insider_name, valid_from, txn_seq) * FROM fact_insider_txn "
+            "WHERE tenant_id = %s AND security_id = %s "
+            "ORDER BY accession, insider_name, valid_from, txn_seq, recorded_at DESC, id DESC",
+            (tenant_id, security_id),
+        )
+        return cur.fetchall()
+
+
+def rederive_plan(
+    conn: psycopg.Connection,
+    *,
+    security_ids: Iterable[UUID] | None = None,
+    signal_codes: Collection[str] | None = None,
+) -> RederivePlan:
+    """READ-ONLY — every LEGACY system ``apply`` (a matched disposition applied with ``replaced_rows`` NULL —
+    ``is_legacy_whole``: the first live night wrote them before the row match existed) with what R8-B records for
+    it instead (``match_for`` against the FULL stored originals with the filer's words, the basis by the
+    signal effect under that match — ``system_resolution``), and the scope: only a decision whose row match
+    changes the read of an original it amends is re-derived (``rederive_scope``, over the full history).
+    """
+    codes = frozenset(signal_codes) if signal_codes is not None else frozenset(default_horizons())
+    sid_filter = list(security_ids) if security_ids is not None else None
+    where = "" if sid_filter is None else " WHERE x.security_id = ANY(%(ids)s)"
+    p: dict[str, Any] = {"ids": sid_filter}
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM insider_amendment_link x" + where, p)  # noqa: S608
+        links = cur.fetchall()
+        cur.execute("SELECT * FROM insider_amendment_decision x" + where, p)  # noqa: S608
+        decisions = cur.fetchall()
+        cur.execute(
+            "SELECT DISTINCT ON (x.security_id, x.accession) x.*, sm.ticker FROM insider_amendment x "
+            "JOIN security_master sm ON sm.id = x.security_id"
+            + where
+            + " ORDER BY x.security_id, x.accession, x.recorded_at DESC, x.id DESC",  # noqa: S608
+            p,
+        )
+        filings = {(r["security_id"], r["accession"]): r for r in cur.fetchall()}
+    by_sid: dict[UUID, list[dict[str, Any]]] = {}
+    for r in links:
+        by_sid.setdefault(r["security_id"], []).append(r)
+    dec_by: dict[UUID, list[dict[str, Any]]] = {}
+    for d in decisions:
+        dec_by.setdefault(d["security_id"], []).append(d)
+    plan = RederivePlan()
+    for sid in sorted(by_sid, key=str):
+        latest = latest_by_accession(by_sid[sid], "amendment_accession")
+        standing = standing_decisions(dec_by.get(sid, []))
+        held: dict[str, list[dict[str, Any]]] | None = None
+        candidates: list[RederiveItem] = []
+        for acc in sorted(latest):
+            link = latest[acc]
+            link_d, verdict = standing.get(acc, (None, None))
+            eff = effect_of(link, link_d, verdict)
+            if not is_legacy_whole(eff, verdict):
+                continue
+            f = filings.get((sid, acc))
+            if f is None:
+                continue  # a link without its filing record cannot be judged honestly
+            plan.considered += 1
+            if held is None:
+                held = stored_rows_by_accession(conn, sid, tenant_id=link["tenant_id"])
+            amend_rows = list(f.get("rows") or [])
+            match = match_for(
+                eff.disposition,
+                eff.original_accessions,
+                held,
+                amend_rows,
+                codes,
+                filer_text(f.get("remarks"), f.get("footnotes")),
+            )
+            assert match is not None  # a matched disposition (``is_legacy_whole``)
+            before, after = before_after(
+                eff.disposition,
+                original_accessions=eff.original_accessions,
+                voided_accessions=eff.voided_accessions,
+                candidate_accessions=eff.candidate_accessions,
+                stored=held,
+                amend_rows=amend_rows,
+                replaced=None if match.unresolved else match.replaced,
+            )
+            effect = bool(changed_signal_rows(eff.disposition, before, after, codes))
+            res = system_resolution(eff.disposition, signal_effect=effect, match=match)
+            item = RederiveItem(
+                security_id=sid,
+                ticker=f.get("ticker"),
+                accession=acc,
+                disposition=eff.disposition,
+                original_accessions=eff.original_accessions,
+                stale=verdict,  # type: ignore[arg-type]  # ``is_legacy_whole`` = a standing verdict
+                replaced_rows=match.replaced,
+                kept_rows=match.kept,
+                added=match.added,
+                reading=match.reading,
+                passage=match.passage,
+                basis=res.basis if res is not None else None,
+                signal_effect=effect,
+            )
+            own = [d for d in dec_by.get(sid, []) if d["amendment_accession"] == acc]
+            if any(not is_system_basis(d.get("basis")) for d in own):
+                plan.operator_held.append(item)  # anything the operator did stays the operator's
+            elif res is None:
+                plan.unresolved.append(item)  # R8-B would owe the operator: never moved here
+            else:
+                candidates.append(item)
+        if not candidates:
+            continue
+        tenant = latest[candidates[0].accession]["tenant_id"]
+        inputs = load_inputs(conn, [sid], known_at=_FAR_KNOWN_AT, tenant_id=tenant)
+        key = str(sid)
+        picked, gained, lost = rederive_scope(
+            _full_insider_rows(conn, sid, tenant),
+            amendments=inputs.amendments.get(key, []),
+            links=inputs.links.get(key, []),
+            decisions=inputs.decisions.get(key, []),
+            replaced={str(c.stale["id"]): c.replaced_rows for c in candidates},
+            originals_of={str(c.stale["id"]): c.original_accessions for c in candidates},
+            own_ciks=inputs.own_ciks.get(key, ()),
+        )
+        ticker = candidates[0].ticker
+        for c in candidates:
+            (plan.items if str(c.stale["id"]) in picked else plan.unchanged).append(c)
+        plan.gained.extend((ticker, sid, r) for r in gained)
+        plan.lost.extend((ticker, sid, r) for r in lost)
+    return plan
+
+
+@dataclass(frozen=True)
+class RederiveResult:
+    """What ``rederive`` appended: the system's revokes of its legacy decisions and the system's re-derived
+    applications; ``skipped`` = planned items the state moved under (re-checked under the amendment's lock).
+    """
+
+    revokes: int = 0
+    decisions: int = 0
+    applied: tuple[str, ...] = ()
+    skipped: tuple[str, ...] = ()
+
+
+def rederive(
+    conn: psycopg.Connection,
+    plan: RederivePlan,
+    *,
+    signal_codes: Collection[str] | None = None,
+) -> RederiveResult:
+    """APPEND the planned re-derivations (the caller owns the transaction): for each item, under the amendment's
+    ``FOR UPDATE`` lock and re-checked against the state it was planned on (the legacy decision is still the
+    standing verdict, still NULL, and the operator never decided the amendment), (1) the SYSTEM's ``revoke``
+    (basis ``system:rederive``) of the legacy decision, (2) the system's ``apply`` carrying the row match
+    (``system_decision_values`` — the ingest's and the sweep's own shape, ``via`` = ``rederive``). Both stamped
+    ``recorded_at = now()`` (the transaction's), so a read pinned before sees exactly what the system held then:
+    no rewrite of the past (#1). Idempotent: the re-derived decision carries its row match, so a re-plan finds
+    nothing."""
+    codes = frozenset(signal_codes) if signal_codes is not None else frozenset(default_horizons())
+    n_rev = n_dec = 0
+    applied: list[str] = []
+    skipped: list[str] = []
+    for it in plan.items:
+        key = f"{it.security_id}:{it.accession}"
+        links = _lock(conn, it.security_id, it.accession)
+        decisions = _decisions(conn, it.security_id, it.accession)
+        _, verdict = standing_decisions(decisions).get(it.accession, (None, None))
+        if (
+            verdict is None
+            or str(verdict["id"]) != str(it.stale["id"])
+            or verdict.get("replaced_rows") is not None
+            or any(not is_system_basis(d.get("basis")) for d in decisions)
+        ):
+            skipped.append(key)
+            continue
+        tenant = links[-1]["tenant_id"]
+        detail = {
+            "rule": "row-match",
+            "from_decision": str(it.stale["id"]),
+            "reading": it.reading,
+            "passage": it.passage,
+            "replaced_rows": list(it.replaced_rows),
+            "kept_rows": list(it.kept_rows),
+            "added": it.added,
+        }
+        _insert(
+            conn,
+            {
+                "tenant_id": tenant,
+                "security_id": it.security_id,
+                "amendment_accession": it.accession,
+                "action": "revoke",
+                "revokes": it.stale["id"],
+                "reason": (
+                    "re-derived by the system: this decision replaced the WHOLE original (written before the "
+                    "row match existed); the filer's correction replaces only the rows it accounts for"
+                ),
+                "basis": BASIS_REDERIVE,
+                "detail": detail,
+            },
+        )
+        n_rev += 1
+        v = system_decision_values(
+            tenant_id=tenant,
+            security_id=it.security_id,
+            accession=it.accession,
+            basis=it.basis or str(it.stale["basis"]),
+            disposition=it.disposition,
+            signal_codes=codes,
+            via="rederive",
+            replaced_rows=it.replaced_rows,
+            action=ACTION_APPLY,
+        )
+        v["detail"] = {**v["detail"], "rederive": detail}
+        _insert(conn, v)
+        n_dec += 1
+        applied.append(key)
+    return RederiveResult(
+        revokes=n_rev, decisions=n_dec, applied=tuple(applied), skipped=tuple(skipped)
     )
 
 

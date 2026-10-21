@@ -116,6 +116,22 @@ on 2026-10-21; FILINGS rows from the cached submissions index):
 - AMSC ``0001209191-10-061925``: ``0001209191-10-062237`` re-dates two buys (34,000 + 20,000 to 2010-12-17);
   ``0001209191-11-004333`` (dated its own filing day; the same-day ``-11-004336`` was accepted AFTER it, the R8
   linker fix refuses it) re-reports the 80,000-share buy. Different trades: every row stands.
+
+Added for the R8 RE-DERIVATION (2026-10-21 — the legacy system decisions written before the row match, NULL =
+the whole original, re-recorded with their row match). The three documents were copied READ-ONLY out of prod's
+EDGAR cache (``docker cp alphadeck-cron-1:/data/edgar_cache/forms/<accession>/<doc>``, the bytes the live legs
+fetched: the Form 4 on 2026-08-05, the two 4/As on the first live 4/A night, 2026-10-20); the FILINGS rows are
+Caesars Entertainment's cached submissions index (``filings.recent`` — ``filingDate`` + ``acceptanceDateTime``),
+read in the same container on 2026-10-21. The issuer is Eldorado Resorts (CIK 1590895, now Caesars — the master's
+CZR):
+- CZR ``0000899243-17-011774``: an officer's merger-day Form 4 (2017-05-01 / 05-03) — a code-``A`` receipt of
+  33,031 shares, eight ``M`` RSU conversions and two ``F`` tax withholdings (11 rows; no ``P`` / ``S``).
+- ``0000899243-17-012327`` re-reports only the ``A`` line, as 33,118 shares ("corrects an error with respect to the
+  number of shares … received in connection with the Agreement and Plan of Merger"); ``0000899243-17-014616``
+  re-reports only the 2017-05-01 ``F`` line, as 2,859 shares. Both PARTIAL. Prod's first live night applied both
+  with no row match (``system:no-signal-effect``, NULL), so the later one replaced the WHOLE original and
+  superseded the earlier one: the read held only the 2,859-share withholding, the other ten original lines and the
+  restated 33,118 gone.
 """
 
 from __future__ import annotations
@@ -428,6 +444,14 @@ FILINGS: dict[str, Filing] = {
         "4/A", "2011-01-20", "2011-01-21T02:11:44.000Z", "0000880807", "AMSC"
     ),
     "0001209191-11-004336": _f("4", "2011-01-20", "2011-01-21T02:34:02.000Z", "0000880807", "AMSC"),
+    # the R8 re-derivation — see the module docstring (issuer Eldorado Resorts, CIK 1590895, now Caesars)
+    "0000899243-17-011774": _f("4", "2017-05-03", "2017-05-04T01:56:19.000Z", "0001590895", "CZR"),
+    "0000899243-17-012327": _f(
+        "4/A", "2017-05-08", "2017-05-08T23:57:52.000Z", "0001590895", "CZR"
+    ),
+    "0000899243-17-014616": _f(
+        "4/A", "2017-05-26", "2017-05-26T22:22:42.000Z", "0001590895", "CZR"
+    ),
 }
 
 CIKS = {f.key: f.cik for f in FILINGS.values()}

@@ -74,7 +74,9 @@ restate them all — IEHC), else unresolved. An unaccounted original that no lef
 amendment row is an addition. The match is computed once, against the full stored rows, when the ``apply``
 decision is written, and STORED on it (``replaced_rows``, migration 0053): the original row keys it replaces
 (``[]`` = it replaces nothing — an Add); NULL (every pre-R8-B decision, and the operator's "Use the correction")
-replaces the whole original.
+replaces the whole original. The SYSTEM's own NULL applications on a matched disposition — written on the first
+live night, before the row match existed — are re-derived forward, append-only, wherever their row match changes
+the read (``is_legacy_whole`` / ``rederive_scope``; ``pipeline.rederive_amendment_matches``).
 
 THE VOIDS (R8-B, operator decision 2026-10-21 — ``void_reading``): a zero-row 4/A retracts its original ONLY when
 BOTH the filer's text carries explicit retraction language (``RETRACTION_PHRASES``) AND the original holds exactly
@@ -238,6 +240,12 @@ BASIS_RELINK = "system:relink"
 # ambiguous and exactly one candidate holds a row the amendment accounts for
 RELINK_ORDER = "made-public-after"
 RELINK_TIE_BREAK = "row-tie-break"
+# the R8 re-derivation (2026-10-21) — the basis of the SYSTEM's ``revoke`` of its own LEGACY decision: an ``apply``
+# written before the row match existed (``replaced_rows`` NULL = the WHOLE original replaced) on a MATCHED
+# disposition, taken back and re-recorded with its row match (``match_rows``) when the row match changes the
+# read (``rederive_scope``) — append-only, stamped at the re-derivation. Never written over anything the
+# operator did.
+BASIS_REDERIVE = "system:rederive"
 _SYSTEM_PREFIX = "system:"
 # the operator's three verdicts on an owed amendment: Use the correction (``apply`` — the whole original replaced),
 # Keep the original (``keep``), Add to the original (an ``apply`` that replaces nothing — ``replaced_rows = []``:
@@ -1844,6 +1852,98 @@ class ResolutionInputs:
             lower=lower,
         )
         return screen_internal_transfers(collapse_joint_reports(resolved), resolved)
+
+
+def is_legacy_whole(eff: Effective, verdict: Mapping[str, Any] | None) -> bool:
+    """The R8 re-derivation's target (2026-10-21): a standing SYSTEM ``apply`` on a MATCHED disposition that
+    carries NO row match (``replaced_rows`` NULL — it replaces the WHOLE original). The first live night
+    (2026-10-20) wrote these before the row match existed; R8-B writes a row match on every one. Never an
+    operator verdict, a correction (1:1 by construction — whole is its meaning), a void / duplicates set, or a
+    keep."""
+    return (
+        verdict is not None
+        and verdict.get("action") == ACTION_APPLY
+        and is_system_basis(verdict.get("basis"))
+        and verdict.get("replaced_rows") is None
+        and eff.disposition in MATCHED_DISPOSITIONS
+        and eff.status == STATUS_APPLIED
+    )
+
+
+def read_key(row: Mapping[str, Any]) -> tuple[Any, ...]:
+    """One resolved row's identity in a read: a stored row by its natural key (accession, owner, date, seq); an
+    EMITTED row (a 4/A's) additionally by the original it amends (``AMENDS_ACCESSION``)."""
+    return (
+        str(row.get("accession")),
+        str(row.get("insider_name") or ""),
+        _row_date(row),
+        row.get("txn_seq"),
+        row.get(AMENDS_ACCESSION),
+    )
+
+
+def with_replaced_rows(
+    decisions: Iterable[Mapping[str, Any]], replaced: Mapping[str, Sequence[str]]
+) -> list[Mapping[str, Any]]:
+    """``decisions`` with the decision ids in ``replaced`` (``str(id) -> row keys``) carrying those
+    ``replaced_rows`` instead — the re-derived state, in memory (the plan's reads; nothing is written here).
+    """
+    return [
+        {**d, "replaced_rows": list(replaced[str(d["id"])])} if str(d["id"]) in replaced else d
+        for d in decisions
+    ]
+
+
+_FAR_ASOF = date.max
+
+
+def rederive_scope(
+    rows: Sequence[dict[str, Any]],
+    *,
+    amendments: Sequence[Mapping[str, Any]],
+    links: Sequence[Mapping[str, Any]],
+    decisions: Sequence[Mapping[str, Any]],
+    replaced: Mapping[str, Sequence[str]],
+    originals_of: Mapping[str, Sequence[str]],
+    own_ciks: Iterable[str] = (),
+) -> tuple[frozenset[str], list[dict[str, Any]], list[dict[str, Any]]]:
+    """PURE — the R8 re-derivation's scope for ONE security: which legacy whole-original decisions to re-derive,
+    and what that does to the read. Returns ``(decision ids, rows the read gains, rows it loses)``.
+
+    ``rows`` = the security's stored insider rows (the latest version of each, full history); ``amendments`` /
+    ``links`` / ``decisions`` = every version a read now sees; ``replaced`` = each legacy decision's row match
+    (``str(id) -> row keys`` — what R8-B stores); ``originals_of`` = the originals each one amends.
+
+    Compared over the 4/A resolution (``resolve_insider_rows``, every row — never a windowed read): the read with
+    every legacy decision re-derived vs the read as stored. An ORIGINAL whose read changes has EVERY legacy
+    decision that amends it re-derived (so its chain reads as R8-B composes it); a legacy decision whose
+    originals read the same is left exactly as it is (no churn). If re-deriving only those does not reproduce the
+    fully re-derived read (one amendment spanning originals), every legacy decision of the security is
+    re-derived. So after an apply the read IS the fully re-derived one, and a re-run plans nothing.
+    """
+    own = tuple(own_ciks)
+
+    def read(decs: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+        return resolve_insider_rows(
+            rows, amendments=amendments, links=links, decisions=decs, own_ciks=own, asof=_FAR_ASOF
+        )
+
+    if not replaced:
+        return frozenset(), [], []
+    old = read(decisions)
+    full = read(with_replaced_rows(decisions, replaced))
+    k_old, k_full = Counter(map(read_key, old)), Counter(map(read_key, full))
+    if k_old == k_full:
+        return frozenset(), [], []
+    by_key = {read_key(r): r for r in (*old, *full)}
+    gained = [by_key[k] for k in sorted((k_full - k_old).elements(), key=str)]
+    lost = [by_key[k] for k in sorted((k_old - k_full).elements(), key=str)]
+    changed = {str(r.get(AMENDS_ACCESSION) or r.get("accession")) for r in (*gained, *lost)}
+    picked = {i for i, origs in originals_of.items() if i in replaced and set(origs) & changed}
+    some = read(with_replaced_rows(decisions, {i: replaced[i] for i in picked}))
+    if Counter(map(read_key, some)) != k_full:
+        picked = set(replaced)
+    return frozenset(picked), gained, lost
 
 
 def group_inputs(
