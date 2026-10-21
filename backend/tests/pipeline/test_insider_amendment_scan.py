@@ -292,35 +292,44 @@ def test_the_page_cap_never_collapses_an_in_window_item():
 
 
 def test_the_sweep_applies_the_backlog_and_the_scan_counts_it_quietly(db):
-    """The pass's sweep (own connection, committed) applies what a pre-R8-B ingest left pending; the scan
-    counts the system applications recorded since the pass began (one quiet line), and none of them pages.
-    IEHC's unresolved row match (date AND shares changed) is not applied: it joins SKYT as owed. Re-running the
-    sweep appends nothing — COUNT THE TABLE."""
-    fls, mrcy, iehc, skyt = seed(db, "FLS"), seed(db, "MRCY"), seed(db, "IEHC"), seed(db, "SKYT")
-    for sid in (fls, mrcy, iehc):
-        _as_r8a_left_it(db, sid)
-    _place(db, [fls, mrcy, iehc, skyt])
+    """The pass's sweep (own connection, committed) resolves what a pre-R8-B ingest left pending; the scan counts
+    the system decisions recorded since the pass began (one quiet line: applications, and the zero-row 4/As kept
+    as filed), and none of them pages. YYAI (words neither fix nor add) and FIGR (retraction words against three
+    trades — held) are owed beside SKYT. Re-running the sweep appends nothing — COUNT THE TABLE."""
+    sids = {t: seed(db, t) for t in ("FLS", "MRCY", "IEHC", "SMR", "FIGR", "YYAI", "SKYT")}
+    for t in ("FLS", "MRCY", "IEHC", "SMR", "FIGR", "YYAI"):
+        _as_r8a_left_it(db, sids[t])
+    _place(db, sids.values())
     started = db_now(db)
     db.commit()
     before = _decisions_count(db)
     sweep = run_amendment_sweep(allow_live=True, connect=connect)
-    assert (sweep.ran, sweep.error, sweep.applied) == (True, None, 2)
-    assert sweep.by_basis == {"system:filer-correction": 1, "system:no-signal-effect": 1}
-    assert _decisions_count(db) == before + 2
+    assert (sweep.ran, sweep.error, sweep.applied) == (True, None, 5)
+    assert sweep.by_basis == {
+        "system:filer-correction": 2,  # FLS (a retraction), IEHC (FIX words)
+        "system:no-signal-effect": 1,  # MRCY (the grant added)
+        "system:no-retraction": 1,  # SMR (a holdings fix)
+        "system:held": 1,  # FIGR
+    }
+    assert _decisions_count(db) == before + 5
     scan = _scan(None, since=started, sweep=sweep)
-    assert scan.applied == sweep.by_basis and scan.swept == 2
-    assert {p.ticker for p in scan.pending} == {"SKYT", "IEHC"}  # the applied ones are not owed
-    (iehc_owed,) = [p for p in scan.pending if p.ticker == "IEHC"]
-    assert iehc_owed.unresolved and "date and share count both changed" in iehc_owed.label
+    assert scan.applied == sweep.by_basis and scan.swept == 5
+    assert {p.ticker for p in scan.pending} == {"SKYT", "YYAI", "FIGR"}
+    by = {p.ticker: p for p in scan.pending}
+    assert by["YYAI"].unresolved and "neither fix nor add" in by["YYAI"].label
+    assert by["FIGR"].held and "which one is your call" in by["FIGR"].label
     assert count_line(scan) == (
-        "Form 4/A: 2 applied automatically (filer corrections), 2 owed your decision (quiet)"
+        "Form 4/A: 3 applied automatically (filer corrections), 1 kept as filed (their text retracts "
+        "nothing), 3 owed your decision (quiet)"
     )
     assert report_lines(scan)[-1] == count_line(scan)
-    assert not any(line.lstrip().startswith(("FLS", "MRCY")) for line in report_lines(scan))
+    assert not any(
+        line.lstrip().startswith(("FLS", "MRCY", "IEHC", "SMR")) for line in report_lines(scan)
+    )
     block = scan.payload()["insider_amendments"]
-    assert (block["applied"], block["swept"], block["sweep_error"]) == (sweep.by_basis, 2, None)
+    assert (block["applied"], block["swept"], block["sweep_error"]) == (sweep.by_basis, 5, None)
     again = run_amendment_sweep(allow_live=True, connect=connect)
-    assert again.applied == 0 and _decisions_count(db) == before + 2  # idempotent
+    assert again.applied == 0 and _decisions_count(db) == before + 5  # idempotent
 
 
 def test_a_clean_night_prints_nothing():

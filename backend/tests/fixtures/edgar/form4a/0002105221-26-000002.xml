@@ -1,0 +1,50 @@
+<?xml version="1.0"?>
+<ownershipDocument>
+
+    <schemaVersion>X0508</schemaVersion>
+
+    <documentType>4/A</documentType>
+
+    <periodOfReport>2026-02-10</periodOfReport>
+
+    <dateOfOriginalSubmission>2026-02-12</dateOfOriginalSubmission>
+
+    <notSubjectToSection16>1</notSubjectToSection16>
+
+    <issuer>
+        <issuerCik>0002038439</issuerCik>
+        <issuerName>VisionWave Holdings, Inc.</issuerName>
+        <issuerTradingSymbol>VWAV</issuerTradingSymbol>
+    </issuer>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0002105221</rptOwnerCik>
+            <rptOwnerName>Magic Internacional Argentina FC S.L. LLC</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerStreet1>1236 N FAIRFAX AVE</rptOwnerStreet1>
+            <rptOwnerStreet2>UNIT 1</rptOwnerStreet2>
+            <rptOwnerCity>WEST HOLLYWOOD</rptOwnerCity>
+            <rptOwnerState>CA</rptOwnerState>
+            <rptOwnerZipCode>90046</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>0</isDirector>
+            <isOfficer>0</isOfficer>
+            <isTenPercentOwner>0</isTenPercentOwner>
+            <isOther>1</isOther>
+            <otherText>not a 10% owner</otherText>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <aff10b5One>0</aff10b5One>
+
+    <remarks>This amendment is being filed solely to correct the Reporting Entity's status. The Reporting Entity was not a 10% owner at the time of the original filing and is not subject to Section 16. All transaction data in the original filing remains correct.</remarks>
+
+    <ownerSignature>
+        <signatureName>Alexander David, Manager</signatureName>
+        <signatureDate>2026-02-17</signatureDate>
+    </ownerSignature>
+</ownershipDocument>

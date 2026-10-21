@@ -15,10 +15,14 @@ import pytest
 
 from domain.config import DEFAULT_CONFIG
 from domain.insider_amendments import (
+    ACTION_APPLY,
+    ACTION_KEEP,
     ADDITION,
     AMBIGUOUS,
     AMENDS_ACCESSION,
     BASIS_FILER_CORRECTION,
+    BASIS_HELD,
+    BASIS_NO_RETRACTION,
     BASIS_NO_SIGNAL_EFFECT,
     CLERICAL,
     CONSOLIDATION,
@@ -28,6 +32,9 @@ from domain.insider_amendments import (
     METHOD_ORIG_DATE_OWNER,
     NO_ROWS,
     PARTIAL,
+    READ_ADD,
+    READ_FIX,
+    READ_UNRESOLVED,
     RESTATEMENT,
     REVIEW_AUTO,
     REVIEW_DECIDED,
@@ -40,9 +47,16 @@ from domain.insider_amendments import (
     STATUS_PENDING,
     UNLINKED,
     VOID,
+    VOID_HELD,
+    VOID_NO_RETRACTION,
+    VOID_RETRACT,
     AmendmentFacts,
+    RowMatch,
+    SystemResolution,
+    VoidReading,
     classify,
     effect_of,
+    filer_text,
     in_window_codes,
     is_other_issuer,
     link_amendment,
@@ -53,8 +67,10 @@ from domain.insider_amendments import (
     review_bucket,
     signal_signature,
     standing_decisions,
-    sweep_basis,
+    sweep_resolution,
     system_basis,
+    system_resolution,
+    void_reading,
     within_review_horizon,
 )
 from ingest.edgar.form4 import parse_form4
@@ -108,6 +124,7 @@ def _facts(accession: str) -> AmendmentFacts:
         filed=f.filed,
         accepted=f.accepted,
         rows=p.rows,
+        text=filer_text(p.remarks, p.footnotes),
     )
 
 
@@ -152,16 +169,16 @@ def test_fls_cancellation_links_uniquely_and_is_a_void_the_system_applies():
     assert (link.auto_resolved, link.basis) == (True, BASIS_FILER_CORRECTION)
 
 
-def test_azta_power_of_attorney_amendment_is_a_void_the_system_applies():
-    """AZTA's zero-row 4/A only attached a power of attorney — the CFO's buy stands in truth. Under R8-B a
-    void resolved to its original is applied by default; Keep original is the operator's exact Undo (proved
-    on Postgres in tests/db/test_insider_amendments.py)."""
+def test_azta_power_of_attorney_void_retracts_nothing_so_the_original_stands():
+    """AZTA's zero-row 4/A "include[s] the Power of Attorney … No other changes have been made": no retraction
+    language, so the SYSTEM keeps the original (``system:no-retraction``) — the CFO's buy stands."""
     link = _link("0001193125-25-282945")
     assert link.original_accessions == ("0000950170-25-107291",)
-    assert (link.disposition, link.status, link.basis) == (
-        VOID,
-        STATUS_APPLIED,
-        BASIS_FILER_CORRECTION,
+    assert (link.disposition, link.void_kind) == (VOID, VOID_NO_RETRACTION)
+    assert (link.status, link.system_action, link.basis) == (
+        STATUS_INERT,
+        ACTION_KEEP,
+        BASIS_NO_RETRACTION,
     )
 
 
@@ -210,20 +227,117 @@ def test_skyt_two_different_originals_on_the_date_is_ambiguous():
     assert (link.auto_resolved, link.basis) == (False, None)  # no definite original: never applied
 
 
-def test_iehc_and_mram_change_date_and_shares_so_their_match_is_unresolved():
-    """R8-B row match on the real in-window sells: IEHC's 4/A restates a director's sales with new dates AND
-    share counts (and adds more), MRAM's restates the CEO's tax-withholding sale's date, price AND share count.
-    Same owner, same code, but neither the date nor the share count matches: the rule cannot tell a
-    restatement from an added sale, so the system does NOT apply them — they are the operator's, the originals
-    standing meanwhile (no provisional effect)."""
-    for acc, disp, orig in (
-        ("0001174947-26-000849", ADDITION, "0001174947-26-000817"),
-        ("0001628280-26-047722", RESTATEMENT, "0001628280-26-047404"),
-    ):
+def test_mram_and_iehc_restate_their_sales_in_fix_language_so_the_system_applies_them():
+    """MRAM's and IEHC's 4/As change the date AND the share count of the sales they re-report — no exact shape
+    accounts for them — so the FILER'S WORDS settle the leftovers: MRAM "amended to correct the date … the
+    price … and the number of shares sold" (FIX) replaces its sale; IEHC says both "correct … dates and prices"
+    (FIX) and "the sale of additional shares" (ADD) — its four re-reported sales cover the original's two, so
+    FIX wins the tie-break (its rows restate every original sale)."""
+    mram = _link("0001628280-26-047722")
+    assert (mram.disposition, mram.status, mram.basis) == (
+        RESTATEMENT,
+        STATUS_APPLIED,
+        BASIS_FILER_CORRECTION,
+    )
+    assert mram.replaced_rows == ("0001628280-26-047404#0",) and not mram.unresolved
+    iehc = _link("0001174947-26-000849")
+    assert (iehc.disposition, iehc.status) == (ADDITION, STATUS_APPLIED)
+    assert iehc.replaced_rows == ("0001174947-26-000817#0", "0001174947-26-000817#1")
+    p = parse_form4a(xml("0001174947-26-000849"))
+    m = match_rows(
+        p.rows,
+        originals_rows(["0001174947-26-000817"], _stored("IEHC")),
+        CODES,
+        filer_text(p.remarks, p.footnotes),
+    )
+    assert m.reading == READ_FIX and "dates and prices" in (m.passage or "")
+
+
+def test_ibkr_omitted_sale_is_an_addition_its_real_sales_all_stand():
+    """IBKR's 4/A "is filed to include shares sold on September 19, 2025, inadvertently excluded": its 6,928 sh
+    on 09-19 matches none of the original's four sales by shape (a bare same-date + same-code is no match), and
+    the filer's words ADD — so all four sales stand and the omitted one is added."""
+    link = _link("0001381197-25-000139")
+    assert (link.disposition, link.status, link.basis) == (
+        PARTIAL,
+        STATUS_APPLIED,
+        BASIS_FILER_CORRECTION,
+    )
+    assert link.replaced_rows == ()
+    p = parse_form4a(xml("0001381197-25-000139"))
+    m = match_rows(
+        p.rows,
+        originals_rows(["0001381197-25-000131"], _stored("IBKR")),
+        CODES,
+        filer_text(p.remarks, p.footnotes),
+    )
+    assert (m.reading, m.added, len(m.kept)) == (READ_ADD, 1, 4)
+    assert "inadvertently excluded" in (m.passage or "")
+
+
+def test_yyai_neither_fixes_nor_adds_so_it_is_owed():
+    """YYAI's 4/A re-reports a reverse-split share count and a new purchase in words that neither fix nor add:
+    unresolved — no system decision, the original standing."""
+    link = _link("0002091629-25-000011")
+    assert (link.disposition, link.status, link.basis, link.system_action) == (
+        RESTATEMENT,
+        STATUS_PENDING,
+        None,
+        None,
+    )
+    assert link.unresolved
+
+
+def test_betr_split_lots_and_bhvn_consolidation_match_by_sum():
+    """BETR splits one 3,487 sh sale into 2,687 + 800 (they sum to it); BHVN restates 25,000 + 3,400 as 28,400 —
+    the trust lots its 4/A does not mention (3,400 + 900) stand."""
+    betr = _link("0001628280-24-050110")
+    assert (betr.status, betr.replaced_rows) == (STATUS_APPLIED, ("0001628280-24-049753#0",))
+    bhvn = _link("0001027035-26-000006")
+    assert bhvn.disposition == CONSOLIDATION and bhvn.status == STATUS_APPLIED
+    assert bhvn.replaced_rows == ("0001935979-25-000018#0", "0001935979-25-000018#1")
+    m = match_rows(
+        parse_form4a(xml("0001027035-26-000006")).rows,
+        originals_rows(["0001935979-25-000018"], _stored("BHVN")),
+        CODES,
+    )
+    assert m.kept == ("0001935979-25-000018#2", "0001935979-25-000018#3")
+
+
+def test_voids_are_read_by_the_filers_words_and_the_originals_shape():
+    """A zero-row 4/A retracts ONLY with explicit retraction language AND a single-trade original: FLS ("was
+    cancelled"), AVEX ("does not hold any"), MNKD ("should not have been filed"), DVLT ×2 ("did not occur") are
+    applied; FIGR's retraction ("shares withheld … did not in fact occur") faces three trades — held for the
+    operator; SMR (a holdings fix) and VWAV ("All transaction data … remains correct") retract nothing.
+    """
+    expect = {
+        "0001628280-26-037326": VOID_RETRACT,  # FLS
+        "0001193125-26-166819": VOID_RETRACT,  # AVEX
+        "0001193125-26-215284": VOID_RETRACT,  # MNKD
+        "0001104659-24-127212": VOID_RETRACT,  # DVLT
+        "0001104659-24-127204": VOID_RETRACT,  # DVLT
+        "0001493152-25-024508": VOID_HELD,  # FIGR
+        "0001922054-26-000007": VOID_NO_RETRACTION,  # SMR
+        "0002105221-26-000002": VOID_NO_RETRACTION,  # VWAV
+    }
+    for acc, kind in expect.items():
         link = _link(acc)
-        assert link.original_accessions == (orig,)
-        assert (link.disposition, link.status, link.basis) == (disp, STATUS_PENDING, None)
-        assert link.unresolved and link.signal_effect and not link.auto_resolved
+        assert (link.disposition, link.void_kind) == (VOID, kind), acc
+        want = {
+            VOID_RETRACT: (STATUS_APPLIED, ACTION_APPLY, BASIS_FILER_CORRECTION),
+            VOID_HELD: (STATUS_PENDING, ACTION_KEEP, BASIS_HELD),
+            VOID_NO_RETRACTION: (STATUS_INERT, ACTION_KEEP, BASIS_NO_RETRACTION),
+        }[kind]
+        assert (link.status, link.system_action, link.basis) == want, acc
+
+
+@pytest.mark.parametrize("accession", [f"0001443646-24-{n:06d}" for n in range(94, 102)])
+def test_each_bah_recode_replaces_the_sale_and_keeps_the_grant(accession):
+    """BAH's eight 4/As recode S -> F (same owner, date and shares): the sale is replaced, the grant stands."""
+    link = _link(accession)
+    assert (link.disposition, link.status) == (PARTIAL, STATUS_APPLIED)
+    (orig,) = link.original_accessions
+    assert link.replaced_rows == (f"{orig}#1",)
 
 
 def test_mrcy_omitted_grant_keeps_both_sales_and_adds_the_grant():
@@ -293,7 +407,7 @@ def _a(code, day, shares, seq=0, owner="1"):
 
 def test_match_rows_contract():
     """The matcher's contract over direct inputs (each the shape a stored / as-filed row has)."""
-    # a consolidation: three sales of one date restated as one -> all three accounted for
+    # a consolidation: three sales of one date restated as their sum -> all three accounted for
     m = match_rows(
         [_a("S", "2026-03-04", 6.0)],
         [_r("S", "2026-03-04", s, i) for i, s in enumerate((1.0, 2.0, 3.0))],
@@ -307,14 +421,57 @@ def test_match_rows_contract():
         CODES,
     )
     assert m.replaced == ("O#0",) and m.kept == ("O#1",) and not m.unresolved
-    # date AND shares changed, same owner and code: unresolved (restated, or an added sale?)
-    m = match_rows([_a("S", "2026-03-06", 50.0)], [_r("S", "2026-03-04", 100.0)], CODES)
-    assert m.unresolved and m.kept == ("O#0",) and m.added == 1
-    # another owner never accounts for a row; a non-signal code never makes a conflict
+    # a share fix (same date, code and price) and a recode (same date and shares, another code)
+    m = match_rows([_a("S", "2026-03-04", 150.0)], [_r("S", "2026-03-04", 100.0)], CODES)
+    assert m.replaced == ("O#0",)
+    m = match_rows([_a("F", "2026-03-04", 100.0)], [_r("S", "2026-03-04", 100.0)], CODES)
+    assert m.replaced == ("O#0",)
+    # a bare same date + same code is NO match: another count AND another price -> the words decide
+    other = {**_a("S", "2026-03-04", 50.0), "price": 11.0}
+    m = match_rows([other], [_r("S", "2026-03-04", 100.0)], CODES)
+    assert m.unresolved and m.reading == READ_UNRESOLVED and m.kept == ("O#0",) and m.added == 1
+    m = match_rows(
+        [other], [_r("S", "2026-03-04", 100.0)], CODES, "to correct the price of the sale"
+    )
+    assert (m.reading, m.replaced, m.added) == (READ_FIX, ("O#0",), 0)
+    m = match_rows([other], [_r("S", "2026-03-04", 100.0)], CODES, "a sale inadvertently omitted")
+    assert (m.reading, m.kept, m.added) == (READ_ADD, ("O#0",), 1)
+    # BOTH phrase sets: FIX only when the amendment re-reports at least as many rows as the original
+    both = "to correct the dates of the sales, together with additional shares"
+    two = [_r("S", "2026-03-04", 100.0, 0), _r("S", "2026-03-05", 70.0, 1)]
+    assert match_rows([other], two, CODES, both).unresolved
+    more = [other, {**_a("S", "2026-03-06", 30.0, 1), "price": 12.0}]
+    assert match_rows(more, two, CODES, both).reading == READ_FIX
+    # an original split into lots that sum to it
+    m = match_rows(
+        [_a("S", "2026-03-04", 60.0, 0), _a("S", "2026-03-04", 40.0, 1)],
+        [_r("S", "2026-03-04", 100.0)],
+        CODES,
+    )
+    assert (m.replaced, m.added) == (("O#0",), 0)
+    # another owner never accounts for a row; a non-signal leftover is kept beside the addition
     m = match_rows([_a("S", "2026-03-04", 100.0, owner="2")], [_r("S", "2026-03-04", 100.0)], CODES)
     assert m.kept == ("O#0",) and not m.unresolved
     m = match_rows([_a("A", "2026-03-09", 7.0)], [_r("A", "2026-03-04", 5.0)], CODES)
     assert m.kept == ("O#0",) and not m.unresolved
+
+
+def test_void_reading_contract():
+    """Retraction language AND exactly one transaction, a buy or sale, on the original — else not a retraction
+    (no language) or held (language, but the words cannot be mapped to one of several trades)."""
+    one = [_r("P", "2026-03-04", 100.0)]
+    assert void_reading("the purchase was cancelled", one, CODES).kind == VOID_RETRACT
+    assert (
+        void_reading("filed to include the power of attorney", one, CODES).kind
+        == VOID_NO_RETRACTION
+    )
+    two = one + [_r("F", "2026-03-04", 40.0, 1)]
+    assert void_reading("the sale did not occur", two, CODES).kind == VOID_HELD
+    assert (
+        void_reading("the grant did not occur", [_r("A", "2026-03-04", 9.0)], CODES).kind
+        == VOID_HELD
+    )
+    assert void_reading("", one, CODES).kind == VOID_NO_RETRACTION
 
 
 def test_eltp_two_different_originals_is_ambiguous_with_a_2012_sell_row():
@@ -363,13 +520,17 @@ def test_frhc_role_restatement_is_a_field_change_never_clerical():
     assert link.signal_effect and link.basis == BASIS_FILER_CORRECTION
 
 
-def test_avav_grant_only_void_resolves_itself_with_no_signal_effect():
-    """A zero-row 4/A voiding an original whose only rows are code A (grants): no call signal reads them."""
+def test_avav_grant_only_void_retracts_nothing_so_the_grants_stand():
+    """A zero-row 4/A voiding an original whose only rows are code A (grants), without retraction language: the
+    system keeps the original (``system:no-retraction``) — nothing a call reads either way."""
     link = _link("0001538012-26-000006")
     assert link.original_accessions == ("0001538012-26-000004",)
-    assert link.disposition == VOID
-    assert (link.signal_effect, link.auto_resolved, link.status) == (False, True, STATUS_APPLIED)
-    assert link.basis == BASIS_NO_SIGNAL_EFFECT
+    assert link.disposition == VOID and not link.signal_effect
+    assert (link.status, link.system_action, link.basis) == (
+        STATUS_INERT,
+        ACTION_KEEP,
+        BASIS_NO_RETRACTION,
+    )
 
 
 def test_mass_addition_with_identical_signal_rows_resolves_itself():
@@ -381,16 +542,33 @@ def test_mass_addition_with_identical_signal_rows_resolves_itself():
 
 
 def test_signal_touching_resolved_amendments_are_applied_as_filer_corrections():
-    """R8-B (operator decision 2026-10-20): a signal-touching amendment resolved to a definite original no
-    longer waits for the operator — the signal-effect test only picks the basis."""
+    """R8-B (operator decision 2026-10-20): a signal-touching amendment the system resolves no longer waits for
+    the operator — the signal-effect test only picks the basis."""
     for acc in (
         "0001628280-26-037326",
-        "0001193125-25-282945",
         "0001352573-26-000011",
-    ):  # FLS, AZTA, TDG
+    ):  # FLS (a retraction), TDG (duplicates)
         link = _link(acc)
         assert link.signal_effect and link.auto_resolved and link.status == STATUS_APPLIED
         assert link.basis == BASIS_FILER_CORRECTION
+
+
+def test_system_resolution_contract():
+    """What the system records per disposition (direct inputs)."""
+    assert system_resolution(AMBIGUOUS, signal_effect=True) is None
+    assert system_resolution(CLERICAL, signal_effect=False) is None
+    assert system_resolution(DUPLICATES, signal_effect=True) == SystemResolution(
+        ACTION_APPLY, BASIS_FILER_CORRECTION
+    )
+    assert system_resolution(
+        VOID, signal_effect=True, void=VoidReading(VOID_HELD)
+    ) == SystemResolution(ACTION_KEEP, BASIS_HELD)
+    unresolved = RowMatch(conflicts=({"txn_code": "S"},), reading=READ_UNRESOLVED)
+    assert system_resolution(PARTIAL, signal_effect=True, match=unresolved) is None
+    resolved = RowMatch(replaced=("O#0",), reading=READ_FIX)
+    assert system_resolution(PARTIAL, signal_effect=True, match=resolved) == SystemResolution(
+        ACTION_APPLY, BASIS_FILER_CORRECTION, ("O#0",)
+    )
 
 
 def test_system_basis_covers_every_resolved_disposition_and_nothing_else():
@@ -600,6 +778,11 @@ def test_review_buckets_the_states_an_amendment_can_hold():
     )
     assert _bucket(amb, picked) == REVIEW_OWED  # operator-linked: awaits the operator's verdict
     assert _bucket(_link_rec(CLERICAL, status=STATUS_INERT)) == REVIEW_INERT
+    held = _at(_dec("keep", basis=BASIS_HELD), 1)
+    assert _bucket(_link_rec(VOID), held, in_review=True) == REVIEW_OWED
+    assert _bucket(_link_rec(VOID), held, in_review=False) == REVIEW_HISTORICAL
+    no_retraction = _at(_dec("keep", basis=BASIS_NO_RETRACTION), 1)
+    assert _bucket(_link_rec(VOID), no_retraction) == REVIEW_AUTO
 
 
 def test_within_review_horizon_reads_only_the_changed_signal_rows():
@@ -615,20 +798,14 @@ def test_within_review_horizon_reads_only_the_changed_signal_rows():
     )  # no signal effect: outside, whatever the horizon
 
 
-def test_the_sweep_applies_only_an_undecided_resolvable_amendment():
+def test_the_sweep_resolves_only_an_undecided_amendment():
     pend = effect_of(_link_rec(RESTATEMENT), None, None)
-    assert sweep_basis(pend, ever_decided=False, signal_effect=True) == BASIS_FILER_CORRECTION
-    assert sweep_basis(pend, ever_decided=False, signal_effect=False) == BASIS_NO_SIGNAL_EFFECT
+    res = SystemResolution(ACTION_APPLY, BASIS_FILER_CORRECTION, ("O#0",))
+    assert sweep_resolution(pend, ever_decided=False, resolution=res) == res
     assert (
-        sweep_basis(pend, ever_decided=True, signal_effect=True) is None
+        sweep_resolution(pend, ever_decided=True, resolution=res) is None
     )  # anything decided stays
-    amb = effect_of(_link_rec(AMBIGUOUS, originals=()), None, None)
-    assert sweep_basis(amb, ever_decided=False, signal_effect=True) is None
-    inert = effect_of(_link_rec(CLERICAL, status=STATUS_INERT), None, None)
-    assert sweep_basis(inert, ever_decided=False, signal_effect=False) is None
-
-
-# --- the resolver's contract --------------------------------------------------------------------------------
+    assert sweep_resolution(pend, ever_decided=False, resolution=None) is None
 
 
 def _row(acc: str, seq: int, code: str = "P", issuer: str | None = "1963088") -> dict:

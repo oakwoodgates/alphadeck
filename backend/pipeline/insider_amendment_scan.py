@@ -10,9 +10,10 @@ applied state). Neither pages: the cron report gets ONE quiet line, "Form 4/A: N
 corrections), M owed your decision". What is OWED is only what the system cannot resolve AND a call can read:
 an AMBIGUOUS link (several differing candidate originals) whose changed signal rows sit inside the review
 horizon (``insider_amendment_review_horizon_days`` — derived: backtest window + the longest detector read
-horizon), an UNRESOLVED row match (a partial / addition / restatement whose buy/sell row changed both its
-date and its share count — restated, or an added trade? ``domain.insider_amendments.match_rows``) inside the
-horizon, plus an operator-linked one awaiting its verdict and one the operator took back with an Undo. Either
+horizon, an UNRESOLVED row match (a buy/sell a partial / addition / restatement re-reports that matches no
+original by shape and whose filer's words neither fix nor add — ``domain.insider_amendments.match_rows``) or a
+HELD void (retraction language against an original of several trades — ``void_reading``) inside the horizon,
+plus an operator-linked one awaiting its verdict and one the operator took back with an Undo. Either
 kind outside the horizon is "unresolved — historical" on Admin: no call reads those rows, never paged.
 
 URGENCY. An owed item whose changed signal rows sit inside a signal's live read horizon at the pass's asof (the
@@ -71,8 +72,10 @@ class PendingAmendment:
     in_window: tuple[str, ...] = ()
     # R8-B — an AMBIGUOUS link's candidate originals (the operator picks one); 0 for any other kind
     candidates: int = 0
-    # R8-B — an unresolved row match: a buy/sell whose date AND share count both changed (restated, or added?)
+    # R8-B — an unresolved row match: the filer's words neither fix nor add a leftover buy/sell
     unresolved: bool = False
+    # R8-B — a zero-row 4/A with retraction language against an original of several trades (the system held it)
+    held: bool = False
 
     @property
     def label(self) -> str:
@@ -81,8 +84,13 @@ class PendingAmendment:
             held = f" — {self.candidates} candidate originals; pick the one it amends (nothing changes until you do)"
         elif self.unresolved:
             held = (
-                " — a buy/sell's date and share count both changed: restated, or an added trade? "
-                "(the original stands until you decide)"
+                " — a buy/sell it re-reports matches no original and its words neither fix nor add: restated, "
+                "or an added trade? (the original stands until you decide)"
+            )
+        elif self.held:
+            held = (
+                " — it retracts a trade, but the original holds several: which one is your call (the original "
+                "stands until you decide)"
             )
         elif self.suppressing:
             held = f" — suppressing {', '.join(self.suppressing)} until you decide"
@@ -108,6 +116,7 @@ class PendingAmendment:
             "in_window": list(self.in_window),
             "candidates": self.candidates,
             "unresolved": self.unresolved,
+            "held": self.held,
             "label": self.label,
         }
 
@@ -146,7 +155,17 @@ class AmendmentScan:
 
     @property
     def applied_total(self) -> int:
-        return sum(self.applied.values())
+        """System APPLICATIONS this pass (the filer's corrections, and the no-signal-effect ones)."""
+        return sum(
+            n
+            for b, n in self.applied.items()
+            if b in ("system:filer-correction", "system:no-signal-effect")
+        )
+
+    @property
+    def kept_total(self) -> int:
+        """Zero-row 4/As the system kept as filed this pass (their text retracts nothing)."""
+        return self.applied.get("system:no-retraction", 0)
 
     @property
     def _named(self) -> set[str]:
@@ -216,6 +235,7 @@ def scan_pending(conn: psycopg.Connection, *, asof: date | None) -> tuple[Pendin
                 in_window=it.in_window,
                 candidates=len(eff.candidate_accessions) if ambiguous else 0,
                 unresolved=it.unresolved and not ambiguous,
+                held=it.held,
             )
         )
     out.sort(
@@ -382,10 +402,15 @@ def count_line(scan: AmendmentScan) -> str | None:
     """R8-B — the ONE quiet count line: the system applications recorded this pass and the owed inventory
     (``None`` when both are zero — nothing at all on a clean night)."""
     owed = len(scan.pending)
-    if not scan.applied_total and not owed:
+    if not scan.applied_total and not scan.kept_total and not owed:
         return None
+    kept = (
+        f", {scan.kept_total} kept as filed (their text retracts nothing)"
+        if scan.kept_total
+        else ""
+    )
     return (
-        f"Form 4/A: {scan.applied_total} applied automatically (filer corrections), "
+        f"Form 4/A: {scan.applied_total} applied automatically (filer corrections){kept}, "
         f"{owed} owed your decision (quiet)"
     )
 

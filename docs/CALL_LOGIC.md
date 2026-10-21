@@ -244,55 +244,64 @@ only *coincide* for insider buys, which is exactly why the two conviction source
   zero-row amendment of an original with rows), **duplicates** (a 1→N void of filing-agent copies), a
   **partial** / **consolidation** / **addition** / **restatement** / **field change**, and an **ambiguous**
   link are the other kinds. **The filer's own correction is applied by default (R8-B, operator decision
-  2026-10-20):** every amendment the linker resolves to a DEFINITE original — correction, void, duplicates,
-  partial, consolidation, addition, restatement, field change — is APPLIED BY THE SYSTEM, its content taking
-  effect as its disposition says (a void / duplicates suppresses its targets; the others replace the original
-  rows they account for — the row match below — unless that match is unresolved). Why: a Form 4/A is the insider's OWN legal correction of their own filing, filed under penalty
-  — deterministic data, not a model's recommendation — so applying it is data handling, not a decision taken
-  from the operator (#3 / #10 are untouched; the operator was clicking "yes, believe the correction" on items
-  with nothing to judge). Each application is an append-only `apply` decision whose basis names why —
-  `system:filer-correction`, or `system:no-signal-effect` when its effect changes no row a call signal reads
-  (the 2026-10-18 signal-effect test, kept: the `(code, date, shares, price, 10b5-1 flag, owner role, owner
-  name)` of a row whose code is in the signal code set, compared before vs after as a multiset) — written in
-  the link's own transaction at ingest, or, for what a pre-R8-B ingest left pending, by the nightly SWEEP
-  before the per-thesis loop (`recorded_at = now`, so a replay pinned earlier still reads the pending state:
-  no rewrite of the past). Every one is listed on Admin ("Applied automatically", with its remarks, footnotes
-  and the original's rows beside the amendment's) with an exact Undo — **Keep original**, a `keep` stacked
-  over the system's `apply` (the newest standing verdict wins), whose own Undo restores the application.
-  **Only what the system cannot resolve is owed the operator** — an unresolved row match (below) or an
-  **AMBIGUOUS link** (several differing candidate originals — the system cannot
-  know which filing it amends), and only when it matters: it would change a code-`P`/`S` row (the content
-  test) dated inside the **review horizon** — the dial `insider_amendment_review_horizon_days`, derived by
-  default as the two-year backtest window (730 days — the member price tape's range, so no call is computed
-  before it) plus the longest insider read horizon a detector declares (`P` 210) = **940 days**
-  (`signals.horizons.insider_amendment_review_horizon`), because a row older than that is read by no call, live
-  or replayed. Either kind outside it is listed quietly as "unresolved — historical (no call reads these
-  rows)": the originals stand, it never pages, and the operator can still decide it. The signal code set
-  is derived in ONE place from the detectors' own declarations (`Detector.txn_codes` + `horizons()` →
-  `signals.horizons.insider_signal_codes`: today `{P: 210 days, S: 120 days}`; a detector that reads
-  `fact_insider_txn` without declaring codes raises). **The pending state** (an operator-linked amendment
-  awaiting its verdict, one the operator took back by revoking the system's application, or a pre-R8-B link
-  the sweep has not reached): a cancellation (void / duplicates) SUPPRESSES the affected original rows — buys
-  and sells — so a canceled buy never fires (the operator's condition); the other kinds have no effect until
-  applied; an ambiguous link suppresses nothing. **The row match (operator decision 2026-10-21 — a correction
-  removes a buy or sale only when it ACCOUNTS for that row):** an applied partial / consolidation / addition /
-  restatement / field change replaces ONLY the original rows it accounts for (`domain.insider_amendments
-  .match_rows`): each original row is matched to the amendment's rows of the same owner — on the same date
-  when the code or the share count agrees (a share / price fix, a consolidation, BAH's `S`→`F` recode), else
-  one-to-one on the same code and share count (a date fix). An unmatched original row STANDS (MRCY's 4/A adds
-  only an omitted grant — both its sales stand); an unmatched amendment row is an addition. When an unmatched
-  original buy/sell and an unmatched amendment row share the owner AND the code (the date and the share count
-  both changed — MRAM's and IEHC's restated sales), the rule cannot tell a restatement from an added trade:
-  the system does NOT apply it — it is owed to the operator (inside the review horizon; historical outside),
-  the original standing meanwhile, and the operator's *Apply amendment* ratifies it as a full restatement. The
-  match is computed against the full stored rows when the decision is written and stored on it
-  (`replaced_rows`, migration 0053); every pre-R8-B decision replaces the whole original, as it did.
-  **Voids are not yet covered** — a zero-row 4/A still removes its original's rows (as it did while pending
-  under R8-A). MEASURED, inside the review horizon only 6 of 17 such voids say the trade did not happen (FLS,
-  AVEX, MNKD, FIGR, DVLT ×2); 11 only fix holdings, Table II, an address or a power of attorney (AZTA's CFO buy,
-  SMR's sale). A text-keyed rule is proposed for the operator in `FEED_LOOP.md` §R8-B. Separately, a row whose
-  **issuer** (from the XML) is not this security — the member was the *reporting owner* of another
-  company's stock (Honeywell buying Garrett Motion, Novartis selling Aileron) — is screened (keep-and-screen;
+  2026-10-20, revised 2026-10-21):** every amendment the linker resolves to a DEFINITE original — correction,
+  void, duplicates, partial, consolidation, addition, restatement, field change — is RESOLVED BY THE SYSTEM. Why:
+  a Form 4/A is the insider's OWN legal correction of their own filing, filed under penalty — deterministic
+  data, not a model's recommendation — so applying it is data handling, not a decision taken from the operator
+  (#3 / #10 are untouched; the operator was clicking "yes, believe the correction" on items with nothing to
+  judge). Each resolution is an append-only decision whose basis names why — an `apply` (`system:filer-correction`,
+  or `system:no-signal-effect` when its effect changes no row a call signal reads: the 2026-10-18 signal-effect
+  test, kept — the `(code, date, shares, price, 10b5-1 flag, owner role, owner name)` of a row whose code is in
+  the signal code set, compared before vs after as a multiset), or, for a void its words do not retract, a
+  `keep` (`system:no-retraction`; `system:held` — owed) — written in the link's own transaction at ingest, or,
+  for what a pre-R8-B ingest left pending, by the nightly SWEEP before the per-thesis loop (`recorded_at = now`,
+  so a replay pinned earlier still reads the pending state: no rewrite of the past). Every one is listed on
+  Admin ("Resolved automatically", with its remarks, footnotes, the filer's words that settled it and the
+  original's rows beside the amendment's) with an exact Undo — an operator verdict stacked over the system's
+  decision (the newest standing verdict wins), whose own Undo restores the system's resolution.
+  **The row match (a correction removes a buy or sale only when it ACCOUNTS for that row):** an applied partial
+  / consolidation / addition / restatement / field change replaces ONLY the original rows it accounts for
+  (`domain.insider_amendments.match_rows`), and accounting is **exact shape only**, same owner first:
+  identical; same date + code + shares (a price fix); same date + shares, another code (BAH's `S`→`F` recode);
+  same code + shares, another date (a date fix); a sum on the same date + code (a consolidation — BHVN; one sale
+  split into lots — BETR); then same date + code + price (a share fix). A bare "same date + same code" never
+  matches (IBKR's 4/A adds an omitted sale beside two real same-day sales). An unaccounted original STANDS
+  (MRCY's 4/A adds only an omitted grant — both its sales stand); an unmatched amendment row is an addition.
+  **Leftovers** — an unaccounted original and an unmatched amendment row of the same owner AND code — are settled
+  by **the filer's own words** (remarks + footnotes; deterministic phrase lists, `FEED_LOOP.md` §R8-B): FIX words
+  → the amendment's rows replace them (MRAM, BKSY); ADD words → every original stays and the amendment's rows are
+  added (IBKR); neither → **unresolved**: not applied, owed to the operator, the original standing meanwhile
+  (YYAI); both → FIX when, in every leftover group, the amendment re-reports at least as many rows as the
+  original (IEHC), else unresolved. The match is computed against the full stored rows when the decision is
+  written and stored on it (`replaced_rows`, migration 0053: the keys replaced, `[]` = none); NULL — every
+  pre-R8-B decision and the operator's *Use the correction* — replaces the whole original.
+  **The voids:** a zero-row 4/A retracts its original ONLY when BOTH its own text carries explicit retraction
+  language AND the original holds exactly ONE transaction, a code-`P`/`S` one — the words can then mean only
+  that trade, and the system applies it (FLS's broker-canceled buy, AVEX, MNKD, DVLT ×2 — hidden). No
+  retraction language → the original is KEPT as filed (a holdings / Table II / power-of-attorney fix: SMR,
+  AZTA, VWAV — quiet). Retraction language against several trades → HELD: owed, the original standing meanwhile
+  (FIGR's "did not in fact occur" beside a $7.43M sale). Words are never mapped to codes (FLS's text says "sale"
+  for a code-`P` buy). Duplicates keep their handling (the later copies suppressed).
+  **Only what the system cannot resolve is owed the operator** — an **AMBIGUOUS link** (several differing
+  candidate originals — the system cannot know which filing it amends), an **unresolved** row match, or a
+  **held** void — and only when it matters: it would change a code-`P`/`S` row (the content test) dated inside
+  the **review horizon** — the dial `insider_amendment_review_horizon_days`, derived by default as the two-year
+  backtest window (730 days — the member price tape's range, so no call is computed before it) plus the longest
+  insider read horizon a detector declares (`P` 210) = **940 days** (`signals.horizons
+  .insider_amendment_review_horizon`), because a row older than that is read by no call, live or replayed. Any
+  of them outside it is listed quietly as "unresolved — historical (no call reads these rows)": the originals
+  stand, it never pages, and the operator can still decide it. The operator has **three verdicts**, each with
+  its exact Undo: *Use the correction* (the amendment's rows replace the whole original; for a void, it is
+  hidden), *Keep the original*, *Add to the original* (every original row stays and the amendment's rows are
+  added — `replaced_rows = []`, basis `operator:add`). The signal code set is derived in ONE place from the
+  detectors' own declarations (`Detector.txn_codes` + `horizons()` → `signals.horizons.insider_signal_codes`:
+  today `{P: 210 days, S: 120 days}`; a detector that reads `fact_insider_txn` without declaring codes raises).
+  **The pending state** (an operator-linked amendment awaiting its verdict, one the operator took back by
+  revoking the system's decision, or a pre-R8-B link the sweep has not reached): a cancellation (void /
+  duplicates) SUPPRESSES the affected original rows — buys and sells — so a canceled buy never fires (the
+  operator's condition); the other kinds have no effect until applied; an ambiguous link suppresses nothing.
+  Separately, a row whose **issuer** (from the XML) is not this security — the member was the *reporting
+  owner* of another company's stock (Honeywell buying Garrett Motion, Novartis selling Aileron) — is screened (keep-and-screen;
   the 147 such rows on prod are kept, not deleted). Every input is gated on its own `recorded_at` (the link,
   each decision): a replay pinned before them reads the original exactly as stored (#1). Examples on prod
   (MEASURED 2026-10-17, see `docs/FEED_LOOP.md`): FLS's cancelled $164k director buy stops being a CORE

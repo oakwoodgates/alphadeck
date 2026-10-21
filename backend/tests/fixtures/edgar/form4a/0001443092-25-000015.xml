@@ -1,0 +1,133 @@
+<?xml version="1.0"?>
+<ownershipDocument>
+
+    <schemaVersion>X0508</schemaVersion>
+
+    <documentType>4/A</documentType>
+
+    <periodOfReport>2025-09-12</periodOfReport>
+
+    <dateOfOriginalSubmission>2025-09-15</dateOfOriginalSubmission>
+
+    <notSubjectToSection16>0</notSubjectToSection16>
+
+    <issuer>
+        <issuerCik>0001753539</issuerCik>
+        <issuerName>BlackSky Technology Inc.</issuerName>
+        <issuerTradingSymbol>BKSY</issuerTradingSymbol>
+    </issuer>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001443092</rptOwnerCik>
+            <rptOwnerName>O'Toole Brian E</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerStreet1>C/O BLACKSKY TECHNOLOGY INC.,</rptOwnerStreet1>
+            <rptOwnerStreet2>2411 DULLES CORNER PARK, SUITE 300</rptOwnerStreet2>
+            <rptOwnerCity>HERNDON</rptOwnerCity>
+            <rptOwnerState>VA</rptOwnerState>
+            <rptOwnerZipCode>20171</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>1</isDirector>
+            <isOfficer>1</isOfficer>
+            <isTenPercentOwner>0</isTenPercentOwner>
+            <isOther>0</isOther>
+            <officerTitle>CEO and President</officerTitle>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <aff10b5One>0</aff10b5One>
+
+    <nonDerivativeTable>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Class A Common Stock</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2025-09-12</value>
+            </transactionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>S</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+            </transactionCoding>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>31519</value>
+                    <footnoteId id="F1"/>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>17.45</value>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>D</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>751937</value>
+                    <footnoteId id="F2"/>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>D</value>
+                </directOrIndirectOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Class A Common Stock</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2025-09-15</value>
+            </transactionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>A</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+            </transactionCoding>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>250000</value>
+                    <footnoteId id="F3"/>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>0</value>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>A</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>1001937</value>
+                    <footnoteId id="F2"/>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>D</value>
+                </directOrIndirectOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+    </nonDerivativeTable>
+
+    <derivativeTable></derivativeTable>
+
+    <footnotes>
+        <footnote id="F1">Represents the number of shares sold to cover the statutory tax withholding obligations in connection with the vesting of Restricted Stock Units (RSUs) and does not represent a discretionary sale by the Reporting Person. The &quot;Amount&quot; and &quot;Price&quot; reported in this Column 4 reflect the aggregate number and weighted-average price, respectively, of shares sold.</footnote>
+        <footnote id="F2">The original Form 4, filed  September 15, 2025, incorrectly reported details of the transaction, which have been corrected.</footnote>
+        <footnote id="F3">These securities are RSUs. Each RSU represents a contingent right to receive one share of Class A Common Stock. The restricted stock units are granted pursuant to the BlackSky Technology Inc. 2021 Equity Incentive Plan. The number of restricted stock units was calculated based on the closing price of a share of BlackSky Technology Inc.'s Class A Common Stock on the New York Stock Exchange on September 9, 2022. The restricted stock units will vest as follows: one-fourth (1/4th) of the RSUs will vest on September 10, 2023, and thereafter, one sixteenth (1/16th) of the total number of RSUs will be scheduled to vest quarterly on the 10th day of the third month of each quarter (March 10, June 10, September 10, December 10), in each case subject to the Reporting Person continuing to be a service provider through the applicable vesting date.</footnote>
+    </footnotes>
+
+    <remarks></remarks>
+
+    <ownerSignature>
+        <signatureName>/s/ Christiana L. Lin, attorney-in-fact on behalf of Brian E. OToole</signatureName>
+        <signatureDate>2025-10-17</signatureDate>
+    </ownerSignature>
+</ownershipDocument>

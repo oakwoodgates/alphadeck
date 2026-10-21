@@ -1,0 +1,96 @@
+<?xml version="1.0"?>
+<ownershipDocument>
+
+    <schemaVersion>X0609</schemaVersion>
+
+    <documentType>4/A</documentType>
+
+    <periodOfReport>2026-07-06</periodOfReport>
+
+    <dateOfOriginalSubmission>2026-07-06</dateOfOriginalSubmission>
+
+    <notSubjectToSection16>0</notSubjectToSection16>
+
+    <issuer>
+        <issuerCik>0001438423</issuerCik>
+        <issuerName>EVERSPIN TECHNOLOGIES INC.</issuerName>
+        <issuerTradingSymbol>MRAM</issuerTradingSymbol>
+        <issuerForeignTradingSymbol></issuerForeignTradingSymbol>
+    </issuer>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0002051031</rptOwnerCik>
+            <rptOwnerName>Cooper William Earl</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerNonUSAddressFlag>false</rptOwnerNonUSAddressFlag>
+            <rptOwnerStreet1>C/O EVERSPIN TECHNOLOGIES, INC.</rptOwnerStreet1>
+            <rptOwnerStreet2>5670 W. CHANDLER BLVD, STE 130</rptOwnerStreet2>
+            <rptOwnerCity>CHANDLER</rptOwnerCity>
+            <rptOwnerState>AZ</rptOwnerState>
+            <rptOwnerZipCode>85226</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>0</isDirector>
+            <isOfficer>1</isOfficer>
+            <isTenPercentOwner>0</isTenPercentOwner>
+            <isOther>0</isOther>
+            <officerTitle>Chief Financial Officer</officerTitle>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <aff10b5One>0</aff10b5One>
+
+    <nonDerivativeTable>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Common Stock</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2026-07-06</value>
+            </transactionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>S</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+                <footnoteId id="F1"/>
+            </transactionCoding>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>1821</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>19.65</value>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>D</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>149131</value>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>D</value>
+                </directOrIndirectOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+    </nonDerivativeTable>
+
+    <derivativeTable></derivativeTable>
+
+    <footnotes>
+        <footnote id="F1">Shares sold solely to pay taxes due upon the vesting of Restricted Stock Units.</footnote>
+    </footnotes>
+
+    <remarks>This Form 4 is being amended to correct the date on which the shares were sold to pay taxes, the price per share for such sale, and the number of shares sold.</remarks>
+
+    <ownerSignature>
+        <signatureName>/s/ Cesare Suardi, Attorney-in-Fact for William Cooper</signatureName>
+        <signatureDate>2026-07-08</signatureDate>
+    </ownerSignature>
+</ownershipDocument>

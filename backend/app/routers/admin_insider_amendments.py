@@ -47,9 +47,11 @@ from pydantic import BaseModel, Field
 
 from app.deps import get_conn
 from domain.insider_amendments import (
+    ACTION_ADD,
     ACTION_APPLY,
     ACTION_KEEP,
     ACTION_LINK,
+    BASIS_OPERATOR_ADD,
     REVIEW_AUTO,
     REVIEW_DECIDED,
     REVIEW_HISTORICAL,
@@ -68,6 +70,7 @@ BASIS_KEEP = "operator:keep"
 BASIS_LINK = "operator:link"
 BASIS_REVOKE = "operator:revoke"
 _DEFAULT_REASON = {
+    ACTION_ADD: "added to the original by the operator",
     ACTION_APPLY: "ratified by the operator",
     ACTION_KEEP: "original kept by the operator",
     ACTION_LINK: "original picked by the operator",
@@ -172,6 +175,9 @@ class AdminInsiderAmendmentOut(BaseModel):
     in_review: bool = False
     unresolved: bool = False
     kept_rows: list[str] = Field(default_factory=list)
+    held: bool = False
+    reading: str | None = None
+    passage: str | None = None
 
 
 class AdminInsiderAmendmentsOut(BaseModel):
@@ -299,7 +305,11 @@ def item_out(item: AmendmentItem) -> AdminInsiderAmendmentOut:
         decisions=decisions,
         # the Undo of a SYSTEM application is Keep original (a keep stacked over it), never a revoke of the
         # system's record — so no revoke target is advertised for it (R8-B)
-        undo_id=(None if item.review == REVIEW_AUTO else (eff.verdict_id or eff.link_decision_id)),
+        undo_id=(
+            None
+            if item.review == REVIEW_AUTO or item.system_basis is not None
+            else (eff.verdict_id or eff.link_decision_id)
+        ),
         touches_buy=item.touches_buy,
         signal_effect=item.signal_effect,
         auto_resolved=item.auto_resolved,
@@ -309,6 +319,9 @@ def item_out(item: AmendmentItem) -> AdminInsiderAmendmentOut:
         in_review=item.in_review,
         unresolved=item.unresolved,
         kept_rows=list(item.kept_rows),
+        held=item.held,
+        reading=item.reading,
+        passage=item.passage,
     )
 
 
@@ -393,7 +406,9 @@ def _verdict(
     body: AdminInsiderReasonIn | None,
 ) -> AdminInsiderAmendmentOut:
     reason = (body.reason if body and body.reason else None) or _DEFAULT_REASON[action]
-    basis = BASIS_APPLY if action == ACTION_APPLY else BASIS_KEEP
+    basis = {ACTION_APPLY: BASIS_APPLY, ACTION_KEEP: BASIS_KEEP, ACTION_ADD: BASIS_OPERATOR_ADD}[
+        action
+    ]
     _commit(
         conn,
         lambda: insider_amendment_repo.decide(
@@ -410,11 +425,10 @@ def apply_amendment(
     body: AdminInsiderReasonIn | None = Body(default=None),
     conn: psycopg.Connection = Depends(get_conn),
 ) -> AdminInsiderAmendmentOut:
-    """RATIFY a pending amendment that is the operator's (basis ``operator:apply``) — one linked by the
-    operator, or one the operator took back: a void / duplicates keeps suppressing its target (now ratified);
-    a partial / consolidation / addition / restatement replaces the original's rows with the amendment's. Undo
-    with ``POST /admin/insider-amendments/decisions/{id}/revoke``. **404** unknown amendment, **409** nothing
-    to ratify / the system already applied it / a decision already stands / ambiguous and not linked yet.
+    """USE THE CORRECTION (basis ``operator:apply``): the amendment as filed replaces its WHOLE original — a void
+    / duplicates removes its targets. Allowed over a standing system decision (it stands over it). Undo with
+    ``POST /admin/insider-amendments/decisions/{id}/revoke``. **404** unknown amendment, **409** nothing to
+    ratify / an operator decision already stands / ambiguous and not linked yet / a correction (it applies).
     """
     return _verdict(conn, security_id, accession, ACTION_APPLY, body)
 
@@ -431,6 +445,20 @@ def keep_original(
     application's Undo: the keep stands over it, and undoing the keep with the revoke route restores it).
     **404** unknown amendment, **409** nothing to decide / an operator decision already stands."""
     return _verdict(conn, security_id, accession, ACTION_KEEP, body)
+
+
+@router.post("/{security_id}/{accession}/add", response_model=AdminInsiderAmendmentOut)
+def add_to_original(
+    security_id: UUID,
+    accession: str = Path(pattern=_ACCESSION),
+    body: AdminInsiderReasonIn | None = Body(default=None),
+    conn: psycopg.Connection = Depends(get_conn),
+) -> AdminInsiderAmendmentOut:
+    """ADD TO THE ORIGINAL (basis ``operator:add``): every original row stands and the amendment's rows are
+    added beside them — for a 4/A that reports a trade the filer left out. A partial / consolidation / addition /
+    restatement / field change only. Undo with the revoke route. **404** unknown amendment, **409** a zero-row
+    or correction amendment (nothing to add) / an operator decision already stands."""
+    return _verdict(conn, security_id, accession, ACTION_ADD, body)
 
 
 @router.post("/{security_id}/{accession}/link", response_model=AdminInsiderAmendmentOut)

@@ -342,6 +342,7 @@ vi.mock("../../api/hooks", () => ({
   }),
   useApplyAmendment: () => h.repair,
   useKeepOriginal: () => h.repair,
+  useAddToOriginal: () => h.repair,
   useLinkAmendment: () => h.repair,
   useRevokeAmendmentDecision: () => h.repair,
   // split plan S1 — the Splits panel (its own behavior is in SplitList.test.tsx): empty here

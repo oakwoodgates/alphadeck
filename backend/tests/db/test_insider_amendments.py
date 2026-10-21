@@ -190,16 +190,18 @@ def test_fls_void_is_applied_by_the_system_and_keep_original_is_its_undo(db):
     assert _item(db, sid, "0001628280-26-037326").review == "auto"
 
 
-def test_the_systems_application_cannot_be_ratified_twice_and_revoking_it_hands_it_over(db):
-    """An operator apply over the system's is refused (it already applies). Revoking the system's own
-    decision (an API-only path) leaves the void PENDING — still suppressing, the operator's condition — and
-    makes it the operator's: owed, never re-applied by the sweep."""
+def test_an_operator_verdict_stands_over_the_systems_and_revoking_the_systems_hands_it_over(db):
+    """An operator verdict stands OVER a system decision (the system's stays on record) and its Undo restores
+    the system's. Revoking the system's own decision (an API-only path) leaves the void PENDING — still
+    suppressing, R8-A's condition — and makes it the operator's: owed, never re-resolved by the sweep.
+    """
     sid = seed(db, "FLS")
     acc, asof = "0001628280-26-037326", date(2026, 6, 15)
-    with pytest.raises(insider_amendment_repo.AmendmentConflict, match="already applied"):
-        insider_amendment_repo.decide(db, sid, acc, "apply", reason="x", basis="operator:apply")
-    db.rollback()
     (system,) = _decisions(db, sid)
+    use = insider_amendment_repo.decide(db, sid, acc, "apply", reason="x", basis="operator:apply")
+    db.commit()
+    assert _item(db, sid, acc).review == "decided" and _signal(db, sid, asof) is None
+    insider_amendment_repo.revoke(db, use["id"], reason="undo", basis="operator:revoke")
     insider_amendment_repo.revoke(db, system["id"], reason="mine", basis="operator:revoke")
     db.commit()
     it = _item(db, sid, acc)
@@ -209,29 +211,33 @@ def test_the_systems_application_cannot_be_ratified_twice_and_revoking_it_hands_
     insider_amendment_repo.sweep(db, security_ids=[sid])
     db.commit()
     assert _count(db, "insider_amendment_decision", sid) == n  # the sweep never takes it back
-    insider_amendment_repo.decide(db, sid, acc, "apply", reason="canceled", basis="operator:apply")
-    db.commit()
-    assert _item(db, sid, acc).review == "decided" and _signal(db, sid, asof) is None
+    with pytest.raises(insider_amendment_repo.AmendmentConflict, match="no rows to add"):
+        insider_amendment_repo.decide(db, sid, acc, "add", reason="x", basis="operator:add")
+    db.rollback()
 
 
-def test_azta_keep_original_restores_the_buy_and_undo_suppresses_again(db):
+def test_azta_power_of_attorney_void_leaves_the_buy_standing_and_use_the_correction_hides_it(db):
+    """AZTA's zero-row 4/A only attaches a power of attorney: no retraction language, so the system KEEPS the
+    original (``system:no-retraction``) — the CFO's buy stands. The operator's Use the correction hides it;
+    its Undo brings it back."""
     sid = make_security(db, "AZTA")
     ingest_originals(db, sid, "AZTA")
     asof = date(2025, 8, 15)
     fired = _signal(db, sid, asof)
     assert fired is not None  # the CFO's open-market buy
     ingest_amendment(db, sid, "0001193125-25-282945")
-    # the power-of-attorney 4/A reads as a void and (R8-B) the system applies it: the buy is suppressed until
-    # the operator keeps the original — the case Keep original exists for
-    assert _signal(db, sid, asof) is None
-    keep = insider_amendment_repo.decide(
-        db, sid, "0001193125-25-282945", "keep", reason="only a POA", basis="operator:keep"
+    (d,) = _decisions(db, sid)
+    assert (d["action"], d["basis"]) == ("keep", "system:no-retraction")
+    assert _signal(db, sid, asof) == fired  # the buy STANDS
+    assert _item(db, sid, "0001193125-25-282945").review == "auto"
+    use = insider_amendment_repo.decide(
+        db, sid, "0001193125-25-282945", "apply", reason="check", basis="operator:apply"
     )
     db.commit()
-    assert _signal(db, sid, asof) == fired  # the buy STANDS
-    insider_amendment_repo.revoke(db, keep["id"], reason="undo", basis="operator:revoke")
-    db.commit()
     assert _signal(db, sid, asof) is None
+    insider_amendment_repo.revoke(db, use["id"], reason="undo", basis="operator:revoke")
+    db.commit()
+    assert _signal(db, sid, asof) == fired
 
 
 def test_tdg_duplicates_are_counted_once(db):
@@ -272,11 +278,9 @@ def test_an_ambiguous_link_suppresses_nothing_until_linked_and_applied(db):
     )
     db.commit()
     now = _rows(db, sid, asof)
-    # R8-B row match: the corrected sale replaces the original's two sales of that date (same owner, date and
-    # code); the option exercise (code M, a different count) is not restated by the 4/A — it STANDS
+    # the operator's Use the correction: the amendment replaces its whole original
     assert sorted((r["accession"], r["txn_code"]) for r in now) == [
         ("0001856680-26-000010", "F"),
-        ("0001856680-26-000013", "M"),
         ("0001856680-26-000016", "S"),
     ]
     assert [float(r["shares"]) for r in now if r["accession"] == "0001856680-26-000016"] == [
@@ -306,30 +310,29 @@ def _item(db, sid, accession):
     )
 
 
-def test_a_grant_only_void_is_resolved_by_the_system_and_keep_is_its_undo(db):
-    """AVAV: a zero-row 4/A voiding an original of code-A grants only — no call signal reads those rows, so
-    the ingest appends the system's apply under basis system:no-signal-effect (the 2026-10-18 rule, kept by
-    R8-B) in its own transaction; Keep original undoes it, and undoing the keep restores it."""
+def test_a_grant_only_void_without_retraction_words_leaves_the_grants_standing(db):
+    """AVAV: a zero-row 4/A voiding an original of code-A grants only, its text retracting nothing — the system
+    keeps the original (``system:no-retraction``); the operator's Use the correction hides the grants, its Undo
+    restores them."""
     sid = make_security(db, "AVAV")
     ingest_originals(db, sid, "AVAV")
     out = ingest_amendment(db, sid, "0001538012-26-000006")
-    assert out.link.auto_resolved and not out.link.signal_effect
+    assert out.link.void_kind == "no_retraction" and not out.link.signal_effect
     (d,) = _decisions(db, sid)
-    assert (d["action"], d["basis"]) == ("apply", "system:no-signal-effect")
+    assert (d["action"], d["basis"]) == ("keep", "system:no-retraction")
     it = _item(db, sid, "0001538012-26-000006")
-    assert it.auto_resolved and not it.needs_operator and it.effective.status == "applied"
-    assert it.system_basis == "system:no-signal-effect"
+    assert it.auto_resolved and not it.needs_operator and it.effective.status == "kept"
+    assert it.system_basis == "system:no-retraction"
     asof = date(2026, 7, 31)
-    assert _rows(db, sid, asof) == []  # the void applies (grants suppressed) — no call reads them
-    assert _count(db, "fact_insider_txn", sid) == 2  # suppressed at read, never deleted
-    keep = insider_amendment_repo.decide(
-        db, sid, "0001538012-26-000006", "keep", reason="a holdings fix", basis="operator:keep"
+    assert len(_rows(db, sid, asof)) == 2  # the grants stand
+    use = insider_amendment_repo.decide(
+        db, sid, "0001538012-26-000006", "apply", reason="a holdings fix", basis="operator:apply"
     )
     db.commit()
-    assert len(_rows(db, sid, asof)) == 2  # the grants stand
-    insider_amendment_repo.revoke(db, keep["id"], reason="undo", basis="operator:revoke")
+    assert _rows(db, sid, asof) == []
+    insider_amendment_repo.revoke(db, use["id"], reason="undo", basis="operator:revoke")
     db.commit()
-    assert _rows(db, sid, asof) == [] and _item(db, sid, "0001538012-26-000006").auto_resolved
+    assert len(_rows(db, sid, asof)) == 2
 
 
 def test_an_identical_signal_row_addition_is_resolved_by_the_system(db):
@@ -394,42 +397,39 @@ def test_the_urgency_marks_what_sits_inside_tonights_signal_windows(db):
 # --- R8-B: the real in-window sells, the ambiguous review horizon --------------------------------------------
 
 
-def test_an_unresolved_match_is_owed_and_the_original_stands_until_the_operator_decides(db):
-    """IEHC's and MRAM's 4/As change BOTH the date and the share count of the sales they restate: the row match
-    cannot tell a restatement from an added sale, so the system writes NO decision — each is OWED (inside the
-    review horizon), the original rows stand. The operator's Apply ratifies it as a restatement (the whole
-    original replaced); Keep original leaves the original."""
-    iehc, mram = seed(db, "IEHC"), seed(db, "MRAM")
-    asof = date(2026, 10, 20)
-    assert {r["accession"] for r in _rows(db, iehc, asof)} == {"0001174947-26-000817"}
-    assert {r["accession"] for r in _rows(db, mram, asof)} == {"0001628280-26-047404"}
-    assert _decisions(db, iehc) == [] and _decisions(db, mram) == []
-    found = {
-        i.ticker: i for i in insider_amendment_repo.items(db, security_ids=[iehc, mram], asof=asof)
-    }
-    for t in ("IEHC", "MRAM"):
-        assert (found[t].review, found[t].unresolved, found[t].in_review) == ("owed", True, True), t
-    insider_amendment_repo.decide(
-        db, iehc, "0001174947-26-000849", "apply", reason="restated", basis="operator:apply"
-    )
+def test_an_unresolved_match_is_owed_and_each_of_the_three_verdicts_has_its_undo(db):
+    """YYAI's 4/A re-reports its buys after a reverse split in words that neither fix nor add: no system
+    decision, OWED (inside the review horizon), the original standing. The operator's three verdicts:
+    Use the correction (the whole original replaced), Keep the original, Add to the original (every original
+    stands and the amendment's rows are added) — each with its Undo."""
+    sid = seed(db, "YYAI")
+    acc, asof = "0002091629-25-000011", date(2025, 10, 31)
+    original = {r["accession"] for r in _rows(db, sid, asof)}
+    assert original == {"0002091629-25-000003"} and _decisions(db, sid) == []
+    it = _item(db, sid, acc)
+    assert (it.review, it.unresolved, it.in_review) == ("owed", True, True)
+    add = insider_amendment_repo.decide(db, sid, acc, "add", reason="new buy", basis="operator:add")
     db.commit()
-    rows = _rows(db, iehc, asof)
-    assert {r["accession"] for r in rows} == {"0001174947-26-000849"}  # ratified as a restatement
-    assert sorted((str(r["valid_from"]), float(r["shares"])) for r in rows) == [
-        ("2026-09-03", 100.0),
-        ("2026-09-03", 100.0),
-        ("2026-09-03", 1000.0),
-        ("2026-09-04", 3800.0),
+    assert add["action"] == "apply" and add["replaced_rows"] == []
+    rows = _rows(db, sid, asof)
+    assert sorted((r["accession"], r["txn_code"]) for r in rows) == [
+        ("0002091629-25-000003", "P"),
+        ("0002091629-25-000003", "P"),
+        ("0002091629-25-000011", "A"),
+        ("0002091629-25-000011", "P"),
     ]
-    (d,) = _decisions(db, iehc)
-    # the operator's apply of an unresolved match replaces the whole original: nothing of it stands
-    assert d["replaced_rows"] is None
-    assert _item(db, iehc, "0001174947-26-000849").kept_rows == ()
-    insider_amendment_repo.decide(
-        db, mram, "0001628280-26-047722", "keep", reason="check it", basis="operator:keep"
+    assert _item(db, sid, acc).review == "decided"
+    insider_amendment_repo.revoke(db, add["id"], reason="undo", basis="operator:revoke")
+    use = insider_amendment_repo.decide(
+        db, sid, acc, "apply", reason="restated", basis="operator:apply"
     )
     db.commit()
-    assert {r["accession"] for r in _rows(db, mram, asof)} == {"0001628280-26-047404"}
+    assert {r["accession"] for r in _rows(db, sid, asof)} == {acc}  # the whole original replaced
+    assert use["replaced_rows"] is None
+    insider_amendment_repo.revoke(db, use["id"], reason="undo", basis="operator:revoke")
+    insider_amendment_repo.decide(db, sid, acc, "keep", reason="as filed", basis="operator:keep")
+    db.commit()
+    assert {r["accession"] for r in _rows(db, sid, asof)} == original
 
 
 def test_an_omitted_line_amendment_keeps_the_sales_it_never_mentions(db):
@@ -447,13 +447,14 @@ def test_an_omitted_line_amendment_keeps_the_sales_it_never_mentions(db):
     assert (d["basis"], d["replaced_rows"]) == ("system:no-signal-effect", [])
     it = _item(db, mrcy, "0001049521-26-000071")
     assert it.kept_rows == ("0001049521-26-000054#0", "0001049521-26-000054#1")
-    bah = seed(db, "BAH")
+    bah = seed(db, "BAH")  # eight officers' Form 4s, each recoded by its own 4/A
     rows = _rows(db, bah, date(2024, 6, 30))
-    assert sorted((r["accession"], r["txn_code"]) for r in rows) == [
-        ("0001443646-24-000061", "A"),
-        ("0001443646-24-000094", "F"),
-    ]
-    (d,) = _decisions(db, bah)
+    assert sorted(
+        (r["accession"], r["txn_code"])
+        for r in rows
+        if r["accession"] in ("0001443646-24-000061", "0001443646-24-000094")
+    ) == [("0001443646-24-000061", "A"), ("0001443646-24-000094", "F")]
+    d = next(x for x in _decisions(db, bah) if x["amendment_accession"] == "0001443646-24-000094")
     assert (d["basis"], d["replaced_rows"]) == (
         "system:filer-correction",
         ["0001443646-24-000061#1"],
@@ -519,7 +520,7 @@ def _table_count(db) -> int:
 
 
 def test_the_sweep_applies_the_backlog_once_and_rerunning_appends_nothing(db):
-    sids = {t: seed(db, t) for t in ("FLS", "MRCY", "ATCH", "SKYT", "IEHC")}
+    sids = {t: seed(db, t) for t in ("FLS", "MRCY", "ATCH", "SKYT", "IEHC", "SMR", "FIGR", "YYAI")}
     for sid in sids.values():
         _as_r8a_left_it(db, sid)
     before = _table_count(db)
@@ -529,27 +530,49 @@ def test_the_sweep_applies_the_backlog_once_and_rerunning_appends_nothing(db):
         for i in insider_amendment_repo.items(db, security_ids=list(sids.values()))
     }
     assert {a for a, r in review.items() if r == "queued"} == {
-        "0001628280-26-037326",  # FLS void
-        "0001049521-26-000071",  # MRCY partial (a resolved match)
-    }  # the ATCH corrections read applied by their links (auto); SKYT / IEHC are owed
+        "0001628280-26-037326",  # FLS void (a retraction)
+        "0001049521-26-000071",  # MRCY partial (the grant added)
+        "0001174947-26-000849",  # IEHC addition (FIX words)
+        "0001922054-26-000007",  # SMR void (no retraction)
+        "0001493152-25-024508",  # FIGR void (held)
+    }  # the ATCH corrections read applied by their links (auto); SKYT / YYAI are owed
     res = insider_amendment_repo.sweep(db, security_ids=list(sids.values()))
     db.commit()
-    assert len(res.applied) == 7  # FLS void, MRCY partial, ATCH's five corrections
-    assert res.by_disposition == {"void": 1, "partial": 1, "correction": 5}
-    assert res.by_basis == {"system:filer-correction": 6, "system:no-signal-effect": 1}
-    assert _table_count(db) == before + 7  # COUNT THE TABLE
+    assert len(res.applied) == 10  # FLS, MRCY, IEHC, SMR, FIGR + ATCH's five corrections
+    assert res.by_disposition == {
+        "void": 3,
+        "partial": 1,
+        "addition": 1,
+        "correction": 5,
+    }
+    assert res.by_basis == {
+        "system:filer-correction": 7,
+        "system:no-signal-effect": 1,
+        "system:no-retraction": 1,
+        "system:held": 1,
+    }
+    assert _table_count(db) == before + 10  # COUNT THE TABLE
     again = insider_amendment_repo.sweep(db, security_ids=list(sids.values()))
     db.commit()
-    assert again.applied == () and _table_count(db) == before + 7  # idempotent: nothing appended
+    assert again.applied == () and _table_count(db) == before + 10  # idempotent: nothing appended
     (fls,) = _decisions(db, sids["FLS"])
-    assert (fls["basis"], fls["detail"]["via"], fls["replaced_rows"]) == (
+    assert (fls["action"], fls["basis"], fls["detail"]["via"], fls["replaced_rows"]) == (
+        "apply",
         "system:filer-correction",
         "sweep",
         None,  # a void removes; it carries no row match
     )
+    (smr,) = _decisions(db, sids["SMR"])
+    assert (smr["action"], smr["basis"]) == ("keep", "system:no-retraction")
     (mrcy,) = _decisions(db, sids["MRCY"])
     assert mrcy["replaced_rows"] == []  # the sweep stores the row match: the sales stand
-    assert _decisions(db, sids["SKYT"]) == [] and _decisions(db, sids["IEHC"]) == []
+    assert _decisions(db, sids["SKYT"]) == [] and _decisions(db, sids["YYAI"]) == []
+    owed = {
+        i.ticker
+        for i in insider_amendment_repo.items(db, security_ids=list(sids.values()))
+        if i.needs_operator
+    }
+    assert owed == {"SKYT", "YYAI", "FIGR"}
 
 
 def test_the_sweep_never_touches_what_the_operator_decided_or_linked(db):
@@ -580,25 +603,29 @@ def test_the_sweep_never_touches_what_the_operator_decided_or_linked(db):
 
 def test_a_replay_pinned_before_the_sweep_reads_the_pending_state_it_held(db):
     """Bitemporal honesty: the sweep's decisions carry recorded_at = now, so a read pinned before them sees the
-    state the system held then — FRHC's original title (a pending field change has no effect) and FLS's buy
-    suppressed (a pending void suppresses) — and a read after sees the applied state. No rewrite of the past.
-    """
-    frhc, fls = seed(db, "FRHC"), seed(db, "FLS")
-    for sid in (frhc, fls):
+    state the system held then — FRHC's original title (a pending field change has no effect), FLS's buy and
+    SMR's sale suppressed (a pending void suppresses) — and a read after sees the resolved state: FRHC's title
+    corrected, FLS's canceled buy still hidden, SMR's sale back (its 4/A retracts nothing). No rewrite of the
+    past."""
+    frhc, fls, smr = seed(db, "FRHC"), seed(db, "FLS"), seed(db, "SMR")
+    for sid in (frhc, fls, smr):
         _as_r8a_left_it(db, sid)
     pinned = db_now(db)
     db.commit()
-    insider_amendment_repo.sweep(db, security_ids=[frhc, fls])
+    insider_amendment_repo.sweep(db, security_ids=[frhc, fls, smr])
     db.commit()
     asof = date(2026, 8, 31)
     then = _rows(db, frhc, asof, known_at=pinned)
     assert {r["insider_role"] for r in then} == {"Chief Financial Officer"}  # as held then
     now = _rows(db, frhc, asof)
     assert {r["insider_role"] for r in now} == {"Special Advisor to CEO"}  # the filer's correction
-    for known_at in (pinned, FAR):  # the void suppressed while pending AND once applied
+    for known_at in (pinned, FAR):  # the retraction hides the buy while pending AND once applied
         assert "0001628280-26-035913" not in {
             r["accession"] for r in _rows(db, fls, date(2026, 6, 15), known_at=known_at)
         }
+    smr_asof = date(2026, 9, 30)
+    assert "S" not in {r["txn_code"] for r in _rows(db, smr, smr_asof, known_at=pinned)}
+    assert "S" in {r["txn_code"] for r in _rows(db, smr, smr_asof)}
 
 
 # --- PIT: the link's recorded_at gates it -------------------------------------------------------------------
@@ -620,19 +647,107 @@ def test_a_read_pinned_before_the_link_sees_the_original(db):
     assert _signal(db, sid, asof, known_at=t_link).grade == Grade.CORE
 
 
-def test_a_read_pinned_before_a_decision_sees_the_pending_state(db):
-    sid = seed(db, "AZTA")
-    asof = date(2025, 8, 15)
+def test_a_read_pinned_before_a_decision_sees_the_state_it_held(db):
+    sid = seed(db, "FLS")
+    asof = date(2026, 6, 15)
     before_keep = db_now(db)
     db.commit()
     insider_amendment_repo.decide(
-        db, sid, "0001193125-25-282945", "keep", reason="only a POA", basis="operator:keep"
+        db, sid, "0001628280-26-037326", "keep", reason="not canceled", basis="operator:keep"
     )
     db.commit()
-    assert (
-        _signal(db, sid, asof, known_at=before_keep) is None
-    )  # what the system held then: pending
+    assert _signal(db, sid, asof, known_at=before_keep) is None  # what the system held then
     assert _signal(db, sid, asof) is not None
+
+
+# --- R8-B revised (2026-10-21): the REAL-ROW check table ------------------------------------------------------
+
+
+def test_the_real_row_check_table(db):
+    """Every filing of the check table on its REAL documents, end to end through the ingest and the as-of read:
+    what is hidden, what stands, what is added, and where it sits for the operator (asof 2026-10-20).
+    """
+    asof = date(2026, 10, 20)
+
+    def codes(sid, accession, day=asof):
+        return sorted(r["txn_code"] for r in _rows(db, sid, day) if r["accession"] == accession)
+
+    def review(sid, accession):
+        return next(
+            i.review
+            for i in insider_amendment_repo.items(db, security_ids=[sid], asof=asof)
+            if i.accession == accession
+        )
+
+    # zero-row 4/As: no retraction -> the original stands (inert, quiet)
+    smr = seed(db, "SMR")
+    assert codes(smr, "0001922054-26-000003") == ["M", "S"]
+    assert review(smr, "0001922054-26-000007") == "auto"
+    azta = seed(db, "AZTA")
+    assert codes(azta, "0000950170-25-107291", date(2025, 8, 15)) == ["P"]
+    vwav = seed(db, "VWAV")
+    assert (
+        len(codes(vwav, "0002105221-26-000001")) == 2
+        and review(vwav, "0002105221-26-000002") == "auto"
+    )
+    # retraction words against several trades -> held, owed, the original standing
+    figr = seed(db, "FIGR")
+    assert codes(figr, "0002079716-25-000008") == ["C", "F", "S"]
+    assert review(figr, "0001493152-25-024508") == "owed"
+    # a retraction of a single-trade original -> hidden
+    for t, originals in (
+        ("FLS", ("0001628280-26-035913",)),
+        ("AVEX", ("0001193125-26-164679",)),
+        ("MNKD", ("0001193125-26-100839",)),
+        ("DVLT", ("0001104659-24-122190", "0001104659-24-122191")),
+    ):
+        sid = seed(db, t)
+        for orig in originals:
+            assert codes(sid, orig) == [], (t, orig)
+    # ADD words: IBKR's four sales stand, the omitted 6,928 sh is added
+    ibkr = seed(db, "IBKR")
+    assert codes(ibkr, "0001381197-25-000131") == ["S", "S", "S", "S"]
+    assert [
+        float(r["shares"])
+        for r in _rows(db, ibkr, asof)
+        if r["accession"] == "0001381197-25-000139"
+    ] == [6928.0]
+    # FIX words: MRAM ×5 and BKSY ×4 replace their sales; IEHC (FIX + ADD, its rows restate every sale) too
+    mram = seed(db, "MRAM")
+    for orig in ("047404", "047402", "047411"):
+        assert codes(mram, f"0001628280-26-{orig}") == []
+    for orig in ("023225", "023218"):  # the grant beside the sale is not re-reported — it stands
+        assert codes(mram, f"0001628280-26-{orig}") == ["A"]
+    bksy = seed(db, "BKSY")
+    for orig in (
+        "0001615454-25-000011",
+        "0001400954-25-000009",
+        "0001349983-25-000008",
+        "0001443092-25-000012",
+    ):
+        assert codes(bksy, orig) == []
+    iehc = seed(db, "IEHC")
+    assert (
+        codes(iehc, "0001174947-26-000817") == []
+        and codes(iehc, "0001174947-26-000849") == ["S"] * 4
+    )
+    # neither -> owed, the original standing
+    yyai = seed(db, "YYAI")
+    assert codes(yyai, "0002091629-25-000003") == ["P", "P"]
+    assert review(yyai, "0002091629-25-000011") == "owed"
+    # shape: BAH's eight recodes (S -> F; the grant stands); MRCY's grant added beside its sales; sums
+    bah = seed(db, "BAH")
+    assert {r["txn_code"] for r in _rows(db, bah, date(2024, 6, 30))} == {"A", "F"}
+    mrcy = seed(db, "MRCY")
+    assert codes(mrcy, "0001049521-26-000054") == ["S", "S"]
+    assert codes(mrcy, "0001049521-26-000071") == ["A"]
+    betr = seed(db, "BETR")
+    assert codes(betr, "0001628280-24-049753") == []
+    assert len(codes(betr, "0001628280-24-050110")) == 2
+    bhvn = seed(db, "BHVN")
+    assert sorted(
+        float(r["shares"]) for r in _rows(db, bhvn, date(2025, 3, 31)) if r["txn_code"] == "P"
+    ) == [900.0, 3400.0, 28400.0]
 
 
 # --- both read shapes agree ----------------------------------------------------------------------------------

@@ -440,25 +440,29 @@ Depth: the submissions `recent` window, the same accepted depth as Form 4.
   `domain/insider_amendments.py`: correction, void, duplicates, partial / consolidation / addition /
   restatement, **field change** (Table I identical but a signal row's owner role / name / 10b5-1 flag moved —
   migration 0051 adds it to the link's disposition check), ambiguous; inert = clerical, no Table I rows, no
-  stored original. **R8-B (operator decision 2026-10-20): the filer's own correction is applied by default** —
-  every amendment resolved to a definite original is APPLIED BY THE SYSTEM, an append-only `apply` decision
-  under basis `system:filer-correction` (or `system:no-signal-effect` when it changes no code-`P`/`S` row — the
-  signal code set derived from the detectors, `signals.horizons.insider_signal_codes`), written at ingest in
-  the link's transaction or, for the pre-R8-B backlog, by the nightly sweep (`recorded_at = now`). Each keeps
-  its exact Undo on Admin (Keep original). An applied partial / consolidation / addition / restatement / field
-  change replaces only the original rows it ACCOUNTS for (the row match, `domain.insider_amendments.match_rows`
-  — same owner; same date with the same code or share count, else the same code and share count): an original
-  buy or sale the 4/A never mentions STANDS (operator decision 2026-10-21). A Form 4/A is the filer's legal
-  correction of their own filing — deterministic data, not a model's recommendation — so the operator ratifies
-  only what the system cannot resolve: an **ambiguous** link, or an **unresolved row match** (a buy/sell whose
-  date and share count both changed), that touches a `P`/`S` row inside the review horizon
+  stored original. **R8-B (operator decision 2026-10-20, revised 2026-10-21): the filer's own correction is
+  applied by default** — every amendment resolved to a definite original is RESOLVED BY THE SYSTEM, an
+  append-only decision written at ingest in the link's transaction or, for the pre-R8-B backlog, by the nightly
+  sweep (`recorded_at = now`): an `apply` under basis `system:filer-correction` (or `system:no-signal-effect`
+  when it changes no code-`P`/`S` row — the signal code set derived from the detectors,
+  `signals.horizons.insider_signal_codes`), or, for a zero-row 4/A its words do not retract, a `keep`
+  (`system:no-retraction` / `system:held`). Each keeps its exact Undo on Admin. An applied partial /
+  consolidation / addition / restatement / field change replaces only the original rows it ACCOUNTS for (the
+  row match, `domain.insider_amendments.match_rows` — exact shape only: identical, a price / share / date fix,
+  a recode, a same-day sum), and the leftovers of one owner and code are settled by the filer's own words — FIX
+  replaces them, ADD keeps every original and adds; a zero-row 4/A retracts its original only with explicit
+  retraction words AND a single-`P`/`S`-trade original (the phrase lists and the measured outcome:
+  `FEED_LOOP.md` §R8-B). A Form 4/A is the filer's legal correction of their own filing — deterministic data,
+  not a model's recommendation — so the operator rules only on what the system cannot resolve: an
+  **ambiguous** link, an **unresolved row match** (its words neither fix nor add), or a **held void**
+  (retraction words against several trades), that touches a `P`/`S` row inside the review horizon
   (`insider_amendment_review_horizon_days`, derived 940 days = the 730-day backtest window + the 210-day `P`
-  read); an older one is listed as "unresolved — historical", the originals standing. MEASURED 2026-10-21 on
-  prod, asof 2026-10-20 (2,988 linked pairs — the live leg pulled the full history back to 2003, not the
-  two-year research corpus): **15 owed** (4 ambiguous, 11 unresolved matches), **54 historical**, **1,690
-  applied by the system** after the first sweep, **1,229 inert** (`FEED_LOOP.md` §R8-B). Zero-row voids still
-  remove their original's rows; whether each is a cancellation (by the filer's own words) is an open, measured
-  question there. (R8-A's figures, 2026-10-18, two-year window: 67 owed / 121 applied by the system.)
+  read) — with three verdicts: Use the correction, Keep the original, Add to the original. An older one is
+  listed as "unresolved — historical", the originals standing. MEASURED 2026-10-21 on prod, asof 2026-10-20
+  (2,988 linked pairs — the live leg pulled the full history back to 2003, not the two-year research corpus),
+  after the first sweep: **6 owed** (4 ambiguous, 1 unresolved match, 1 held void), **60 historical**, **1,693
+  resolved by the system**, **1,229 inert** (`FEED_LOOP.md` §R8-B). (R8-A's figures, 2026-10-18, two-year
+  window: 67 owed / 121 applied by the system.)
 - **The other-issuer screen.** A company's own submissions feed lists every ownership filing it is a party to —
   including the ones it filed as the REPORTING OWNER of another company's stock (147 such rows across 11
   tickers sat on member tapes on 2026-10-17; 25 of them code `P`). A Form 4 or 4/A whose `issuerCik` is not

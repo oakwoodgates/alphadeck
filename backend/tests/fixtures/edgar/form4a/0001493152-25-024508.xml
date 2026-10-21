@@ -1,0 +1,72 @@
+<?xml version="1.0"?>
+<ownershipDocument>
+
+    <schemaVersion>X0508</schemaVersion>
+
+    <documentType>4/A</documentType>
+
+    <periodOfReport>2025-09-12</periodOfReport>
+
+    <dateOfOriginalSubmission>2025-09-16</dateOfOriginalSubmission>
+
+    <notSubjectToSection16>0</notSubjectToSection16>
+
+    <issuer>
+        <issuerCik>0002064124</issuerCik>
+        <issuerName>Figure Technology Solutions, Inc.</issuerName>
+        <issuerTradingSymbol>FIGR</issuerTradingSymbol>
+    </issuer>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0002079716</rptOwnerCik>
+            <rptOwnerName>Tannenbaum Michael Benjamin</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerStreet1>C/O FIGURE TECHNOLOGY SOLUTIONS, INC.</rptOwnerStreet1>
+            <rptOwnerStreet2>100 WEST LIBERTY STREET, SUITE 600</rptOwnerStreet2>
+            <rptOwnerCity>RENO</rptOwnerCity>
+            <rptOwnerState>NV</rptOwnerState>
+            <rptOwnerZipCode>89501</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>1</isDirector>
+            <isOfficer>1</isOfficer>
+            <isTenPercentOwner>0</isTenPercentOwner>
+            <isOther>0</isOther>
+            <officerTitle>Chief Executive Officer</officerTitle>
+            <otherText></otherText>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <aff10b5One>0</aff10b5One>
+
+    <nonDerivativeTable>
+        <nonDerivativeHolding>
+            <securityTitle>
+                <value>Class A Common Stock</value>
+            </securityTitle>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>4829366</value>
+                    <footnoteId id="F1"/>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>D</value>
+                </directOrIndirectOwnership>
+            </ownershipNature>
+        </nonDerivativeHolding>
+    </nonDerivativeTable>
+
+    <footnotes>
+        <footnote id="F1">On September 16, 2025, the Reporting Person filed a Form 4 reporting shares withheld by the Issuer, which was a transaction that did not in fact occur. As reported in this amendment, as of September 12, 2025, the Reporting Person beneficially held 4,829,366 shares of Class A Common Stock.</footnote>
+    </footnotes>
+
+    <ownerSignature>
+        <signatureName>/s/ Ronald Chillemi, Attorney-in-Fact</signatureName>
+        <signatureDate>2025-11-20</signatureDate>
+    </ownerSignature>
+</ownershipDocument>

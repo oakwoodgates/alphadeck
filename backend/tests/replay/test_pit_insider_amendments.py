@@ -126,10 +126,11 @@ def test_the_mirror_resolves_amendments_exactly_like_postgres(db, tmp_path, bask
 def test_the_mirror_reads_the_sweep_exactly_like_postgres_before_and_after_it(db, tmp_path):
     """R8-B: the sweep's SYSTEM decisions (recorded NOW over links a pre-R8-B ingest left without one) — and the
     ROW MATCH they carry — resolve on the mirror byte-for-byte like Postgres, pinned before the sweep (FRHC's
-    original title, FLS's buy suppressed by its pending void, MRCY's two sales) and after it (FRHC's corrected
-    title; MRCY's sales STAND beside the added grant); IEHC's unresolved match is never applied."""
+    original title, FLS's buy and SMR's sale suppressed by pending voids, MRCY's two sales) and after it (FRHC's
+    corrected title; MRCY's sales STAND beside the added grant; IEHC's sales restated by FIX words; SMR's sale
+    back — its 4/A retracts nothing)."""
     sids = {}
-    for t in ("FRHC", "FLS", "MRCY", "IEHC"):
+    for t in ("FRHC", "FLS", "MRCY", "IEHC", "SMR"):
         sid = make_security(db, t)
         ingest_originals(db, sid, t, recorded_at=T_ORIG)
         for acc in amendments_of(t):
@@ -161,7 +162,10 @@ def test_the_mirror_reads_the_sweep_exactly_like_postgres_before_and_after_it(db
     }
     assert sorted(r["txn_code"] for r in pre.insider_txns(sids["MRCY"])) == ["S", "S"]
     assert sorted(r["txn_code"] for r in post.insider_txns(sids["MRCY"])) == ["A", "S", "S"]
-    assert {r["accession"] for r in post.insider_txns(sids["IEHC"])} == {"0001174947-26-000817"}
+    assert {r["accession"] for r in pre.insider_txns(sids["IEHC"])} == {"0001174947-26-000817"}
+    assert {r["accession"] for r in post.insider_txns(sids["IEHC"])} == {"0001174947-26-000849"}
+    assert "S" not in {r["txn_code"] for r in pre.insider_txns(sids["SMR"])}
+    assert "S" in {r["txn_code"] for r in post.insider_txns(sids["SMR"])}
 
 
 def test_parity_is_not_vacuous_the_resolution_moves_rows(db, tmp_path):

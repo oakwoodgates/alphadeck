@@ -5,6 +5,7 @@ import type {
   AdminInsiderTxnOut,
 } from "../api/hooks";
 import {
+  useAddToOriginal,
   useApplyAmendment,
   useInsiderAmendments,
   useKeepOriginal,
@@ -77,6 +78,15 @@ const DISPOSITION: Record<string, string> = {
 const SYSTEM_WHY: Record<string, string> = {
   "system:filer-correction": "applied by the system — the filer's own amendment, resolved to the Form 4 it amends",
   "system:no-signal-effect": "applied by the system — it changes no buy or sale a call signal reads",
+  "system:no-retraction":
+    "kept as filed by the system — this zero-row 4/A retracts nothing (it fixes holdings, Table II or a power of attorney); the original stands",
+};
+
+/** How the filer's own words settled it (backend: match_rows / void_reading). */
+const READING: Record<string, string> = {
+  fix: "the filer's words FIX the trade it re-reports",
+  add: "the filer's words ADD a trade it left out",
+  retract: "the filer's words retract the single trade on the original",
 };
 
 const SUPPRESSES_WHILE_PENDING = new Set(["void", "duplicates"]);
@@ -119,6 +129,11 @@ const standingOf = (a: Amendment, accession: string) =>
 function Evidence({ a }: { a: Amendment }) {
   return (
     <div className="adm-sub" data-testid="adm-amend-evidence">
+      {a.reading && READING[a.reading] && a.passage ? (
+        <div data-testid="adm-amend-passage">
+          Read as: {READING[a.reading]} — “{a.passage}”
+        </div>
+      ) : null}
       {a.remarks ? <div>Remarks: “{a.remarks}”</div> : null}
       {a.footnotes.map((f, i) => (
         <div key={i}>Footnote: “{f}”</div>
@@ -166,22 +181,25 @@ function Header({ a, owed = false }: { a: Amendment; owed?: boolean }) {
 }
 
 /** The "Insider amendments" panel (R8-A / R8-B). A Form 4/A the linker resolves to the Form 4 it amends is
- *  the filer's own legal correction: the SYSTEM applies it (basis `system:filer-correction`, or
- *  `system:no-signal-effect` when it changes no buy or sale a call signal reads) and lists it quietly as
- *  "Applied automatically", each with its evidence and its exact Undo — Keep original — never paged. LOUD
- *  only where the operator is truly owed a decision: an AMBIGUOUS amendment (several Form 4s it could amend)
- *  touching a buy or sale a call can read — inside the review horizon, the ones in today's signal windows
- *  first — plus one the operator linked or took back. An ambiguous one older than the horizon is "Unresolved
- *  — historical", grayed and collapsed, still linkable. Every quiet list opens (still visible, never dropped —
- *  #9/WB#2) and every action has its inverse beside it (WB#1). Renders nothing when no amendment is stored. */
+ *  the filer's own legal correction: the SYSTEM resolves it — applies it, replacing only the original rows it
+ *  accounts for (basis `system:filer-correction`, or `system:no-signal-effect`), or, for a zero-row 4/A that
+ *  retracts nothing, keeps the original as filed (`system:no-retraction`) — and lists it quietly as "Applied
+ *  automatically" with its evidence and its exact Undo, never paged. LOUD only where the operator is truly owed
+ *  a decision — what the system cannot resolve, touching a buy or sale a call can read: an AMBIGUOUS
+ *  amendment (pick the original), an UNRESOLVED row match (the filer's words neither fix nor add), a HELD void
+ *  (retraction words against several trades) — with three verdicts: Use the correction, Keep the original,
+ *  Add to the original. Older ones are "Unresolved — historical", grayed and collapsed, still decidable.
+ *  Every quiet list opens (still visible, never dropped — #9/WB#2) and every action has its inverse beside it
+ *  (WB#1). Renders nothing when no amendment is stored. */
 export function InsiderAmendments() {
   const q = useInsiderAmendments();
   const apply = useApplyAmendment();
   const keep = useKeepOriginal();
+  const add = useAddToOriginal();
   const link = useLinkAmendment();
   const revoke = useRevokeAmendmentDecision();
-  const busy = apply.isPending || keep.isPending || link.isPending || revoke.isPending;
-  const failed = [apply, keep, link, revoke].find((m) => m.isError);
+  const busy = apply.isPending || keep.isPending || add.isPending || link.isPending || revoke.isPending;
+  const failed = [apply, keep, add, link, revoke].find((m) => m.isError);
 
   if (q.isError) {
     return (
@@ -202,6 +220,23 @@ export function InsiderAmendments() {
   };
   const horizon = q.data.review_horizon_days;
   const ref = (a: Amendment) => ({ securityId: a.security_id, accession: a.accession });
+  const zeroRow = (a: Amendment) => SUPPRESSES_WHILE_PENDING.has(a.disposition);
+  /** The operator's three verdicts on an amendment that is theirs (Add only where it has rows to add). */
+  const verdictButtons = (a: Amendment) => (
+    <>
+      <button type="button" className="adm-minibtn primary" disabled={busy} onClick={() => apply.mutate(ref(a))}>
+        Use the correction
+      </button>
+      <button type="button" className="adm-minibtn" disabled={busy} onClick={() => keep.mutate(ref(a))}>
+        Keep the original
+      </button>
+      {!zeroRow(a) && (
+        <button type="button" className="adm-minibtn" disabled={busy} onClick={() => add.mutate(ref(a))}>
+          Add to the original
+        </button>
+      )}
+    </>
+  );
   const linkButtons = (a: Amendment) =>
     a.candidate_accessions.map((c) => (
       <button
@@ -235,10 +270,12 @@ export function InsiderAmendments() {
                     {ambiguous
                       ? "Several Form 4s could be the one this amends, so the system cannot apply it — pick the original. Nothing changes until you do."
                       : a.unresolved
-                        ? "A buy or sale's date and share count both changed, so the system cannot tell a restatement from an added trade. Apply amendment if it restates the original; Keep original if it does not. The original stands until you decide."
-                        : a.suppressing.length
-                        ? `Suppressing ${a.suppressing.join(", ")} from every call until you decide.`
-                        : "No effect until you apply it."}
+                        ? "A buy or sale it re-reports matches no original row, and the filer's words neither fix nor add — restated, or an added trade? Use the correction if it restates the original, Add to the original if it reports a new trade, Keep the original if neither. The original stands until you decide."
+                        : a.held
+                          ? "The filer's words retract a trade, but the original holds several — which one is your call. The original stands until you decide."
+                          : a.suppressing.length
+                            ? `Suppressing ${a.suppressing.join(", ")} from every call until you decide.`
+                            : "No effect until you decide."}
                     {a.why ? ` ${a.why}.` : ""}
                   </div>
                   <Evidence a={a} />
@@ -260,22 +297,7 @@ export function InsiderAmendments() {
                             </button>
                           </>
                         )}
-                        <button
-                          type="button"
-                          className="adm-minibtn primary"
-                          disabled={busy}
-                          onClick={() => apply.mutate(ref(a))}
-                        >
-                          {SUPPRESSES_WHILE_PENDING.has(a.disposition) ? "Ratify void" : "Apply amendment"}
-                        </button>
-                        <button
-                          type="button"
-                          className="adm-minibtn"
-                          disabled={busy}
-                          onClick={() => keep.mutate(ref(a))}
-                        >
-                          Keep original
-                        </button>
+                        {verdictButtons(a)}
                       </>
                     )}
                   </div>
@@ -284,9 +306,8 @@ export function InsiderAmendments() {
             })}
           </ul>
           <div className="adm-sub">
-            Each one touches a buy or sale a call can read. Once you pick the original, the amendment waits for
-            your Apply or Keep original; every decision has an Undo. A 4/A applied automatically replaces only the
-            rows it accounts for — a buy or sale it never mentions stands.
+            Each one touches a buy or sale a call can read; every decision has an Undo. A 4/A the system applies
+            replaces only the rows it accounts for — a buy or sale it never mentions stands.
           </div>
         </div>
       )}
@@ -294,8 +315,8 @@ export function InsiderAmendments() {
       {data.auto.length > 0 && (
         <details className="adm-quietlist" data-testid="adm-amend-auto">
           <summary className="adm-line adm-quiet">
-            {data.auto.length} applied automatically — the filer's own correction (never paged; Keep original
-            undoes any one)
+            {data.auto.length} resolved automatically — the filer's own correction applied, or a zero-row 4/A kept
+            as filed (never paged; each undoable)
           </summary>
           <ul className="adm-problems adm-quietrows">
             {data.auto.map((a) => (
@@ -306,14 +327,15 @@ export function InsiderAmendments() {
                     "applied by the system — a 1:1 correction, applied by its link"}
                   {a.suppressing.length ? ` · suppressing ${a.suppressing.join(", ")}` : ""}
                 </span>{" "}
-                <button
-                  type="button"
-                  className="adm-minibtn"
-                  disabled={busy}
-                  onClick={() => keep.mutate(ref(a))}
-                >
-                  Keep original
-                </button>
+                {a.system_basis === "system:no-retraction" ? (
+                  <button type="button" className="adm-minibtn" disabled={busy} onClick={() => apply.mutate(ref(a))}>
+                    Use the correction
+                  </button>
+                ) : (
+                  <button type="button" className="adm-minibtn" disabled={busy} onClick={() => keep.mutate(ref(a))}>
+                    Keep the original
+                  </button>
+                )}
                 <Evidence a={a} />
               </li>
             ))}
@@ -326,18 +348,18 @@ export function InsiderAmendments() {
           <summary className="adm-line adm-quiet">{data.decided.length} decided by you (each undoable)</summary>
           <ul className="adm-problems adm-quietrows">
             {data.decided.map((a) => {
-              const overSystem =
-                a.status === "kept" &&
-                a.decisions.some((d) => d.standing && d.action === "apply" && d.basis.startsWith("system:"));
+              const overSystem = a.decisions.some((d) => d.standing && d.basis.startsWith("system:"));
+              const added = a.decisions.some((d) => d.standing && d.basis === "operator:add");
               return (
                 <li key={`${a.security_id}:${a.accession}`}>
                   <Header a={a} />
                   <span className="adm-sub">
                     {a.status === "kept"
-                      ? overSystem
-                        ? "original kept by you — Undo restores the filer's amendment"
-                        : "original kept"
-                      : "applied"}
+                      ? "original kept by you"
+                      : added
+                        ? "added to the original by you"
+                        : "correction used by you"}
+                    {overSystem ? " — Undo restores the system's resolution" : ""}
                     {a.suppressing.length ? ` · suppressing ${a.suppressing.join(", ")}` : ""}
                   </span>{" "}
                   {a.undo_id && (
@@ -363,8 +385,9 @@ export function InsiderAmendments() {
             {data.historical.length} unresolved — historical (no call reads these rows)
           </summary>
           <div className="adm-sub">
-            The system could not resolve these (several possible originals, or a buy or sale whose date and
-            share count both changed), but every buy or sale they touch is older than the{" "}
+            The system could not resolve these (several possible originals, the filer's words neither fixing nor
+            adding, or retraction words against several trades), but every buy or sale they touch is older than
+            the{" "}
             {horizon == null ? "review horizon" : `${horizon}-day review horizon`} (the backtest window plus the
             longest signal read), or they touch none. The originals stand; you can still decide any one.
           </div>
@@ -373,28 +396,7 @@ export function InsiderAmendments() {
               <li key={`${a.security_id}:${a.accession}`} data-testid="adm-amend-historical-row">
                 <Header a={a} />
                 <div className="adm-repair-act">
-                  {a.disposition === "ambiguous" ? (
-                    linkButtons(a)
-                  ) : (
-                    <>
-                      <button
-                        type="button"
-                        className="adm-minibtn"
-                        disabled={busy}
-                        onClick={() => apply.mutate(ref(a))}
-                      >
-                        Apply amendment
-                      </button>
-                      <button
-                        type="button"
-                        className="adm-minibtn"
-                        disabled={busy}
-                        onClick={() => keep.mutate(ref(a))}
-                      >
-                        Keep original
-                      </button>
-                    </>
-                  )}
+                  {a.disposition === "ambiguous" ? linkButtons(a) : verdictButtons(a)}
                 </div>
               </li>
             ))}

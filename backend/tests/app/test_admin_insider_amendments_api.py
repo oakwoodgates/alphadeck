@@ -112,8 +112,8 @@ def test_keep_original_is_the_undo_of_a_system_application_and_undo_restores_it(
     acc, asof = "0001628280-26-037326", date(2026, 6, 15)
     assert "0001628280-26-035913" not in _accessions(db, sid, asof)
     assert (
-        client.post(f"{BASE}/{sid}/{acc}/apply").status_code == 409
-    )  # the system already applied it
+        client.post(f"{BASE}/{sid}/{acc}/add").status_code == 409
+    )  # a zero-row 4/A has no rows to add
     r = client.post(f"{BASE}/{sid}/{acc}/keep", json={"reason": "not canceled"})
     assert r.status_code == 200
     kept = r.json()
@@ -135,17 +135,48 @@ def test_keep_original_is_the_undo_of_a_system_application_and_undo_restores_it(
     )  # undone already
 
 
-def test_keep_original_restores_azta_buy_and_undo_suppresses_it_again(client, db):
+def test_azta_void_is_kept_as_filed_and_use_the_correction_hides_the_buy(client, db):
+    """AZTA's zero-row 4/A only attaches a power of attorney: the system keeps the original (no retraction
+    words) and lists it quietly with Use the correction as its inverse — which hides the buy; Undo restores it.
+    """
     sid = seed(db, "AZTA")
     acc, asof = "0001193125-25-282945", date(2025, 8, 15)
-    assert "0000950170-25-107291" not in _accessions(db, sid, asof)  # applied void: suppressed
-    r = client.post(
-        f"{BASE}/{sid}/{acc}/keep", json={"reason": "only attaches a power of attorney"}
-    )
-    assert r.status_code == 200 and r.json()["status"] == "kept" and r.json()["suppressing"] == []
     assert "0000950170-25-107291" in _accessions(db, sid, asof)  # the CFO's buy STANDS
-    client.post(f"{BASE}/decisions/{r.json()['undo_id']}/revoke")
+    bucket, it = _by_acc(client.get(BASE).json())[acc]
+    assert (bucket, it["status"], it["system_basis"], it["reading"]) == (
+        "auto",
+        "kept",
+        "system:no-retraction",
+        "no_retraction",
+    )
+    r = client.post(f"{BASE}/{sid}/{acc}/apply", json={"reason": "it is a cancellation"})
+    assert r.status_code == 200 and r.json()["review"] == "decided"
     assert "0000950170-25-107291" not in _accessions(db, sid, asof)
+    client.post(f"{BASE}/decisions/{r.json()['undo_id']}/revoke")
+    assert "0000950170-25-107291" in _accessions(db, sid, asof)
+
+
+def test_an_owed_amendment_offers_three_verdicts_each_undoable(client, db):
+    """YYAI is owed (its words neither fix nor add): Add to the original keeps the original buys and adds the
+    amendment's rows; Use the correction replaces the whole original; Keep the original changes nothing.
+    """
+    sid = seed(db, "YYAI")
+    acc, asof = "0002091629-25-000011", date(2025, 10, 31)
+    bucket, it = _by_acc(client.get(BASE).json())[acc]
+    assert (bucket, it["unresolved"], it["reading"]) == ("owed", True, "unresolved")
+    add = client.post(f"{BASE}/{sid}/{acc}/add").json()
+    assert add["review"] == "decided" and _accessions(db, sid, asof) == {
+        "0002091629-25-000003",
+        acc,
+    }
+    assert len(add["kept_rows"]) == 2  # both original buys stand
+    client.post(f"{BASE}/decisions/{add['undo_id']}/revoke")
+    use = client.post(f"{BASE}/{sid}/{acc}/apply").json()
+    assert _accessions(db, sid, asof) == {acc}
+    assert client.post(f"{BASE}/{sid}/{acc}/keep").status_code == 409  # undo yours first
+    client.post(f"{BASE}/decisions/{use['undo_id']}/revoke")
+    kept = client.post(f"{BASE}/{sid}/{acc}/keep").json()
+    assert kept["status"] == "kept" and _accessions(db, sid, asof) == {"0002091629-25-000003"}
 
 
 def test_keep_overrules_an_auto_applied_correction(client, db):
@@ -177,9 +208,9 @@ def test_link_to_candidate_then_apply_then_undo_in_order(client, db):
     )
     applied = client.post(f"{BASE}/{sid}/{acc}/apply").json()
     assert applied["status"] == "applied"
-    # R8-B row match: its two sales are replaced by the corrected one; the unmentioned exercise (M) stands
-    assert applied["kept_rows"] == ["0001856680-26-000013#0"]
-    assert _codes_of(db, sid, asof, "0001856680-26-000013") == {"M"}
+    # Use the correction: the amendment replaces the whole linked original
+    assert applied["kept_rows"] == []
+    assert _codes_of(db, sid, asof, "0001856680-26-000013") == set()
     link_id = next(d["id"] for d in applied["decisions"] if d["action"] == "link")
     assert client.post(f"{BASE}/decisions/{link_id}/revoke").status_code == 409  # verdict first
     client.post(f"{BASE}/decisions/{applied['undo_id']}/revoke")
@@ -197,10 +228,11 @@ def test_nothing_to_ratify_on_an_inert_amendment(client, db):
 
 
 def test_a_no_signal_effect_amendment_is_applied_automatically_under_its_own_basis(client, db):
-    """AVAV's grant-only void: applied automatically with basis system:no-signal-effect (the 2026-10-18 rule,
-    kept), listed with the filer corrections; Keep original is its Undo too."""
-    sid = seed(db, "AVAV")
-    acc = "0001538012-26-000006"
+    """MRCY's 4/A adds only an omitted grant (code A) beside its two sales: applied automatically with basis
+    system:no-signal-effect (its sales stand — no row a call reads changes); Keep the original is its Undo.
+    """
+    sid = seed(db, "MRCY")
+    acc = "0001049521-26-000071"
     bucket, it = _by_acc(client.get(BASE).json())[acc]
     assert bucket == "auto"
     assert (it["status"], it["auto_resolved"], it["signal_effect"], it["system_basis"]) == (
@@ -209,7 +241,10 @@ def test_a_no_signal_effect_amendment_is_applied_automatically_under_its_own_bas
         False,
         "system:no-signal-effect",
     )
-    assert it["undo_id"] is None and it["suppressing"] == ["0001538012-26-000004"]
+    assert it["undo_id"] is None and it["kept_rows"] == [
+        "0001049521-26-000054#0",
+        "0001049521-26-000054#1",
+    ]
     kept = client.post(f"{BASE}/{sid}/{acc}/keep").json()
     assert kept["status"] == "kept" and kept["review"] == "decided"
 

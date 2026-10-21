@@ -2569,7 +2569,7 @@
           "admin"
         ],
         "summary": "Apply Amendment",
-        "description": "RATIFY a pending amendment that is the operator's (basis ``operator:apply``) \u2014 one linked by the\noperator, or one the operator took back: a void / duplicates keeps suppressing its target (now ratified);\na partial / consolidation / addition / restatement replaces the original's rows with the amendment's. Undo\nwith ``POST /admin/insider-amendments/decisions/{id}/revoke``. **404** unknown amendment, **409** nothing\nto ratify / the system already applied it / a decision already stands / ambiguous and not linked yet.",
+        "description": "USE THE CORRECTION (basis ``operator:apply``): the amendment as filed replaces its WHOLE original \u2014 a void\n/ duplicates removes its targets. Allowed over a standing system decision (it stands over it). Undo with\n``POST /admin/insider-amendments/decisions/{id}/revoke``. **404** unknown amendment, **409** nothing to\nratify / an operator decision already stands / ambiguous and not linked yet / a correction (it applies).",
         "operationId": "apply_amendment_admin_insider_amendments__security_id___accession__apply_post",
         "parameters": [
           {
@@ -2642,6 +2642,77 @@
         "summary": "Keep Original",
         "description": "KEEP THE ORIGINAL (basis ``operator:keep``): the amendment changes nothing \u2014 a pending void's\nsuppression is lifted, and an amendment APPLIED AUTOMATICALLY by the system is overruled (this is that\napplication's Undo: the keep stands over it, and undoing the keep with the revoke route restores it).\n**404** unknown amendment, **409** nothing to decide / an operator decision already stands.",
         "operationId": "keep_original_admin_insider_amendments__security_id___accession__keep_post",
+        "parameters": [
+          {
+            "name": "security_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Security Id"
+            }
+          },
+          {
+            "name": "accession",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{10}-\\d{2}-\\d{6}$",
+              "title": "Accession"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/AdminInsiderReasonIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminInsiderAmendmentOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/insider-amendments/{security_id}/{accession}/add": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Add To Original",
+        "description": "ADD TO THE ORIGINAL (basis ``operator:add``): every original row stands and the amendment's rows are\nadded beside them \u2014 for a 4/A that reports a trade the filer left out. A partial / consolidation / addition /\nrestatement / field change only. Undo with the revoke route. **404** unknown amendment, **409** a zero-row\nor correction amendment (nothing to add) / an operator decision already stands.",
+        "operationId": "add_to_original_admin_insider_amendments__security_id___accession__add_post",
         "parameters": [
           {
             "name": "security_id",
@@ -3941,6 +4012,33 @@
             },
             "type": "array",
             "title": "Kept Rows"
+          },
+          "held": {
+            "type": "boolean",
+            "title": "Held",
+            "default": false
+          },
+          "reading": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reading"
+          },
+          "passage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Passage"
           }
         },
         "type": "object",

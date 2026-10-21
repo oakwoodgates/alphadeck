@@ -1411,11 +1411,10 @@ export interface paths {
         put?: never;
         /**
          * Apply Amendment
-         * @description RATIFY a pending amendment that is the operator's (basis ``operator:apply``) — one linked by the
-         *     operator, or one the operator took back: a void / duplicates keeps suppressing its target (now ratified);
-         *     a partial / consolidation / addition / restatement replaces the original's rows with the amendment's. Undo
-         *     with ``POST /admin/insider-amendments/decisions/{id}/revoke``. **404** unknown amendment, **409** nothing
-         *     to ratify / the system already applied it / a decision already stands / ambiguous and not linked yet.
+         * @description USE THE CORRECTION (basis ``operator:apply``): the amendment as filed replaces its WHOLE original — a void
+         *     / duplicates removes its targets. Allowed over a standing system decision (it stands over it). Undo with
+         *     ``POST /admin/insider-amendments/decisions/{id}/revoke``. **404** unknown amendment, **409** nothing to
+         *     ratify / an operator decision already stands / ambiguous and not linked yet / a correction (it applies).
          */
         post: operations["apply_amendment_admin_insider_amendments__security_id___accession__apply_post"];
         delete?: never;
@@ -1441,6 +1440,29 @@ export interface paths {
          *     **404** unknown amendment, **409** nothing to decide / an operator decision already stands.
          */
         post: operations["keep_original_admin_insider_amendments__security_id___accession__keep_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/insider-amendments/{security_id}/{accession}/add": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add To Original
+         * @description ADD TO THE ORIGINAL (basis ``operator:add``): every original row stands and the amendment's rows are
+         *     added beside them — for a 4/A that reports a trade the filer left out. A partial / consolidation / addition /
+         *     restatement / field change only. Undo with the revoke route. **404** unknown amendment, **409** a zero-row
+         *     or correction amendment (nothing to add) / an operator decision already stands.
+         */
+        post: operations["add_to_original_admin_insider_amendments__security_id___accession__add_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2113,6 +2135,15 @@ export interface components {
             unresolved: boolean;
             /** Kept Rows */
             kept_rows?: string[];
+            /**
+             * Held
+             * @default false
+             */
+            held: boolean;
+            /** Reading */
+            reading?: string | null;
+            /** Passage */
+            passage?: string | null;
         };
         /**
          * AdminInsiderAmendmentsOut
@@ -8816,6 +8847,42 @@ export interface operations {
         };
     };
     keep_original_admin_insider_amendments__security_id___accession__keep_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                security_id: string;
+                accession: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["AdminInsiderReasonIn"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminInsiderAmendmentOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_to_original_admin_insider_amendments__security_id___accession__add_post: {
         parameters: {
             query?: never;
             header?: never;

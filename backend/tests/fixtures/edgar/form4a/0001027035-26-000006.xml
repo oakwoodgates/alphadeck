@@ -1,0 +1,118 @@
+<?xml version="1.0"?>
+<ownershipDocument>
+
+    <schemaVersion>X0508</schemaVersion>
+
+    <documentType>4/A</documentType>
+
+    <periodOfReport>2025-03-04</periodOfReport>
+
+    <dateOfOriginalSubmission>2025-03-05</dateOfOriginalSubmission>
+
+    <notSubjectToSection16>0</notSubjectToSection16>
+
+    <issuer>
+        <issuerCik>0001935979</issuerCik>
+        <issuerName>Biohaven Ltd.</issuerName>
+        <issuerTradingSymbol>BHVN</issuerTradingSymbol>
+    </issuer>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001027035</rptOwnerCik>
+            <rptOwnerName>CHILDS JOHN W</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerStreet1>C/O BIOHAVEN LTD.</rptOwnerStreet1>
+            <rptOwnerStreet2>215 CHURCH STREET</rptOwnerStreet2>
+            <rptOwnerCity>NEW HAVEN</rptOwnerCity>
+            <rptOwnerState>CT</rptOwnerState>
+            <rptOwnerZipCode>06510</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>1</isDirector>
+            <isOfficer>0</isOfficer>
+            <isTenPercentOwner>0</isTenPercentOwner>
+            <isOther>0</isOther>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <aff10b5One>0</aff10b5One>
+
+    <nonDerivativeTable>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Common Shares</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2025-03-04</value>
+            </transactionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>P</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+            </transactionCoding>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>28400</value>
+                    <footnoteId id="F1"/>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>30.4266</value>
+                    <footnoteId id="F2"/>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>A</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>2323971</value>
+                    <footnoteId id="F2"/>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>I</value>
+                </directOrIndirectOwnership>
+                <natureOfOwnership>
+                    <value>By John W Childs 2013 Revocable Trust</value>
+                </natureOfOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+        <nonDerivativeHolding>
+            <securityTitle>
+                <value>Common Shares</value>
+            </securityTitle>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>73170</value>
+                    <footnoteId id="F2"/>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>I</value>
+                </directOrIndirectOwnership>
+                <natureOfOwnership>
+                    <value>By 2013 Charitable Remainder Trust</value>
+                </natureOfOwnership>
+            </ownershipNature>
+        </nonDerivativeHolding>
+    </nonDerivativeTable>
+
+    <derivativeTable></derivativeTable>
+
+    <footnotes>
+        <footnote id="F1">This amendment is being filed to correct the nature of the indirect ownership reported in the Form 4 filed on March 5, 2025 (the &quot;Original Form 4&quot;). The Original Form 4 inadvertently misstated that 3,400 Common Shares were indirectly acquired by the Reporting Person through the 2013 Charitable Remainder Trust, and 25,000 Common Shares were indirectly acquired by the Reporting Person through the John W Childs 2013 Revocable Trust. However, as reflected in this amendment, 28,400 Common Shares were indirectly acquired by the Reporting Person through the John W Childs 2013 Revocable Trust, and no Common Shares were indirectly acquired by the Reporting Person through the 2013 Charitable Remainder Trust.</footnote>
+        <footnote id="F2">The price reported in Column 4 is a weighted average price. These shares were purchased in multiple transactions at prices ranging from $30.17 - $30.89, inclusive. The Reporting Person undertakes to provide to the Issuer, any security holder of the Issuer, or the staff of the Securities and Exchange Commission, upon request, full information regarding the number of shares purchased at each separate price within the ranges set forth in this footnote to this Form 4.</footnote>
+    </footnotes>
+
+    <remarks></remarks>
+
+    <ownerSignature>
+        <signatureName>/s/ George Clark, Attorney-in-Fact</signatureName>
+        <signatureDate>2026-03-09</signatureDate>
+    </ownerSignature>
+</ownershipDocument>

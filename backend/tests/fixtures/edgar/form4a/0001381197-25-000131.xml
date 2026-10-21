@@ -1,0 +1,226 @@
+<?xml version="1.0"?>
+<ownershipDocument>
+
+    <schemaVersion>X0508</schemaVersion>
+
+    <documentType>4</documentType>
+
+    <periodOfReport>2025-09-19</periodOfReport>
+
+    <issuer>
+        <issuerCik>0001381197</issuerCik>
+        <issuerName>Interactive Brokers Group, Inc.</issuerName>
+        <issuerTradingSymbol>IBKR</issuerTradingSymbol>
+    </issuer>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001391403</rptOwnerCik>
+            <rptOwnerName>Brody Paul Jonathan</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerStreet1>ONE PICKWICK PLAZA</rptOwnerStreet1>
+            <rptOwnerStreet2></rptOwnerStreet2>
+            <rptOwnerCity>GREENWICH</rptOwnerCity>
+            <rptOwnerState>CT</rptOwnerState>
+            <rptOwnerZipCode>06830</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>true</isDirector>
+            <isOfficer>true</isOfficer>
+            <officerTitle>Chief Financial Officer</officerTitle>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <aff10b5One>true</aff10b5One>
+
+    <nonDerivativeTable>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Class A common stock</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2025-09-19</value>
+            </transactionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>S</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+            </transactionCoding>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>50553</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>64.61</value>
+                    <footnoteId id="F2"/>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>D</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>108401</value>
+                    <footnoteId id="F1"/>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>I</value>
+                </directOrIndirectOwnership>
+                <natureOfOwnership>
+                    <value>by PJB Holdings LLC</value>
+                </natureOfOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Class A common stock</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2025-09-19</value>
+            </transactionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>S</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+            </transactionCoding>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>140</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>65.19</value>
+                    <footnoteId id="F3"/>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>D</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>108261</value>
+                    <footnoteId id="F1"/>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>I</value>
+                </directOrIndirectOwnership>
+                <natureOfOwnership>
+                    <value>by PJB Holdings LLC</value>
+                </natureOfOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Class A common stock</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2025-09-22</value>
+            </transactionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>S</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+            </transactionCoding>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>14639</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>63.94</value>
+                    <footnoteId id="F4"/>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>D</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>93622</value>
+                    <footnoteId id="F1"/>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>I</value>
+                </directOrIndirectOwnership>
+                <natureOfOwnership>
+                    <value>by PJB Holdings LLC</value>
+                </natureOfOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Class A common stock</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2025-09-22</value>
+            </transactionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>S</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+            </transactionCoding>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>563</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>64.61</value>
+                    <footnoteId id="F5"/>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>D</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>93059</value>
+                    <footnoteId id="F1"/>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>I</value>
+                </directOrIndirectOwnership>
+                <natureOfOwnership>
+                    <value>by PJB Holdings LLC</value>
+                </natureOfOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+        <nonDerivativeHolding>
+            <securityTitle>
+                <value>Class A common stock</value>
+            </securityTitle>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>2885496</value>
+                    <footnoteId id="F6"/>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>D</value>
+                </directOrIndirectOwnership>
+            </ownershipNature>
+        </nonDerivativeHolding>
+    </nonDerivativeTable>
+
+    <footnotes>
+        <footnote id="F1">Represents number of securities acquired by a limited liability company, owned indirectly by the Reporting Person, in a partial redemption of its interest in IBG Holdings LLC. Such securities were acquired by IBG Holdings LLC from Interactive Brokers Group, Inc. immediately prior to the redemption in exchange for membership interest in IBG LLC.</footnote>
+        <footnote id="F2">The price reported in Column 4 is a weighted average price. These shares were sold in multiple transactions at prices ranging from $64.16 to $65.15. The Reporting Person undertakes to provide Interactive Brokers Group, Inc. (the &quot;Company&quot;), any security holder of the Company, or the staff of the Securities and Exchange Commission, upon request, full information regarding the number of shares sold at each price within the ranges set forth in footnotes (2) - (5) to this Form 4.</footnote>
+        <footnote id="F3">The price reported in Column 4 is a weighted average price. These shares were sold in multiple transactions at prices ranging from $65.16 to $65.29.</footnote>
+        <footnote id="F4">The price reported in Column 4 is a weighted average price. These shares were sold in multiple transactions at prices ranging from $63.48 to $64.47.</footnote>
+        <footnote id="F5">The price reported in Column 4 is a weighted average price. These shares were sold in multiple transactions at prices ranging from $64.48 to $64.73.</footnote>
+        <footnote id="F6">This amount includes (a) Class A common stock attributable to vested restricted stock units that were awarded under the amended 2007 Stock Incentive Plan (&quot;Plan&quot;) and (b) unvested restricted stock units that were awarded under the Plan.</footnote>
+    </footnotes>
+
+    <ownerSignature>
+        <signatureName>/s/ Raymond Bussiere as authorized signatory for Paul J. Brody</signatureName>
+        <signatureDate>2025-09-23</signatureDate>
+    </ownerSignature>
+</ownershipDocument>

@@ -1,0 +1,94 @@
+<?xml version="1.0"?>
+<ownershipDocument>
+
+    <schemaVersion>X0508</schemaVersion>
+
+    <documentType>4</documentType>
+
+    <periodOfReport>2024-11-20</periodOfReport>
+
+    <notSubjectToSection16>0</notSubjectToSection16>
+
+    <issuer>
+        <issuerCik>0001682149</issuerCik>
+        <issuerName>WISA TECHNOLOGIES, INC.</issuerName>
+        <issuerTradingSymbol>WISA</issuerTradingSymbol>
+    </issuer>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001250879</rptOwnerCik>
+            <rptOwnerName>WILLIAMS GARY</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerStreet1>C/O WISA TECHNOLOGIES, INC.</rptOwnerStreet1>
+            <rptOwnerStreet2>15268 NW GREENBRIER PKWY</rptOwnerStreet2>
+            <rptOwnerCity>BEAVERTON</rptOwnerCity>
+            <rptOwnerState>OR</rptOwnerState>
+            <rptOwnerZipCode>97006</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>0</isDirector>
+            <isOfficer>1</isOfficer>
+            <isTenPercentOwner>0</isTenPercentOwner>
+            <isOther>0</isOther>
+            <officerTitle>See Remarks</officerTitle>
+            <otherText></otherText>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <aff10b5One>0</aff10b5One>
+
+    <nonDerivativeTable>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Common Stock</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2024-11-20</value>
+            </transactionDate>
+            <deemedExecutionDate></deemedExecutionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>S</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+                <footnoteId id="F1"/>
+            </transactionCoding>
+            <transactionTimeliness></transactionTimeliness>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>58</value>
+                    <footnoteId id="F1"/>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>1.978</value>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>D</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>60125</value>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>D</value>
+                </directOrIndirectOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+    </nonDerivativeTable>
+
+    <footnotes>
+        <footnote id="F1">Represents shares of common stock, par value $0.0001 per share, of the issuer sold to the open market by the issuer on behalf of the reporting person to satisfy tax obligations in connection with vesting of equity awards and was not a discretionary transaction by the reporting person.</footnote>
+    </footnotes>
+
+    <remarks>Chief Accounting Officer and VP of Finance</remarks>
+
+    <ownerSignature>
+        <signatureName>/s/ Gary Williams</signatureName>
+        <signatureDate>2024-11-22</signatureDate>
+    </ownerSignature>
+</ownershipDocument>

@@ -43,6 +43,9 @@ const base = {
   in_review: false,
   unresolved: false,
   kept_rows: [] as string[],
+  held: false,
+  reading: null as string | null,
+  passage: null as string | null,
 };
 
 const SKYT = {
@@ -187,6 +190,7 @@ const h = vi.hoisted(() => ({
   q: {} as Record<string, unknown>,
   apply: {} as Record<string, unknown>,
   keep: {} as Record<string, unknown>,
+  add: {} as Record<string, unknown>,
   link: {} as Record<string, unknown>,
   revoke: {} as Record<string, unknown>,
 }));
@@ -195,6 +199,7 @@ vi.mock("../../api/hooks", () => ({
   useInsiderAmendments: () => h.q,
   useApplyAmendment: () => h.apply,
   useKeepOriginal: () => h.keep,
+  useAddToOriginal: () => h.add,
   useLinkAmendment: () => h.link,
   useRevokeAmendmentDecision: () => h.revoke,
 }));
@@ -211,6 +216,7 @@ function serve(data: Record<string, unknown>) {
 beforeEach(() => {
   h.apply = m();
   h.keep = m();
+  h.add = m();
   h.link = m();
   h.revoke = m();
   serve({
@@ -240,10 +246,10 @@ describe("InsiderAmendments", () => {
       expect(screen.getByTestId(id)).not.toHaveAttribute("open");
     }
     expect(screen.getByTestId("adm-amend-auto")).toHaveTextContent(
-      "2 applied automatically — the filer's own correction",
+      "2 resolved automatically — the filer's own correction applied",
     );
     expect(screen.getByTestId("adm-amend-inert")).toHaveTextContent("1 with nothing to apply");
-    for (const mm of [h.apply, h.keep, h.link, h.revoke]) {
+    for (const mm of [h.apply, h.keep, h.add, h.link, h.revoke]) {
       expect(mutate(mm)).not.toHaveBeenCalled();
     }
   });
@@ -260,7 +266,7 @@ describe("InsiderAmendments", () => {
     const row = screen.getAllByTestId("adm-amend-row")[0];
     expect(row).toHaveTextContent("Several Form 4s could be the one this amends");
     expect(row).toHaveTextContent("Nothing changes until you do.");
-    expect(within(row).queryByRole("button", { name: "Ratify void" })).toBeNull();
+    expect(within(row).queryByRole("button", { name: "Use the correction" })).toBeNull();
     await userEvent.click(within(row).getByRole("button", { name: "Link to 0001856680-26-000013" }));
     expect(mutate(h.link)).toHaveBeenCalledWith({
       securityId: SKYT_ID,
@@ -281,7 +287,7 @@ describe("InsiderAmendments", () => {
     // a settled item in today's window is not loud (honest loudness)
     expect(within(fls).queryByTestId("adm-amend-in-window")).toBeNull();
     expect(avav).toHaveTextContent("applied by the system — it changes no buy or sale a call signal reads");
-    await userEvent.click(within(fls).getByRole("button", { name: "Keep original" }));
+    await userEvent.click(within(fls).getByRole("button", { name: "Keep the original" }));
     expect(mutate(h.keep)).toHaveBeenCalledWith({ securityId: FLS_ID, accession: FLS.accession });
     expect(mutate(h.revoke)).not.toHaveBeenCalled(); // the system's record is never revoked as "the Undo"
   });
@@ -289,7 +295,7 @@ describe("InsiderAmendments", () => {
   it("keeps the inverse beside a decision: Undo of a keep restores the filer's amendment", async () => {
     render(<InsiderAmendments />);
     const decided = screen.getByTestId("adm-amend-decided");
-    expect(decided).toHaveTextContent("original kept by you — Undo restores the filer's amendment");
+    expect(decided).toHaveTextContent("original kept by you — Undo restores the system's resolution");
     await userEvent.click(within(decided).getByRole("button", { name: "Undo" }));
     expect(mutate(h.revoke)).toHaveBeenCalledWith({ decisionId: AZTA_KEPT.undo_id });
   });
@@ -326,8 +332,10 @@ describe("InsiderAmendments", () => {
     );
     expect(within(skyt).queryByTestId("adm-amend-in-window")).toBeNull();
     expect(fls).toHaveTextContent("Suppressing 0001628280-26-035913 from every call until you decide.");
-    await userEvent.click(within(fls).getByRole("button", { name: "Ratify void" }));
+    await userEvent.click(within(fls).getByRole("button", { name: "Use the correction" }));
     expect(mutate(h.apply)).toHaveBeenCalledWith({ securityId: FLS_ID, accession: FLS.accession });
+    // a zero-row 4/A has nothing to add
+    expect(within(fls).queryByRole("button", { name: "Add to the original" })).toBeNull();
   });
 
   it("marks the original rows an applied 4/A does not account for as standing (MRCY's sales)", () => {
@@ -358,7 +366,69 @@ describe("InsiderAmendments", () => {
     expect(row).toHaveTextContent("stands (this 4/A does not account for it)");
   });
 
-  it("asks about an unresolved row match: Apply if it restates, Keep if it does not", async () => {
+  it("lists a zero-row 4/A kept as filed with Use the correction as its inverse", async () => {
+    const SMR = {
+      ...AVAV_AUTO,
+      ticker: "SMR",
+      accession: "0001922054-26-000007",
+      status: "kept",
+      verdict: "keep",
+      system_basis: "system:no-retraction",
+      reading: "no_retraction",
+      suppressing: [],
+    };
+    serve({ auto: [SMR], total: 1 });
+    render(<InsiderAmendments />);
+    const row = within(screen.getByTestId("adm-amend-auto")).getByTestId("adm-amend-auto-row");
+    expect(row).toHaveTextContent("kept as filed by the system — this zero-row 4/A retracts nothing");
+    expect(within(row).queryByRole("button", { name: "Keep the original" })).toBeNull();
+    await userEvent.click(within(row).getByRole("button", { name: "Use the correction" }));
+    expect(mutate(h.apply)).toHaveBeenCalledWith({ securityId: SMR.security_id, accession: SMR.accession });
+  });
+
+  it("shows the filer's words that settled an applied correction", () => {
+    const IBKR = {
+      ...AVAV_AUTO,
+      ticker: "IBKR",
+      accession: "0001381197-25-000139",
+      disposition: "partial",
+      reading: "add",
+      passage: "filed to include shares sold on September 19, 2025, inadvertently excluded",
+      suppressing: [],
+    };
+    serve({ auto: [IBKR], total: 1 });
+    render(<InsiderAmendments />);
+    expect(screen.getByTestId("adm-amend-passage")).toHaveTextContent(
+      "Read as: the filer's words ADD a trade it left out — “filed to include shares sold",
+    );
+  });
+
+  it("asks about a held void: the original stands, Use the correction or Keep the original", () => {
+    const FIGR = {
+      ...base,
+      security_id: "c49dd57b-a0b2-4ebe-a035-5c854cc7024a",
+      ticker: "FIGR",
+      accession: "0001493152-25-024508",
+      filed: "2025-11-20",
+      owners: ["Tannenbaum Michael Benjamin"],
+      disposition: "void",
+      method: "orig_date_owner",
+      status: "kept",
+      verdict: "keep",
+      review: "owed",
+      held: true,
+      system_basis: "system:held",
+    };
+    serve({ owed: [FIGR], total: 1 });
+    render(<InsiderAmendments />);
+    const row = screen.getAllByTestId("adm-amend-row")[0];
+    expect(row).toHaveTextContent("retract a trade, but the original holds several");
+    expect(within(row).getByRole("button", { name: "Use the correction" })).toBeEnabled();
+    expect(within(row).getByRole("button", { name: "Keep the original" })).toBeEnabled();
+    expect(within(row).queryByRole("button", { name: "Add to the original" })).toBeNull();
+  });
+
+  it("offers the three verdicts on an unresolved row match", async () => {
     const MRAM = {
       ...base,
       security_id: "1a2b3c4d-0000-4000-8000-00000000aaaa",
@@ -379,15 +449,17 @@ describe("InsiderAmendments", () => {
     serve({ owed: [MRAM], historical: [{ ...MRAM, accession: "0001628280-26-047720", review: "historical" }], total: 2 });
     render(<InsiderAmendments />);
     const row = screen.getAllByTestId("adm-amend-row")[0];
-    expect(row).toHaveTextContent("date and share count both changed");
+    expect(row).toHaveTextContent("the filer's words neither fix nor add");
     expect(row).toHaveTextContent("The original stands until you decide.");
     expect(within(row).queryByRole("button", { name: /Link to/ })).toBeNull();
-    await userEvent.click(within(row).getByRole("button", { name: "Apply amendment" }));
+    await userEvent.click(within(row).getByRole("button", { name: "Use the correction" }));
     expect(mutate(h.apply)).toHaveBeenCalledWith({ securityId: MRAM.security_id, accession: MRAM.accession });
+    await userEvent.click(within(row).getByRole("button", { name: "Add to the original" }));
+    expect(mutate(h.add)).toHaveBeenCalledWith({ securityId: MRAM.security_id, accession: MRAM.accession });
     // a historical unresolved one offers Apply / Keep, never a Link to its own original
     const hist = within(screen.getByTestId("adm-amend-historical")).getByTestId("adm-amend-historical-row");
     expect(within(hist).queryByRole("button", { name: /Link to/ })).toBeNull();
-    await userEvent.click(within(hist).getByRole("button", { name: "Keep original" }));
+    await userEvent.click(within(hist).getByRole("button", { name: "Keep the original" }));
     expect(mutate(h.keep)).toHaveBeenCalledWith({ securityId: MRAM.security_id, accession: "0001628280-26-047720" });
   });
 

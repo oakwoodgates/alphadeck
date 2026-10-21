@@ -1390,6 +1390,18 @@ export function useKeepOriginal() {
   });
 }
 
+// ADD TO THE ORIGINAL (R8-B): every original row stands and the amendment's rows are added beside them.
+export function useAddToOriginal() {
+  return useAmendmentDecision(async (vars: AmendmentRef) => {
+    const { data, error } = await api.POST("/admin/insider-amendments/{security_id}/{accession}/add", {
+      params: { path: { security_id: vars.securityId, accession: vars.accession } },
+      body: reasonBody(vars.reason),
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
 // LINK an ambiguous amendment to one of its candidate originals.
 export function useLinkAmendment() {
   return useAmendmentDecision(async (vars: AmendmentRef & { target: string }) => {

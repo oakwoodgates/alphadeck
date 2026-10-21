@@ -1,0 +1,73 @@
+<?xml version="1.0"?>
+<ownershipDocument>
+
+    <schemaVersion>X0609</schemaVersion>
+
+    <documentType>4/A</documentType>
+
+    <periodOfReport>2026-03-10</periodOfReport>
+
+    <dateOfOriginalSubmission>2026-03-10</dateOfOriginalSubmission>
+
+    <notSubjectToSection16>false</notSubjectToSection16>
+
+    <issuer>
+        <issuerCik>0000899460</issuerCik>
+        <issuerName>MANNKIND CORP</issuerName>
+        <issuerTradingSymbol>MNKD</issuerTradingSymbol>
+        <issuerForeignTradingSymbol></issuerForeignTradingSymbol>
+    </issuer>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001674282</rptOwnerCik>
+            <rptOwnerName>Castagna Michael</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerNonUSAddressFlag>false</rptOwnerNonUSAddressFlag>
+            <rptOwnerStreet1>1 CASPER STREET</rptOwnerStreet1>
+            <rptOwnerStreet2></rptOwnerStreet2>
+            <rptOwnerCity>DANBURY</rptOwnerCity>
+            <rptOwnerState>CT</rptOwnerState>
+            <rptOwnerZipCode>06810</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>true</isDirector>
+            <isOfficer>true</isOfficer>
+            <isTenPercentOwner>false</isTenPercentOwner>
+            <isOther>false</isOther>
+            <officerTitle>Chief Executive Officer</officerTitle>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <aff10b5One>false</aff10b5One>
+
+    <nonDerivativeTable>
+        <nonDerivativeHolding>
+            <securityTitle>
+                <value>Common Stock $0.01 Par Value</value>
+            </securityTitle>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>2475911</value>
+                    <footnoteId id="F1"/>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>D</value>
+                </directOrIndirectOwnership>
+            </ownershipNature>
+        </nonDerivativeHolding>
+    </nonDerivativeTable>
+
+    <footnotes>
+        <footnote id="F1">On March 10, 2026 Mr. Castagna filed a Form 4 that should not have been filed and which reported a transaction that should not, in fact, be attributable to him. The Form 4 mistakenly reported a direct acquisition of 100,000 shares of common stock of the Issuer on March 10, 2026 by Mr. Castagna (the &quot;Shares&quot;).  The Shares, however, were acquired by Mr. Castagna's spouse under a segregated retirement account in which Mr. Castagna does not have a pecuniary interest. As a result, Mr. Castagna was not obligated to file a Form 4 pursuant to Section 16(a).  Such Form 4 should be deemed revoked.</footnote>
+    </footnotes>
+
+    <ownerSignature>
+        <signatureName>/s/ Michael Castagna</signatureName>
+        <signatureDate>2026-05-08</signatureDate>
+    </ownerSignature>
+</ownershipDocument>

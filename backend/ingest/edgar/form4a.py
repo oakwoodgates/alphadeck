@@ -36,10 +36,13 @@ from psycopg.types.json import Json
 from db.session import DEFAULT_TENANT_ID
 from domain.insider_amendments import (
     BASIS_FILER_CORRECTION,
+    BASIS_HELD,
+    BASIS_NO_RETRACTION,
     BASIS_NO_SIGNAL_EFFECT,
     STATUS_PENDING,
     AmendmentFacts,
     LinkResult,
+    filer_text,
     link_amendment,
     norm_cik,
 )
@@ -88,6 +91,14 @@ SYSTEM_REASONS: dict[str, str] = {
     BASIS_FILER_CORRECTION: (
         "the filer's own amendment, resolved to the Form 4 it amends — applied by the system (R8-B)"
     ),
+    BASIS_NO_RETRACTION: (
+        "a zero-row 4/A whose text retracts nothing (a holdings / Table II / power-of-attorney fix) — the "
+        "original stands"
+    ),
+    BASIS_HELD: (
+        "a zero-row 4/A that retracts a trade, against an original with several — the original stands until "
+        "the operator decides"
+    ),
 }
 
 
@@ -101,6 +112,7 @@ def system_decision_values(
     signal_codes: Collection[str],
     via: str,
     replaced_rows: Collection[str] | None = None,
+    action: str = "apply",
 ) -> dict[str, Any]:
     """One SYSTEM ``apply`` decision's columns (the ingest's and the sweep's — one shape): append-only and
     undoable on Admin like any decision. ``via`` names the writer (``ingest`` / ``sweep``); ``replaced_rows``
@@ -110,7 +122,7 @@ def system_decision_values(
         "tenant_id": tenant_id,
         "security_id": security_id,
         "amendment_accession": accession,
-        "action": "apply",
+        "action": action,
         "reason": SYSTEM_REASONS[basis],
         "basis": basis,
         "detail": {"disposition": disposition, "signal_codes": sorted(signal_codes), "via": via},
@@ -241,9 +253,11 @@ def ingest_form4a(
     signal reads (``signal_codes``, default derived from the registered detectors — ``signals.horizons
     .insider_signal_codes``), else ``system:filer-correction``. A partial / consolidation / addition /
     restatement / field change carries its ROW MATCH (``replaced_rows`` — the original rows it accounts for;
-    every other original row stands). Undoable on Admin (Keep original). An ambiguous link, and a match the
-    rule cannot resolve (a buy/sell whose date AND share count both changed), write no decision — they wait for
-    the operator (or read as historical)."""
+    every other original row stands). A zero-row 4/A is read by the filer's words (``void_reading``): it is
+    applied only when it retracts a single-trade original; otherwise the system records a ``keep`` (basis
+    ``system:no-retraction`` — the original stands — or ``system:held`` — owed to the operator). Undoable on
+    Admin. An ambiguous link, and a match neither shape nor words resolve, write no decision — they wait for the
+    operator (or read as historical)."""
     if signal_codes is None:
         signal_codes = default_signal_codes()
     parsed = parse_form4a(xml)
@@ -272,6 +286,7 @@ def ingest_form4a(
         filed=filed,
         accepted=accepted,
         rows=tuple(rows),
+        text=filer_text(parsed.remarks, parsed.footnotes),
     )
     held = (
         stored
@@ -328,6 +343,7 @@ def ingest_form4a(
                         "auto_resolved": link.auto_resolved,
                         "basis": link.basis,
                         "unresolved_match": link.unresolved,
+                        "void_reading": link.void_kind,
                         "signal_codes": sorted(signal_codes),
                     }
                 ),
@@ -344,7 +360,8 @@ def ingest_form4a(
                 disposition=link.disposition,
                 signal_codes=signal_codes,
                 via="ingest",
-                replaced_rows=link.replaced_rows,
+                replaced_rows=link.replaced_rows if link.system_action == "apply" else None,
+                action=link.system_action or "apply",
             )
             cur.execute(
                 "INSERT INTO insider_amendment_decision (tenant_id, security_id, amendment_accession, action, "
