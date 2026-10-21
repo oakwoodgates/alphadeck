@@ -577,9 +577,20 @@ def _same_owner(a: Mapping[str, Any], b: Mapping[str, Any]) -> bool:
 # Kept small and explicit; each is matched case-insensitively against the 4/A's remarks + footnotes
 # (``filer_text``). Documented in ``docs/FEED_LOOP.md`` §R8-B.
 _TXN_NOUN = r"(?:sale|purchase|acquisition|disposition|transaction|grant)s?"
-# a zero-row 4/A RETRACTS a trade only in these words (``void_reading``)
+# "cancel" counts only beside a TRADE (the same sentence, within 60 characters, either order): FLS's "previously
+# reported sale … was cancelled", CZR's "cancellation of such transaction" — never "options … cancelled in
+# exchange" or a merger's "each share … was canceled and converted" (an option / share cancellation, not a
+# retraction). ``\b`` after the noun, so "granted" is no "grant".
+_CANCEL = r"\bcancel(?:l?ed|lation|l?ing)?\b"
+_CANCEL_CONTEXT = rf"\b(?:{_TXN_NOUN}|trades?|orders?)\b"
+# a zero-row 4/A RETRACTS a trade only in these words (``void_reading``). Tightened 2026-10-21 (coordinator
+# review): boilerplate-prone phrases removed or narrowed so a future filing's ownership / joint-filer / option
+# boilerplate can never quietly hide a single real trade — "attributable to him" dropped (ownership boilerplate);
+# "duplicate" only as a duplicate FILING (never joint-filer "may be duplicative of the shares reported by X");
+# "cancel" only beside a trade (above).
 RETRACTION_PHRASES: tuple[str, ...] = (
-    r"\bcancel(?:l?ed|lation|ing)?\b",
+    rf"{_CANCEL}[^.;]{{0,60}}?{_CANCEL_CONTEXT}",
+    rf"{_CANCEL_CONTEXT}[^.;]{{0,60}}?{_CANCEL}",
     r"\bdid not (?:in fact )?occur\b",
     r"\bnever occurred\b",
     r"\bno transactions? occurred\b",
@@ -589,12 +600,13 @@ RETRACTION_PHRASES: tuple[str, ...] = (
     r"\berroneously (?:filed|submitted)\b",
     rf"\berroneously reported (?:a|an|the) {_TXN_NOUN}",
     r"\brescind(?:ed)?\b",
-    r"\bduplicat(?:e|ive)\b",
+    r"\bduplicate (?:filings?|form 4s?|reports?|submissions?)\b",
+    r"\bfiled in duplicate\b",
+    r"\bduplicative (?:filings?|reports?)\b",
     r"\bvoid(?:ed)? ab initio\b",
     r"\bnever (?:held|owned|acquired|purchased|sold)\b",
     r"\bdoes not (?:hold|own) any\b",
     rf"\bmistakenly (?:filed|reported) (?:a|an|the) (?:\w+ )?{_TXN_NOUN}",
-    r"\battributable to (?:him|her|them)\b",
 )
 # the filer FIXES the trade it re-reports (a leftover original is replaced by the amendment's rows)
 FIX_PHRASES: tuple[str, ...] = (

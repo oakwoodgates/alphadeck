@@ -474,6 +474,84 @@ def test_void_reading_contract():
     assert void_reading("", one, CODES).kind == VOID_NO_RETRACTION
 
 
+# --- the tightened retraction phrases (coordinator review, 2026-10-21) -----------------------------------------
+# Three boilerplate-prone phrases could quietly hide a future filing's single real trade. Each keeps its real
+# retraction and loses its boilerplate. The quoted sentences are REAL — read from prod's stored 4/As (read-only,
+# 2026-10-21; the accession beside each) or the fixture documents; the joint-filer and "attributable to him"
+# negatives are stated as the function's contract (the boilerplate shapes), because prod's only "attributable to
+# him" is MNKD's own retraction and its only "duplicative" (FCEL 0000897069-26-000883, a no-rows 4/A) is not a
+# joint-filer footnote.
+
+
+def _passage_on_one_sale(text: str) -> str | None:
+    """The retraction passage of ``text`` against a single-sale original (``None`` = no retraction words)."""
+    v = void_reading(text, [_r("S", "2026-03-04", 100.0)], CODES)
+    return v.passage if v.kind == VOID_RETRACT else None
+
+
+def test_cancel_retracts_only_beside_a_trade():
+    # FLS — the real document: the broker cancelled the buy inside the settlement window
+    p = parse_form4a(xml("0001628280-26-037326"))
+    fls = void_reading(filer_text(p.remarks, p.footnotes), [_r("P", "2026-05-18", 2000.0)], CODES)
+    assert fls.kind == VOID_RETRACT and "sale on May 18, 2026 was cancelled" in fls.passage
+    # CZR 0001590895-22-000086 — the cancellation of the transaction itself
+    czr = _passage_on_one_sale(
+        "This report on Form 4/A amends the Form 4 filed by the reporting person on March 9, 2022. This report "
+        "on Form 4/A is being filed solely to report the cancellation of such transaction prior to settlement."
+    )
+    assert czr is not None and "cancellation of such transaction" in czr
+    # option / share / earn-out cancellations — no trade beside the word: never a retraction
+    for text in (
+        # TLS 0001181431-08-038225 ("granted" is no "grant")
+        "On June 4, 2008, the Issuer cancelled all stock options granted to the Reporting Person. In exchange "
+        "for such cancelled stock options, the Issuer granted 11,250 shares of restricted stock to the "
+        "Reporting Person.",
+        # KITT 0001213900-22-056032 (a zero-row 4/A: earn-out boilerplate)
+        "Any shares not eligible to be released within five years of December 16, 2021 will be forfeited and "
+        "canceled.",
+        # ACHR 0001209191-21-057863 (a merger's share conversion)
+        'Upon consummation of the Merger (the "Effective Time"), each issued and outstanding share of common '
+        "stock of Legacy Archer was canceled and converted into",
+    ):
+        assert _passage_on_one_sale(text) is None, text
+
+
+def test_duplicate_retracts_only_as_a_duplicate_filing():
+    # TDG 0001352573-26-000011 and ULBI 0000875657-06-000078 — real duplicate FILINGS (ULBI's spelling as filed)
+    tdg = _passage_on_one_sale(
+        "0001352573-26-000009 and 0001352573-26-000010, also filed on June 22, 2026, were duplicate filings "
+        "made in error and are superseded by this amendment."
+    )
+    assert tdg is not None and "duplicate filings" in tdg
+    ulbi = _passage_on_one_sale("On 12/26/06 a duplicate Form 4 was filed inadvertantly.")
+    assert ulbi is not None and "duplicate Form 4" in ulbi
+    # joint-filer boilerplate (the contract): another owner's report of the SAME shares is no retraction
+    assert (
+        _passage_on_one_sale(
+            "The securities reported herein may be duplicative of the shares reported by the other reporting "
+            "persons on this Form 4."
+        )
+        is None
+    )
+
+
+def test_attributable_to_him_is_ownership_boilerplate_and_mnkd_still_retracts_on_its_own_words():
+    # MNKD — the real document: it still retracts, on "should not have been filed"
+    p = parse_form4a(xml("0001193125-26-215284"))
+    mnkd = void_reading(
+        filer_text(p.remarks, p.footnotes), [_r("P", "2026-03-10", 100000.0)], CODES
+    )
+    assert mnkd.kind == VOID_RETRACT and "should not have been filed" in mnkd.passage
+    # ownership boilerplate (the contract): never a retraction
+    assert (
+        _passage_on_one_sale(
+            "The reporting person disclaims beneficial ownership of the shares attributable to him except to "
+            "the extent of his pecuniary interest therein."
+        )
+        is None
+    )
+
+
 def test_eltp_two_different_originals_is_ambiguous_with_a_2012_sell_row():
     link = _link("0001465825-12-000008")
     assert link.disposition == AMBIGUOUS and link.status == STATUS_PENDING

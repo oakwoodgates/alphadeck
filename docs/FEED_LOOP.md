@@ -1169,13 +1169,22 @@ text says "sale" for a code-`P` buy. A duplicates set keeps its own handling (th
 **The phrase lists** (`domain/insider_amendments.py` — `RETRACTION_PHRASES`, `FIX_PHRASES`, `ADD_PHRASES`;
 case-insensitive regular expressions over the remarks + footnotes; TXN = sale | purchase | acquisition |
 disposition | transaction | grant, optionally plural):
-- **Retraction:** `cancel` / `canceled` / `cancelled` / `cancellation` / `canceling`; `did not (in fact) occur`;
-  `never occurred`; `no transaction(s) occurred`; `not (actually) executed | consummated | effected`; `should not
-  have been filed | reported | made`; `filed | submitted in error`; `erroneously filed | submitted`; `erroneously
-  reported a | an | the TXN` (the noun is required: DKNG's "erroneously reported 0 derivative securities" is not a
-  retraction); `rescind(ed)`; `duplicate` / `duplicative`; `void(ed) ab initio`; `never held | owned | acquired |
-  purchased | sold`; `does not hold | own any`; `mistakenly filed | reported a | an | the [word] TXN`;
-  `attributable to him | her | them`.
+- **Retraction:** `cancel` / `canceled` / `cancelled` / `cancellation` / `canceling` ONLY within 60 characters of
+  the same sentence (either order) of a TXN | `trade(s)` | `order(s)` (FLS's "previously reported sale … was
+  cancelled", CZR's "cancellation of such transaction" — never "options … cancelled in exchange", an earn-out's
+  "forfeited and canceled" or a merger's "each share … was canceled and converted"; "granted" is no "grant");
+  `did not (in fact) occur`; `never occurred`; `no transaction(s) occurred`; `not (actually) executed |
+  consummated | effected`; `should not have been filed | reported | made`; `filed | submitted in error`;
+  `erroneously filed | submitted`; `erroneously reported a | an | the TXN` (the noun is required: DKNG's
+  "erroneously reported 0 derivative securities" is not a retraction); `rescind(ed)`; `duplicate filing(s) |
+  Form 4(s) | report(s) | submission(s)`, `filed in duplicate`, `duplicative filing(s) | report(s)` (a duplicate
+  FILING only — never joint-filer "may be duplicative of the shares reported by X"); `void(ed) ab initio`; `never
+  held | owned | acquired | purchased | sold`; `does not hold | own any`; `mistakenly filed | reported a | an |
+  the [word] TXN`. (Tightened 2026-10-21 on review: "attributable to him | her | them" dropped as ownership
+  boilerplate — MNKD still retracts on "should not have been filed". MEASURED on prod, read-only: the 96
+  formerly pending voids keep the same 8 / 5 / 83 split and the sweep plan is unchanged; across all 338 stored
+  voids only KITT ×3 — earn-out "forfeited and canceled", already decided under R8-A — move, held → kept as
+  filed.)
 - **Fix:** `correct(s|ed|ing)` followed within the sentence (≤ 120 characters, no `.`/`;`) by `date(s)` |
   `price(s)` | `number of shares sold | purchased | acquired | disposed` | `amount(s) of shares | securities sold |
   purchased | acquired | disposed` | `transaction code(s)`; `incorrectly reported` followed within 60 characters
