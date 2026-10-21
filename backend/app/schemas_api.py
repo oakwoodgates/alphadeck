@@ -1350,6 +1350,16 @@ class InsiderBuyOut(BaseModel):
     subscription) and ``implausible`` (bad source data) are SET-ASIDE rows the panel's open-market figure
     excludes — surfaced grayed + labeled instead of hidden (WB #2), so the ledger shows why a buy did or
     didn't count (#6). The chart's non-set-aside dots reconcile with the panel's net-flow.
+    ``internal_transfer`` = a buy matched to a sale between LINKED filers (``domain.insider_internal_transfers``
+    — James Kim's AMKR shares moved to his children's partnership): set aside like the call sets it aside;
+    ``transfer_with`` names the counterparties.
+
+    ``private_passage`` / ``private_counterparty`` — a buy the filer's OWN footnote says was a private purchase
+    (``domain.insider_private_purchases``: a deterministic phrase list, the passage located verbatim — never a
+    model). Display only: the buy still counts (a private purchase between unrelated people is real
+    conviction); the FE renders the quiet note ("private purchase from Joshua Harley — not on the open
+    market"). The counterparty is named only when grounded (a same-day seller on this tape the passage names,
+    or the issuer). Both ``None`` when no passage is located.
     """
 
     d: date
@@ -1364,7 +1374,14 @@ class InsiderBuyOut(BaseModel):
     ingested: (
         date  # recorded_at::date — our ingest time; the second "ingested" line when it differs
     )
-    character: Literal["open_market", "self_filing", "primary_market", "implausible"]
+    character: Literal[
+        "open_market", "self_filing", "primary_market", "implausible", "internal_transfer"
+    ]
+    transfer_with: list[str] | None = None  # the counterparties of an internal transfer; else None
+    private_passage: str | None = (
+        None  # the filer's private-purchase footnote, verbatim; None = none located
+    )
+    private_counterparty: str | None = None  # grounded counterparty of that purchase, or None
 
 
 class InsiderSellOut(BaseModel):
@@ -1388,6 +1405,10 @@ class InsiderSellOut(BaseModel):
     DIAL-MIRROR CAVEAT: the labels are classified with ``DEFAULT_CONFIG`` pinned — a deployment
     running non-default insider dials could show characters that drift from the call's actual cluster
     screens. The display rail's accepted posture; labels only, never the detector's math.
+
+    ``internal_transfer`` = a sale matched to a buy between LINKED filers (``domain.insider_internal_transfers``
+    — a transfer within the filer group, never insider supply), screened like the call screens it;
+    ``transfer_with`` names the counterparties (``None`` on every other sale).
     """
 
     d: date
@@ -1399,8 +1420,15 @@ class InsiderSellOut(BaseModel):
     disclosed: date | None = None  # SEC acceptance date; None -> FE falls back to "ingested" (#9)
     ingested: date  # recorded_at::date — our ingest time
     character: Literal[
-        "kept", "planned", "self_filing", "below_low", "implausible", "foreign_ordinary"
+        "kept",
+        "planned",
+        "self_filing",
+        "below_low",
+        "implausible",
+        "foreign_ordinary",
+        "internal_transfer",
     ]
+    transfer_with: list[str] | None = None  # the counterparties of an internal transfer; else None
 
 
 class CorporateEventOut(BaseModel):

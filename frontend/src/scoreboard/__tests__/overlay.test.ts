@@ -23,8 +23,10 @@ import {
   legendEntries,
   nearestBarDate,
   overlayTooltip,
+  privatePurchaseLine,
   stackChips,
   tapeSignals,
+  transferLine,
   triggerLinks,
   volumeData,
 } from "../overlay";
@@ -1306,5 +1308,68 @@ describe("legendEntries — the Slice B families appear only when present", () =
       "8-K filing",
       "lifecycle",
     ]);
+  });
+});
+
+describe("internal transfers + private purchases — the operator's 2026-10-21 decisions on the chip", () => {
+  const buyTip = (over: Partial<InsiderBuyOut>) =>
+    overlayTooltip({
+      n: 1,
+      family: "insider",
+      date: "2026-01-15",
+      closeThatDay: null,
+      pctVsNow: null,
+      buy: buy(over),
+    });
+
+  it("a transfer buy names its counterparty, is set aside, and says it does not count", () => {
+    const b = { character: "internal_transfer" as const, transfer_with: ["KIM JAMES J"] };
+    expect(buyTip(b).lines).toContain(
+      "internal transfer within the filer group (with KIM JAMES J) — not counted",
+    );
+    expect(insiderSetAside(buy(b))).toBe(true);
+    // no names resolved -> the generic line, never a guess
+    expect(buyTip({ character: "internal_transfer" }).lines).toContain(
+      "internal transfer within the filer group — not counted",
+    );
+  });
+
+  it("a long counterparty list stays one terse line", () => {
+    expect(transferLine(["A", "B", "C", "D", "E"])).toBe(
+      "internal transfer within the filer group (with A / B +3) — not counted",
+    );
+  });
+
+  it("a private purchase COUNTS and carries one quiet line — only when the filer's footnote says so", () => {
+    const passage =
+      "The transaction is a private purchase ... between the Reporting Person and ... Joshua Harley.";
+    const withName = buy({ private_passage: passage, private_counterparty: "Harley Joshua" });
+    expect(buyTip({ private_passage: passage, private_counterparty: "Harley Joshua" }).lines).toContain(
+      "private purchase from Harley Joshua — not on the open market",
+    );
+    expect(insiderSetAside(withName)).toBe(false); // real conviction (decision 3) — never grayed
+    expect(privatePurchaseLine(buy({ private_passage: passage }))).toBe(
+      "private purchase — not on the open market",
+    );
+    // no located passage -> no line at all (honest loudness #7)
+    expect(privatePurchaseLine(buy())).toBeNull();
+    expect(buyTip({}).lines.some((l) => l.includes("private purchase"))).toBe(false);
+  });
+
+  it("a transfer sale is screened and named the same way", () => {
+    const events = buildOverlayEvents(
+      ep({ arm_date: "2026-06-01" }),
+      [],
+      [bar("2026-06-01", 100), bar("2026-06-02", 102)],
+      undefined,
+      {
+        sells: [sell({ character: "internal_transfer", transfer_with: ["SUJODA Investments, LP"] })],
+      },
+    );
+    const e = events.find((x) => x.family === "sell")!;
+    expect(overlayTooltip(e).lines).toContain(
+      "internal transfer within the filer group (with SUJODA Investments, LP) — not counted",
+    );
+    expect(eventSetAside(e)).toBe(true);
   });
 });

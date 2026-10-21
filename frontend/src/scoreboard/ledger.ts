@@ -34,6 +34,10 @@ export interface LedgerRow {
    *  jump (#6, explainability: the table can reach the document). Absent on rows with no linkable
    *  source — the table stays quiet rather than rendering an empty affordance. */
   links?: ProvenanceLink[];
+  /** The filer's own words behind a quiet note on this row — today the located private-purchase footnote
+   *  (domain/insider_private_purchases.py), verbatim. The component shows it on hover of the detail cell
+   *  (WB#3: the note's one line rides in `detail`; the passage is there for whoever asks). */
+  note?: string;
 }
 
 // A lifecycle row names its specific kind in the type cell — the number's tint already carries the family,
@@ -54,7 +58,13 @@ export function ledgerRow(e: OverlayEvent): LedgerRow {
   if (e.family === "insider") {
     const tip = overlayTooltip(e);
     const lines = tip.lines.filter((l) => !l.startsWith("transacted "));
-    return { ...base, type: "insider buy", detail: [tip.title, ...lines].join(" · ") };
+    return {
+      ...base,
+      type: "insider buy",
+      detail: [tip.title, ...lines].join(" · "),
+      // the located private-purchase passage behind the note line (hover), never invented (#6)
+      ...(e.buy.private_passage ? { note: e.buy.private_passage } : {}),
+    };
   }
   if (e.family === "sell") {
     // Slice B: the sell mirror of the insider-buy row — who + fill + the two clocks + the character

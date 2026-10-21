@@ -1,0 +1,222 @@
+<?xml version="1.0"?>
+<ownershipDocument>
+
+    <schemaVersion>X0306</schemaVersion>
+
+    <documentType>4</documentType>
+
+    <periodOfReport>2021-12-30</periodOfReport>
+
+    <notSubjectToSection16>0</notSubjectToSection16>
+
+    <issuer>
+        <issuerCik>0001047127</issuerCik>
+        <issuerName>AMKOR TECHNOLOGY, INC.</issuerName>
+        <issuerTradingSymbol>amkr</issuerTradingSymbol>
+    </issuer>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001158924</rptOwnerCik>
+            <rptOwnerName>KIM DAVID D</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerStreet1>C/O FOLGER LEVIN LLP</rptOwnerStreet1>
+            <rptOwnerStreet2>199 FREMONT STREET, 20TH FLOOR</rptOwnerStreet2>
+            <rptOwnerCity>SAN FRANCISCO</rptOwnerCity>
+            <rptOwnerState>CA</rptOwnerState>
+            <rptOwnerZipCode>94105</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>0</isDirector>
+            <isOfficer>0</isOfficer>
+            <isTenPercentOwner>0</isTenPercentOwner>
+            <isOther>1</isOther>
+            <otherText>Member of 10% owner group (7)</otherText>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <nonDerivativeTable>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Common Stock</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2021-12-30</value>
+            </transactionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>S</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+                <footnoteId id="F1"/>
+            </transactionCoding>
+            <transactionTimeliness>
+                <value></value>
+            </transactionTimeliness>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>1187087</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>24.68</value>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>D</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>5002744</value>
+                    <footnoteId id="F4"/>
+                    <footnoteId id="F6"/>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>I</value>
+                </directOrIndirectOwnership>
+                <natureOfOwnership>
+                    <value>By Sujoda Investments, LP</value>
+                </natureOfOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Common Stock</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2021-12-30</value>
+            </transactionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>S</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+                <footnoteId id="F2"/>
+            </transactionCoding>
+            <transactionTimeliness>
+                <value></value>
+            </transactionTimeliness>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>1187087</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>24.68</value>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>D</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>3815657</value>
+                    <footnoteId id="F4"/>
+                    <footnoteId id="F6"/>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>I</value>
+                </directOrIndirectOwnership>
+                <natureOfOwnership>
+                    <value>By Sujoda Investments, LP</value>
+                </natureOfOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+        <nonDerivativeHolding>
+            <securityTitle>
+                <value>Common Stock</value>
+            </securityTitle>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>8746</value>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>D</value>
+                </directOrIndirectOwnership>
+            </ownershipNature>
+        </nonDerivativeHolding>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Common Stock</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2021-12-30</value>
+            </transactionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>S</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+                <footnoteId id="F3"/>
+            </transactionCoding>
+            <transactionTimeliness>
+                <value></value>
+            </transactionTimeliness>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>1337332</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>24.68</value>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>D</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>2478325</value>
+                    <footnoteId id="F4"/>
+                    <footnoteId id="F6"/>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>I</value>
+                </directOrIndirectOwnership>
+                <natureOfOwnership>
+                    <value>By Sujoda Investments, LP</value>
+                </natureOfOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+        <nonDerivativeHolding>
+            <securityTitle>
+                <value>Common Stock</value>
+            </securityTitle>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>2698513</value>
+                    <footnoteId id="F5"/>
+                    <footnoteId id="F6"/>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>I</value>
+                </directOrIndirectOwnership>
+                <natureOfOwnership>
+                    <value>By trusts</value>
+                </natureOfOwnership>
+            </ownershipNature>
+        </nonDerivativeHolding>
+    </nonDerivativeTable>
+
+    <footnotes>
+        <footnote id="F1">On December 30, 2021, Sujoda Investments, LP transferred 1,187,087 shares of the Issuer's Common Stock to Agnes C. Kim in payment of the principal of a Note.</footnote>
+        <footnote id="F2">On December 30, 2021, Sujoda Investments, LP transferred 1,187,087 shares of the Issue's Common Stock to James J. Kim in payment of the principal of a Note.</footnote>
+        <footnote id="F3">On December 30, 2021, Suloda Investments, LP transferred 668,666 shares of the Issue's Common Stock to Agnes C. Kim and 668,666 shares of the Issuer's Common Stock to James J. Kim in partial payment of the principal of a joint Note.</footnote>
+        <footnote id="F4">The sole general partner of Sujoda Investments, LP is Sujoda Management, LLC.  The reporting person is one of three members of Sujoda Management, LLC.  Sujoda Management, LLC is being treated as a limited partnership for purposes of Section 16 of the Securities Exchange Act of 1934, as amended, and the reporting person has elected to treat all of the shares of the Issuer's Common Stock owned by Sujoda Investments, LP as beneficially owned by the reporting person.</footnote>
+        <footnote id="F5">The reporting person is a trustee of family trusts for the benefit of his immediate family members which own 2,698,513 shares of the Issuer's Common Stock.</footnote>
+        <footnote id="F6">The reporting person disclaims beneficial ownership of these securities, except to the extent of the reporting person's pecuniary interest therein, and this report shall not be deemed an admission that the reporting person is the beneficial owner of such securities, except to the extent of the reporting person's pecuniary interest therein, for purposes of Section 16, or for any other purpose.</footnote>
+    </footnotes>
+
+    <remarks>7.  The reporting person states that the filing of this Form 4 shall not be deemed an admission that the reporting person is the beneficial owner of the reported securities owned by the other members of the Group, for the purpose of Section 16, or for any other purpose.</remarks>
+
+    <ownerSignature>
+        <signatureName>/s/ Kenneth R. Hillier, as Attorney in Fact</signatureName>
+        <signatureDate>2021-12-31</signatureDate>
+    </ownerSignature>
+</ownershipDocument>

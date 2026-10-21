@@ -1,0 +1,173 @@
+<?xml version="1.0"?>
+<ownershipDocument>
+
+    <schemaVersion>X0508</schemaVersion>
+
+    <documentType>4</documentType>
+
+    <periodOfReport>2025-02-24</periodOfReport>
+
+    <notSubjectToSection16>0</notSubjectToSection16>
+
+    <issuer>
+        <issuerCik>0001047127</issuerCik>
+        <issuerName>AMKOR TECHNOLOGY, INC.</issuerName>
+        <issuerTradingSymbol>AMKR</issuerTradingSymbol>
+    </issuer>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001158839</rptOwnerCik>
+            <rptOwnerName>KIM JAMES J</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerStreet1>C/O SIANA CARR O'CONNOR &amp; LYNAM</rptOwnerStreet1>
+            <rptOwnerStreet2>1500 EAST LANCASTER AVENUE</rptOwnerStreet2>
+            <rptOwnerCity>PAOLI</rptOwnerCity>
+            <rptOwnerState>PA</rptOwnerState>
+            <rptOwnerZipCode>19301-9713</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>0</isDirector>
+            <isOfficer>0</isOfficer>
+            <isTenPercentOwner>1</isTenPercentOwner>
+            <isOther>1</isOther>
+            <otherText>Member of 10% owner group (4)</otherText>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <aff10b5One>0</aff10b5One>
+
+    <nonDerivativeTable>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Common Stock</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2025-02-24</value>
+            </transactionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>S</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+            </transactionCoding>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>869565</value>
+                    <footnoteId id="F1"/>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>21.85</value>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>D</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>71828</value>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>D</value>
+                </directOrIndirectOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+        <nonDerivativeHolding>
+            <securityTitle>
+                <value>Common Stock</value>
+            </securityTitle>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>95000</value>
+                    <footnoteId id="F2"/>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>I</value>
+                </directOrIndirectOwnership>
+                <natureOfOwnership>
+                    <value>By Spouse</value>
+                </natureOfOwnership>
+            </ownershipNature>
+        </nonDerivativeHolding>
+        <nonDerivativeHolding>
+            <securityTitle>
+                <value>Common Stock</value>
+            </securityTitle>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>7828682</value>
+                    <footnoteId id="F2"/>
+                    <footnoteId id="F3"/>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>I</value>
+                </directOrIndirectOwnership>
+                <natureOfOwnership>
+                    <value>By John T. Kim Family Trust U/A dtd. 12/11/12</value>
+                </natureOfOwnership>
+            </ownershipNature>
+        </nonDerivativeHolding>
+        <nonDerivativeHolding>
+            <securityTitle>
+                <value>Common Stock</value>
+            </securityTitle>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>1957350</value>
+                    <footnoteId id="F2"/>
+                    <footnoteId id="F3"/>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>I</value>
+                </directOrIndirectOwnership>
+                <natureOfOwnership>
+                    <value>By John T. Kim G-S Trust dtd. 12/11/12</value>
+                </natureOfOwnership>
+            </ownershipNature>
+        </nonDerivativeHolding>
+        <nonDerivativeHolding>
+            <securityTitle>
+                <value>Common Stock</value>
+            </securityTitle>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>164678</value>
+                    <footnoteId id="F2"/>
+                    <footnoteId id="F3"/>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>I</value>
+                </directOrIndirectOwnership>
+                <natureOfOwnership>
+                    <value>By self as Trustee of Trust U/A dtd. 12/11/12</value>
+                </natureOfOwnership>
+            </ownershipNature>
+        </nonDerivativeHolding>
+    </nonDerivativeTable>
+
+    <derivativeTable></derivativeTable>
+
+    <footnotes>
+        <footnote id="F1">On February 24, 2025, the Reporting Person distributed 869,565 shares of the Common Stock of Amkor Technology, Inc. (the &quot;Issuer&quot;) to Sujoda Investments, LP pursuant to the terms of a transaction between members of the Kim family group.</footnote>
+        <footnote id="F2">The Reporting Person disclaims beneficial ownership of these securities, except to the extent of the Reporting Person's pecuniary interest therein, and this report shall not be deemed an admission that the Reporting Person is the beneficial owner of such securities, except to the extent of the Reporting Person's pecuniary interest therein, for purposes of Section 16 of the Securities Exchange Act of 1934, as amended (&quot;Section 16&quot;), or for any other purpose.</footnote>
+        <footnote id="F3">The Reporting Person is (i) a trustee of trusts for the benefit of his immediate family members which own 9,786,032 shares of the Issuer's Common Stock and (ii) a trustee of a trust which is a controlling member of a limited liability company being treated as a corporation for purposes of Section 16, which limited liability company holds 164,678 shares of the Issuer's Common stock. Pursuant to the Form 4 instructions, the Reporting Person is being treated as having a pecuniary interest in all of such shares.</footnote>
+    </footnotes>
+
+    <remarks>(4) The Reporting Person states that the filing of this Form 4 shall not be deemed an admission that the Reporting Person is the beneficial owner of the reported securities owned by the other members of the group, for the purpose of Section 16, or for any other purpose.</remarks>
+
+    <ownerSignature>
+        <signatureName>/s/ Brian D. Short, Attorney-in-Fact for James J. Kim</signatureName>
+        <signatureDate>2025-02-26</signatureDate>
+    </ownerSignature>
+</ownershipDocument>

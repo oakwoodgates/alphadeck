@@ -321,6 +321,46 @@ only *coincide* for insider buys, which is exactly why the two conviction source
   filing (cited in the provenance), and the label names it: "…; counted once: A / B (joint report)". MEASURED
   2026-10-21 on prod (read-only): 0 thesis-level flips over the 666 honest call rows; INFQ's "$95.2M across 2
   insiders" (the 4/A pair -000507 / -000508) reads $47.6M by one party.
+  **Internal transfers — a buy and a sale between LINKED filers count for nothing (operator-approved
+  2026-10-21).** After the joint-report collapse, in the same seam and for both engines
+  (`domain/insider_internal_transfers.py`), a code-P row and a code-S row on one security with the same (date,
+  shares, price) are one INTERNAL TRANSFER when the legs' OWN filings link their owners: **(1) the same filer**
+  (Pershing Square's funds "purchased and sold … among themselves"; ValueAct's "internal restructuring";
+  Goldman's matched market-making fills), **(2) a shared holding** (a joint-report fingerprint —
+  `filing_links` — links a buy-leg filing and a sale-leg filing), or **(3) a named holding** (a leg's filing
+  reports INDIRECT shares whose `<natureOfOwnership>` names the other leg's owner — Susan Y. Kim's purchase
+  filing holds "By James J. Kim 2024 GRAT"; migration 0055's `filing_natures`). Each buy pairs with ONE linked
+  sale (a maximum matching, direct legs first); an INDIRECT leftover linked by a holding is the same shares
+  reported again (Agnes Kim's "By Spouse" copy of her husband's sale) and goes with it; any other leftover
+  (Goldman's second 63-share fill) stays counted. **Keep-and-screen:** every leg stays on the read, tagged; the
+  conviction detector leaves a transfer buy out and the sell detector a transfer sale (a structural bucket, before
+  price and plan), each NAMING the ones inside its chosen window ("…; 2 internal-transfer txns ($37,999,990)
+  screened" — appended only when present, so no card without one re-records). **Not screened:** a private sale
+  between UNRELATED people — a director buying the founder's block (FTHM), a Stock Purchase Agreement between two
+  holders (RDNW), IAC buying MGM from Corvex — is real conviction (decision 3; the ledger's quiet note, below).
+  **Safe on missing evidence:** a row without the 0055 capture links nothing by name. **Pair-local evidence
+  only** (the legs' own filings), so every reader screens alike whatever its window: AMKR's 2021-12-30
+  note-payment transfers are NOT screened — that day's filings state only generic natures ("By GRATs", "By
+  trusts"); the natures naming the other side first appear in 2022+ filings. MEASURED 2026-10-21 on prod
+  (read-only, the repair's own plan injected): the 12 active theses at asof today — 0 card diffs; the 666 honest
+  call rows — 0 changes (no member holds a transfer leg inside the 240-day insider read of any of them); the 2025
+  re-run (known_at now) — AMKR armed in AI Memory & Storage on 94 of 261 weekdays → 0 (an AMKR insider buy on the
+  card 223 → 0 days; the 2025-02-25 "3 insiders … sold $38,119,047" cluster gone; the thesis state unchanged on
+  every day), MRLN's Dec-2025 flip conviction $42,551 → $37,042 (23 detector-days, 0 member or thesis flips).
+  **Private purchases (display only, never a call input).** A counted buy whose OWN cited footnote
+  (`txn_footnotes`, 0055) says it was a private purchase — a deterministic phrase list, the passage located
+  verbatim (`domain/insider_private_purchases.py`; never "purchased … ranging from $X", never one that says
+  "open market" or a public offering) — carries a quiet Event Ledger note: "private purchase from Joshua Harley
+  — not on the open market". The counterparty is named only when grounded (a same-day seller on the tape the
+  passage names, or the issuer).
+  **Not built (measured 2026-10-21, a proposal awaiting sign-off): the "by spouse" duplicate OUTSIDE a transfer**
+  — an INDIRECT row whose own nature / footnote names a spouse and that matches (date, code, shares, price) a
+  DIRECT row of another owner with a DIFFERENT post-trade holding (so the joint collapse leaves it). On prod's
+  P/S tape: 237 such indirect–direct matches; 10 carry a spouse phrase (6 in the last two years, 0 inside the
+  240-day read), and 2 of the 10 are definite false matches — MIAX 2025-08-13, Mark Massad's "By spouse" IPO-price
+  purchase matching two UNRELATED directors' own identical purchases — plus 1 probable (AIXC 2016, a relative's
+  separate purchase). Not near zero, so the narrow rule stays off. Inside a transfer the case is already handled
+  (the co-report leg above — AMKR's Agnes Kim).
 - **`catalyst_conviction` `[approved]` — grade-DECOUPLED liveness (option A).** Liveness = the agreement's own
   **relevance horizon** (its period of performance), independent of grade; grade = the **customer-vs-sponsor**
   nature of the commitment — a DOE **contract** (DOE *buys your product* = revenue) or a **loan / loan

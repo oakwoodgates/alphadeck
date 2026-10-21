@@ -71,6 +71,30 @@ describe("ledgerRow — one recorded event → its table row (#N ↔ chip N, tin
     expect(row("primary_market").type).toBe("insider buy");
   });
 
+  it("insider: an internal transfer and a private purchase ride the detail; the passage rides the hover", () => {
+    const at = (over: Partial<InsiderBuyOut>) =>
+      ledgerRow({
+        n: 3,
+        family: "insider",
+        date: "2024-09-12",
+        closeThatDay: null,
+        pctVsNow: null,
+        buy: buy(over),
+      });
+    const transfer = at({ character: "internal_transfer", transfer_with: ["KIM JAMES J"] });
+    expect(transfer.detail).toContain(
+      "internal transfer within the filer group (with KIM JAMES J) — not counted",
+    );
+    expect(transfer.note).toBeUndefined();
+    const passage =
+      "The transaction is a private purchase of shares of Fathom Holdings Inc. (the \"Company\") common " +
+      "stock between the Reporting Person and the Company's founder, Joshua Harley.";
+    const priv = at({ private_passage: passage, private_counterparty: "Harley Joshua" });
+    expect(priv.detail).toContain("private purchase from Harley Joshua — not on the open market");
+    expect(priv.note).toBe(passage); // the filer's own words, verbatim (#6)
+    expect(at({}).note).toBeUndefined(); // no passage -> no hover, no line
+  });
+
   const trigRow = (trigger: Partial<TriggerRefOut>, date = "2026-06-01", armDate = "2026-06-01") =>
     ledgerRow({
       n: 4,

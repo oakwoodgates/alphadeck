@@ -106,10 +106,13 @@ def _aux_of(con: duckdb.DuckDBPyConnection) -> _AuxRows | None:
 # dicts/lists so the detectors (e.g. dilution_clock -> ConvertTerms.model_validate; the corporate
 # detectors' ``items`` membership checks) get the same shape live and in replay. fact_corporate_event
 # .items is a Postgres text[] (a Python list via psycopg) that the export json.dumps'd; decoding
-# restores the list — a NULL stays None (unresolved items read identically on both engines).
+# restores the list — a NULL stays None (unresolved items read identically on both engines). fact_insider_txn's
+# two text[] columns (migration 0055 — the filer's footnotes + the filing's indirect natures) ride the same way,
+# so the internal-transfer screen reads the same lists on both engines (PIT parity).
 _JSON_COLS: dict[str, tuple[str, ...]] = {
     "fact_dilution": ("terms",),
     "fact_corporate_event": ("items",),
+    "fact_insider_txn": ("txn_footnotes", "filing_natures"),
 }
 
 

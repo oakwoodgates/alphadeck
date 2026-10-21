@@ -6,6 +6,7 @@ from uuid import UUID
 
 from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.enums import Grade, Kind, Role
+from domain.insider_internal_transfers import is_internal_transfer, screened_label
 from domain.insider_joint_reports import joint_accessions, joint_labels, roles_of
 from domain.signal import SignalEvent
 from signals.base import Detector, SignalPointInTimeData
@@ -228,6 +229,11 @@ def score(
     - the row's own ``security_title`` + ``issuer_foreign_symbol`` (captured at ingest) → screens out a
       home-market ORDINARY-share row mis-filed on a US ADR's tape (a dual-listed issuer's 2330.TW ESPP buys
       under the TSM ADR), see ``_is_foreign_ordinary``. Pure per-row predicate — no external screen input.
+    - the read's ``INTERNAL_TRANSFER`` tag (``domain.insider_internal_transfers``, applied in the shared seam) →
+      a buy matched to a sale between LINKED filers (AMKR: James Kim -> his children's Sujoda Investments) is no
+      purchase: left out, and the ones inside the chosen cluster's window are named in the label
+      ("; 1 internal-transfer txn ($18,999,995) screened"). A private purchase between unrelated people is NOT
+      tagged and still counts (the operator's decision 3).
 
     Absent/``None`` ``day_lows``/``issuer_name`` only disables that one screen (nothing over-excluded).
 
@@ -257,12 +263,23 @@ def score(
     # flipping the dial is a measured config decision, never a code change. Tri-state: only an
     # explicit `aff_10b5_1 is True` weighs; None/False weigh 1.0 (#9). See docs/CALL_LOGIC.md §3.
     w = cfg.insider_10b5_1_buy_weight
+    # an INTERNAL TRANSFER (a buy matched to a sale between linked filers — domain.insider_internal_transfers,
+    # tagged in the read) is no purchase at all: kept on the read, left out here, NAMED in the label below (#6)
+    transfers = [
+        t
+        for t in txns
+        if t.get("txn_code") in TXN_CODES
+        and t.get("valid_from") is not None
+        and t["valid_from"] <= asof
+        and is_internal_transfer(t)
+    ]
     p_buys = [
         t
         for t in txns
         if t.get("txn_code") in TXN_CODES
         and t.get("valid_from") is not None
         and t["valid_from"] <= asof
+        and not is_internal_transfer(t)
         and _is_open_market_buy(t, lows, cfg)
         and not _is_issuer_self(t, issuer_name)
         and not _is_foreign_ordinary(
@@ -302,6 +319,12 @@ def score(
         f"{' incl. senior officer' if best.senior else ''} bought "
         f"${best.total_usd:,.0f} open-market (code P) across {len(best.buys)} txns"
     )
+    # the internal transfers inside THIS cluster's window, named beside the number (only when present — a card
+    # without one keeps its exact label, no record churn)
+    floor = best.anchor - timedelta(days=cfg.insider_cluster_window_days)
+    screened = screened_label([t for t in transfers if floor <= t["valid_from"] <= best.anchor])
+    if screened:
+        label += f"; {screened}"
     joint = joint_labels(best.buys)  # trades several persons reported, counted once (named, #6)
     if joint:
         label += f"; counted once: {'; '.join(joint)}"

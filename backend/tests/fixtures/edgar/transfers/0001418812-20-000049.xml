@@ -1,0 +1,333 @@
+<?xml version="1.0"?>
+<ownershipDocument>
+
+    <schemaVersion>X0306</schemaVersion>
+
+    <documentType>4</documentType>
+
+    <periodOfReport>2020-06-05</periodOfReport>
+
+    <notSubjectToSection16>0</notSubjectToSection16>
+
+    <issuer>
+        <issuerCik>0000885590</issuerCik>
+        <issuerName>Bausch Health Companies Inc.</issuerName>
+        <issuerTradingSymbol>BHC</issuerTradingSymbol>
+    </issuer>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001418814</rptOwnerCik>
+            <rptOwnerName>ValueAct Holdings, L.P.</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerStreet1>ONE LETTERMAN DRIVE</rptOwnerStreet1>
+            <rptOwnerStreet2>BUILDING D, 4TH FLOOR</rptOwnerStreet2>
+            <rptOwnerCity>SAN FRANCISCO</rptOwnerCity>
+            <rptOwnerState>CA</rptOwnerState>
+            <rptOwnerZipCode>94129</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>1</isDirector>
+            <isOfficer>0</isOfficer>
+            <isTenPercentOwner>0</isTenPercentOwner>
+            <isOther>1</isOther>
+            <otherText>See Remarks</otherText>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001464912</rptOwnerCik>
+            <rptOwnerName>ValueAct Capital Master Fund, L.P.</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerStreet1>ONE LETTERMAN DRIVE</rptOwnerStreet1>
+            <rptOwnerStreet2>BUILDING D, 4TH FLOOR</rptOwnerStreet2>
+            <rptOwnerCity>SAN FRANCISCO</rptOwnerCity>
+            <rptOwnerState>CA</rptOwnerState>
+            <rptOwnerZipCode>94129</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>1</isDirector>
+            <isOfficer>0</isOfficer>
+            <isTenPercentOwner>0</isTenPercentOwner>
+            <isOther>1</isOther>
+            <otherText>See Remarks</otherText>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001579734</rptOwnerCik>
+            <rptOwnerName>ValueAct Co-Invest Master Fund, L.P.</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerStreet1>ONE LETTERMAN DRIVE</rptOwnerStreet1>
+            <rptOwnerStreet2>BUILDING D, 4TH FLOOR</rptOwnerStreet2>
+            <rptOwnerCity>SAN FRANCISCO</rptOwnerCity>
+            <rptOwnerState>CA</rptOwnerState>
+            <rptOwnerZipCode>94129</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>1</isDirector>
+            <isOfficer>0</isOfficer>
+            <isTenPercentOwner>0</isTenPercentOwner>
+            <isOther>1</isOther>
+            <otherText>See Remarks</otherText>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001418812</rptOwnerCik>
+            <rptOwnerName>VA Partners I, LLC</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerStreet1>ONE LETTERMAN DRIVE</rptOwnerStreet1>
+            <rptOwnerStreet2>BUILDING D, 4TH FLOOR</rptOwnerStreet2>
+            <rptOwnerCity>SAN FRANCISCO</rptOwnerCity>
+            <rptOwnerState>CA</rptOwnerState>
+            <rptOwnerZipCode>94129</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>1</isDirector>
+            <isOfficer>0</isOfficer>
+            <isTenPercentOwner>0</isTenPercentOwner>
+            <isOther>1</isOther>
+            <otherText>See Remarks</otherText>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001351069</rptOwnerCik>
+            <rptOwnerName>ValueAct Capital Management, L.P.</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerStreet1>ONE LETTERMAN DRIVE</rptOwnerStreet1>
+            <rptOwnerStreet2>BUILDING D, 4TH FLOOR</rptOwnerStreet2>
+            <rptOwnerCity>SAN FRANCISCO</rptOwnerCity>
+            <rptOwnerState>CA</rptOwnerState>
+            <rptOwnerZipCode>94129</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>1</isDirector>
+            <isOfficer>0</isOfficer>
+            <isTenPercentOwner>0</isTenPercentOwner>
+            <isOther>1</isOther>
+            <otherText>See Remarks</otherText>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001351073</rptOwnerCik>
+            <rptOwnerName>ValueAct Capital Management, LLC</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerStreet1>ONE LETTERMAN DRIVE</rptOwnerStreet1>
+            <rptOwnerStreet2>BUILDING D, 4TH FLOOR</rptOwnerStreet2>
+            <rptOwnerCity>SAN FRANCISCO</rptOwnerCity>
+            <rptOwnerState>CA</rptOwnerState>
+            <rptOwnerZipCode>94129</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>1</isDirector>
+            <isOfficer>0</isOfficer>
+            <isTenPercentOwner>0</isTenPercentOwner>
+            <isOther>1</isOther>
+            <otherText>See Remarks</otherText>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001763309</rptOwnerCik>
+            <rptOwnerName>ValueAct Holdings II, L.P.</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerStreet1>ONE LETTERMAN DRIVE</rptOwnerStreet1>
+            <rptOwnerStreet2>BUILDING D, FOURTH FLOOR</rptOwnerStreet2>
+            <rptOwnerCity>SAN FRANCISCO</rptOwnerCity>
+            <rptOwnerState>CA</rptOwnerState>
+            <rptOwnerZipCode>94129</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>1</isDirector>
+            <isOfficer>0</isOfficer>
+            <isTenPercentOwner>0</isTenPercentOwner>
+            <isOther>1</isOther>
+            <otherText>See Remarks</otherText>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001418813</rptOwnerCik>
+            <rptOwnerName>ValueAct Holdings GP, LLC</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerStreet1>ONE LETTERMAN DRIVE</rptOwnerStreet1>
+            <rptOwnerStreet2>BUILDING D, 4TH FLOOR</rptOwnerStreet2>
+            <rptOwnerCity>SAN FRANCISCO</rptOwnerCity>
+            <rptOwnerState>CA</rptOwnerState>
+            <rptOwnerZipCode>94129</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>1</isDirector>
+            <isOfficer>0</isOfficer>
+            <isTenPercentOwner>0</isTenPercentOwner>
+            <isOther>1</isOther>
+            <otherText>See Remarks</otherText>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <nonDerivativeTable>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Common Shares, no par value</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2020-06-05</value>
+            </transactionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>S</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+                <footnoteId id="F1"/>
+            </transactionCoding>
+            <transactionTimeliness>
+                <value></value>
+            </transactionTimeliness>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>948353</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>19.24</value>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>D</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>0</value>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>I</value>
+                </directOrIndirectOwnership>
+                <natureOfOwnership>
+                    <value>See Footnotes</value>
+                    <footnoteId id="F2"/>
+                    <footnoteId id="F3"/>
+                </natureOfOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Common Shares, no par value</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2020-06-05</value>
+            </transactionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>P</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+                <footnoteId id="F1"/>
+            </transactionCoding>
+            <transactionTimeliness>
+                <value></value>
+            </transactionTimeliness>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>948353</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>19.24</value>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>A</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>17931594</value>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>I</value>
+                </directOrIndirectOwnership>
+                <natureOfOwnership>
+                    <value>See Footnotes</value>
+                    <footnoteId id="F2"/>
+                    <footnoteId id="F4"/>
+                </natureOfOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+    </nonDerivativeTable>
+
+    <footnotes>
+        <footnote id="F1">The securities were transferred in an internal restructuring resulting in the transfer of the direct ownership of the shares reported herein (the &quot;Restructuring&quot;). In connection with the Restructuring, ValueAct Co-Invest Master Fund, L.P. transferred in a private transaction 948,353 of its shares to ValueAct Capital Master Fund, L.P. The Restructuring did not constitute a change in the aggregate number of shares beneficially owned by the reporting persons. The transaction was effected at the closing market price on the transaction date.</footnote>
+        <footnote id="F2">Each reporting person listed herein disclaims beneficial ownership of the reported securities except to the extent of its pecuniary interest therein, and this report shall not be deemed an admission that such person is the beneficial owner of the securities for purposes of Section 16 of the Securities Exchange Act of 1934, as amended, or for any other purpose.</footnote>
+        <footnote id="F3">The securities reported herein are directly beneficially owned by ValueAct Co-Invest Master Fund, L.P. and may be deemed to be indirectly beneficially owned by (i) VA Partners I, LLC as General Partner of ValueAct Co-Invest Master Fund, L.P., (ii) ValueAct Capital Management, L.P. as the manager of ValueAct Co-Invest Master Fund, L.P., (iii) ValueAct Capital Management, LLC as General Partner of ValueAct Capital Management, L.P., (iv) ValueAct Holdings, L.P. as the majority owner of the membership interests of VA Partners I, LLC, (v) ValueAct Holdings II, L.P. as the sole owner of the membership interests of ValueAct Capital Management, LLC and as the majority owner of the limited partnership interests of ValueAct Capital Management, L.P., and (vi) ValueAct Holdings GP, LLC as General Partner of ValueAct Holdings, L.P. and ValueAct Holdings II, L.P.</footnote>
+        <footnote id="F4">The securities reported herein are directly beneficially owned by ValueAct Capital Master Fund, L.P. and may be deemed to be indirectly beneficially owned by (i) VA Partners I, LLC as General Partner of ValueAct Capital Master Fund, L.P., (ii) ValueAct Capital Management, L.P. as the manager of ValueAct Capital Master Fund, L.P., (iii) ValueAct Capital Management, LLC as General Partner of ValueAct Capital Management, L.P., (iv) ValueAct Holdings, L.P. as the majority owner of the membership interests of VA Partners I, LLC, (v) ValueAct Holdings II, L.P. as the sole owner of the membership interests of ValueAct Capital Management, LLC and as the majority owner of the limited partnership interests of ValueAct Capital Management, L.P., and (vi) ValueAct Holdings GP, LLC as General Partner of ValueAct Holdings, L.P. and ValueAct Holdings II, L.P.</footnote>
+    </footnotes>
+
+    <remarks>- The reporting persons herein may be deemed to be members of a &quot;group&quot; for purposes of the Securities Exchange Act of 1934, as amended. Each reporting person disclaims beneficial ownership of any securities deemed to be owned by the group that are not directly owned by such reporting person. This report shall not be deemed an admission that such reporting person is a member of a group or the beneficial owner of any securities not directly owned by such reporting person.
+
+- D. Robert Hale, a partner of ValueAct Holdings GP, LLC, serves on the board of directors of the Issuer. As a result, the other reporting persons herein may be deemed directors by deputization.</remarks>
+
+    <ownerSignature>
+        <signatureName>VALUEACT HOLDINGS, L.P.  By:  VALUEACT HOLDINGS GP, LLC, its General Partner, By: /s/ Bradley E. Singer, Chief Operating Officer</signatureName>
+        <signatureDate>2020-06-09</signatureDate>
+    </ownerSignature>
+
+    <ownerSignature>
+        <signatureName>VALUEACT CAPITAL MASTER FUND, L.P.  By:  VA PARTNERS I, LLC, its General Partner, By: /s/ Bradley E. Singer, Chief Operating Officer</signatureName>
+        <signatureDate>2020-06-09</signatureDate>
+    </ownerSignature>
+
+    <ownerSignature>
+        <signatureName>VALUEACT CO-INVEST MASTER FUND, L.P., By:  VA PARTNERS I, LLC, its General Partner, By: /s/ Bradley E. Singer, Chief Operating Officer</signatureName>
+        <signatureDate>2020-06-09</signatureDate>
+    </ownerSignature>
+
+    <ownerSignature>
+        <signatureName>VA PARTNERS I, LLC, By: /s/ Bradley E. Singer, Chief Operating Officer</signatureName>
+        <signatureDate>2020-06-09</signatureDate>
+    </ownerSignature>
+
+    <ownerSignature>
+        <signatureName>VALUEACT CAPITAL MANAGEMENT, L.P.  By:  VALUEACT CAPITAL MANAGEMENT, LLC, its General Partner, By: /s/ Bradley E. Singer, Chief Operating Officer</signatureName>
+        <signatureDate>2020-06-09</signatureDate>
+    </ownerSignature>
+
+    <ownerSignature>
+        <signatureName>VALUEACT CAPITAL MANAGEMENT, LLC, By: /s/ Bradley E. Singer, Chief Operating Officer</signatureName>
+        <signatureDate>2020-06-09</signatureDate>
+    </ownerSignature>
+
+    <ownerSignature>
+        <signatureName>VALUEACT HOLDINGS II, L.P.  By:  VALUEACT HOLDINGS GP, LLC, its General Partner, By: /s/ Bradley E. Singer, Chief Operating Officer</signatureName>
+        <signatureDate>2020-06-09</signatureDate>
+    </ownerSignature>
+
+    <ownerSignature>
+        <signatureName>VALUEACT HOLDINGS GP, LLC, By: /s/ Bradley E. Singer, Chief Operating Officer</signatureName>
+        <signatureDate>2020-06-09</signatureDate>
+    </ownerSignature>
+</ownershipDocument>

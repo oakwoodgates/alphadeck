@@ -68,7 +68,7 @@ export function EventLedger({
                   <td className={`evled-n ${r.cls}`}>{r.n}</td>
                   <td className="evled-d">{fmtDate(r.date)}</td>
                   <td className="evled-t">{r.type}</td>
-                  <td className="evled-x">
+                  <td className="evled-x" title={r.note}>
                     {r.detail}
                     {/* the filing behind the fact, where the server resolved a link — quiet anchors
                         appended to the text (the refs themselves already ride in `detail`, so a

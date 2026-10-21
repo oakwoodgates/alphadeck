@@ -181,6 +181,30 @@ describe("EventLedger — rows are the shared numbered events (row #N ↔ chip #
     const { container: normal } = renderLedger();
     expect(rowFor(normal, 4)).not.toHaveClass("evled-setaside");
   });
+
+  it("an internal-transfer buy is muted-and-labeled; a private purchase stays counted with a quiet note", () => {
+    const transfer = buildOverlayEvents(
+      ep({ warm_date: "2026-05-20", arm_date: "2026-06-01", triggers_at_arm: [TRIG] }),
+      [buy({ d: "2026-06-10", character: "internal_transfer", transfer_with: ["KIM JAMES J"] })],
+      BARS as PriceBar[],
+    );
+    const { container } = renderLedger({ events: transfer });
+    const t = rowFor(container, 4);
+    expect(t).toHaveClass("evled-setaside"); // grayed, never removed (WB #2)
+    expect(t.textContent).toContain("internal transfer within the filer group (with KIM JAMES J) — not counted");
+
+    const passage = "These shares were purchased from David Schmidt.";
+    const priv = buildOverlayEvents(
+      ep({ warm_date: "2026-05-20", arm_date: "2026-06-01", triggers_at_arm: [TRIG] }),
+      [buy({ d: "2026-06-10", private_passage: passage, private_counterparty: "Schmidt David" })],
+      BARS as PriceBar[],
+    );
+    const { container: c2 } = renderLedger({ events: priv });
+    const p = rowFor(c2, 4);
+    expect(p).not.toHaveClass("evled-setaside"); // it COUNTS (decision 3)
+    expect(p.textContent).toContain("private purchase from Schmidt David — not on the open market");
+    expect(p.querySelector(".evled-x")).toHaveAttribute("title", passage); // the located passage on hover
+  });
 });
 
 describe("EventLedger — the cross-highlight (hover-only v1)", () => {

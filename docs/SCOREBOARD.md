@@ -632,8 +632,17 @@ events** as **colored numbered chips**:
   composes): `open_market` (the unbadged norm — "passed the available screens", never "proven
   discretionary") · `self_filing` (labeled — still counted in the panel's net-flow; that re-base is
   deferred) · `primary_market` / `implausible` (**set aside** — grayed chips + muted ledger rows, present
-  and labeled instead of hidden, WB #2/#9). The **counted** (non-set-aside) dots reconcile with the
-  NamePanel's net-flow figure.
+  and labeled instead of hidden, WB #2/#9) · `internal_transfer` (**set aside** — a buy matched to a sale
+  between LINKED filers, `domain/insider_internal_transfers.py`; the line names the counterparties from
+  `transfer_with`: "internal transfer within the filer group (with KIM JAMES J) — not counted"; sales carry the
+  same character + line). The **counted** (non-set-aside) dots reconcile with the NamePanel's net-flow figure
+  (the flow sets transfers aside on both sides too).
+- **The private-purchase note (display only)** — a counted buy whose OWN footnote the deterministic phrase list
+  locates (`private_passage`, `private_counterparty` — `domain/insider_private_purchases.py`) carries ONE quiet
+  line, "private purchase from Joshua Harley — not on the open market" (no name unless the server grounded one:
+  a same-day seller the passage names, or the issuer); the ledger row's detail cell shows the filer's passage
+  verbatim on hover. Never grayed — a private purchase between unrelated people is real conviction (the
+  operator's decision 3, 2026-10-21); a buy with no located passage has no line (#7).
 - **The relevance floor** — the loaded universe is `[max(thesis.created_at − 365d, first_bar), now]`: a thesis
   born in 2026 does not plot a 2020 buy. A *relevance* bound on off-story events, never a recall cut (#9); the
   server owns it and echoes the effective floor.

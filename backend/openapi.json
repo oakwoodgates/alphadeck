@@ -9869,9 +9869,46 @@
               "open_market",
               "self_filing",
               "primary_market",
-              "implausible"
+              "implausible",
+              "internal_transfer"
             ],
             "title": "Character"
+          },
+          "transfer_with": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transfer With"
+          },
+          "private_passage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Private Passage"
+          },
+          "private_counterparty": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Private Counterparty"
           }
         },
         "type": "object",
@@ -9881,7 +9918,7 @@
           "character"
         ],
         "title": "InsiderBuyOut",
-        "description": "One code-P insider purchase inside an episode's window (Slice A, characters in Band 03 S2c) \u2014 an\noverlay chip / event-ledger row.\n\n``d`` = the transaction date (``valid_from``, the chip's x-position). TWO honest clocks (the MRVL\ntwo-clock fix \u2014 invariant #6): ``disclosed`` = the real SEC acceptance date (``accepted::date``, when the\nfiling became public), ``None`` when unresolved (pre-backfill / unresolvable \u2014 the FE renders the\n\"ingested\" line only, recall-safe #9); ``ingested`` = ``recorded_at::date`` (when OUR pipeline wrote the\nrow), rendered as a SECOND line only when it differs from ``disclosed``. On the rebuilt demo a Form 4\naccepted ~2d after its txn but re-ingested in 2026 reads \"disclosed 2d later \u00b7 ingested 326d later\" \u2014\nhonest, where the old single ``disclosed=recorded_at`` field lied \"disclosed 326d\". ``aff_10b5_1``\n(TRUE/FALSE/NULL) flags a Rule 10b5-1 pre-scheduled plan (a note rendered only on an explicit TRUE,\nnever a different number). Every field traces to a real ``fact_insider_txn`` row; both time axes are\nasof-capped (no-lookahead, #1 \u2014 the transaction-time gate keys on ``recorded_at`` like every fact table;\n``accepted`` is a display/metrics column, never a gate).\n\n``character`` is the buy's server-side classification (deterministic field predicates \u2014 #3, the same\npredicates the NamePanel's open-market screen composes): ``open_market`` means \"passed the available\nscreens\", NEVER \"proven discretionary\" \u2014 a buy with no day-low price context stays ``open_market``;\n``self_filing`` = the issuer filing a Form 4 on its own stock (labeled, still counted in the panel's\n90d net-flow \u2014 that re-base is deferred); ``primary_market`` (an offer-price IPO/PIPE/placement\nsubscription) and ``implausible`` (bad source data) are SET-ASIDE rows the panel's open-market figure\nexcludes \u2014 surfaced grayed + labeled instead of hidden (WB #2), so the ledger shows why a buy did or\ndidn't count (#6). The chart's non-set-aside dots reconcile with the panel's net-flow."
+        "description": "One code-P insider purchase inside an episode's window (Slice A, characters in Band 03 S2c) \u2014 an\noverlay chip / event-ledger row.\n\n``d`` = the transaction date (``valid_from``, the chip's x-position). TWO honest clocks (the MRVL\ntwo-clock fix \u2014 invariant #6): ``disclosed`` = the real SEC acceptance date (``accepted::date``, when the\nfiling became public), ``None`` when unresolved (pre-backfill / unresolvable \u2014 the FE renders the\n\"ingested\" line only, recall-safe #9); ``ingested`` = ``recorded_at::date`` (when OUR pipeline wrote the\nrow), rendered as a SECOND line only when it differs from ``disclosed``. On the rebuilt demo a Form 4\naccepted ~2d after its txn but re-ingested in 2026 reads \"disclosed 2d later \u00b7 ingested 326d later\" \u2014\nhonest, where the old single ``disclosed=recorded_at`` field lied \"disclosed 326d\". ``aff_10b5_1``\n(TRUE/FALSE/NULL) flags a Rule 10b5-1 pre-scheduled plan (a note rendered only on an explicit TRUE,\nnever a different number). Every field traces to a real ``fact_insider_txn`` row; both time axes are\nasof-capped (no-lookahead, #1 \u2014 the transaction-time gate keys on ``recorded_at`` like every fact table;\n``accepted`` is a display/metrics column, never a gate).\n\n``character`` is the buy's server-side classification (deterministic field predicates \u2014 #3, the same\npredicates the NamePanel's open-market screen composes): ``open_market`` means \"passed the available\nscreens\", NEVER \"proven discretionary\" \u2014 a buy with no day-low price context stays ``open_market``;\n``self_filing`` = the issuer filing a Form 4 on its own stock (labeled, still counted in the panel's\n90d net-flow \u2014 that re-base is deferred); ``primary_market`` (an offer-price IPO/PIPE/placement\nsubscription) and ``implausible`` (bad source data) are SET-ASIDE rows the panel's open-market figure\nexcludes \u2014 surfaced grayed + labeled instead of hidden (WB #2), so the ledger shows why a buy did or\ndidn't count (#6). The chart's non-set-aside dots reconcile with the panel's net-flow.\n``internal_transfer`` = a buy matched to a sale between LINKED filers (``domain.insider_internal_transfers``\n\u2014 James Kim's AMKR shares moved to his children's partnership): set aside like the call sets it aside;\n``transfer_with`` names the counterparties.\n\n``private_passage`` / ``private_counterparty`` \u2014 a buy the filer's OWN footnote says was a private purchase\n(``domain.insider_private_purchases``: a deterministic phrase list, the passage located verbatim \u2014 never a\nmodel). Display only: the buy still counts (a private purchase between unrelated people is real\nconviction); the FE renders the quiet note (\"private purchase from Joshua Harley \u2014 not on the open\nmarket\"). The counterparty is named only when grounded (a same-day seller on this tape the passage names,\nor the issuer). Both ``None`` when no passage is located."
       },
       "InsiderSellOut": {
         "properties": {
@@ -9970,9 +10007,24 @@
               "self_filing",
               "below_low",
               "implausible",
-              "foreign_ordinary"
+              "foreign_ordinary",
+              "internal_transfer"
             ],
             "title": "Character"
+          },
+          "transfer_with": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transfer With"
           }
         },
         "type": "object",
@@ -9982,7 +10034,7 @@
           "character"
         ],
         "title": "InsiderSellOut",
-        "description": "One code-S insider sale inside an episode's window (Slice B \u2014 the sell mirror of\n``InsiderBuyOut``): an overlay chip / event-ledger row.\n\nSame shape and the same two honest clocks as the buy (``d`` = transaction date; ``disclosed`` =\n``accepted::date``, ``None`` when unresolved \u2192 the FE falls back to the \"ingested\" line, #9;\n``ingested`` = ``recorded_at::date``), both time axes asof-capped (no-lookahead #1, the\n``recorded_at`` gate like every fact table).\n\n``character`` is the sale's server-side classification via the CALL side's sell screen\n(``signals.insider_sell._screen`` \u2014 deterministic field predicates, #3), wire-mapped\n(``self`` \u2192 ``self_filing``, ``foreign`` \u2192 ``foreign_ordinary``): ``kept`` = what the risk\ndetector's cluster counts; ``planned`` (an explicit 10b5-1 True \u2014 near-noise), ``self_filing``\n(the issuer transacting its own stock), ``below_low`` (a discounted secondary \u2014 a different risk\nfamily), ``implausible`` (bad source data), and ``foreign_ordinary`` (a home-market ordinary line\nmis-filed on the ADR's tape) are SCREENED rows \u2014 surfaced grayed + labeled instead of hidden\n(WB #2), so the ledger shows why a sale did or didn't count (#6).\n\nDIAL-MIRROR CAVEAT: the labels are classified with ``DEFAULT_CONFIG`` pinned \u2014 a deployment\nrunning non-default insider dials could show characters that drift from the call's actual cluster\nscreens. The display rail's accepted posture; labels only, never the detector's math."
+        "description": "One code-S insider sale inside an episode's window (Slice B \u2014 the sell mirror of\n``InsiderBuyOut``): an overlay chip / event-ledger row.\n\nSame shape and the same two honest clocks as the buy (``d`` = transaction date; ``disclosed`` =\n``accepted::date``, ``None`` when unresolved \u2192 the FE falls back to the \"ingested\" line, #9;\n``ingested`` = ``recorded_at::date``), both time axes asof-capped (no-lookahead #1, the\n``recorded_at`` gate like every fact table).\n\n``character`` is the sale's server-side classification via the CALL side's sell screen\n(``signals.insider_sell._screen`` \u2014 deterministic field predicates, #3), wire-mapped\n(``self`` \u2192 ``self_filing``, ``foreign`` \u2192 ``foreign_ordinary``): ``kept`` = what the risk\ndetector's cluster counts; ``planned`` (an explicit 10b5-1 True \u2014 near-noise), ``self_filing``\n(the issuer transacting its own stock), ``below_low`` (a discounted secondary \u2014 a different risk\nfamily), ``implausible`` (bad source data), and ``foreign_ordinary`` (a home-market ordinary line\nmis-filed on the ADR's tape) are SCREENED rows \u2014 surfaced grayed + labeled instead of hidden\n(WB #2), so the ledger shows why a sale did or didn't count (#6).\n\nDIAL-MIRROR CAVEAT: the labels are classified with ``DEFAULT_CONFIG`` pinned \u2014 a deployment\nrunning non-default insider dials could show characters that drift from the call's actual cluster\nscreens. The display rail's accepted posture; labels only, never the detector's math.\n\n``internal_transfer`` = a sale matched to a buy between LINKED filers (``domain.insider_internal_transfers``\n\u2014 a transfer within the filer group, never insider supply), screened like the call screens it;\n``transfer_with`` names the counterparties (``None`` on every other sale)."
       },
       "InstrumentKind": {
         "type": "string",

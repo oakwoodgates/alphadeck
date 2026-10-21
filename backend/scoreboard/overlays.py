@@ -29,7 +29,10 @@ bars themselves (``docs/CALL_LOGIC.md`` / invariant #1):
 
 Both insider overlays read through the shared as-of seam, so a trade several persons reported in separate
 filings (a joint report — ``domain.insider_joint_reports``) rides the ledger ONCE, its ``insider_name`` naming
-every reporter ("A / B (joint report)").
+every reporter ("A / B (joint report)"); a buy and a sale between linked filers (an internal transfer —
+``domain.insider_internal_transfers``) ride it grayed, ``character = internal_transfer`` with ``transfer_with``
+naming the counterparties, never hidden (WB #2); and a buy the filer's own footnote calls a private purchase
+carries its located passage (``domain.insider_private_purchases`` — display only, the buy still counts).
 
 The transaction axis is the load-bearing bit: every event is positioned by ``valid_from`` (the
 transaction / filed date) and GATED by ``recorded_at <= known_at`` — we only surface what we'd have
@@ -50,7 +53,9 @@ import psycopg
 
 from db.bitemporal import as_of
 from domain.config import DEFAULT_CONFIG
+from domain.insider_internal_transfers import transfer_with
 from domain.insider_joint_reports import display_name
+from domain.insider_private_purchases import private_purchase_note
 from signals.display.insider_flow import BUY, SELL, _screen
 from signals.insider_sell import _FOREIGN, _SELF
 from signals.insider_sell import _screen as _sell_screen
@@ -181,6 +186,8 @@ def episode_insider_buys(
         vf: date = r["valid_from"]
         if vf < start or vf > end:  # position window (end bounds a matured, past-exit episode)
             continue
+        # the filer's own words: a located private-purchase passage (display only — the buy still counts)
+        note = private_purchase_note(r, rows)
         buys.append(
             {
                 "d": vf,
@@ -197,6 +204,10 @@ def episode_insider_buys(
                 # the buy's server-classified character (deterministic field predicates, #3);
                 # set-asides ride grayed-and-labeled instead of hidden (option (a) — WB #2)
                 "character": _screen(r, day_lows, issuer_name),
+                # an internal transfer's counterparties (the read's tag) — None on every other buy
+                "transfer_with": list(transfer_with(r)) or None,
+                "private_passage": note.passage if note else None,
+                "private_counterparty": note.counterparty if note else None,
             }
         )
     # sort by transaction date, tiebreak on ingested (always present; disclosed can be NULL)
@@ -279,6 +290,8 @@ def episode_insider_sells(
                 "character": sell_character_wire(
                     _sell_screen(r, day_lows, issuer_name, DEFAULT_CONFIG)
                 ),
+                # an internal transfer's counterparties (the read's tag) — None on every other sale
+                "transfer_with": list(transfer_with(r)) or None,
             }
         )
     sells.sort(key=lambda s: (s["d"], s["ingested"]))

@@ -164,6 +164,7 @@ from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
+from domain.insider_internal_transfers import screen_internal_transfers
 from domain.insider_joint_reports import collapse_joint_reports
 
 # --- the vocabulary -----------------------------------------------------------------------------------
@@ -345,6 +346,9 @@ INSIDER_TXN_COLUMNS: tuple[str, ...] = (
     "issuer_foreign_symbol",
     "direct_indirect",
     "shares_owned_after",
+    "ownership_nature",
+    "txn_footnotes",
+    "filing_natures",
 )
 
 
@@ -1703,6 +1707,10 @@ def emitted_row(
             # the ownership evidence (0054) — absent on a 4/A record stored before it (-> None: never merges)
             "direct_indirect": row.get("direct_indirect"),
             "shares_owned_after": row.get("shares_owned_after"),
+            # the filer's own words (0055) — absent on a 4/A record stored before it (-> None: links nothing)
+            "ownership_nature": row.get("ownership_nature"),
+            "txn_footnotes": row.get("txn_footnotes"),
+            "filing_natures": row.get("filing_natures"),
         }
     )
     out[AMENDS_ACCESSION] = original
@@ -1819,21 +1827,23 @@ class ResolutionInputs:
         self, sid: Any, rows: Sequence[dict[str, Any]], *, asof: date, lower: date | None
     ) -> list[dict[str, Any]]:
         """The 4/A resolution, THEN the joint-report collapse (``domain.insider_joint_reports``) on the resolved
-        rows — the one seam every as-of read of ``fact_insider_txn`` passes through (both engines), so a trade
-        several persons reported counts once for every reader. Nothing to resolve or collapse -> unchanged.
+        rows, THEN the internal-transfer screen (``domain.insider_internal_transfers`` — it TAGS a buy and a sale
+        between linked filers, never drops them; the pre-collapse rows are its evidence) — the one seam every
+        as-of read of ``fact_insider_txn`` passes through (both engines), so a trade several persons reported
+        counts once, and a transfer within a filer group counts for nothing, for every reader. Nothing to
+        resolve, collapse or screen -> unchanged.
         """
         key = str(sid)
-        return collapse_joint_reports(
-            resolve_insider_rows(
-                rows,
-                amendments=self.amendments.get(key, ()),
-                links=self.links.get(key, ()),
-                decisions=self.decisions.get(key, ()),
-                own_ciks=self.own_ciks.get(key, ()),
-                asof=asof,
-                lower=lower,
-            )
+        resolved = resolve_insider_rows(
+            rows,
+            amendments=self.amendments.get(key, ()),
+            links=self.links.get(key, ()),
+            decisions=self.decisions.get(key, ()),
+            own_ciks=self.own_ciks.get(key, ()),
+            asof=asof,
+            lower=lower,
         )
+        return screen_internal_transfers(collapse_joint_reports(resolved), resolved)
 
 
 def group_inputs(

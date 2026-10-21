@@ -120,12 +120,13 @@ class _Links:
             self._p[max(ra, rb)] = min(ra, rb)  # deterministic root
 
 
-def collapse_joint_reports(rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
-    """PURE — ONE security's resolved insider rows with every joint report counted ONCE (the rule above).
-
-    Kept rows keep their input order; a survivor is a NEW dict (the input rows are never mutated) in its own
-    row's place; the other reporters' rows are gone from the read (they stay in ``fact_insider_txn``). A read
-    with nothing to collapse is returned unchanged — the same list."""
+def _eligible_groups(
+    rows: Sequence[Mapping[str, Any]],
+) -> tuple[list[tuple[tuple[Any, ...], list[int]]], _Links] | None:
+    """Rules 1-3 over ``rows``: the ELIGIBLE groups (rule 1's groups that pass rule 2) and the union-find of
+    filings their fingerprints link (rule 3) — or ``None`` when no row carries the evidence at all (the common,
+    cheap case). Shared by the collapse and by ``filing_links`` (the internal-transfer screen's reuse).
+    """
     # rule 1's groups. A row is grouped only WITH its evidence — 'D'/'I', a numeric post-trade holding, a
     # positive share count; without all three it is never grouped (safe on missing evidence). Runs on every read.
     groups: dict[tuple[Any, ...], list[int]] = {}
@@ -142,7 +143,7 @@ def collapse_joint_reports(rows: Sequence[dict[str, Any]]) -> list[dict[str, Any
         key = (r.get("valid_from"), r.get("txn_code"), sh, _num(r.get("price")), after)
         groups.setdefault(key, []).append(i)
     if not groups:
-        return rows if isinstance(rows, list) else list(rows)
+        return None
 
     eligible: list[tuple[tuple[Any, ...], list[int]]] = []
     links = (
@@ -165,6 +166,29 @@ def collapse_joint_reports(rows: Sequence[dict[str, Any]]) -> list[dict[str, Any
         if after != 0 and after != shares:  # rule 3 — a fingerprint links the filings
             for a in accessions[1:]:
                 links.union(accessions[0], a)
+    return eligible, links
+
+
+def filing_links(rows: Sequence[Mapping[str, Any]]) -> _Links:
+    """PURE — the joint-report rule's own union-find over ``rows``' filings (rule 3): ``links.find(accession)``
+    is the same for two filings iff a fingerprint (a shared non-trivial post-trade holding, never two direct
+    holders) proves they report one holding. The internal-transfer screen's "shared holding" link reuses it
+    (``domain/insider_internal_transfers.py``) — one definition of linked filings, never a second.
+    """
+    found = _eligible_groups(rows)
+    return found[1] if found is not None else _Links()
+
+
+def collapse_joint_reports(rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """PURE — ONE security's resolved insider rows with every joint report counted ONCE (the rule above).
+
+    Kept rows keep their input order; a survivor is a NEW dict (the input rows are never mutated) in its own
+    row's place; the other reporters' rows are gone from the read (they stay in ``fact_insider_txn``). A read
+    with nothing to collapse is returned unchanged — the same list."""
+    found = _eligible_groups(rows)
+    if found is None:
+        return rows if isinstance(rows, list) else list(rows)
+    eligible, links = found
 
     collapsing = [
         (key, idx)

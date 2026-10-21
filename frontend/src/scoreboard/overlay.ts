@@ -444,15 +444,41 @@ const CHARACTER_LINE: Partial<Record<InsiderBuyOut["character"], string>> = {
   self_filing: "issuer self-filing (not a personal buy)",
   primary_market: "primary-market (offer-price, set aside)",
   implausible: "implausible $ (bad source data, set aside)",
+  // internal_transfer: its own line (transferLine) — it names the counterparty
   // open_market: no line — "passed the available screens", the unbadged default
 };
 
-/** Is this buy SET ASIDE (excluded from the panel's open-market flow)? Only `primary_market` /
- *  `implausible` — a `self_filing` is labeled but still counted today (the net-flow re-base is
- *  deferred). Set-aside buys render grayed + labeled, never hidden (WB #2: pruning hides, it never
- *  vanishes) — the chip and its ledger row both read this one helper. */
+/** The internal-transfer line (a buy or a sale matched between LINKED filers — server-side,
+ *  domain/insider_internal_transfers.py): named for the counterparties the server resolved, the generic
+ *  phrasing when it named none. Set aside like the call sets it aside (#6 — the work shown). */
+export function transferLine(withNames: string[] | null | undefined): string {
+  const names = withNames ?? [];
+  const shown = names.slice(0, 2).join(" / ") + (names.length > 2 ? ` +${names.length - 2}` : "");
+  return names.length > 0
+    ? `internal transfer within the filer group (with ${shown}) — not counted`
+    : "internal transfer within the filer group — not counted";
+}
+
+/** The private-purchase note (display only — the buy still COUNTS: a private purchase between unrelated
+ *  people is real conviction). Present only when the filer's own footnote locates a passage
+ *  (domain/insider_private_purchases.py); the counterparty only when the server grounded one. */
+export function privatePurchaseLine(b: InsiderBuyOut): string | null {
+  if (b.private_passage == null) return null;
+  const who = b.private_counterparty ? ` from ${b.private_counterparty}` : "";
+  return `private purchase${who} — not on the open market`;
+}
+
+/** Is this buy SET ASIDE (excluded from the panel's open-market flow)? `primary_market` /
+ *  `implausible` / `internal_transfer` — a `self_filing` is labeled but still counted today (the
+ *  net-flow re-base is deferred). Set-aside buys render grayed + labeled, never hidden (WB #2: pruning
+ *  hides, it never vanishes) — the chip and its ledger row both read this one helper. A private purchase
+ *  is NOT set aside (it counts; its note is a quiet line). */
 export function insiderSetAside(b: InsiderBuyOut): boolean {
-  return b.character === "primary_market" || b.character === "implausible";
+  return (
+    b.character === "primary_market" ||
+    b.character === "implausible" ||
+    b.character === "internal_transfer"
+  );
 }
 
 function insiderTooltip(e: InsiderChipEvent): TooltipContent {
@@ -483,8 +509,11 @@ function insiderTooltip(e: InsiderChipEvent): TooltipContent {
     if (ilag >= 1) lines.push(`ingested ${ilag}d later (${b.ingested})`);
   }
   // S2c: the character line — why this buy did/didn't count (#6); open_market stays unbadged (#7)
-  const character = CHARACTER_LINE[b.character];
+  const character =
+    b.character === "internal_transfer" ? transferLine(b.transfer_with) : CHARACTER_LINE[b.character];
   if (character) lines.push(character);
+  const privateNote = privatePurchaseLine(b); // quiet, and only when the filer's footnote says so (#7)
+  if (privateNote) lines.push(privateNote);
   if (b.aff_10b5_1) lines.push("10b5-1 plan (pre-scheduled)"); // tri-state: renders ONLY on explicit true
   // R3: the DISTINCT market fact — the stock's close that day + the move since (the fill $ ≠ the price).
   if (e.closeThatDay != null) {
@@ -504,6 +533,7 @@ const SELL_CHARACTER_LINE: Partial<Record<InsiderSellOut["character"], string>> 
   below_low: "below the day's low (discounted secondary, set aside)",
   implausible: "implausible $ (bad source data, set aside)",
   foreign_ordinary: "foreign ordinary line on the ADR tape (wrong instrument, screened)",
+  // internal_transfer: its own line (transferLine) — it names the counterparty
   // kept: no line — what the risk detector's cluster counts, the unbadged default
 };
 
@@ -553,7 +583,10 @@ function sellTooltip(e: SellChipEvent): TooltipContent {
     const ilag = daysBetween(s.d, s.ingested);
     if (ilag >= 1) lines.push(`ingested ${ilag}d later (${s.ingested})`);
   }
-  const character = SELL_CHARACTER_LINE[s.character];
+  const character =
+    s.character === "internal_transfer"
+      ? transferLine(s.transfer_with)
+      : SELL_CHARACTER_LINE[s.character];
   if (character) lines.push(character); // why this sale did/didn't count (#6); kept stays unbadged
   if (e.closeThatDay != null) {
     const vsNow = e.pctVsNow != null ? ` · ${fmtPct(e.pctVsNow)} vs now` : "";
