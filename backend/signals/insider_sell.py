@@ -26,6 +26,12 @@ display tape, ``signals/display/insider_flow.py``, which shows sells unscreened;
   No above-high screen (the buy side's forward-split rationale, mirrored).
 - **Implausible rows** (> ``insider_max_plausible_txn_usd``) are bad source data (#3).
 
+**Joint reports arrive already counted once.** A sale several persons reported in separate filings (a fund and
+its partner, a spouse "By Spouse") is collapsed at READ, before this detector sees it
+(``domain.insider_joint_reports``, inside the shared resolver seam): one row, one seller, one $ amount. The
+survivor carries its co-reporters' roles (``roles_of`` — seniority unchanged) and filings (cited in the
+provenance), and the label names it ("counted once: A / B (joint report)").
+
 Freshness is DETECTOR-ENFORCED: the assembler never ages risk signals (``active_risk`` has no
 liveness filter), and a sell cluster is the first event-shaped risk needing an explicit window — a
 cluster whose anchor is older than ``insider_sell_liveness_days`` drops out of the re-derived stream
@@ -55,6 +61,7 @@ from uuid import UUID
 
 from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.enums import Kind, Role
+from domain.insider_joint_reports import JOINT_REPORTERS, joint_accessions, joint_labels, roles_of
 from domain.signal import SignalEvent
 from signals.base import Detector, SignalPointInTimeData
 from signals.common import entry_signal_is_live, fired_signal, source_provenance
@@ -267,8 +274,10 @@ def score(
         # "clustered" is the load-bearing word — one big sale is the many-reasons case
         if len(c_distinct) < cfg.insider_sell_min_distinct:
             continue
+        # every role a row speaks for — a joint-report survivor carries its co-reporters' too, so a sale a
+        # senior officer co-reported stays senior when it is counted once (domain.insider_joint_reports)
         c_senior = any(
-            _is_senior(t.get("insider_role"), cfg.insider_senior_role_keywords) for t in c
+            _is_senior(role, cfg.insider_senior_role_keywords) for t in c for role in roles_of(t)
         )
         if cfg.insider_sell_require_senior and not c_senior:
             continue
@@ -311,6 +320,9 @@ def score(
             f"; {len(below_low_w)} below-day-low txn{'s' if len(below_low_w) != 1 else ''} "
             f"set aside (not open-market)"
         )
+    joint = joint_labels(cluster)  # trades several persons reported, counted once (named, #6)
+    if joint:
+        label += f"; counted once: {'; '.join(joint)}"
 
     # the work behind the number, stamped on every accession ref (the dilution shared-detail idiom)
     detail = {
@@ -328,7 +340,11 @@ def score(
         "implausible_dropped": len(implausible_w),
         "foreign_ordinary_screened": len(foreign_w),  # S2c: wrong-instrument rows off the ADR tape
     }
-    by_accession = {t["accession"] for t in cluster if t.get("accession")}
+    if joint:  # only when present — a card without a joint report keeps its exact detail (no churn)
+        detail["joint_reports_counted_once"] = sum(1 for t in cluster if t.get(JOINT_REPORTERS))
+        detail["joint_reporters"] = joint
+    # the cluster's filings — a joint report's co-reporters' filings included (the work shown, #6)
+    by_accession = joint_accessions(cluster)
     return fired_signal(
         detector=DETECTOR_NAME,
         security_id=security_id,

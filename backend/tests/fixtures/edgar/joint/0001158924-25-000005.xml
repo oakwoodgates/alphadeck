@@ -1,0 +1,135 @@
+<?xml version="1.0"?>
+<ownershipDocument>
+
+    <schemaVersion>X0508</schemaVersion>
+
+    <documentType>4</documentType>
+
+    <periodOfReport>2025-08-01</periodOfReport>
+
+    <notSubjectToSection16>0</notSubjectToSection16>
+
+    <issuer>
+        <issuerCik>0001047127</issuerCik>
+        <issuerName>AMKOR TECHNOLOGY, INC.</issuerName>
+        <issuerTradingSymbol>AMKR</issuerTradingSymbol>
+    </issuer>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001158924</rptOwnerCik>
+            <rptOwnerName>KIM DAVID D</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerStreet1>C/O FOLGER LEVIN LLP</rptOwnerStreet1>
+            <rptOwnerStreet2>33 NEW MONTGOMERY STREET, 19TH FLOOR</rptOwnerStreet2>
+            <rptOwnerCity>SAN FRANCISCO</rptOwnerCity>
+            <rptOwnerState>CA</rptOwnerState>
+            <rptOwnerZipCode>94105</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>0</isDirector>
+            <isOfficer>0</isOfficer>
+            <isTenPercentOwner>0</isTenPercentOwner>
+            <isOther>1</isOther>
+            <otherText>Member of 10% owner group (5)</otherText>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <aff10b5One>0</aff10b5One>
+
+    <nonDerivativeTable>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Common Stock</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2025-08-01</value>
+            </transactionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>P</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+            </transactionCoding>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>441589</value>
+                    <footnoteId id="F1"/>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>21.85</value>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>A</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>3789479</value>
+                    <footnoteId id="F2"/>
+                    <footnoteId id="F3"/>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>I</value>
+                </directOrIndirectOwnership>
+                <natureOfOwnership>
+                    <value>By Sujoda Investments, LP</value>
+                </natureOfOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+        <nonDerivativeHolding>
+            <securityTitle>
+                <value>Common Stock</value>
+            </securityTitle>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>8746</value>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>D</value>
+                </directOrIndirectOwnership>
+            </ownershipNature>
+        </nonDerivativeHolding>
+        <nonDerivativeHolding>
+            <securityTitle>
+                <value>Common Stock</value>
+            </securityTitle>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>2698513</value>
+                    <footnoteId id="F3"/>
+                    <footnoteId id="F4"/>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>I</value>
+                </directOrIndirectOwnership>
+                <natureOfOwnership>
+                    <value>By trusts</value>
+                </natureOfOwnership>
+            </ownershipNature>
+        </nonDerivativeHolding>
+    </nonDerivativeTable>
+
+    <derivativeTable></derivativeTable>
+
+    <footnotes>
+        <footnote id="F1">On August 1, 2025, James J. Kim distributed 441,589 shares of the Common Stock of Amkor Technology, Inc. (the &quot;Issuer&quot;) to Sujoda Investments, LP pursuant to the terms of a transaction between members of the Kim family group.</footnote>
+        <footnote id="F2">The sole general partner of Sujoda Investments, LP is Sujoda Management, LLC. The Reporting Person is one of three members of Sujoda Management, LLC. Sujoda Management, LLC is being treated as a limited partnership for purposes of Section 16, and, pursuant to the Form 4 instructions, the Reporting Person has elected to treat all of the shares of the Issuer's Common Stock owned by Sujoda Investments, LP as beneficially owned by the Reporting Person.</footnote>
+        <footnote id="F3">The Reporting Person disclaims beneficial ownership of these securities, except to the extent of the Reporting Person's pecuniary interest therein, and this report shall not be deemed an admission that the Reporting Person is the beneficial owner of such securities, except to the extent of the Reporting Person's pecuniary interest therein, for purposes of Section 16 of the Securities Exchange Act of 1934, as amended (&quot;Section 16&quot;), or for any other purpose.</footnote>
+        <footnote id="F4">The Reporting Person is a trustee of family trusts for the benefit of his immediate family members which own 2,698,513 shares of the Issuer's Common Stock.</footnote>
+    </footnotes>
+
+    <remarks>(5) The Reporting Person states that the filing of this Form 4 shall not be deemed an admission that the Reporting Person is the beneficial owner of the reported securities owned by the other members of the group, for the purpose of Section 16, or for any other purpose.</remarks>
+
+    <ownerSignature>
+        <signatureName>/s/ Kenneth R. Hillier, as Attorney in Fact</signatureName>
+        <signatureDate>2025-08-05</signatureDate>
+    </ownerSignature>
+</ownershipDocument>

@@ -241,6 +241,13 @@ replay stays honest.
   one, all stamped `recorded_at = now` (`pipeline.relink_amendments`); a read pinned before the re-link reads the
   old link exactly as held. *Enforced by:* `tests/pipeline/test_relink_amendments.py::
   test_the_iehc_mislink_is_relinked_append_only_and_an_earlier_read_is_unchanged`.
+- *Also honored by (joint reports — one trade several persons reported, counted once; migration 0054):* the
+  collapse (`domain/insider_joint_reports.py`) is one pure function inside the same resolver seam, so both engines
+  read it identically, and it acts only on the ownership evidence a row carries. On stored history that evidence
+  arrives only by `pipeline.repair_insider_ownership`'s append-only versions stamped `recorded_at = now`: a read
+  pinned before the repair reads the double count the system held (operator decision 4, 2026-10-21). *Enforced
+  by:* `tests/pipeline/test_repair_insider_ownership.py::test_a_pre_repair_replay_still_reads_what_the_system_held`,
+  `tests/replay/test_pit_joint_reports.py` (row-for-row parity, both read shapes; an old mirror reads as before).
 
 ## 5. Tenant isolation; production is a fresh tenant, never a destructive wipe
 
@@ -502,6 +509,14 @@ surfaced to the operator, not silently resolved in code.**
   so a successor-CIK re-point never hides the predecessor's own history. A filing the ingest no longer stores
   is recorded as a `form4_other_issuer` skip, never silently. *Enforced by:* `tests/db/test_insider_amendments.py`
   (the stored rows are counted before and after; the screened rows are still in the table).
+- *Also honored by (joint reports, 2026-10-21):* counting a trade once drops no trade and no NAME. The survivor
+  carries every reporter's name (the call label "counted once: A / B (joint report)", the Scoreboard ledger, the
+  Cockpit flow note), role (seniority — never demoted) and filing (cited in the provenance); the other reporters'
+  rows stay stored. Two DIRECT holders are never merged (two persons' own positions — ALAB's co-founders), rows
+  of one filing never merge (separate lots), and a row without the ownership evidence never merges — so an
+  unrepaired row can only stay double-counted, never vanish. *Enforced by:*
+  `tests/ingest/test_form4_joint_reports.py` (the real-filing table: INFQ, AMKR, SMCI, OKLO; the ALAB and TSM
+  negatives), `tests/domain/test_insider_joint_reports.py` (the rule's contract).
 
 ## 10. The LLM recommends; the operator decides — a recommendation is pending until confirmed, never auto-applied
 
