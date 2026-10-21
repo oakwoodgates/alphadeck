@@ -19,9 +19,16 @@ surfaces) + `docs/POSTMORTEM_CRON_FREEZE_2026-07.md` (what a freeze looks like).
   targeted re-ingest, a restore); the operator decides.
 - **Never "fix" stale data by re-ingesting history** — the bitemporal trap
   (see `backup-restore`). Re-ingest recovers going-forward only.
-- **A 0-fetch reading alone is not proof of a freeze.** The R4 zero-fetch check has
-  a known false-positive mode (open backlog) — corroborate with the run log and the
-  record edge before declaring one.
+- **A 0-fetch reading alone is not proof of a freeze.** Since O5 (2026-10-21) the
+  verdict reads COMPLETED fetches (`edgar_fetches_completed`; `edgar_fetches` is the
+  attempts). `FROZEN — 0 of N EDGAR fetches COMPLETED` = pulls went out and none came
+  back (a dead feed: check `env.user_agent_set`, then SEC reachability);
+  `FROZEN — 0 EDGAR fetches` = the cache never reached out (a real freeze, or a pass
+  started within five minutes of another). Corroborate with the run log and the
+  record edge before declaring one. The check fires only at EXACTLY zero — a pass
+  that completed a handful of fetches across hundreds of names is not paged (open
+  gap, `FEED_LOOP.md` "Known gaps"): compare `edgar_fetches_completed` with the
+  names ingested yourself.
 
 ## Steps
 1. **The verdict first:** `curl http://localhost:8000/admin/status`:
@@ -34,7 +41,14 @@ surfaces) + `docs/POSTMORTEM_CRON_FREEZE_2026-07.md` (what a freeze looks like).
    - `record.partial_nights`: a night is covered only when EVERY thesis that existed then has an on-time row, so "4 of 12" shows here;
    - `record.reconstructed_nights`: backfilled nights, deliberately QUIET;
    - `unfinished_run`;
-   - `last_run.audit`: the V1 self-audit, one entry per check;
+   - `last_run.audit`: the V1 self-audit, one entry per check — `on_time_rows`,
+     `code_sha_known`, `every_thesis_finished`, `split_defects_flagged`, and
+     `no_unsettled_bars` (no EOD bar recorded before its 18:00 ET settle instant,
+     benchmarks included, over the rows written since the last judging pass; a
+     failure names `TICKER d @ recorded` — an in-progress value stored as a close, so
+     find the writer that bypassed `ingest/prices/settle.py`);
+   - `last_run.edgar_fetches` / `edgar_fetches_completed`: attempted vs completed
+     EDGAR pulls (the freeze verdict reads the completed count; `null` before O5);
    - `last_run.name_errors_new`: newly failing names (known ones are a quiet count);
    - `split_defects`: the T4 split-basis monitor.
 

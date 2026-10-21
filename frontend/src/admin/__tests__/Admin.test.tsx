@@ -37,8 +37,8 @@ const FROZEN_RUN = {
   problems: ["FROZEN — 0 EDGAR fetches across 2 theses (the cache never refreshed)"],
 };
 
-// a late-wake --catch-up pass: the same 0 fetches as FROZEN_RUN, but healthy (the freeze check is
-// skipped for a catch-up — it runs inside the EDGAR TTL) and tagged
+// a late-wake --catch-up pass from BEFORE O5 (no completed count): the same 0 fetches as FROZEN_RUN, but
+// healthy — the backend re-derives a pre-O5 artifact by the rule it ran under (a catch-up exempt) — and tagged
 const CATCHUP_RUN = {
   ...OK_RUN,
   ran_at: "2026-09-10T03:05:00+00:00",
@@ -804,6 +804,40 @@ describe("Admin — run history", () => {
     expect(screen.getAllByText("catch-up")).toHaveLength(1); // exactly the one catch-up row is tagged
     expect(screen.getAllByText("ok")).toHaveLength(2); // both rows healthy — the catch-up's 0 fetches are expected
     expect(hist.querySelector(".adm-row-bad")).toBeNull();
+  });
+
+  it("O5 — a run whose pulls FAILED shows completed/attempted; a healthy or pre-O5 row shows one count", () => {
+    // the 2026-07-22 shape as an O5 artifact reads: 255 attempted, 0 completed (an empty User-Agent)
+    const deadFeed = {
+      ...FROZEN_RUN,
+      ran_at: "2026-07-23T01:59:52+00:00",
+      asof: "2026-07-22",
+      edgar_fetches: 255,
+      edgar_fetches_completed: 0,
+      problems: [
+        "FROZEN — 0 of 255 EDGAR fetches COMPLETED across 6 theses (every pull failed — no EDGAR data reached the pass)",
+      ],
+    };
+    const healthy = { ...OK_RUN, ran_at: "2026-07-18T22:30:01+00:00", edgar_fetches_completed: 88 };
+    h.runs = { ...h.runs, data: { runs: [deadFeed, healthy, OK_RUN] } };
+    renderAdmin();
+    const cells = Array.from(screen.getByTestId("adm-hist").querySelectorAll("tbody tr")).map(
+      (tr) => tr.querySelectorAll("td")[8].textContent,
+    );
+    expect(cells).toEqual(["0/255", "88", "88"]); // completed == attempted → the one count; pre-O5 → attempts
+  });
+
+  it("O5 — the run line names the completed count only when some attempts failed", () => {
+    h.status = {
+      ...h.status,
+      data: {
+        ...STATUS_CURRENT,
+        last_run: { ...FROZEN_RUN, edgar_fetches: 255, edgar_fetches_completed: 0 },
+        cron: { status: "unhealthy", detail: "last run needs attention: FROZEN" },
+      },
+    };
+    renderAdmin();
+    expect(screen.getByTestId("adm-cron").textContent).toContain("255 EDGAR fetches (0 completed)");
   });
 });
 

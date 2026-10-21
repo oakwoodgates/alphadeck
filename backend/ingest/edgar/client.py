@@ -70,8 +70,8 @@ _DEFAULT_CACHE_TTL_S = (
 #     in the five minutes before the 22:30 pass, and no daytime warmth survives five minutes. MEASURED: a
 #     20-minute-old key refetches at ttl=300.
 # The residual, accepted and documented: a SECOND pass started within five minutes of another reads the
-# first pass's cache for the companies it reached last — which is why the R4 freeze page keeps its
-# `--catch-up` exemption (`pipeline/daily.assess_health`).
+# first pass's cache for the companies it reached last, and can page FROZEN once (loud, never silent). Since
+# O5 the R4 freeze page exempts a `--catch-up` only for the theses it SKIPPED (`pipeline/daily.assess_health`).
 RECURRING_CACHE_TTL_S = 300
 
 # Q17 — THE FILING-GATED CLASS. A third key class, between immutable and plain-mutable: `companyfacts/`
@@ -137,16 +137,20 @@ class EdgarClient:
         self.cache_dir = cache_dir or _DEFAULT_CACHE
         self.allow_live = allow_live
         self.cache_ttl_s = cache_ttl_s
-        # How many times this client DECIDED to go to the network (a cache miss OR a stale-mutable refresh) —
-        # the freeze detector. It counts ATTEMPTS, not successful pulls: incremented at the network-decision
-        # point in `get_text` BEFORE `_fetch` runs, so it rises even if that fetch then errors. Counting
-        # attempts (not successes) is the RIGHT thing here. A frozen index and a healthy nothing-filed night
-        # produce IDENTICAL fact tallies (0 appended); the only difference is whether a request was even
-        # attempted — so `0` on a live run == the cache never reached out == FROZEN (visible, pageable via the
-        # daily cron's per-thesis run log). An EDGAR OUTAGE is the opposite shape — many attempts, zero data —
-        # and must NOT read as a freeze: it doesn't (this counter climbs), and it's caught by `names_errored`,
-        # not the freeze predicate. So `edgar_fetches` is "times we reached out", not "times we got data".
+        # How many times this client DECIDED to go to the network (a cache miss OR a stale-mutable refresh):
+        # ATTEMPTS, incremented at the network-decision point in `get_text` BEFORE `_fetch` runs, so it rises
+        # even when that fetch then errors. Reported as the artifact's `edgar_fetches` ("times we reached
+        # out") and as the X5 `sec_live` count; it is NOT what the freeze detector reads any more (O5).
         self.live_fetches = 0
+        # O5 — how many of those attempts COMPLETED: `_fetch` returned a 2xx body (written to the cache).
+        # THE FREEZE DETECTOR reads this one (the artifact's `edgar_fetches_completed`). Attempts alone were
+        # unreliable in the direction that matters: MEASURED 2026-07-22, an empty User-Agent raised on all
+        # 255 pulls before a byte left the box and the run logged `255 EDGAR fetches`, `frozen = false` —
+        # an EDGAR feed that delivers NOTHING (a blocked UA, an outage, SEC moving its URLs so every pull
+        # 404s) read as a healthy, fetching night, and once its name errors went "known" it went quiet. A
+        # 404 is not a completion: no data arrived (the X8 negative cache records it; it was never counted
+        # as one). A cache hit is neither an attempt nor a completion.
+        self.live_completed = 0
         s = get_settings()
         self.user_agent = user_agent or s.user_agent
         self._rate = RateLimiter(max_per_sec if max_per_sec is not None else s.edgar_rate_per_sec)
@@ -245,6 +249,7 @@ class EdgarClient:
                 marker.parent.mkdir(parents=True, exist_ok=True)
                 marker.write_text(url, encoding="utf-8")  # (re)write refreshes the mtime
             raise
+        self.live_completed += 1  # O5 — a 2xx body arrived: EDGAR data actually reached this pass
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")  # overwrite refreshes the mtime → fresh again
         if cache_key.startswith(_FILING_GATED_PREFIXES):

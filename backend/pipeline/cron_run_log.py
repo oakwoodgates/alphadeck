@@ -288,21 +288,24 @@ def build_run_payload(
 
     The payload answers, from a file read, every question the freeze investigation answered by forensics:
     *did it run* (`started_at`/`finished_at`), *for real or cache-only* (`mode` — the R2 no-live signal),
-    *did the network actually happen* (`edgar_fetches` — THE FREEZE DETECTOR), *did it do anything*
+    *did the network actually happen* (`edgar_fetches` attempted, `edgar_fetches_completed` — THE FREEZE
+    DETECTOR since O5), *did it do anything*
     (per-thesis fact tallies + `names_ingested`/`names_errored`), and *what moved*
     (`recorded`/`transition`/`error`).
 
     Two distinct do-nothing shapes the counts alone could NOT tell apart, now separable:
     - **a FREEZE** (the R1 bug: a stale index served forever) and **a healthy quiet day** (nothing filed)
       produce IDENTICAL fact tallies (0 appended, N skipped, names_ingested>0, names_errored 0). The ONLY
-      difference is whether a request went out — so `edgar_fetches` is recorded: **0 on a `live` run = the
-      freeze**, a healthy night is in the hundreds. Without this the module built to fix "unfalsifiable —
-      indistinguishable from we stopped looking" would have reproduced that very blindness.
+      difference is whether data came back — so `edgar_fetches_completed` is recorded (O5; `edgar_fetches`,
+      the attempts, beside it): **0 completed on a `live` run = the freeze**, a healthy night is in the
+      hundreds. Without this the module built to fix "unfalsifiable — indistinguishable from we stopped
+      looking" would have reproduced that very blindness.
     - a **total-ingest failure** (`names_errored == names_ingested`, the Source-C shape R2 gates on).
 
-    `catch_up` marks a `--catch-up` pass (the sidecar's boot / late-wake catch-up): the admin history
-    re-derives health from this payload and must NOT page a catch-up's legitimate ~0 fetches as a freeze
-    (it runs inside the EDGAR TTL). An artifact written before the key existed reads as `False`.
+    `catch_up` marks a `--catch-up` pass (the sidecar's boot / late-wake catch-up). Since O5 a catch-up's
+    freeze verdict judges the theses it processed like any pass (its M2-skipped theses are left out); the
+    flag still decides an artifact written BEFORE O5, which the admin history re-derives by the rule it was
+    paged under (a catch-up exempt wholesale). An artifact written before the key existed reads as `False`.
 
     `benchmark_errors` / `benchmark_leg_failed` (G4) record the SHARED-INPUT refresh leg's outcome. They are
     here, not only in the live page, for the same reason `catch_up` is: **the admin history re-derives health
@@ -408,6 +411,10 @@ def build_run_payload(
     """
     recorded = sum(1 for r in results if r.recorded)
     edgar_fetches = sum(r.edgar_fetches for r in results)
+    # O5 — None per thesis = not measured (a thesis a catch-up SKIPPED builds no client); the run sums the rest
+    edgar_fetches_completed = sum(
+        r.edgar_fetches_completed for r in results if r.edgar_fetches_completed is not None
+    )
     return {
         "status": RUN_STATUS_FINISHED,
         "started_at": started_at.isoformat(),
@@ -415,7 +422,7 @@ def build_run_payload(
         "duration_s": round((finished_at - started_at).total_seconds(), 3),
         "asof": asof.isoformat(),
         "mode": "live" if allow_live else "no-live",  # the R2 recording-gate signal
-        "catch_up": catch_up,  # a --catch-up pass: the freeze page is skipped for it (~0 fetches is correct)
+        "catch_up": catch_up,  # a --catch-up pass (M2 skips its on-time theses; O5 judges the rest)
         # I1/I2 — the run identity + the NON-SECRET env fingerprint (booleans for every secret, never a value)
         "code_sha": code_sha,
         "config_hash": config_hash,
@@ -440,10 +447,15 @@ def build_run_payload(
         **(skips or SkipDiff()).payload(),
         # R8-A — the Form 4/A inventory owed an operator decision + what paged (pending; never applied)
         **(amendments or AmendmentScan()).payload(),
-        # THE FREEZE DETECTOR: total EDGAR network pulls this run. A frozen index and a healthy
-        # nothing-filed night both show 0 new facts — this is the number that differs. 0 on a `live`
-        # run = the cache never refreshed = a freeze (R4 pages on it); a healthy night is in the hundreds.
+        # EDGAR network pulls this run ATTEMPTED (a pull that then failed counts too) — "times we reached out".
         "edgar_fetches": edgar_fetches,
+        # O5 — THE FREEZE DETECTOR: the attempts that COMPLETED (a 2xx body arrived). A frozen index and a
+        # healthy nothing-filed night both show 0 new facts — this is the number that differs, and unlike the
+        # attempt count it is also 0 when every pull failed (2026-07-22: 255 attempted, 0 arrived). 0 on a
+        # `live` run over processed theses = a freeze (R4 pages on it); a healthy night is in the hundreds.
+        # Its PRESENCE on the per-thesis entries marks the O5 rule: the Admin history re-derives an artifact
+        # without it by the pre-O5 rule (attempts; a catch-up exempt wholesale) — the verdict it paged.
+        "edgar_fetches_completed": edgar_fetches_completed,
         # G4 — the shared-input refresh leg (SPY/IWM, feeding benchmark_rs): individual pulls that failed,
         # and whether the leg itself died before producing any result. Run-LEVEL, like edgar_fetches: the
         # leg runs once per pass on its own connection, outside the per-thesis loop.
@@ -486,7 +498,9 @@ def build_run_payload(
                 "skipped": r.skipped,
                 "transition": r.transition,
                 "error": r.error,
-                "edgar_fetches": r.edgar_fetches,  # per-thesis freeze detector
+                "edgar_fetches": r.edgar_fetches,  # per-thesis ATTEMPTS
+                # O5 — per-thesis COMPLETED fetches (the freeze detector); null = a skipped thesis
+                "edgar_fetches_completed": r.edgar_fetches_completed,
                 "names_ingested": len(r.ingested),
                 "names_errored": sum(1 for x in r.ingested if x.error),
                 # O1 — WHY each errored name errored, one row per failed leg (the count above kept only
@@ -1034,6 +1048,47 @@ def previous_split_defects(*, base_dir: Path | None = None) -> set[str] | None:
         ):
             continue
         return defect_keys_of(doc)
+    return None
+
+
+def previous_settle_audit_end(*, base_dir: Path | None = None) -> datetime | None:
+    """The ``finished_at`` of the newest FINISHED pass whose self-audit JUDGED the settle check
+    (``self_audit.SETTLE_CHECK``, ``ok`` true or false) — where tonight's settle window starts
+    (``self_audit.settle_window_since``), so each stored bar is judged by one pass and a violation pages once.
+
+    Skipped, newest first: a pass that did not finish (M1 — a killed pass's audit never ran); a pass whose
+    audit did not carry the check (every artifact written before it shipped) or found it not applicable;
+    and a pass where the check RAISED (``ok`` false with ``self_audit.COULD_NOT_RUN``'s detail) — it judged
+    nothing, so its window is still owed. Any mode counts: the check judges the table, not the pass.
+    ``None`` = no such pass (the caller falls back to a bounded lookback). Fail-open per artifact, like its
+    siblings (an unreadable file, or a ``finished_at`` that is missing / unparseable / naive, is skipped —
+    the window then reaches further back: a repeat judgment at worst, never a gap). Pure file read.
+    """
+    from pipeline.self_audit import (  # lazy: keep the import graph one-way
+        COULD_NOT_RUN,
+        SETTLE_CHECK,
+    )
+
+    for doc in list_run_logs(base_dir=base_dir):
+        if not is_finished(doc):
+            continue
+        audit = doc.get("audit")
+        judged = any(
+            isinstance(a, dict)
+            and a.get("check") == SETTLE_CHECK
+            and isinstance(a.get("ok"), bool)
+            and not str(a.get("detail") or "").startswith(COULD_NOT_RUN)
+            for a in (audit if isinstance(audit, list) else ())
+        )
+        if not judged:
+            continue
+        try:
+            end = datetime.fromisoformat(doc["finished_at"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if end.tzinfo is None or end.utcoffset() is None:
+            continue
+        return end
     return None
 
 

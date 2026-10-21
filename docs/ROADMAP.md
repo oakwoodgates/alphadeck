@@ -219,16 +219,15 @@ insider `Ins 30d`/`Ins 90d`, three lenses (call-state · business-type · value-
    deliberately does no trading-calendar logic, so shrinking the shell to a dumb trigger remains open.
    The **wrong-day fire is CLOSED** (#330–#332: target-at-schedule-time, the sliced wall-clock wait, boot
    catch-up to the last expected night, the hole-aware `gappy` read; a missed night is reconstructed with
-   `pipeline.backfill`'s pinned clock — reported, never scored). Still open: the **R4
-   0-fetch false-positive** (a run entirely inside the 12h EDGAR TTL looks like a freeze — page on 0 only
-   when the cache was outside its TTL, or restrict the freeze page to scheduled runs); the **fetch counter
-   counts ATTEMPTS, not successes** — `EdgarClient.get_text` does `live_fetches += 1` immediately *before*
-   `_fetch`, so a run whose every pull RAISES still reports a large, reassuring number, and `frozen` (which
-   trips only at exactly 0) can never fire. Observed **2026-07-22**: an empty `ALPHADECK_USER_AGENT` failed
-   all 255 pulls before a byte left the box and the run still logged `255 EDGAR fetches`; only the R2
-   withhold guard caught it, never the detector built to catch exactly this. Count *completions* (or carry
-   a failure tally beside the attempt count) so the freeze detector reports the network rather than the
-   intent. And an **external dead-man's-switch** heartbeat (a run that never happens produces no page — the
+   `pipeline.backfill`'s pinned clock — reported, never scored). The **fetch counter counts ATTEMPTS, not
+   successes** gap is **CLOSED (O5, 2026-10-21)**: the freeze verdict reads COMPLETED fetches
+   (`edgar_fetches_completed`; observed 2026-07-22, an empty `ALPHADECK_USER_AGENT` failed all 255 pulls and
+   the run logged `255 EDGAR fetches`), and the `--catch-up` exemption is narrowed to the theses a catch-up
+   SKIPPED (G1's five-minute TTL removed the reason it was wholesale). Still open: the **R4 0-fetch
+   false-positive** for a second pass within five minutes of another (page on 0 only when the cache was
+   outside its TTL), and the zero threshold itself — a pass that completes a handful of fetches across
+   hundreds of names is not paged (`FEED_LOOP.md` "Known gaps"; a ratio floor is PROPOSED there). And an
+   **external dead-man's-switch** heartbeat (a run that never happens produces no page — the
    sidecar can't alert about its own absence; the only thing that catches a host that is OFF at `RUN_AT` and
    stays off past the next boot's last-expected window); and the **`RUN_AT` choice** (an earlier fire while
    the host is usually awake, at the cost of same-evening filings landing a night later — an ops decision).

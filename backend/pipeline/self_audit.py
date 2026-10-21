@@ -35,6 +35,16 @@ PHASE-4 CHECK (T4):
   count and passes with defects present — there is no "acknowledged" state, and failing on a standing,
   already-flagged defect would page every night — and FAILS only when the scan could not run.
 
+PHASE-7 CHECK (the settle guard, audited — 2026-10-21):
+
+- ``no_unsettled_bars`` — no ``fact_price_eod`` row (benchmarks included) for a bar dated ``d`` was RECORDED
+  before ``d``'s settle instant (``d`` at ``Settings.price_settle_time`` in market time). The rule has been
+  enforced at INGEST since D2 (#393, ``ingest/prices/settle.py``); this checks the TABLE every night, because
+  the coming open / provisional-close runs make it the one hard guard (the server note's §4). It judges the
+  rows recorded since the previous pass that judged them (``bars_since`` — see ``settle_window_since`` for
+  the window and why it never reaches before the guard shipped), so each stored bar is judged by one pass
+  and a historical, pre-guard violation never pages.
+
 ADDING A CHECK: write ``def check_x(ctx: AuditContext) -> AuditResult`` (pure over ``ctx``; open the DB only
 through ``ctx.conn()``), append it to ``DEFAULT_CHECKS``. Each check is isolated: one that RAISES is reported
 as a FAILED check naming the exception (a broken audit is itself an alarm — never a silent skip), and the
@@ -47,9 +57,10 @@ ids — never a thesis NAME, because the details ride the health page), and no a
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from datetime import date, datetime, time, tzinfo
+from datetime import date, datetime, time, timedelta, timezone, tzinfo
 from typing import TYPE_CHECKING
 
 import psycopg
@@ -59,6 +70,35 @@ from pipeline.night_coverage import read_night_coverage
 if TYPE_CHECKING:  # keep the layering one-way (no runtime import of the cron module)
     from pipeline.daily import ThesisRunResult
     from pipeline.split_basis import SplitScan
+
+# The prefix ``run_audit`` gives a check that RAISED. Shared with ``cron_run_log.previous_settle_audit_end``,
+# which must not read a check that could not run as one that judged its window.
+COULD_NOT_RUN = "the check could not run"
+
+# The settle check's name on the artifact (``check_no_unsettled_bars``).
+SETTLE_CHECK = "no_unsettled_bars"
+
+# THE SETTLE GUARD'S PROD DEPLOY — the floor of every settle-audit window. D2 (#393, merged 2026-10-16
+# 17:33Z) reached prod in the deploy whose pre-deploy backup is stamped 2026-10-17T03:23:20Z
+# (``pre-deploy-d3-t1-d1d2-q3``); the Q3 repair that deploy shipped ran at 03:25:34Z. MEASURED on prod
+# 2026-10-21 (read-only): 5,597 stored rows were recorded before their bar's settle instant, the NEWEST at
+# 2026-10-16 00:00Z, and NONE since this instant — 2,999 real-time stamps from nine market-hours / early
+# passes (2026-07-09 .. 2026-10-13; CDRE's 2026-10-13 bar at 17:08 ET is one) and 2,598 SPY/IWM rows the
+# pre-D1 benchmark leg backdated to ``d 00:00 UTC``. Those are history the guard was built to stop; a check
+# that judged them would fail every night forever, so no window reaches before this instant.
+SETTLE_GUARD_DEPLOYED_AT = datetime(2026, 10, 17, 3, 23, 20, tzinfo=timezone.utc)
+
+# The window when no previous pass judged the table (the first pass after this check ships, or a run home
+# with no artifacts): the last week, floored at the guard's deploy. Bounded so a lost history stays cheap.
+SETTLE_FALLBACK_LOOKBACK = timedelta(days=7)
+
+# The overlap the window keeps behind the previous judging pass's ``finished_at``: that instant is the
+# process clock, ``recorded_at`` the database's, so the window starts a minute early rather than risk a
+# gap between them. A violation inside that minute is judged twice — a repeat page at worst, never a miss.
+SETTLE_WINDOW_OVERLAP = timedelta(minutes=1)
+
+# How many violating bars the detail names (``TICKER d``); the rest are counted.
+_SETTLE_LABELS = 8
 
 
 @dataclass(frozen=True)
@@ -91,6 +131,11 @@ class AuditContext:
     # T4 — the pass's split-basis scan (``pipeline/split_basis.run_split_scan``); None = the pass did not
     # hand one in (a caller older than T4) — read as not applicable, never as a pass
     split: SplitScan | None = None
+    # The SETTLE check (``check_no_unsettled_bars``): the market-time wall clock a bar dated ``d`` settles at
+    # (``Settings.price_settle_time``), and the window start — rows RECORDED at/after ``bars_since`` are
+    # judged (``settle_window_since``). Either None = the caller handed none in: not applicable, never a pass.
+    settle_at: time | None = None
+    bars_since: datetime | None = None
     _conn: psycopg.Connection | None = field(default=None, repr=False)
 
     @property
@@ -250,11 +295,111 @@ def check_split_defects_flagged(ctx: AuditContext) -> AuditResult:
     )
 
 
+def settle_window_since(started_at: datetime, previous_end: datetime | None) -> datetime:
+    """The settle check's window start: rows RECORDED at/after it are judged. PURE (the caller reads the
+    artifact — ``cron_run_log.previous_settle_audit_end``).
+
+    - **Since the previous judging pass** — ``previous_end`` is the ``finished_at`` of the newest finished
+      pass whose audit JUDGED this check (passed or failed; one that could not run judged nothing), less
+      ``SETTLE_WINDOW_OVERLAP``. Every price write lands before a pass's ``finished_at`` (the benchmark leg
+      runs before the loop, the thesis price legs inside it), so that pass's own audit judged its own bars,
+      and ANY writer since — the Workbench pull, the on-promote ingest, a repair CLI, a future open or close
+      run in another process — is judged tonight. Each stored bar is judged by one pass (two, inside the
+      one-minute overlap): a violation pages once, never nightly. A pass judges whatever was written since
+      the last judging pass however long ago that was, so a cron that was down for a week leaves no gap.
+    - **No previous judging pass** (the first pass after this check ships, an empty run home): the last
+      ``SETTLE_FALLBACK_LOOKBACK``.
+    - **Never before ``SETTLE_GUARD_DEPLOYED_AT``**: the history measured there predates the guard, and
+      judging it would fail every night (the operator rule: pre-guard violations must not page nightly).
+    """
+    since = (
+        previous_end - SETTLE_WINDOW_OVERLAP
+        if previous_end is not None
+        else started_at - SETTLE_FALLBACK_LOOKBACK
+    )
+    return max(since, SETTLE_GUARD_DEPLOYED_AT)
+
+
+def check_no_unsettled_bars(ctx: AuditContext) -> AuditResult:
+    """(e) No EOD bar stored before it settled: no ``fact_price_eod`` row (every tenant, the SPY/IWM benchmark
+    tape included) recorded at/after ``ctx.bars_since`` carries a ``recorded_at`` EARLIER than its bar date's
+    settle instant — ``d`` at ``ctx.settle_at`` in ``ctx.tz`` (the D2 rule, ``ingest/prices/settle.py``). It
+    COUNTS THE TABLE (every version, never the deduped read): a settled re-version stacked on an in-progress
+    one hides it from every as-of read after it, and still leaves the in-progress value as what the store
+    claims was known before the close.
+
+    The settle instant is built in market time (``datetime.combine(d, settle_at, tzinfo=tz)``), so a DST
+    change moves it in UTC exactly as the guard does. A row is judged by its ``recorded_at`` alone — a
+    BACKDATED knowability stamp before the settle instant (the one-shot benchmark backfill's ``d 00:00 UTC``)
+    fails too, because it claims what the in-progress store would have: a close known before it settled.
+
+    Applies on every pass, ``--no-live`` included (it judges the table, not the pass); not applicable when
+    the caller handed in no settle time or window. CHEAP: the read is bounded by the window AND by bar date
+    (a violating row's ``d`` is at least the window start's market date less one day), and the table is
+    small (404,503 rows on prod 2026-10-21; a full scan took 0.15 s)."""
+    name = SETTLE_CHECK
+    if ctx.settle_at is None or ctx.bars_since is None:
+        return AuditResult(name, None, "not applicable — no settle time / judging window handed in")
+    since = ctx.bars_since
+    min_d = since.astimezone(ctx.tz).date() - timedelta(days=1)
+    conn = ctx.conn()
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT p.d, p.recorded_at, sm.ticker FROM fact_price_eod p "
+            "LEFT JOIN security_master sm ON sm.id = p.security_id "
+            "WHERE p.recorded_at >= %s AND p.d >= %s",
+            (since, min_d),
+        )
+        rows = cur.fetchall()
+    conn.rollback()  # end the read-only transaction; nothing to keep
+    bad = sorted(
+        (
+            r
+            for r in rows
+            if r["recorded_at"] < datetime.combine(r["d"], ctx.settle_at, tzinfo=ctx.tz)
+        ),
+        key=lambda r: (r["d"], r["ticker"] or "", r["recorded_at"]),
+    )
+    window = (
+        f"recorded since {since.astimezone(ctx.tz):%Y-%m-%d %H:%M %Z} "
+        f"(settle {ctx.settle_at:%H:%M} {ctx.tz})"
+    )
+    if not bad:
+        return AuditResult(
+            name,
+            True,
+            f"{len(rows)} bar version(s) dated {min_d.isoformat()} or later {window}; none stored before "
+            "its settle instant",
+        )
+    by_date = Counter(r["d"] for r in bad)
+    dates = ", ".join(f"{d.isoformat()} x{n}" for d, n in sorted(by_date.items()))
+
+    def _stamp(r: dict) -> str:
+        """When the row was recorded, in market time — the date too when it is not the bar's own (a
+        backdated stamp the evening BEFORE the session must not read like that session's evening).
+        """
+        at = r["recorded_at"].astimezone(ctx.tz)
+        return f"{at:%H:%M %Z}" if at.date() == r["d"] else f"{at:%Y-%m-%d %H:%M %Z}"
+
+    labels = ", ".join(
+        f"{r['ticker'] or '?'} {r['d'].isoformat()} @ {_stamp(r)}" for r in bad[:_SETTLE_LABELS]
+    )
+    more = f", +{len(bad) - _SETTLE_LABELS} more" if len(bad) > _SETTLE_LABELS else ""
+    return AuditResult(
+        name,
+        False,
+        f"{len(bad)} EOD bar version(s) stored BEFORE their settle instant, {window} — by bar date: "
+        f"{dates}; {labels}{more} (a close the store claims was known before its session settled — a writer "
+        "bypassed ingest/prices/settle.py, or backdated its stamp)",
+    )
+
+
 DEFAULT_CHECKS: tuple[AuditCheck, ...] = (
     check_on_time_rows,
     check_code_sha_known,
     check_every_thesis_finished,
     check_split_defects_flagged,
+    check_no_unsettled_bars,
 )
 
 
@@ -278,9 +423,7 @@ def run_audit(
                     ctx.close()
                 msg = " ".join(str(exc).split())[:200]
                 out.append(
-                    AuditResult(
-                        name, False, f"the check could not run: {type(exc).__name__}: {msg}"
-                    )
+                    AuditResult(name, False, f"{COULD_NOT_RUN}: {type(exc).__name__}: {msg}")
                 )
     finally:
         ctx.close()

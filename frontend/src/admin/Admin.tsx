@@ -50,6 +50,11 @@ const fmtAge = (iso: string) => {
   return `${Math.round(secs / 86400)}d`;
 };
 
+/** O5 — did some of the run's EDGAR pull ATTEMPTS fail to complete? Only then is the completed count worth
+ *  showing beside the attempts (honest loudness: equal on a healthy night). False on a pre-O5 artifact. */
+const fetchesFailed = (run: AdminRunOut) =>
+  run.edgar_fetches_completed != null && run.edgar_fetches_completed !== run.edgar_fetches;
+
 /** One run's counts, the artifact's own vocabulary — shared by the last-run line, the run-now result,
  *  and (column-by-column) the history table. */
 function RunSummaryLine({ run }: { run: AdminRunOut }) {
@@ -61,7 +66,10 @@ function RunSummaryLine({ run }: { run: AdminRunOut }) {
       {run.transitions > 0 && <> · {run.transitions} transitions</>}
       {/* M2 — a catch-up left these alone: their on-time call-of-record already stood */}
       {(run.skipped ?? 0) > 0 && <> · {run.skipped} skipped (on-time row stands)</>} ·{" "}
-      {run.edgar_fetches} EDGAR fetches · {fmtDur(run.duration_s)}
+      {run.edgar_fetches} EDGAR fetches
+      {/* O5 — the freeze verdict reads the COMPLETED pulls; shown only when some attempts failed */}
+      {fetchesFailed(run) && <> ({run.edgar_fetches_completed} completed)</>} ·{" "}
+      {fmtDur(run.duration_s)}
       {/* X5 — the WHOLE pass (the legs after the per-thesis loop included) and the leg it spent the most
        *  time in; plain text, never styled (a measurement, not news), absent on a pre-X5 artifact */}
       {run.pass_total_s != null && (
@@ -708,7 +716,8 @@ export function Admin({ header }: Props) {
                       <td className="adm-mono">{r.asof}</td>
                       <td className="adm-mono">
                         {r.mode}
-                        {/* a --catch-up pass (boot / late wake): its ~0 EDGAR fetches are expected */}
+                        {/* a --catch-up pass (boot / late wake): M2 skips its theses whose on-time row
+                         *  stands; its freeze verdict judges only the theses it processed (O5) */}
                         {r.catch_up && <span className="adm-badge b-catchup">catch-up</span>}
                       </td>
                       <td className="adm-num">{r.appended}</td>
@@ -716,7 +725,15 @@ export function Admin({ header }: Props) {
                       <td className="adm-num">{r.withheld}</td>
                       <td className="adm-num">{r.errored}</td>
                       <td className="adm-num">{r.transitions}</td>
-                      <td className="adm-num">{r.edgar_fetches}</td>
+                      {/* O5 — completed/attempted when some pulls failed, else the one count */}
+                      <td
+                        className="adm-num"
+                        title={fetchesFailed(r) ? "completed / attempted EDGAR fetches" : undefined}
+                      >
+                        {fetchesFailed(r)
+                          ? `${r.edgar_fetches_completed}/${r.edgar_fetches}`
+                          : r.edgar_fetches}
+                      </td>
                       <td className="adm-num">{fmtDur(r.duration_s)}</td>
                       <td>
                         {r.healthy ? (

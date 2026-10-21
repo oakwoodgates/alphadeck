@@ -1,10 +1,10 @@
 """Signals §2.1 — the benchmark tape (SPY/IWM). Offline: a fake PriceSource stands in for Yahoo, the DB is
-real (the ``db`` fixture, against alphadeck_test). The ingest tax: the KNOWABILITY stamp — since D1 two of
-them: ``recorded_at = now`` on the RECURRING path (the nightly leg; honest transaction time) and
-``valid_from = recorded_at = the bar date`` only for the one-shot historical backfill CLI (so a past-as-of
-replay sees deep history on its own dates) — the D2 settle guard, the trailing-window restatement
-re-version, and the count-the-table idempotency gate (the store dedups on read, so a duplicate append
-would hide behind a correct read while the table silently grows).
+real (the ``db`` fixture, against alphadeck_test). The ingest tax: the KNOWABILITY stamp — ``recorded_at
+= now`` on every path (the nightly leg since D1; the CLI since 2026-10-21, when its backdated ``d 00:00
+UTC`` stamp was retired) — the D2 settle guard, the trailing-window restatement re-version, and the
+count-the-table idempotency gate (the store dedups on read, so a duplicate append would hide behind a
+correct read while the table silently grows). ``ingest_prices_backfill`` appears here only to seed the
+rows prod ACTUALLY holds from the pre-D1 leg (backdated), never as a writer under test.
 
 The D1/D2 tests run on REAL data at FIXED instants: ``tests/fixtures/prices/benchmark_tape_2026_08.json``
 holds the vendor's own chart payloads and the rows prod actually stored for SPY 2026-08-20..08-28 (its
@@ -13,6 +13,7 @@ holds the vendor's own chart payloads and the rows prod actually stored for SPY 
 
 from __future__ import annotations
 
+import ast
 import json
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -91,7 +92,7 @@ def test_seed_benchmarks_is_idempotent_and_not_a_basket_member(db):
         assert cur.fetchone()["n"] == 0
 
 
-# --- the backfill: lands bars, stamped at the bar date ----------------------------------------------
+# --- the ingest: lands bars, stamped now ------------------------------------------------------------
 
 
 def test_backfill_lands_bars_for_each_benchmark(db):
@@ -105,43 +106,89 @@ def test_backfill_lands_bars_for_each_benchmark(db):
     assert _px_count(db) == 3
 
 
-def test_the_one_shot_backfill_backdates_recorded_at_to_the_bar_date(db):
-    """The knowability fixture (R17/A.2) — now the HISTORICAL-BACKFILL path only (``historical_backfill
-    =True``, what the CLI passes). A bar dated ``d`` is invisible to an as-of read at ``T < d`` and visible
-    at ``T >= d`` (valid-time); AND ``recorded_at`` is stamped at ``d`` (NOT ``now()``), so a read pinned in
-    the past — the day OF the bar, well before "today" — still sees it (transaction-time).
-    """
-    d = date(2026, 3, 2)
-    src = _FakeSource({"SPY": _bars([d]), "IWM": []})
-    spy = {
-        r.ticker: r
-        for r in ingest_benchmarks(db, allow_live=False, source=src, historical_backfill=True)
-    }["SPY"]
-    sid = spy.security_id
+def test_the_CLI_stamps_NOW_like_every_writer_and_a_rerun_appends_zero(db, monkeypatch, capsys):
+    """2026-10-21 — the CLI's backdated ``d 00:00 UTC`` stamp is RETIRED (the operator's "no backdated
+    recorded_at" bar; the self-audit's ``no_unsettled_bars`` check pages on a close stamped before its
+    session settled). Through the REAL CLI — ``main`` on its own connection to the test DB, only the vendor
+    faked: every bar is stamped at the database clock OF THE RUN (between a clock read before and after it),
+    none at its bar date; a read pinned before the run sees nothing (honest transaction time, never a
+    lookahead) while a read after sees the bars on their own dates (valid time); and a second run appends
+    ZERO — COUNT the table."""
+    d1, d2 = date(2026, 3, 2), date(2026, 3, 3)
+    src = _FakeSource({"SPY": _bars([d1, d2]), "IWM": _bars([d1])})
+    monkeypatch.setattr(IB, "YahooPriceSource", lambda **k: src)
+    before = db_now(db)
+    db.commit()
+
+    IB.main(["--no-live"])
+
+    after = db_now(db)
+    db.commit()
+    with db.cursor() as cur:
+        cur.execute("SELECT security_id, d, recorded_at FROM fact_price_eod ORDER BY d")
+        rows = cur.fetchall()
+    assert len(rows) == 3 and _px_count(db) == 3
+    assert all(
+        before <= r["recorded_at"] <= after for r in rows
+    )  # stamped by the run, not backdated
+    assert not any(
+        r["recorded_at"] == datetime(r["d"].year, r["d"].month, r["d"].day, tzinfo=timezone.utc)
+        for r in rows
+    )
+    assert "(recorded now)" in capsys.readouterr().out
+
+    spy = seed_benchmarks(db)["SPY"]
+    db.commit()
 
     def read(*, asof, known_at):
         return as_of(
             db,
             "fact_price_eod",
-            security_id=sid,
+            security_id=spy,
             asof=asof,
             known_at=known_at,
             tenant_id=DEFAULT_TENANT_ID,
         )
 
-    # axis 1 (event time / valid_from = d): invisible the day before, visible on the bar date
-    assert read(asof=d - timedelta(days=1), known_at=_FAR_FUTURE) == []
-    assert len(read(asof=d, known_at=_FAR_FUTURE)) == 1
+    assert read(asof=date(2026, 12, 31), known_at=before) == []  # unknown before the run
+    assert (
+        read(asof=d1 - timedelta(days=1), known_at=_FAR_FUTURE) == []
+    )  # valid time: not before d1
+    assert len(read(asof=d1, known_at=after)) == 1
 
-    # axis 2 (transaction time / recorded_at = d 00:00 UTC, NOT now()): with the event time long past,
-    # a read pinned the day BEFORE the bar cannot see it, but one pinned ON the bar date can — proof the
-    # backfill backdated recorded_at rather than stamping it "today" (the no-backfill trap).
-    asof = date(2026, 12, 31)
-    on_d = datetime(d.year, d.month, d.day, tzinfo=timezone.utc)
-    assert read(asof=asof, known_at=on_d - timedelta(days=1)) == []
-    assert len(read(asof=asof, known_at=on_d)) == 1
-    # and a known_at well before "today" (but after the bar date) still sees it — not stamped now()
-    assert len(read(asof=asof, known_at=datetime(2026, 3, 3, tzinfo=timezone.utc))) == 1
+    IB.main(["--no-live"])  # identical second run
+    assert _px_count(db) == 3  # the TABLE did not grow
+
+
+def _calls_to(name: str, path: Path) -> list[int]:
+    """Line numbers where ``path`` CALLS ``name`` (AST — a prose mention in a docstring is not a call)."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    return [
+        n.lineno
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Call)
+        and (
+            (isinstance(n.func, ast.Name) and n.func.id == name)
+            or (isinstance(n.func, ast.Attribute) and n.func.attr == name)
+        )
+    ]
+
+
+def test_no_production_module_writes_the_backdated_stamp():
+    """``eod_loader.ingest_prices_backfill`` stamps ``recorded_at = d 00:00 UTC`` — a close claimed known
+    the evening BEFORE its session. Since 2026-10-21 no production writer may call it; it stays only to seed
+    test fixtures with the history prod actually holds (the pre-D1 SPY/IWM rows)."""
+    backend = Path(__file__).resolve().parents[2]
+    hits = []
+    for p in sorted(backend.rglob("*.py")):
+        parts = p.relative_to(backend).parts
+        if any(
+            part.startswith(".") or part in {"tests", "__pycache__"} or part.endswith(".egg-info")
+            for part in parts
+        ):
+            continue
+        hits += [f"{p.relative_to(backend)}:{n}" for n in _calls_to("ingest_prices_backfill", p)]
+    assert hits == [], f"a production writer backdates recorded_at: {hits}"
 
 
 # --- idempotency + incremental ----------------------------------------------------------------------
@@ -285,27 +332,6 @@ def test_a_bar_ingested_at_22_35_ET_is_visible_to_that_nights_call_and_not_befor
     assert latest_d(asof=D24, known_at=_FAR_FUTURE) == D24
 
 
-def test_the_cli_is_the_one_caller_that_backdates(monkeypatch):
-    """``python -m pipeline.ingest_benchmarks`` is the explicit one-shot historical backfill: it asks for
-    the backdated stamp (the nightly leg's call site asks for none — pinned in ``test_daily``)."""
-    seen: dict = {}
-
-    class _Conn:
-        def close(self):
-            pass
-
-    def _fake(conn, **k):
-        seen.update(k)
-        return []
-
-    monkeypatch.setattr(IB, "connect", lambda: _Conn())
-    monkeypatch.setattr(IB, "ingest_benchmarks", _fake)
-
-    IB.main(["--no-live"])
-
-    assert seen["historical_backfill"] is True
-
-
 # --- D2: the settle guard on the benchmark leg -------------------------------------------------------
 
 
@@ -444,20 +470,6 @@ def test_a_restatement_rerun_appends_zero_and_a_pinned_replay_still_sees_the_old
 
     assert close_on_25(first - timedelta(minutes=1)) == pytest.approx(765.270020)
     assert close_on_25(first) == pytest.approx(765.909973)
-
-
-def test_a_restatement_on_the_backfill_path_is_stamped_now_never_backdated(db):
-    """Even the one-shot CLI stamps a CORRECTION ``now``: a backdated new version would claim the record
-    knew the corrected value on 08-25 (and would collide with the backdated original on the unique key).
-    """
-    sid = _seed_prod_tape(db)
-    now = datetime(2026, 8, 28, 22, 35, tzinfo=ET)
-
-    spy = _final_pass(db, now=now, historical_backfill=True)
-
-    assert spy.error is None and spy.bars_restated == 5
-    v25 = [r["recorded_at"] for r in _rows(db, sid) if r["d"] == D25]
-    assert v25 == [datetime(2026, 8, 25, tzinfo=timezone.utc), now]
 
 
 # --- the pure planner --------------------------------------------------------------------------------

@@ -255,10 +255,10 @@ The EOD price source feeds `volume_breakout` (Key 2) and the Workbench market-ca
   sessions, and an OLDER bar only when its close moved >= 0.5% or its volume >= 5% — Q11; SPY/IWM: exactly,
   the newest `Settings.benchmark_restate_window` = 5 sessions). Detail: `FEED_LOOP.md` §Settled closes and
   §Price restatements.
-- **The benchmark tape's two stamps (D1).** The nightly SPY/IWM leg stamps `recorded_at = now` like every
-  other live price bar; only the one-shot historical backfill CLI (`python -m pipeline.ingest_benchmarks`)
-  backdates first versions to their bar date (the replay contract for deep history). Before 2026-10-16 the
-  nightly leg backdated too (`recorded_at = D 00:00 UTC`), so the stored nightly bars carry that stamp.
+- **The benchmark tape's stamp (D1).** The nightly SPY/IWM leg stamps `recorded_at = now` like every other
+  live price bar, and since 2026-10-21 so does the one-shot CLI (`python -m pipeline.ingest_benchmarks`),
+  which used to backdate first versions to their bar date. Before 2026-10-16 the nightly leg backdated too
+  (`recorded_at = D 00:00 UTC`), so the stored pre-D1 bars carry that stamp (2,598 rows on prod, history).
 - **Cache behavior.** Cache-first on disk (`data/price_cache/`) for dev and the `--no-live` path (re-runs
   reproducible, polite). The **recurring/daily path force-refreshes** (`fetch_eod(force_refresh=True)`): it
   re-pulls live and overwrites the cache, so the daily cron gets NEW bars instead of a frozen cache hit. A
