@@ -29,7 +29,7 @@ from notify import ArmedName, LogNotifier
 from pipeline import cron_run_log, daily
 from pipeline.cron_run_log import write_cron_run_log
 from pipeline.ingest_thesis import NameResult
-from pipeline.insider_amendment_scan import AmendmentScan
+from pipeline.insider_amendment_scan import AmendmentScan, SweepOutcome
 from pipeline.rename_probe import RenameProbe
 from pipeline.split_basis import SplitScan
 from pipeline.successor_cik import SuccessorScan
@@ -751,6 +751,15 @@ def _prime_pass(monkeypatch, *, bench_raises=False, sweep_raises=False):
     # R8-A — the Form 4/A inventory reads the amendment TABLES — DB-free here; proved on a real DB in
     # tests/pipeline/test_insider_amendment_scan.py
     monkeypatch.setattr(daily, "run_amendment_scan", lambda **k: AmendmentScan(evaluated=True))
+
+    # R8-B — the Form 4/A sweep writes decisions — DB-free here (recorded in `order`, so a test can prove it
+    # runs BEFORE the per-thesis loop); proved on a real DB in tests/pipeline/test_insider_amendment_scan.py
+    def _amend_sweep(**k):
+        order.append("amendment_sweep")
+        seen["amendment_sweep"] = k
+        return SweepOutcome(ran=True)
+
+    monkeypatch.setattr(daily, "run_amendment_sweep", _amend_sweep)
 
     def _radar(conn, **k):
         order.append("spac_radar")
@@ -2567,6 +2576,40 @@ def test_pass_threads_the_SPLIT_scan_to_the_artifact_the_audit_and_the_page(monk
     assert seen["scan"]["connect"] is daily._pass_connect
     assert out.split is scan and seen["audit_split"] is scan and seen["log_split"] is scan
     assert seen["page"] == ("VWAV island x18 (2026-09-15)",)
+
+
+def test_pass_sweeps_form4a_BEFORE_the_loop_and_threads_it_to_the_scan(monkeypatch):
+    """R8-B wiring: the Form 4/A sweep runs BEFORE `run_daily` (so tonight's calls read the applied state)
+    through `_pass_connect` with the pass's allow_live; the scan then gets the SAME sweep outcome and the
+    pass's start instant (its count of system applications). The sweep itself is proved on a real DB in
+    tests/pipeline/test_insider_amendment_scan.py."""
+    order, _, seen = _prime_pass(monkeypatch)
+    swept = SweepOutcome(applied=3, by_basis={"system:filer-correction": 3}, ran=True)
+
+    def _amend_sweep(**kw):
+        order.append("amendment_sweep")
+        seen["amendment_sweep"] = kw
+        return swept
+
+    def _scan(**kw):
+        seen["amendment_scan"] = kw
+        return AmendmentScan(evaluated=True)
+
+    monkeypatch.setattr(daily, "run_amendment_sweep", _amend_sweep)
+    monkeypatch.setattr(daily, "run_amendment_scan", _scan)
+    started = datetime(2026, 10, 21, 2, 30, tzinfo=timezone.utc)
+    daily._run_daily_pass_locked(
+        asof=_ASOF,
+        allow_live=True,
+        notifier=_Silent(),
+        catch_up=False,
+        run_kind="manual",
+        started_at=started,
+    )
+    assert order.index("amendment_sweep") < order.index("run_daily")
+    assert seen["amendment_sweep"] == {"allow_live": True, "connect": daily._pass_connect}
+    assert seen["amendment_scan"]["sweep"] is swept
+    assert seen["amendment_scan"]["since"] == started
 
 
 # --- T3 + Q8 + T2: expected price 404s, the unpriceable class, the rename probe on the pass -------------

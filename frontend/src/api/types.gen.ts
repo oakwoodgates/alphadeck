@@ -1387,8 +1387,9 @@ export interface paths {
         /**
          * List Amendments
          * @description Every stored Form 4/A with its link, disposition, effective status and evidence, bucketed for the
-         *     panel (pending loud, the ones inside today's signal windows first; decided / applied — no signal effect /
-         *     applied / inert quiet). Read-only.
+         *     panel: owed loud (an ambiguous amendment only you can resolve that touches a buy or sale a call can read —
+         *     the ones inside today's signal windows first); applied automatically / decided / unresolved — historical /
+         *     queued / inert quiet. Read-only.
          */
         get: operations["list_amendments_admin_insider_amendments_get"];
         put?: never;
@@ -1410,10 +1411,11 @@ export interface paths {
         put?: never;
         /**
          * Apply Amendment
-         * @description RATIFY a pending amendment (basis ``operator:apply``): a void / duplicates keeps suppressing its
-         *     target (now ratified); a partial / consolidation / addition / restatement replaces the original's rows
-         *     with the amendment's. Undo with ``POST /admin/insider-amendments/decisions/{id}/revoke``. **404** unknown
-         *     amendment, **409** nothing to ratify / a decision already stands / ambiguous and not linked yet.
+         * @description RATIFY a pending amendment that is the operator's (basis ``operator:apply``) — one linked by the
+         *     operator, or one the operator took back: a void / duplicates keeps suppressing its target (now ratified);
+         *     a partial / consolidation / addition / restatement replaces the original's rows with the amendment's. Undo
+         *     with ``POST /admin/insider-amendments/decisions/{id}/revoke``. **404** unknown amendment, **409** nothing
+         *     to ratify / the system already applied it / a decision already stands / ambiguous and not linked yet.
          */
         post: operations["apply_amendment_admin_insider_amendments__security_id___accession__apply_post"];
         delete?: never;
@@ -1434,8 +1436,9 @@ export interface paths {
         /**
          * Keep Original
          * @description KEEP THE ORIGINAL (basis ``operator:keep``): the amendment changes nothing — a pending void's
-         *     suppression is lifted, an auto-applied correction is overruled. Undo with the revoke route. **404**
-         *     unknown amendment, **409** nothing to decide / a decision already stands.
+         *     suppression is lifted, and an amendment APPLIED AUTOMATICALLY by the system is overruled (this is that
+         *     application's Undo: the keep stands over it, and undoing the keep with the revoke route restores it).
+         *     **404** unknown amendment, **409** nothing to decide / an operator decision already stands.
          */
         post: operations["keep_original_admin_insider_amendments__security_id___accession__keep_post"];
         delete?: never;
@@ -1479,8 +1482,10 @@ export interface paths {
         /**
          * Revoke Decision
          * @description UNDO a standing decision — append a ``revoke`` row naming it (basis ``operator:revoke``); the
-         *     amendment returns to the state before it. **404** unknown / already undone, **409** a verdict still
-         *     stands under the link being undone.
+         *     amendment returns to the state before it (undoing a Keep original that stood over a system application
+         *     restores that application). Revoking the SYSTEM's own application makes the amendment the operator's (owed;
+         *     the nightly sweep never re-applies an amendment with a decision history). **404** unknown / already
+         *     undone, **409** a verdict still stands under the link being undone.
          */
         post: operations["revoke_decision_admin_insider_amendments_decisions__decision_id__revoke_post"];
         delete?: never;
@@ -1988,17 +1993,23 @@ export interface components {
          * @description One Form 4/A and everything the operator needs to ratify it.
          *
          *     ``disposition`` is what it changed (``domain.insider_amendments``); ``status`` its EFFECTIVE state —
-         *     ``pending`` (owed a decision; a pending void/duplicates SUPPRESSES its target meanwhile), ``applied``
-         *     (auto-applied correction, or ratified), ``kept`` (the original stands) or ``inert`` (nothing to do).
-         *     ``suppressing`` = the original accession(s) it currently removes from every read; ``undo_id`` = the
-         *     standing decision an Undo reverses (the verdict first, else the link). ``touches_buy`` = a code-P row on
-         *     either side (the loudness hint). ``filing_url`` = the 4/A's EDGAR filing index.
+         *     ``pending`` (not applied: an ambiguous link, an operator-linked one awaiting a verdict, one the operator
+         *     took back, or a pre-R8-B link awaiting the nightly sweep; a pending void/duplicates SUPPRESSES its target
+         *     meanwhile), ``applied`` (by the system, or ratified), ``kept`` (the original stands) or ``inert``.
+         *     ``review`` (R8-B) is where it sits for the operator: ``owed`` / ``auto`` (applied automatically) /
+         *     ``decided`` (a standing operator verdict) / ``historical`` (ambiguous, but no call reads the rows it
+         *     touches) / ``queued`` (the next nightly sweep applies it) / ``inert``. ``suppressing`` = the original
+         *     accession(s) it currently removes from every read; ``undo_id`` = the standing OPERATOR decision an Undo
+         *     revokes (the verdict first, else the link) — ``None`` on an applied-automatically one, whose Undo is
+         *     ``keep`` ("keep the original"). ``system_basis`` = the basis of the standing system application
+         *     (``system:filer-correction`` / ``system:no-signal-effect``; ``None`` for a correction applied by its link
+         *     alone). ``touches_buy`` = a code-P row on either side. ``filing_url`` = the 4/A's EDGAR filing index.
          *
-         *     The signal-effect rule (2026-10-18): ``signal_effect`` = its effect changes a row a call signal reads (a
-         *     code a registered detector declares, compared with the owner's role / name and the 10b5-1 flag);
-         *     ``auto_resolved`` = the SYSTEM applied it because it has none (basis ``system:no-signal-effect`` — its Undo
-         *     returns it to the operator queue); ``in_window`` = the signal codes whose changed rows sit inside a
-         *     signal's live read horizon today (the detectors' own horizons) — it can move tonight's call.
+         *     ``signal_effect`` = its effect changes a row a call signal reads (a code a registered detector declares,
+         *     compared with the owner's role / name and the 10b5-1 flag); ``auto_resolved`` = applied by the system
+         *     (``review == "auto"``); ``in_window`` = the signal codes whose changed rows sit inside a signal's live read
+         *     horizon today (it can move tonight's call); ``in_review`` = a changed signal row sits inside the review
+         *     horizon today (an ambiguous link is owed only then).
          */
         AdminInsiderAmendmentOut: {
             /**
@@ -2080,25 +2091,43 @@ export interface components {
             auto_resolved: boolean;
             /** In Window */
             in_window?: string[];
+            /**
+             * Review
+             * @default owed
+             */
+            review: string;
+            /** System Basis */
+            system_basis?: string | null;
+            /**
+             * In Review
+             * @default false
+             */
+            in_review: boolean;
         };
         /**
          * AdminInsiderAmendmentsOut
-         * @description The "Insider amendments" panel. ``pending`` is LOUD (owed a decision — the IN-WINDOW ones first, those
-         *     that can move tonight's call); ``decided`` (a standing operator decision, each undoable), ``auto``
-         *     ("applied — no signal effect": resolved by the system because no call signal reads a row it changes, each
-         *     with its Undo), ``applied`` (auto-applied 1:1 corrections, each overrulable with Keep original) and
-         *     ``inert`` (clerical / no Table I rows / no stored original — nothing to do) are QUIET lists, still visible
-         *     (#9 / WB#2). ``asof`` is the market day the in-window urgency was judged at. Read live from the tables.
+         * @description The "Insider amendments" panel (R8-B). ``owed`` is LOUD — only what the system cannot resolve and a call
+         *     can read: an AMBIGUOUS link touching a buy/sell row inside the review horizon (plus an operator-linked one
+         *     awaiting its verdict, or one the operator took back), the IN-WINDOW ones first. The rest are QUIET lists,
+         *     still visible (#9 / WB#2): ``auto`` (applied automatically — the filer's own correction resolved to its
+         *     original, or one that changes no signal row; each with its evidence and its Undo, Keep original),
+         *     ``decided`` (a standing operator verdict, each undoable), ``historical`` (ambiguous, but no call reads the
+         *     rows it touches — the originals stand; still linkable), ``queued`` (a pre-R8-B link the next nightly sweep
+         *     applies; a void suppresses meanwhile) and ``inert`` (clerical / no Table I rows / no stored original).
+         *     ``asof`` is the market day urgency and the review horizon were judged at; ``review_horizon_days`` the
+         *     horizon in force (``None`` = unbounded). Read live from the tables.
          */
         AdminInsiderAmendmentsOut: {
-            /** Pending */
-            pending?: components["schemas"]["AdminInsiderAmendmentOut"][];
-            /** Decided */
-            decided?: components["schemas"]["AdminInsiderAmendmentOut"][];
+            /** Owed */
+            owed?: components["schemas"]["AdminInsiderAmendmentOut"][];
             /** Auto */
             auto?: components["schemas"]["AdminInsiderAmendmentOut"][];
-            /** Applied */
-            applied?: components["schemas"]["AdminInsiderAmendmentOut"][];
+            /** Decided */
+            decided?: components["schemas"]["AdminInsiderAmendmentOut"][];
+            /** Historical */
+            historical?: components["schemas"]["AdminInsiderAmendmentOut"][];
+            /** Queued */
+            queued?: components["schemas"]["AdminInsiderAmendmentOut"][];
             /** Inert */
             inert?: components["schemas"]["AdminInsiderAmendmentOut"][];
             /**
@@ -2108,6 +2137,8 @@ export interface components {
             total: number;
             /** Asof */
             asof?: string | null;
+            /** Review Horizon Days */
+            review_horizon_days?: number | null;
         };
         /**
          * AdminInsiderDecisionOut

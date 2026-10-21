@@ -1039,24 +1039,27 @@ effect: `docs/CALL_LOGIC.md` §3 (insider). The data contract: `docs/DATA_SOURCE
 **Paging.** After the per-thesis loop, `pipeline/insider_amendment_scan.py` reads every amendment of the active
 basket union OWED the operator's decision and diffs it against the newest live, finished pass that evaluated
 it; a NEW one pages ONCE through the run's health event (benign-class: it never makes the Admin cron verdict
-unhealthy), a known one is one quiet line, and an applied 1:1 correction never pages. **What is owed (the
-signal-effect rule, operator-approved 2026-10-18 — `docs/CALL_LOGIC.md` §3 insider):** a routed amendment
-(void / duplicates / partial / consolidation / addition / restatement / field change) whose effect changes a
-row a call signal reads (code in the derived signal code set — today `P`, `S` — compared on code, date,
-shares, price, 10b5-1 flag, owner role and name), plus EVERY ambiguous link. A routed amendment that changes
-no signal row is applied by the system at ingest (`system:no-signal-effect`, undoable on Admin) and never
-pages. A pending void / duplicates still suppresses its original meanwhile; the other pending kinds have no
-effect until applied. The inventory is read WHOLE from the tables every pass, so the newest evaluated pass is
-a complete baseline — T4's split-scan rule, not the per-thesis carry-forward (a catch-up that skipped theses
-read the same tables). A decision takes an item out of the inventory; its Undo puts it back and it pages once
-more. Artifact block: `insider_amendments` (`cron_run_log.build_run_payload`).
+unhealthy). **What is owed — since R8-B (2026-10-20, §below) only what the system cannot resolve and a call can
+read:** an AMBIGUOUS link whose changed `P`/`S` rows sit inside the review horizon (940 days at today's config),
+plus an operator-linked one awaiting its verdict and one the operator took back. Everything resolved to a
+definite original is APPLIED BY THE SYSTEM and never pages; the report carries ONE quiet line, "Form 4/A: N
+applied automatically (filer corrections), M owed your decision". (R8-A's 2026-10-18 signal-effect rule —
+route a signal-touching amendment to the operator, apply one with no signal effect — survives only as the
+system's BASIS: `system:no-signal-effect` vs `system:filer-correction`.) A pending void / duplicates still
+suppresses its original meanwhile; the other pending kinds have no effect until applied. The inventory is read
+WHOLE from the tables every pass, so the newest evaluated pass is a complete baseline — T4's split-scan rule,
+not the per-thesis carry-forward (a catch-up that skipped theses read the same tables). A decision takes an
+item out of the inventory; its Undo puts it back and it pages once more. Artifact block: `insider_amendments`
+(`cron_run_log.build_run_payload`; R8-B adds `applied`, `swept`, `sweep_error` and a per-new-row `named`).
 
 **Urgency — the page names every IN-WINDOW item.** An owed item is *in-window* when one of its changed signal
 rows of code `c` is dated on/after `asof − horizon(c)`, the horizon being the detectors' OWN declaration (the
 oldest row that can still enter that signal: `signals.horizons.insider_signal_codes` — `P` 210 days, `S` 120
 days at today's config; never a copied number). Admin and the scan list in-window items first (then
-buy-touching, then suppressing); the page NAMES every new in-window item and counts the rest as "+N more in
-Admin" (this replaced the flat cap of 8 names). The page-once baseline is unchanged. **Re-measured read-only on
+buy-touching, then suppressing); the page NAMES every new in-window item (never collapsed into a count), then
+— since R8-B — the other new owed items up to 8 names in all, and counts the rest as "+N more in Admin". The
+page-once baseline is unchanged. **(The figures below are R8-A's, before R8-B; see §R8-B for today's.)
+Re-measured read-only on
 prod 2026-10-18** (the research corpus' two-year window linked against today's stored rows, the final
 resolver): **67 owed a decision** — void 16, partial 19, restatement 10, field change 7, addition 6,
 consolidation 4, ambiguous 4, duplicates 1; **12** touch a code-`P` row, 55 code `S` only — and **121 applied
@@ -1092,6 +1095,79 @@ suppressed too, but they are outside tonight's sell window, so no card moves for
 re-records on the first pass after deploy (`record_if_changed`), so ship after a clean nightly; the first pass
 also ingests every 4/A in the window (~550 document fetches) and pages its pending inventory once. The operator
 then ratifies the pending voids on Admin.
+
+### R8-B — the filer's own correction is applied by default; the operator rules only on what the system can't resolve (2026-10-20)  `[BUILT]`
+
+**Why.** The first live night (2026-10-20) ingested the FULL 4/A history back to 2003, not the two-year research
+corpus, and left **379 pending** (partial 136, void 96, ambiguous 43, addition 41, restatement 26, field change
+24, consolidation 12, duplicates 1). The operator is not an SEC specialist and was clicking "yes, believe the
+correction" on items with nothing to judge. A Form 4/A is the insider's OWN legal correction, filed under
+penalty — deterministic data, not an LLM recommendation — so applying it is data handling, not a decision taken
+from the operator (#3 / #10 untouched; the operator keeps the Undo). Rule and rationale: `CALL_LOGIC.md` §3
+insider; vocabulary and the pure rules: `domain/insider_amendments.py`.
+
+**How it runs.** (1) **At ingest** (`ingest.edgar.form4a`): every amendment the linker resolves to a definite
+original gets the system's `apply` decision in the link's own transaction (one `recorded_at` — a new 4/A is
+never pending), basis `system:filer-correction` (or `system:no-signal-effect` when it changes no `P`/`S` row).
+(2) **The SWEEP** (`pipeline/insider_amendment_scan.run_amendment_sweep` → `insider_amendment_repo.sweep`), run
+by the pass BEFORE its per-thesis loop — so the first nightly after deploy already calls on the applied state —
+appends the same decision for every resolvable amendment that has NO decision at all (the pre-R8-B backlog),
+stamped `recorded_at = now` (a replay pinned before it reads the pending state the system held: no rewrite of
+the past). Idempotent by construction — anything ever decided on an amendment (an operator verdict, link or
+Undo; an earlier system application) is never touched, re-checked under the amendment's row lock — so a
+re-run appends nothing (COUNT THE TABLE: `tests/db/test_insider_amendments.py`). Own connection, committed;
+fail-open (a fault is printed loud, rides the artifact, and the backlog simply waits — voids still
+suppressing). `--no-live` does not sweep. (3) **The scan** then counts the system applications recorded since
+the pass began — the ONE quiet line — and pages only the NEW owed items. The Admin panel lists what the system
+applied ("Applied automatically", collapsed, each with its evidence and **Keep original** as its exact Undo)
+and the ambiguous ones outside the horizon ("Unresolved — historical", collapsed and grayed, still linkable);
+`docs/ADMIN.md`.
+
+**The review horizon** is the dial `insider_amendment_review_horizon_days` (`Settings`; unset = derived by
+`signals.horizons.insider_amendment_review_horizon`): the two-year backtest window (730 days — the member price
+tape's `DEFAULT_RANGE = "2y"`, so no live call, scrub-back or backtest is computed before it) plus the longest
+insider read horizon a call detector declares (`P` 210) = **940 days**. An ambiguous amendment whose changed
+signal rows are all older is read by no call — owing the operator a decision about it would be loudness that
+marks nothing (WB#3). A widened detector widens the horizon with no edit; an unbounded one unbounds it.
+
+**MEASURED on prod, read-only, asof 2026-10-20** (the new code's own reads over the stored links, the sweep's
+plan computed without writing):
+- **The queue under the new rule:** **owed 4** — CVNA, FIS, HROW, SKYT (all ambiguous; none inside tonight's
+  window) — **historical 39** (26 touch a `P`/`S` row older than the horizon, 13 touch none), **applied
+  automatically 1,716** after the sweep (618 already, `system:no-signal-effect`; the sweep records **1,098**:
+  the 336 formerly pending — partial 136 · void 96 · addition 41 · restatement 26 · field change 24 ·
+  consolidation 12 · duplicates 1, all `system:filer-correction` — plus the 762 corrections that were already
+  in effect by their links, now carrying a decision row: 246 `system:filer-correction`, 516
+  `system:no-signal-effect`), **inert 1,229**. The first nightly's quiet line will therefore read ~1,098
+  applied (thereafter single digits); it pages nothing new (the 4 owed keys already paged on 2026-10-20).
+- **The forward call effect** (all 12 active theses re-assembled through the production funnel at asof
+  2026-10-20, known_at = now, with vs without the sweep's decisions injected in memory; attributed by applying
+  one amendment at a time): **no state, verdict, headline, armed set or setup strength changes.** Three cards
+  change their insider-sell risk text — *AI Memory & Storage* and *Modern Defense*: MRCY's line re-reads
+  $41,674,761 / 29 txns → $41,575,330 / 27 txns (MRCY 0001049521-26-000071, a partial); *Modern Defense* also
+  gains a KN insider-sell line ($484,028 / 3 txns; KN 0001196914-26-000004, a field change: the filer says the
+  original wrongly marked the sales 10b5-1); *The Everything Exchange*: FRHC's line cites the 4/A
+  0000929638-26-003399 in place of its original (the title-only field change; same dollars). These three re-record
+  their content on the first nightly after deploy (its new as-of always appends); a same-as-of re-run after
+  deploy would append a second row for exactly these three.
+- **The history counterfactual** (R8-A's method: each of the **666** honest call rows re-assembled at its own
+  `(asof, known_at = recorded_at)`, every link and standing decision treated as known at its SEC acceptance —
+  the R8-A rule vs the R8-B rule): **0 thesis-level arm flips; 0 changes of state, verdict, headline or armed
+  set; 140 rows change only insider-sell risk text** (AI Memory & Storage 71, Modern Defense 35, The Everything
+  Exchange 34 — MRAM's restated tax-withholding sales, MRCY, KN, FRHC, and INFQ's addition disclosing that part
+  of a fund distribution was sold), **526 unchanged**.
+
+**Open — the "omitted line" class (MEASURED, the operator's call).** "Rows replace" is the filer's correction
+only when the 4/A restates the whole filing. Of the 336 formerly pending, **144 drop an original `P`/`S` row**
+when applied (partial 115, restatement 21, addition 8); **33** of those sit inside the review horizon, 5 inside
+tonight's window. Most are the filer's own restatement (BAH's eight `S`→`F` code fixes, MRAM's and BKSY's date /
+price / share fixes, IEHC's restated sales). But by the filer's own remarks, **nine** 4/As only ADD an omitted line
+and never mention the sales they "drop": MRCY (the grant — $99,431 of sales, inside tonight's window), GD (a
+donation — $5,600,304), WLTH (withheld RSUs — $12,047,980), NNE ($3,276,423), IBKR ($972,393), FLR ($380,661),
+ACHR ($124,706), COIN ×2 (10b5-1 sales, $6,785,049). Applying those silences real sales (no buy is silenced in the
+horizon). Keep original fixes any one; a rule (e.g. "a partial whose omitted rows are signal rows waits for the
+operator", or merge semantics — which would double-count MRAM-style date restatements) is not built: it needs the
+operator's sign-off.
 
 ## The scheduling sidecar — the `cron` service + `scripts/daily_cron.sh`  `[BUILT #73]`
 

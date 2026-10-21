@@ -243,23 +243,41 @@ only *coincide* for insider buys, which is exactly why the two conviction source
   row changed — FRHC's CFO restated "Special Advisor to CEO" on a sale) is never "clerical"; a **void** (a
   zero-row amendment of an original with rows), **duplicates** (a 1→N void of filing-agent copies), a
   **partial** / **consolidation** / **addition** / **restatement** / **field change**, and an **ambiguous**
-  link are the routed kinds. **The signal-effect rule (operator-approved 2026-10-18):** a routed amendment
-  goes to the operator (Admin, *Insider amendments*) only when its effect changes a row a call signal
-  reads — the `(code, date, shares, price, 10b5-1 flag, owner role, owner name)` of a row whose code is in
-  the signal code set, compared before vs after as a multiset; an **ambiguous** link always goes (its
-  original is unknown). The signal code set is derived in ONE place from the detectors' own declarations
-  (`Detector.txn_codes` + `horizons()` → `signals.horizons.insider_signal_codes`: today `{P: 210 days,
-  S: 120 days}`; a detector that reads `fact_insider_txn` without declaring codes raises). A routed
-  amendment with NO signal effect (a void of grant-only rows, an addition of a code-`M` exercise beside an
-  unchanged sale) is applied by the SYSTEM at ingest — an append-only `apply` decision with basis
-  `system:no-signal-effect`, listed in Admin as "applied — no signal effect" with its Undo (which returns it
-  to the queue), never paged. Decided by CONTENT only — never by date window or screen. **The operator's
-  condition:** while a cancellation (void / duplicates) is pending it
-  SUPPRESSES the affected original rows — buys and sells — so a cancelled buy never fires; *Ratify void*
-  keeps the suppression, *Keep original* restores the rows (a zero-row 4/A can just attach a power of
-  attorney — AZTA's CFO buy stands). The other routed kinds have no effect until applied (MEASURED: none of
-  the observed partials that omit a code-`P` row is a cancellation — they re-report the corrected row only),
-  and an ambiguous link suppresses nothing until the operator picks its original. Separately, a row whose
+  link are the other kinds. **The filer's own correction is applied by default (R8-B, operator decision
+  2026-10-20):** every amendment the linker resolves to a DEFINITE original — correction, void, duplicates,
+  partial, consolidation, addition, restatement, field change — is APPLIED BY THE SYSTEM, its content taking
+  effect as its disposition says (a void / duplicates suppresses its targets; the others' rows replace the
+  original's). Why: a Form 4/A is the insider's OWN legal correction of their own filing, filed under penalty
+  — deterministic data, not a model's recommendation — so applying it is data handling, not a decision taken
+  from the operator (#3 / #10 are untouched; the operator was clicking "yes, believe the correction" on items
+  with nothing to judge). Each application is an append-only `apply` decision whose basis names why —
+  `system:filer-correction`, or `system:no-signal-effect` when its effect changes no row a call signal reads
+  (the 2026-10-18 signal-effect test, kept: the `(code, date, shares, price, 10b5-1 flag, owner role, owner
+  name)` of a row whose code is in the signal code set, compared before vs after as a multiset) — written in
+  the link's own transaction at ingest, or, for what a pre-R8-B ingest left pending, by the nightly SWEEP
+  before the per-thesis loop (`recorded_at = now`, so a replay pinned earlier still reads the pending state:
+  no rewrite of the past). Every one is listed on Admin ("Applied automatically", with its remarks, footnotes
+  and the original's rows beside the amendment's) with an exact Undo — **Keep original**, a `keep` stacked
+  over the system's `apply` (the newest standing verdict wins), whose own Undo restores the application.
+  **Only an AMBIGUOUS link is owed the operator** (several differing candidate originals — the system cannot
+  know which filing it amends), and only when it matters: it would change a code-`P`/`S` row (the content
+  test) dated inside the **review horizon** — the dial `insider_amendment_review_horizon_days`, derived by
+  default as the two-year backtest window (730 days — the member price tape's range, so no call is computed
+  before it) plus the longest insider read horizon a detector declares (`P` 210) = **940 days**
+  (`signals.horizons.insider_amendment_review_horizon`), because a row older than that is read by no call, live
+  or replayed. An ambiguous amendment outside it is listed quietly as "unresolved — historical (no call reads
+  these rows)": the originals stand, it never pages, and the operator can still link it. The signal code set
+  is derived in ONE place from the detectors' own declarations (`Detector.txn_codes` + `horizons()` →
+  `signals.horizons.insider_signal_codes`: today `{P: 210 days, S: 120 days}`; a detector that reads
+  `fact_insider_txn` without declaring codes raises). **The pending state** (an operator-linked amendment
+  awaiting its verdict, one the operator took back by revoking the system's application, or a pre-R8-B link
+  the sweep has not reached): a cancellation (void / duplicates) SUPPRESSES the affected original rows — buys
+  and sells — so a canceled buy never fires (the operator's condition); the other kinds have no effect until
+  applied; an ambiguous link suppresses nothing. **Known consequence, MEASURED 2026-10-20:** "rows replace" is
+  the filer's correction only when the 4/A restates the whole filing; a 4/A that reports just an OMITTED line
+  (MRCY's grant, GD's donation, WLTH's withholding) reads as a *partial* and its application silences the
+  original's sales it never mentions — see `FEED_LOOP.md` §R8-B for the measured class; *Keep original* is the
+  per-item remedy, and the class is an open question for the operator. Separately, a row whose
   **issuer** (from the XML) is not this security — the member was the *reporting owner* of another
   company's stock (Honeywell buying Garrett Motion, Novartis selling Aileron) — is screened (keep-and-screen;
   the 147 such rows on prod are kept, not deleted). Every input is gated on its own `recorded_at` (the link,

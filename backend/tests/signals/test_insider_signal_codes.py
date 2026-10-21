@@ -180,3 +180,69 @@ def test_a_reader_without_declared_codes_is_a_registry_error(monkeypatch):
     monkeypatch.setattr(horizons, "registered_detectors", lambda: (blind,))
     with pytest.raises(ValueError, match="declares no txn_codes"):
         horizons.insider_signal_codes(DEFAULT_CONFIG)
+
+
+# --- R8-B — the review horizon's DERIVATION GUARD ----------------------------------------------------------
+
+
+def test_the_review_horizon_is_the_backtest_window_plus_the_longest_insider_read():
+    """The dial's default is DERIVED, never hand-typed: the backtest window plus the longest horizon any call
+    detector declares on fact_insider_txn. Pinned at today's config (730 + P's 210 = 940) so a dial change is
+    review-visible, and stated as the formula so a widened detector widens it with no edit."""
+    from signals.horizons import BACKTEST_WINDOW_DAYS, insider_amendment_review_horizon
+
+    reads = insider_signal_codes(DEFAULT_CONFIG)
+    assert reads and all(v is not None for v in reads.values())
+    assert insider_amendment_review_horizon(DEFAULT_CONFIG) == BACKTEST_WINDOW_DAYS + max(
+        reads.values()
+    )
+    assert insider_amendment_review_horizon(DEFAULT_CONFIG) == 940
+
+
+def test_the_backtest_window_is_the_price_tapes_two_year_range():
+    """BACKTEST_WINDOW_DAYS states the member price tape's window (no bars -> no call before it). A wider tape
+    (a new DEFAULT_RANGE) must widen the review horizon too — this fails until both move together.
+    """
+    from ingest.prices.source import DEFAULT_RANGE
+    from signals.horizons import BACKTEST_WINDOW_DAYS
+
+    assert (DEFAULT_RANGE, BACKTEST_WINDOW_DAYS) == ("2y", 730)
+
+
+def test_the_review_horizon_tracks_the_detectors_and_an_unbounded_read_unbounds_it(monkeypatch):
+    import signals.horizons as horizons
+
+    wide = Detector(
+        name="wide_reader",
+        detect=lambda pit, sid, asof, cfg: None,
+        horizons=lambda cfg: {INSIDER_TABLE: 400},
+        txn_codes=frozenset({"P"}),
+    )
+    monkeypatch.setattr(horizons, "registered_detectors", lambda: (wide,))
+    assert horizons.insider_amendment_review_horizon(DEFAULT_CONFIG) == 730 + 400
+    forever = Detector(
+        name="forever_reader",
+        detect=lambda pit, sid, asof, cfg: None,
+        horizons=lambda cfg: {INSIDER_TABLE: None},
+        txn_codes=frozenset({"S"}),
+    )
+    monkeypatch.setattr(horizons, "registered_detectors", lambda: (wide, forever))
+    assert horizons.insider_amendment_review_horizon(DEFAULT_CONFIG) is None
+
+
+def test_the_setting_pins_the_review_horizon_else_it_is_derived(monkeypatch):
+    from domain import settings as settings_mod
+    from repositories import insider_amendment_repo
+
+    base = settings_mod.get_settings()
+
+    def _with(days):
+        pinned = base.model_copy(update={"insider_amendment_review_horizon_days": days})
+        monkeypatch.setattr(settings_mod, "get_settings", lambda: pinned)
+
+    _with(None)
+    assert insider_amendment_repo.review_horizon_days() == 940  # unset: derived
+    _with(365)
+    assert insider_amendment_repo.review_horizon_days() == 365
+    _with(-5)
+    assert insider_amendment_repo.review_horizon_days() == 0

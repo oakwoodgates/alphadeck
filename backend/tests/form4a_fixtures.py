@@ -36,6 +36,19 @@ cache, same provenance as above):
   a void with NO signal effect, resolved by the system.
 - MASS ``0002115341-26-000008``: adds a code-``M`` row beside ``-000005``'s unchanged sale -> an addition with
   NO signal effect, resolved by the system.
+
+Added for R8-B (2026-10-21; the filer's own correction applied by default). Every document — 4/A and original —
+was copied READ-ONLY from prod's EDGAR cache (``/data/edgar_cache/forms/<accession>/<doc>``, the bytes the live
+4/A leg fetched on its first night, 2026-10-20), and the FILINGS rows below are the companies' cached
+submissions index (``filings.recent``) as of that night:
+- IEHC ``0001174947-26-000849``: restates ``-000817``'s two director sales (2026-08-13/14) with the correct dates
+  and prices and adds more shares sold -> an ADDITION touching code ``S`` inside the sell window at asof
+  2026-10-20; applied by the system.
+- MRAM ``0001628280-26-047722``: the CEO's tax-withholding sale ``-047404`` restated (date, price, shares) -> a
+  RESTATEMENT touching code ``S`` inside the sell window; applied by the system.
+- ELTP ``0001465825-12-000008``: two different Form 4s by the owner were filed on its original date
+  (``-000004``, ``-000005`` — the latter a 2012 code-``S`` sale) -> AMBIGUOUS, its signal rows dated 2012:
+  outside the review horizon -> "unresolved — historical"; the originals stand.
 """
 
 from __future__ import annotations
@@ -147,6 +160,22 @@ FILINGS: dict[str, Filing] = {
     "0002115341-26-000005": _f("4", "2026-03-04", "2026-03-05T02:07:13.000Z", "0001555279", "MASS"),
     "0002115341-26-000008": _f(
         "4/A", "2026-03-05", "2026-03-06T02:50:42.000Z", "0001555279", "MASS"
+    ),
+    # R8-B — IEHC (CIK 50292): an ADDITION restating a director's sales (code S, in the sell window)
+    "0001174947-26-000817": _f("4", "2026-08-20", "2026-08-20T20:55:54.000Z", "0000050292", "IEHC"),
+    "0001174947-26-000849": _f(
+        "4/A", "2026-09-08", "2026-09-08T21:02:23.000Z", "0000050292", "IEHC"
+    ),
+    # R8-B — MRAM (CIK 1438423): a RESTATEMENT of the CEO's tax-withholding sale (code S, in the sell window)
+    "0001628280-26-047404": _f("4", "2026-07-06", "2026-07-07T02:42:41.000Z", "0001438423", "MRAM"),
+    "0001628280-26-047722": _f(
+        "4/A", "2026-07-08", "2026-07-09T04:10:16.000Z", "0001438423", "MRAM"
+    ),
+    # R8-B — ELTP (CIK 1053369): AMBIGUOUS — two different originals on the date, its signal rows from 2012
+    "0001465825-12-000004": _f("4", "2012-01-30", "2012-01-31T04:38:37.000Z", "0001053369", "ELTP"),
+    "0001465825-12-000005": _f("4", "2012-01-30", "2012-01-31T04:49:05.000Z", "0001053369", "ELTP"),
+    "0001465825-12-000008": _f(
+        "4/A", "2012-02-08", "2012-02-08T21:44:04.000Z", "0001053369", "ELTP"
     ),
 }
 

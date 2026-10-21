@@ -50,11 +50,9 @@ const norm = (a: AdminInsiderAmendmentOut): Amendment => ({
   decisions: a.decisions ?? [],
 });
 
-const bucket = (
-  d: AdminInsiderAmendmentsOut,
-  k: "pending" | "decided" | "auto" | "applied" | "inert",
-) =>
-  (d[k] ?? []).map(norm);
+type BucketKey = "owed" | "auto" | "decided" | "historical" | "queued" | "inert";
+
+const bucket = (d: AdminInsiderAmendmentsOut, k: BucketKey) => (d[k] ?? []).map(norm);
 
 /** What each disposition means, in the operator's words (backend: domain/insider_amendments.py). */
 const DISPOSITION: Record<string, string> = {
@@ -66,10 +64,16 @@ const DISPOSITION: Record<string, string> = {
   restatement: "RESTATEMENT — rows that do not pair 1:1 with the original's",
   ambiguous: "AMBIGUOUS — more than one original it could amend",
   field_change: "FIELD CHANGE — Table I unchanged, but the owner's role / name or the 10b5-1 flag on a buy or sale changed",
-  correction: "CORRECTION — 1:1 rows, applied automatically",
+  correction: "CORRECTION — 1:1 rows",
   clerical: "clerical — Table I unchanged",
   no_rows: "no Table I rows on either side",
   unlinked: "no stored original found",
+};
+
+/** Why the system applied it, per basis (backend: SYSTEM_BASES in domain/insider_amendments.py). */
+const SYSTEM_WHY: Record<string, string> = {
+  "system:filer-correction": "applied by the system — the filer's own amendment, resolved to the Form 4 it amends",
+  "system:no-signal-effect": "applied by the system — it changes no buy or sale a call signal reads",
 };
 
 const SUPPRESSES_WHILE_PENDING = new Set(["void", "duplicates"]);
@@ -119,7 +123,7 @@ function Evidence({ a }: { a: Amendment }) {
 }
 
 /** `owed` = the row sits in the decision queue — only there does "inside today's window" mark the exception
- *  (honest loudness); a decided amendment in a window is already settled. */
+ *  (honest loudness); a settled amendment in a window needs nothing from the operator. */
 function Header({ a, owed = false }: { a: Amendment; owed?: boolean }) {
   return (
     <div>
@@ -143,16 +147,15 @@ function Header({ a, owed = false }: { a: Amendment; owed?: boolean }) {
   );
 }
 
-/** The "Insider amendments" panel (R8-A): every stored Form 4/A, LOUD only where a decision is owed — an
- *  amendment whose effect changes a buy or sale a call signal reads (a void or a duplicates set SUPPRESSES
- *  its original meanwhile, so a cancelled buy never fires; a partial / consolidation / addition /
- *  restatement / field change has no effect until applied), or an ambiguous link (pick the original). The
- *  ones inside today's signal windows sort first and say so (the server orders them by the detectors' own
- *  horizons). An amendment that changes NO signal row is applied by the system (basis
- *  `system:no-signal-effect`) and listed quietly as "applied — no signal effect" with its Undo, which
- *  returns it to the queue. The auto-applied 1:1 corrections, the decided ones and the inert ones are QUIET
- *  lists that open too (still visible, never dropped — #9/WB#2). Every action has its Undo beside it (WB#1).
- *  Renders nothing when no amendment is stored (honest loudness). */
+/** The "Insider amendments" panel (R8-A / R8-B). A Form 4/A the linker resolves to the Form 4 it amends is
+ *  the filer's own legal correction: the SYSTEM applies it (basis `system:filer-correction`, or
+ *  `system:no-signal-effect` when it changes no buy or sale a call signal reads) and lists it quietly as
+ *  "Applied automatically", each with its evidence and its exact Undo — Keep original — never paged. LOUD
+ *  only where the operator is truly owed a decision: an AMBIGUOUS amendment (several Form 4s it could amend)
+ *  touching a buy or sale a call can read — inside the review horizon, the ones in today's signal windows
+ *  first — plus one the operator linked or took back. An ambiguous one older than the horizon is "Unresolved
+ *  — historical", grayed and collapsed, still linkable. Every quiet list opens (still visible, never dropped —
+ *  #9/WB#2) and every action has its inverse beside it (WB#1). Renders nothing when no amendment is stored. */
 export function InsiderAmendments() {
   const q = useInsiderAmendments();
   const apply = useApplyAmendment();
@@ -172,52 +175,56 @@ export function InsiderAmendments() {
   }
   if (!q.data || !q.data.total) return null;
   const data = {
-    pending: bucket(q.data, "pending"),
-    decided: bucket(q.data, "decided"),
+    owed: bucket(q.data, "owed"),
     auto: bucket(q.data, "auto"),
-    applied: bucket(q.data, "applied"),
+    decided: bucket(q.data, "decided"),
+    historical: bucket(q.data, "historical"),
+    queued: bucket(q.data, "queued"),
     inert: bucket(q.data, "inert"),
   };
+  const horizon = q.data.review_horizon_days;
   const ref = (a: Amendment) => ({ securityId: a.security_id, accession: a.accession });
+  const linkButtons = (a: Amendment) =>
+    a.candidate_accessions.map((c) => (
+      <button
+        key={c}
+        type="button"
+        className="adm-minibtn"
+        disabled={busy}
+        onClick={() => link.mutate({ ...ref(a), target: c })}
+      >
+        Link to {c}
+      </button>
+    ));
 
   return (
     <section className="adm-card" data-testid="adm-insider-amendments">
       <div className="adm-h">Insider amendments</div>
 
-      {data.pending.length > 0 && (
-        <div className="adm-stale" data-testid="adm-amend-pending">
+      {data.owed.length > 0 && (
+        <div className="adm-stale" data-testid="adm-amend-owed">
           <div className="adm-line adm-loud">
-            <b>{data.pending.length}</b> Form 4/A amendment(s) owed your decision
+            <b>{data.owed.length}</b> Form 4/A amendment(s) owed your decision
           </div>
           <ul className="adm-repairs">
-            {data.pending.map((a) => {
+            {data.owed.map((a) => {
               const linkDecision = a.decisions.find((d) => d.standing && d.action === "link");
               const ambiguous = a.disposition === "ambiguous" && !linkDecision;
               return (
                 <li key={`${a.security_id}:${a.accession}`} data-testid="adm-amend-row">
                   <Header a={a} owed />
                   <div className="adm-sub">
-                    {a.suppressing.length
-                      ? `Suppressing ${a.suppressing.join(", ")} from every call until you decide.`
-                      : ambiguous
-                        ? "Nothing is suppressed until you pick the original it amends."
+                    {ambiguous
+                      ? "Several Form 4s could be the one this amends, so the system cannot apply it — pick the original. Nothing changes until you do."
+                      : a.suppressing.length
+                        ? `Suppressing ${a.suppressing.join(", ")} from every call until you decide.`
                         : "No effect until you apply it."}
                     {a.why ? ` ${a.why}.` : ""}
                   </div>
                   <Evidence a={a} />
                   <div className="adm-repair-act">
                     {ambiguous ? (
-                      a.candidate_accessions.map((c) => (
-                        <button
-                          key={c}
-                          type="button"
-                          className="adm-minibtn"
-                          disabled={busy}
-                          onClick={() => link.mutate({ ...ref(a), target: c })}
-                        >
-                          Link to {c}
-                        </button>
-                      ))
+                      linkButtons(a)
                     ) : (
                       <>
                         {linkDecision && (
@@ -257,80 +264,27 @@ export function InsiderAmendments() {
             })}
           </ul>
           <div className="adm-sub">
-            The nightly Form 4 leg stored each amendment as filed and linked it to the original it names. A
-            void suppresses its original while it waits; Keep original lifts that, and every decision has an
-            Undo.
+            Each one touches a buy or sale a call can read. Once you pick the original, the amendment waits for
+            your Apply or Keep original; every decision has an Undo.
           </div>
         </div>
-      )}
-
-      {data.decided.length > 0 && (
-        <details className="adm-quietlist" data-testid="adm-amend-decided">
-          <summary className="adm-line adm-quiet">{data.decided.length} decided by you (each undoable)</summary>
-          <ul className="adm-problems adm-quietrows">
-            {data.decided.map((a) => (
-              <li key={`${a.security_id}:${a.accession}`}>
-                <Header a={a} />
-                <span className="adm-sub">
-                  {a.status === "kept" ? "original kept" : "applied"}
-                  {a.suppressing.length ? ` · suppressing ${a.suppressing.join(", ")}` : ""}
-                </span>{" "}
-                {a.undo_id && (
-                  <button
-                    type="button"
-                    className="adm-minibtn"
-                    disabled={busy}
-                    onClick={() => revoke.mutate({ decisionId: a.undo_id! })}
-                  >
-                    Undo
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
-        </details>
       )}
 
       {data.auto.length > 0 && (
         <details className="adm-quietlist" data-testid="adm-amend-auto">
           <summary className="adm-line adm-quiet">
-            {data.auto.length} applied — no signal effect (resolved by the system, never paged; each undoable)
+            {data.auto.length} applied automatically — the filer's own correction (never paged; Keep original
+            undoes any one)
           </summary>
           <ul className="adm-problems adm-quietrows">
             {data.auto.map((a) => (
               <li key={`${a.security_id}:${a.accession}`} data-testid="adm-amend-auto-row">
                 <Header a={a} />
                 <span className="adm-sub">
-                  applied by the system — it changes no buy or sale a call signal reads
+                  {(a.system_basis && SYSTEM_WHY[a.system_basis]) ??
+                    "applied by the system — a 1:1 correction, applied by its link"}
                   {a.suppressing.length ? ` · suppressing ${a.suppressing.join(", ")}` : ""}
                 </span>{" "}
-                {a.undo_id && (
-                  <button
-                    type="button"
-                    className="adm-minibtn"
-                    disabled={busy}
-                    onClick={() => revoke.mutate({ decisionId: a.undo_id! })}
-                  >
-                    Undo
-                  </button>
-                )}
-                <Evidence a={a} />
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
-
-      {data.applied.length > 0 && (
-        <details className="adm-quietlist" data-testid="adm-amend-applied">
-          <summary className="adm-line adm-quiet">
-            {data.applied.length} correction(s) applied automatically (1:1 rows — never paged)
-          </summary>
-          <ul className="adm-problems adm-quietrows">
-            {data.applied.map((a) => (
-              <li key={`${a.security_id}:${a.accession}`}>
-                <Header a={a} />
-                <Evidence a={a} />
                 <button
                   type="button"
                   className="adm-minibtn"
@@ -339,6 +293,80 @@ export function InsiderAmendments() {
                 >
                   Keep original
                 </button>
+                <Evidence a={a} />
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
+      {data.decided.length > 0 && (
+        <details className="adm-quietlist" data-testid="adm-amend-decided">
+          <summary className="adm-line adm-quiet">{data.decided.length} decided by you (each undoable)</summary>
+          <ul className="adm-problems adm-quietrows">
+            {data.decided.map((a) => {
+              const overSystem =
+                a.status === "kept" &&
+                a.decisions.some((d) => d.standing && d.action === "apply" && d.basis.startsWith("system:"));
+              return (
+                <li key={`${a.security_id}:${a.accession}`}>
+                  <Header a={a} />
+                  <span className="adm-sub">
+                    {a.status === "kept"
+                      ? overSystem
+                        ? "original kept by you — Undo restores the filer's amendment"
+                        : "original kept"
+                      : "applied"}
+                    {a.suppressing.length ? ` · suppressing ${a.suppressing.join(", ")}` : ""}
+                  </span>{" "}
+                  {a.undo_id && (
+                    <button
+                      type="button"
+                      className="adm-minibtn"
+                      disabled={busy}
+                      onClick={() => revoke.mutate({ decisionId: a.undo_id! })}
+                    >
+                      Undo
+                    </button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </details>
+      )}
+
+      {data.historical.length > 0 && (
+        <details className="adm-quietlist adm-grayed" data-testid="adm-amend-historical">
+          <summary className="adm-line adm-quiet">
+            {data.historical.length} unresolved — historical (no call reads these rows)
+          </summary>
+          <div className="adm-sub">
+            Ambiguous, but every buy or sale they touch is older than the{" "}
+            {horizon == null ? "review horizon" : `${horizon}-day review horizon`} (the backtest window plus the
+            longest signal read), or they touch none. The originals stand; you can still link one.
+          </div>
+          <ul className="adm-problems adm-quietrows">
+            {data.historical.map((a) => (
+              <li key={`${a.security_id}:${a.accession}`} data-testid="adm-amend-historical-row">
+                <Header a={a} />
+                <div className="adm-repair-act">{linkButtons(a)}</div>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
+      {data.queued.length > 0 && (
+        <details className="adm-quietlist" data-testid="adm-amend-queued">
+          <summary className="adm-line adm-quiet">
+            {data.queued.length} awaiting the system's application at the next nightly pass (a void suppresses its
+            original meanwhile)
+          </summary>
+          <ul className="adm-problems adm-quietrows">
+            {data.queued.map((a) => (
+              <li key={`${a.security_id}:${a.accession}`}>
+                <Header a={a} />
               </li>
             ))}
           </ul>

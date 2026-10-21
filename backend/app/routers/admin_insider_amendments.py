@@ -1,31 +1,31 @@
-"""The Admin "Insider amendments" surface (R8-A) — the operator's ratification of the Form 4/A amendments the
-nightly Form 4 leg stored and linked, every action with a visible inverse (WB#1).
+"""The Admin "Insider amendments" surface (R8-A / R8-B) — the Form 4/A amendments the nightly Form 4 leg stored
+and linked: the few only the operator can resolve, and the many the system applied — every action with a
+visible inverse (WB#1).
 
-What the ingest found (read, never auto-decided — #3): each 4/A as filed, the original Form 4 it amends, and
-its DISPOSITION (``domain.insider_amendments``). The clean 1:1 corrections were applied automatically and are
-listed quietly; the clerical / zero-row / unlinked ones change nothing and are a quiet count; everything
-else is OWED a decision and listed loudly with its evidence — the amendment's remarks and footnotes, and
-its Table I rows beside the original's.
+What the ingest found (deterministic, never a model's reading — #3): each 4/A as filed, the original Form 4 it
+amends, and its DISPOSITION (``domain.insider_amendments``). R8-B (operator decision 2026-10-20): a 4/A the
+linker resolves to a definite original is the filer's own legal correction and is APPLIED BY THE SYSTEM —
+listed quietly as "Applied automatically" (basis ``system:filer-correction``, or ``system:no-signal-effect``
+when it changes no row a call signal reads), never paged, each with its evidence (the amendment's remarks and
+footnotes, its Table I rows beside the original's) and its exact Undo. Only an AMBIGUOUS link (several
+differing candidate originals) is OWED the operator — and only when it touches a buy/sell row inside the review
+horizon (``insider_amendment_review_horizon_days``); an older one is "Unresolved — historical (no call reads
+these rows)", grayed and collapsed, still linkable. The clerical / zero-row / unlinked ones change nothing.
 
 What the operator can do here, and its inverse:
 
-- **Ratify void** (a void / duplicates) or **Apply amendment** (a partial / consolidation / addition /
-  restatement) -> an ``apply`` decision. A void SUPPRESSED the original while it was pending (the operator's
-  condition — a cancelled buy never fires); ratifying keeps it suppressed.
 - **Keep original** -> a ``keep`` decision: the original stands, the amendment changes nothing (the AZTA
-  power-of-attorney 4/A). Also offered on an auto-applied correction, to overrule it.
+  power-of-attorney 4/A). On an applied-automatically amendment this IS the Undo of the system's application:
+  the keep stands over it, and undoing the keep restores it.
 - **Link to candidate** (an ambiguous amendment) -> a ``link`` decision naming the original; its disposition
-  is computed against that original then and stored.
-- **Undo** -> a ``revoke`` row naming the decision. A link is undone only after the verdict under it.
+  is computed against that original then and stored, and the amendment then waits for the operator's verdict.
+- **Ratify void** / **Apply amendment** -> an ``apply`` decision, on an amendment that is still the
+  operator's (an operator-linked one, or one the operator took back with an Undo).
+- **Undo** -> a ``revoke`` row naming the operator's decision. A link is undone only after the verdict under it.
 
-Resolved by the SYSTEM (the signal-effect rule, operator-approved 2026-10-18): a routed amendment that changes
-no row a call signal reads is applied at ingest by an ``apply`` decision with basis ``system:no-signal-effect``
-— listed quietly as "applied — no signal effect", never paged, and its **Undo** (the same revoke) returns it
-to the operator queue. The pending list is ordered by URGENCY: the items whose changed signal rows sit inside
-a signal's live read horizon today come first.
-
-Every write is append-only, names the operator as its author (``basis``), and runs in one transaction under a
-lock on the amendment. The change reaches calls at the next read (a live call reads ``known_at = now``) and
+Owed items are ordered by URGENCY: the ones whose changed signal rows sit inside a signal's live read horizon
+today come first. Every write is append-only, names its author (``basis``), and runs in one transaction under
+a lock on the amendment. The change reaches calls at the next read (a live call reads ``known_at = now``) and
 re-records a card only where the resolved rows actually changed. Auth stays deferred project-wide.
 """
 
@@ -46,7 +46,11 @@ from domain.insider_amendments import (
     ACTION_APPLY,
     ACTION_KEEP,
     ACTION_LINK,
-    AUTO_DISPOSITIONS,
+    REVIEW_AUTO,
+    REVIEW_DECIDED,
+    REVIEW_HISTORICAL,
+    REVIEW_OWED,
+    REVIEW_QUEUED,
 )
 from domain.market_time import market_today
 from domain.settings import get_settings
@@ -108,17 +112,23 @@ class AdminInsiderAmendmentOut(BaseModel):
     """One Form 4/A and everything the operator needs to ratify it.
 
     ``disposition`` is what it changed (``domain.insider_amendments``); ``status`` its EFFECTIVE state —
-    ``pending`` (owed a decision; a pending void/duplicates SUPPRESSES its target meanwhile), ``applied``
-    (auto-applied correction, or ratified), ``kept`` (the original stands) or ``inert`` (nothing to do).
-    ``suppressing`` = the original accession(s) it currently removes from every read; ``undo_id`` = the
-    standing decision an Undo reverses (the verdict first, else the link). ``touches_buy`` = a code-P row on
-    either side (the loudness hint). ``filing_url`` = the 4/A's EDGAR filing index.
+    ``pending`` (not applied: an ambiguous link, an operator-linked one awaiting a verdict, one the operator
+    took back, or a pre-R8-B link awaiting the nightly sweep; a pending void/duplicates SUPPRESSES its target
+    meanwhile), ``applied`` (by the system, or ratified), ``kept`` (the original stands) or ``inert``.
+    ``review`` (R8-B) is where it sits for the operator: ``owed`` / ``auto`` (applied automatically) /
+    ``decided`` (a standing operator verdict) / ``historical`` (ambiguous, but no call reads the rows it
+    touches) / ``queued`` (the next nightly sweep applies it) / ``inert``. ``suppressing`` = the original
+    accession(s) it currently removes from every read; ``undo_id`` = the standing OPERATOR decision an Undo
+    revokes (the verdict first, else the link) — ``None`` on an applied-automatically one, whose Undo is
+    ``keep`` ("keep the original"). ``system_basis`` = the basis of the standing system application
+    (``system:filer-correction`` / ``system:no-signal-effect``; ``None`` for a correction applied by its link
+    alone). ``touches_buy`` = a code-P row on either side. ``filing_url`` = the 4/A's EDGAR filing index.
 
-    The signal-effect rule (2026-10-18): ``signal_effect`` = its effect changes a row a call signal reads (a
-    code a registered detector declares, compared with the owner's role / name and the 10b5-1 flag);
-    ``auto_resolved`` = the SYSTEM applied it because it has none (basis ``system:no-signal-effect`` — its Undo
-    returns it to the operator queue); ``in_window`` = the signal codes whose changed rows sit inside a
-    signal's live read horizon today (the detectors' own horizons) — it can move tonight's call."""
+    ``signal_effect`` = its effect changes a row a call signal reads (a code a registered detector declares,
+    compared with the owner's role / name and the 10b5-1 flag); ``auto_resolved`` = applied by the system
+    (``review == "auto"``); ``in_window`` = the signal codes whose changed rows sit inside a signal's live read
+    horizon today (it can move tonight's call); ``in_review`` = a changed signal row sits inside the review
+    horizon today (an ambiguous link is owed only then)."""
 
     security_id: UUID
     ticker: str | None = None
@@ -149,24 +159,32 @@ class AdminInsiderAmendmentOut(BaseModel):
     signal_effect: bool = True
     auto_resolved: bool = False
     in_window: list[str] = Field(default_factory=list)
+    review: str = REVIEW_OWED
+    system_basis: str | None = None
+    in_review: bool = False
 
 
 class AdminInsiderAmendmentsOut(BaseModel):
-    """The "Insider amendments" panel. ``pending`` is LOUD (owed a decision — the IN-WINDOW ones first, those
-    that can move tonight's call); ``decided`` (a standing operator decision, each undoable), ``auto``
-    ("applied — no signal effect": resolved by the system because no call signal reads a row it changes, each
-    with its Undo), ``applied`` (auto-applied 1:1 corrections, each overrulable with Keep original) and
-    ``inert`` (clerical / no Table I rows / no stored original — nothing to do) are QUIET lists, still visible
-    (#9 / WB#2). ``asof`` is the market day the in-window urgency was judged at. Read live from the tables.
-    """
+    """The "Insider amendments" panel (R8-B). ``owed`` is LOUD — only what the system cannot resolve and a call
+    can read: an AMBIGUOUS link touching a buy/sell row inside the review horizon (plus an operator-linked one
+    awaiting its verdict, or one the operator took back), the IN-WINDOW ones first. The rest are QUIET lists,
+    still visible (#9 / WB#2): ``auto`` (applied automatically — the filer's own correction resolved to its
+    original, or one that changes no signal row; each with its evidence and its Undo, Keep original),
+    ``decided`` (a standing operator verdict, each undoable), ``historical`` (ambiguous, but no call reads the
+    rows it touches — the originals stand; still linkable), ``queued`` (a pre-R8-B link the next nightly sweep
+    applies; a void suppresses meanwhile) and ``inert`` (clerical / no Table I rows / no stored original).
+    ``asof`` is the market day urgency and the review horizon were judged at; ``review_horizon_days`` the
+    horizon in force (``None`` = unbounded). Read live from the tables."""
 
-    pending: list[AdminInsiderAmendmentOut] = Field(default_factory=list)
-    decided: list[AdminInsiderAmendmentOut] = Field(default_factory=list)
+    owed: list[AdminInsiderAmendmentOut] = Field(default_factory=list)
     auto: list[AdminInsiderAmendmentOut] = Field(default_factory=list)
-    applied: list[AdminInsiderAmendmentOut] = Field(default_factory=list)
+    decided: list[AdminInsiderAmendmentOut] = Field(default_factory=list)
+    historical: list[AdminInsiderAmendmentOut] = Field(default_factory=list)
+    queued: list[AdminInsiderAmendmentOut] = Field(default_factory=list)
     inert: list[AdminInsiderAmendmentOut] = Field(default_factory=list)
     total: int = 0
     asof: date | None = None
+    review_horizon_days: int | None = None
 
 
 class AdminInsiderReasonIn(BaseModel):
@@ -269,32 +287,41 @@ def item_out(item: AmendmentItem) -> AdminInsiderAmendmentOut:
         amendment_rows=[_txn(r) for r in item.rows],
         originals=originals,
         decisions=decisions,
-        undo_id=eff.verdict_id or eff.link_decision_id,
+        # the Undo of a SYSTEM application is Keep original (a keep stacked over it), never a revoke of the
+        # system's record — so no revoke target is advertised for it (R8-B)
+        undo_id=(None if item.review == REVIEW_AUTO else (eff.verdict_id or eff.link_decision_id)),
         touches_buy=item.touches_buy,
         signal_effect=item.signal_effect,
         auto_resolved=item.auto_resolved,
         in_window=list(item.in_window),
+        review=item.review,
+        system_basis=item.system_basis,
+        in_review=item.in_review,
     )
 
 
+_BUCKETS = {
+    REVIEW_OWED: "owed",
+    REVIEW_AUTO: "auto",
+    REVIEW_DECIDED: "decided",
+    REVIEW_HISTORICAL: "historical",
+    REVIEW_QUEUED: "queued",
+}
+
+
 def amendments_out(
-    items: list[AmendmentItem], *, asof: date | None = None
+    items: list[AmendmentItem],
+    *,
+    asof: date | None = None,
+    review_horizon_days: int | None = None,
 ) -> AdminInsiderAmendmentsOut:
-    """Bucket the items for the panel: pending (loud, in-window first — ``items`` already orders by urgency) /
-    decided / auto (no signal effect) / applied / inert (quiet)."""
-    out = AdminInsiderAmendmentsOut(total=len(items), asof=asof)
+    """Bucket the items for the panel by their R8-B ``review``: owed (loud, in-window first — ``items`` already
+    orders by urgency) / auto / decided / historical / queued / inert (quiet)."""
+    out = AdminInsiderAmendmentsOut(
+        total=len(items), asof=asof, review_horizon_days=review_horizon_days
+    )
     for it in items:
-        o = item_out(it)
-        if o.status == "pending":
-            out.pending.append(o)
-        elif o.auto_resolved:
-            out.auto.append(o)
-        elif o.undo_id is not None:
-            out.decided.append(o)
-        elif o.disposition in AUTO_DISPOSITIONS and o.status == "applied":
-            out.applied.append(o)
-        else:
-            out.inert.append(o)
+        getattr(out, _BUCKETS.get(it.review, "inert")).append(item_out(it))
     return out
 
 
@@ -331,11 +358,17 @@ def _one(conn: psycopg.Connection, security_id: UUID, accession: str) -> AdminIn
 @router.get("", response_model=AdminInsiderAmendmentsOut)
 def list_amendments(conn: psycopg.Connection = Depends(get_conn)) -> AdminInsiderAmendmentsOut:
     """Every stored Form 4/A with its link, disposition, effective status and evidence, bucketed for the
-    panel (pending loud, the ones inside today's signal windows first; decided / applied — no signal effect /
-    applied / inert quiet). Read-only."""
+    panel: owed loud (an ambiguous amendment only you can resolve that touches a buy or sale a call can read —
+    the ones inside today's signal windows first); applied automatically / decided / unresolved — historical /
+    queued / inert quiet. Read-only."""
     asof = market_today()
+    horizon = insider_amendment_repo.review_horizon_days()
     try:
-        return amendments_out(insider_amendment_repo.items(conn, asof=asof), asof=asof)
+        return amendments_out(
+            insider_amendment_repo.items(conn, asof=asof, review_days=horizon),
+            asof=asof,
+            review_horizon_days=horizon,
+        )
     finally:
         conn.rollback()  # a read: end the transaction, hold no snapshot
 
@@ -365,10 +398,11 @@ def apply_amendment(
     body: AdminInsiderReasonIn | None = Body(default=None),
     conn: psycopg.Connection = Depends(get_conn),
 ) -> AdminInsiderAmendmentOut:
-    """RATIFY a pending amendment (basis ``operator:apply``): a void / duplicates keeps suppressing its
-    target (now ratified); a partial / consolidation / addition / restatement replaces the original's rows
-    with the amendment's. Undo with ``POST /admin/insider-amendments/decisions/{id}/revoke``. **404** unknown
-    amendment, **409** nothing to ratify / a decision already stands / ambiguous and not linked yet.
+    """RATIFY a pending amendment that is the operator's (basis ``operator:apply``) — one linked by the
+    operator, or one the operator took back: a void / duplicates keeps suppressing its target (now ratified);
+    a partial / consolidation / addition / restatement replaces the original's rows with the amendment's. Undo
+    with ``POST /admin/insider-amendments/decisions/{id}/revoke``. **404** unknown amendment, **409** nothing
+    to ratify / the system already applied it / a decision already stands / ambiguous and not linked yet.
     """
     return _verdict(conn, security_id, accession, ACTION_APPLY, body)
 
@@ -381,8 +415,9 @@ def keep_original(
     conn: psycopg.Connection = Depends(get_conn),
 ) -> AdminInsiderAmendmentOut:
     """KEEP THE ORIGINAL (basis ``operator:keep``): the amendment changes nothing — a pending void's
-    suppression is lifted, an auto-applied correction is overruled. Undo with the revoke route. **404**
-    unknown amendment, **409** nothing to decide / a decision already stands."""
+    suppression is lifted, and an amendment APPLIED AUTOMATICALLY by the system is overruled (this is that
+    application's Undo: the keep stands over it, and undoing the keep with the revoke route restores it).
+    **404** unknown amendment, **409** nothing to decide / an operator decision already stands."""
     return _verdict(conn, security_id, accession, ACTION_KEEP, body)
 
 
@@ -414,8 +449,10 @@ def revoke_decision(
     conn: psycopg.Connection = Depends(get_conn),
 ) -> AdminInsiderAmendmentOut:
     """UNDO a standing decision — append a ``revoke`` row naming it (basis ``operator:revoke``); the
-    amendment returns to the state before it. **404** unknown / already undone, **409** a verdict still
-    stands under the link being undone."""
+    amendment returns to the state before it (undoing a Keep original that stood over a system application
+    restores that application). Revoking the SYSTEM's own application makes the amendment the operator's (owed;
+    the nightly sweep never re-applies an amendment with a decision history). **404** unknown / already
+    undone, **409** a verdict still stands under the link being undone."""
     reason = (body.reason if body and body.reason else None) or _DEFAULT_REASON["revoke"]
     row = _commit(
         conn,

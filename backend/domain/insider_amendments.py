@@ -23,50 +23,74 @@ disposition         when                                        effect (see ``ef
 ``no_rows``         no Table I rows on either side              none (inert)
 ``clerical``        Table I identical and no signal row         none (inert) — never double-counts
                     changes in any other field
-``field_change``    Table I identical, but a field a call       PENDING; no provisional effect (applied:
-                    signal reads changed on a signal row (the   the amendment's rows replace — FRHC's
-                    owner's role or name, the 10b5-1 flag)      CFO -> "Special Advisor to CEO")
+``field_change``    Table I identical, but a field a call       APPLIED BY THE SYSTEM (R8-B): the
+                    signal reads changed on a signal row (the   amendment's rows replace — FRHC's CFO ->
+                    owner's role or name, the 10b5-1 flag)      "Special Advisor to CEO"
 ``unlinked``        no stored original found                    none (inert, listed)
-``correction``      same row count, every changed row pairs     AUTO-APPLIED: the amendment's rows replace
-                    1:1 (same date+code, else date, else           the original's, as of the link's
-                    code+shares) — shares / price / code /         ``recorded_at``
-                    date corrections
-``void``            zero rows, the original has rows            PENDING ratification; while pending it
-                                                                SUPPRESSES the original (the operator's
-                                                                condition: a cancelled buy never fires)
-``duplicates``      the cascade found several originals with    PENDING; while pending it SUPPRESSES the
-                    IDENTICAL Table I (filing-agent duplicates  later duplicates and keeps the earliest
-                    — TDG)                                      (1->N void)
-``partial``         fewer rows, some original (date, code)      PENDING; no provisional effect
-                    missing from the amendment
-``consolidation``   fewer rows, same (date, code) set (N->1 —   PENDING; no provisional effect
+``correction``      same row count, every changed row pairs     APPLIED: the amendment's rows replace the
+                    1:1 (same date+code, else date, else           original's, as of the link's
+                    code+shares) — shares / price / code /         ``recorded_at`` (with or without the
+                    date corrections                               system's decision row)
+``void``            zero rows, the original has rows            APPLIED BY THE SYSTEM: SUPPRESSES the
+                                                                original (also while pending — the
+                                                                operator's condition)
+``duplicates``      the cascade found several originals with    APPLIED BY THE SYSTEM: SUPPRESSES the
+                    IDENTICAL Table I (filing-agent duplicates  later duplicates, keeps the earliest
+                    — TDG)                                      (1->N void; also while pending)
+``partial``         fewer rows, some original (date, code)      APPLIED BY THE SYSTEM: rows replace (no
+                    missing from the amendment                  provisional effect while pending)
+``consolidation``   fewer rows, same (date, code) set (N->1 —   APPLIED BY THE SYSTEM (as partial)
                     BHVN)
-``addition``        more rows than the original                 PENDING; no provisional effect
-``restatement``     same row count, rows that do not pair 1:1   PENDING; no provisional effect
+``addition``        more rows than the original                 APPLIED BY THE SYSTEM (as partial)
+``restatement``     same row count, rows that do not pair 1:1   APPLIED BY THE SYSTEM (as partial)
 ``ambiguous``       several candidate originals that differ     NONE — it cannot target a specific
-                                                                original; surfaced loudly with the
-                                                                candidates until the operator links one
+                                                                original; OWED the operator when it
+                                                                touches a signal row inside the review
+                                                                horizon, else "unresolved — historical"
 ==================  ==========================================  =========================================
 
-THE SIGNAL-EFFECT RULE (operator-approved 2026-10-18). A routed amendment (void / duplicates / partial /
-consolidation / addition / restatement) whose effect changes NO row a CALL signal reads has no call effect, so
-it is RESOLVED BY THE SYSTEM — applied, with an append-only ``apply`` decision whose basis is
-``system:no-signal-effect`` (``BASIS_NO_SIGNAL_EFFECT``), visible on Admin as "applied — no signal effect" with
-its Undo, and never paged. Decided by CONTENT, never by date window or detector screen: the "signal rows" are
-the rows whose transaction code a registered call detector reads (``signal_codes`` — derived from each
-detector's declared ``txn_codes``, ``signals.horizons.insider_signal_codes``; today ``P`` and ``S``), compared
-on code, date, shares, price, the 10b5-1 flag (as the screens read it — only an explicit ``True`` is planned)
-AND the reporting owner's role and name (seniority reads the role). An AMBIGUOUS link always routes (it has
-no target to apply), and an operator-linked one waits for the operator. MEASURED 2026-10-18 on the first-night
-backlog (prod, read-only): of the 181 formerly routed, 56 change a signal row and 4 are ambiguous; 7 field
-changes the old Table-I-only clerical rule hid join them -> 67 owed the operator; 121 resolve themselves.
+"Applied by the system" = the effect the operator's ``apply`` verdict always had (``effect_of`` is unchanged by
+R8-B): the system writes that verdict, under its own basis, instead of waiting for the operator.
 
-Why partial / consolidation / addition / restatement carry NO provisional effect while a void does: the
-operator's condition is about CANCELLATIONS, and only a zero-row amendment (or a named duplicate) states
-one. A partial restatement usually re-reports just the corrected row (MEASURED on the 85 non-zero partials
-of 2026-10-17: every one of the seven that omits an original ``P`` row says why in its own text — a share
-count typo, a holding-column correction, an ownership-nature fix — and none is a cancellation), so
-suppressing the rows it omits would silence real buys while it waits.
+THE FILER'S OWN CORRECTION IS APPLIED BY DEFAULT (R8-B, operator decision 2026-10-20). Every amendment the
+linker resolves to a DEFINITE original — a correction, void, duplicates set, partial, consolidation, addition,
+restatement or field change (``RESOLVED_DISPOSITIONS``) — is APPLIED BY THE SYSTEM: an append-only ``apply``
+decision whose basis names why (``system_basis``): ``system:no-signal-effect`` when its effect changes no row a
+call signal reads (the 2026-10-18 rule, kept), else ``system:filer-correction``. A 4/A is the insider's OWN
+legal correction of their own filing, filed under penalty — deterministic data, not a model's recommendation —
+so applying it is data handling, never a decision taken from the operator (#3 / #10 untouched), and every one
+keeps its exact Undo: the operator's ``keep`` ("keep the original") stands OVER a system application without
+revoking it, and undoing that keep restores the system's application. The ingest records the decision in the
+SAME transaction as the link (one ``recorded_at``: there is never a pending window for a new 4/A); the
+amendments a pre-R8-B ingest left pending are applied by the idempotent nightly SWEEP (``sweep_basis`` —
+``repositories.insider_amendment_repo.sweep``), each decision stamped ``recorded_at = now``, so a replay pinned
+before the sweep still reads the state the system held then (pending; a void suppressing) — no rewrite of the
+past (#1). The sweep acts only on an amendment with NO decision at all: anything the operator did (a verdict,
+a link, an Undo) stays the operator's.
+
+ONLY AN AMBIGUOUS LINK IS OWED THE OPERATOR (``review_bucket``) — several differing candidate originals, so
+the system cannot know which filing the amendment amends — and only when it MATTERS: it would change a row a
+call signal reads (the content test below) AND one of those rows is dated inside the REVIEW HORIZON
+(``within_review_horizon``; the dial ``insider_amendment_review_horizon_days``, derived by default as the
+two-year backtest window plus the longest detector read horizon — ``signals.horizons
+.insider_amendment_review_horizon``; 940 days at today's config). An ambiguous amendment outside that is
+"unresolved — historical": no call reads those rows, the originals stand, it never pages, and the operator can
+still link it. MEASURED 2026-10-20 (prod, read-only, asof 2026-10-20): of 43 ambiguous, 4 are owed (CVNA, FIS,
+HROW, SKYT) and 39 historical.
+
+THE SIGNAL-EFFECT TEST (operator-approved 2026-10-18; since R8-B it picks the system's BASIS and the ambiguous
+owed test, never whether a resolvable amendment applies). Decided by CONTENT: the "signal rows" are the rows
+whose transaction code a registered call detector reads (``signal_codes`` — derived from each detector's
+declared ``txn_codes``, ``signals.horizons.insider_signal_codes``; today ``P`` and ``S``), compared on code,
+date, shares, price, the 10b5-1 flag (as the screens read it — only an explicit ``True`` is planned) AND the
+reporting owner's role and name (seniority reads the role).
+
+What the PENDING state still means (a pre-R8-B link not yet swept, an operator-linked amendment awaiting the
+operator's verdict, or one the operator took back with an Undo): a void / duplicates SUPPRESSES its target
+meanwhile (the operator's condition — a canceled buy never fires); a partial / consolidation / addition /
+restatement / field change carries NO provisional effect (MEASURED on the 85 non-zero partials of 2026-10-17:
+every one of the seven that omits an original ``P`` row says why in its own text and none is a cancellation),
+so suppressing the rows it omits would silence real buys while it waits.
 
 THE OPERATOR'S DECISIONS (append-only, ``insider_amendment_decision``): ``apply`` (ratify the amendment —
 for a void/duplicates: keep the suppression; otherwise its rows replace the original's), ``keep`` (the
@@ -75,7 +99,9 @@ of attorney), ``link`` (an AMBIGUOUS amendment: the operator picks the original;
 is computed at decision time and STORED on the decision, so a read never recomputes it from a windowed row
 set), and ``revoke`` (the Undo of any of them). A decision counts at a read iff it was recorded at/before the
 read's ``known_at`` and no revoke recorded at/before ``known_at`` names it — so a replay pinned before a
-ratification sees the pending state it actually held.
+ratification sees the pending state it actually held. The NEWEST standing verdict wins, which is how the
+operator's ``keep`` overrules a standing SYSTEM ``apply`` (R8-B) without erasing it: revoke the keep and the
+system's application is the newest standing verdict again — the exact inverse pair (WB#1).
 
 PIT. Every input is gated on ITS OWN ``recorded_at <= known_at`` by the caller (the amendment, the link, each
 decision); ``accepted`` (the SEC acceptance instant) is display + ordering only, never a gate. A read pinned
@@ -128,16 +154,62 @@ DISPOSITIONS: tuple[str, ...] = (
 )
 # inert: nothing to apply and nothing to ratify (listed quietly)
 INERT_DISPOSITIONS = frozenset({NO_ROWS, CLERICAL, UNLINKED})
-# applied without the operator — a clean 1:1 correction (the operator may still `keep` the original)
+# applied by the LINK itself — a clean 1:1 correction (the operator may still `keep` the original)
 AUTO_DISPOSITIONS = frozenset({CORRECTION})
-# routed to the operator; a CANCELLATION suppresses its target while it is pending
+# applied by a decision (the system's since R8-B); a CANCELLATION suppresses its target while pending too
 SUPPRESS_WHILE_PENDING = frozenset({VOID, DUPLICATES})
-# routed to the operator; nothing changes until the operator applies it
+# applied by a decision (the system's since R8-B); nothing changes while one is pending
 ROUTED_NO_PROVISIONAL = frozenset({PARTIAL, CONSOLIDATION, ADDITION, RESTATEMENT, FIELD_CHANGE})
 ROUTED_DISPOSITIONS = SUPPRESS_WHILE_PENDING | ROUTED_NO_PROVISIONAL
+# R8-B — every disposition the linker resolves to a DEFINITE original: the system applies each one
+RESOLVED_DISPOSITIONS = AUTO_DISPOSITIONS | ROUTED_DISPOSITIONS
 
-# the author of a system resolution: a routed amendment that changes no signal row (the signal-effect rule)
+# the authors of a SYSTEM application (an ``apply`` decision). ``system:no-signal-effect`` = its effect changes
+# no row a call signal reads (the 2026-10-18 rule); ``system:filer-correction`` = every other amendment resolved
+# to a definite original (R8-B, 2026-10-20 — the filer's own legal correction, applied by default)
 BASIS_NO_SIGNAL_EFFECT = "system:no-signal-effect"
+BASIS_FILER_CORRECTION = "system:filer-correction"
+SYSTEM_BASES: tuple[str, ...] = (BASIS_FILER_CORRECTION, BASIS_NO_SIGNAL_EFFECT)
+_SYSTEM_PREFIX = "system:"
+
+# R8-B — where an amendment sits in the operator's review (``review_bucket``)
+REVIEW_OWED = "owed"  # only the operator can resolve it, and a call can read the rows it touches
+REVIEW_AUTO = (
+    "auto"  # applied automatically (a standing system apply, or a correction applied by its link)
+)
+REVIEW_DECIDED = (
+    "decided"  # a standing OPERATOR verdict (including a keep over a system application)
+)
+REVIEW_QUEUED = (
+    "queued"  # resolvable, no decision yet: the next pass's sweep applies it (a pre-R8-B link)
+)
+REVIEW_HISTORICAL = (
+    "historical"  # ambiguous, but no call reads the rows it touches: the originals stand
+)
+REVIEW_INERT = "inert"  # nothing to apply
+REVIEWS: tuple[str, ...] = (
+    REVIEW_OWED,
+    REVIEW_AUTO,
+    REVIEW_DECIDED,
+    REVIEW_QUEUED,
+    REVIEW_HISTORICAL,
+    REVIEW_INERT,
+)
+
+
+def is_system_basis(basis: object) -> bool:
+    """Was a decision written by the SYSTEM (``system:*``), not the operator (``operator:*``)?"""
+    return str(basis or "").startswith(_SYSTEM_PREFIX)
+
+
+def system_basis(disposition: str, signal_effect: bool) -> str | None:
+    """R8-B — the basis the SYSTEM applies an amendment of ``disposition`` with, or ``None`` when it cannot (an
+    ambiguous link has no definite original; an inert one has nothing to apply). ``signal_effect`` only picks
+    the basis — a resolved amendment is applied either way."""
+    if disposition not in RESOLVED_DISPOSITIONS:
+        return None
+    return BASIS_FILER_CORRECTION if signal_effect else BASIS_NO_SIGNAL_EFFECT
+
 
 # the link cascade's methods
 METHOD_ORIG_DATE_OWNER = "orig_date_owner"  # issuer (the member) + owner + dateOfOriginalSubmission
@@ -164,8 +236,9 @@ AMENDS_ACCESSION = "amends_accession"
 
 
 def page_text(named: Sequence[str], more: int) -> str:
-    """A page's list of NEW amendments owed a decision: EVERY in-window one named (an item that can move
-    tonight's call is never collapsed into a count), the rest counted — ``(+N more in Admin)``."""
+    """A page's list of NEW amendments owed a decision: the named ones (every in-window one — an item that can
+    move tonight's call is never collapsed into a count — then the other owed ones up to the page's cap), the
+    rest counted — ``(+N more in Admin)``."""
     if not named:
         return f"none inside tonight's signal windows (+{more} in Admin)" if more else ""
     shown = ", ".join(named)
@@ -202,22 +275,80 @@ INSIDER_TXN_COLUMNS: tuple[str, ...] = (
 
 
 def status_for(disposition: str, signal_effect: bool = True) -> str:
-    """The status the SYSTEM gives a link of ``disposition`` (before any operator decision): a correction is
-    applied; a routed one that changes no signal row is applied BY THE SYSTEM (the signal-effect rule — the
-    ingest records its ``system:no-signal-effect`` decision); a routed one that does, and every ambiguous one,
-    is pending; the rest are inert."""
-    if disposition in AUTO_DISPOSITIONS:
+    """The status the SYSTEM gives a link of ``disposition`` (before any operator decision). R8-B: every
+    disposition resolved to a definite original is APPLIED (the ingest records the system's ``apply`` decision
+    in the link's transaction — ``system_basis``); an ambiguous one is pending (it has no target to apply); the
+    rest are inert. ``signal_effect`` no longer changes the status (it picks the system's basis)."""
+    del signal_effect  # kept in the signature: callers pass it, the status no longer depends on it
+    if disposition in RESOLVED_DISPOSITIONS:
         return STATUS_APPLIED
     if disposition == AMBIGUOUS:
         return STATUS_PENDING
-    if disposition in ROUTED_DISPOSITIONS:
-        return STATUS_PENDING if signal_effect else STATUS_APPLIED
     return STATUS_INERT
 
 
 def auto_resolves(disposition: str, signal_effect: bool) -> bool:
-    """Does the system resolve this amendment itself (a routed disposition that changes no signal row)?"""
-    return disposition in ROUTED_DISPOSITIONS and not signal_effect
+    """Does the system apply this amendment itself? R8-B: every disposition resolved to a definite original."""
+    return system_basis(disposition, signal_effect) is not None
+
+
+def within_review_horizon(
+    changed: Iterable[Mapping[str, Any]], asof: date, days: int | None
+) -> bool:
+    """R8-B — does any CHANGED signal row sit inside the review horizon at ``asof`` (dated on/after ``asof -
+    days``; ``None`` = unbounded)? The horizon is the dial ``insider_amendment_review_horizon_days`` (derived:
+    the backtest window plus the longest detector read horizon — ``signals.horizons
+    .insider_amendment_review_horizon``): a row older than it is read by no call, live or replayed. A row dated
+    after ``asof`` is inside (over-include: tomorrow's call reads it). Empty ``changed`` = no signal effect =
+    outside."""
+    rows = [r for r in changed if _row_date(r) is not None]
+    if not rows:
+        return False
+    if days is None:
+        return True
+    edge = asof - timedelta(days=days)
+    return any(_row_date(r) >= edge for r in rows)  # type: ignore[operator]
+
+
+def review_bucket(
+    eff: Effective,
+    *,
+    verdict_basis: object,
+    ever_decided: bool,
+    in_review: bool,
+) -> str:
+    """R8-B — PURE: where one amendment sits in the operator's review, from its effective state.
+
+    - ``inert`` — nothing to apply.
+    - a standing verdict -> ``auto`` when the SYSTEM wrote it, else ``decided`` (the operator's — including a
+      keep over a system application). A correction with no verdict is applied by its link -> ``auto``.
+    - PENDING: an ambiguous link the operator has not linked is ``owed`` when ``in_review`` (it changes a
+      signal row dated inside the review horizon — ``within_review_horizon``), else ``historical`` (no call
+      reads those rows; the originals stand). An operator-linked one awaiting its verdict, and one whose
+      decision the operator UNDID (``ever_decided`` with nothing standing), are ``owed`` — the operator took
+      it. A resolvable one with no decision at all is ``queued``: a pre-R8-B link the next pass's sweep
+      applies (a void suppresses meanwhile, as pending always did)."""
+    if eff.status == STATUS_INERT:
+        return REVIEW_INERT
+    if eff.verdict is not None:
+        return REVIEW_AUTO if is_system_basis(verdict_basis) else REVIEW_DECIDED
+    if eff.status == STATUS_APPLIED:
+        return REVIEW_AUTO
+    if eff.disposition == AMBIGUOUS and eff.link_decision_id is None:
+        return REVIEW_OWED if in_review else REVIEW_HISTORICAL
+    if eff.link_decision_id is not None or ever_decided:
+        return REVIEW_OWED
+    return REVIEW_QUEUED
+
+
+def sweep_basis(eff: Effective, *, ever_decided: bool, signal_effect: bool) -> str | None:
+    """R8-B — the basis the nightly SWEEP applies one amendment with, or ``None`` to leave it alone. It acts
+    ONLY on an amendment with no decision at all (``ever_decided`` False — anything the operator did, or an
+    earlier system application, stays as it is: re-running appends nothing) whose effective disposition the
+    system can apply (``system_basis``)."""
+    if ever_decided or eff.verdict is not None or eff.link_decision_id is not None:
+        return None
+    return system_basis(eff.disposition, signal_effect)
 
 
 def norm_cik(raw: object) -> str | None:
@@ -431,10 +562,11 @@ class LinkResult:
     candidate_accessions: tuple[str, ...] = ()
     owner_ciks: tuple[str, ...] = ()
     why: str = ""
-    # the signal-effect rule: does its effect change a row a call signal reads, and so does the SYSTEM resolve
-    # it (a routed disposition with no signal effect — the ingest records a ``system:no-signal-effect`` apply)
+    # does its effect change a row a call signal reads; does the SYSTEM apply it (R8-B: every disposition
+    # resolved to a definite original), and under which basis (``system_basis`` — the ingest records it)
     signal_effect: bool = True
     auto_resolved: bool = False
+    basis: str | None = None
 
 
 def _owner_keys(owners: Iterable[tuple[str | None, str | None]]) -> tuple[set[str], set[str]]:
@@ -468,9 +600,10 @@ def link_amendment(
     filed_by_accession: Mapping[str, date],
     signal_codes: Collection[str],
 ) -> LinkResult:
-    """PURE — link the 4/A (``_cascade``), then apply the signal-effect rule: ``signal_effect`` = its effect
-    changes a row a call signal reads (``signal_codes``); a routed disposition without one is resolved by the
-    system (``auto_resolved``, status ``applied``)."""
+    """PURE — link the 4/A (``_cascade``), then judge it: ``signal_effect`` = its effect changes a row a call
+    signal reads (``signal_codes``); R8-B — a disposition resolved to a definite original is applied by the
+    system (``auto_resolved``, status ``applied``, ``basis`` = ``system_basis``); an ambiguous one is pending.
+    """
     base = _cascade(amendment, stored, filed_by_accession, signal_codes)
     pool = {acc: rows for acc, rows in stored.items() if acc != amendment.accession and rows}
     before, after = before_after(
@@ -482,11 +615,13 @@ def link_amendment(
         amend_rows=list(amendment.rows),
     )
     effect = bool(changed_signal_rows(base.disposition, before, after, signal_codes))
+    basis = system_basis(base.disposition, effect)
     return replace(
         base,
         signal_effect=effect,
         status=status_for(base.disposition, effect),
-        auto_resolved=auto_resolves(base.disposition, effect),
+        auto_resolved=basis is not None,
+        basis=basis,
     )
 
 

@@ -415,7 +415,7 @@ so any sales-derived signal would be dominated by autopilot and be actively misl
   is **unspecified in `CALL_LOGIC.md`** and is the operator's call — a test asserts a buy scores identically
   whether planned, discretionary, or unknown.
 
-## Form 4/A — amendments, stored as filed and resolved at read `[BUILT — R8-A]`
+## Form 4/A — amendments, stored as filed and resolved at read `[BUILT — R8-A, R8-B]`
 
 **The gap it closes.** The Form 4 leg matched the form type exactly (`filings_of(subs, "4")`), so a **Form 4/A**
 was never ingested: an amended-away buy kept firing and a corrected one never did. MEASURED 2026-10-17 over two
@@ -437,16 +437,24 @@ Depth: the submissions `recent` window, the same accepted depth as Form 4.
   several with IDENTICAL Table I are filing-agent duplicates, several that differ are ambiguous. (2) Else an
   earlier Form 4 of the same owner sharing transaction dates (a tie is ambiguous). (3) Else unlinked.
 - **The dispositions** and what each does to the read are in `CALL_LOGIC.md` §3 (insider) and
-  `domain/insider_amendments.py`. Applied automatically: clean 1:1 corrections. Routed: voids, duplicates,
-  partial / consolidation / addition / restatement, **field change** (Table I identical but a signal row's
-  owner role / name / 10b5-1 flag moved — migration 0051 adds it to the link's disposition check), ambiguous
-  links. Of the routed ones, only those whose effect changes a code-`P`/`S` row (the signal code set,
-  derived from the detectors — `signals.horizons.insider_signal_codes`) go to the operator, plus every
-  ambiguous link; the rest are applied by the system at ingest (`system:no-signal-effect`, undoable). Inert:
-  clerical, no Table I rows, no stored original. MEASURED 2026-10-18 on prod's 552 linked (security, 4/A)
-  pairs: **67 owed the operator** (void 16 · partial 19 · restatement 10 · field change 7 · addition 6 ·
-  consolidation 4 · ambiguous 4 · duplicates 1; 12 touch a code-`P` row, 55 code `S` only), **121 applied
-  by the system** (void 63 · partial 30 · addition 10 · consolidation 10 · restatement 8).
+  `domain/insider_amendments.py`: correction, void, duplicates, partial / consolidation / addition /
+  restatement, **field change** (Table I identical but a signal row's owner role / name / 10b5-1 flag moved —
+  migration 0051 adds it to the link's disposition check), ambiguous; inert = clerical, no Table I rows, no
+  stored original. **R8-B (operator decision 2026-10-20): the filer's own correction is applied by default** —
+  every amendment resolved to a definite original is APPLIED BY THE SYSTEM, an append-only `apply` decision
+  under basis `system:filer-correction` (or `system:no-signal-effect` when it changes no code-`P`/`S` row — the
+  signal code set derived from the detectors, `signals.horizons.insider_signal_codes`), written at ingest in
+  the link's transaction or, for the pre-R8-B backlog, by the nightly sweep (`recorded_at = now`). Each keeps
+  its exact Undo on Admin (Keep original). A Form 4/A is the filer's legal correction of their own filing —
+  deterministic data, not a model's recommendation — so the operator ratifies only what the system cannot
+  resolve: an **ambiguous** link that touches a `P`/`S` row inside the review horizon
+  (`insider_amendment_review_horizon_days`, derived 940 days = the 730-day backtest window + the 210-day `P`
+  read); an older one is listed as "unresolved — historical", the originals standing. MEASURED 2026-10-20 on
+  prod (2,988 linked pairs — the live leg pulled the full history back to 2003, not the two-year research
+  corpus): **4 owed** (CVNA, FIS, HROW, SKYT), **39 historical**, **1,716 applied by the system** after the
+  first sweep, **1,229 inert** (`FEED_LOOP.md` §R8-B, including the measured "omitted line" class — a 4/A that
+  only adds a missed line reads as a partial, and applying it silences sales it never mentions). (R8-A's
+  figures, 2026-10-18, two-year window: 67 owed / 121 applied by the system.)
 - **The other-issuer screen.** A company's own submissions feed lists every ownership filing it is a party to —
   including the ones it filed as the REPORTING OWNER of another company's stock (147 such rows across 11
   tickers sat on member tapes on 2026-10-17; 25 of them code `P`). A Form 4 or 4/A whose `issuerCik` is not
@@ -455,7 +463,10 @@ Depth: the submissions `recent` window, the same accepted depth as Form 4.
   a separate data repair needing the operator's go). The member's CIK set is the master's plus every T7
   CIK-change re-point, so a successor-CIK adopt never screens the predecessor's own history.
 - **Backfill.** The first nightly pass after deploy ingests every 4/A in the window (~550 document fetches,
-  rate-limited) with `recorded_at = now`, so no past replay moves; its pending items page once.
+  rate-limited) with `recorded_at = now`, so no past replay moves; its pending items page once. (MEASURED
+  2026-10-20: the live leg walks the whole submissions history — 2,988 linked pairs back to 2003.) R8-B's
+  first nightly sweeps that backlog the same way — one system decision per resolvable amendment, `recorded_at =
+  now` — so no past replay moves either.
 
 ## 8-K item codes — the corporate-event tape `[BUILT — Band 03 S3; corporate_risk LIVE]`
 

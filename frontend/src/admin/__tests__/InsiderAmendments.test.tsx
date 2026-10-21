@@ -4,18 +4,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { InsiderAmendments } from "../InsiderAmendments";
 
-// The Insider amendments panel (R8-A) over mocked hooks. The rows are the shapes GET
+// The Insider amendments panel (R8-A / R8-B) over mocked hooks. The rows are the shapes GET
 // /admin/insider-amendments returns for the REAL filings the backend suite ingests
-// (backend/tests/form4a_fixtures.py): the FLS cancellation (a pending void inside tonight's P window), the
-// SKYT ambiguous pair, an AZTA keep the operator decided, the AVAV grant-only void the SYSTEM applied (no
-// signal effect), the ARBE auto-applied correction, the RPAY clerical one. The gates: no decision fires on
-// mount, LOUD only where a decision is owed, and every action has its inverse beside it.
+// (backend/tests/form4a_fixtures.py): the SKYT ambiguous pair (OWED — its sales sit inside the review horizon),
+// the FLS cancellation the SYSTEM applied as the filer's correction, the AVAV grant-only void it applied with
+// no signal effect, an AZTA keep the operator stacked over the system's application, the ELTP ambiguous 2012
+// sale (unresolved — historical), and the RPAY clerical one. The gates: no decision fires on mount, LOUD only
+// where a decision is owed, never "owed your decision" for a system application, and every action has its
+// inverse beside it.
 
 const FLS_ID = "e8ff1562-99a2-4402-a06c-994667aa6006";
 const SKYT_ID = "531613b9-fe18-4850-a795-d256e12fbef4";
 
 const base = {
-  recorded_at: "2026-10-18T02:31:00+00:00",
+  recorded_at: "2026-10-21T02:31:00+00:00",
   accepted: null,
   date_of_original_submission: null,
   remarks: null,
@@ -36,6 +38,25 @@ const base = {
   signal_effect: true,
   auto_resolved: false,
   in_window: [] as string[],
+  review: "owed",
+  system_basis: null as string | null,
+  in_review: false,
+};
+
+const SKYT = {
+  ...base,
+  security_id: SKYT_ID,
+  ticker: "SKYT",
+  accession: "0001856680-26-000016",
+  filed: "2026-03-23",
+  owners: ["Manko Steve"],
+  disposition: "ambiguous",
+  method: "orig_date_owner",
+  status: "pending",
+  review: "owed",
+  in_review: true,
+  why: "2 different Form 4s by the owner were filed 2026-03-18 — which one this amends is the operator's call",
+  candidate_accessions: ["0001856680-26-000010", "0001856680-26-000013"],
 };
 
 const FLS = {
@@ -50,8 +71,11 @@ const FLS = {
   ],
   disposition: "void",
   method: "orig_date_owner",
-  status: "pending",
-  why: "the owner's only Form 4 filed 2026-05-18 (dateOfOriginalSubmission)",
+  status: "applied",
+  verdict: "apply",
+  review: "auto",
+  auto_resolved: true,
+  system_basis: "system:filer-correction",
   original_accessions: ["0001628280-26-035913"],
   candidate_accessions: ["0001628280-26-035913"],
   suppressing: ["0001628280-26-035913"],
@@ -77,17 +101,23 @@ const FLS = {
   filing_url: "https://www.sec.gov/Archives/edgar/data/30625/000162828026037326/",
 };
 
-const SKYT = {
+const AVAV_AUTO = {
   ...base,
-  security_id: SKYT_ID,
-  ticker: "SKYT",
-  accession: "0001856680-26-000016",
-  filed: "2026-03-23",
-  owners: ["Manko Steve"],
-  disposition: "ambiguous",
+  security_id: "6f1c3a52-7d0e-4c3b-9d7a-2b8e5f4a1c90",
+  ticker: "AVAV",
+  accession: "0001538012-26-000006",
+  filed: "2026-07-15",
+  owners: ["Nawabi Wahid"],
+  disposition: "void",
   method: "orig_date_owner",
-  status: "pending",
-  candidate_accessions: ["0001856680-26-000010", "0001856680-26-000013"],
+  status: "applied",
+  verdict: "apply",
+  review: "auto",
+  signal_effect: false,
+  auto_resolved: true,
+  system_basis: "system:no-signal-effect",
+  original_accessions: ["0001538012-26-000004"],
+  suppressing: ["0001538012-26-000004"],
 };
 
 const AZTA_KEPT = {
@@ -101,38 +131,40 @@ const AZTA_KEPT = {
   method: "orig_date_owner",
   status: "kept",
   verdict: "keep",
+  review: "decided",
   undo_id: "9a1d2c3e-0000-4000-8000-000000000001",
+  decisions: [
+    {
+      id: "9a1d2c3e-0000-4000-8000-000000000000",
+      action: "apply",
+      reason: "the filer's own amendment",
+      basis: "system:filer-correction",
+      recorded_at: "2026-10-21T02:31:00+00:00",
+      standing: true,
+    },
+    {
+      id: "9a1d2c3e-0000-4000-8000-000000000001",
+      action: "keep",
+      reason: "only attaches a power of attorney",
+      basis: "operator:keep",
+      recorded_at: "2026-10-21T14:00:00+00:00",
+      standing: true,
+    },
+  ],
 };
 
-const AVAV_AUTO = {
+const ELTP = {
   ...base,
-  security_id: "6f1c3a52-7d0e-4c3b-9d7a-2b8e5f4a1c90",
-  ticker: "AVAV",
-  accession: "0001538012-26-000006",
-  filed: "2026-07-15",
-  owners: ["Nawabi Wahid"],
-  disposition: "void",
+  security_id: "0b8e7a51-3e1d-4c6f-9a2b-5d7c8e9f0a1b",
+  ticker: "ELTP",
+  accession: "0001465825-12-000008",
+  filed: "2012-02-08",
+  owners: ["POTTI RAM"],
+  disposition: "ambiguous",
   method: "orig_date_owner",
-  status: "applied",
-  verdict: "apply",
-  signal_effect: false,
-  auto_resolved: true,
-  original_accessions: ["0001538012-26-000004"],
-  suppressing: ["0001538012-26-000004"],
-  undo_id: "9a1d2c3e-0000-4000-8000-000000000002",
-};
-
-const ARBE = {
-  ...base,
-  security_id: "b4adecfe-296d-4193-b6e1-48efd767ca33",
-  ticker: "ARBE",
-  accession: "0001213900-26-107326",
-  filed: "2026-10-06",
-  owners: ["CRIST EUGENE SCOTT"],
-  disposition: "correction",
-  method: "orig_date_owner",
-  status: "applied",
-  suppressing: ["0001213900-26-106000"],
+  status: "pending",
+  review: "historical",
+  candidate_accessions: ["0001465825-12-000004", "0001465825-12-000005"],
 };
 
 const RPAY = {
@@ -145,6 +177,7 @@ const RPAY = {
   disposition: "clerical",
   method: "orig_date_owner",
   status: "inert",
+  review: "inert",
   signal_effect: false,
 };
 
@@ -165,9 +198,12 @@ vi.mock("../../api/hooks", () => ({
 }));
 
 const m = () => ({ mutate: vi.fn(), isPending: false, isError: false, error: null });
+const mutate = (x: Record<string, unknown>) => x.mutate as ReturnType<typeof vi.fn>;
+
+const EMPTY = { owed: [], auto: [], decided: [], historical: [], queued: [], inert: [], total: 0 };
 
 function serve(data: Record<string, unknown>) {
-  h.q = { data, isError: false, error: null };
+  h.q = { data: { ...EMPTY, review_horizon_days: 940, ...data }, isError: false, error: null };
 }
 
 beforeEach(() => {
@@ -176,10 +212,10 @@ beforeEach(() => {
   h.link = m();
   h.revoke = m();
   serve({
-    pending: [FLS, SKYT],
+    owed: [SKYT],
+    auto: [FLS, AVAV_AUTO],
     decided: [AZTA_KEPT],
-    auto: [AVAV_AUTO],
-    applied: [ARBE],
+    historical: [ELTP],
     inert: [RPAY],
     total: 6,
   });
@@ -187,100 +223,117 @@ beforeEach(() => {
 
 describe("InsiderAmendments", () => {
   it("renders nothing when no amendment is stored", () => {
-    serve({ pending: [], decided: [], auto: [], applied: [], inert: [], total: 0 });
+    serve(EMPTY);
     const { container } = render(<InsiderAmendments />);
     expect(container).toBeEmptyDOMElement();
   });
 
   it("is LOUD only for what is owed a decision, and fires nothing on mount", () => {
     render(<InsiderAmendments />);
-    const pending = screen.getByTestId("adm-amend-pending");
-    expect(pending.querySelector(".adm-loud")).toHaveTextContent("2 Form 4/A amendment(s) owed your decision");
-    expect(within(pending).getAllByTestId("adm-amend-row")).toHaveLength(2);
+    const owed = screen.getByTestId("adm-amend-owed");
+    expect(owed.querySelector(".adm-loud")).toHaveTextContent("1 Form 4/A amendment(s) owed your decision");
+    expect(within(owed).getAllByTestId("adm-amend-row")).toHaveLength(1);
     // the quiet buckets are collapsed lists, still present (#9)
-    expect(screen.getByTestId("adm-amend-decided")).not.toHaveAttribute("open");
-    expect(screen.getByTestId("adm-amend-auto")).not.toHaveAttribute("open");
-    expect(screen.getByTestId("adm-amend-auto")).toHaveTextContent("1 applied — no signal effect");
-    expect(screen.getByTestId("adm-amend-applied")).toHaveTextContent("1 correction(s) applied automatically");
+    for (const id of ["adm-amend-auto", "adm-amend-decided", "adm-amend-historical", "adm-amend-inert"]) {
+      expect(screen.getByTestId(id)).not.toHaveAttribute("open");
+    }
+    expect(screen.getByTestId("adm-amend-auto")).toHaveTextContent(
+      "2 applied automatically — the filer's own correction",
+    );
     expect(screen.getByTestId("adm-amend-inert")).toHaveTextContent("1 with nothing to apply");
     for (const mm of [h.apply, h.keep, h.link, h.revoke]) {
-      expect((mm as { mutate: ReturnType<typeof vi.fn> }).mutate).not.toHaveBeenCalled();
+      expect(mutate(mm)).not.toHaveBeenCalled();
     }
   });
 
-  it("shows a pending void's evidence and what it suppresses, with Ratify void and Keep original", async () => {
+  it("never says 'owed your decision' about a system application", () => {
     render(<InsiderAmendments />);
-    const row = screen.getAllByTestId("adm-amend-row")[0];
-    expect(row).toHaveTextContent("VOID");
-    expect(row).toHaveTextContent("Suppressing 0001628280-26-035913 from every call until you decide.");
-    expect(row).toHaveTextContent("cancelled by the Reporting Person's broker");
-    expect(row).toHaveTextContent("P 2026-05-18 · 2,500 @ $65.71 = $164,275");
-    expect(within(row).getByRole("link", { name: "0001628280-26-037326" })).toHaveAttribute(
-      "href",
-      FLS.filing_url,
-    );
-    await userEvent.click(within(row).getByRole("button", { name: "Ratify void" }));
-    expect((h.apply as { mutate: ReturnType<typeof vi.fn> }).mutate).toHaveBeenCalledWith({
-      securityId: FLS_ID,
-      accession: FLS.accession,
-    });
-    await userEvent.click(within(row).getByRole("button", { name: "Keep original" }));
-    expect((h.keep as { mutate: ReturnType<typeof vi.fn> }).mutate).toHaveBeenCalledWith({
-      securityId: FLS_ID,
-      accession: FLS.accession,
-    });
+    const auto = screen.getByTestId("adm-amend-auto");
+    expect(auto).not.toHaveTextContent(/owed/i);
+    expect(within(screen.getByTestId("adm-amend-owed")).queryByText(/FLS|AVAV/)).toBeNull();
   });
 
-  it("asks the operator to pick the original of an ambiguous amendment — and suppresses nothing", async () => {
+  it("asks the operator to pick the original of an ambiguous amendment — and changes nothing until then", async () => {
     render(<InsiderAmendments />);
-    const row = screen.getAllByTestId("adm-amend-row")[1];
-    expect(row).toHaveTextContent("Nothing is suppressed until you pick the original it amends.");
+    const row = screen.getAllByTestId("adm-amend-row")[0];
+    expect(row).toHaveTextContent("Several Form 4s could be the one this amends");
+    expect(row).toHaveTextContent("Nothing changes until you do.");
     expect(within(row).queryByRole("button", { name: "Ratify void" })).toBeNull();
     await userEvent.click(within(row).getByRole("button", { name: "Link to 0001856680-26-000013" }));
-    expect((h.link as { mutate: ReturnType<typeof vi.fn> }).mutate).toHaveBeenCalledWith({
+    expect(mutate(h.link)).toHaveBeenCalledWith({
       securityId: SKYT_ID,
       accession: SKYT.accession,
       target: "0001856680-26-000013",
     });
   });
 
-  it("keeps the inverse beside every decision: Undo on a decided one, Keep original on a correction", async () => {
+  it("lists each system application with its basis, its evidence and Keep original as its Undo", async () => {
+    render(<InsiderAmendments />);
+    const [fls, avav] = within(screen.getByTestId("adm-amend-auto")).getAllByTestId("adm-amend-auto-row");
+    expect(fls).toHaveTextContent("applied by the system — the filer's own amendment, resolved to the Form 4 it amends");
+    expect(fls).toHaveTextContent("suppressing 0001628280-26-035913");
+    // the evidence beside it: the filer's footnote and the original's rows
+    expect(fls).toHaveTextContent("cancelled by the Reporting Person's broker");
+    expect(fls).toHaveTextContent("P 2026-05-18 · 2,500 @ $65.71 = $164,275");
+    expect(within(fls).getByRole("link", { name: "0001628280-26-037326" })).toHaveAttribute("href", FLS.filing_url);
+    // a settled item in today's window is not loud (honest loudness)
+    expect(within(fls).queryByTestId("adm-amend-in-window")).toBeNull();
+    expect(avav).toHaveTextContent("applied by the system — it changes no buy or sale a call signal reads");
+    await userEvent.click(within(fls).getByRole("button", { name: "Keep original" }));
+    expect(mutate(h.keep)).toHaveBeenCalledWith({ securityId: FLS_ID, accession: FLS.accession });
+    expect(mutate(h.revoke)).not.toHaveBeenCalled(); // the system's record is never revoked as "the Undo"
+  });
+
+  it("keeps the inverse beside a decision: Undo of a keep restores the filer's amendment", async () => {
     render(<InsiderAmendments />);
     const decided = screen.getByTestId("adm-amend-decided");
-    expect(decided).toHaveTextContent("original kept");
+    expect(decided).toHaveTextContent("original kept by you — Undo restores the filer's amendment");
     await userEvent.click(within(decided).getByRole("button", { name: "Undo" }));
-    expect((h.revoke as { mutate: ReturnType<typeof vi.fn> }).mutate).toHaveBeenCalledWith({
-      decisionId: AZTA_KEPT.undo_id,
-    });
-    const applied = screen.getByTestId("adm-amend-applied");
-    await userEvent.click(within(applied).getByRole("button", { name: "Keep original" }));
-    expect((h.keep as { mutate: ReturnType<typeof vi.fn> }).mutate).toHaveBeenCalledWith({
-      securityId: ARBE.security_id,
-      accession: ARBE.accession,
+    expect(mutate(h.revoke)).toHaveBeenCalledWith({ decisionId: AZTA_KEPT.undo_id });
+  });
+
+  it("lists an old ambiguous amendment as unresolved — historical, grayed, and still linkable", async () => {
+    render(<InsiderAmendments />);
+    const hist = screen.getByTestId("adm-amend-historical");
+    expect(hist).toHaveClass("adm-grayed");
+    expect(hist).toHaveTextContent("1 unresolved — historical (no call reads these rows)");
+    expect(hist).toHaveTextContent("940-day review horizon");
+    const row = within(hist).getByTestId("adm-amend-historical-row");
+    await userEvent.click(within(row).getByRole("button", { name: "Link to 0001465825-12-000005" }));
+    expect(mutate(h.link)).toHaveBeenCalledWith({
+      securityId: ELTP.security_id,
+      accession: ELTP.accession,
+      target: "0001465825-12-000005",
     });
   });
 
-  it("tags the in-window pending item — and only that one", () => {
+  it("tags an owed item inside today's window, and offers Apply / Keep on one the operator took back", async () => {
+    const takenBack = {
+      ...FLS,
+      status: "pending",
+      verdict: null,
+      review: "owed",
+      auto_resolved: false,
+      system_basis: null,
+    };
+    serve({ owed: [takenBack, SKYT], total: 2 });
     render(<InsiderAmendments />);
     const [fls, skyt] = screen.getAllByTestId("adm-amend-row");
     expect(within(fls).getByTestId("adm-amend-in-window")).toHaveTextContent(
       "in today's P signal window — can move tonight's call",
     );
     expect(within(skyt).queryByTestId("adm-amend-in-window")).toBeNull();
+    expect(fls).toHaveTextContent("Suppressing 0001628280-26-035913 from every call until you decide.");
+    await userEvent.click(within(fls).getByRole("button", { name: "Ratify void" }));
+    expect(mutate(h.apply)).toHaveBeenCalledWith({ securityId: FLS_ID, accession: FLS.accession });
   });
 
-  it("lists a system resolution as applied — no signal effect, with its Undo", async () => {
+  it("shows a queued backlog quietly until the nightly sweep applies it", () => {
+    serve({ queued: [{ ...FLS, status: "pending", verdict: null, review: "queued", auto_resolved: false }], total: 1 });
     render(<InsiderAmendments />);
-    const auto = screen.getByTestId("adm-amend-auto");
-    const row = within(auto).getByTestId("adm-amend-auto-row");
-    expect(row).toHaveTextContent("applied by the system — it changes no buy or sale a call signal reads");
-    expect(row).toHaveTextContent("suppressing 0001538012-26-000004");
-    // the system decided nothing the operator cannot reverse (WB#1): Undo returns it to the queue
-    await userEvent.click(within(row).getByRole("button", { name: "Undo" }));
-    expect((h.revoke as { mutate: ReturnType<typeof vi.fn> }).mutate).toHaveBeenCalledWith({
-      decisionId: AVAV_AUTO.undo_id,
-    });
-    // never loud: an auto row is not in the owed list
-    expect(within(screen.getByTestId("adm-amend-pending")).queryByText(/AVAV/)).toBeNull();
+    expect(screen.queryByTestId("adm-amend-owed")).toBeNull();
+    expect(screen.getByTestId("adm-amend-queued")).toHaveTextContent(
+      "1 awaiting the system's application at the next nightly pass",
+    );
   });
 });

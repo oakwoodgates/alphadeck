@@ -224,6 +224,15 @@ replay stays honest.
   same — the ratified-table hindsight caveat, named. *Enforced by:* `tests/db/test_insider_amendments.py`
   (a read pinned before the link / before a decision), `tests/replay/test_pit_insider_amendments.py` (row-for-row
   parity at four pins, both read shapes; the public-clock acceptance).
+- *Also honored by (R8-B — the system applies the filer's own correction):* the system's application is an
+  append-only decision like the operator's, carrying its own `recorded_at` — in the link's transaction at
+  ingest (so a new 4/A is never seen pending), or `now` when the nightly sweep applies the pre-R8-B backlog. So
+  a replay pinned before the sweep reads the state the system actually held (pending: a void suppressing, a
+  partial with no effect) — the backlog is applied forward, never back-dated. The public-clock mirror carries
+  the standing system decisions like any standing decision (stamped at the acceptance — the same named
+  hindsight caveat). *Enforced by:* `tests/db/test_insider_amendments.py::
+  test_a_replay_pinned_before_the_sweep_reads_the_pending_state_it_held`,
+  `tests/replay/test_pit_insider_amendments.py::test_the_mirror_reads_the_sweep_exactly_like_postgres_before_and_after_it`.
 
 ## 5. Tenant isolation; production is a fresh tenant, never a destructive wipe
 
@@ -453,16 +462,18 @@ surfaced to the operator, not silently resolved in code.**
   visible names, never a filter that silently eats one (`TRIAGE.md`).
 - *Also honored by (R8-A — Form 4/A amendments and the other-issuer screen):* no insider row is DELETED and no
   amendment is silently dropped. A 4/A is stored as filed (never written into, never subtracted from,
-  `fact_insider_txn`); what it does is decided per disposition and SHOWN on Admin with its evidence — an
-  auto-applied correction, a clerical / no-rows / unlinked one, and every routed one stay listed, and the
-  only provisional removal is the operator's own condition (a pending void suppresses the original it
-  cancels; *Keep original* restores it, an AMBIGUOUS link suppresses nothing). A routed amendment with NO
-  signal effect (the signal-effect rule, 2026-10-18: it changes no code-`P`/`S` row's code, date, shares,
-  price, 10b5-1 flag, owner role or name) is applied by the system — a deterministic content comparison,
-  never a date window or screen, recorded as an append-only `system:no-signal-effect` decision — and it is
-  LISTED on Admin as "applied — no signal effect" with its Undo (which returns it to the operator's queue),
-  never hidden; what such a void suppresses is by construction no row a call signal reads (AVAV's voided
-  grant-only Form 4). An ambiguous link is never system-resolved. Rows stored before the
+  `fact_insider_txn`); what it does is decided per disposition and SHOWN on Admin with its evidence — every
+  amendment stays listed. Since R8-B (2026-10-20) every amendment resolved to a definite original is applied by
+  the system (an append-only `system:filer-correction` / `system:no-signal-effect` decision) and LISTED on
+  Admin as "Applied automatically" with its evidence and its exact Undo (*Keep original*), never hidden — what a
+  void removes is suppressed at read, never deleted. An AMBIGUOUS link is never system-resolved: it is owed the
+  operator when it touches a buy/sell row inside the review horizon, and otherwise listed as "unresolved —
+  historical" with its originals standing and its Link buttons kept (hidden from the PAGE, never from the
+  panel). **The named risk (MEASURED 2026-10-20, `FEED_LOOP.md` §R8-B):** "rows replace" drops an original row
+  a 4/A does not restate — the filer's correction when the 4/A restates the filing, but a silenced real sale when
+  it only adds an omitted line (nine such 4/As inside the review horizon, all sells; MRCY's inside tonight's
+  window). Each is visible with its evidence and undoable in one click; a class rule is an open operator
+  question, not shipped silently. Rows stored before the
   other-issuer screen existed are KEPT and screened at read (keep-and-screen); the screen keeps any row whose
   issuer or member CIK is unknown, and counts every CIK the security has been known by (the T7 change log),
   so a successor-CIK re-point never hides the predecessor's own history. A filing the ingest no longer stores
@@ -506,6 +517,14 @@ them coexist.
   is persisted as a tier or auto-applied (a recommendation rides display-only, like the `matched_terms`
   provenance tags, never mutating `authored_by` until the operator acts).
 
+**What #10 does NOT cover — a filer's own Form 4/A (R8-B, operator decision 2026-10-20).** The system applying
+a Form 4/A that the deterministic linker resolves to the Form 4 it amends is not an auto-applied recommendation:
+no model is involved, and the content is the insider's own legal correction of their own filing, filed under
+penalty. Applying it is DATA HANDLING (like storing the original Form 4), recorded as an append-only system
+decision (`system:filer-correction` / `system:no-signal-effect`), listed on Admin with its evidence and an exact
+Undo (*Keep original*). The operator ratifies only what the system cannot resolve — an ambiguous link, when a
+call can read the rows it touches. `CALL_LOGIC.md` §3 insider; `FEED_LOOP.md` §R8-B.
+
 **The #10 family — the shipped recommend→confirm seams** (the pattern the frame calls out, `STAGE_MODEL.md`): the
 **tier recommendation** (SIGNAL/BROAD per term — `DISCOVERY.md`), the **off-thesis flag** (the narrator's opinion —
 `CHAIN_DRAFTER.md`), the **grounded purity estimate** + the **market-cap estimate** (SURFACE values —
@@ -541,9 +560,11 @@ were not reconciled (the 4/A was never ingested at all, and `accession` in the n
 would double-count), so a cancelled code-`P` buy stayed live to the conviction detector (FLS's $164k director
 buy, cancelled by the broker, was a CORE trigger). R8-A stores each 4/A as filed in `insider_amendment` (never
 in `fact_insider_txn`), links it to its original, and resolves every as-of insider read through one pure
-resolver shared with the replay mirror — a pending void suppresses its original, a 1:1 correction applies, the
-rest wait for the operator or, with no signal effect, are applied by the system and listed with an Undo. The
-`supersedes` column is still vestigial. See `DATA_SOURCES.md` §Form 4/A and `CALL_LOGIC.md` §3 (insider).
+resolver shared with the replay mirror. Since R8-B (2026-10-20) every amendment resolved to a definite original
+is applied by the system — the filer's own correction — and listed with an Undo; only an ambiguous one touching a
+buy/sell inside the review horizon waits for the operator. The `supersedes` column is still vestigial. See
+`DATA_SOURCES.md` §Form 4/A, `CALL_LOGIC.md` §3 (insider) and `FEED_LOOP.md` §R8-B (incl. the open "omitted line"
+question).
 
 **Known gap — basket composition is point-in-time from 2026-09-15 FORWARD, and unknowable before it.**
 `basket_member` is full-replace on promote with no timestamps, so which names were in a basket on a past

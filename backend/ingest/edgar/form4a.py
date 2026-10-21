@@ -35,6 +35,7 @@ from psycopg.types.json import Json
 
 from db.session import DEFAULT_TENANT_ID
 from domain.insider_amendments import (
+    BASIS_FILER_CORRECTION,
     BASIS_NO_SIGNAL_EFFECT,
     STATUS_PENDING,
     AmendmentFacts,
@@ -79,6 +80,38 @@ def default_signal_codes() -> frozenset[str]:
     from signals.horizons import insider_signal_codes
 
     return frozenset(insider_signal_codes(DEFAULT_CONFIG))
+
+
+# the reason a SYSTEM application carries, per basis (the Admin panel shows it beside the Undo)
+SYSTEM_REASONS: dict[str, str] = {
+    BASIS_NO_SIGNAL_EFFECT: "changes no row a call signal reads (no signal effect)",
+    BASIS_FILER_CORRECTION: (
+        "the filer's own amendment, resolved to the Form 4 it amends — applied by the system (R8-B)"
+    ),
+}
+
+
+def system_decision_values(
+    *,
+    tenant_id: UUID,
+    security_id: UUID,
+    accession: str,
+    basis: str,
+    disposition: str,
+    signal_codes: Collection[str],
+    via: str,
+) -> dict[str, Any]:
+    """One SYSTEM ``apply`` decision's columns (the ingest's and the sweep's — one shape): append-only and
+    undoable on Admin like any decision. ``via`` names the writer (``ingest`` / ``sweep``)."""
+    return {
+        "tenant_id": tenant_id,
+        "security_id": security_id,
+        "amendment_accession": accession,
+        "action": "apply",
+        "reason": SYSTEM_REASONS[basis],
+        "basis": basis,
+        "detail": {"disposition": disposition, "signal_codes": sorted(signal_codes), "via": via},
+    }
 
 
 def _opt_date(raw: str | None) -> date | None:
@@ -198,10 +231,12 @@ def ingest_form4a(
     its link (the caller owns the transaction — every row shares its ``now()``). ``stored`` may be passed in
     (the leg loads it once per security); else it is read here.
 
-    THE SIGNAL-EFFECT RULE (2026-10-18): ``signal_codes`` (default: derived from the registered detectors,
-    ``signals.horizons.insider_signal_codes``) names the codes a call signal reads. A routed amendment that
-    changes none of those rows is resolved here, in the same transaction: an append-only ``apply`` decision
-    with basis ``system:no-signal-effect`` (undoable on Admin like any decision)."""
+    THE FILER'S CORRECTION, APPLIED (R8-B, 2026-10-20): an amendment the linker resolves to a definite original
+    is applied HERE, in the same transaction as its link (one ``recorded_at`` — a new 4/A is never pending): an
+    append-only ``apply`` decision whose basis is ``system:no-signal-effect`` when it changes no row a call
+    signal reads (``signal_codes``, default derived from the registered detectors — ``signals.horizons
+    .insider_signal_codes``), else ``system:filer-correction``. Undoable on Admin (Keep original). An ambiguous
+    link writes no decision — it waits for the operator (or reads as historical)."""
     if signal_codes is None:
         signal_codes = default_signal_codes()
     parsed = parse_form4a(xml)
@@ -284,25 +319,34 @@ def ingest_form4a(
                         "rejected_rows": rejected,
                         "signal_effect": link.signal_effect,
                         "auto_resolved": link.auto_resolved,
+                        "basis": link.basis,
                         "signal_codes": sorted(signal_codes),
                     }
                 ),
                 "accepted": accepted,
             },
         )
-        if link.auto_resolved:
-            # the system's resolution, recorded exactly like an operator's (append-only, undoable)
+        if link.basis is not None:
+            # the system's application, recorded exactly like an operator's verdict (append-only, undoable)
+            v = system_decision_values(
+                tenant_id=tenant_id,
+                security_id=security_id,
+                accession=accession,
+                basis=link.basis,
+                disposition=link.disposition,
+                signal_codes=signal_codes,
+                via="ingest",
+            )
             cur.execute(
                 "INSERT INTO insider_amendment_decision (tenant_id, security_id, amendment_accession, action, "
-                "reason, basis, detail, recorded_at) VALUES (%(tenant)s, %(sid)s, %(acc)s, 'apply', "
+                "reason, basis, detail, recorded_at) VALUES (%(tenant)s, %(sid)s, %(acc)s, %(action)s, "
                 f"%(reason)s, %(basis)s, %(ddetail)s, {stamp})",  # noqa: S608 — stamp is one of two literals
                 {
                     **common,
-                    "reason": "changes no row a call signal reads (no signal effect)",
-                    "basis": BASIS_NO_SIGNAL_EFFECT,
-                    "ddetail": Json(
-                        {"disposition": link.disposition, "signal_codes": sorted(signal_codes)}
-                    ),
+                    "action": v["action"],
+                    "reason": v["reason"],
+                    "basis": v["basis"],
+                    "ddetail": Json(v["detail"]),
                 },
             )
     return AmendmentIngest(
@@ -326,6 +370,7 @@ class AmendmentLegResult:
 
     @property
     def pending(self) -> int:
+        """Stored tonight and NOT applied by the system (an ambiguous link — R8-B)."""
         return sum(1 for a in self.stored if a.link is not None and a.link.status == STATUS_PENDING)
 
 
