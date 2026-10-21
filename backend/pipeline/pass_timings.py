@@ -13,7 +13,9 @@ THE MODEL. One ``PassTimer`` per pass, made ACTIVE for the pass (``activate`` â€
   while it is open is that thesis's.
 - ``timed(leg)`` wraps a call: per thesis ``form4`` / ``form8k`` / ``schedule13`` / ``price`` /
   ``fund_shares`` (``ingest_thesis``, summed over the thesis's names), ``submissions`` (the EDGAR client's
-  submissions-index reads, whichever leg made them), ``fundamentals`` (the Q17 refresh), ``call`` (the
+  submissions-index reads, whichever leg made them), ``company_lock`` (W1 â€” a deferred company's bounded
+  wait for another writer's per-company lock; absent on the common night), ``fundamentals`` (the Q17
+  refresh), ``call`` (the
   assemble), ``notify`` (a transition push) and ``record`` (``record_if_changed`` + its commit); per pass
   ``benchmarks``, ``baselines`` (the previous-artifact reads), ``digest`` (the Q13 newly-armed digest: its
   re-arm history read + the push, only on a pass with newly armed names), ``split_scan``, ``rename_probe``,

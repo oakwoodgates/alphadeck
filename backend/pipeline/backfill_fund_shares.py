@@ -36,6 +36,7 @@ from uuid import UUID
 import psycopg
 
 from db.session import connect
+from db.write_lock import CompanyLockBusy, acquire_company_lock
 from domain.enums import InstrumentKind
 from domain.market_time import market_today
 from domain.settings import get_settings
@@ -134,8 +135,18 @@ def backfill_thesis(
         if ticker is not None and sec.ticker.upper() != ticker.upper():
             continue
         res = BackfillResult(ticker=sec.ticker, security_id=sec.id)
+        conn.commit()  # end the master read before any lock wait (never wait "idle in transaction")
         for d in dates:
             res.dates_queried += 1
+            # W1 — the per-company write lock (`db/write_lock.py`), taken PER DATE: each date's write is its
+            # own read-compare-append on `fact_fund_shares`, so the nightly (which samples this sleeve too) can
+            # interleave between dates instead of waiting out a paced, minutes-long walk. A sleeve still held
+            # after the bounded wait stops here VISIBLY (the dates done so far are kept, like any error).
+            try:
+                lock = acquire_company_lock(conn, sec.id, wait_s=get_settings().ingest_lock_wait_s)
+            except CompanyLockBusy as busy:
+                res.error = f"{d.isoformat()}: not written: {busy}"
+                break
             try:
                 r = ingest_fund_shares_for_security(
                     conn,
@@ -159,6 +170,8 @@ def backfill_thesis(
                 conn.rollback()
                 res.error = f"{d.isoformat()}: {e}"
                 break
+            finally:
+                lock.release()  # after this date's commit / rollback
         results.append(res)
     return results
 

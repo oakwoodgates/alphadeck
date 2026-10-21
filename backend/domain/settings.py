@@ -141,6 +141,24 @@ class Settings(BaseSettings):
     ingest_job_running_ttl_s: float = 3600.0
     ingest_job_finished_ttl_s: float = 1800.0
 
+    # --- W1 — the per-company write lock's bounded waits (db/write_lock.py) ---
+    # Every fact writer serializes PER COMPANY (a Postgres advisory lock): the nightly, the Workbench on-promote
+    # job and the CLI ingest. ``ingest_lock_wait_s`` is how long such a BATCH writer waits for a company another
+    # writer holds — and only after every free company is done (``pipeline.ingest_thesis`` defers a held one to
+    # the end of its walk). Sized off the longest single-company hold: the nightly holds a company for its
+    # incremental legs (seconds); a Workbench FIRST ingest of a brand-new name walks its whole Form 4 history at
+    # EDGAR's ~8 req/s (a deep insider tape ≈ 1,000 filings ≈ 2 min). Past it the company is NOT ingested by
+    # that writer (a visible ``lock_busy`` note — never an error, never a dropped name, never a withheld call).
+    # ALPHADECK_INGEST_LOCK_WAIT_S.
+    ingest_lock_wait_s: float = 180.0
+    # The INTERACTIVE twin: the Workbench per-name price pull is a request, so it waits briefly and answers 409
+    # naming the holder instead of hanging. ALPHADECK_INGEST_LOCK_REQUEST_WAIT_S.
+    ingest_lock_request_wait_s: float = 15.0
+    # A fact REPAIR takes the fact-writer gate EXCLUSIVELY (``pipeline.run_lock.acquire_repair_lock``) after the
+    # call-of-record lock; this is how long it waits for the company writers in flight to drain before it
+    # refuses (exit 75, nothing written). ALPHADECK_REPAIR_LOCK_WAIT_S.
+    repair_lock_wait_s: float = 60.0
+
     # --- Admin ops surface (Slice 1) — the "Run daily now" job registry + the schedule read ---
     # The daily-run job's OWN reaper TTLs (pipeline/daily_job.py — deliberately NOT the drafter's dials
     # above: a COLD daily pass measured ~65 min, so the drafter's 900s running TTL would flip a healthy

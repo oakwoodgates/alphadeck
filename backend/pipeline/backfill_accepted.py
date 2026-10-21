@@ -87,6 +87,7 @@ from ingest.edgar.submissions import (
     fetch_submissions,
     parse_acceptance,
 )
+from pipeline.run_lock import repair_lock_or_exit
 
 # The latest-version view of the table — the SAME grain the shared as-of read dedups on
 # (db.bitemporal._FACT_IDENTITY['fact_insider_txn'] within its (tenant, security) scope), so "latest is
@@ -549,6 +550,12 @@ def main(argv: list[str] | None = None) -> None:
         f"depth     : {'DEEP (filings.files[] paginated)' if args.deep else 'recent window only'}"
     )
     client = EdgarClient(allow_live=args.live)
+    # W1 — a writing run excludes the nightly pass AND every company writer (pipeline.run_lock); exit 75 if busy
+    lock = (
+        repair_lock_or_exit(holder="backfill_accepted", conninfo=url)
+        if args.execute and not args.verify
+        else None
+    )
     conn = psycopg.connect(url, row_factory=dict_row)
     try:
         with conn.cursor() as cur:
@@ -574,6 +581,8 @@ def main(argv: list[str] | None = None) -> None:
             _print_backfill(bres)
     finally:
         conn.close()
+        if lock is not None:
+            lock.release()
 
 
 if __name__ == "__main__":

@@ -74,7 +74,7 @@ from ingest.edgar.form4 import parse_form4
 from pipeline.backfill_aff10b5_1 import cached_form_doc
 from pipeline.repair_adr_insider_misattribution import _require_security_scoped_natural_key
 from pipeline.repair_insider_ownership import _JSONB_COLS, _redact, _same_txn, _tickers
-from pipeline.run_lock import EXIT_ALREADY_RUNNING, PassAlreadyRunning, acquire_pass_lock
+from pipeline.run_lock import EXIT_ALREADY_RUNNING, PassAlreadyRunning, acquire_repair_lock
 
 _DEFAULT_CACHE = Path(__file__).resolve().parents[2] / "data" / "edgar_cache"
 TEXT = ("ownership_nature", "txn_footnotes", "filing_natures")
@@ -429,7 +429,7 @@ def main(argv: list[str] | None = None) -> None:
     tenant = UUID(args.tenant)
     print(f"repair_insider_filer_text · target {_redact(database_url())} · cache {args.cache_dir}")
     try:
-        lock = acquire_pass_lock(holder="repair_insider_filer_text") if args.apply else None
+        lock = acquire_repair_lock(holder="repair_insider_filer_text") if args.apply else None
     except PassAlreadyRunning as exc:
         print(f"ALREADY RUNNING — {exc}. Nothing was written (exit {EXIT_ALREADY_RUNNING})")
         raise SystemExit(EXIT_ALREADY_RUNNING) from None

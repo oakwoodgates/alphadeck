@@ -400,6 +400,11 @@ def build_run_payload(
     that per-thesis list is what `previous_ingest_skips` (below) carries forward as the next baseline.
     `skips=None` writes the not-evaluated empty block; readers use `.get`.
 
+    W1 — THE PER-COMPANY WRITE LOCK (`db/write_lock.py`): each thesis carries `company_lock_waits`
+    (`[{security_id, ticker, waited_s, ingested, holder}]`) — the names its ingest waited for because another
+    writer held the company, `ingested: false` for one still held after the bounded wait (its legs did not run
+    in this pass; the thesis recorded with `ingest_fresh=false`). Empty on the common night; readers use `.get`.
+
     X5 — WHERE THE PASS SPENT ITS TIME (`pipeline/pass_timings.py`, measurement only): `timings` =
     `{v, total_s, legs: {leg: s}, counts: {leg: {kind: n}}, theses: [{id, name, total_s, legs, counts,
     rss_kb, peak_rss_kb}], peak_rss_kb, peak_rss_children_kb, rss_kb, errors}` — exclusive seconds per leg
@@ -565,6 +570,22 @@ def build_run_payload(
                 # errors, so they do not spoil `ingest_fresh` — and recorded here, never dropped (#9)
                 "expected_price_misses": [
                     m.to_json() for m in getattr(r, "expected_price_misses", ()) or ()
+                ],
+                # W1 — the per-company write lock (`db/write_lock.py`): one row per name this thesis's
+                # ingest had to WAIT for because another writer (a Workbench ingest, a CLI run) held the
+                # company. `ingested` false = still held after the bounded wait, so this pass did not run
+                # its legs (not an error; the thesis recorded with `ingest_fresh=false`); `holder` names
+                # who held it. Empty on the common night. Readers use `.get` (older artifacts lack it).
+                "company_lock_waits": [
+                    {
+                        "security_id": str(x.security_id),
+                        "ticker": x.ticker,
+                        "waited_s": getattr(x, "lock_waited_s", 0.0),
+                        "ingested": not getattr(x, "lock_busy", None),
+                        "holder": getattr(x, "lock_busy", None),
+                    }
+                    for x in r.ingested
+                    if getattr(x, "lock_busy", None) or getattr(x, "lock_waited_s", 0.0)
                 ],
             }
             for r in results

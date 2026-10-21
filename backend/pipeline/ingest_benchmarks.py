@@ -59,6 +59,7 @@ import psycopg
 
 from db.clock import db_now
 from db.session import DEFAULT_TENANT_ID, connect
+from db.write_lock import CompanyLockBusy, acquire_company_lock
 from domain.settings import get_settings
 from ingest.prices.eod_loader import ingest_prices, stored_bars
 from ingest.prices.ingest_security import _restated
@@ -164,6 +165,16 @@ def ingest_benchmarks(
     src = source or YahooPriceSource(range_=range_)
     results: list[BenchmarkResult] = []
     for ticker, sid in ids.items():
+        # W1 — the per-company write lock (`db/write_lock.py`): SPY / IWM are ordinary securities (a thesis can
+        # hold one as an ETF sleeve, so a Workbench ingest can write the same tape), and this leg is a
+        # read-compare-append on their `fact_price_eod` rows, so it runs only while this connection holds the
+        # company. A benchmark still held after the bounded wait is this benchmark's captured error (visible on
+        # the artifact as `benchmark_errors`), never a hang and never a silent skip.
+        try:
+            lock = acquire_company_lock(conn, sid, wait_s=get_settings().ingest_lock_wait_s)
+        except CompanyLockBusy as busy:
+            results.append(BenchmarkResult(ticker, sid, 0, f"not refreshed: {busy}"))
+            continue
         try:
             fresh = src.get_bars(ticker, allow_live=allow_live, force_refresh=force_refresh)
             # read AFTER the pull: the stamp must not predate the moment the bars were in hand
@@ -195,6 +206,8 @@ def ingest_benchmarks(
         except Exception as e:  # noqa: BLE001 — fail-visible: capture, roll back, keep going
             conn.rollback()
             results.append(BenchmarkResult(ticker, sid, 0, str(e)))
+        finally:
+            lock.release()  # AFTER this benchmark's commit / rollback — never before its writes land
     return results
 
 

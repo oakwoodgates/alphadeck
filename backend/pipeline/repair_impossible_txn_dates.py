@@ -67,6 +67,7 @@ from psycopg.rows import dict_row
 
 from ingest.edgar.form4 import implausible_txn_date
 from pipeline.dedup_identical_versions import require_database_url
+from pipeline.run_lock import repair_lock_or_exit
 
 # The Section 16 epoch, mirrored here as the SQL pre-filter's lower edge. It must stay in lockstep with
 # ``ingest.edgar.form4._SECTION_16_EPOCH_YEAR``: the pre-filter is only allowed to be WIDER than the rule
@@ -191,6 +192,12 @@ def main(argv: list[str] | None = None) -> None:
     url = require_database_url()
     print(f"target DB : {_redact(url)}")
 
+    # W1 — a writing run excludes the nightly pass AND every company writer (pipeline.run_lock); exit 75 if busy
+    lock = (
+        repair_lock_or_exit(holder="repair_impossible_txn_dates", conninfo=url)
+        if args.apply
+        else None
+    )
     conn = psycopg.connect(url, row_factory=dict_row)
     try:
         with conn.cursor() as cur:
@@ -229,6 +236,8 @@ def main(argv: list[str] | None = None) -> None:
         print(f"\nSUMMARY: total_deleted={deleted} distinct_facts={len(facts)}")
     finally:
         conn.close()
+        if lock is not None:
+            lock.release()
 
 
 if __name__ == "__main__":

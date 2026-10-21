@@ -40,10 +40,13 @@ from datetime import date, datetime
 from uuid import UUID
 
 import psycopg
+from psycopg.pq import TransactionStatus
 
-from db.session import connect
+from db.session import connect, name_session
+from db.write_lock import CompanyLockBusy, acquire_company_lock
 from domain.security import Security
 from domain.settings import get_settings
+from domain.thesis import BasketMember
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.form4 import existing_accessions, ingest_form4, other_issuer_cik
 from ingest.edgar.form4a import ingest_amendments
@@ -193,6 +196,14 @@ class NameResult:
     # resolve. The counts above are unchanged; this names the filings so the cron can count the ones that
     # skipped the same way last pass instead of re-printing ~440 lines a night, and print only the new.
     ingest_skips: tuple[IngestSkip, ...] = ()
+    # W1 — THE PER-COMPANY WRITE LOCK (``db/write_lock.py``). ``lock_waited_s``: how long this unit waited for
+    # another writer's hold on the company before ingesting it (0.0 = it was free at once — the common case).
+    # ``lock_busy``: set when the company was STILL held after the bounded wait, so this unit did NOT run its
+    # legs for it (who held it, how long we waited). NOT an error — the holder is writing the very same facts
+    # right now — so it never counts toward ``error`` / the recording gate; the monitor facts (edges, stop
+    # facts) are still read, and the name is still reported (#9). ``pipeline.daily`` puts both on the artifact.
+    lock_waited_s: float = 0.0
+    lock_busy: str | None = None
 
 
 def _tolerable_filing_error(e: Exception) -> bool:
@@ -406,9 +417,17 @@ def ingest_thesis(
     only_security_ids: Collection[UUID] | None = None,
     now: datetime | None = None,
     known_skips: Collection[str] | None = None,
+    lock_wait_s: float | None = None,
 ) -> list[NameResult]:
     """Ingest insider + price facts — and, for an ETF sleeve, a fund shares-outstanding sample — for
     each RESOLVED basket member of ``thesis_id``.
+
+    W1 — ONE WRITER PER COMPANY: each member's legs run while ``conn`` holds that company's write lock
+    (``db/write_lock.py``), so this unit (the nightly's, the Workbench on-promote job's, the CLI's) can never
+    interleave a read-compare-append with another writer on the same company. A company another writer holds
+    is DEFERRED to the end of the walk, then waited for at most ``lock_wait_s`` (default
+    ``Settings.ingest_lock_wait_s``); one still held after that is reported with ``lock_busy`` and its legs are
+    not run by this unit (the holder is writing them) — the result list still carries it, in basket order.
 
     Per member: resolve the id to the master row (skip unresolved / foreign ids), then run the Form 4
     leg, the 8-K corporate-event leg, the price leg, and the fund-shares leg — EACH in its own try,
@@ -449,199 +468,349 @@ def ingest_thesis(
         raise LookupError(f"thesis {thesis_id} not found")
     client = edgar_client or EdgarClient(allow_live=allow_live, user_agent=user_agent)
     source = price_source or YahooPriceSource()
-    results: list[NameResult] = []
-    for m in thesis.basket:
-        if m.security_id is None:
-            continue  # unresolved placement — no exact member to ingest against
-        if only_security_ids is not None and m.security_id not in only_security_ids:
-            continue  # scoped run (the on-promote kick): only the requested members are walked
-        sec = master.get(conn, m.security_id, tenant_id=thesis.tenant_id)
-        if sec is None:
-            # a placed id not in this tenant's master (shouldn't happen post-promote-guard) — report it
-            results.append(
-                NameResult(
-                    m.ticker,
-                    m.security_id,
-                    0,
-                    0,
-                    "not in tenant master",
-                    leg_errors=(("master", "not in tenant master"),),
-                )
-            )
-            continue
-        # each failed leg is captured TWICE on purpose: the joined `errs` string is the existing
-        # `NameResult.error` (unchanged); `leg_errs` keeps the same failures by leg for the run artifact (O1)
-        errs: list[str] = []
-        leg_errs: list[tuple[str, str]] = []
-        f4 = 0
-        f4_skipped = 0
-        f4_txn_rejected = 0
-        skips: list[IngestSkip] = []
-        try:
-            f4, f4_skipped, f4_txn_rejected, f4_skips = _form4_leg(
-                conn, client, sec, tenant_id=thesis.tenant_id, known_skips=known_skips
-            )
-            skips.extend(f4_skips)
-            conn.commit()
-        except (
-            Exception
-        ) as e:  # noqa: BLE001 — fail-visible: capture, roll back this leg, keep going
-            conn.rollback()
-            errs.append(f"form4: {e}")
-            leg_errs.append(("form4", str(e)))
-        f8k_appended, f8k_reversioned = 0, 0
-        try:
-            f8k_appended, f8k_reversioned = _form8k_leg(
-                conn, client, sec, tenant_id=thesis.tenant_id
-            )
-            conn.commit()
-        except Exception as e:  # noqa: BLE001 — same per-leg isolation as the form4 leg
-            conn.rollback()
-            errs.append(f"form8k: {e}")
-            leg_errs.append(("form8k", str(e)))
-        s13_appended, s13_reversioned, s13_skipped = 0, 0, 0
-        try:
-            s13_appended, s13_reversioned, s13_skipped, s13_skips = _schedule13_leg(
-                conn, client, sec, tenant_id=thesis.tenant_id, known_skips=known_skips
-            )
-            skips.extend(s13_skips)
-            conn.commit()
-        except Exception as e:  # noqa: BLE001 — same per-leg isolation as the form4 leg
-            conn.rollback()
-            errs.append(f"schedule13: {e}")
-            leg_errs.append(("schedule13", str(e)))
-        px_appended, px_reversioned, px_withheld, px_held = 0, 0, 0, 0
-        px_not_found = False
-        try:
-            bars = timed("price")(ingest_bars_for_security)(  # X5 — the price leg's wall time
-                conn,
-                sec,
-                tenant_id=thesis.tenant_id,
-                allow_live=allow_live,
-                force_refresh=force_refresh,
-                source=source,
-                now=now,
-            )
-            px_appended, px_reversioned, px_withheld, px_held = (
-                bars.appended,
-                bars.reversioned,
-                bars.withheld,
-                bars.held,
-            )
-            conn.commit()
-        except Exception as e:  # noqa: BLE001
-            conn.rollback()
-            errs.append(f"price: {e}")
-            leg_errs.append(("price", str(e)))
-            px_not_found = _is_not_found(
-                e
-            )  # T3 — a FACT (the vendor 404'd), judged in pipeline.daily
-        # THE TAPE EDGE (G5a) — read AFTER the price leg so an appended tail counts, and OUTSIDE its
-        # try/except so a name whose price leg FAILED still reports where its stored tape actually ends (a
-        # failing name and a dead tape are different facts; the monitor must see both). Its OWN try: this is
-        # a monitor reading a fact, so a fault here degrades to None — it must never blank a name's whole
-        # result. Cheap: one indexed MAX(d) per name. The JUDGMENT (is this edge too old?) is NOT made here
-        # — `pipeline.daily` makes it against the run's asof (`pipeline/tape_health.py`), which is why this
-        # function needs no `asof` parameter and no ambient clock.
-        tape_edge: date | None = None
-        try:
-            tape_edge = latest_bar_date(conn, sec.id, tenant_id=thesis.tenant_id)
-        except Exception as e:  # noqa: BLE001 — a monitor read never costs a name its result
-            print(f"  warn: {sec.ticker or sec.id} tape-edge read failed: {e}")
-        # THE STOP-CLASSIFICATION FACTS (G5b/T1) — every SEC delisting form (25/25-NSE/15-12B/15-12G) and
-        # EDGAR's current ticker list, from the name's submissions, so a STOPPED tape can be told apart:
-        # closed, renamed, or a feed gap. FREE on a daily pass: the Form 4 leg above already fetched +
-        # cached this CIK's submissions, so this is a cache-hit disk read + two list walks, exactly like the
-        # 8-K / 13D legs (a cache hit never touches the network or the freeze counter). Gated on `sec.cik` —
-        # a name with no CIK has no submissions (the Form 4 leg's own guard). Its OWN try, degrade to the
-        # empty defaults: this is a monitor read feeding a classification, so a fault must never cost a name
-        # its result, and "no evidence" is the SAFE default — a name without positive delisting evidence
-        # stays the loud "stale — repair", never the quiet "closed" (erring toward visible, #7/#9). NOT
-        # judged here — `pipeline.daily` classifies a stale tape from these, so this unit needs no `asof`.
-        # T2 — the RENAME EVIDENCE rides the same read (the company's current name, its former names, and
-        # its item-5.03 8-Ks): three more walks of the cached doc, display evidence only.
-        delisting: tuple[DelistingFiling, ...] = ()
-        listed: tuple[str, ...] | None = None
-        current_name: str | None = None
-        formers: tuple[FormerName, ...] = ()
-        renames: tuple[NameChangeFiling, ...] = ()
-        if sec.cik:
-            try:
-                subs = fetch_submissions(client, sec.cik)
-                delisting = delisting_filings(subs)
-                listed = edgar_tickers(subs)
-                current_name = entity_name(subs)
-                formers = former_names(subs)
-                renames = name_change_filings(subs)
-            except Exception as e:  # noqa: BLE001 — a monitor read never costs a name its result
-                print(f"  warn: {sec.ticker or sec.id} delisting read failed: {e}")
-        fs_appended, fs_reversioned = 0, 0
-        try:
-            shares = timed("fund_shares")(ingest_fund_shares_for_security)(  # X5
-                conn,
-                sec,
-                tenant_id=thesis.tenant_id,
-                allow_live=allow_live,
-                force_refresh=force_refresh,
-                source=fund_source,
-            )
-            fs_appended, fs_reversioned = shares.appended, shares.reversioned
-            conn.commit()
-        except Exception as e:  # noqa: BLE001 — fail-visible: a fund with no samplable source is a
-            conn.rollback()  # captured error on ITS NameResult, never a silent omission (#7/#9)
-            errs.append(f"fund_shares: {e}")
-            leg_errs.append(("fund_shares", str(e)))
-        # THE FUND-SHARES EDGE (F1) — the tape-edge read's twin, placed AFTER the fund-shares leg for the
-        # same reason: a sample appended by this pass must count, or a healthy sleeve would read one pass
-        # stale forever. GATED on `fund_shares_applies`, which is load-bearing twice over: it keeps ~500
-        # equity members from paying a pointless query every night, and it stops them being JUDGED at all
-        # (an equity's edge is None, and None means STALE to the rule — ungated, the monitor would report
-        # the entire basket). OUTSIDE the leg's try, so an ETF whose sampler RAISED still reports where its
-        # stored series actually ends — a failing leg and a dead series are different facts and the monitor
-        # must see both. Its OWN try: a monitor read never costs a name its result.
-        fund_shares_edge: date | None = None
-        fund_shares_tracked = fund_shares_applies(sec)
-        if fund_shares_tracked:
-            try:
-                fund_shares_edge = latest_shares_date(conn, sec.id, tenant_id=thesis.tenant_id)
-            except (
-                Exception
-            ) as e:  # noqa: BLE001 — same degrade-to-None discipline as the tape edge
-                print(f"  warn: {sec.ticker or sec.id} fund-shares-edge read failed: {e}")
-        results.append(
-            NameResult(
-                sec.ticker,
-                sec.id,
-                f4,
-                px_appended,
-                "; ".join(errs) or None,
-                f4_skipped,
-                form4_txn_rejected=f4_txn_rejected,
-                price_bars_reversioned=px_reversioned,
-                price_bars_withheld=px_withheld,
-                price_bars_held=px_held,
-                fund_shares_appended=fs_appended,
-                fund_shares_reversioned=fs_reversioned,
-                form8k_appended=f8k_appended,
-                form8k_reversioned=f8k_reversioned,
-                sched13_appended=s13_appended,
-                sched13_reversioned=s13_reversioned,
-                sched13_identity_skipped=s13_skipped,
-                tape_edge=tape_edge,
-                fund_shares_edge=fund_shares_edge,
-                fund_shares_tracked=fund_shares_tracked,
-                delisting_filings=delisting,
-                edgar_tickers=listed,
-                price_symbol=sec.price_symbol,
-                leg_errors=tuple(leg_errs),
-                price_not_found=px_not_found,
-                edgar_name=current_name,
-                former_names=formers,
-                name_change_filings=renames,
-                ingest_skips=tuple(skips),
-            )
+    wait_s = get_settings().ingest_lock_wait_s if lock_wait_s is None else lock_wait_s
+    members = [
+        m
+        for m in thesis.basket
+        # an unresolved placement has no exact member to ingest against; a scoped run (the on-promote
+        # kick) walks only the requested members
+        if m.security_id is not None
+        and (only_security_ids is None or m.security_id in only_security_ids)
+    ]
+
+    def one(m: BasketMember) -> NameResult:
+        return _ingest_one(
+            conn,
+            client,
+            source,
+            m,
+            tenant_id=thesis.tenant_id,
+            allow_live=allow_live,
+            force_refresh=force_refresh,
+            fund_source=fund_source,
+            now=now,
+            known_skips=known_skips,
         )
-    return results
+
+    # W1 — THE PER-COMPANY WRITE LOCK (``db/write_lock.py``): a company's legs run only while this
+    # connection holds its lock, so a concurrent writer (the nightly vs a Workbench ingest vs a CLI run) can
+    # never interleave a read-compare-append on the same company. FIRST PASS: every company is TRIED without
+    # waiting, in basket order; a held one is DEFERRED, so a busy company never delays the free ones.
+    results: list[NameResult | None] = [None] * len(members)
+    deferred: list[int] = []
+    for i, m in enumerate(members):
+        _end_transaction(conn)
+        try:
+            lock = acquire_company_lock(conn, m.security_id, wait_s=0)
+        except CompanyLockBusy:
+            deferred.append(i)
+            continue
+        with lock:
+            results[i] = one(m)
+    # SECOND PASS: the deferred companies, each with a BOUNDED wait (``Settings.ingest_lock_wait_s``). One
+    # still held after it is NOT ingested by this unit — a ``lock_busy`` result carrying the holder and the
+    # monitor facts, never an error and never a dropped name (#9): the holder is writing those very facts.
+    # A company placed in N segments is N basket rows; once its wait has run out it is not waited for again.
+    busy: dict[UUID, CompanyLockBusy] = {}
+    for i in deferred:
+        m = members[i]
+        sid = m.security_id
+        assert sid is not None  # filtered above
+        _end_transaction(conn)  # never wait "idle in transaction"
+        if sid not in busy:
+            try:
+                lock = timed("company_lock")(acquire_company_lock)(conn, sid, wait_s=wait_s)
+            except CompanyLockBusy as exc:
+                busy[sid] = exc
+        if sid in busy:
+            results[i] = _held_result(conn, client, m, busy[sid], tenant_id=thesis.tenant_id)
+            continue
+        with lock:
+            r = one(m)
+            r.lock_waited_s = round(lock.waited_s, 1)
+            results[i] = r
+    return [r for r in results if r is not None]
+
+
+def _end_transaction(conn: psycopg.Connection) -> None:
+    """End whatever transaction the connection has open before a company-lock attempt, so a lock wait never
+    sits "idle in transaction" and an attempt never runs inside an aborted one. COMMIT, never a discard: every
+    leg already committed its own writes, so what is open here is the previous name's monitor READS (or the
+    caller's reads before the walk); an aborted transaction (a failed monitor read) can only be rolled back.
+    """
+    if conn.info.transaction_status == TransactionStatus.INERROR:
+        conn.rollback()
+    else:
+        conn.commit()
+
+
+def _held_result(
+    conn: psycopg.Connection,
+    client: EdgarClient,
+    m: BasketMember,
+    busy: CompanyLockBusy,
+    *,
+    tenant_id: UUID,
+) -> NameResult:
+    """The result for a company another writer held past the bounded wait: NO leg ran (nothing appended, no
+    error), ``lock_busy`` names the holder, and the MONITOR facts are still read — they are reads, and without
+    them the tape monitor would judge a missing edge as stale. Visible on the artifact; never dropped (#9).
+    """
+    assert m.security_id is not None
+    note = str(busy)
+    print(f"  {m.ticker or m.security_id}: NOT ingested by this writer — {note}")
+    sec = master.get(conn, m.security_id, tenant_id=tenant_id)
+    if sec is None:
+        return NameResult(
+            m.ticker,
+            m.security_id,
+            0,
+            0,
+            "not in tenant master",
+            leg_errors=(("master", "not in tenant master"),),
+            lock_waited_s=round(busy.waited_s, 1),
+            lock_busy=note,
+        )
+    stop = _stop_facts(client, sec)
+    fund_shares_edge, fund_shares_tracked = _fund_edge(conn, sec, tenant_id=tenant_id)
+    return NameResult(
+        sec.ticker,
+        sec.id,
+        0,
+        0,
+        tape_edge=_tape_edge(conn, sec, tenant_id=tenant_id),
+        fund_shares_edge=fund_shares_edge,
+        fund_shares_tracked=fund_shares_tracked,
+        delisting_filings=stop.delisting,
+        edgar_tickers=stop.listed,
+        price_symbol=sec.price_symbol,
+        edgar_name=stop.current_name,
+        former_names=stop.formers,
+        name_change_filings=stop.renames,
+        lock_waited_s=round(busy.waited_s, 1),
+        lock_busy=note,
+    )
+
+
+@dataclass(frozen=True)
+class _StopFacts:
+    """The stop-classification + rename evidence read off a name's cached submissions (see ``_stop_facts``)."""
+
+    delisting: tuple[DelistingFiling, ...] = ()
+    listed: tuple[str, ...] | None = None
+    current_name: str | None = None
+    formers: tuple[FormerName, ...] = ()
+    renames: tuple[NameChangeFiling, ...] = ()
+
+
+def _tape_edge(conn: psycopg.Connection, sec: Security, *, tenant_id: UUID) -> date | None:
+    """THE TAPE EDGE (G5a) — the latest stored bar date, or None. Its OWN try: this is a monitor reading a
+    fact, so a fault here degrades to None — it must never blank a name's whole result. Cheap: one indexed
+    MAX(d) per name. The JUDGMENT (is this edge too old?) is NOT made here — ``pipeline.daily`` makes it
+    against the run's asof (``pipeline/tape_health.py``), which is why this unit needs no ``asof``.
+    """
+    try:
+        return latest_bar_date(conn, sec.id, tenant_id=tenant_id)
+    except Exception as e:  # noqa: BLE001 — a monitor read never costs a name its result
+        print(f"  warn: {sec.ticker or sec.id} tape-edge read failed: {e}")
+        return None
+
+
+def _stop_facts(client: EdgarClient, sec: Security) -> _StopFacts:
+    """THE STOP-CLASSIFICATION FACTS (G5b/T1) — every SEC delisting form (25/25-NSE/15-12B/15-12G) and
+    EDGAR's current ticker list, from the name's submissions, so a STOPPED tape can be told apart: closed,
+    renamed, or a feed gap. FREE on a daily pass: the Form 4 leg already fetched + cached this CIK's
+    submissions, so this is a cache-hit disk read + two list walks, exactly like the 8-K / 13D legs (a cache
+    hit never touches the network or the freeze counter). Gated on ``sec.cik`` — a name with no CIK has no
+    submissions (the Form 4 leg's own guard). Its OWN try, degrade to the empty defaults: this is a monitor
+    read feeding a classification, so a fault must never cost a name its result, and "no evidence" is the
+    SAFE default — a name without positive delisting evidence stays the loud "stale — repair", never the
+    quiet "closed" (erring toward visible, #7/#9). NOT judged here — ``pipeline.daily`` classifies a stale
+    tape from these. T2 — the RENAME EVIDENCE rides the same read (the company's current name, its former
+    names, and its item-5.03 8-Ks): three more walks of the cached doc, display evidence only."""
+    if not sec.cik:
+        return _StopFacts()
+    try:
+        subs = fetch_submissions(client, sec.cik)
+        return _StopFacts(
+            delisting=delisting_filings(subs),
+            listed=edgar_tickers(subs),
+            current_name=entity_name(subs),
+            formers=former_names(subs),
+            renames=name_change_filings(subs),
+        )
+    except Exception as e:  # noqa: BLE001 — a monitor read never costs a name its result
+        print(f"  warn: {sec.ticker or sec.id} delisting read failed: {e}")
+        return _StopFacts()
+
+
+def _fund_edge(
+    conn: psycopg.Connection, sec: Security, *, tenant_id: UUID
+) -> tuple[date | None, bool]:
+    """THE FUND-SHARES EDGE (F1) — ``(edge, tracked)``: the latest stored shares sample date for an ETF
+    sleeve, and whether the leg APPLIES at all. GATED on ``fund_shares_applies``, which is load-bearing twice
+    over: it keeps ~500 equity members from paying a pointless query every night, and it stops them being
+    JUDGED at all (an equity's edge is None, and None means STALE to the rule — ungated, the monitor would
+    report the entire basket). Its OWN try: a monitor read never costs a name its result."""
+    tracked = fund_shares_applies(sec)
+    if not tracked:
+        return None, False
+    try:
+        return latest_shares_date(conn, sec.id, tenant_id=tenant_id), True
+    except Exception as e:  # noqa: BLE001 — same degrade-to-None discipline as the tape edge
+        print(f"  warn: {sec.ticker or sec.id} fund-shares-edge read failed: {e}")
+        return None, True
+
+
+def _ingest_one(
+    conn: psycopg.Connection,
+    client: EdgarClient,
+    source: PriceSource,
+    m: BasketMember,
+    *,
+    tenant_id: UUID,
+    allow_live: bool,
+    force_refresh: bool,
+    fund_source: FundSharesSource | None,
+    now: datetime | None,
+    known_skips: Collection[str] | None,
+) -> NameResult:
+    """ONE member's legs — run by ``ingest_thesis`` while it holds the company's write lock (W1). Resolves the
+    id to the master row, then the Form 4, 8-K, 13D/G, price and fund-shares legs, EACH in its own try,
+    committing on success and rolling back on failure (see ``ingest_thesis``)."""
+    assert m.security_id is not None
+    sec = master.get(conn, m.security_id, tenant_id=tenant_id)
+    if sec is None:
+        # a placed id not in this tenant's master (shouldn't happen post-promote-guard) — report it
+        return NameResult(
+            m.ticker,
+            m.security_id,
+            0,
+            0,
+            "not in tenant master",
+            leg_errors=(("master", "not in tenant master"),),
+        )
+    # each failed leg is captured TWICE on purpose: the joined `errs` string is the existing
+    # `NameResult.error` (unchanged); `leg_errs` keeps the same failures by leg for the run artifact (O1)
+    errs: list[str] = []
+    leg_errs: list[tuple[str, str]] = []
+    f4 = 0
+    f4_skipped = 0
+    f4_txn_rejected = 0
+    skips: list[IngestSkip] = []
+    try:
+        f4, f4_skipped, f4_txn_rejected, f4_skips = _form4_leg(
+            conn, client, sec, tenant_id=tenant_id, known_skips=known_skips
+        )
+        skips.extend(f4_skips)
+        conn.commit()
+    except Exception as e:  # noqa: BLE001 — fail-visible: capture, roll back this leg, keep going
+        conn.rollback()
+        errs.append(f"form4: {e}")
+        leg_errs.append(("form4", str(e)))
+    f8k_appended, f8k_reversioned = 0, 0
+    try:
+        f8k_appended, f8k_reversioned = _form8k_leg(conn, client, sec, tenant_id=tenant_id)
+        conn.commit()
+    except Exception as e:  # noqa: BLE001 — same per-leg isolation as the form4 leg
+        conn.rollback()
+        errs.append(f"form8k: {e}")
+        leg_errs.append(("form8k", str(e)))
+    s13_appended, s13_reversioned, s13_skipped = 0, 0, 0
+    try:
+        s13_appended, s13_reversioned, s13_skipped, s13_skips = _schedule13_leg(
+            conn, client, sec, tenant_id=tenant_id, known_skips=known_skips
+        )
+        skips.extend(s13_skips)
+        conn.commit()
+    except Exception as e:  # noqa: BLE001 — same per-leg isolation as the form4 leg
+        conn.rollback()
+        errs.append(f"schedule13: {e}")
+        leg_errs.append(("schedule13", str(e)))
+    px_appended, px_reversioned, px_withheld, px_held = 0, 0, 0, 0
+    px_not_found = False
+    try:
+        bars = timed("price")(ingest_bars_for_security)(  # X5 — the price leg's wall time
+            conn,
+            sec,
+            tenant_id=tenant_id,
+            allow_live=allow_live,
+            force_refresh=force_refresh,
+            source=source,
+            now=now,
+        )
+        px_appended, px_reversioned, px_withheld, px_held = (
+            bars.appended,
+            bars.reversioned,
+            bars.withheld,
+            bars.held,
+        )
+        conn.commit()
+    except Exception as e:  # noqa: BLE001
+        conn.rollback()
+        errs.append(f"price: {e}")
+        leg_errs.append(("price", str(e)))
+        px_not_found = _is_not_found(e)  # T3 — a FACT (the vendor 404'd), judged in pipeline.daily
+    # THE TAPE EDGE (G5a) — read AFTER the price leg so an appended tail counts, and OUTSIDE its
+    # try/except so a name whose price leg FAILED still reports where its stored tape actually ends (a
+    # failing name and a dead tape are different facts; the monitor must see both). See `_tape_edge`.
+    tape_edge = _tape_edge(conn, sec, tenant_id=tenant_id)
+    # THE STOP-CLASSIFICATION FACTS (G5b/T1) + the T2 rename evidence, off the submissions the Form 4 leg
+    # just cached. See `_stop_facts`.
+    stop = _stop_facts(client, sec)
+    fs_appended, fs_reversioned = 0, 0
+    try:
+        shares = timed("fund_shares")(ingest_fund_shares_for_security)(  # X5
+            conn,
+            sec,
+            tenant_id=tenant_id,
+            allow_live=allow_live,
+            force_refresh=force_refresh,
+            source=fund_source,
+        )
+        fs_appended, fs_reversioned = shares.appended, shares.reversioned
+        conn.commit()
+    except Exception as e:  # noqa: BLE001 — fail-visible: a fund with no samplable source is a
+        conn.rollback()  # captured error on ITS NameResult, never a silent omission (#7/#9)
+        errs.append(f"fund_shares: {e}")
+        leg_errs.append(("fund_shares", str(e)))
+    # THE FUND-SHARES EDGE (F1) — the tape-edge read's twin, placed AFTER the fund-shares leg for the
+    # same reason: a sample appended by this pass must count, or a healthy sleeve would read one pass
+    # stale forever. OUTSIDE the leg's try, so an ETF whose sampler RAISED still reports where its
+    # stored series actually ends — a failing leg and a dead series are different facts and the monitor
+    # must see both. See `_fund_edge`.
+    fund_shares_edge, fund_shares_tracked = _fund_edge(conn, sec, tenant_id=tenant_id)
+    return NameResult(
+        sec.ticker,
+        sec.id,
+        f4,
+        px_appended,
+        "; ".join(errs) or None,
+        f4_skipped,
+        form4_txn_rejected=f4_txn_rejected,
+        price_bars_reversioned=px_reversioned,
+        price_bars_withheld=px_withheld,
+        price_bars_held=px_held,
+        fund_shares_appended=fs_appended,
+        fund_shares_reversioned=fs_reversioned,
+        form8k_appended=f8k_appended,
+        form8k_reversioned=f8k_reversioned,
+        sched13_appended=s13_appended,
+        sched13_reversioned=s13_reversioned,
+        sched13_identity_skipped=s13_skipped,
+        tape_edge=tape_edge,
+        fund_shares_edge=fund_shares_edge,
+        fund_shares_tracked=fund_shares_tracked,
+        delisting_filings=stop.delisting,
+        edgar_tickers=stop.listed,
+        price_symbol=sec.price_symbol,
+        leg_errors=tuple(leg_errs),
+        price_not_found=px_not_found,
+        edgar_name=stop.current_name,
+        former_names=stop.formers,
+        name_change_filings=stop.renames,
+        ingest_skips=tuple(skips),
+    )
 
 
 def _report(results: list[NameResult]) -> int:
@@ -694,23 +863,34 @@ def _report(results: list[NameResult]) -> int:
             if r.sched13_identity_skipped
             else ""
         )
+        # W1 — a company another writer held past the bounded wait: its legs did not run HERE (loud — this
+        # run is incomplete for it), and a wait that ended in time is noted quietly
+        if r.lock_busy:
+            lk = f"   NOT INGESTED: {r.lock_busy}"
+        elif r.lock_waited_s:
+            lk = f" (waited {r.lock_waited_s:.0f}s for another writer)"
+        else:
+            lk = ""
         print(
             f"  {r.ticker or r.security_id}: +{r.form4_appended} form4, "
-            f"+{r.price_bars_appended} bars{backfill}{f8k}{s13}{fund}{skips}{rejects}{tail}"
+            f"+{r.price_bars_appended} bars{backfill}{f8k}{s13}{fund}{skips}{rejects}{tail}{lk}"
         )
+    busy = {r.security_id for r in results if r.lock_busy}
     sk = f", {total_sk} form4 skipped" if total_sk else ""
     rj = f", {total_rj} insider txn REJECTED (impossible date)" if total_rj else ""
     fs = f", +{total_fs} fund shares" if total_fs else ""
     e8k = f", +{total_8k} 8-K events" if total_8k else ""
     s13 = f", +{total_s13} 13D/G" if total_s13 else ""
     s13 += f" ({total_s13_sk} identity unresolved)" if total_s13_sk else ""
+    bz = f", {len(busy)} NOT ingested (company held by another writer)" if busy else ""
     print(
         f"done: {len(results)} names, +{total_f4} insider txns, +{total_px} price bars{e8k}{s13}"
-        f"{fs}{sk}{rj}, {len(errored)} errored"
+        f"{fs}{sk}{rj}, {len(errored)} errored{bz}"
     )
     print_withheld_line(results)
     print_held_lines(results)
-    return len(errored)
+    # the exit signal: an errored name, or one this run could not ingest because another writer held it
+    return len(errored) + len(busy)
 
 
 def print_withheld_line(results: Iterable[NameResult]) -> None:
@@ -765,6 +945,7 @@ def main(argv: list[str] | None = None) -> None:
     args = p.parse_args(argv)
 
     conn = connect()
+    name_session(conn, "alphadeck-writer:cli-ingest")  # W1 — how a waiting writer names this one
     try:
         results = ingest_thesis(
             conn,

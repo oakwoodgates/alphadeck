@@ -26,20 +26,30 @@ THE MECHANISM — a Postgres SESSION-LEVEL advisory lock, held on a DEDICATED co
 
 WHO TAKES IT: every writer of the call-of-record — ``pipeline.daily.run_daily_pass`` (the nightly pass,
 its retries and catch-ups, the Admin "Run daily now") and ``pipeline.backfill`` (it writes ``calls`` rows
-too). The Workbench's on-promote ingest does NOT (it writes facts, never calls; out of scope for C1).
+too) — and every fact REPAIR, through ``acquire_repair_lock`` (below). The Workbench's on-promote ingest and
+the CLI ingest do NOT: they write facts, never calls, and are serialized PER COMPANY instead (W1,
+``db/write_lock.py``) — so a Workbench ingest can never make a pass exit 75.
 
-LAYERING: this module imports only ``db.session`` + psycopg, so ``pipeline.backfill`` (whose import guard
-forbids ``pipeline.daily``, ``notify``, ``ingest`` …) can take the same lock.
+THE LOCK ORDER (W1; ``db/write_lock.py`` has the full rule): **this lock -> the fact-writer gate -> a company
+lock**, never the reverse. The nightly pass holds this lock and takes gate(shared)+company per company; a
+repair holds this lock and then the gate (exclusive); nothing holding a company lock ever waits for this
+lock. Every acquisition is a TRY (a bounded poll at most), so no session ever blocks in Postgres on these.
+
+LAYERING: this module imports only ``db.session`` / ``db.write_lock`` + psycopg, so ``pipeline.backfill``
+(whose import guard forbids ``pipeline.daily``, ``notify``, ``ingest`` …) can take the same lock.
 """
 
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field
 
 import psycopg
+from psycopg.rows import dict_row
 
 from db.session import connect
+from db.write_lock import FACT_GATE_ID, FACT_GATE_NAMESPACE, describe_gate_writers
 
 _log = logging.getLogger("alphadeck.run_lock")
 
@@ -71,14 +81,32 @@ class PassAlreadyRunning(RuntimeError):
         super().__init__(f"another daily pass or backfill is already running{who}")
 
 
+class FactWritersBusy(PassAlreadyRunning):
+    """W1 — a REPAIR took the call-of-record lock, but company writers (a Workbench ingest, a CLI ingest) were
+    still mid-company when its bounded wait for the fact-writer gate ran out. A ``PassAlreadyRunning`` on
+    purpose: every repair already turns that into "nothing was written, exit 75" — the same retry-later
+    outcome, with a message naming the writer instead of a pass."""
+
+    def __init__(self, holder: str | None, waited_s: float) -> None:
+        self.holder = holder
+        self.waited_s = waited_s
+        who = f" — e.g. {holder}" if holder else ""
+        RuntimeError.__init__(
+            self,
+            f"fact writers (a Workbench or CLI ingest) were still writing after {waited_s:.0f}s{who}",
+        )
+
+
 @dataclass
 class PassLock:
-    """A HELD call-of-record lock. ``release()`` is idempotent and fail-open (closing the connection
-    releases a session lock anyway, so the explicit unlock is belt-and-suspenders). A context manager.
+    """A HELD call-of-record lock (and, for a repair, the fact-writer gate — ``gate``). ``release()`` is
+    idempotent and fail-open (closing the connection releases a session lock anyway, so the explicit unlock
+    is belt-and-suspenders). A context manager.
     """
 
     conn: psycopg.Connection
     holder: str
+    gate: bool = False
     _released: bool = field(default=False, repr=False)
 
     @property
@@ -90,6 +118,12 @@ class PassLock:
             return
         self._released = True
         try:
+            if (
+                self.gate
+            ):  # the reverse of the lock order: the gate first, then the call-of-record lock
+                self.conn.execute(
+                    "SELECT pg_advisory_unlock(%s, %s)", (FACT_GATE_NAMESPACE, FACT_GATE_ID)
+                )
             self.conn.execute(
                 "SELECT pg_advisory_unlock(%s, %s)", (LOCK_NAMESPACE, LOCK_ID_CALL_OF_RECORD)
             )
@@ -134,16 +168,18 @@ def describe_holder(conn: psycopg.Connection) -> str | None:
     return f"pid {row['pid']} ({app}, connected {since})"
 
 
-def acquire_pass_lock(*, holder: str) -> PassLock:
+def acquire_pass_lock(*, holder: str, conninfo: str | None = None) -> PassLock:
     """TRY to take the call-of-record lock on a fresh, dedicated, autocommit connection; return the held
     ``PassLock``. Raises ``PassAlreadyRunning`` (the connection closed, nothing written) when another
     session holds it. ``holder`` names this pass in ``pg_stat_activity`` (``alphadeck-pass:<holder>``) —
-    the run kind (``cron`` / ``manual``) or ``backfill``.
+    the run kind (``cron`` / ``manual``) or ``backfill``. ``conninfo`` targets an explicit database (a repair's
+    ``--database-url``) — a lock is per DATABASE, so it must be taken on the one being written; default
+    ``DATABASE_URL``.
 
     A DB that cannot be reached raises the connect error unchanged: a pass with no database can record
     nothing, and the caller's crash path (``run_daily_pass``'s H3 page, the CLI's non-zero exit) is the
     honest report — this function never fails open into an unlocked pass."""
-    conn = connect()
+    conn = psycopg.connect(conninfo, row_factory=dict_row) if conninfo else connect()
     try:
         conn.autocommit = True
         conn.execute(
@@ -160,6 +196,61 @@ def acquire_pass_lock(*, holder: str) -> PassLock:
         conn.close()
         raise PassAlreadyRunning(who)
     return PassLock(conn=conn, holder=holder)
+
+
+def acquire_repair_lock(
+    *,
+    holder: str,
+    wait_s: float | None = None,
+    conninfo: str | None = None,
+    poll_s: float = 0.5,
+) -> PassLock:
+    """W1 — the lock a FACT REPAIR takes before it writes: the call-of-record lock (a repair must never run
+    beside a pass — exactly as before), THEN the fact-writer gate EXCLUSIVELY (``db/write_lock.py``), so no
+    company writer — a Workbench on-promote ingest, the Workbench price pull, a CLI ingest — runs while the
+    repair reads its tables up front and rewrites them, and none starts until it is done (they wait, bounded,
+    and report the repair as the holder). The lock order is the documented one: call-of-record -> gate.
+
+    The gate is TRIED for up to ``wait_s`` (default ``Settings.repair_lock_wait_s``) while the writers in
+    flight finish their current company; if they do not drain, both locks are given back and
+    ``FactWritersBusy`` (a ``PassAlreadyRunning``) is raised — nothing written, the repair's usual exit 75.
+    ``conninfo`` as ``acquire_pass_lock``. Release with ``PassLock.release()`` (both locks)."""
+    if wait_s is None:
+        # lazy: keeps the pass-lock import surface what it was (db.session + db.write_lock only)
+        from domain.settings import get_settings
+
+        wait_s = get_settings().repair_lock_wait_s
+    lock = acquire_pass_lock(holder=holder, conninfo=conninfo)
+    start = time.monotonic()
+    try:
+        while True:
+            got = lock.conn.execute(
+                "SELECT pg_try_advisory_lock(%s, %s) AS got", (FACT_GATE_NAMESPACE, FACT_GATE_ID)
+            ).fetchone()["got"]
+            if got:
+                lock.gate = True
+                return lock
+            waited = time.monotonic() - start
+            if waited >= wait_s:
+                who = describe_gate_writers(lock.conn)
+                raise FactWritersBusy(who, waited)
+            time.sleep(max(0.0, min(poll_s, wait_s - waited)))
+    except BaseException:
+        lock.release()
+        raise
+
+
+def repair_lock_or_exit(*, holder: str, conninfo: str | None = None) -> PassLock:
+    """``acquire_repair_lock`` for a repair CLI's write path, with the repairs' shared refusal: on a pass,
+    a backfill, another repair or undrained company writers it prints ONE line and exits 75
+    (``EXIT_ALREADY_RUNNING``) — nothing written."""
+    try:
+        return acquire_repair_lock(holder=holder, conninfo=conninfo)
+    except PassAlreadyRunning as exc:
+        print(
+            f"{holder}: ALREADY RUNNING — {exc}. Nothing was written (exit {EXIT_ALREADY_RUNNING})"
+        )
+        raise SystemExit(EXIT_ALREADY_RUNNING) from None
 
 
 def probe_pass_lock() -> str | None:

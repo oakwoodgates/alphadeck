@@ -88,6 +88,7 @@ from psycopg.rows import dict_row
 from db.bitemporal import _FACT_IDENTITY
 from db.clock import db_now
 from pipeline.call_for_thesis import call_for_thesis
+from pipeline.run_lock import repair_lock_or_exit
 from repositories import calls_repo, thesis_repo
 
 # The two tables the seed pile-up actually hit hard (§3.3 of the perf diagnosis) — the only ones worth
@@ -589,6 +590,11 @@ def main(argv: list[str] | None = None) -> None:
     print(f"target DB : {_redact(url)}")
     tables = _validate_tables(args.tables.split(",")) if args.tables else sorted(_FACT_IDENTITY)
 
+    # W1 — a writing run excludes the nightly pass AND every company writer (pipeline.run_lock): its window
+    # query reads each table whole and its delete must not race an append; exit 75 if busy
+    lock = (
+        repair_lock_or_exit(holder="dedup_identical_versions", conninfo=url) if args.apply else None
+    )
     conn = psycopg.connect(url, row_factory=dict_row)
     try:
         with conn.cursor() as cur:
@@ -674,6 +680,8 @@ def main(argv: list[str] | None = None) -> None:
         )
     finally:
         conn.close()
+        if lock is not None:
+            lock.release()
 
 
 if __name__ == "__main__":
