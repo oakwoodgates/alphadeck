@@ -156,8 +156,9 @@ gain, against an API whose politeness this repo treats as a **correctness** requ
 the same-pass re-reads free and still closes the daytime gap: EDGAR accepts filings **06:00–22:00 ET**, so
 nothing can be filed in the five minutes before a 22:30 pass, and no daytime warmth survives five minutes
 (measured: a 20-minute-old key refetches). **Accepted residual:** a second pass started *within* five minutes
-of another reads the first's cache for the companies it reached last — which is exactly why the R4 freeze
-page keeps its `--catch-up` exemption (see "Known gaps").
+of another reads the first's cache for the companies it reached last. Since O5 (2026-10-21) the R4 freeze
+page no longer exempts a `--catch-up` wholesale for it — a catch-up's SKIPPED theses are left out and the
+rest are judged like any pass's (see "Known gaps").
 
 The interactive paths (the Workbench, a standalone `python -m pipeline.ingest_thesis`) keep the 12h TTL.
 Consequence for the operator: **"Run daily now" is safe at any hour**.
@@ -206,6 +207,30 @@ sat at 3–12% with no trend between 17:00 and midnight (17:xx 73/632, 18:xx 4/8
 22:xx 733/15,907, 23:xx 103/3,205) — vendor revisions, which the restatement compare re-versions. So the
 guard's job is to exclude the SESSION; the data does not pick a finer hour, and 18:00 is a 2 h margin past
 the 16:00 close that still sits 4.5 h before RUN_AT.
+
+**The guard is AUDITED every night, not only enforced at ingest (2026-10-21)** `[BUILT]`. The self-audit's
+`no_unsettled_bars` check (`pipeline/self_audit.py`) reads `fact_price_eod` — every version, every tenant,
+SPY/IWM included — and FAILS (pages) when any row was **recorded** before its bar date's settle instant
+(`d` at `price_settle_time` in market time, built with the market zone so a DST change moves it in UTC
+exactly as the guard does). It is the one hard guard for the coming open / provisional-close runs
+(`docs/temp/note-for-cron-server-agent-2026-10-19.md` §4): a writer in another process that bypassed
+`withhold_unsettled` is caught the same night. A backdated knowability stamp before the settle instant
+fails too — it claims what an in-progress store would. **Its window:** the rows recorded since the newest
+finished pass that JUDGED the check (its `finished_at`, less one minute for the process-vs-DB clock;
+`cron_run_log.previous_settle_audit_end` + `self_audit.settle_window_since`), so every price write — the
+pass's own legs, the Workbench pull, the on-promote ingest, a repair CLI — is judged by exactly one pass
+and a violation pages once; with no judging pass on record, the last 7 days. **Never before the guard's
+deploy** (`SETTLE_GUARD_DEPLOYED_AT` = 2026-10-17 03:23:20Z, the pre-deploy backup of #393's deploy):
+*MEASURED on prod, read-only, 2026-10-21* — **5,597** stored rows were recorded before their settle instant,
+**none** since that instant (the newest 2026-10-16 00:00Z). 2,999 are real-time stamps from nine pre-guard
+passes, by recorded date (ET): 07-09 ×12 (11:07–11:41), 07-16 ×95 (13:33), 07-28 ×303 (12:30), 08-05 ×449
+(13:29), 08-25 ×449 (13:21), 08-27 ×892 (14:07 and 16:41), 09-01 ×164 (14:10), 09-09 ×3 (09:16), 10-13 ×632
+(17:02–17:13, the boot catch-up — CDRE's 10-13 bar at 17:08, volume 627,717, re-versioned at 22:35 to
+627,700); 2,992 of them were later superseded by a settled version, **7 never were** (CBT, NEGG, APD
+2026-07-09; SCE-PG 2026-08-27; SCE-PG, ETHE, SAIC 2026-10-13 — each bar's only stored version is the early
+pull). The other 2,598 are the SPY/IWM rows the pre-D1 leg stamped `d 00:00 UTC` (2021-08-16 → 2026-10-16;
+12 since superseded). Judging that history would fail every night, so no window reaches it. The read is
+cheap: MEASURED 35 ms for one night's window on prod (809 rows; the whole table is 404,503 rows).
 
 **D1 — the benchmark leg's honest transaction time + a bounded restatement.** `pipeline/ingest_benchmarks.py`
 was written as a ONE-SHOT historical backfill (`valid_from = recorded_at = the bar date` — the replay
@@ -383,9 +408,11 @@ per-thesis; **archived theses are skipped by the list's default**, the archive s
   scoring branches on it.
 - **The run-of-record log (R3, #197).** Every run writes one JSON to `data/cron_runs/*.json`
   (`pipeline/cron_run_log.py`, write-only, fail-open) — timing, `asof`, `mode`, per-thesis
-  `withheld_reason`/`edgar_fetches`/counts. `edgar_fetches` is the **freeze detector**: it counts network
-  *attempts* (a frozen cache reaches out 0 times; a healthy run, thousands), so a freeze is visible in the log
-  instead of hiding behind a plausible quiet night. `already_ran_live(asof, run_at, tz)` reads these logs
+  `withheld_reason`/`edgar_fetches`/`edgar_fetches_completed`/counts. `edgar_fetches` counts network
+  *attempts*; since O5 (2026-10-21) the **freeze detector** is `edgar_fetches_completed` — the attempts that
+  returned data (a frozen cache reaches out 0 times, a dead feed reaches out and gets nothing back; a healthy
+  run completes hundreds), so a freeze is visible in the log instead of hiding behind a plausible quiet
+  night. `already_ran_live(asof, run_at, tz)` reads these logs
   (mode==`live`, **started at/after that night's `RUN_AT`** in market time, **and the call step RECORDED for
   at least one thesis** — G2b) to decide whether the night already ran — the basis of R6 catch-up and of the
   failed-run retry above. **Why the recorded test (G2b):** the guard used to credit any live post-`RUN_AT`
@@ -510,7 +537,10 @@ per-thesis; **archived theses are skipped by the list's default**, the archive s
     announcements collapsed (2 to 5 theses each).
 - **The health pager (R4, #199).** `assess_health` emits a `HealthEvent` through the notify seam
   (Slack via `SLACK_WEBHOOK_URL`, **fail-open**; `LogNotifier` otherwise) when a run is a **FREEZE**
-  (`frozen = allow_live and theses > 0 and edgar_fetches == 0`), has **withheld** calls, has **thesis
+  (since O5: `frozen = allow_live and` the theses the pass PROCESSED — a `--catch-up`'s M2-skipped ones left
+  out — completed **zero** EDGAR fetches; the page says "0 of N EDGAR fetches COMPLETED" when pulls were
+  attempted; an artifact written before O5 keeps the old `edgar_fetches == 0` rule with a catch-up exempt,
+  so the Admin history never changes a past verdict), has **withheld** calls, has **thesis
   errors**, **failed to refresh the benchmark tape** (below), or found a **newly stale price tape** (G5a,
   below — pageable but not a cron alarm). A healthy run returns `None` — silent
   (loudness marks the exception). This is the page R1 lacked: the platform now notices its own blindness.
@@ -631,7 +661,12 @@ market zone, `RUN_AT` / `cron_at` as values; the User-Agent, Slack webhook, Poly
 LOG notifier and an unset UA; **per-name ingest errors** by leg (`name_errors`), diffed against the last-known
 inventory (each thesis as the newest live pass that covered it saw it — the per-thesis carry-forward, G5a
 above) so only NEWLY failing (security, leg) pairs print loud and page, the known ones collapsing to one
-quiet count; and the **self-audit** (`audit`, `pipeline/self_audit.py`), whose failures page. Every
+quiet count; and the **self-audit** (`audit`, `pipeline/self_audit.py`), whose failures page. Its checks
+(`DEFAULT_CHECKS`, in order): `on_time_rows` (every thesis in the night's roster has a non-reconstructed row
+recorded at/after `RUN_AT`, counted in the `calls` table), `code_sha_known`, `every_thesis_finished`,
+`split_defects_flagged` (T4, below — the split-basis scan ran) and `no_unsettled_bars` (2026-10-21 — no
+`fact_price_eod` row recorded before its bar's settle instant, judged over the rows written since the last
+judging pass; "Settled closes" above). Every
 connection the pass opens sets a session **`statement_timeout`** (`ALPHADECK_CRON_STATEMENT_TIMEOUT_S`,
 default 300 s — sized ~2,000x the slowest measured single read, 151 ms; 0 disables), so a lock wait or a
 stuck read raises inside the per-thesis isolation instead of hanging the loop. And an **unhandled exception**
@@ -1449,9 +1484,11 @@ The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
   `next` to Thu. Bounded by construction — it walks *forward* from the target
   it just fired for, never backwards, so a deploy can never silently backfill old holes. The nightly backup
   still runs once per wake. The shell's `is_weekday` / `next_weekday` / `last_expected_asof` mirror
-  `pipeline/schedule.py` — keep the two in step. A catch-up runs inside the EDGAR cache's 12h TTL and
-  legitimately fetches ~0, so the CLI's `--catch-up` skips the R4 freeze page for that pass only (withheld /
-  errored still page) and the run artifact carries `catch_up: true` (the Admin history tags the row).
+  `pipeline/schedule.py` — keep the two in step. The run artifact carries `catch_up: true` (the Admin
+  history tags the row). A catch-up used to skip the R4 freeze page outright (it ran inside the EDGAR cache's
+  12h TTL and legitimately fetched ~0); since G1's five-minute recurring TTL it re-pulls every company it
+  ingests, so since O5 its freeze page judges the theses it processed like any pass and leaves out only the
+  ones M2 skipped.
 - **It waits in slices and re-checks the WALL clock — the lateness itself (2026-09-10).** `sleep` counts the
   monotonic clock, and on Docker Desktop / WSL2 the VM's monotonic clock does not advance while the host is
   suspended, so one long `sleep "$((next - now))"` overshot by exactly the suspended interval — even on a host
@@ -1774,22 +1811,42 @@ Recorded here where a builder of the pager/scheduler will hit them; the full acc
   company's index whenever the previous read is older than five minutes, so for the **nightly scheduled
   pass** and the **Admin trigger** `0 fetches` means the cache genuinely never reached out — a **true**
   freeze. Still exposed, by design: **a SECOND pass started within five minutes of another** (a hand-run
-  `python -m pipeline.daily` right after the nightly, the retry/catch-up sequence) legitimately reads the
-  first pass's cache for the companies it reached last, and can report ~0. That is precisely why the
-  `--catch-up` exemption — `assess_health(freeze_check=False)`, artifact `catch_up: true` — **stays**. Option
-  A (page on 0 only when the cache was outside its TTL for the names touched) remains the more correct fix
-  for that residual when built. The other unreliability is the ATTEMPTS-not-successes gap below.
-- **`edgar_fetches` counts ATTEMPTS, not successes.** `EdgarClient.get_text` does `live_fetches += 1`
-  immediately *before* calling `_fetch`, so a pull that RAISES still increments the counter. A run whose every
-  fetch fails therefore reports a large, reassuring number, and `frozen` (which trips only at exactly 0) can
-  never fire — the freeze detector reports *intent to fetch*, not network. Observed **2026-07-22**: an empty
-  `ALPHADECK_USER_AGENT` (the stack had been rebuilt from a git worktree, where the gitignored `.env` does not
-  exist, so compose resolved `${ALPHADECK_USER_AGENT:-}` to empty) raised on all 255 pulls before a byte left
-  the box — and the run logged `255 EDGAR fetches`, `frozen = false`. What actually caught it was the **R2
-  withhold guard** (every name errored → *total ingest failure* → 5 calls correctly withheld), not the detector
-  built for exactly this. Fix when built: count *completions*, or carry a failure tally beside the attempt
-  count, and let the freeze verdict read the former. Note this gap **compounds** with the false-positive above —
-  the same number is unreliable in both directions.
+  `python -m pipeline.daily` right after the nightly) legitimately reads the first pass's cache for the
+  companies it reached last, and can report ~0 — a repeat page, never a silenced one. **The `--catch-up`
+  exemption is NARROWED (O5, 2026-10-21):** it was wholesale (`freeze_check=not catch_up`) for the 12h-TTL
+  reason G1 removed; a catch-up's retry waits 20 minutes, a boot catch-up after a killed pass processes the
+  theses that pass never reached, and a late-wake catch-up follows a full pass, so the predicate now leaves
+  out only the theses M2 SKIPPED (no ingest, no client) and judges the rest like any pass. Accepted residual,
+  loud by construction: a catch-up whose every processed company was fetched in the previous five minutes
+  (only right behind a pass killed mid-thesis, which already paged) pages FROZEN once. Option A (page on 0
+  only when the cache was outside its TTL for the names touched) remains the more correct fix for that
+  residual when built.
+- **`edgar_fetches` counts ATTEMPTS, not successes — CLOSED (O5, 2026-10-21).** `EdgarClient.get_text` does
+  `live_fetches += 1` immediately *before* calling `_fetch`, so a pull that RAISES still increments the
+  counter, and the freeze verdict used to read it: *intent to fetch*, not network. Observed **2026-07-22**: an
+  empty `ALPHADECK_USER_AGENT` (the stack had been rebuilt from a git worktree, where the gitignored `.env`
+  does not exist, so compose resolved `${ALPHADECK_USER_AGENT:-}` to empty) raised on all 255 pulls before a
+  byte left the box — and the run logged `255 EDGAR fetches`, `frozen = false`; the R2 withhold guard caught
+  it (every name errored), not the detector. Now the client also counts `live_completed` (a 2xx body
+  arrived; a 404 is not one), the artifact carries `edgar_fetches_completed` per thesis and per run, and the
+  freeze verdict reads it — the page says "0 of N EDGAR fetches COMPLETED" when pulls were attempted.
+  *MEASURED over prod's 81 stored artifacts (2026-07-17 → 2026-10-21, read-only):* the old detector fired on
+  **no** night (the only zero-attempt passes were three `--no-live` passes); it was silent on three passes
+  where no EDGAR data arrived — **2026-07-22 21:59 and 22:54 ET** (255 attempted, 255 of 255 names errored,
+  every thesis withheld) and **2026-07-24 21:05 ET** (181 attempted, 181 names errored, and two theses with 90
+  and 159 names still RECORDED their call-of-record — the partial shape the R2 withhold misses). The corrected
+  rule pages FROZEN on those shapes (INFERRED for history — completions were not recorded then; 07-22 21:59's
+  cause is the documented empty User-Agent, which completes none). Every stored artifact re-derives with
+  its old verdict (81 of 81 MEASURED through the new Admin reader). The one stored catch-up (2026-10-13
+  16:57 ET, 744 attempts) is unchanged by the narrowing.
+- **Still OPEN — a near-zero pass is not a zero pass.** The predicate fires only at EXACTLY zero completed
+  fetches. MEASURED on the same 81 artifacts: eleven live passes made 1–4 attempts across 255–494 names
+  (0.2–1.6% of names) while most theses fetched nothing — 07-17 23:00, 07-21 08:43, 07-21 22:30, 07-22 23:43,
+  07-23 22:52, 07-23 23:06, 07-24 22:29, 08-17 22:30, 08-25 22:55, 08-27 16:41, 08-27 23:14 ET — all pre-G1
+  (12h TTL): some read a cache hours old (the daytime-warmth class G1 closed), some ran minutes after a full
+  pass. Neither rule pages them. Every other live pass fetched ≥ 10.7% of its names (≥ 96% on all 25 since
+  G1). A ratio floor (e.g. completed < 10% of names ingested) would separate the two cleanly — PROPOSED, not
+  built: a new paging threshold is the operator's call.
 - **A missing run doesn't page (dead-man's switch) — BUILT (H2, 2026-10-16), inert until the operator
   creates the check.** The sidecar now pings `HEARTBEAT_URL` from the shell once the last expected night is
   recorded (the sidecar section), so an outside service alerts when the ping does not come: a host that

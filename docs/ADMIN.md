@@ -491,11 +491,17 @@ what they are everywhere else: reported, never scored (the Scoreboard filters th
 
 The verdict re-derives via `assess_health` over the newest **readable** run-of-record artifact
 (`data/cron_runs/`, skip-unreadable fail-open). The **benign** `--no-live` cache-only note is excluded from
-the alarm set, so a hand-run dev pass never paints the cron `unhealthy` (honest loudness). A **`--catch-up`**
-pass (the sidecar's boot / late-wake catch-up) is re-read with the freeze check skipped, exactly as the run
-itself was assessed — it runs inside the EDGAR 12h TTL and legitimately fetches ~0 — so the history never
-shows a catch-up as unhealthy; its row carries a small **catch-up** tag (`AdminRunOut.catch_up`).
-`GET /admin/runs` returns the run history — the last N artifacts parsed, newest first.
+the alarm set, so a hand-run dev pass never paints the cron `unhealthy` (honest loudness). **The freeze
+verdict reads COMPLETED EDGAR fetches (O5, 2026-10-21):** each row carries `edgar_fetches` (the pulls the
+pass attempted) and `edgar_fetches_completed` (the ones that returned data — the number the verdict reads;
+`null` on an artifact written before O5). A live pass whose processed theses completed zero is `FROZEN`, and
+the line says `0 of N EDGAR fetches COMPLETED` when pulls were attempted and failed (a dead feed, e.g. an
+empty User-Agent — not a cold cache). The run-history table shows `completed/attempted` in the fetches
+column when they differ. A **`--catch-up`** pass (the sidecar's boot / late-wake catch-up; a small
+**catch-up** tag, `AdminRunOut.catch_up`) is judged on the theses it PROCESSED — the ones M2 skipped, whose
+on-time row stood, are left out. Every row is re-derived by the rule its pass was assessed under: an
+artifact written before O5 keeps the old one (attempts, a catch-up exempt wholesale), so no past row
+changes color. `GET /admin/runs` returns the run history — the last N artifacts parsed, newest first.
 
 A **newly stale feed** — a price tape (G5a) or an ETF sleeve's fund-shares sampling (F1) — also appears in
 `problems`, one line per feed with that feed's own count, names and repair, but carrying the same benign
@@ -520,7 +526,11 @@ from the run artifacts or the backups dir (the surface still writes nothing):
   read as a pass. **T4 adds `split_defects_flagged`**: the split-basis scan ran over tonight's tapes, so every
   defect it can see is flagged — it reports the count, passes with defects present (there is no
   "acknowledged" state, and failing on a standing defect would page nightly), and fails only when the scan
-  could not run.
+  could not run. **`no_unsettled_bars` (2026-10-21)** audits the D2 settle guard over the TABLE: it fails
+  when any `fact_price_eod` row (benchmarks included) was recorded before its bar date's settle instant
+  (`d` at 18:00 market time), naming the bars (`TICKER d @ recorded`) and counting them by bar date. It
+  judges the rows written since the previous pass that judged it, never before the guard's deploy
+  (2026-10-17 03:23Z), so the 5,597 pre-guard rows prod holds never page (`FEED_LOOP.md` "Settled closes").
 - **Per-name ingest errors (O1).** The artifact now keeps WHY each name errored, one row per failed leg.
   Names whose leg started failing since the last-known inventory (each thesis as the newest live pass that
   covered it saw it — a skipped-thesis catch-up counts for the theses it covered, so a name it first flagged
@@ -565,7 +575,8 @@ client now carries the **recurring TTL (five minutes)**, so this button *refresh
 warming it and the night re-fetches regardless — anything read more than five minutes ago is re-pulled, and
 nothing can be filed in the five minutes before the 22:30 pass (`FEED_LOOP.md` §Fresh data). The one thing
 that still reads a warm cache is a pass fired **within five minutes** of another, which is why a back-to-back
-re-click can legitimately report ~0 EDGAR fetches. The job opens its
+re-click can legitimately report ~0 EDGAR fetches (and page FROZEN once — loud, never a silenced freeze).
+The job opens its
 own DB connection (it outlives the request); a lost job (server restart / expiry) shows "lost from view", not
 an infinite spinner — the run history + record edge are the durable authority. **Bounded like the sidecar's
 pass (2026-10-17):** the job runs the pass in a CHILD PROCESS (`pipeline/bounded_pass.py`) for at most the

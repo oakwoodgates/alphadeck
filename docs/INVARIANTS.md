@@ -137,8 +137,10 @@ replay stays honest.
   `now`, and every price write withholds a bar until its session settles (`ingest/prices/settle.py`,
   `Settings.price_settle_time`). *Enforced by:* `tests/pipeline/test_ingest_benchmarks.py` (a bar ingested
   22:35 ET on D is visible to the asof-D call and the scrub-back cap, invisible before 22:35 and to asof < D;
-  the window-bounded restatement; count-the-table) and `tests/ingest/test_price_settle*.py`. See `FEED_LOOP.md`
-  §Settled closes.
+  the window-bounded restatement; count-the-table) and `tests/ingest/test_price_settle*.py`; and AUDITED every
+  night over the table (2026-10-21): the self-audit's `no_unsettled_bars` check fails — and pages — on any
+  `fact_price_eod` row recorded before its bar's settle instant, written since the last judging pass by any
+  writer (`tests/pipeline/test_settle_audit.py`). See `FEED_LOOP.md` §Settled closes.
 - *Also honored by (the SERVE path — the scrub-back cap):* the gate COLUMN being right is not enough; the
   PIN must move. `GET /theses/{id}/call`, `/display-signals`, and `/workbench/…/scored` recompute through
   a `PointInTimeData` whose `known_at` defaults to `now`, so for a past `asof` the `recorded_at` half of the

@@ -83,6 +83,7 @@ from pipeline.cron_run_log import (
     mark_run_crashed,
     previous_ingest_skips,
     previous_name_errors,
+    previous_settle_audit_end,
     previous_split_defects,
     previous_stale_tapes,
     write_cron_run_log,
@@ -122,7 +123,13 @@ from pipeline.run_lock import (
     acquire_pass_lock,
 )
 from pipeline.schedule import last_expected_asof, parse_run_at
-from pipeline.self_audit import AuditContext, AuditResult, failed_labels, run_audit
+from pipeline.self_audit import (
+    AuditContext,
+    AuditResult,
+    failed_labels,
+    run_audit,
+    settle_window_since,
+)
 from pipeline.split_basis import SplitScan, run_split_scan
 from pipeline.split_basis import report_lines as split_report_lines
 from pipeline.successor_cik import SuccessorScan, previous_successor_keys, run_successor_scan
@@ -223,11 +230,18 @@ class ThesisRunResult:
     recorded: bool | None = None
     transition: str | None = None
     error: str | None = None
-    # EDGAR network pulls during this thesis's ingest — the FREEZE DETECTOR. A frozen index and a healthy
-    # nothing-filed night produce identical fact tallies (0 appended); this is the one number that differs.
-    # 0 across the whole run = the cache never refreshed = the R1 freeze, visible instead of hiding behind
-    # a plausible "quiet day". Recorded into the cron run log (R3); R4 pages on it.
+    # EDGAR network pulls this thesis's ingest ATTEMPTED (`EdgarClient.live_fetches` — a cache miss or a
+    # stale-mutable refresh, counted before the request, so a pull that then failed counts too). Recorded
+    # into the cron run log (R3) as `edgar_fetches`. Since O5 it is not what the freeze page reads.
     edgar_fetches: int = 0
+    # O5 — the attempts that COMPLETED (`EdgarClient.live_completed` — a 2xx body arrived): THE FREEZE
+    # DETECTOR. A frozen index and a healthy nothing-filed night produce identical fact tallies (0
+    # appended); this is the one number that differs, and unlike the attempt count it also reads 0 when
+    # every pull FAILED (the 2026-07-22 empty User-Agent: 255 attempts, 0 data). 0 across the theses a live
+    # pass processed = no EDGAR data reached it = a freeze (`assess_health`). None = not measured: a
+    # thesis a --catch-up SKIPPED (no client was built), and every result rebuilt from an artifact written
+    # before O5 (which `assess_health` then judges by the rule that pass was paged under).
+    edgar_fetches_completed: int | None = None
     # R2a — why the call-of-record was WITHHELD (not recorded), or None if it was recorded/attempted. A run
     # that didn't meaningfully refresh has no business writing the log of record: "no-live" (a cache-only dev
     # run, Source A) or "total ingest failure" (the ingest raised, or EVERY name errored, Source C). A healthy
@@ -503,6 +517,7 @@ def run_daily(
         # capture the count even on a thesis-level failure — a mid-ingest raise still made real network
         # pulls, and "0 fetches" must mean the freeze, not "we bailed before the counter was read"
         res.edgar_fetches = edgar_client.live_fetches
+        res.edgar_fetches_completed = edgar_client.live_completed  # O5 — what the freeze page reads
         # G5a/F1 — THE FEED-RECENCY JUDGMENT, both feeds. `ingest_thesis` reported each name's EDGES (facts:
         # the latest stored price bar, and for an ETF sleeve the latest stored shares sample); the judgment
         # belongs HERE because this is the layer that holds the run's `asof` — time stays a parameter, never
@@ -655,6 +670,7 @@ def assess_health(
     *,
     asof: date,
     allow_live: bool,
+    catch_up: bool = False,
     freeze_check: bool = True,
     benchmark_errors: int = 0,
     benchmark_leg_failed: bool = False,
@@ -667,18 +683,36 @@ def assess_health(
     insider_amendments_more: int = 0,
 ) -> HealthEvent | None:
     """R4 — the run's pageable health, or None when the run was clean (loudness marks the exception). Unhealthy
-    = a FREEZE (a live run whose EDGAR fetches summed to ZERO across present theses — the R1 cache-never-
-    refreshed signal), any WITHHELD call (no-live / total ingest failure), any thesis ERROR, or a failed
-    BENCHMARK refresh. Pure over the collected results, so it is unit-testable without a DB; ``main`` emits it
-    through the notifier.
+    = a FREEZE (a live run during which no EDGAR fetch COMPLETED across the theses it processed — the R1
+    cache-never-refreshed signal, and since O5 also the every-pull-failed one), any WITHHELD call (no-live /
+    total ingest failure), any thesis ERROR, or a failed BENCHMARK refresh. Pure over the collected results,
+    so it is unit-testable without a DB; ``main`` emits it through the notifier.
 
-    ``freeze_check=False`` SKIPS the frozen predicate only (withheld / errored still page): a ``--catch-up``
-    pass runs inside the EDGAR cache's 12h TTL right after the scheduled run, so ~0 fetches is what a
-    CORRECT catch-up looks like — the known R4 false-positive (FEED_LOOP.md "Known gaps", option B). The
-    scheduled run and the Admin "Run daily now" keep the default ``True``. (Since G1 the per-thesis filing
-    legs carry the five-minute RECURRING TTL, so for the scheduled pass and the Admin trigger 0 fetches is a
-    genuine freeze. The exemption still EARNS its keep: a SECOND pass started within five minutes of another
-    legitimately reads the first's cache for the companies it reached last.)
+    O5 — THE FREEZE PREDICATE, two corrections (``docs/FEED_LOOP.md`` "Known gaps"):
+
+    - **COMPLETED fetches, not attempts.** The attempt count rises before the request, so a pass whose every
+      pull failed read as a fetching night: MEASURED 2026-07-22 21:59 ET, an empty User-Agent raised on all
+      255 pulls before a byte left the box and the run logged ``255 EDGAR fetches``, not frozen (the R2
+      withhold caught that night; a partial outage would not have been caught). The predicate reads
+      ``ThesisRunResult.edgar_fetches_completed`` (2xx bodies received); ``edgar_fetches`` stays on the
+      artifact and the page as the attempt count, so "255 attempted, 0 completed" reads as what it was.
+    - **The catch-up exemption narrowed to what a catch-up legitimately skips.** It was WHOLESALE
+      (``freeze_check=not catch_up``) because a catch-up ran inside the EDGAR cache's 12h TTL right after the
+      scheduled run, where ~0 fetches was correct. Since G1 the recurring client's TTL is five minutes, so a
+      catch-up re-pulls every company it ingests like any pass: the sidecar's retry waits 20 minutes, a boot
+      catch-up after a killed pass processes the theses that pass never reached, and a late-wake catch-up
+      follows a full pass. What a catch-up legitimately does NOT fetch is the theses M2 SKIPPED (their
+      on-time row stands; no ingest, no client): those are left out of the predicate — for every pass, by
+      construction — and the theses it PROCESSED are judged like any other pass's. ACCEPTED residual, loud by
+      construction: a catch-up whose every processed company was fetched in the previous five minutes (only
+      possible right behind a pass killed mid-thesis, which already paged) pages FROZEN once — a repeat page,
+      never a silenced freeze.
+
+    THE RULE A RESULT WAS ASSESSED UNDER IS ITS OWN. Results that carry no completed count (rebuilt by the
+    Admin history from an artifact written before O5) are judged by the rule that pass was PAGED under —
+    attempts, the whole roster, a catch-up exempt wholesale (``catch_up``) — so the history keeps showing the
+    verdict each night actually paged. ``freeze_check=False`` skips the predicate outright (no production
+    caller passes it since O5; tests asserting another page over fetch-less results use it).
 
     G4 — the BENCHMARK refresh legs are PASSENGERS in ``run_daily_pass`` (fail-open, own connection), and
     their faults used to reach stdout only: a SPY/IWM tape that did not refresh silently degrades
@@ -730,8 +764,19 @@ def assess_health(
     withheld_no_live = sum(1 for r in results if r.withheld_reason == "no-live")
     withheld_failure = sum(1 for r in results if r.withheld_reason == "total ingest failure")
     errored = sum(1 for r in results if r.error)
-    edgar_fetches = sum(r.edgar_fetches for r in results)
-    frozen = freeze_check and allow_live and theses > 0 and edgar_fetches == 0
+    edgar_fetches = sum(r.edgar_fetches for r in results)  # ATTEMPTS — reported, the pre-O5 verdict
+    # O5 — the theses the pass PROCESSED: a --catch-up's M2-skipped theses ingested nothing by construction
+    processed = [r for r in results if not r.skipped]
+    edgar_fetches_completed: int | None = None
+    freeze_theses: int | None = None
+    if processed and all(r.edgar_fetches_completed is not None for r in processed):
+        edgar_fetches_completed = sum(r.edgar_fetches_completed or 0 for r in processed)
+        freeze_theses = len(processed)
+        frozen = freeze_check and allow_live and edgar_fetches_completed == 0
+    else:
+        # the PRE-O5 rule, for results rebuilt from an artifact that carries no completed count — and for a
+        # pass that processed nothing (every thesis skipped, or no roster), which it can never call frozen
+        frozen = freeze_check and not catch_up and allow_live and theses > 0 and edgar_fetches == 0
     if not (
         withheld_no_live
         or withheld_failure
@@ -756,6 +801,8 @@ def assess_health(
         errored=errored,
         edgar_fetches=edgar_fetches,
         frozen=frozen,
+        edgar_fetches_completed=edgar_fetches_completed,
+        freeze_theses=freeze_theses,
         benchmark_errors=benchmark_errors,
         benchmark_leg_failed=benchmark_leg_failed,
         tape_stale_new=tape_stale_new,
@@ -773,7 +820,8 @@ class DailyPassOutcome:
     """One COMPLETED daily pass: the per-thesis results plus the run metadata the artifact carries —
     what the admin "run now" job needs to shape its poll result exactly like a parsed run log.
     ``log_path`` is the written run-of-record artifact (or ``None`` — the write is fail-open). ``catch_up``
-    = the pass was a ``--catch-up`` (recorded on the artifact; its freeze page is skipped).
+    = the pass was a ``--catch-up`` (recorded on the artifact; since O5 its freeze page judges the theses it
+    processed, like any pass — ``assess_health``).
 
     ``benchmark_errors`` / ``benchmark_leg_failed`` (G4) carry the SHARED-INPUT refresh leg's outcome off
     the pass, because the admin "run now" job rebuilds its poll payload from THIS object
@@ -1056,10 +1104,12 @@ def _run_daily_pass_locked(
     artifact (it shows in the run history) and pages through the same health seam. ``main`` keeps the CLI
     concerns only (args, the R6 catch-up guard, the printed report + exit code).
 
-    ``catch_up`` (the CLI's ``--catch-up``, threaded by ``main``) changes exactly two things: the artifact
-    records it, and the R4 FREEZE predicate is skipped (``assess_health(freeze_check=False)`` — a catch-up
-    runs inside the EDGAR 12h TTL and legitimately fetches ~0; withheld / errored still page). The ingest,
-    the recording gate, and the call-of-record are byte-identical to a scheduled pass.
+    ``catch_up`` (the CLI's ``--catch-up``, threaded by ``main``) makes M2 SKIP every thesis whose on-time
+    row already stands, and the artifact records it. Its freeze page is no longer skipped
+    wholesale (O5, ``assess_health``): it judges the theses the pass PROCESSED by their COMPLETED EDGAR
+    fetches, so a catch-up whose pulls all failed pages like any pass, while its skipped theses (which fetch
+    nothing by construction) are left out. The ingest, the recording gate, and the call-of-record are
+    byte-identical to a scheduled pass.
 
     G4 — the benchmark refresh leg's outcome is now CARRIED, not just printed: its counts go into the
     run-of-record artifact and into ``assess_health``, so a night that ran ``benchmark_rs`` on a stale
@@ -1298,7 +1348,11 @@ def _run_daily_pass_locked(
     # the artifact). It reads the TABLE through its own read-only connection (`_pass_connect`, so it carries
     # the statement ceiling too). Building the context can fail on a malformed RUN_AT / market zone — that
     # is reported as a FAILED audit, never a silently absent one, and never a failed pass.
+    # The SETTLE check judges the price rows recorded since the previous pass that judged them (read from
+    # the artifacts BEFORE this pass's own is finalized — its start artifact is `running`, never a baseline),
+    # floored at the guard's deploy (`self_audit.settle_window_since`).
     try:
+        settle_prev = timed("baselines")(previous_settle_audit_end)()
         audit_ctx = AuditContext(
             asof=asof,
             started_at=started_at,
@@ -1310,6 +1364,8 @@ def _run_daily_pass_locked(
             tz=market_tz(),
             connect=_pass_connect,
             split=split,
+            settle_at=settings.price_settle_time,
+            bars_since=settle_window_since(started_at, settle_prev),
         )
         audit: tuple[AuditResult, ...] = tuple(timed("self_audit")(run_audit)(audit_ctx))
     except Exception as e:  # noqa: BLE001 — a broken audit is an alarm, never a failed pass
@@ -1352,15 +1408,17 @@ def _run_daily_pass_locked(
     )
     # R4 — the DURABLE page: a freeze / withheld / errored run alerts through the notifier (Slack when
     # configured, else a loud log line). Healthy runs are silent. This is what makes the platform notice its
-    # own blindness — the gap that let R1 hide 11+ days. Fail-open (notify_health never raises). A catch-up
-    # skips the FREEZE predicate only (it runs inside the EDGAR TTL — ~0 fetches is correct there). G4: the
-    # benchmark leg's counts page here too, and they are on the artifact above so the admin history
-    # re-derives the SAME verdict this run paged (never a green row over a night that alerted).
+    # own blindness — the gap that let R1 hide 11+ days. Fail-open (notify_health never raises). O5: the
+    # FREEZE predicate reads COMPLETED fetches over the theses the pass processed — a catch-up's M2-skipped
+    # theses are out of it and the rest are judged like any pass (`catch_up` matters only when re-deriving
+    # a pre-O5 artifact). G4: the benchmark leg's counts page here too, and they are on the artifact above
+    # so the admin history re-derives the SAME verdict this run paged (never a green row over a night that
+    # alerted).
     health = assess_health(
         results,
         asof=asof,
         allow_live=allow_live,
-        freeze_check=not catch_up,
+        catch_up=catch_up,
         benchmark_errors=benchmark_errors,
         benchmark_leg_failed=benchmark_leg_failed,
         tape_stale_new=tape_stale_new,
@@ -1743,8 +1801,8 @@ def main(argv: list[str] | None = None) -> None:
         "already run (the sidecar's boot catch-up of the last expected night, so a host that was off at "
         "RUN_AT self-heals when it comes back, and its late-wake catch-up of the nights a long sleep "
         "skipped); a no-op otherwise. A pre-open manual pass for the same asof does NOT count (it lacks "
-        "the night's close). A catch-up runs inside the EDGAR cache TTL, so its ~0-fetch freeze page is "
-        "skipped (withheld / errored still page).",
+        "the night's close). A thesis whose on-time row already stands is skipped (M2); the freeze page "
+        "judges the theses it processed, like any pass (O5).",
     )
     p.add_argument(
         "--run-kind",

@@ -429,9 +429,9 @@ def test_a_no_live_run_is_withheld_NOT_flagged_frozen_and_reads_BENIGN():
 
 
 def test_assess_health_freeze_check_off_skips_the_FROZEN_page_only():
-    # a --catch-up pass runs inside the EDGAR 12h TTL right after the scheduled run, so ~0 fetches is what a
-    # CORRECT catch-up looks like (the known R4 false-positive). The SAME numbers: a live run with 0 fetches
-    # pages FROZEN by default (the existing contract, unchanged)…
+    # `freeze_check=False` skips the frozen predicate outright (since O5 no production caller passes it — a
+    # catch-up is judged by `catch_up` + the skipped theses, below). The SAME numbers: a live run with 0
+    # fetches pages FROZEN by default (the existing contract, unchanged)…
     results = [_tr(edgar_fetches=0, recorded=False), _tr(edgar_fetches=0, recorded=True)]
     h = daily.assess_health(results, asof=_ASOF, allow_live=True)
     assert h is not None and h.frozen is True
@@ -837,9 +837,10 @@ def test_pass_refresh_leg_runs_BEFORE_run_daily(monkeypatch):
 
 
 def test_pass_threads_catch_up_to_the_artifact_and_the_freeze_check(monkeypatch):
-    """catch_up=True changes exactly two things in the pass: the run-of-record artifact carries it, and
-    the R4 assessor runs with freeze_check=False (a catch-up's ~0 fetches must not page FROZEN). The
-    default — the scheduled run and the Admin "Run daily now" — keeps freeze_check=True + catch_up False.
+    """catch_up=True reaches the run-of-record artifact and the R4 assessor (`catch_up=True`). O5: the pass
+    no longer turns the freeze predicate OFF for a catch-up (`freeze_check` is never passed — it stays on);
+    the assessor leaves the catch-up's SKIPPED theses out and judges the rest by completed fetches. The
+    default — the scheduled run and the Admin "Run daily now" — passes catch_up False.
     """
     _prime_pass(monkeypatch)
     seen_log: dict = {}
@@ -863,12 +864,12 @@ def test_pass_threads_catch_up_to_the_artifact_and_the_freeze_check(monkeypatch)
     out = daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent(), catch_up=True)
     assert out.catch_up is True
     assert seen_log["catch_up"] is True
-    assert seen_health["freeze_check"] is False
+    assert seen_health["catch_up"] is True and "freeze_check" not in seen_health
 
     out = daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
     assert out.catch_up is False
     assert seen_log["catch_up"] is False
-    assert seen_health["freeze_check"] is True
+    assert seen_health["catch_up"] is False and "freeze_check" not in seen_health
 
 
 def test_pass_benchmarks_failure_is_FAIL_OPEN(monkeypatch):
@@ -980,13 +981,15 @@ def test_pass_benchmarks_FORCE_REFRESH(monkeypatch):
 
 class _RecordingEdgar:
     """Constructor-compatible fake that RECORDS the kwargs it was built with (the _DeadEdgar idiom from
-    the shell-sweep tests). live_fetches is an instance attr so run_daily's freeze-counter read works.
+    the shell-sweep tests). live_fetches / live_completed are instance attrs so run_daily's freeze-counter
+    reads work.
     """
 
     seen: list[dict] = []
 
     def __init__(self, **kw) -> None:
         self.live_fetches = 0
+        self.live_completed = 0
         _RecordingEdgar.seen.append(kw)
 
 

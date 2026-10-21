@@ -115,9 +115,7 @@ def _problems(health: HealthEvent | None) -> list[str]:
     if health.crashed:
         out.append(f"PASS CRASHED — {health.crashed}")
     if health.frozen:
-        out.append(
-            f"FROZEN — 0 EDGAR fetches across {health.theses} theses (the cache never refreshed)"
-        )
+        out.append(health.frozen_line)  # O5 — the page's own wording (attempted vs completed)
     if health.withheld_failure:
         out.append(f"{health.withheld_failure} call(s) WITHHELD — TOTAL INGEST FAILURE")
     if health.errored:
@@ -210,9 +208,12 @@ def _admin_run_out(payload: dict) -> AdminRunOut:
     missing/malformed key raises and the CALLER skips that artifact fail-open (the run-log read
     discipline). ``healthy``/``problems`` re-derive via ``assess_health`` over results RECONSTRUCTED
     from the per-thesis entries (the pure assessor reads only counts the artifact carries — the same
-    verdict the run itself paged on, re-readable forever from the file). A ``catch_up`` pass skips the
-    FREEZE predicate exactly as the run itself did (it ran inside the EDGAR TTL — ~0 fetches is correct),
-    so the history never shows a catch-up as unhealthy; an artifact from before the key reads False.
+    verdict the run itself paged on, re-readable forever from the file). The FREEZE predicate follows the
+    rule the run was paged under (O5, ``assess_health``): an artifact carrying per-thesis
+    ``edgar_fetches_completed`` is judged by COMPLETED fetches over the theses it processed (a catch-up's
+    skipped ones left out); one written before O5 by attempts, with a ``catch_up`` pass exempt wholesale
+    exactly as it was then — so no past night's row changes color. An artifact from before ``catch_up``
+    reads False.
 
     The RUN-LEVEL keys added after the original schema (``catch_up``, and G4's benchmark counts) are read
     with ``.get`` ON PURPOSE, unlike the strict ``payload[...]`` above: this function is strict by design and
@@ -274,6 +275,8 @@ def _admin_run_out(payload: dict) -> AdminRunOut:
             transition=t.get("transition"),
             error=t.get("error"),
             edgar_fetches=int(t.get("edgar_fetches") or 0),
+            # O5 — absent on a pre-O5 artifact (None), which `assess_health` then judges by the old rule
+            edgar_fetches_completed=_count_or_none(t.get("edgar_fetches_completed")),
             withheld_reason=t.get("withheld_reason"),
             skipped=t.get("skipped") if isinstance(t.get("skipped"), str) else None,
         )
@@ -283,7 +286,7 @@ def _admin_run_out(payload: dict) -> AdminRunOut:
         results,
         asof=asof,
         allow_live=allow_live,
-        freeze_check=not catch_up,
+        catch_up=catch_up,
         benchmark_errors=benchmark_errors,
         benchmark_leg_failed=benchmark_leg_failed,
         tape_stale_new=tape_stale_new,
@@ -312,6 +315,8 @@ def _admin_run_out(payload: dict) -> AdminRunOut:
         transitions=int(summary["transitions"]),
         skipped=int(summary.get("skipped") or 0),
         edgar_fetches=int(payload["edgar_fetches"]),
+        # O5 — the COMPLETED fetches the freeze verdict reads; null on an artifact written before O5
+        edgar_fetches_completed=_count_or_none(payload.get("edgar_fetches_completed")),
         healthy=health is None,
         problems=_problems(health),
         catch_up=catch_up,
@@ -329,6 +334,12 @@ def _admin_run_out(payload: dict) -> AdminRunOut:
         top_leg=top_leg,
         top_leg_s=top_leg_s,
     )
+
+
+def _count_or_none(v: object) -> int | None:
+    """A stored count, or None when the artifact does not carry it (an older artifact) — never a coerced
+    0, which would read "measured: nothing" where nothing was measured. A bool is not a count."""
+    return v if isinstance(v, int) and not isinstance(v, bool) else None
 
 
 def _threshold(doc: dict, key: str, live: int) -> int:
