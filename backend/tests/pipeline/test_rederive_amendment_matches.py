@@ -85,10 +85,12 @@ def test_czrs_legacy_whole_decisions_are_rederived_append_only_and_an_earlier_re
     before sees the one line, a read after sees the ten restored original lines, the 33,118 restatement and the
     2,859 withholding."""
     sid, t1 = _legacy_czr(db, monkeypatch)
-    legacy = _decisions(db, sid)
-    assert [
+    legacy = _decisions(
+        db, sid
+    )  # both at t1: their (recorded_at, id) order is the uuids' — sort to compare
+    assert sorted(
         (d["amendment_accession"], d["action"], d["basis"], d["replaced_rows"]) for d in legacy
-    ] == [
+    ) == [
         (EARLY, "apply", "system:no-signal-effect", None),
         (LATE, "apply", "system:no-signal-effect", None),
     ]

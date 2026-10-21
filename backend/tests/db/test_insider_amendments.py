@@ -894,6 +894,58 @@ def test_amsc_amendments_of_different_trades_of_one_original_all_stand(db):
     ]
 
 
+def test_onto_a_4a_that_supersedes_the_earlier_amendment_replaces_its_rows_entirely(db):
+    """ONTO: ``-000045`` recodes the three ``D`` withholdings ``F`` and adds the RSU grant; ``-000102`` re-counts
+    the withholdings and repeats the grant — "This amendment supersedes the amendment filed on February 11, 2020".
+    It accounts for no ORIGINAL line by exact shape (codes and counts both differ), so by shape alone the two
+    amendments' lines would stack (the grant twice, six withholdings). The filer's SUPERSEDE words name the
+    earlier amendment: its rows leave entirely. A read pinned between the two reads ``-000045``'s statement.
+    """
+    sid = make_security(db, "ONTO")
+    t0 = db_now(db) - timedelta(days=3)
+    t1, t2 = t0 + timedelta(days=1), t0 + timedelta(days=2)
+    ingest_originals(db, sid, "ONTO", recorded_at=t0)
+    ingest_amendment(db, sid, "0001407682-20-000045", recorded_at=t1)
+    ingest_amendment(db, sid, "0001407682-20-000102", recorded_at=t2)
+    (early,) = _decisions_of(db, sid, "0001407682-20-000045")
+    (late,) = _decisions_of(db, sid, "0001407682-20-000102")
+    assert (
+        len(early["replaced_rows"]) == 3 and late["replaced_rows"] == []
+    )  # both applied row by row
+    asof = date(2020, 3, 31)
+    assert _lines(_rows(db, sid, asof, t2 - timedelta(seconds=1))) == [
+        ("0001407682-20-000045", "A", 31210.0),
+        ("0001407682-20-000045", "F", 1375.0),
+        ("0001407682-20-000045", "F", 1391.0),
+        ("0001407682-20-000045", "F", 1466.0),
+    ]
+    assert _lines(_rows(db, sid, asof)) == [
+        ("0001407682-20-000102", "A", 31210.0),
+        ("0001407682-20-000102", "F", 2730.0),
+        ("0001407682-20-000102", "F", 2760.0),
+        ("0001407682-20-000102", "F", 2910.0),
+    ]
+
+
+def test_asth_a_restatement_the_rules_cannot_account_for_stands_beside_the_earlier_line(db):
+    """The known limit, stated on the real filings: ASTH ``-18-000259`` re-computes the merger-day lines as
+    1,563,763 and 1,682,109 after the 1:1 CORRECTION ``-17-001403`` reported 1,664,054. No exact shape pairs them
+    (the counts differ; no price), they do not SUM to it (3,245,872), and its words carry no FIX or SUPERSEDE
+    sentence ("to correct a miscalculation in the number of shares … deemed to be beneficially owned" is not one
+    of the phrases). With no looser owner + date + code rule, the correction's line stands beside them.
+    """
+    sid = seed(db, "ASTH-COMPOSE")
+    out = {i.accession: i for i in insider_amendment_repo.items(db, security_ids=[sid])}
+    db.rollback()
+    assert out["0001553350-17-001403"].effective.disposition == "correction"
+    assert out["0001553350-18-000259"].effective.original_accessions == ("0001553350-17-001361",)
+    assert _lines(_rows(db, sid, date(2017, 12, 31))) == [
+        ("0001553350-17-001403", "J", 1664054.0),
+        ("0001553350-18-000259", "J", 1563763.0),
+        ("0001553350-18-000259", "J", 1682109.0),
+    ]
+
+
 # --- both read shapes agree ----------------------------------------------------------------------------------
 
 

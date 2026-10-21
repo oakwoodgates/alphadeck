@@ -1,0 +1,571 @@
+<?xml version="1.0"?>
+<ownershipDocument>
+
+    <schemaVersion>X0306</schemaVersion>
+
+    <documentType>4</documentType>
+
+    <periodOfReport>2017-12-08</periodOfReport>
+
+    <notSubjectToSection16>0</notSubjectToSection16>
+
+    <issuer>
+        <issuerCik>0001083446</issuerCik>
+        <issuerName>Apollo Medical Holdings, Inc.</issuerName>
+        <issuerTradingSymbol>AMEH</issuerTradingSymbol>
+    </issuer>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001664499</rptOwnerCik>
+            <rptOwnerName>Lam Thomas S.</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerStreet1>1668 S. GARFIELD AVENUE</rptOwnerStreet1>
+            <rptOwnerStreet2>2ND FLOOR</rptOwnerStreet2>
+            <rptOwnerCity>ALHAMBRA</rptOwnerCity>
+            <rptOwnerState>CA</rptOwnerState>
+            <rptOwnerZipCode>91801</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>1</isDirector>
+            <isOfficer>1</isOfficer>
+            <isTenPercentOwner>0</isTenPercentOwner>
+            <isOther>0</isOther>
+            <officerTitle>Co-Chief Executive Officer</officerTitle>
+            <otherText></otherText>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <nonDerivativeTable>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Common Stock</value>
+                <footnoteId id="F1"/>
+            </securityTitle>
+            <transactionDate>
+                <value>2017-12-08</value>
+            </transactionDate>
+            <deemedExecutionDate></deemedExecutionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>J</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+                <footnoteId id="F1"/>
+            </transactionCoding>
+            <transactionTimeliness></transactionTimeliness>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>1546026</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <footnoteId id="F1"/>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>A</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>1546026</value>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>D</value>
+                </directOrIndirectOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+    </nonDerivativeTable>
+
+    <derivativeTable>
+        <derivativeTransaction>
+            <securityTitle>
+                <value>Warrants to purchase Common Stock</value>
+                <footnoteId id="F2"/>
+            </securityTitle>
+            <conversionOrExercisePrice>
+                <value>9.00</value>
+            </conversionOrExercisePrice>
+            <transactionDate>
+                <value>2017-12-08</value>
+            </transactionDate>
+            <deemedExecutionDate></deemedExecutionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>J</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+                <footnoteId id="F2"/>
+            </transactionCoding>
+            <transactionTimeliness></transactionTimeliness>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>63510.90</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <footnoteId id="F2"/>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>A</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <exerciseDate>
+                <footnoteId id="F2"/>
+            </exerciseDate>
+            <expirationDate>
+                <footnoteId id="F2"/>
+            </expirationDate>
+            <underlyingSecurity>
+                <underlyingSecurityTitle>
+                    <value>Common Stock</value>
+                </underlyingSecurityTitle>
+                <underlyingSecurityShares>
+                    <value>63510.90</value>
+                </underlyingSecurityShares>
+            </underlyingSecurity>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>63510.90</value>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>D</value>
+                </directOrIndirectOwnership>
+            </ownershipNature>
+        </derivativeTransaction>
+        <derivativeTransaction>
+            <securityTitle>
+                <value>Warrants to purchase Common Stock</value>
+                <footnoteId id="F2"/>
+            </securityTitle>
+            <conversionOrExercisePrice>
+                <value>10.00</value>
+            </conversionOrExercisePrice>
+            <transactionDate>
+                <value>2017-12-08</value>
+            </transactionDate>
+            <deemedExecutionDate></deemedExecutionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>J</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+                <footnoteId id="F2"/>
+            </transactionCoding>
+            <transactionTimeliness></transactionTimeliness>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>31755.42</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <footnoteId id="F2"/>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>A</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <exerciseDate>
+                <footnoteId id="F2"/>
+            </exerciseDate>
+            <expirationDate>
+                <footnoteId id="F2"/>
+            </expirationDate>
+            <underlyingSecurity>
+                <underlyingSecurityTitle>
+                    <value>Common Stock</value>
+                </underlyingSecurityTitle>
+                <underlyingSecurityShares>
+                    <value>31755.42</value>
+                </underlyingSecurityShares>
+            </underlyingSecurity>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>31755.42</value>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>D</value>
+                </directOrIndirectOwnership>
+            </ownershipNature>
+        </derivativeTransaction>
+        <derivativeTransaction>
+            <securityTitle>
+                <value>Warrants to purchase Common Stock</value>
+                <footnoteId id="F1"/>
+            </securityTitle>
+            <conversionOrExercisePrice>
+                <value>10.00</value>
+            </conversionOrExercisePrice>
+            <transactionDate>
+                <value>2017-12-08</value>
+            </transactionDate>
+            <deemedExecutionDate></deemedExecutionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>J</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+                <footnoteId id="F1"/>
+            </transactionCoding>
+            <transactionTimeliness></transactionTimeliness>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>51443.83</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <footnoteId id="F1"/>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>A</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <exerciseDate>
+                <value>2017-12-08</value>
+            </exerciseDate>
+            <expirationDate>
+                <value>2022-12-08</value>
+            </expirationDate>
+            <underlyingSecurity>
+                <underlyingSecurityTitle>
+                    <value>Common Stock</value>
+                </underlyingSecurityTitle>
+                <underlyingSecurityShares>
+                    <value>51443.83</value>
+                </underlyingSecurityShares>
+            </underlyingSecurity>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>51443.43</value>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>D</value>
+                </directOrIndirectOwnership>
+            </ownershipNature>
+        </derivativeTransaction>
+        <derivativeTransaction>
+            <securityTitle>
+                <value>Warrants to purchase Common Stock</value>
+                <footnoteId id="F1"/>
+            </securityTitle>
+            <conversionOrExercisePrice>
+                <value>11.00</value>
+            </conversionOrExercisePrice>
+            <transactionDate>
+                <value>2017-12-08</value>
+            </transactionDate>
+            <deemedExecutionDate></deemedExecutionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>J</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+                <footnoteId id="F1"/>
+            </transactionCoding>
+            <transactionTimeliness></transactionTimeliness>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>48585.84</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <footnoteId id="F1"/>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>A</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <exerciseDate>
+                <value>2017-12-08</value>
+            </exerciseDate>
+            <expirationDate>
+                <value>2022-12-08</value>
+            </expirationDate>
+            <underlyingSecurity>
+                <underlyingSecurityTitle>
+                    <value>Common Stock</value>
+                </underlyingSecurityTitle>
+                <underlyingSecurityShares>
+                    <value>48585.84</value>
+                </underlyingSecurityShares>
+            </underlyingSecurity>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>48585.84</value>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>D</value>
+                </directOrIndirectOwnership>
+            </ownershipNature>
+        </derivativeTransaction>
+        <derivativeTransaction>
+            <securityTitle>
+                <value>Series A Preferred Stock</value>
+                <footnoteId id="F9"/>
+            </securityTitle>
+            <conversionOrExercisePrice>
+                <footnoteId id="F3"/>
+                <footnoteId id="F4"/>
+                <footnoteId id="F5"/>
+            </conversionOrExercisePrice>
+            <transactionDate>
+                <value>2017-12-08</value>
+            </transactionDate>
+            <deemedExecutionDate></deemedExecutionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>J</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+                <footnoteId id="F9"/>
+            </transactionCoding>
+            <transactionTimeliness></transactionTimeliness>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>1111111</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>9.00</value>
+                    <footnoteId id="F6"/>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>D</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <exerciseDate>
+                <value>2015-10-14</value>
+            </exerciseDate>
+            <expirationDate>
+                <footnoteId id="F3"/>
+                <footnoteId id="F4"/>
+                <footnoteId id="F5"/>
+                <footnoteId id="F9"/>
+            </expirationDate>
+            <underlyingSecurity>
+                <underlyingSecurityTitle>
+                    <value>Common Stock</value>
+                </underlyingSecurityTitle>
+                <underlyingSecurityShares>
+                    <value>1111111</value>
+                </underlyingSecurityShares>
+            </underlyingSecurity>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>0</value>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>I</value>
+                </directOrIndirectOwnership>
+                <natureOfOwnership>
+                    <value>By Network Medical Management, Inc.</value>
+                    <footnoteId id="F9"/>
+                </natureOfOwnership>
+            </ownershipNature>
+        </derivativeTransaction>
+        <derivativeTransaction>
+            <securityTitle>
+                <value>Series B Preferred Stock</value>
+                <footnoteId id="F9"/>
+            </securityTitle>
+            <conversionOrExercisePrice>
+                <footnoteId id="F7"/>
+            </conversionOrExercisePrice>
+            <transactionDate>
+                <value>2017-12-08</value>
+            </transactionDate>
+            <deemedExecutionDate></deemedExecutionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>J</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+                <footnoteId id="F9"/>
+            </transactionCoding>
+            <transactionTimeliness></transactionTimeliness>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>555555</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>9.00</value>
+                    <footnoteId id="F8"/>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>D</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <exerciseDate>
+                <value>2016-03-30</value>
+            </exerciseDate>
+            <expirationDate>
+                <footnoteId id="F7"/>
+                <footnoteId id="F9"/>
+            </expirationDate>
+            <underlyingSecurity>
+                <underlyingSecurityTitle>
+                    <value>Common Stock</value>
+                </underlyingSecurityTitle>
+                <underlyingSecurityShares>
+                    <value>555555</value>
+                </underlyingSecurityShares>
+            </underlyingSecurity>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>0</value>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>I</value>
+                </directOrIndirectOwnership>
+                <natureOfOwnership>
+                    <value>By Network Medical Management, Inc.</value>
+                    <footnoteId id="F9"/>
+                </natureOfOwnership>
+            </ownershipNature>
+        </derivativeTransaction>
+        <derivativeTransaction>
+            <securityTitle>
+                <value>Warrants to purchase Common Stock</value>
+                <footnoteId id="F9"/>
+            </securityTitle>
+            <conversionOrExercisePrice>
+                <value>9.00</value>
+            </conversionOrExercisePrice>
+            <transactionDate>
+                <value>2017-12-08</value>
+            </transactionDate>
+            <deemedExecutionDate></deemedExecutionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>J</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+                <footnoteId id="F9"/>
+            </transactionCoding>
+            <transactionTimeliness></transactionTimeliness>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>1111111</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>9.00</value>
+                    <footnoteId id="F6"/>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>D</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <exerciseDate>
+                <value>2015-10-14</value>
+            </exerciseDate>
+            <expirationDate>
+                <value>2020-10-14</value>
+            </expirationDate>
+            <underlyingSecurity>
+                <underlyingSecurityTitle>
+                    <value>Common Stock</value>
+                </underlyingSecurityTitle>
+                <underlyingSecurityShares>
+                    <value>1111111</value>
+                </underlyingSecurityShares>
+            </underlyingSecurity>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>0</value>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>I</value>
+                </directOrIndirectOwnership>
+                <natureOfOwnership>
+                    <value>By Network Medical Management, Inc.</value>
+                    <footnoteId id="F9"/>
+                </natureOfOwnership>
+            </ownershipNature>
+        </derivativeTransaction>
+        <derivativeTransaction>
+            <securityTitle>
+                <value>Warrants to purchase Common Stock</value>
+                <footnoteId id="F9"/>
+            </securityTitle>
+            <conversionOrExercisePrice>
+                <value>10.00</value>
+            </conversionOrExercisePrice>
+            <transactionDate>
+                <value>2017-12-08</value>
+            </transactionDate>
+            <deemedExecutionDate></deemedExecutionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>J</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+                <footnoteId id="F9"/>
+            </transactionCoding>
+            <transactionTimeliness></transactionTimeliness>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>555555</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>9.00</value>
+                    <footnoteId id="F8"/>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>D</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <exerciseDate>
+                <value>2016-03-30</value>
+            </exerciseDate>
+            <expirationDate>
+                <value>2021-03-30</value>
+            </expirationDate>
+            <underlyingSecurity>
+                <underlyingSecurityTitle>
+                    <value>Common Stock</value>
+                </underlyingSecurityTitle>
+                <underlyingSecurityShares>
+                    <value>555555</value>
+                </underlyingSecurityShares>
+            </underlyingSecurity>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>0</value>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>I</value>
+                </directOrIndirectOwnership>
+                <natureOfOwnership>
+                    <value>By Network Medical Management, Inc.</value>
+                    <footnoteId id="F9"/>
+                </natureOfOwnership>
+            </ownershipNature>
+        </derivativeTransaction>
+    </derivativeTable>
+
+    <footnotes>
+        <footnote id="F1">On December 8, 2017, a reverse merger transaction between the Issuer and Network Medical Management, Inc. (&quot;NMM&quot;) was consummated such that NMM became a wholly-owned subsidiary of the Issuer (the &quot;Merger&quot;). The Reporting Person was a shareholder of NMM. Pursuant to the Merger, the shares of NMM common stock previously held by Reporting Person were converted into (i) 1,546,026 shares of common stock of the Issuer, (ii) a warrant to purchase 48,585.84 shares of common stock of the Issuer at an exercise price of $11.00 per share, (iii) a warrant to purchase 51,443.83 shares of common stock of the Issuer at an exercise price of $10.00 per share, (iv) cash in lieu of fractional shares, and (v) the Reporting Person's pro rata portion, if any, of the holdback shares of common stock of the Issuer (such pro rata portion of the holdback shares would, without offset, initially be equal to 171,781 shares of common stock of the Issuer).</footnote>
+        <footnote id="F2">Immediately prior to the closing of the Merger (the &quot;Closing&quot;), NMM made an in-kind distribution on a pro rata basis to its shareholders (including the Reporting Person) of the following warrants, which warrants were previously held by NMM: (i) 1,111,111 Series A warrants (of which the Reporting Person will receive 63,510.90 Series A warrants) to purchase common stock of the Issuer, exercisable at any time prior to October 14, 2020 at an exercise price of $9.00 per share, and (ii) 555,555 Series B warrants (of which the Reporting Person will receive 31,755.42 Series B warrants) to purchase common stock of the Issuer, exercisable at any time prior to March 30, 2021 at an exercise price of $10.00 per share.</footnote>
+        <footnote id="F3">The Series A Preferred Stock was convertible into Common Stock, at the option of NMM, at any time after issuance at an initial conversion rate of one-for-one, subject to adjustment in the event of stock dividends, stock splits and certain other similar transactions. The Series A Preferred Stock was mandatorily convertible not sooner than the earlier to occur of (i) the later of (x) January 31, 2017 or (y) 60 days after the date on which the Issuer files its quarterly report on Form 10Q for the period ending September 30, 2016; or (ii) the date on which the Issuer received the written, irrevocable decision of NMM not to require a redemption of the Series A Preferred Stock, in the event that the Issuer engages in one or more transactions resulting in gross proceeds of not less than $5,000,000, not including the proceeds of the transaction with NMM.</footnote>
+        <footnote id="F4">On March 28, 2016, the Issuer filed an Amended and Restated Certificate of Designation (the &quot;Amended Certificate of Designation&quot;) which amended a provision of the Certification of Designation dated October 15, 2015 (the &quot;Original Certificate of Designation&quot;) that created the Issuer's Series A Preferred Stock (the &quot;Series A Preferred Stock&quot;), which was sold to NMM on October 15, 2015. The Amended Certificate of Designation changed a triggering event for the mandatory conversion of the Series A Preferred Stock. The Series A Preferred Stock had been mandatorily convertible if the Issuer receives aggregate gross proceeds of not less than $5,000,000 in one or more transactions for the sale of its equity securities or securities convertible into, or exchangeable for, equity securities (other than the transaction pursuant to which the Series A Preferred Stock was issued).</footnote>
+        <footnote id="F5">The Amended Certificate of Designation now provides that the Series A Preferred Stock is mandatorily convertible if the Issuer receives aggregate gross proceeds of not less than $5,000,000 in one or more transactions for the sale of its equity securities or securities convertible into, or exchangeable for, equity securities (other than any transactions with the holder of the Series A Preferred Stock). Furthermore, the Amended Certificate of Designation provides that the Series A Preferred Stock and the Series B Preferred Stock will participate pro rata and pari passu in distributions upon the liquidation, winding up or dissolution of the company.</footnote>
+        <footnote id="F6">NMM purchased 1,111,111 investment units at $9.00 per unit. Each investment unit was comprised of (a) one (1) share of Series A Preferred Stock that may be converted into one (1) share of common stock of the Issuer, and (b) one (1) warrant to purchase one (1) share of common stock of the Issuer at an exercise price of $9.00 per share.</footnote>
+        <footnote id="F7">The Series B Preferred Stock was convertible into common stock, (a) at the option of the holder thereof at any time after issuance, and (b) mandatorily at any time prior to and including March 31, 2017, if the Issuer receives aggregate gross proceeds of not less than $5,000,000 in one or more transactions for the sale of its equity securities or securities convertible into, or exchangeable for, equity securities (other than any transactions with the holder of the Series B Preferred Stock). The Series B Preferred Stock was convertible into common stock at an initial conversion rate of one-for-one, subject to adjustment in the event of stock dividends, stock splits and certain other similar transactions.</footnote>
+        <footnote id="F8">NMM purchased 555,555 investment units at $9.00 per unit. Each investment unit is comprised of (a) one (1) share of Series B Preferred Stock that may be converted into one (1) share of common stock of the Issuer, and (b) one (1) warrant to purchase one (1) share of common stock of the Issuer at an exercise price of $10.00 per share.</footnote>
+        <footnote id="F9">These shares and warrants were previously owned directly by NMM, of which Reporting Person is a director and officer. Pursuant to the Merger, and as of December 8, 2017, the Reporting Person no longer indirectly owns any beneficial interest in the Issuer. The following is a description of the disposition of the derivative securities previously disclosed in Table II as indirectly owned by Reporting Person:
+
+ (A) upon Closing, NMM relinquished the value of the 1,111,111 shares of Series A preferred stock and 555,555 shares of Series B preferred stock of the Issuer previously held by NMM; and
+
+ (B) immediately prior to Closing NMM made an in-kind distribution on a pro rata basis to its shareholders (including the Reporting Person) of 1,666,666 warrants to purchase common stock of the Issuer (comprised of 1,111,111 Series A warrants and 555,555 Series B warrants), which warrants were previously held by NMM.</footnote>
+    </footnotes>
+
+    <ownerSignature>
+        <signatureName>/s/ Thomas S. Lam, M.D.</signatureName>
+        <signatureDate>2017-12-12</signatureDate>
+    </ownerSignature>
+</ownershipDocument>

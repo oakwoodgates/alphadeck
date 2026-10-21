@@ -77,6 +77,7 @@ from domain.insider_amendments import (
     signal_signature,
     standing_decisions,
     statement_order,
+    superseded_amendments,
     sweep_resolution,
     system_basis,
     system_resolution,
@@ -1245,6 +1246,104 @@ def test_compose_a_row_level_amendment_after_a_whole_one_replaces_what_it_accoun
     assert _composed([(a1, frozenset({"O#0"})), (a3, frozenset())]) == [
         ("A1", "A", 1863.0),
         ("A3", "A", 1863.0),
+    ]
+
+
+def test_superseded_amendments_reads_only_a_sentence_whose_object_is_an_amendment():
+    """The SUPERSEDE contract (direct inputs; the sentences are prod's own, 2026-10-21): the object must be an
+    earlier AMENDMENT; a named filing date picks the earlier amendment(s) filed that day; no date = every earlier
+    one; a date naming none of them supersedes nothing (the rows stand, #9)."""
+    feb = _rec(
+        "E1", filed=date(2020, 2, 11), accepted=datetime(2020, 2, 11, 23, 13, tzinfo=timezone.utc)
+    )
+    mar = _rec("E2", filed=date(2020, 3, 2), accepted=None)
+    onto = "This amendment supersedes the amendment filed on February 11, 2020. Shares are RSUs."
+    assert superseded_amendments(onto, [feb, mar]) == frozenset({"E1"})
+    assert superseded_amendments(
+        "This Form 4/A supersedes the previously filed Form 4/A.", [feb, mar]
+    ) == frozenset({"E1", "E2"})
+    assert superseded_amendments(
+        "This amendment replaces the Form 4/A filed on 3/2/2020.", [feb, mar]
+    ) == frozenset({"E2"})
+    assert (
+        superseded_amendments("It supersedes the amendment filed on May 1, 2020.", [feb, mar])
+        == frozenset()
+    )
+    for not_an_amendment in (
+        # the ORIGINAL is the object (LOTT, CARG, FRMM) — the row match settles an original, not this rule
+        "This amendment is being filed to replace and supersede the previously filed Form 4 in its entirety",
+        "This Form 4/A amends and replaces the prior Form 4 filed by the Reporting Person on November 17, 2025",
+        # passive — the earlier filings are the object of THIS amendment (TDG's duplicates)
+        "-000010, also filed on June 22, 2026, were duplicate filings made in error and are superseded by this "
+        "amendment",
+        # a negation (OPCH)
+        "This Form 4 Amendment is in addition to, and does not replace, the disclosure contained in the original "
+        "Form 4",
+        "The final proration supersedes the estimated number of shares reported in the filing",  # OLN
+    ):
+        assert superseded_amendments(not_an_amendment, [feb, mar]) == frozenset(), not_an_amendment
+
+
+def test_compose_a_later_amendment_that_supersedes_an_earlier_one_replaces_its_rows_entirely():
+    """ONTO's shape (direct inputs): the later amendment accounts for no ORIGINAL line (``frozenset()``), so it is
+    no 'same trade' by its replaced rows — by shape alone both statements stand. Its SUPERSEDE sentence names the
+    earlier amendment: those rows leave; without the sentence they stay (a pure addition never consumes).
+    """
+    a1 = _rec(
+        "A1", _line(0, "F", 1391.0, 41.47, "2020-02-06"), _line(1, "A", 31210.0, 0.0, "2020-02-07")
+    )
+    a1["filed"] = date(2020, 2, 11)
+    later = (_line(0, "F", 2760.0, 41.47, "2020-02-06"), _line(1, "A", 31210.0, 0.0, "2020-02-07"))
+    plain = _rec("A2", *later)
+    worded = {
+        **plain,
+        "footnotes": [
+            {
+                "id": "F1",
+                "text": "This amendment supersedes the amendment " "filed on February 11, 2020.",
+            }
+        ],
+    }
+    rep = frozenset({"O#0", "O#1"})
+    assert _composed([(a1, rep), (plain, frozenset())]) == [
+        ("A1", "F", 1391.0),
+        ("A1", "A", 31210.0),
+        ("A2", "F", 2760.0),
+        ("A2", "A", 31210.0),
+    ]
+    assert _composed([(a1, rep), (worded, frozenset())]) == [
+        ("A2", "F", 2760.0),
+        ("A2", "A", 31210.0),
+    ]
+
+
+def test_compose_the_filers_fix_words_settle_a_restated_line_of_the_same_trade():
+    """R8-B's leftover rule against an earlier amendment's STANDING rows (direct inputs): a later correction of
+    the same trade (a common original line) re-dates AND re-counts the earlier amendment's sale — no exact shape.
+    Without words both stand; the filer's FIX words ("to correct the dates") replace the earlier line.
+    """
+    a1 = _rec("A1", _line(0, "S", 5000.0, 7.32, "2022-06-09"))
+    later = _line(0, "S", 4000.0, 7.10, "2022-06-10")
+    plain = _rec("A2", later)
+    fixed = {
+        **plain,
+        "remarks": "This amendment is filed to correct the dates and prices of the sale.",
+    }
+    rep = frozenset({"O#1"})
+    assert _composed([(a1, rep), (plain, rep)]) == [("A1", "S", 5000.0), ("A2", "S", 4000.0)]
+    assert _composed([(a1, rep), (fixed, rep)]) == [("A2", "S", 4000.0)]
+
+
+def test_compose_a_restated_line_split_into_lots_that_sum_to_it_replaces_it():
+    """The SUM rule against an earlier amendment's standing rows (direct inputs): one line re-stated as lots that
+    add up to it replaces it — never stacks."""
+    a1 = _rec("A1", _line(0, "J", 3000.0, 0.0, "2017-12-08"))
+    a2 = _rec(
+        "A2", _line(0, "J", 1000.0, 0.0, "2017-12-08"), _line(1, "J", 2000.0, 0.0, "2017-12-08")
+    )
+    assert _composed([(a1, None), (a2, frozenset({"O#0"}))]) == [
+        ("A2", "J", 1000.0),
+        ("A2", "J", 2000.0),
     ]
 
 

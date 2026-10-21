@@ -646,9 +646,94 @@ ADD_PHRASES: tuple[str, ...] = (
     r"\bto report an? (?:additional|omitted)\b",
     r"\badditional (?:shares|sales?|purchases?|transactions?)\b",
 )
+# the filer SUPERSEDES an earlier AMENDMENT of the same original (the composition, ``compose_statements``): its
+# rows replace that amendment's rows ENTIRELY — ONTO 0001407682-20-000102, "This amendment supersedes the
+# amendment filed on February 11, 2020". The OBJECT must be an amendment (a 4/A): "supersedes the previously
+# filed Form 4" names the ORIGINAL (not this rule's — the row match settles an original), "superseded by this
+# amendment" is passive (TDG's duplicates), "does not replace" is a negation (OPCH) — none of them match.
+_AMENDMENT_NOUN = (
+    r"(?:amendments?|forms?\s+4\s*[/-]?\s*a|amended\s+forms?\s+4|form\s+4\s+amendments?)\b"
+)
+SUPERSEDE_PHRASES: tuple[str, ...] = (
+    r"(?<!not )\b(?:supersed(?:e|es|ing)|replac(?:e|es|ing))\s+(?:and\s+\w+\s+)?"
+    r"(?:the|any|all|each|such|its|his|her|their|that|those)\s+(?:[\w,-]+\s+){0,4}?"
+    + _AMENDMENT_NOUN,
+)
 _RX_RETRACTION = tuple(re.compile(x, re.I) for x in RETRACTION_PHRASES)
 _RX_FIX = tuple(re.compile(x, re.I) for x in FIX_PHRASES)
 _RX_ADD = tuple(re.compile(x, re.I) for x in ADD_PHRASES)
+_RX_SUPERSEDE = tuple(re.compile(x, re.I) for x in SUPERSEDE_PHRASES)
+_MONTHS = {
+    m: i + 1
+    for i, m in enumerate(
+        (
+            "january",
+            "february",
+            "march",
+            "april",
+            "may",
+            "june",
+            "july",
+            "august",
+            "september",
+            "october",
+            "november",
+            "december",
+        )
+    )
+}
+_RX_DATE = re.compile(
+    r"\b(?:(?P<mon>january|february|march|april|may|june|july|august|september|october|november|december)"
+    r"\.?\s+(?P<d1>\d{1,2}),?\s+(?P<y1>\d{4})|(?P<y2>\d{4})-(?P<m2>\d{2})-(?P<d2>\d{2})"
+    r"|(?P<m3>\d{1,2})/(?P<d3>\d{1,2})/(?P<y3>\d{4}))\b",
+    re.I,
+)
+
+
+def _dates_in(text: str) -> set[date]:
+    """Every calendar date written in ``text`` ("February 11, 2020", "2020-02-11", "2/11/2020"); an impossible
+    one is skipped."""
+    out: set[date] = set()
+    for m in _RX_DATE.finditer(text):
+        try:
+            if m.group("mon"):
+                out.add(
+                    date(int(m.group("y1")), _MONTHS[m.group("mon").lower()], int(m.group("d1")))
+                )
+            elif m.group("y2"):
+                out.add(date(int(m.group("y2")), int(m.group("m2")), int(m.group("d2"))))
+            else:
+                out.add(date(int(m.group("y3")), int(m.group("m3")), int(m.group("d3"))))
+        except ValueError:
+            continue
+    return out
+
+
+def superseded_amendments(text: str, earlier: Iterable[Mapping[str, Any]]) -> frozenset[str]:
+    """PURE — which EARLIER amendments (records of the same original) a 4/A's own words SUPERSEDE
+    (``SUPERSEDE_PHRASES``): when the sentence names a filing date ("supersedes the amendment filed on February
+    11, 2020"), the earlier amendments filed (or SEC-accepted) that day — none if no earlier one was (the
+    filer's date names nothing here: every row stands, #9); with no date, every earlier amendment. Empty when
+    the words supersede no amendment."""
+    earlier = list(earlier)
+    named: set[date] = set()
+    hit = False
+    for rx in _RX_SUPERSEDE:
+        for m in rx.finditer(text or ""):
+            hit = True
+            end = text.find(".", m.end())
+            named |= _dates_in(text[m.end() : end if end != -1 else len(text)])
+    if not hit:
+        return frozenset()
+    if not named:
+        return frozenset(str(a["accession"]) for a in earlier)
+    out = set()
+    for a in earlier:
+        accepted = a.get("accepted")
+        days = {_as_date(a.get("filed"))} | ({accepted.date()} if accepted is not None else set())
+        if days & named:
+            out.add(str(a["accession"]))
+    return frozenset(out)
 
 
 def filer_text(remarks: object, footnotes: Iterable[object] | None) -> str:
@@ -1652,28 +1737,44 @@ def compose_statements(
 
     - a WHOLE one supersedes the original AND every earlier amendment of it: what stands is its rows alone (the
       latest complete statement of that filing is the truth — the operator's "Use the correction");
+    - a ROW-LEVEL one, in its own words, SUPERSEDES an earlier AMENDMENT (``superseded_amendments`` —
+      ``SUPERSEDE_PHRASES``; ONTO 0001407682-20-000102, "This amendment supersedes the amendment filed on February
+      11, 2020"): that amendment's rows leave ENTIRELY (2026-10-21, the coordinator's rule);
     - a ROW-LEVEL one re-reports the SAME trade as an earlier amendment when they replace a common original row
       (an earlier WHOLE one replaced them all): it then replaces the rows of that earlier amendment it ACCOUNTS
-      for by exact shape (``match_rows`` with no filer words, against that amendment's own rows) — a second
-      correction of the same trade replaces the first, never stacks (LFST: a 10,000-share sale restated as 5,000,
-      then back to 10,000). Amendments of DIFFERENT trades of one original never touch each other's rows (AMSC:
-      one re-dates two buys, a later one re-reports a third — all stand). Its own rows join the ones that stand;
-      the original rows it replaces are its stored ``replaced_rows`` (the caller suppresses them).
+      for under R8-B's own rules against that amendment's STANDING rows (``match_rows`` with the filer's words:
+      the exact shapes, the sums — one line restated as lots that add up to it — and FIX / ADD words on the
+      leftovers) — a second correction of the same trade replaces the first, never stacks (LFST: a 10,000-share
+      sale restated as 5,000, then back to 10,000). Amendments of DIFFERENT trades of one original never touch
+      each other's rows (AMSC: one re-dates two buys, a later one re-reports a third — all stand; without this
+      scoping the share-fix shape would pair the 80,000-share line with a 34,000-share one at the same date and
+      price). There is no looser owner + date + code rule (the IBKR-class error: an added trade on the same day
+      never consumes a different one), so a genuine pure addition never consumes an earlier amendment's rows.
+      Its own rows join the ones that stand; the original rows it replaces are its stored ``replaced_rows``
+      (the caller suppresses them).
 
-    Computed over the amendment records' FULL rows (never a windowed read), so both engines compose
-    identically."""
+    Computed over the amendment records' FULL rows and their filer's words (remarks + footnotes — never a
+    windowed read), so both engines compose identically."""
     live: list[tuple[Mapping[str, Any], Mapping[str, Any], frozenset[str] | None]] = []
     for am, replaced in chain:
         rows = sorted(am.get("rows") or [], key=lambda x: x.get("txn_seq") or 0)
         if replaced is None:
             live = []
         elif live:
+            text = filer_text(am.get("remarks"), am.get("footnotes"))
+            earlier = {str(a["accession"]): a for a, _, _ in live}
+            dropped = superseded_amendments(text, earlier.values())
+            live = [x for x in live if str(x[0]["accession"]) not in dropped]
             same_trade = [
                 {**r, "accession": str(a["accession"])}
                 for a, r, rep in live
                 if rep is None or rep & replaced
             ]
-            gone = set(match_rows(rows, same_trade, frozenset()).replaced) if same_trade else set()
+            gone = (
+                set(match_rows(rows, same_trade, frozenset(), text).replaced)
+                if same_trade
+                else set()
+            )
             live = [
                 (a, r, rep)
                 for a, r, rep in live

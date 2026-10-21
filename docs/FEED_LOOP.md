@@ -1308,6 +1308,12 @@ disposition | transaction | grant, optionally plural):
 - **Add:** `inadvertent(ly) excluded | omitted | omission`; `to include` followed within 80 characters by `not
   (previously) reported` | `additional` | `omitted` | `excluded`; `to report a(n) additional | omitted`;
   `additional shares | sale(s) | purchase(s) | transaction(s)`.
+- **Supersede** (the composition only — `SUPERSEDE_PHRASES`, added 2026-10-21, §R8 re-derivation below): an active
+  `supersede(s) | superseding | replace(s) | replacing` (never after `not `; never the passive "superseded by")
+  whose OBJECT is an earlier AMENDMENT — `the | any | all | each | such | its | their | that | those`, up to four
+  words, then `amendment(s)` | `Form 4/A` | `amended Form 4` | `Form 4 amendment(s)` ("This amendment supersedes
+  the amendment filed on February 11, 2020" — ONTO). "Supersedes the previously filed Form 4" names the ORIGINAL
+  and is not this rule's. A date in the sentence picks the earlier amendment(s) filed or accepted that day.
 
 Known limit, on purpose: a phrase names a transaction, never a row — which is exactly why a void with retraction
 words acts only on a single-trade original, and why a leftover is only ever settled within one (owner, code)
@@ -1473,11 +1479,14 @@ own rows were dropped. `domain.insider_amendments.compose_statements` now compos
   **Use the correction**) supersedes the original AND every earlier amendment of it: the latest complete
   statement of the filing is the truth;
 - a **row-level** amendment re-reports the SAME trade as an earlier one when they replace a common original line
-  (an earlier whole one replaced them all); it then replaces the rows of that amendment it accounts for by exact
-  shape (`match_rows`, no filer words, against that amendment's own rows) — a second correction of the same trade
-  replaces the first, never stacks (LFST: 10,000 → 5,000 → 10,000). Amendments of DIFFERENT trades never touch
-  each other's rows (AMSC: two re-dated buys and a re-reported third all stand — without this scoping the
-  share-fix shape would pair the 80,000-share line with a 34,000-share one at the same date and price).
+  (an earlier whole one replaced them all); it then replaces the rows of that amendment it accounts for by R8-B's
+  own rules against that amendment's standing rows (`match_rows` — exact shapes, sums, and since the composition
+  fix below the filer's FIX / ADD words) — a second correction of the same trade replaces the first, never stacks
+  (LFST: 10,000 → 5,000 → 10,000). Amendments of DIFFERENT trades never touch each other's rows (AMSC: two
+  re-dated buys and a re-reported third all stand — without this scoping the share-fix shape would pair the
+  80,000-share line with a 34,000-share one at the same date and price);
+- a row-level amendment whose own words SUPERSEDE an earlier amendment replaces that amendment's rows entirely,
+  whatever the scoping (the composition fix, §R8 re-derivation below).
 
 One pure function, computed over the amendment records' full rows, for the Postgres read and the replay mirror
 (parity-tested; the Postgres loader now carries the 4/A's `filed`). MEASURED on prod (read-only, 2026-10-21; main's
@@ -1497,7 +1506,7 @@ resolver vs this one, every security with a stored 4/A, full history at asof 202
   applied void or duplicates set on an original that also has an applied emitting amendment (FCEL ×3, RTX) is
   outside the composition (a void emits nothing), unchanged. *(Re-measured by the re-derivation, §below: three of
   the four are legacy decisions and are re-derived; ONTO's A 3,901 is not — a 1:1 CORRECTION, whole by meaning,
-  drops it — and the legacy NULLs reach far beyond these four: 279 decisions on 273 originals.)*
+  drops it — and the legacy NULLs reach far beyond these four: 277 decisions on 272 originals.)*
 - **Call effect** (main's resolver on today's links vs this resolver plus the re-link): forward, the 12 active
   theses at asof 2026-10-21 — **0 card fields change**; history (the method above, every link and standing
   decision known at its SEC acceptance) — of the 666 honest rows, the **409** whose roster ever held a re-linked
@@ -1534,40 +1543,63 @@ commit; `--report-json PATH` writes the plan). Append-only, the re-link's mechan
 before it reads exactly what the system held then (#1). The review reads it as before (`auto`): the system's own
 revoke is not the operator's Undo.
 
-**MEASURED on prod, read-only, 2026-10-21** (the branch's dry run over the stored tables; the effects with the
-planned decisions injected in memory, nothing written):
+**The composition fix (same branch, 2026-10-21 — the coordinator's rule; first measured as a stack).** Re-deriving
+the legacy decisions row by row exposed a gap in the composition: a later amendment that restates an EARLIER
+AMENDMENT's lines accounts for no ORIGINAL line by exact shape, so it shared no replaced line with the earlier one
+and both statements stood (ONTO `-20-000030`: `-000045`'s four lines beside `-000102`'s four — the grant twice).
+`compose_statements` now (a) matches a later amendment of the same trade against the earlier amendment's STANDING
+rows with R8-B's own rules — the exact shapes, the sums, and the filer's FIX / ADD words on the leftovers (the
+words are new here; the shapes and sums were already applied) — and (b) reads the filer's SUPERSEDE words
+(`superseded_amendments`, the phrase list in §R8-B): an amendment whose words supersede an earlier AMENDMENT
+replaces that amendment's rows entirely, whatever the scoping. There is deliberately NO looser owner + date + code
+rule (the IBKR-class error: an added trade on the same day never consumes a different trade); anything still
+unmatched stands, and a genuine pure addition still never consumes. The words reach the composition on both engines:
+the Postgres loader (`db.insider_resolution.load_inputs`) now selects `remarks` + `footnotes`, and the replay mirror
+decodes `footnotes` (`replay.pit._AUX_JSON_COLS`; mirrors already export every column) — parity-tested with ONTO
+and ASTH in `tests/replay/test_pit_insider_amendments.py`.
+
+**MEASURED on prod, read-only, 2026-10-21** (the branch's dry run over the stored tables, with the composition fix;
+the effects with the planned decisions injected in memory, nothing written):
+- **The composition fix alone changes nothing on prod as stored**: every one of the 409 securities with a 4/A
+  reads row-for-row the same whole-history under main's composition and the branch's (0 rows gained or lost).
+  Across all 2,988 stored 4/As the SUPERSEDE list matches ONE text, ONTO `-20-000102`; FIX / ADD words in the
+  composition move no stored read.
 - **The plan:** **372** legacy decisions — every one `system:no-signal-effect` (partial 213, addition 90,
-  consolidation 43, restatement 26; no field change), 0 operator-touched, 0 unresolved. **279 re-derived** on 113
-  securities (partial 207, consolidation 41, restatement 23, addition 8; reading exact 238, add 36, fix 5); **93
-  unchanged**, left as they are — 87 whose match accounts for every original line (82 additions), and 6 partials
-  whose original an applied void already removes (RTX, FCEL ×3) or a later applied amendment of the same original
-  already settles (AVAV ×2). 6.0 s.
-- **The read gains 541 rows on 273 originals and loses none** — by code A 191, M 153, F 113, J 31, D 28, C 13, G 12;
+  consolidation 43, restatement 26; no field change), 0 operator-touched, 0 unresolved. **277 re-derived** on 112
+  securities; **95 unchanged**, left as they are — the 87 whose match accounts for every original line, 6 partials
+  whose original an applied void already removes (RTX, FCEL ×3) or a later applied amendment already settles (AVAV
+  ×2), and ONTO's two (`-000045`, `-000102`): with the SUPERSEDE words their row-level composition reads exactly
+  what the stored whole decisions read. (Before the fix: 279 re-derived, 93 unchanged.)
+- **The read gains 537 rows on 272 originals and loses none** — by code A 190, M 153, F 110, J 31, D 28, C 13, G 12;
   **no `P` / `S` row**; dated 2008 → 2026-08-24. 269 originals regain only their own unaccounted lines (R8-B's rule:
   an original line the amendment does not account for STANDS — including the operator-approved clause that a
-  non-`P`/`S` leftover with no decisive words is kept beside the addition); 4 also regain an earlier amendment's
+  non-`P`/`S` leftover with no decisive words is kept beside the addition); 3 also regain an earlier amendment's
   lines (the composition): CZR `-17-011774` (ten original lines + `-012327`'s A 33,118 — the test fixture), BHVN
-  `-22-007074` (24 original lines + `-007103`'s three J lots), ASTH `-17-001361` (the correction `-001403`'s J
-  1,664,054) and ONTO `-20-000030` (`-000045`'s four lines).
-- **Known limit — a STACK, by the composition rule as built:** in ASTH `-17-001361` and ONTO `-20-000030` the later
-  amendment restates the EARLIER AMENDMENT's lines (ONTO `-000102`: "supersedes the amendment filed on February 11,
-  2020", the withholdings re-counted; ASTH `-18-000259`: the J line re-computed as two) but accounts for no
-  ORIGINAL line by exact shape, so the composition reads them as different trades and both stand — the documented
-  contract "a pure addition never consumes an earlier one's rows" (`tests/domain/test_insider_amendments.py::
-  test_compose_a_row_level_amendment_after_a_whole_one_replaces_what_it_accounts_for`). 5 rows (F / A / J — no call
-  reads them); a FRESH R8-B ingest of the same pair reads the same. PROPOSED, not built: let the composition treat a
-  later amendment as the same trade when it accounts for an earlier AMENDMENT's rows by (owner, date, code), or
-  read "supersedes the amendment" words — a read-time change to `compose_statements`, no data repair (the stored
-  `replaced_rows` stay right).
+  `-22-007074` (24 original lines + `-007103`'s three J lots) and ASTH `-17-001361` (below).
+- **ONTO `-20-000030` resolves:** forced row by row, main's composition reads eight lines (`-000045`'s and
+  `-000102`'s), the branch's reads `-000102`'s four — the same as the stored whole decisions.
+- **ASTH `-17-001361` still stacks — the known limit of the rule as specified:** `-18-000259` re-computes the
+  merger-day lines as 1,563,763 + 1,682,109 after the 1:1 correction `-17-001403` reported 1,664,054. No exact
+  shape (the counts differ; no price), no SUM (3,245,872), and no FIX or SUPERSEDE sentence: its words are "to
+  correct a miscalculation in the number of shares … deemed to be beneficially owned", outside `FIX_PHRASES`
+  (`number of shares` must be followed by sold / purchased / acquired / disposed, and `date` sits 125 characters
+  after `correct`, past the 120 limit). Re-deriving it stands the correction's J 1,664,054 beside the two (1 row,
+  code J). Pinned honestly by `tests/db/test_insider_amendments.py::
+  test_asth_a_restatement_the_rules_cannot_account_for_stands_beside_the_earlier_line`. PROPOSED, not built (a
+  phrase-list change is the operator's): add the FIX phrase `correct(s|ed|ing) a | an | the miscalculation` —
+  MEASURED, read-only, in a scratch process: it changes exactly ONE stored amendment's row match (ASTH `-18-000259`,
+  add → fix) and ONE composed read (ASTH's J 1,664,054 leaves); the plan becomes 276 re-derived, 536 rows gained.
+  The 24 other stored 4/As that say "miscalculation" change nothing.
 - **ONTO's A 3,901** (named in §composition above) is NOT a legacy decision's: original `-20-000038`'s later 4/A
   `-000094` is a 1:1 CORRECTION, whole by meaning, so it supersedes `-000040`'s grant line — unchanged here (out of
   this repair's scope).
-- **Call effect:** forward, the 12 active theses at asof 2026-10-21 (known_at = now) through the production funnel,
-  as stored vs re-derived — **0 of 12 cards change**. History (R8-A's method: each honest row at its own `(asof,
-  known_at = recorded_at)`, every 4/A record, latest link and standing decision treated as known at its SEC
-  acceptance, as stored vs re-derived): of the **666** honest rows, the **371** whose roster held a re-derived
-  security were re-assembled — **all identical card-for-card, 0 thesis-level flips**; the other 295 read identical
-  inputs by construction (the resolver is per-security).
+- **Call effect** (main — main's composition, decisions as stored — vs the branch — the fixed composition plus the
+  planned re-derivations): forward, the 12 active theses at asof 2026-10-21 (known_at = now) through the production
+  funnel — **0 of 12 cards change**. History (R8-A's method: each honest row at its own `(asof, known_at =
+  recorded_at)`, every 4/A record, latest link and standing decision treated as known at its SEC acceptance): of the
+  **666** honest rows, the **501** whose roster held ANY security with a stored 4/A were re-assembled — **all
+  identical card-for-card, 0 thesis-level flips**; the other 165 read identical inputs by construction (the
+  resolver is per-security).
 
 ## The scheduling sidecar — the `cron` service + `scripts/daily_cron.sh`  `[BUILT #73]`
 

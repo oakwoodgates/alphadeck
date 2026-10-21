@@ -132,6 +132,22 @@ CZR):
   with no row match (``system:no-signal-effect``, NULL), so the later one replaced the WHOLE original and
   superseded the earlier one: the read held only the 2,859-share withholding, the other ten original lines and the
   restated 33,118 gone.
+
+Added for the COMPOSITION FIX (2026-10-21 — a later 4/A matched against an earlier AMENDMENT's standing rows by
+R8-B's own rules, plus the filer's SUPERSEDE words). Same provenance: every document copied READ-ONLY out of prod's
+EDGAR cache (``docker cp alphadeck-cron-1:/data/edgar_cache/forms/<accession>/<doc>``) on 2026-10-21; the FILINGS
+rows are the companies' cached submissions index (``filingDate`` + ``acceptanceDateTime``) read the same day:
+- ONTO (Onto Innovation, CIK 704532) ``0001407682-20-000030``: an officer's three code-``D`` withholding lines.
+  ``-000045`` (2020-02-11) recodes them ``F`` and adds the RSU grant (``A`` 31,210); ``-000102`` (2020-10-16)
+  re-counts the withholdings (2,760 / 2,910 / 2,730) and repeats the grant, in its words: "This amendment
+  supersedes the amendment filed on February 11, 2020". It accounts for no ORIGINAL line by exact shape, so
+  before the fix the two amendments' lines stacked once both were applied row by row.
+- ASTH (Apollo Medical, now Astrana, CIK 1083446; fixture group ``ASTH-COMPOSE``, so the linker-fix ASTH group
+  is untouched) ``0001553350-17-001361``: the merger-day ``J`` line, 1,546,026 shares. ``-17-001403`` (a 1:1
+  CORRECTION) reports Allied's 1,664,054; ``-18-000259`` reports both lines re-computed — 1,563,763 and 1,682,109
+  ("to correct a miscalculation in the number of shares … deemed to be beneficially owned"). The two do not sum
+  to 1,664,054 and its words carry no FIX / SUPERSEDE sentence, so the rules leave the correction's line standing
+  beside them (the known limit; no looser owner + date + code rule).
 """
 
 from __future__ import annotations
@@ -451,6 +467,23 @@ FILINGS: dict[str, Filing] = {
     ),
     "0000899243-17-014616": _f(
         "4/A", "2017-05-26", "2017-05-26T22:22:42.000Z", "0001590895", "CZR"
+    ),
+    # the composition fix — see the module docstring
+    "0001407682-20-000030": _f("4", "2020-02-10", "2020-02-10T21:13:54.000Z", "0000704532", "ONTO"),
+    "0001407682-20-000045": _f(
+        "4/A", "2020-02-11", "2020-02-11T23:13:07.000Z", "0000704532", "ONTO"
+    ),
+    "0001407682-20-000102": _f(
+        "4/A", "2020-10-16", "2020-10-16T17:56:00.000Z", "0000704532", "ONTO"
+    ),
+    "0001553350-17-001361": _f(
+        "4", "2017-12-12", "2017-12-13T07:21:54.000Z", "0001083446", "ASTH", "ASTH-COMPOSE"
+    ),
+    "0001553350-17-001403": _f(
+        "4/A", "2017-12-18", "2017-12-19T05:37:37.000Z", "0001083446", "ASTH", "ASTH-COMPOSE"
+    ),
+    "0001553350-18-000259": _f(
+        "4/A", "2018-03-29", "2018-03-30T05:42:37.000Z", "0001083446", "ASTH", "ASTH-COMPOSE"
     ),
 }
 

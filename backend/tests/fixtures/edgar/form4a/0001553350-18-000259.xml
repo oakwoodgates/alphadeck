@@ -1,0 +1,141 @@
+<?xml version="1.0"?>
+<ownershipDocument>
+
+    <schemaVersion>X0306</schemaVersion>
+
+    <documentType>4/A</documentType>
+
+    <periodOfReport>2017-12-08</periodOfReport>
+
+    <dateOfOriginalSubmission>2017-12-12</dateOfOriginalSubmission>
+
+    <notSubjectToSection16>0</notSubjectToSection16>
+
+    <issuer>
+        <issuerCik>0001083446</issuerCik>
+        <issuerName>Apollo Medical Holdings, Inc.</issuerName>
+        <issuerTradingSymbol>AMEH</issuerTradingSymbol>
+    </issuer>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001664499</rptOwnerCik>
+            <rptOwnerName>Lam Thomas S.</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerStreet1>1668 S. GARFIELD AVENUE</rptOwnerStreet1>
+            <rptOwnerStreet2>2ND FLOOR</rptOwnerStreet2>
+            <rptOwnerCity>ALHAMBRA</rptOwnerCity>
+            <rptOwnerState>CA</rptOwnerState>
+            <rptOwnerZipCode>91801</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>1</isDirector>
+            <isOfficer>1</isOfficer>
+            <isTenPercentOwner>0</isTenPercentOwner>
+            <isOther>0</isOther>
+            <officerTitle>Co-Chief Executive Officer</officerTitle>
+            <otherText></otherText>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <nonDerivativeTable>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Common Stock</value>
+                <footnoteId id="F1"/>
+                <footnoteId id="F2"/>
+            </securityTitle>
+            <transactionDate>
+                <value>2017-12-08</value>
+            </transactionDate>
+            <deemedExecutionDate></deemedExecutionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>J</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+                <footnoteId id="F2"/>
+            </transactionCoding>
+            <transactionTimeliness></transactionTimeliness>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>1563763</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <footnoteId id="F2"/>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>A</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>1563763</value>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>D</value>
+                </directOrIndirectOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Common Stock</value>
+                <footnoteId id="F3"/>
+                <footnoteId id="F4"/>
+            </securityTitle>
+            <transactionDate>
+                <value>2017-12-08</value>
+            </transactionDate>
+            <deemedExecutionDate></deemedExecutionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>J</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+                <footnoteId id="F4"/>
+            </transactionCoding>
+            <transactionTimeliness></transactionTimeliness>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>1682109</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <footnoteId id="F4"/>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>A</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>1682109</value>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>I</value>
+                </directOrIndirectOwnership>
+                <natureOfOwnership>
+                    <value>By Allied Physicians of California, A Professional Medical Corporation (&quot;Allied&quot;)</value>
+                    <footnoteId id="F3"/>
+                </natureOfOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+    </nonDerivativeTable>
+
+    <footnotes>
+        <footnote id="F1">On December 8, 2017, a reverse merger transaction between the Issuer and Network Medical Management, Inc. (&quot;NMM&quot;) was consummated such that NMM became a wholly-owned subsidiary of the Issuer (the &quot;Merger&quot;). Pursuant to and effective as of the closing of the Merger (the &quot;Closing&quot;), the Reporting Person became an officer (i.e., Executive Chairman) and director of the Issuer.</footnote>
+        <footnote id="F2">Immediately prior to the Closing, the Reporting Person was a shareholder of NMM. Pursuant to the Merger, the shares of NMM common stock previously held by Reporting Person were converted into (i) 1,563,763 shares of common stock of the Issuer, (ii) a warrant to purchase 48,585.84 shares of common stock of the Issuer at an exercise price of $11.00 per share (this was previously reported on the Form 4 filed by the Reporting Person on December 12, 2017), (iii) a warrant to purchase 51,443.83 shares of common stock of the Issuer at an exercise price of $10.00 per share (this was previously reported on the Form 4 filed by the Reporting Person on December 12, 2017), (iv) cash in lieu of fractional shares, and (v) the Reporting Person's pro rata portion, if any, of the holdback shares of common stock of the Issuer (such pro rata portion of the holdback shares would, without offset, initially be equal to 173,751.48 shares of common stock of the Issuer).</footnote>
+        <footnote id="F3">These shares and warrants are owned directly by Allied Physicians of California, A Professional Medical Corporation (&quot;Allied&quot;), of which Reporting Person is a director, officer and shareholder. Reporting Person disclaims beneficial ownership of these shares except to the extent of his pecuniary interest therein, and the filing of this report is not an admission that Reporting Person is the beneficial owner of these shares for purposes of Section 16 or for any other purpose.</footnote>
+        <footnote id="F4">Immediately prior to the Closing, Allied was a shareholder of NMM. Pursuant to the Merger, the shares of NMM common stock previously held by Allied were converted into (i) 1,682,109 shares of common stock of the Issuer, (ii) a warrant to purchase 52,262.84 shares of common stock of the Issuer at an exercise price of $11.00 per share (this was previously reported on the Form 4/A filed by the Reporting Person on December 18, 2017), (iii) a warrant to purchase 55,337.13 shares of common stock of the Issuer at an exercise price of $10.00 per share (this was previously reported on the Form 4/A filed by the Reporting Person on December 18, 2017), (iv) cash in lieu of fractional shares, and (v) Allied's pro rata portion, if any, of the holdback shares of common stock of the Issuer (such pro rata portion of the holdback shares would, without offset, initially be equal to 186,901.07 shares of common stock of the Issuer).</footnote>
+    </footnotes>
+
+    <remarks>This Form 4/A reflects holdings as of December 8, 2017.  This Form 4/A is being filed to correct a miscalculation in the number of shares of common stock deemed to be beneficially owned by the Reporting Person as of such date.</remarks>
+
+    <ownerSignature>
+        <signatureName>/s/ Thomas S. Lam, M.D.</signatureName>
+        <signatureDate>2018-03-29</signatureDate>
+    </ownerSignature>
+</ownershipDocument>
