@@ -241,7 +241,9 @@ def test_the_cli_dry_runs_read_only_then_applies_once(db, monkeypatch, capsys):
     assert _count(db) == n0 + 4
 
 
-def test_the_cli_refuses_while_a_pass_holds_the_lock(db, monkeypatch):
+def test_the_cli_refuses_while_a_pass_holds_the_lock(db, monkeypatch, capsys):
+    """W1: ``--apply`` takes the REPAIR lock, whose first half is the call-of-record lock — a pass (or a backfill,
+    or another repair) holding it refuses the re-derivation at once: nothing written, exit 75."""
     from pipeline.run_lock import EXIT_ALREADY_RUNNING, acquire_pass_lock
 
     _legacy_czr(db, monkeypatch)
@@ -253,4 +255,41 @@ def test_the_cli_refuses_while_a_pass_holds_the_lock(db, monkeypatch):
         assert exc.value.code == EXIT_ALREADY_RUNNING
     finally:
         held.release()
+    assert "ALREADY RUNNING" in capsys.readouterr().out
     assert _count(db) == n0
+
+
+def test_the_cli_refuses_while_company_writers_hold_the_fact_writer_gate(db, monkeypatch, capsys):
+    """W1: the repair lock's second half is the fact-writer gate, EXCLUSIVE — a company writer mid-company (a
+    Workbench / CLI ingest) holds it shared, so the re-derivation waits (bounded) and then refuses as
+    ``FactWritersBusy``: nothing written, exit 75, the writer named."""
+    from functools import partial
+
+    from db.session import connect, name_session
+    from db.write_lock import acquire_company_lock
+    from pipeline import run_lock
+    from pipeline.run_lock import EXIT_ALREADY_RUNNING
+
+    sid, _ = _legacy_czr(db, monkeypatch)
+    n0 = _count(db)
+    monkeypatch.setattr(
+        RD, "acquire_repair_lock", partial(run_lock.acquire_repair_lock, wait_s=0.3, poll_s=0.1)
+    )
+    writer = connect()
+    try:
+        name_session(writer, "alphadeck-writer:workbench-ingest")
+        held = acquire_company_lock(writer, sid, wait_s=0)
+        try:
+            with pytest.raises(SystemExit) as exc:
+                RD.main(["--apply"])
+            assert exc.value.code == EXIT_ALREADY_RUNNING
+        finally:
+            held.release()
+    finally:
+        writer.close()
+    out = capsys.readouterr().out
+    assert "fact writers" in out and "alphadeck-writer:workbench-ingest" in out
+    assert _count(db) == n0
+    RD.main(["--apply"])  # the writer drained: the re-derivation runs
+    assert "APPLIED: 2 system revoke(s), 2 re-derived system decision(s)" in capsys.readouterr().out
+    assert _count(db) == n0 + 4

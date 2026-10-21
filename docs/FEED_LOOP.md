@@ -1538,7 +1538,8 @@ the read IS the fully re-derived one and a re-run plans nothing. An UNRESOLVED m
 operator) is reported, never moved; an amendment the operator ever decided is never touched.
 
 **The CLI — `python -m pipeline.rederive_amendment_matches`** (dry-run by default, on a read-only connection;
-`--apply` takes the call-of-record lock, appends in ONE transaction and counts `insider_amendment_decision` before
+`--apply` takes the W1 repair lock — the call-of-record lock, then the fact-writer gate exclusively, exit 75 when
+either is busy — appends in ONE transaction and counts `insider_amendment_decision` before
 commit; `--report-json PATH` writes the plan). Append-only, the re-link's mechanics: per decision a SYSTEM `revoke`
 (basis `system:rederive`) of the legacy decision and the system's `apply` carrying the row match (`via` =
 `rederive`, the revoke's `detail` naming the reading and the rows), both at `recorded_at = now` — a read pinned

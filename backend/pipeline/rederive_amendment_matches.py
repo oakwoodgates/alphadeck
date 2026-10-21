@@ -23,9 +23,10 @@ now``), so a read pinned before it sees exactly what the system held then (#1).
 
 SAFETY (the ``relink_amendments`` shape):
 - **Dry-run is the DEFAULT** — a READ ONLY connection (it physically cannot write), no lock, prints the plan.
-- ``--apply`` holds the call-of-record advisory lock (``pipeline/run_lock.py`` — exit 75 if a nightly pass or a
-  backfill holds it), appends everything in ONE transaction and COUNTS THE TABLE before commit (the decision row
-  count must grow by exactly the planned appends, else it rolls back).
+- ``--apply`` holds the REPAIR lock (W1, ``pipeline/run_lock.acquire_repair_lock``: the call-of-record lock, then
+  the fact-writer gate exclusively — exit 75 if a nightly pass, a backfill or another repair holds the first, or
+  company writers do not drain in time), appends everything in ONE transaction and COUNTS THE TABLE before commit
+  (the decision row count must grow by exactly the planned appends, else it rolls back).
 - **Idempotent** — a re-derived decision carries its row match, so a second run plans nothing.
 - Run ``--apply`` on prod only after a labeled backup, from the deployed image.
 
@@ -48,7 +49,7 @@ import psycopg
 
 from db.session import connect
 from domain.insider_amendments import AMENDS_ACCESSION
-from pipeline.run_lock import EXIT_ALREADY_RUNNING, PassAlreadyRunning, acquire_pass_lock
+from pipeline.run_lock import EXIT_ALREADY_RUNNING, PassAlreadyRunning, acquire_repair_lock
 from repositories import insider_amendment_repo as repo
 
 
@@ -180,7 +181,7 @@ def plan_json(plan: repo.RederivePlan) -> dict[str, Any]:
 
 
 def run(*, apply: bool, report_json: Path | None) -> repo.RederiveResult | None:
-    lock = acquire_pass_lock(holder="rederive_amendment_matches") if apply else None
+    lock = acquire_repair_lock(holder="rederive_amendment_matches") if apply else None
     try:
         conn = connect()
         try:
@@ -228,7 +229,9 @@ def main(argv: list[str] | None = None) -> None:
     args = p.parse_args(argv)
     try:
         run(apply=args.apply, report_json=Path(args.report_json) if args.report_json else None)
-    except PassAlreadyRunning as exc:
+    except (
+        PassAlreadyRunning
+    ) as exc:  # also W1's FactWritersBusy (a subclass): company writers did not drain
         print(
             f"rederive_amendment_matches: ALREADY RUNNING — {exc}. Nothing was written "
             f"(exit {EXIT_ALREADY_RUNNING})"
