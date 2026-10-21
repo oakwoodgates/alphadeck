@@ -236,6 +236,11 @@ replay stays honest.
   *Enforced by:* `tests/db/test_insider_amendments.py::
   test_a_replay_pinned_before_the_sweep_reads_the_pending_state_it_held`,
   `tests/replay/test_pit_insider_amendments.py::test_the_mirror_reads_the_sweep_exactly_like_postgres_before_and_after_it`.
+- *Also honored by (the R8 linker fix, 2026-10-21):* a stored link the fixed cascade moves is RE-LINKED forward,
+  never rewritten — a new link version, the system's `revoke` (`system:relink`) of its stale decision and its new
+  one, all stamped `recorded_at = now` (`pipeline.relink_amendments`); a read pinned before the re-link reads the
+  old link exactly as held. *Enforced by:* `tests/pipeline/test_relink_amendments.py::
+  test_the_iehc_mislink_is_relinked_append_only_and_an_earlier_read_is_unchanged`.
 
 ## 5. Tenant isolation; production is a fresh tenant, never a destructive wipe
 
@@ -537,7 +542,11 @@ void it keeps), listed on Admin with its evidence and an exact Undo. Where the f
 leftover or a void, they are read by a deterministic phrase list — a located passage, never a model's reading.
 The operator rules only on what the system cannot resolve — an ambiguous link, an unresolved row match, a held
 void — when a call can read the rows it touches, with three verdicts (Use the correction / Keep the original /
-Add to the original). `CALL_LOGIC.md` §3 insider; `FEED_LOOP.md` §R8-B.
+Add to the original). `CALL_LOGIC.md` §3 insider; `FEED_LOOP.md` §R8-B. The R8 linker fix's two rules are the same
+kind of data handling (`FEED_LOOP.md` §the R8 linker fix): an original made public after its amendment is refused
+by the SEC's own acceptance instants, and an ambiguous set is settled only when exactly one candidate holds a row
+the amendment accounts for by exact shape — no words, no model; anything else stays the operator's, and a settled
+link keeps every candidate on show with Keep the original as its Undo.
 
 **The #10 family — the shipped recommend→confirm seams** (the pattern the frame calls out, `STAGE_MODEL.md`): the
 **tier recommendation** (SIGNAL/BROAD per term — `DISCOVERY.md`), the **off-thesis flag** (the narrator's opinion —

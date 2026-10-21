@@ -2,8 +2,9 @@
 and the nightly SWEEP that applies the filer's own corrections.
 
 Three append-only tables (``insider_amendment`` as filed, ``insider_amendment_link``, the
-``insider_amendment_decision`` log); this module reads them and WRITES ONLY decisions. The ingest writes the
-filings and links (``ingest.edgar.form4a``, with the system's ``apply`` for every resolvable one since R8-B);
+``insider_amendment_decision`` log); this module reads them and writes decisions — plus, for the R8 linker fix's
+re-link only, a new LINK version (through the ingest's own ``write_link``). The ingest writes the filings and
+links (``ingest.edgar.form4a``, with the system's ``apply`` for every resolvable one since R8-B);
 the read path resolves against all three (``db.insider_resolution`` -> ``domain.insider_amendments``).
 
 THE VERBS, each with its visible inverse (WB#1):
@@ -17,9 +18,14 @@ THE VERBS, each with its visible inverse (WB#1):
   cascade found; the disposition against it is computed HERE (against the full stored rows) and STORED on the
   decision, so a read never recomputes it from a windowed row set.
 - ``revoke`` — the Undo of any standing decision: appends a ``revoke`` row naming it.
-- ``sweep`` (R8-B, the SYSTEM's only write here) — appends a system ``apply`` for every resolvable amendment
-  that has NO decision at all (a pre-R8-B link left pending). Idempotent by construction: it never touches an
-  amendment anything was ever decided on.
+- ``sweep`` (R8-B, a SYSTEM write) — appends a system ``apply`` for every resolvable amendment that has NO
+  decision at all (a pre-R8-B link left pending). Idempotent by construction: it never touches an amendment
+  anything was ever decided on.
+- ``relink`` (the R8 linker fix, a SYSTEM write — ``pipeline.relink_amendments``) — appends a new link version
+  for a stored link the fixed cascade moves (an original made public after its amendment; an ambiguous set the
+  row tie-break settles), the system's ``revoke`` (``system:relink``) of its stale decision and its decision
+  against the new original — never on an amendment the operator decided or linked. Idempotent: once applied
+  the stored link IS the fixed cascade's.
 
 EXACTNESS RULES (why a decision can be trusted):
 
@@ -37,7 +43,7 @@ The caller owns the transaction (commit after a successful write; roll back on a
 
 from __future__ import annotations
 
-from collections.abc import Collection, Iterable, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any
@@ -54,6 +60,7 @@ from domain.insider_amendments import (
     AMBIGUOUS,
     AUTO_DISPOSITIONS,
     BASIS_HELD,
+    BASIS_RELINK,
     INERT_DISPOSITIONS,
     REVIEW_AUTO,
     REVIEW_OWED,
@@ -61,7 +68,9 @@ from domain.insider_amendments import (
     ROUTED_NO_PROVISIONAL,
     STATUS_APPLIED,
     VERDICTS,
+    AmendmentFacts,
     Effective,
+    LinkResult,
     RowMatch,
     SystemResolution,
     VoidReading,
@@ -72,8 +81,12 @@ from domain.insider_amendments import (
     in_window_codes,
     is_system_basis,
     latest_by_accession,
+    link_amendment,
+    link_identity,
     link_to_candidate,
     match_for,
+    norm_cik,
+    relink_rule,
     review_bucket,
     standing_decisions,
     sweep_resolution,
@@ -81,7 +94,7 @@ from domain.insider_amendments import (
     void_for,
     within_review_horizon,
 )
-from ingest.edgar.form4a import stored_rows_by_accession, system_decision_values
+from ingest.edgar.form4a import stored_rows_by_accession, system_decision_values, write_link
 
 
 class AmendmentConflict(Exception):
@@ -500,7 +513,9 @@ def items(
             review = review_bucket(
                 eff,
                 verdict_basis=verdict.get("basis") if verdict is not None else None,
-                ever_decided=bool(own),
+                # "the operator took it back" — an OPERATOR decision ever recorded; the system's own revoke
+                # of a decision it re-linked away from (``system:relink``) is not the operator's Undo
+                ever_decided=any(not is_system_basis(d.get("basis")) for d in own),
                 in_review=in_review,
                 unresolved=unresolved,
             )
@@ -686,6 +701,242 @@ def sweep(
         applied=tuple(applied),
         by_basis=by_basis,
         by_disposition=by_disp,
+    )
+
+
+# --- the R8 linker fix's RE-LINK (2026-10-21) ---------------------------------------------------------------
+
+
+# one security's submissions index as the linker reads it: ``({accession: filed}, {accession: accepted})``
+FilingIndex = tuple[Mapping[str, date], Mapping[str, datetime]]
+
+
+@dataclass(frozen=True)
+class RelinkItem:
+    """One stored link the fixed cascade moves (``domain.insider_amendments.relink_rule``): the stored link
+    row it supersedes, the fresh ``LinkResult``, the rule, and the standing SYSTEM verdict it takes back
+    (computed against the wrong original) — ``None`` when nothing stands."""
+
+    security_id: UUID
+    ticker: str | None
+    accession: str
+    rule: str
+    old: Mapping[str, Any]
+    new: LinkResult
+    revoke: Mapping[str, Any] | None
+    rejected: int = 0
+
+
+@dataclass
+class RelinkPlan:
+    """What a re-link pass would do: ``items`` to append; ``operator_held`` the amendments the rule would move
+    but the operator decided or linked (never touched — the operator's); ``drift`` the stored links the fresh
+    cascade reads differently for ANOTHER reason (reported, never re-linked here); ``no_index`` the securities
+    with no filing-date index to judge by (not judged)."""
+
+    considered: int = 0
+    items: list[RelinkItem] = field(default_factory=list)
+    operator_held: list[RelinkItem] = field(default_factory=list)
+    drift: list[tuple[str | None, str, tuple[Any, ...], tuple[Any, ...]]] = field(
+        default_factory=list
+    )
+    no_index: list[tuple[str | None, UUID, int]] = field(default_factory=list)
+
+
+def facts_from_record(filing: Mapping[str, Any]) -> AmendmentFacts:
+    """A STORED 4/A (``insider_amendment``, as filed) as the linker reads it — the same facts the ingest built
+    from the XML: every reporting owner, ``dateOfOriginalSubmission``, the filing date and acceptance, the
+    kept Table I rows, and the filer's own words."""
+    return AmendmentFacts(
+        accession=str(filing["accession"]),
+        owners=tuple(
+            (norm_cik(o.get("cik")), (o.get("name") or None)) for o in (filing.get("owners") or [])
+        ),
+        date_of_original_submission=filing.get("date_of_original_submission"),
+        filed=filing.get("filed"),
+        accepted=filing.get("accepted"),
+        rows=tuple(filing.get("rows") or []),
+        text=filer_text(filing.get("remarks"), filing.get("footnotes")),
+    )
+
+
+def relink_plan(
+    conn: psycopg.Connection,
+    *,
+    index: Callable[[UUID, str | None], FilingIndex | None],
+    security_ids: Iterable[UUID] | None = None,
+    signal_codes: Collection[str] | None = None,
+) -> RelinkPlan:
+    """READ-ONLY — re-run the FIXED cascade over every stored amendment (the latest link of each) against the
+    security's stored Form 4 rows (``stored_rows_by_accession`` — the ingest's own input) and its filing-date
+    index (``index(security_id, cik)`` -> ``({accession: filed}, {accession: accepted})`` — the submissions
+    index the ingest reads; ``None`` = not available, the security is not judged). A link moves only by
+    ``relink_rule`` (made public after the amendment; the row tie-break) and only when NOTHING the operator did
+    touches the amendment."""
+    codes = frozenset(signal_codes) if signal_codes is not None else frozenset(default_horizons())
+    sid_filter = list(security_ids) if security_ids is not None else None
+    where = "" if sid_filter is None else " WHERE x.security_id = ANY(%(ids)s)"
+    p: dict[str, Any] = {"ids": sid_filter}
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM insider_amendment_link x" + where, p)  # noqa: S608
+        links = cur.fetchall()
+        cur.execute("SELECT * FROM insider_amendment_decision x" + where, p)  # noqa: S608
+        decisions = cur.fetchall()
+        cur.execute(
+            "SELECT DISTINCT ON (x.security_id, x.accession) x.*, sm.ticker, sm.cik AS member_cik "
+            "FROM insider_amendment x JOIN security_master sm ON sm.id = x.security_id"
+            + where
+            + " ORDER BY x.security_id, x.accession, x.recorded_at DESC, x.id DESC",  # noqa: S608
+            p,
+        )
+        filings = {(r["security_id"], r["accession"]): r for r in cur.fetchall()}
+    by_sid: dict[UUID, list[dict[str, Any]]] = {}
+    for r in links:
+        by_sid.setdefault(r["security_id"], []).append(r)
+    dec_by: dict[tuple[UUID, str], list[dict[str, Any]]] = {}
+    for d in decisions:
+        dec_by.setdefault((d["security_id"], d["amendment_accession"]), []).append(d)
+    plan = RelinkPlan()
+    for sid in sorted(by_sid, key=str):
+        latest = latest_by_accession(by_sid[sid], "amendment_accession")
+        recs = [filings.get((sid, acc)) for acc in latest]
+        first = next((f for f in recs if f is not None), None)
+        if first is None:
+            continue
+        idx = index(sid, first.get("member_cik"))
+        if idx is None:
+            plan.no_index.append((first.get("ticker"), sid, len(latest)))
+            continue
+        held = stored_rows_by_accession(conn, sid, tenant_id=first["tenant_id"])
+        for acc in sorted(latest):
+            f = filings.get((sid, acc))
+            if f is None:
+                continue  # a link without its filing record cannot be judged honestly
+            plan.considered += 1
+            link = latest[acc]
+            fresh = link_amendment(facts_from_record(f), held, idx[0], codes, idx[1])
+            rule = relink_rule(link, fresh)
+            if rule is None:
+                if link_identity(link) != link_identity(fresh):
+                    plan.drift.append(
+                        (f.get("ticker"), acc, link_identity(link), link_identity(fresh))
+                    )
+                continue
+            own = dec_by.get((sid, acc), [])
+            _, verdict = standing_decisions(own).get(acc, (None, None))
+            item = RelinkItem(
+                security_id=sid,
+                ticker=f.get("ticker"),
+                accession=acc,
+                rule=rule,
+                old=link,
+                new=fresh,
+                revoke=verdict,
+                rejected=int((link.get("detail") or {}).get("rejected_rows") or 0),
+            )
+            if any(not is_system_basis(d.get("basis")) for d in own):
+                plan.operator_held.append(item)  # anything the operator did stays the operator's
+            else:
+                plan.items.append(item)
+    return plan
+
+
+@dataclass(frozen=True)
+class RelinkResult:
+    """What ``relink`` appended: link versions, the system's revokes of its own stale decisions, and the
+    system's decisions against the new originals; ``skipped`` = planned items the state moved under (re-checked
+    under the amendment's lock — decided or re-linked since the plan)."""
+
+    links: int = 0
+    revokes: int = 0
+    decisions: int = 0
+    applied: tuple[str, ...] = ()
+    skipped: tuple[str, ...] = ()
+
+
+def relink(
+    conn: psycopg.Connection,
+    plan: RelinkPlan,
+    *,
+    signal_codes: Collection[str] | None = None,
+) -> RelinkResult:
+    """APPEND the planned re-links (the caller owns the transaction): for each item, under the amendment's
+    ``FOR UPDATE`` lock and re-checked against the state it was planned on, (1) a NEW link version, (2) a
+    SYSTEM ``revoke`` (basis ``system:relink``) of the standing system verdict that was computed against the
+    wrong original, (3) the system's decision against the new original when it resolves one (``write_link`` —
+    the ingest's own write). All stamped ``recorded_at = now()`` (the transaction's), so a read pinned before
+    the re-link still sees exactly what the system held then: no rewrite of the past (#1). Idempotent: once
+    applied, the stored link IS the fresh one, so a re-plan finds nothing. Never touches an amendment the
+    operator decided or linked."""
+    codes = frozenset(signal_codes) if signal_codes is not None else frozenset(default_horizons())
+    n_links = n_rev = n_dec = 0
+    applied: list[str] = []
+    skipped: list[str] = []
+    for it in plan.items:
+        key = f"{it.security_id}:{it.accession}"
+        links = _lock(conn, it.security_id, it.accession)
+        decisions = _decisions(conn, it.security_id, it.accession)
+        latest = latest_by_accession(links, "amendment_accession")[it.accession]
+        _, verdict = standing_decisions(decisions).get(it.accession, (None, None))
+        stale = (
+            str(latest["id"]) != str(it.old["id"])
+            or any(not is_system_basis(d.get("basis")) for d in decisions)
+            or (verdict is None) != (it.revoke is None)
+            or (verdict is not None and str(verdict["id"]) != str(it.revoke["id"]))  # type: ignore[index]
+        )
+        if stale:
+            skipped.append(key)
+            continue
+        relink_detail = {
+            "rule": it.rule,
+            "from_link": str(it.old["id"]),
+            "from": {
+                "method": it.old["method"],
+                "disposition": it.old["disposition"],
+                "original_accessions": list(it.old["original_accessions"] or []),
+                "candidate_accessions": list(it.old["candidate_accessions"] or []),
+            },
+        }
+        if verdict is not None:
+            _insert(
+                conn,
+                {
+                    "tenant_id": latest["tenant_id"],
+                    "security_id": it.security_id,
+                    "amendment_accession": it.accession,
+                    "action": "revoke",
+                    "revokes": verdict["id"],
+                    "reason": (
+                        "re-linked by the system: this decision was computed against "
+                        f"{', '.join(it.old['original_accessions'] or []) or 'no original'}, which is "
+                        "not the filing this amendment amends"
+                    ),
+                    "basis": BASIS_RELINK,
+                    "detail": relink_detail,
+                },
+            )
+            n_rev += 1
+        with conn.cursor() as cur:
+            n_dec += write_link(
+                cur,
+                tenant_id=latest["tenant_id"],
+                security_id=it.security_id,
+                accession=it.accession,
+                link=it.new,
+                signal_codes=codes,
+                accepted=latest.get("accepted"),
+                rejected=it.rejected,
+                via="relink",
+                extra_detail={"relink": relink_detail},
+            )
+        n_links += 1
+        applied.append(key)
+    return RelinkResult(
+        links=n_links,
+        revokes=n_rev,
+        decisions=n_dec,
+        applied=tuple(applied),
+        skipped=tuple(skipped),
     )
 
 

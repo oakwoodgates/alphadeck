@@ -73,6 +73,37 @@ and original) was copied READ-ONLY from prod's EDGAR cache (``/data/edgar_cache/
   (neither) -> owed; BAH ``-000095`` .. ``-000101`` (the other seven ``S`` -> ``F`` recodes); BETR
   ``0001628280-24-050110`` (one sale split into two lots that sum to it) and BHVN ``0001027035-26-000006``
   (25,000 + 3,400 restated as 28,400; the two trust lots it does not mention stand) -> sums.
+
+Added for the R8 LINKER FIX (2026-10-21 — an original is never made public after its amendment; an ambiguous set
+is settled by the row tie-break). Every document (4/A and original) was copied READ-ONLY from prod's EDGAR cache
+(``/data/edgar_cache/forms/<accession>/<doc>`` in the backend container, ``docker cp`` out of it) on 2026-10-21,
+and each FILINGS row below is the company's cached submissions index (``filingDate`` + ``acceptanceDateTime``)
+as of the 2026-10-20 nightly:
+- IEHC ``0001174947-26-000336`` (fixture group ``IEHC-MISLINK``, so the R8-B IEHC group above is untouched): its
+  ``dateOfOriginalSubmission`` is 2026-03-10 — its OWN filing date; its footnote names the real original ("filed
+  on July 1, 2025"). The owner's only Form 4 filed 2026-03-10, ``-000338`` (two March 2026 sales), was accepted
+  49 seconds AFTER the 4/A — the old cascade linked to it. The fixed cascade refuses it and step 2 finds
+  ``0001174947-25-000979`` (the July 2025 option exercise, Table I identical -> clerical). ``-25-000985`` is
+  another owner's Form 4 sharing the 2025-06-30 transaction date (never a candidate).
+- FIS ``0001193125-26-131811``: two different Form 4s by the owner filed 2026-03-09; the 4/A re-reports only a tax
+  withholding (``F`` 12,265 at $51.05) — ``-099049`` holds it identically, ``-099107`` holds only a code-``P`` buy
+  the 4/A does not account for -> the tie-break links ``-099049`` (the buy stands).
+- HROW ``0001641172-25-010338``: no Form 4 on its stated date (the transaction date); two of the owner's share it —
+  ``0001493152-25-011028`` (the identical sale) and ``0001641172-25-000741`` (the same sale at another price, a
+  price-fix shape): BOTH hold an accounted row -> it STAYS ambiguous (owed: a 2025 sale inside the review horizon).
+- ASTH ``0001134366-13-000009``: two different Form 4s filed on its stated date, each holding a row the 4/A
+  accounts for (a date fix on ``-000002``, a price fix on ``-000004``) -> STAYS ambiguous; code-``P`` rows of 2008 /
+  2012 -> "unresolved — historical".
+- AIN ``0001299383-15-000003``: a zero-row 4/A filed 19 minutes BEFORE ``-000004``, the only Form 4 of the owner on
+  its stated date (its own filing date) -> the old cascade voided the later filing; the fixed one finds no
+  original (no rows -> nothing to apply), so ``-000004``'s rows stand.
+- CTS ``0001140361-12-021401``: two different Form 4s filed on its stated date, the 4/A accounting for a row on
+  both (a share fix of ``-008554``'s grant; ``-008748``'s grant identical, its withholding a price-fix shape) ->
+  STAYS ambiguous; linked by the operator to ``-008554`` it is an ADDITION (pending the operator's verdict).
+- CVNA ``0001690820-25-000275``: two different Form 4s by the owner filed on its stated date; the 4/A accounts for
+  all 28 of ``-000271``'s sales (two re-dated) — and, by a coincidental SUM (its 96-share line = ``-000273``'s two
+  48-share lines on 2025-07-08), for two of ``-000273``'s -> STAYS ambiguous under the exactly-one rule (owed: 2025
+  sales inside the review horizon); linked by the operator to ``-000273`` it is an ADDITION.
 """
 
 from __future__ import annotations
@@ -99,12 +130,19 @@ class Filing:
     accepted: datetime
     cik: str
     ticker: str
+    group: str | None = None  # the fixture group (default: the ticker) — one security per group
+
+    @property
+    def key(self) -> str:
+        return self.group or self.ticker
 
 
-def _f(form: str, filed: str, accepted: str, cik: str, ticker: str) -> Filing:
+def _f(
+    form: str, filed: str, accepted: str, cik: str, ticker: str, group: str | None = None
+) -> Filing:
     acc = parse_acceptance(accepted)
     assert acc is not None
-    return Filing(form, date.fromisoformat(filed), acc, cik, ticker)
+    return Filing(form, date.fromisoformat(filed), acc, cik, ticker, group)
 
 
 FILINGS: dict[str, Filing] = {
@@ -313,9 +351,52 @@ FILINGS: dict[str, Filing] = {
         "4/A", "2026-03-09", "2026-03-10T02:12:05.000Z", "0001935979", "BHVN"
     ),
     "0001935979-25-000018": _f("4", "2025-03-05", "2025-03-05T17:01:52.000Z", "0001935979", "BHVN"),
+    # the R8 linker fix (2026-10-21) — see the module docstring
+    "0001174947-26-000336": _f(
+        "4/A", "2026-03-10", "2026-03-10T21:22:48.000Z", "0000050292", "IEHC", "IEHC-MISLINK"
+    ),
+    "0001174947-26-000338": _f(
+        "4", "2026-03-10", "2026-03-10T21:23:37.000Z", "0000050292", "IEHC", "IEHC-MISLINK"
+    ),
+    "0001174947-25-000979": _f(
+        "4", "2025-07-01", "2025-07-01T21:05:04.000Z", "0000050292", "IEHC", "IEHC-MISLINK"
+    ),
+    "0001174947-25-000985": _f(
+        "4", "2025-07-02", "2025-07-02T19:37:38.000Z", "0000050292", "IEHC", "IEHC-MISLINK"
+    ),
+    "0001193125-26-131811": _f(
+        "4/A", "2026-03-30", "2026-03-31T01:30:08.000Z", "0001136893", "FIS"
+    ),
+    "0001193125-26-099049": _f("4", "2026-03-09", "2026-03-10T04:06:55.000Z", "0001136893", "FIS"),
+    "0001193125-26-099107": _f("4", "2026-03-09", "2026-03-10T04:31:15.000Z", "0001136893", "FIS"),
+    "0001641172-25-010338": _f(
+        "4/A", "2025-05-14", "2025-05-15T00:54:55.000Z", "0001360214", "HROW"
+    ),
+    "0001493152-25-011028": _f("4", "2025-03-20", "2025-03-21T00:05:14.000Z", "0001360214", "HROW"),
+    "0001641172-25-000741": _f("4", "2025-03-26", "2025-03-27T00:05:27.000Z", "0001360214", "HROW"),
+    "0001134366-13-000009": _f(
+        "4/A", "2013-08-16", "2013-08-16T20:49:43.000Z", "0001083446", "ASTH"
+    ),
+    "0001134366-13-000002": _f("4", "2013-08-06", "2013-08-06T23:53:39.000Z", "0001083446", "ASTH"),
+    "0001134366-13-000004": _f("4", "2013-08-06", "2013-08-07T00:00:06.000Z", "0001083446", "ASTH"),
+    "0001299383-15-000003": _f(
+        "4/A", "2015-03-02", "2015-03-02T19:03:59.000Z", "0000819793", "AIN"
+    ),
+    "0001299383-15-000004": _f("4", "2015-03-02", "2015-03-02T19:23:10.000Z", "0000819793", "AIN"),
+    "0001140361-12-021401": _f(
+        "4/A", "2012-04-25", "2012-04-25T20:01:07.000Z", "0000026058", "CTS"
+    ),
+    "0001140361-12-008554": _f("4", "2012-02-15", "2012-02-15T16:02:22.000Z", "0000026058", "CTS"),
+    "0001140361-12-008748": _f("4", "2012-02-15", "2012-02-15T22:01:53.000Z", "0000026058", "CTS"),
+    "0001690820-25-000275": _f(
+        "4/A", "2025-07-10", "2025-07-11T02:56:06.000Z", "0001690820", "CVNA"
+    ),
+    "0001690820-25-000271": _f("4", "2025-07-10", "2025-07-11T02:01:32.000Z", "0001690820", "CVNA"),
+    "0001690820-25-000273": _f("4", "2025-07-10", "2025-07-11T02:10:52.000Z", "0001690820", "CVNA"),
 }
 
-CIKS = {f.ticker: f.cik for f in FILINGS.values()}
+CIKS = {f.key: f.cik for f in FILINGS.values()}
+TICKERS = {f.key: f.ticker for f in FILINGS.values()}
 
 
 def xml(accession: str) -> str:
@@ -323,16 +404,21 @@ def xml(accession: str) -> str:
 
 
 def originals_of(ticker: str) -> list[str]:
-    return sorted(a for a, f in FILINGS.items() if f.ticker == ticker and f.form == "4")
+    return sorted(a for a, f in FILINGS.items() if f.key == ticker and f.form == "4")
 
 
 def amendments_of(ticker: str) -> list[str]:
-    return sorted(a for a, f in FILINGS.items() if f.ticker == ticker and f.form == "4/A")
+    return sorted(a for a, f in FILINGS.items() if f.key == ticker and f.form == "4/A")
 
 
 def filed_by_accession(ticker: str) -> dict[str, date]:
     """What the submissions index says each of the ticker's Form 4s was FILED on (the link key)."""
-    return {a: f.filed for a, f in FILINGS.items() if f.ticker == ticker and f.form == "4"}
+    return {a: f.filed for a, f in FILINGS.items() if f.key == ticker and f.form == "4"}
+
+
+def accepted_by_accession(ticker: str) -> dict[str, datetime]:
+    """What the SAME index says each of the ticker's Form 4s was ACCEPTED at (the order test's clock)."""
+    return {a: f.accepted for a, f in FILINGS.items() if f.key == ticker and f.form == "4"}
 
 
 def as_issuer(conn: psycopg.Connection, security_id: uuid.UUID, cik: str) -> None:
@@ -355,7 +441,14 @@ def make_security(conn: psycopg.Connection, ticker: str) -> uuid.UUID:
         cur.execute(
             "INSERT INTO security_master (id, tenant_id, ticker, cik, name, valid_from) "
             "VALUES (%s, %s, %s, %s, %s, %s)",
-            (sid, DEFAULT_TENANT_ID, ticker, CIKS[ticker], f"{ticker} (fixture)", "2020-01-01"),
+            (
+                sid,
+                DEFAULT_TENANT_ID,
+                TICKERS[ticker],
+                CIKS[ticker],
+                f"{ticker} (fixture)",
+                "2020-01-01",
+            ),
         )
     conn.commit()
     return sid
@@ -401,7 +494,8 @@ def ingest_amendment(
         xml(accession),
         accession,
         member_cik=f.cik,
-        filed_by_accession=filed_by_accession(f.ticker),
+        filed_by_accession=filed_by_accession(f.key),
+        accepted_by_accession=accepted_by_accession(f.key),
         filed=f.filed,
         accepted=f.accepted,
         recorded_at=recorded_at,
