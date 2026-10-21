@@ -2,18 +2,22 @@
 vendor's real 2026-10-20 Yahoo pulls (the split-tape diagnosis's ``fetch_eod`` mirror), the real version
 histories of the split nights. Pure — the DB-backed nightly passes live in ``test_ingest_split_list.py``.
 
-Two cases are stated as CONTRACTS on real inputs with one stated edit each: "an adjusted pull" is the real pull
-put on the list's scale (what a vendor re-base serves), and "a genuine correction" moves ONE real bar's close
-by 2%. Every other value is used as extracted.
+Some cases are stated as CONTRACTS on real inputs with stated edits, each named where it is used: "an adjusted
+pull" is the real pull put on the list's scale (what a vendor re-base serves); "a genuine correction" moves ONE
+real bar's close; "a raw store" puts a real tape's pre-split run back on the raw scale (close / k, volume x k —
+the store a vendor-raw first night leaves when the first-night rule does not take; the B1 review's simulation);
+"an unlisted split" leaves a real split off the list; "holes" drop real stored sessions; "a postponed split" lists
+an announced split on a date nothing happened. Every other value is used as extracted.
 """
 
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 
 import pytest
 
-from domain.splits import applicable, pending
+from domain.splits import STATUS_ANNOUNCED, ListedSplit, applicable, pending
 from ingest.prices.ingest_security import plan_overlap
 from ingest.prices.restatement import REVERT, classify, decide
 from ingest.prices.split_normalize import (
@@ -21,6 +25,10 @@ from ingest.prices.split_normalize import (
     REASON_MIS_FACTORED,
     REASON_VENDOR_DOUBLED,
     REASON_VENDOR_RAW,
+    STORE_CONTINUOUS,
+    STORE_RAW,
+    STORE_UNREADABLE,
+    boundary,
     normalize,
 )
 from pipeline import split_repair as sr
@@ -179,7 +187,17 @@ def _night(tk: str, first_session: date):
     """The store just before the pass that stored ``tk``'s first post-split bar, and the vendor's series that
     pass served (the store mirrored the vendor bar for bar before T6/T5, 2026-10-17)."""
     vs = fx.versions(tk)
-    pass_at = min(rec for r, rec in vs if r["d"] >= first_session)
+    return _at(tk, min(rec for r, rec in vs if r["d"] >= first_session))
+
+
+def _pass(tk: str, prefix: str):
+    """The store just before the real pass recorded at ``prefix`` (an ISO prefix of its ``recorded_at``), and
+    the vendor's series that pass served."""
+    return _at(tk, min(rec for _, rec in fx.versions(tk) if rec.isoformat().startswith(prefix)))
+
+
+def _at(tk: str, pass_at: datetime):
+    vs = fx.versions(tk)
     before: dict[date, dict] = {}
     served: dict[date, dict] = {}
     for r, rec in sorted(vs, key=lambda x: x[1]):
@@ -271,3 +289,202 @@ def test_the_split_night_tape_is_t4_clean_after_the_first_night():
     norm = normalize(fresh, stored, in_force)
     findings = tape_findings([TapeBar(b["d"], b["close"], b["volume"]) for b in norm.bars])
     assert not [f for f in findings if f.kind == "cliff"]
+
+
+# --- B1 (the invariant review, 2026-10-20): a genuine vendor re-base always lands ------------------------------
+
+
+def _split(tk: str, eff: date) -> ListedSplit:
+    return next(s for s in fx.splits(tk) if s.effective_date == eff)
+
+
+def _served(tk: str) -> list[dict]:
+    """The real stored tape as a vendor series (floats) — on the list's scale where the store is."""
+    return [
+        {k: (float(v) if k != "d" and v is not None else v) for k, v in r.items()}
+        for r in fx.rows(tk)
+    ]
+
+
+def _raw_store(tk: str, eff: date, k: float, until: date | None = None) -> dict[date, dict]:
+    """CONTRACT input (the stated edit): the real tape with every bar before ``until`` (default: the split
+    ``eff``) put back on the raw scale — close / k, volume x k."""
+    cut = until or eff
+    out = {}
+    for r in fx.rows(tk):
+        c, v = float(r["close"]), float(r["volume"] or 0)
+        out[r["d"]] = (
+            {"close": c / k, "volume": v * k} if r["d"] < cut else {"close": c, "volume": v}
+        )
+    return out
+
+
+@pytest.mark.parametrize(
+    "tk,prefix,first_session",
+    [
+        ("VRME", "2026-10-07T02:4", date(2026, 9, 29)),  # the night Yahoo re-based VRME's 1-for-10
+        ("YYAI", "2026-08-22T22:0", date(2026, 8, 17)),  # ... and YYAI's 1-for-20
+    ],
+)
+def test_the_real_nights_the_vendor_re_based_a_raw_store_land(tk, prefix, first_session):
+    """REAL nights, nothing edited: the store was raw at the split (the first nights came in unadjusted,
+    before S2) and that night's pull carried the vendor's re-base. With the split in force the re-base lands
+    whole — nothing is divided back as "applied twice" — and the store's boundary reads RAW (never
+    CONTINUOUS), which is what the audit reports."""
+    pass_at, stored, fresh = _pass(tk, prefix)
+    s = _split(tk, first_session)
+    assert boundary(stored, (), s)[0] == STORE_RAW
+    in_force = applicable(fx.splits(tk), on=pass_at.date())
+    norm = normalize(fresh, stored, in_force)
+    assert REASON_VENDOR_DOUBLED not in norm.scaled and REASON_MIS_FACTORED not in norm.scaled
+    plan = plan_overlap(norm.bars, stored, last=max(stored))
+    landed = [r for r in plan.old + plan.recent if r["d"] < first_session]
+    assert len(landed) >= 9
+    k = float(s.factor)
+    for r in landed:
+        assert r["close"] / stored[r["d"]]["close"] == pytest.approx(k, rel=0.05)
+
+
+@pytest.mark.parametrize("tk,eff", [("KITT", date(2026, 9, 25)), ("LRHC", date(2026, 1, 26))])
+def test_a_raw_store_the_vendor_re_based_is_never_divided_back(tk, eff):
+    """The B1 finding, on the reviewer's two windows (CONTRACT: the real tape with the stated edit — the run
+    before the split put back raw, the store a misread first night leaves; the vendor serves the real
+    re-based tape). The old boundary misread both stores as "on scale" and divided the re-base back every
+    night (MEASURED by the review: 14 of 14 bars ``vendor_doubled`` on each). Now: the boundary is never
+    CONTINUOUS there, nothing is divided back, and every pre-split bar re-bases by the factor."""
+    s = _split(tk, eff)
+    k = float(s.factor)
+    stored = _raw_store(tk, eff, k)
+    assert boundary(stored, (), s)[0] in (STORE_RAW, STORE_UNREADABLE)
+    fresh = _served(tk)
+    norm = normalize(fresh, stored, applicable(fx.splits(tk), on=T))
+    assert REASON_VENDOR_DOUBLED not in norm.scaled and REASON_MIS_FACTORED not in norm.scaled
+    plan = plan_overlap(norm.bars, stored, last=max(stored))
+    moved = {r["d"]: r["close"] / stored[r["d"]]["close"] for r in plan.old + plan.recent}
+    pre = [d for d in stored if d < eff]
+    assert sorted(moved) == sorted(pre)
+    assert all(m == pytest.approx(k, rel=1e-9) for m in moved.values())
+
+
+def test_an_unlisted_later_split_of_the_same_ratio_re_bases_both_sides_of_the_listed_one():
+    """The B1 review's second path, on LRHC's REAL serial pair (1-for-10 on 2026-01-26, again on 04-20).
+    CONTRACT, two stated edits: the list as it stood before 04-20 was listed (07-07 and 01-26 only), and the
+    store as it stood before the vendor's 04-20 re-base (every bar before 04-20 back on that raw scale). The
+    vendor serves the real tape. The read says "01-26 applied twice" for every bar before 01-26, but the read
+    does not change AT 01-26 (the bars after it are off by the same x10) — no local edge, nothing proven:
+    the re-base lands on BOTH sides of 01-26, no cliff (the old rule divided 01-26's side back)."""
+    b = date(2026, 4, 20)
+    listed = [s for s in fx.splits("LRHC") if s.effective_date < b]
+    stored = _raw_store("LRHC", b, 10.0)
+    norm = normalize(_served("LRHC"), stored, applicable(listed, on=T))
+    assert norm.total == 0
+    plan = plan_overlap(norm.bars, stored, last=max(stored))
+    moved = {r["d"]: r["close"] / stored[r["d"]]["close"] for r in plan.old + plan.recent}
+    assert sorted(moved) == sorted(d for d in stored if d < b)
+    assert all(m == pytest.approx(10.0, rel=1e-9) for m in moved.values())
+    assert any(d < date(2026, 1, 26) for d in moved) and any(
+        date(2026, 1, 26) <= d < b for d in moved
+    )
+
+
+# --- B2: a read that only APPROXIMATES a scale is a correction, not a scale -----------------------------------
+
+
+@pytest.mark.parametrize("pct", [1.15, 1.25, 0.85, 1.08])
+def test_a_genuine_correction_under_a_small_factor_lands_as_served(pct):
+    """ATRO's 5-for-6 (k = 0.8333, the stand-in confirm): a band so wide that +15% reads closer to "the vendor
+    lacks the split" (x1.2) than to "the same scale". CONTRACT: the vendor serves the repaired tape (the list's
+    scale) with ONE real close moved by ``pct``. The old rule wrote +15% as -4.2%; now no run under x1.8 is ever
+    proven, so the bar lands exactly as the vendor corrected it."""
+    stored = _stored(_repaired("ATRO", spot=True, confirmed=("ATRO",)))
+    target = date(2026, 3, 2)
+    fresh = [
+        {
+            "d": d,
+            "open": b["close"],
+            "high": b["close"],
+            "low": b["close"],
+            "close": b["close"],
+            "volume": b["volume"],
+        }
+        | ({"close": b["close"] * pct} if d == target else {})
+        for d, b in sorted(stored.items())
+    ]
+    norm = normalize(fresh, stored, applicable(fx.splits("ATRO", confirmed=("ATRO",)), on=T))
+    assert norm.total == 0
+    plan = plan_overlap(norm.bars, stored, last=max(stored))
+    assert [r["d"] for r in plan.old] == [target]
+    assert plan.old[0]["close"] == pytest.approx(stored[target]["close"] * pct, rel=1e-12)
+
+
+def test_a_correction_inside_a_proven_raw_run_lands_on_the_lists_scale():
+    """The other side of B2 (the reason the 3% match is a run's 90%, not every bar's): BTOC's real raw series
+    against its repaired store, with ONE raw close moved +15% (CONTRACT). The run is proven (495 of 496 bars
+    equal the store once scaled), so the corrected bar is scaled with it and re-versions at +15% ON THE
+    ADJUSTED SCALE — passing it as served would land a raw-scale bar, a one-bar x1/16 island."""
+    stored = _stored(_repaired("BTOC"))
+    target = date(2026, 3, 2)
+    fresh = [
+        {**r, "close": r["close"] * 1.15} if r["d"] == target else dict(r) for r in fx.yahoo("BTOC")
+    ]
+    norm = normalize(fresh, stored, applicable(fx.splits("BTOC"), on=T))
+    assert set(norm.scaled) == {REASON_VENDOR_RAW}
+    plan = plan_overlap(norm.bars, stored, last=max(stored))
+    assert [r["d"] for r in plan.old] == [target]
+    assert plan.old[0]["close"] == pytest.approx(stored[target]["close"] * 1.15, rel=1e-6)
+
+
+# --- B8: a bar the store never held takes its scale from a LOCAL neighbor --------------------------------------
+
+
+def test_holes_in_a_proven_raw_run_take_the_runs_scale_through_local_neighbors():
+    """CONTRACT (holes): BTOC's repaired store with five consecutive real sessions dropped (a vendor backfill /
+    missed nights); the vendor serves its real raw series. Each hole is read against a decided neighbor at
+    most two sessions away in the vendor's own series (chained), so every hole lands on the adjusted scale —
+    none raw, none inferred across a long gap."""
+    full = _stored(_repaired("BTOC"))
+    ds = sorted(d for d in full if date(2026, 3, 2) <= d)[:5]
+    stored = {d: b for d, b in full.items() if d not in ds}
+    norm = normalize(fx.yahoo("BTOC"), stored, applicable(fx.splits("BTOC"), on=T))
+    plan = plan_overlap(norm.bars, stored, last=max(stored))
+    assert sorted(r["d"] for r in plan.holes) == ds
+    for r in plan.holes:
+        assert r["close"] == pytest.approx(full[r["d"]]["close"], rel=1e-6)
+
+
+# --- B7: an announced split that never happened changes nothing ------------------------------------------------
+
+
+@pytest.mark.parametrize("first_night", [False, True])
+def test_a_postponed_announced_split_is_never_applied(first_night):
+    """CONTRACT (a postponed split): OPTT's repaired tape, the vendor on the same scale, and an ANNOUNCED
+    1-for-10 listed for 2026-10-13 — a date nothing happened. The tape is flat there, so the store reads
+    CONTINUOUS (never RAW): no first night, nothing scaled, nothing written. (The audit names such a split NOT
+    VERIFIED — a flat tape is equally "applied" and "never happened"; ``test_repair_split_basis``.)
+    """
+    s = ListedSplit(
+        key_date=date(2026, 10, 13),
+        effective_date=date(2026, 10, 13),
+        ratio_from=Decimal(10),
+        ratio_to=Decimal(1),
+        status=STATUS_ANNOUNCED,
+    )
+    full = _stored(_repaired("OPTT"))
+    stored = {d: b for d, b in full.items() if not (first_night and d >= s.effective_date)}
+    fresh = [
+        {
+            "d": d,
+            "open": b["close"],
+            "high": b["close"],
+            "low": b["close"],
+            "close": b["close"],
+            "volume": b["volume"],
+        }
+        for d, b in sorted(full.items())
+    ]
+    tail = [b for b in fresh if b["d"] > max(stored)]
+    assert boundary(stored, tail, s)[0] == STORE_CONTINUOUS
+    norm = normalize(fresh, stored, applicable([*fx.splits("OPTT"), s], on=T))
+    assert norm.total == 0 and norm.first_night == []
+    plan = plan_overlap(norm.bars, stored, last=max(stored))
+    assert (plan.recent, plan.old) == ([], [])

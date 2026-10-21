@@ -259,6 +259,15 @@ def amend_run_timings(
         return None
 
 
+def _sum_reasons(counts) -> dict[str, int]:
+    """Per-reason totals over the names' split-normalization counts (S2), key-sorted for a stable artifact."""
+    out: dict[str, int] = {}
+    for c in counts:
+        for k, n in c.items():
+            out[k] = out.get(k, 0) + int(n)
+    return dict(sorted(out.items()))
+
+
 def build_run_payload(
     results: list[ThesisRunResult],
     *,
@@ -573,6 +582,20 @@ def build_run_payload(
                 # Q11 / T5 — older restated bars HELD this pass (a vendor revert awaiting a second
                 # agreeing pull); 0 on a normal night. Readers use `.get` (an older artifact lacks it).
                 "price_bars_held": sum(x.price_bars_held for x in r.ingested),
+                # S2 — bars READ onto the split list's scale this pass, per reason (vendor_raw / vendor_doubled
+                # / mis_factored / first_night; most write nothing) and the splits applied to stored history
+                # for the first time — the B1 review's "never silent". `{}` / `[]` on a normal night; readers
+                # use `.get` (an older artifact lacks both).
+                "price_bars_split_normalized": _sum_reasons(
+                    getattr(x, "price_bars_split_normalized", None) or {} for x in r.ingested
+                ),
+                "price_split_first_night": sorted(
+                    {
+                        f"{x.ticker or x.security_id}: {label}"
+                        for x in r.ingested
+                        for label in getattr(x, "price_split_first_night", ()) or ()
+                    }
+                ),
                 "form4_skipped": sum(x.form4_skipped for x in r.ingested),
                 # the ETF sleeves' fund-shares samples (net flow F2) — 0 on an all-equity thesis
                 "fund_shares_appended": sum(x.fund_shares_appended for x in r.ingested),

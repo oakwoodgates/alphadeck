@@ -1240,7 +1240,25 @@ night**: when the store holds no bar on or after a split's first session yet and
 against the vendor's first post-split bar (x3 or more, no bar already on the new scale in the run), the
 history is put on the new scale that night — MEASURED on the dev history, VRME 09-29 (its fake +1,276%
 breakout arm), YYAI 08-17 and LRHC 09-08 each arrived as the raw history plus the first post-split bar. No
-retirement: a pass-through costs nothing. `BarsResult.normalized` counts bars read that way.
+retirement: a pass-through costs nothing.
+
+**Nothing is rescaled on a read alone** (the B1 / B2 invariant-review fix, 2026-10-20). A vendor's genuine
+re-base of a RAW store reads exactly like "the vendor applied the split twice", so a "twice" read used to be
+divided back whenever the store's boundary could not be read — and the re-base was then held off every night
+(the review MEASURED it on KITT and LRHC windows; on the full real tapes the old rule divided back 516 and 348
+bars). Now the vendor's bars group into runs of one read, and a run is scaled only when it is PROVEN: at every
+LOCAL edge (≤ 2 bars apart) where the read changes, the STORE is flat (1-bar and 5-bar steps both under half
+the factor), so the step is the vendor's; a "twice" read also needs the store's boundary positively
+`STORE_CONTINUOUS` at each split it names; and 90% of the run's bars must equal the store once scaled (a read
+that only approximates a scale is a correction: ATRO's +15% used to be written as −4.2%). `boundary` is
+three-state — `STORE_RAW` / `STORE_CONTINUOUS` / `STORE_UNREADABLE` — and unreadable is never read as either.
+MEASURED on 119 real dev windows: the store as it is reads CONTINUOUS 118 / unreadable 1; the same tapes put
+back raw read RAW 110 / unreadable 9 / CONTINUOUS 0. The mis-factor rule (no tape can show a 4% step) reads
+same-scale bars only, needs a confirmed split and the next segment agreeing with the store. A hole or
+pre-split tail bar takes its scale only from a decided neighbor ≤ 2 sessions away, and reads a scale change
+against it only at ×3 or more. `BarsResult.split_normalized` counts bars read that way per reason, into the
+run artifact (`price_bars_split_normalized`) and one quiet pass-summary line; a divide-back or a first night
+also gets its own line and a WARNING log.
 
 **The repair** (`python -m pipeline.repair_split_basis`, operator-run). Labels every STORED bar before a split
 in force RAW / ADJUSTED / OVER-ADJUSTED / MIS-FACTORED by continuity with the bars after it
@@ -1256,8 +1274,10 @@ the old values back.
 Scoreboard ledger) put a Form 4's as-traded price on the tape's scale (`domain.splits.tape_scale`: the splits
 recorded by the view's `known_at` with a first session after the trade and on or before `known_at`'s market
 day); the Workbench market cap divides a share count dated before a split by its factor. The replay mirror
-exports `security_split.parquet`; a mirror from before S2 opens unchanged and reads no splits. The self-audit
-`splits_applied` check pages a recent split still showing its step and names the older backlog quietly.
+exports `security_split.parquet`; a mirror from before S2 opens unchanged and reads no splits, while one whose
+manifest records the file but lacks it refuses to open. The self-audit `splits_applied` check pages a recent
+split still showing its step, names the older backlog quietly, and names as NOT VERIFIED (never "applied") a
+split the tape cannot read and an announced split not yet confirmed (a flat tape is equally a postponed one).
 
 ### The tape monitor, part 3 — price-feed repairs: renamed, unpriceable, expected 404s (T2 + Q8 + T3, 2026-10-17)  `[BUILT]`
 

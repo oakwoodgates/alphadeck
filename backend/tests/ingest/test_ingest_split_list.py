@@ -197,3 +197,100 @@ def test_a_split_on_the_list_but_not_in_force_is_never_applied(db):
     res = _night(db, sid, tk, _Vendor(vendor), NIGHTS[0])
     assert (res.reversioned, res.normalized) == (0, 0)
     assert _rows(db, sid) == n0
+
+
+def _real_series(tk: str) -> list[dict]:
+    return [
+        {k: (float(v) if k != "d" and v is not None else v) for k, v in r.items()}
+        for r in fx.rows(tk)
+        if r["d"] >= fx.TODAY - timedelta(days=730)
+    ]
+
+
+def test_the_vendor_re_basing_a_raw_store_lands_on_the_first_night_and_is_counted(db):
+    """B1 (the invariant review), DB-backed, COUNT THE TABLE. CONTRACT, one stated edit: KITT's real tape with
+    its run before the 2026-09-25 1-for-6 put back raw (the store a misread first night leaves); the vendor
+    serves the real re-based tape. The old rule divided the re-base back every night (MEASURED: 516 bars read
+    "vendor_doubled", 0 written). Now every pre-split bar re-versions on night one, nothing is divided back, and
+    night two writes nothing."""
+    tk, eff, k = "KITT", date(2026, 9, 25), 6
+    sid = fx.seed_security(db, tk)
+    fx.seed_splits(db, sid, tk)
+    rows = []
+    for r in fx.rows(tk):
+        if r["d"] < eff:
+            r = {
+                **r,
+                **{f: r[f] / k for f in ("open", "high", "low", "close") if r[f] is not None},
+                "volume": None if r["volume"] is None else r["volume"] * k,
+            }
+        rows.append(r)
+    ingest_prices(db, sid, rows, tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+    vendor = _Vendor(_real_series(tk))
+    pre = sum(1 for r in vendor.bars if r["d"] < eff)
+    n0 = _rows(db, sid)
+    first = _night(db, sid, tk, vendor, NIGHTS[0])
+    assert "vendor_doubled" not in first.split_normalized
+    assert "mis_factored" not in first.split_normalized
+    assert (first.reversioned, first.held) == (pre, 0)
+    assert _rows(db, sid) == n0 + pre
+    second = _night(db, sid, tk, vendor, NIGHTS[1])
+    assert (second.reversioned, second.held, second.normalized) == (0, 0, 0)
+    assert _rows(db, sid) == n0 + pre
+
+
+def test_a_divide_back_is_counted_per_reason_and_logged_at_warning(db, caplog):
+    """The visibility half of B1: PBM's repaired tape (raw prints) against the vendor's real double-adjusted
+    pull — every pre-01-20 bar is divided back. Nothing is written, the count rides ``BarsResult`` per reason
+    (into the run artifact and the pass summary), and the price leg logs it at WARNING — the level that reaches
+    stderr with no logging config."""
+    import logging
+
+    tk = "PBM"
+    sid = _seed(db, tk)
+    plans = tool.plan_all(db, tickers=[tk], today=fx.TODAY, spots=tool.load_spots(fx.EVIDENCE))
+    assert [p.status for p in plans] == [tool.REPAIR], plans[0].refusals
+    tool.apply_plans(db, plans)
+    n0 = _rows(db, sid)
+    with caplog.at_level(logging.WARNING, logger="ingest.prices.ingest_security"):
+        res = _night(db, sid, tk, _Vendor(fx.yahoo(tk)), NIGHTS[0])
+    assert (res.reversioned, res.held) == (0, 0) and _rows(db, sid) == n0
+    assert (
+        set(res.split_normalized) == {"vendor_doubled"}
+        and res.split_normalized["vendor_doubled"] > 300
+    )
+    warned = [r for r in caplog.records if r.levelno == logging.WARNING and "PBM" in r.getMessage()]
+    assert warned and "vendor doubled" in warned[0].getMessage()
+
+
+def test_the_pass_summary_prints_the_split_reads(capsys):
+    """``print_split_lines``: one quiet totals line, deduped by security across theses; a divide-back and a
+    first night each get their own line; vendor_raw alone stays in the totals."""
+    import uuid
+
+    from pipeline.ingest_thesis import NameResult, print_split_lines
+
+    a, b = uuid.uuid4(), uuid.uuid4()
+    rows = [
+        NameResult("BTOC", a, 0, 0, price_bars_split_normalized={"vendor_raw": 496}),
+        NameResult("BTOC", a, 0, 0, price_bars_split_normalized={"vendor_raw": 496}),  # 2nd thesis
+        NameResult(
+            "PBM",
+            b,
+            0,
+            0,
+            price_bars_split_normalized={"vendor_doubled": 311},
+            price_split_first_night=("1-for-10 reverse split 2026-10-26",),
+        ),
+        NameResult("OPTT", uuid.uuid4(), 0, 0),
+    ]
+    print_split_lines(rows)
+    out = capsys.readouterr().out.splitlines()
+    assert out[0].startswith("split list: 807 price bar(s) of 2 name(s)")
+    assert "vendor doubled 311" in out[0] and "vendor raw 496" in out[0]
+    assert "PBM: split list divided the vendor's bars back — 311 vendor doubled" in out
+    assert any(line.startswith("PBM: split applied to the stored history") for line in out)
+    assert not any(line.startswith("BTOC:") for line in out)
+    print_split_lines([NameResult("OPTT", uuid.uuid4(), 0, 0)])
+    assert capsys.readouterr().out == ""

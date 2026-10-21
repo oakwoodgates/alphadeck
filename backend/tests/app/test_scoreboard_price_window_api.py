@@ -913,3 +913,60 @@ def test_price_window_activist_unresolved_identity_ships_null_not_dropped(client
     assert g["filer_name"] is None and g["filer_cik"] is None and g["pct_owned"] is None  # kept
     assert g["url"].endswith("0000000122-26-000122-index.htm")  # provenance still rides (#6)
     assert d["filer_name"] == "Engaged Capital" and d["pct_owned"] == 6.2
+
+
+def test_price_window_split_factor_reads_only_the_thesis_tenants_split_list(
+    client, db, security_id
+):
+    """S2 / the B4 review: the router reads the split list DIRECTLY (``split_repo.as_of_rows``) to put a Form 4's
+    as-traded price on the tape's scale. A buy at 4.50 on 06-05 against a 40.00 day low (the tape on the
+    post-split scale): only a 1-for-10 on 06-08 makes it 45.00, an open-market buy. The poison row — a split
+    under ANOTHER tenant on the SAME security — must never apply (the buy stays a set-aside primary-market
+    row); the thesis tenant's own split does."""
+    from decimal import Decimal
+
+    from pipeline.provision_tenant import provision_tenant
+    from repositories import split_repo
+
+    other = uuid.UUID("00000000-0000-0000-0000-0000000000ad")
+    provision_tenant(db, "prod-split-window", tenant_id=other)
+    thesis = persist_thesis(db, security_id)
+    ohlcv_bar(db, security_id, date(2026, 6, 5), 42.0, 46.0, 40.0, 45.0, 1_000.0)
+    insider_buy(
+        db,
+        security_id,
+        accession="0000000140-26-000140",
+        valid_from=date(2026, 6, 5),
+        recorded_at=datetime(2026, 6, 10, tzinfo=timezone.utc),
+        price=4.5,
+        usd=4_500.0,
+    )
+
+    def split(tenant_id):
+        split_repo.append_version(
+            db,
+            tenant_id=tenant_id,
+            security_id=security_id,
+            key_date=date(2026, 6, 8),
+            values={
+                "effective_date": date(2026, 6, 8),
+                "ratio_from": Decimal(10),  # a 1-for-10 reverse split (factor 10)
+                "ratio_to": Decimal(1),
+                "status": "confirmed",
+                "confirmed_via": "operator",
+                "value_source": "polygon",
+                "valid_from": date(2026, 6, 1),
+            },
+            action=split_repo.ACTION_BACKFILL,
+            author=split_repo.AUTHOR_BACKFILL,
+        )
+        db.commit()
+
+    def character():
+        (buy,) = _get(client, thesis.id, security_id, "2026-07-15").json()["insider_buys"]
+        return buy["character"]
+
+    split(other)  # the poison: another tenant's split on this security
+    assert character() == "primary_market"
+    split(thesis.tenant_id)
+    assert character() == "open_market"

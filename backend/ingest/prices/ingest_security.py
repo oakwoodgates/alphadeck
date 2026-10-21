@@ -46,8 +46,12 @@ implementation means the invariants can't fork:
   serving the unadjusted basis is scaled by the listed factor and then equals the stored bar, so nothing is
   written; a vendor that applied a split twice, or a consistent different factor, is divided back; a genuine
   correction passes unchanged into T6/T5. Without it a REPAIRED tape was undone in two nights (the T5 guard
-  holds a flip back once, then re-applies it). Bars on or after the last split are untouched.
-  ``BarsResult.normalized`` counts the bars read that way (most write nothing).
+  holds a flip back once, then re-applies it). Bars on or after the last split are untouched. Nothing is
+  rescaled on a read alone: only a run the tape PROVES (the store flat where the vendor steps; a "twice" read
+  only where the store positively carries the split), so a vendor's genuine re-base of a raw store, or of an
+  unlisted later split, always lands (the B1 review fix). ``BarsResult.split_normalized`` counts the bars read
+  that way per reason (most write nothing), into the run artifact and the pass summary; a divide-back or a
+  first night is also logged at WARNING.
 
 Price bars are FEED data (like Form 4s), not operator-ratified facts — the recommend→confirm seam does
 not apply to them; what they feed (the market cap) stays display until the operator acts.
@@ -58,7 +62,7 @@ from __future__ import annotations
 import json
 import logging
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from uuid import UUID
 
@@ -77,7 +81,7 @@ from ingest.prices.restatement import (
 )
 from ingest.prices.settle import withhold_unsettled
 from ingest.prices.source import PriceSource, YahooPriceSource
-from ingest.prices.split_normalize import normalize
+from ingest.prices.split_normalize import WARN_REASONS, normalize
 from repositories import split_repo
 
 _log = logging.getLogger(__name__)
@@ -98,13 +102,21 @@ class BarsResult:
     reversioned: int
     withheld: int = 0
     held: int = 0
-    # S2 — fresh bars put onto the split list's scale before the compare (``split_normalize``): a vendor flip
-    # back to an unadjusted basis it absorbs writes nothing, so this counts bars READ differently, not written
-    normalized: int = 0
+    # S2 — fresh bars put onto the split list's scale before the compare (``split_normalize``), PER REASON
+    # (vendor_raw / vendor_doubled / mis_factored / first_night): a vendor flip back to an unadjusted basis it
+    # absorbs writes nothing, so these count bars READ differently, not written. Carried into the run artifact
+    # and the pass summary (``pipeline.ingest_thesis.print_split_lines``) — never silent (the B1 review fix).
+    split_normalized: dict[str, int] = field(default_factory=dict)
+    # the splits applied to the stored history for the FIRST time this pass (``Normalized.first_night``)
+    split_first_night: tuple[str, ...] = ()
 
     @property
     def total(self) -> int:
         return self.appended + self.reversioned
+
+    @property
+    def normalized(self) -> int:
+        return sum(self.split_normalized.values())
 
 
 def _num(x: object) -> float | None:
@@ -265,18 +277,27 @@ def ingest_bars_for_security(
     # S2 — the split list: every fresh bar before a split in force is put on the store's (the list's) scale
     # BEFORE the tail / overlap split, so the restatement compare below sees the vendor's flip back to an
     # unadjusted basis as no change at all (``split_normalize``)
-    normalized = 0
+    split_normalized: dict[str, int] = {}
+    split_first_night: tuple[str, ...] = ()
     in_force = splits_in_force(
         conn, sec.id, tenant_id=tenant_id, on=now.astimezone(market_tz()).date()
     )
     if in_force:
         norm = normalize(fresh, stored, in_force)
-        fresh, normalized = norm.bars, norm.total
-        if norm.total:
-            _log.info(
+        fresh, split_normalized, split_first_night = (
+            norm.bars,
+            dict(norm.scaled),
+            tuple(norm.first_night),
+        )
+        # a divide-back or a first-time rescale of history is the exception: WARNING (reaches stderr with no
+        # logging config — the level ``pipeline.backup`` uses for the same reason); the steady vendor-raw
+        # absorb is counted in the pass summary only (``BarsResult.split_normalized``)
+        loud = {k: n for k, n in norm.scaled.items() if k in WARN_REASONS}
+        if loud or norm.first_night:
+            _log.warning(
                 "price split normalization: %s — %s%s",
                 sec.ticker,
-                ", ".join(f"{n} {why.replace('_', ' ')}" for why, n in sorted(norm.scaled.items())),
+                ", ".join(f"{n} {why.replace('_', ' ')}" for why, n in sorted(loud.items())),
                 f" (first night: {'; '.join(norm.first_night)})" if norm.first_night else "",
             )
 
@@ -302,7 +323,14 @@ def ingest_bars_for_security(
             conn, sec.id, plan.holes + plan.recent + old, tenant_id=tenant_id
         )
 
-    return BarsResult(appended, reversioned, withheld, held, normalized)
+    return BarsResult(
+        appended,
+        reversioned,
+        withheld,
+        held,
+        split_normalized=split_normalized,
+        split_first_night=split_first_night,
+    )
 
 
 def splits_in_force(

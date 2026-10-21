@@ -50,7 +50,11 @@ S2 CHECK (the split list):
 - ``splits_applied`` — every split in force on the list is applied to its stored tape (no step the size of the
   split at its first session). FAILS for a recent one (the price leg applies a split on its first night, so a
   standing step days later is the prevention not working); an older one is the repair tool's backlog, named
-  in the detail and passed — the T4 check's reason not to page a standing, known defect every night.
+  in the detail and passed — the T4 check's reason not to page a standing, known defect every night. A split
+  the tape cannot tell either way (``STORE_UNREADABLE``: under x1.8, a genuine move as big as the split, a
+  split-sized step without the inverse volume move), and an ANNOUNCED split not yet confirmed (a flat tape
+  there is equally "applied" and "never happened" — a postponed split), are named as NOT VERIFIED, never
+  counted as applied (the B1 / B7 review fix, 2026-10-20).
 
 ADDING A CHECK: write ``def check_x(ctx: AuditContext) -> AuditResult`` (pure over ``ctx``; open the DB only
 through ``ctx.conn()``), append it to ``DEFAULT_CHECKS``. Each check is isolated: one that RAISES is reported
@@ -408,15 +412,21 @@ SPLIT_APPLIED_RECENT_SESSIONS = 5
 
 def check_splits_applied(ctx: AuditContext) -> AuditResult:
     """(f) S2 — "every split in force is applied to the stored tape": for each split on the list in force on
-    the pass's as-of, over the active basket union, the stored latest-version tape shows no step the size of
-    the split at its first session (``split_normalize.boundary``: a k-sized move with the inverse volume move
-    reads ``STORE_RAW``). FAILS for one whose first session is within ``SPLIT_APPLIED_RECENT_SESSIONS`` sessions
-    (the price leg should have applied it); an older unapplied one passes with its ticker named (run
-    ``python -m pipeline.repair_split_basis``). A split too small to read on the tape (under x1.8) is never
-    reported. Not applicable to a ``--no-live`` pass."""
+    the pass's as-of, over the active basket union, the stored latest-version tape at the split's first
+    session, read three ways (``split_normalize.boundary``):
+
+    - ``STORE_RAW`` (a k-sized step with the inverse volume move) — NOT applied: FAILS for one whose first
+      session is within ``SPLIT_APPLIED_RECENT_SESSIONS`` sessions (the price leg should have applied it); an
+      older one passes with its ticker named (run ``python -m pipeline.repair_split_basis``);
+    - ``STORE_CONTINUOUS`` — applied, for a CONFIRMED split. For an announced one a flat tape is equally a
+      split that never happened (postponed), so it is named NOT VERIFIED (B7);
+    - ``STORE_UNREADABLE`` — named NOT VERIFIED, never counted as applied (B1: it used to read "on scale").
+
+    Not verified passes (the tape cannot say; paging on it would page ATRO's x0.83 every night) but is always
+    named. Not applicable to a ``--no-live`` pass."""
     from db.session import DEFAULT_TENANT_ID
-    from domain.splits import applicable, listed_from_row, session_distance
-    from ingest.prices.split_normalize import STORE_RAW, boundary
+    from domain.splits import STATUS_CONFIRMED, applicable, listed_from_row, session_distance
+    from ingest.prices.split_normalize import STORE_CONTINUOUS, STORE_RAW, boundary
     from pipeline.split_basis import _UNION
     from repositories import split_repo
 
@@ -433,7 +443,7 @@ def check_splits_applied(ctx: AuditContext) -> AuditResult:
     for v in versions:
         by_sid.setdefault(v.security_id, []).append(listed_from_row(v.model_dump()))
         tickers[v.security_id] = v.ticker
-    checked, recent, backlog = 0, [], []
+    checked, recent, backlog, unverified = 0, [], [], []
     for sid, splits in by_sid.items():
         for s in applicable(splits, on=ctx.asof):
             with conn.cursor() as cur:
@@ -453,27 +463,44 @@ def check_splits_applied(ctx: AuditContext) -> AuditResult:
             if first_night:
                 continue  # no bar on/after the first session stored yet: nothing to judge
             checked += 1
-            if state != STORE_RAW:
-                continue
             label = f"{tickers.get(sid) or str(sid)[:8]} {s.label} {s.effective_date.isoformat()}"
+            if state == STORE_CONTINUOUS and s.status == STATUS_CONFIRMED:
+                continue  # applied
+            if state != STORE_RAW:
+                why = "unreadable" if state != STORE_CONTINUOUS else "announced, not confirmed"
+                unverified.append(f"{label} ({why})")
+                continue
             if session_distance(s.effective_date, ctx.asof) <= SPLIT_APPLIED_RECENT_SESSIONS:
                 recent.append(label)
             else:
                 backlog.append(label)
+
+    def _names(xs: list[str]) -> str:
+        return "; ".join(xs[:12]) + (f" (+{len(xs) - 12} more)" if len(xs) > 12 else "")
+
+    nv = (
+        f"; {len(unverified)} NOT VERIFIED — the tape cannot tell applied from not: {_names(unverified)}"
+        if unverified
+        else ""
+    )
     if recent:
         return AuditResult(
             name,
             False,
             f"{len(recent)} recent split(s) in force NOT applied to the stored tape (the price leg's first "
-            f"night did not take): {'; '.join(recent[:12])}",
+            f"night did not take): {_names(recent)}{nv}",
         )
     if backlog:
         return AuditResult(
             name,
             True,
             f"{checked} split(s) in force checked; {len(backlog)} older one(s) not yet applied to the stored "
-            f"tape — run python -m pipeline.repair_split_basis: {'; '.join(backlog[:12])}"
-            + (f" (+{len(backlog) - 12} more)" if len(backlog) > 12 else ""),
+            f"tape — run python -m pipeline.repair_split_basis: {_names(backlog)}{nv}",
+        )
+    applied = checked - len(unverified)
+    if unverified:
+        return AuditResult(
+            name, True, f"{applied} of {checked} split(s) in force verified applied{nv}"
         )
     return AuditResult(name, True, f"every split in force is applied ({checked} checked)")
 

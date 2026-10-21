@@ -204,4 +204,7 @@ def seed_splits(db, sid: uuid.UUID, tk: str, *, confirmed: tuple[str, ...] = ())
             author=split_repo.AUTHOR_BACKFILL,
         )
         if tk in confirmed and s["status"] == STATUS_NEEDS_REVIEW:
+            # the confirm is a LATER version: a new transaction, so its recorded_at (the DB's now(), the
+            # transaction start) differs from the backfill's — as the operator's click always does
+            db.commit()
             split_repo.confirm(db, v.id, source="polygon", tenant_id=DEFAULT_TENANT_ID, today=TODAY)

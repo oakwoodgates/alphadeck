@@ -40,7 +40,7 @@ from __future__ import annotations
 import argparse
 import xml.etree.ElementTree as ET
 from collections.abc import Collection, Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from uuid import UUID
 
@@ -129,6 +129,12 @@ class NameResult:
     # later market date agrees. Never silent: ONE quiet line per held name (`print_held_lines`) + the run
     # artifact's per-thesis `price_bars_held`.
     price_bars_held: int = 0
+    # S2 — fresh bars READ onto the split list's scale this pass, per reason (``BarsResult.split_normalized``:
+    # vendor_raw / vendor_doubled / mis_factored / first_night) and the splits applied to the stored history
+    # for the first time. Most write nothing (the vendor's unadjusted series absorbed); never silent: one quiet
+    # pass-summary line (`print_split_lines`) + the run artifact's per-thesis `price_bars_split_normalized`.
+    price_bars_split_normalized: dict[str, int] = field(default_factory=dict)
+    price_split_first_night: tuple[str, ...] = ()
     # the fund-shares leg (ETF net flow, F2): a non-ETF member always contributes 0; a restated
     # same-day count is a new VERSION (reversioned) — loud only when nonzero
     fund_shares_appended: int = 0
@@ -865,6 +871,8 @@ def _ingest_one(
         errs.append(f"schedule13: {e}")
         leg_errs.append(("schedule13", str(e)))
     px_appended, px_reversioned, px_withheld, px_held = 0, 0, 0, 0
+    px_split: dict[str, int] = {}
+    px_first_night: tuple[str, ...] = ()
     px_not_found = False
     try:
         bars = timed("price")(ingest_bars_for_security)(  # X5 — the price leg's wall time
@@ -882,6 +890,7 @@ def _ingest_one(
             bars.withheld,
             bars.held,
         )
+        px_split, px_first_night = dict(bars.split_normalized), bars.split_first_night
         conn.commit()
     except Exception as e:  # noqa: BLE001
         conn.rollback()
@@ -928,6 +937,8 @@ def _ingest_one(
         price_bars_reversioned=px_reversioned,
         price_bars_withheld=px_withheld,
         price_bars_held=px_held,
+        price_bars_split_normalized=px_split,
+        price_split_first_night=px_first_night,
         fund_shares_appended=fs_appended,
         fund_shares_reversioned=fs_reversioned,
         form8k_appended=f8k_appended,
@@ -1034,6 +1045,7 @@ def _report(results: list[NameResult]) -> int:
     )
     print_withheld_line(results)
     print_held_lines(results)
+    print_split_lines(results)
     # the exit signal: an errored name, or one this run could not ingest because another writer held it
     return len(errored) + len(busy)
 
@@ -1069,6 +1081,46 @@ def print_held_lines(results: Iterable[NameResult]) -> None:
             f"{label}: {n} older price bar(s) held — the vendor reverted them to values it served before; "
             "stored once a pull on a later night agrees"
         )
+
+
+def print_split_lines(results: Iterable[NameResult]) -> None:
+    """S2 — the split list's reads this pass, deduped by security across theses (the biggest count per name and
+    reason wins: two theses holding a name pull it twice). ONE quiet line with the per-reason totals, plus ONE
+    line per name for each exception — a divide-back (the vendor applied a split twice, or a different factor)
+    or a first night (a split applied to the stored history for the first time). Nothing at all when nothing
+    was read. ``vendor_raw`` alone stays in the totals: it is the steady state of a repaired tape whose vendor
+    still serves the unadjusted basis (it writes nothing), not news (#7); a divide-back is the one read that
+    could hold a genuine vendor change back, so it is never silent (the B1 review fix)."""
+    by_sec: dict[UUID, tuple[str, dict[str, int], tuple[str, ...]]] = {}
+    for r in results:
+        if not (r.price_bars_split_normalized or r.price_split_first_night):
+            continue
+        label, seen, first = by_sec.get(r.security_id, (r.ticker or str(r.security_id), {}, ()))
+        merged = {
+            k: max(seen.get(k, 0), r.price_bars_split_normalized.get(k, 0))
+            for k in set(seen) | set(r.price_bars_split_normalized)
+        }
+        by_sec[r.security_id] = (label, merged, first or r.price_split_first_night)
+    if not by_sec:
+        return
+    totals: dict[str, int] = {}
+    for _, counts, _ in by_sec.values():
+        for k, n in counts.items():
+            totals[k] = totals.get(k, 0) + n
+    parts = " · ".join(f"{k.replace('_', ' ')} {n}" for k, n in sorted(totals.items()))
+    print(
+        f"split list: {sum(totals.values())} price bar(s) of {len(by_sec)} name(s) read onto the list's "
+        f"scale ({parts})"
+    )
+    for label, counts, first in by_sec.values():
+        back = {k: n for k, n in counts.items() if k in ("vendor_doubled", "mis_factored")}
+        if back:
+            what = ", ".join(f"{n} {k.replace('_', ' ')}" for k, n in sorted(back.items()))
+            print(f"{label}: split list divided the vendor's bars back — {what}")
+        if first:
+            print(
+                f"{label}: split applied to the stored history for the first time — {'; '.join(first)}"
+            )
 
 
 def main(argv: list[str] | None = None) -> None:

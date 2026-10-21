@@ -98,6 +98,7 @@ from pipeline.ingest_thesis import (
     OnboardingWindow,
     ingest_thesis,
     print_held_lines,
+    print_split_lines,
     print_withheld_line,
 )
 from pipeline.insider_amendment_scan import (
@@ -1875,6 +1876,8 @@ def _report(
     # Q11 / T5 — names whose older restated bars were held (a vendor revert awaiting a second pull): one
     # quiet line each, deduped across theses
     print_held_lines(x for r in results for x in r.ingested)
+    # S2 — the split list's reads (one quiet totals line; one line per divide-back / first night), deduped
+    print_split_lines(x for r in results for x in r.ingested)
     if skipped:
         # M2 — one quiet line (lowercase, the known-errors convention): the catch-up left these alone
         print(

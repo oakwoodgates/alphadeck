@@ -784,3 +784,74 @@ def test_the_onboarding_queue_reads_are_tenant_isolated(db):
     # demo_sec's PENDING row is DEMO's: under PROD that row does not exist
     assert onboarding.pending_status(db)[(DEFAULT_TENANT_ID, demo_sec)] == "queued"
     assert (PROD_TENANT_ID, demo_sec) not in onboarding.pending_status(db)
+
+
+def test_split_list_read_isolation_live_and_replay(db, tmp_path):
+    """The SPLIT LIST (S2) is a new read surface on four paths — ``split_repo.as_of_rows`` (the Scoreboard
+    router calls it directly), ``PointInTimeData.split_events`` (scoped and basket-prefetched), and the replay
+    mirror's twin (the export AND the reader). The poison row is the strongest one: a split row under the
+    OTHER tenant on the SAME ``security_id`` (``security_split.security_id`` carries no tenant). Each tenant sees
+    only its own row, on every path. Grows the poison-row proof (INV section 5: discipline-not-RLS holds only if
+    each new accessor stays on the tenant filter — the B4 review finding)."""
+    from decimal import Decimal
+
+    from replay.export import export_snapshot
+    from replay.pit import ReplayPointInTimeData, connect_mirror
+    from repositories import split_repo
+
+    provision_tenant(db, "prod-splits", tenant_id=PROD_TENANT_ID)
+    shared = _security(db, DEFAULT_TENANT_ID)
+
+    def _split(tenant_id, key_date, ratio_from):
+        split_repo.append_version(
+            db,
+            tenant_id=tenant_id,
+            security_id=shared,
+            key_date=key_date,
+            values={
+                "effective_date": key_date,
+                "ratio_from": Decimal(ratio_from),
+                "ratio_to": Decimal(1),
+                "status": "confirmed",
+                "confirmed_via": "operator",
+                "value_source": "polygon",
+                "valid_from": key_date,
+            },
+            action=split_repo.ACTION_BACKFILL,
+            author=split_repo.AUTHOR_BACKFILL,
+        )
+
+    demo_day, poison_day = date(2026, 5, 1), date(2026, 4, 1)
+    _split(DEFAULT_TENANT_ID, demo_day, 10)
+    _split(PROD_TENANT_ID, poison_day, 20)  # the poison: the other tenant, the same security
+    ingest_prices(
+        db,
+        shared,
+        [{"d": date(2026, 5, 29), "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1}],
+    )
+    db.commit()
+
+    def days(rows):
+        return [r["key_date"] for r in rows]
+
+    # the repo read (and the Scoreboard router's direct call shape)
+    for tenant, want in ((DEFAULT_TENANT_ID, [demo_day]), (PROD_TENANT_ID, [poison_day])):
+        rows = split_repo.as_of_rows(db, tenant_id=tenant, security_ids=[shared], known_at=_KNOWN)
+        assert days(rows[shared]) == want
+        assert {r["tenant_id"] for r in rows[shared]} == {tenant}
+    # the live PIT, scoped and basket-prefetched
+    asof = date(2026, 6, 1)
+    for basket in (None, [shared]):
+        for tenant, want in ((DEFAULT_TENANT_ID, [demo_day]), (PROD_TENANT_ID, [poison_day])):
+            pit = PointInTimeData(db, asof=asof, known_at=_KNOWN, tenant_id=tenant, basket=basket)
+            assert days(pit.split_events(shared)) == want
+    # the replay mirror: the export writes one tenant's rows, and the reader filters on its own tenant too
+    for tenant, want in ((DEFAULT_TENANT_ID, [demo_day]), (PROD_TENANT_ID, [poison_day])):
+        out = tmp_path / str(tenant)
+        export_snapshot(db, out, tenant_id=tenant)
+        con = connect_mirror(out)
+        own = ReplayPointInTimeData(con, asof=asof, known_at=_KNOWN, tenant_id=tenant)
+        assert days(own.split_events(shared)) == want
+        other = PROD_TENANT_ID if tenant == DEFAULT_TENANT_ID else DEFAULT_TENANT_ID
+        cross = ReplayPointInTimeData(con, asof=asof, known_at=_KNOWN, tenant_id=other)
+        assert cross.split_events(shared) == []

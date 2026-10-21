@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 from datetime import date, timedelta
+from decimal import Decimal
 
 import pytest
 
@@ -18,6 +19,7 @@ from ingest.prices.ingest_security import load_hold, save_hold
 from ingest.prices.restatement import HeldRevert
 from pipeline import repair_split_basis as tool
 from pipeline.run_lock import EXIT_ALREADY_RUNNING, acquire_pass_lock
+from repositories import split_repo
 from tests import split_s2_fixtures as fx
 
 T = fx.TODAY
@@ -148,13 +150,10 @@ def _audit(asof):
         ctx.close()
 
 
-def test_the_self_audit_pages_a_recent_unapplied_split_and_names_the_backlog(db):
-    """BTOC's 1-for-16 (first session 10-15, three sessions before 10-20) is still a raw cliff on its stored
-    tape — the price leg's first night did not take (S2 was not live): FAIL. DUKR's (03-06) is the repair
-    tool's backlog: named, not paged. After the repair: every split in force applied."""
+def _basket(db, ids: dict) -> None:
+    """One thesis holding ``ids`` — the active basket union the audit walks."""
     import uuid
 
-    ids = _seed(db, "BTOC", "DUKR")
     tid = uuid.uuid4()
     with db.cursor() as cur:
         cur.execute(
@@ -168,6 +167,14 @@ def test_the_self_audit_pages_a_recent_unapplied_split_and_names_the_backlog(db)
                 (uuid.uuid4(), DEFAULT_TENANT_ID, tid, i, tk, "—", sid),
             )
     db.commit()
+
+
+def test_the_self_audit_pages_a_recent_unapplied_split_and_names_the_backlog(db):
+    """BTOC's 1-for-16 (first session 10-15, three sessions before 10-20) is still a raw cliff on its stored
+    tape — the price leg's first night did not take (S2 was not live): FAIL. DUKR's (03-06) is the repair
+    tool's backlog: named, not paged. After the repair: every split in force applied."""
+    ids = _seed(db, "BTOC", "DUKR")
+    _basket(db, ids)
     first = _audit(T)
     assert first.ok is False and "BTOC" in first.detail and "DUKR" not in first.detail
     tool.apply_plans(db, tool.plan_all(db, tickers=["BTOC"], today=T))
@@ -176,6 +183,60 @@ def test_the_self_audit_pages_a_recent_unapplied_split_and_names_the_backlog(db)
     tool.apply_plans(db, tool.plan_all(db, tickers=["DUKR"], today=T))
     third = _audit(T)
     assert third.ok is True and third.detail == "every split in force is applied (2 checked)"
+
+
+def test_the_self_audit_never_counts_an_unreadable_or_an_announced_split_as_applied(db):
+    """The B1 / B7 review fix. Three splits the old audit called "applied" (its boundary read every unreadable
+    tape as "on scale"):
+
+    - KITT's 1-for-6 (09-25) on a RAW store (CONTRACT, the stated edit: the real tape's run before it put back
+      raw — the store a misread first night leaves): never "applied" — the backlog or NOT VERIFIED, named;
+    - ATRO's 5-for-6 (the stand-in confirm): a x0.83 step the tape cannot read — NOT VERIFIED (unreadable);
+    - an ANNOUNCED 1-for-10 on BTOC for 2026-10-06 that never happened (CONTRACT: a postponed split) on the
+      repaired, flat tape — NOT VERIFIED (announced, not confirmed): a flat tape is equally "never happened".
+
+    The audit passes (the tape cannot say; never a page) but names all three."""
+    ids = _seed(db, "BTOC", "ATRO", confirmed=("ATRO",))
+    tool.apply_plans(db, tool.plan_all(db, tickers=["BTOC"], today=T))
+    kitt = fx.seed_security(db, "KITT")
+    fx.seed_splits(db, kitt, "KITT")
+    eff, k = date(2026, 9, 25), 6
+    rows = []
+    for r in fx.rows("KITT"):
+        if r["d"] < eff:
+            r = {
+                **r,
+                **{f: r[f] / k for f in ("open", "high", "low", "close") if r[f] is not None},
+                "volume": None if r["volume"] is None else r["volume"] * k,
+            }
+        rows.append(r)
+    ingest_prices(db, kitt, rows, tenant_id=DEFAULT_TENANT_ID)
+    split_repo.append_version(
+        db,
+        tenant_id=DEFAULT_TENANT_ID,
+        security_id=ids["BTOC"],
+        key_date=date(2026, 10, 6),
+        values={
+            "effective_date": date(2026, 10, 6),
+            "ratio_from": Decimal(10),
+            "ratio_to": Decimal(1),
+            "status": "announced",
+            "value_source": "sec",
+            "valid_from": date(2026, 9, 30),
+        },
+        action=split_repo.ACTION_BACKFILL,
+        author=split_repo.AUTHOR_BACKFILL,
+    )
+    db.commit()
+    _basket(db, {**ids, "KITT": kitt})
+    res = _audit(T)
+    assert res.ok is True
+    assert "every split in force is applied" not in res.detail
+    assert "KITT 1-for-6" in res.detail  # backlog or not verified — never applied
+    assert "NOT VERIFIED" in res.detail
+    assert "ATRO" in res.detail and "(unreadable)" in res.detail
+    assert "BTOC 1-for-10" in res.detail and "(announced, not confirmed)" in res.detail
+    assert "BTOC 1-for-16" not in res.detail  # the repaired, confirmed one IS verified applied
 
 
 def test_main_refuses_while_the_call_of_record_lock_is_held(db, capsys, monkeypatch, tmp_path):

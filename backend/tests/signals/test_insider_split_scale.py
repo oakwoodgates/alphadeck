@@ -246,3 +246,20 @@ def test_an_old_mirror_without_the_split_table_still_opens_and_reads_no_splits(d
     )
     assert rep.split_events(sid) == []
     assert rep.price_history(sid)  # the facts are all there
+
+
+def test_a_mirror_whose_manifest_records_the_split_table_but_lost_the_file_fails_loudly(
+    db, tmp_path
+):
+    """The B5 review fix: a post-S2 mirror that LOST ``security_split.parquet`` is a broken export, not an old
+    one — its manifest says the file was written, so opening it raises instead of silently replaying with the
+    pre-S2 behavior (genuine pre-split buys dropped)."""
+    from replay.export import SPLIT_TABLE, export_snapshot, read_mirror_manifest
+    from replay.pit import connect_mirror
+
+    _seed_opad(db)
+    export_snapshot(db, tmp_path)
+    assert read_mirror_manifest(tmp_path).split_table is True
+    (tmp_path / f"{SPLIT_TABLE}.parquet").unlink()
+    with pytest.raises(FileNotFoundError, match=SPLIT_TABLE):
+        connect_mirror(tmp_path)

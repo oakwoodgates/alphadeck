@@ -454,6 +454,10 @@ class MirrorManifest:
     tables: dict[str, dict[str, Any]] = field(default_factory=dict)
     excluded_tables: list[str] = field(default_factory=list)
     blind_detectors: list[str] = field(default_factory=list)
+    # S2 — the exporter wrote ``security_split.parquet`` (it always does since S2, and says so). True makes the
+    # file REQUIRED at open: a lost file must fail loudly, never replay as "no splits listed" (the B5 review
+    # fix). A run manifest does not carry it (``MirrorInfo`` predates it), so a run directory reads False.
+    split_table: bool = False
 
 
 def read_mirror_manifest(mirror_dir: str | Path) -> MirrorManifest | None:
@@ -489,6 +493,7 @@ def read_mirror_manifest(mirror_dir: str | Path) -> MirrorManifest | None:
         tables=inner.get("tables") or {},
         excluded_tables=list(inner.get("excluded_tables") or []),
         blind_detectors=list(inner.get("blind_detectors") or []),
+        split_table="split_table" in inner,
     )
 
 

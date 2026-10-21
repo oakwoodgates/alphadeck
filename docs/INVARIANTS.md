@@ -357,8 +357,12 @@ replay stays honest.
   factor must carry the same ones; on every live path and every serve-path scrub-back the two days coincide.
   The repair (`pipeline.repair_split_basis`) and the loader write NEW versions stamped now — a replay pinned
   before the stamp reads the old scale. A mirror exported before S2 carries no `security_split.parquet` and
-  reads no splits. *Enforced by:* `tests/signals/test_insider_split_scale.py` (a split recorded after `known_at`
-  is not applied; Postgres vs mirror parity at two pins; the pre-S2 mirror), `tests/pipeline/test_repair_split_basis.py`
+  reads no splits; one whose manifest records the file but lost it refuses to open (never a silent pre-S2
+  replay). *Known residual (the review's B3):* the factor assumes the tape carries the split — on a tape still
+  raw at a split (unrepaired, or a first night that did not take) a pre-split Form 4 price is lifted by k;
+  the repair closes it, and the self-audit names every split it cannot verify. *Enforced by:*
+  `tests/signals/test_insider_split_scale.py` (a split recorded after `known_at` is not applied; Postgres vs
+  mirror parity at two pins; the pre-S2 mirror; the lost file), `tests/pipeline/test_repair_split_basis.py`
   (the as-of read before / after the stamp; count-the-table on apply and re-run).
 
 ## 5. Tenant isolation; production is a fresh tenant, never a destructive wipe
@@ -375,7 +379,9 @@ catch it. (RLS is the auth-era defense-in-depth; see `docs/PRODUCTION_TENANT.md`
 
 - *Enforced by:* `tenant_id` on every table; `DEFAULT_TENANT_ID` for the demo; seeds upsert/append; the
   poison-row proof `tests/db/test_tenant_isolation.py` (grown for each new accessor — insider/price/theme,
-  the three scoring facts, the Workbench scored read, the known-feed-limitation read of 0056).
+  the three scoring facts, the Workbench scored read, the known-feed-limitation read of 0056, the S2 split
+  list on the repo / live PIT / replay mirror paths), plus the Scoreboard price-window's direct split read
+  (`tests/app/test_scoreboard_price_window_api.py`).
 
 ## 6. The call-assembler is pure and deterministic
 

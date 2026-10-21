@@ -159,7 +159,13 @@ def connect_mirror(parquet_dir: str | Path) -> duckdb.DuckDBPyConnection:
         con.execute(f"CREATE TABLE {table} AS SELECT * FROM read_parquet('{path}')")
     # S2 — the split list: present in every mirror exported since S2, absent from older ones. An old mirror
     # opens unchanged and reads "no splits listed" (``_splits_of``) — what the system knew when it was written.
+    # A mirror whose manifest SAYS the file was written but lacks it is a broken export, not an old one: loud
+    # (the B5 review fix — it would otherwise replay with the pre-S2 behavior, silently).
     split_file = base / f"{SPLIT_TABLE}.parquet"
+    if manifest is not None and manifest.split_table and not split_file.is_file():
+        raise FileNotFoundError(
+            f"mirror {base}: its manifest records {SPLIT_TABLE}.parquet, which is missing"
+        )
     if split_file.is_file():
         path = split_file.as_posix().replace("'", "''")
         con.execute(f"CREATE TABLE {SPLIT_TABLE} AS SELECT * FROM read_parquet('{path}')")
