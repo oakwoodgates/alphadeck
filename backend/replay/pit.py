@@ -40,7 +40,7 @@ from signals.base import window_prices
 _AUX_JSON_COLS: dict[str, tuple[str, ...]] = {
     "insider_amendment": ("rows",),
     "insider_amendment_link": ("original_accessions", "voided_accessions", "candidate_accessions"),
-    "insider_amendment_decision": ("original_accessions", "voided_accessions"),
+    "insider_amendment_decision": ("original_accessions", "voided_accessions", "replaced_rows"),
 }
 
 

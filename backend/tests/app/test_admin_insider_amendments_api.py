@@ -30,6 +30,18 @@ def _accessions(db, sid, asof):
     return {r["accession"] for r in rows}
 
 
+def _codes_of(db, sid, asof, accession) -> set[str]:
+    rows = as_of(
+        db,
+        "fact_insider_txn",
+        security_id=sid,
+        asof=asof,
+        known_at=FAR,
+        tenant_id=DEFAULT_TENANT_ID,
+    )
+    return {r["txn_code"] for r in rows if r["accession"] == accession}
+
+
 def _by_acc(body: dict) -> dict[str, tuple[str, dict]]:
     out = {}
     for bucket in BUCKETS:
@@ -164,15 +176,16 @@ def test_link_to_candidate_then_apply_then_undo_in_order(client, db):
         "owed",  # an operator-linked amendment stays the operator's — never applied by the system
     )
     applied = client.post(f"{BASE}/{sid}/{acc}/apply").json()
-    assert applied["status"] == "applied" and "0001856680-26-000013" not in _accessions(
-        db, sid, asof
-    )
+    assert applied["status"] == "applied"
+    # R8-B row match: its two sales are replaced by the corrected one; the unmentioned exercise (M) stands
+    assert applied["kept_rows"] == ["0001856680-26-000013#0"]
+    assert _codes_of(db, sid, asof, "0001856680-26-000013") == {"M"}
     link_id = next(d["id"] for d in applied["decisions"] if d["action"] == "link")
     assert client.post(f"{BASE}/decisions/{link_id}/revoke").status_code == 409  # verdict first
     client.post(f"{BASE}/decisions/{applied['undo_id']}/revoke")
     back = client.post(f"{BASE}/decisions/{link_id}/revoke").json()
     assert back["disposition"] == "ambiguous" and back["status"] == "pending"
-    assert "0001856680-26-000013" in _accessions(db, sid, asof)
+    assert _codes_of(db, sid, asof, "0001856680-26-000013") == {"M", "S"}
 
 
 def test_nothing_to_ratify_on_an_inert_amendment(client, db):

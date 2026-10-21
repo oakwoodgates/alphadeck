@@ -57,8 +57,10 @@ from domain.insider_amendments import (
     REVIEW_AUTO,
     REVIEW_OWED,
     ROUTED_DISPOSITIONS,
+    STATUS_APPLIED,
     VERDICTS,
     Effective,
+    RowMatch,
     before_after,
     changed_signal_rows,
     effect_of,
@@ -66,6 +68,7 @@ from domain.insider_amendments import (
     is_system_basis,
     latest_by_accession,
     link_to_candidate,
+    match_for,
     review_bucket,
     standing_decisions,
     sweep_basis,
@@ -117,6 +120,16 @@ class AmendmentItem:
     verdict_basis: str | None = None
     in_review: bool = False
     review: str = REVIEW_OWED
+    # R8-B — a MATCHED disposition's row match against the FULL stored originals (``match_rows``): which original
+    # rows it accounts for, which STAND, and whether it is unresolved (owed); ``None`` for any other disposition
+    match: RowMatch | None = None
+    # the original rows (``row_key``) this amendment does not replace — they STAND beside it: when applied, the
+    # originals its stored match did not account for (none for a whole-original replacement); else its match's
+    kept_rows: tuple[str, ...] = ()
+
+    @property
+    def unresolved(self) -> bool:
+        return self.match is not None and self.match.unresolved
 
     @property
     def needs_operator(self) -> bool:
@@ -164,6 +177,20 @@ def _state(
     return effect_of(link, link_d, verdict), link_d, verdict
 
 
+def _amendment_rows(
+    conn: psycopg.Connection, security_id: UUID, accession: str
+) -> list[dict[str, Any]]:
+    """The 4/A's Table I rows as filed (its newest stored version)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT rows FROM insider_amendment WHERE security_id = %s AND accession = %s "
+            "ORDER BY recorded_at DESC, id DESC LIMIT 1",
+            (security_id, accession),
+        )
+        row = cur.fetchone()
+    return list((row or {}).get("rows") or [])
+
+
 def _insert(conn: psycopg.Connection, values: dict[str, Any]) -> dict[str, Any]:
     cols = list(values)
     with conn.cursor() as cur:
@@ -189,7 +216,10 @@ def decide(
 
     R8-B: a ``keep`` over a standing SYSTEM ``apply`` is allowed — it is that application's Undo ("keep the
     original"), stacked over it rather than revoking it, so revoking the keep restores the system's
-    application. An ``apply`` over one is refused (it already applies)."""
+    application. An ``apply`` over one is refused (it already applies). An operator ``apply`` of a partial /
+    consolidation / addition / restatement / field change stores its row match (``replaced_rows``): the
+    original rows it does not account for stand — unless the match is unresolved, where the operator's apply
+    ratifies it as a full restatement."""
     if action not in VERDICTS:
         raise ValueError(f"action must be one of {sorted(VERDICTS)}, got {action!r}")
     if not reason.strip() or not basis.strip():
@@ -220,6 +250,20 @@ def decide(
     if disp not in ROUTED_DISPOSITIONS and disp not in AUTO_DISPOSITIONS:
         raise AmendmentConflict(f"{accession}: unknown disposition {disp!r}")
     sec = links[-1]
+    replaced: list[str] | None = None
+    if action == ACTION_APPLY:
+        # R8-B — a matched disposition replaces only the original rows it accounts for (computed now, against
+        # the full stored rows, and stored). An UNRESOLVED match the operator applies anyway is the operator
+        # ratifying it as a restatement: the whole original is replaced (``None``).
+        match = match_for(
+            disp,
+            eff.original_accessions,
+            stored_rows_by_accession(conn, security_id, tenant_id=sec["tenant_id"]),
+            _amendment_rows(conn, security_id, accession),
+            frozenset(default_horizons()),
+        )
+        if match is not None and not match.unresolved:
+            replaced = list(match.replaced)
     return _insert(
         conn,
         {
@@ -229,6 +273,7 @@ def decide(
             "action": action,
             "reason": reason.strip(),
             "basis": basis,
+            "replaced_rows": replaced,
             "detail": {
                 "disposition": disp,
                 "status_before": eff.status,
@@ -409,6 +454,23 @@ def items(
                 | set(eff.voided_accessions)
             )
             amend_rows = list(f.get("rows") or [])
+            # R8-B — the row match against the FULL stored originals; what an APPLIED one replaces is what its
+            # decision stored (whole originals for a pre-R8-B decision), else what the match accounts for
+            match = match_for(
+                eff.disposition, eff.original_accessions, held_cache[sid], amend_rows, codes
+            )
+            replaced: tuple[str, ...] | None
+            kept: tuple[str, ...] = ()
+            if match is None:
+                replaced = None
+            elif eff.status == STATUS_APPLIED:
+                replaced = None if eff.suppress else eff.suppress_rows
+                if replaced is not None:
+                    gone = set(replaced)
+                    kept = tuple(k for k in sorted((*match.replaced, *match.kept)) if k not in gone)
+            else:
+                replaced = None if match.unresolved else match.replaced
+                kept = match.kept
             before, after = before_after(
                 eff.disposition,
                 original_accessions=eff.original_accessions,
@@ -416,15 +478,20 @@ def items(
                 candidate_accessions=eff.candidate_accessions,
                 stored=held_cache[sid],
                 amend_rows=amend_rows,
+                replaced=replaced,
             )
             changed = changed_signal_rows(eff.disposition, before, after, codes)
             own = [d for d in by_sid_dec.get(sid, []) if d["amendment_accession"] == acc]
-            in_review = within_review_horizon(changed, review_asof, review_days)
+            unresolved = match is not None and match.unresolved
+            in_review = within_review_horizon(
+                match.conflicts if unresolved else changed, review_asof, review_days
+            )
             review = review_bucket(
                 eff,
                 verdict_basis=verdict.get("basis") if verdict is not None else None,
                 ever_decided=bool(own),
                 in_review=in_review,
+                unresolved=unresolved,
             )
             out.append(
                 AmendmentItem(
@@ -459,6 +526,8 @@ def items(
                     ),
                     in_review=in_review,
                     review=review,
+                    match=match,
+                    kept_rows=kept,
                 )
             )
     out.sort(
@@ -535,13 +604,16 @@ class SweepResult:
 
 def sweep_plan(found: Iterable[AmendmentItem]) -> list[tuple[AmendmentItem, str]]:
     """PURE over ``items`` output — ``(item, basis)`` for every amendment the system applies now: no decision
-    ever recorded on it, and a disposition resolved to a definite original (``domain.insider_amendments
-    .sweep_basis``). An ambiguous link, an inert one, and anything the operator (or the system) ever decided
-    are left exactly as they are."""
+    ever recorded on it, a disposition resolved to a definite original, and a resolved row match
+    (``domain.insider_amendments.sweep_basis``). An ambiguous link, an unresolved row match, an inert one, and
+    anything the operator (or the system) ever decided are left exactly as they are."""
     out: list[tuple[AmendmentItem, str]] = []
     for it in found:
         basis = sweep_basis(
-            it.effective, ever_decided=bool(it.decisions), signal_effect=it.signal_effect
+            it.effective,
+            ever_decided=bool(it.decisions),
+            signal_effect=it.signal_effect,
+            unresolved=it.unresolved,
         )
         if basis is not None:
             out.append((it, basis))
@@ -556,7 +628,8 @@ def sweep(
 ) -> SweepResult:
     """R8-B — APPLY every resolvable amendment a pre-R8-B ingest left without a decision: append one SYSTEM
     ``apply`` each (basis ``system:filer-correction``, or ``system:no-signal-effect`` when it changes no signal
-    row — ``domain.insider_amendments.system_basis``), stamped ``recorded_at = now()`` — so a read pinned
+    row — ``domain.insider_amendments.system_basis``; a matched disposition carries its row match, so only the
+    original rows it accounts for are replaced), stamped ``recorded_at = now()`` — so a read pinned
     before tonight still sees the state the system held then (pending; a void suppressing): no rewrite of the
     past. Every security when ``security_ids`` is None (the resolver reads amendments for any security).
 
@@ -587,6 +660,7 @@ def sweep(
             disposition=eff.disposition,
             signal_codes=codes,
             via="sweep",
+            replaced_rows=it.match.replaced if it.match is not None else None,
         )
         _insert(conn, v)
         applied.append(f"{it.security_id}:{it.accession}")

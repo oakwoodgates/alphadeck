@@ -100,9 +100,12 @@ def system_decision_values(
     disposition: str,
     signal_codes: Collection[str],
     via: str,
+    replaced_rows: Collection[str] | None = None,
 ) -> dict[str, Any]:
     """One SYSTEM ``apply`` decision's columns (the ingest's and the sweep's — one shape): append-only and
-    undoable on Admin like any decision. ``via`` names the writer (``ingest`` / ``sweep``)."""
+    undoable on Admin like any decision. ``via`` names the writer (``ingest`` / ``sweep``); ``replaced_rows``
+    (R8-B) = the original rows a MATCHED disposition accounts for (``domain.insider_amendments.match_rows``) —
+    only those are replaced; ``None`` for a disposition that does not match rows."""
     return {
         "tenant_id": tenant_id,
         "security_id": security_id,
@@ -111,6 +114,7 @@ def system_decision_values(
         "reason": SYSTEM_REASONS[basis],
         "basis": basis,
         "detail": {"disposition": disposition, "signal_codes": sorted(signal_codes), "via": via},
+        "replaced_rows": list(replaced_rows) if replaced_rows is not None else None,
     }
 
 
@@ -235,8 +239,11 @@ def ingest_form4a(
     is applied HERE, in the same transaction as its link (one ``recorded_at`` — a new 4/A is never pending): an
     append-only ``apply`` decision whose basis is ``system:no-signal-effect`` when it changes no row a call
     signal reads (``signal_codes``, default derived from the registered detectors — ``signals.horizons
-    .insider_signal_codes``), else ``system:filer-correction``. Undoable on Admin (Keep original). An ambiguous
-    link writes no decision — it waits for the operator (or reads as historical)."""
+    .insider_signal_codes``), else ``system:filer-correction``. A partial / consolidation / addition /
+    restatement / field change carries its ROW MATCH (``replaced_rows`` — the original rows it accounts for;
+    every other original row stands). Undoable on Admin (Keep original). An ambiguous link, and a match the
+    rule cannot resolve (a buy/sell whose date AND share count both changed), write no decision — they wait for
+    the operator (or read as historical)."""
     if signal_codes is None:
         signal_codes = default_signal_codes()
     parsed = parse_form4a(xml)
@@ -320,6 +327,7 @@ def ingest_form4a(
                         "signal_effect": link.signal_effect,
                         "auto_resolved": link.auto_resolved,
                         "basis": link.basis,
+                        "unresolved_match": link.unresolved,
                         "signal_codes": sorted(signal_codes),
                     }
                 ),
@@ -336,17 +344,19 @@ def ingest_form4a(
                 disposition=link.disposition,
                 signal_codes=signal_codes,
                 via="ingest",
+                replaced_rows=link.replaced_rows,
             )
             cur.execute(
                 "INSERT INTO insider_amendment_decision (tenant_id, security_id, amendment_accession, action, "
-                "reason, basis, detail, recorded_at) VALUES (%(tenant)s, %(sid)s, %(acc)s, %(action)s, "
-                f"%(reason)s, %(basis)s, %(ddetail)s, {stamp})",  # noqa: S608 — stamp is one of two literals
+                "reason, basis, detail, replaced_rows, recorded_at) VALUES (%(tenant)s, %(sid)s, %(acc)s, "
+                f"%(action)s, %(reason)s, %(basis)s, %(ddetail)s, %(replaced)s, {stamp})",  # noqa: S608
                 {
                     **common,
                     "action": v["action"],
                     "reason": v["reason"],
                     "basis": v["basis"],
                     "ddetail": Json(v["detail"]),
+                    "replaced": v["replaced_rows"],
                 },
             )
     return AmendmentIngest(
@@ -370,7 +380,7 @@ class AmendmentLegResult:
 
     @property
     def pending(self) -> int:
-        """Stored tonight and NOT applied by the system (an ambiguous link — R8-B)."""
+        """Stored tonight and NOT applied by the system (an ambiguous link, or an unresolved row match — R8-B)."""
         return sum(1 for a in self.stored if a.link is not None and a.link.status == STATUS_PENDING)
 
 

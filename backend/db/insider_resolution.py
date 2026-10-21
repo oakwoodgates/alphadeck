@@ -52,7 +52,7 @@ def load_inputs(
         )
         links = cur.fetchall()
         cur.execute(
-            "SELECT id, security_id, amendment_accession, action, disposition, original_accessions, "
+            "SELECT id, security_id, amendment_accession, action, disposition, original_accessions, replaced_rows, "
             "voided_accessions, revokes, recorded_at "
             "FROM insider_amendment_decision "
             "WHERE tenant_id = %(t)s AND security_id = ANY(%(ids)s) AND recorded_at <= %(k)s",

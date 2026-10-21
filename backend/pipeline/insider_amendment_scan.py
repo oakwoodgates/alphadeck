@@ -10,9 +10,10 @@ applied state). Neither pages: the cron report gets ONE quiet line, "Form 4/A: N
 corrections), M owed your decision". What is OWED is only what the system cannot resolve AND a call can read:
 an AMBIGUOUS link (several differing candidate originals) whose changed signal rows sit inside the review
 horizon (``insider_amendment_review_horizon_days`` — derived: backtest window + the longest detector read
-horizon), plus an operator-linked one awaiting its verdict and one the operator took back with an Undo. An
-ambiguous link outside the horizon is "unresolved — historical" on Admin: no call reads those rows, never
-paged.
+horizon), an UNRESOLVED row match (a partial / addition / restatement whose buy/sell row changed both its
+date and its share count — restated, or an added trade? ``domain.insider_amendments.match_rows``) inside the
+horizon, plus an operator-linked one awaiting its verdict and one the operator took back with an Undo. Either
+kind outside the horizon is "unresolved — historical" on Admin: no call reads those rows, never paged.
 
 URGENCY. An owed item whose changed signal rows sit inside a signal's live read horizon at the pass's asof (the
 detectors' own declared horizons — ``signals.horizons.insider_signal_codes``) can move TONIGHT's call: it is
@@ -70,12 +71,19 @@ class PendingAmendment:
     in_window: tuple[str, ...] = ()
     # R8-B — an AMBIGUOUS link's candidate originals (the operator picks one); 0 for any other kind
     candidates: int = 0
+    # R8-B — an unresolved row match: a buy/sell whose date AND share count both changed (restated, or added?)
+    unresolved: bool = False
 
     @property
     def label(self) -> str:
         who = self.ticker or self.security_id[:8]
         if self.candidates:
             held = f" — {self.candidates} candidate originals; pick the one it amends (nothing changes until you do)"
+        elif self.unresolved:
+            held = (
+                " — a buy/sell's date and share count both changed: restated, or an added trade? "
+                "(the original stands until you decide)"
+            )
         elif self.suppressing:
             held = f" — suppressing {', '.join(self.suppressing)} until you decide"
         else:
@@ -99,6 +107,7 @@ class PendingAmendment:
             "touches_buy": self.touches_buy,
             "in_window": list(self.in_window),
             "candidates": self.candidates,
+            "unresolved": self.unresolved,
             "label": self.label,
         }
 
@@ -206,6 +215,7 @@ def scan_pending(conn: psycopg.Connection, *, asof: date | None) -> tuple[Pendin
                 touches_buy=it.touches_buy,
                 in_window=it.in_window,
                 candidates=len(eff.candidate_accessions) if ambiguous else 0,
+                unresolved=it.unresolved and not ambiguous,
             )
         )
     out.sort(

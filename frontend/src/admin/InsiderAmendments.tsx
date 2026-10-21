@@ -27,8 +27,10 @@ type Amendment = Omit<
   | "originals"
   | "decisions"
   | "in_window"
+  | "kept_rows"
 > & {
   in_window: string[];
+  kept_rows: string[];
   owners: string[];
   footnotes: string[];
   suppressing: string[];
@@ -41,6 +43,7 @@ type Amendment = Omit<
 const norm = (a: AdminInsiderAmendmentOut): Amendment => ({
   ...a,
   in_window: a.in_window ?? [],
+  kept_rows: a.kept_rows ?? [],
   owners: a.owners ?? [],
   footnotes: a.footnotes ?? [],
   suppressing: a.suppressing ?? [],
@@ -82,7 +85,8 @@ const money = (v: number | null | undefined) =>
   v == null ? "—" : `$${Math.round(v).toLocaleString("en-US")}`;
 const num = (v: number | null | undefined) => (v == null ? "—" : v.toLocaleString("en-US"));
 
-function TxnLines({ rows }: { rows: AdminInsiderTxnOut[] }) {
+/** `standing` = the seqs of an original's rows this 4/A does not account for (R8-B's row match) — they stand. */
+function TxnLines({ rows, standing }: { rows: AdminInsiderTxnOut[]; standing?: Set<number> }) {
   if (!rows.length) return <div className="adm-sub">no Table I rows</div>;
   return (
     <ul className="adm-problems adm-quietrows">
@@ -91,11 +95,25 @@ function TxnLines({ rows }: { rows: AdminInsiderTxnOut[] }) {
           <b>{r.txn_code ?? "?"}</b> {r.txn_date ?? "—"} · {num(r.shares)} @ {r.price == null ? "—" : `$${r.price}`} ={" "}
           {money(r.usd)}
           {r.insider_name ? <span className="adm-sub"> ({r.insider_name})</span> : null}
+          {r.seq != null && standing?.has(r.seq) ? (
+            <span className="adm-sub" data-testid="adm-amend-row-stands">
+              {" "}
+              — stands (this 4/A does not account for it)
+            </span>
+          ) : null}
         </li>
       ))}
     </ul>
   );
 }
+
+/** The seqs of `accession`'s rows the amendment does not account for (`kept_rows` keys are "<accession>#<seq>"). */
+const standingOf = (a: Amendment, accession: string) =>
+  new Set(
+    a.kept_rows
+      .filter((k) => k.startsWith(`${accession}#`))
+      .map((k) => Number(k.slice(accession.length + 1))),
+  );
 
 /** The evidence: the amendment's own words, and its rows beside each original's. */
 function Evidence({ a }: { a: Amendment }) {
@@ -115,7 +133,7 @@ function Evidence({ a }: { a: Amendment }) {
             {o.role === "voided" ? "Duplicate" : o.role === "candidate" ? "Candidate" : "Original"} {o.accession}
             {a.suppressing.includes(o.accession) ? " — suppressed now" : ""}:
           </div>
-          <TxnLines rows={o.rows} />
+          <TxnLines rows={o.rows} standing={standingOf(a, o.accession)} />
         </div>
       ))}
     </div>
@@ -216,7 +234,9 @@ export function InsiderAmendments() {
                   <div className="adm-sub">
                     {ambiguous
                       ? "Several Form 4s could be the one this amends, so the system cannot apply it — pick the original. Nothing changes until you do."
-                      : a.suppressing.length
+                      : a.unresolved
+                        ? "A buy or sale's date and share count both changed, so the system cannot tell a restatement from an added trade. Apply amendment if it restates the original; Keep original if it does not. The original stands until you decide."
+                        : a.suppressing.length
                         ? `Suppressing ${a.suppressing.join(", ")} from every call until you decide.`
                         : "No effect until you apply it."}
                     {a.why ? ` ${a.why}.` : ""}
@@ -265,7 +285,8 @@ export function InsiderAmendments() {
           </ul>
           <div className="adm-sub">
             Each one touches a buy or sale a call can read. Once you pick the original, the amendment waits for
-            your Apply or Keep original; every decision has an Undo.
+            your Apply or Keep original; every decision has an Undo. A 4/A applied automatically replaces only the
+            rows it accounts for — a buy or sale it never mentions stands.
           </div>
         </div>
       )}
@@ -342,15 +363,39 @@ export function InsiderAmendments() {
             {data.historical.length} unresolved — historical (no call reads these rows)
           </summary>
           <div className="adm-sub">
-            Ambiguous, but every buy or sale they touch is older than the{" "}
+            The system could not resolve these (several possible originals, or a buy or sale whose date and
+            share count both changed), but every buy or sale they touch is older than the{" "}
             {horizon == null ? "review horizon" : `${horizon}-day review horizon`} (the backtest window plus the
-            longest signal read), or they touch none. The originals stand; you can still link one.
+            longest signal read), or they touch none. The originals stand; you can still decide any one.
           </div>
           <ul className="adm-problems adm-quietrows">
             {data.historical.map((a) => (
               <li key={`${a.security_id}:${a.accession}`} data-testid="adm-amend-historical-row">
                 <Header a={a} />
-                <div className="adm-repair-act">{linkButtons(a)}</div>
+                <div className="adm-repair-act">
+                  {a.disposition === "ambiguous" ? (
+                    linkButtons(a)
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        className="adm-minibtn"
+                        disabled={busy}
+                        onClick={() => apply.mutate(ref(a))}
+                      >
+                        Apply amendment
+                      </button>
+                      <button
+                        type="button"
+                        className="adm-minibtn"
+                        disabled={busy}
+                        onClick={() => keep.mutate(ref(a))}
+                      >
+                        Keep original
+                      </button>
+                    </>
+                  )}
+                </div>
               </li>
             ))}
           </ul>

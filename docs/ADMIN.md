@@ -257,25 +257,31 @@ duplicate, `candidate` for an ambiguous link). Rendered only when an amendment i
 amends is the insider's legal correction of their own filing — deterministic data, not a model's recommendation —
 so the SYSTEM applies it (`FEED_LOOP.md` §R8-B). The operator is asked only about what the system cannot resolve.
 
-- **Owed your decision** (loud, on top) — an **ambiguous** amendment (several Form 4s it could amend) whose
-  buy/sell rows sit inside the review horizon (`insider_amendment_review_horizon_days`, 940 days derived — the
-  backtest window plus the longest signal read), with one **Link to <accession>** per candidate (linking
-  computes its disposition against that original; it then waits for your **Apply amendment** / **Ratify void**
-  or **Keep original**, with **Undo link**). An amendment you took back from the system (by revoking its
-  application through the API) is owed here too. **In-window first:** an item whose changed rows sit inside a
+- **Owed your decision** (loud, on top) — what the system cannot resolve, when its buy/sell rows sit inside
+  the review horizon (`insider_amendment_review_horizon_days`, 940 days derived — the backtest window plus the
+  longest signal read): an **ambiguous** amendment (several Form 4s it could amend), with one **Link to
+  <accession>** per candidate (linking computes its disposition against that original; it then waits for your
+  **Apply amendment** / **Ratify void** or **Keep original**, with **Undo link**); and an **unresolved row
+  match** — a buy or sale whose date AND share count both changed, so the system cannot tell a restatement from
+  an added trade (MRAM's restated tax sales, IEHC's restated sales): **Apply amendment** if it restates the
+  original (the whole original is replaced), **Keep original** if not; the original stands until you decide.
+  An amendment you took back from the system (by revoking its application through the API) is owed here too. **In-window first:** an item whose changed rows sit inside a
   signal's own read horizon today (`P` 210 days, `S` 120 days) sorts to the top and says "in today's P/S signal
   window — can move tonight's call". Each pages ONCE when new (`FEED_LOOP.md` §the amendment leg). MEASURED
-  2026-10-20: 4 (CVNA, FIS, HROW, SKYT), none in tonight's window.
+  2026-10-21 (asof 2026-10-20): 15 — 4 ambiguous (CVNA, FIS, HROW, SKYT), 11 unresolved matches (IEHC,
+  MRAM ×5, BKSY ×4, YYAI); 4 in tonight's sell window (IEHC, MRAM ×3).
 - **Applied automatically** (quiet, collapsed) — every amendment the system applied: the filer's correction
   (`system:filer-correction`), one that changes no buy or sale a call signal reads (`system:no-signal-effect`),
-  and a 1:1 correction applied by its link — each with its evidence (remarks, footnotes, the original's rows
+  and a 1:1 correction applied by its link — each with its evidence (remarks, footnotes, the original's rows,
+  each original row the 4/A does not account for marked "stands" — R8-B's row match keeps it
   beside the amendment's) and **Keep original**, which is its exact Undo: the keep stands over the system's
   application, and undoing the keep restores it. Never paged; never worded "owed your decision".
 - **Decided by you** (quiet) — every standing operator verdict with its **Undo** (a keep over a system
   application says "Undo restores the filer's amendment").
 - **Unresolved — historical (no call reads these rows)** (quiet, collapsed, grayed) — an ambiguous amendment
-  older than the review horizon, or touching no buy or sale: the originals stand, it never pages, and its
-  **Link to <accession>** buttons stay (MEASURED 2026-10-20: 39).
+  or an unresolved row match older than the review horizon (or touching no buy or sale): the originals stand,
+  it never pages, and it stays decidable — **Link to <accession>** on an ambiguous one, **Apply amendment** /
+  **Keep original** on an unresolved match (MEASURED 2026-10-21: 54 — 39 ambiguous, 15 unresolved).
 - **Awaiting the nightly sweep** (quiet) — a pre-R8-B link with no decision yet (a void suppresses meanwhile);
   empty after the first nightly pass that runs the sweep.
 - **Nothing to apply** (quiet) — clerical, no Table I rows, or no stored original — still listed (#9).
@@ -605,7 +611,7 @@ the freeze it is adjacent to: `POSTMORTEM_CRON_FREEZE_2026-07.md`.
 | `POST /admin/price-feed/acks/{ack_id}/revoke` | → the revoke row | 404 when no active acknowledgment |
 | `POST /admin/price-feed/{security_id}/adopt-cik` | `{cik}` → the CIK change row | the detector's recommended successor only (409 otherwise / master moved / CIK held by another row); no network |
 | `POST /admin/price-feed/cik-changes/{change_id}/undo` | → the undo row | exact restore; 409 already undone / a later change stands / the master moved |
-| `GET /admin/insider-amendments` | the Form 4/A panel (R8-B): `owed` (in-window first) / `auto` / `decided` / `historical` / `queued` / `inert`, plus `asof` and `review_horizon_days`; each item carries `review`, `system_basis`, `in_review` | read-only, live from the 0050 tables |
+| `GET /admin/insider-amendments` | the Form 4/A panel (R8-B): `owed` (in-window first) / `auto` / `decided` / `historical` / `queued` / `inert`, plus `asof` and `review_horizon_days`; each item carries `review`, `system_basis`, `in_review`, `unresolved`, `kept_rows` | read-only, live from the 0050 tables |
 | `POST /admin/insider-amendments/{security_id}/{accession}/apply` | `{reason?}` → the amendment | ratify an amendment that is yours (linked by you, or taken back); 409 nothing to ratify / the system already applied it / a verdict stands / ambiguous and unlinked |
 | `POST /admin/insider-amendments/{security_id}/{accession}/keep` | `{reason?}` → the amendment | the original stands (lifts a pending void; the Undo of a system application — stacked over it); 409 an operator verdict stands |
 | `POST /admin/insider-amendments/{security_id}/{accession}/link` | `{target_accession, reason?}` → the amendment | an ambiguous amendment's candidate only; 409 otherwise / already linked |

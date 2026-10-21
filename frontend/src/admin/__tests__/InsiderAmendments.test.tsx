@@ -41,6 +41,8 @@ const base = {
   review: "owed",
   system_basis: null as string | null,
   in_review: false,
+  unresolved: false,
+  kept_rows: [] as string[],
 };
 
 const SKYT = {
@@ -326,6 +328,67 @@ describe("InsiderAmendments", () => {
     expect(fls).toHaveTextContent("Suppressing 0001628280-26-035913 from every call until you decide.");
     await userEvent.click(within(fls).getByRole("button", { name: "Ratify void" }));
     expect(mutate(h.apply)).toHaveBeenCalledWith({ securityId: FLS_ID, accession: FLS.accession });
+  });
+
+  it("marks the original rows an applied 4/A does not account for as standing (MRCY's sales)", () => {
+    const MRCY = {
+      ...AVAV_AUTO,
+      ticker: "MRCY",
+      accession: "0001049521-26-000071",
+      disposition: "partial",
+      original_accessions: ["0001049521-26-000054"],
+      suppressing: [],
+      kept_rows: ["0001049521-26-000054#0", "0001049521-26-000054#1"],
+      amendment_rows: [{ seq: 0, txn_code: "A", txn_date: "2026-08-17", shares: 2882, price: 0, usd: 0 }],
+      originals: [
+        {
+          accession: "0001049521-26-000054",
+          role: "original",
+          rows: [
+            { seq: 0, txn_code: "S", txn_date: "2026-08-17", shares: 404, price: 109.95, usd: 44420 },
+            { seq: 1, txn_code: "S", txn_date: "2026-08-18", shares: 494, price: 111.36, usd: 55010 },
+          ],
+        },
+      ],
+    };
+    serve({ auto: [MRCY], total: 1 });
+    render(<InsiderAmendments />);
+    const row = within(screen.getByTestId("adm-amend-auto")).getByTestId("adm-amend-auto-row");
+    expect(within(row).getAllByTestId("adm-amend-row-stands")).toHaveLength(2);
+    expect(row).toHaveTextContent("stands (this 4/A does not account for it)");
+  });
+
+  it("asks about an unresolved row match: Apply if it restates, Keep if it does not", async () => {
+    const MRAM = {
+      ...base,
+      security_id: "1a2b3c4d-0000-4000-8000-00000000aaaa",
+      ticker: "MRAM",
+      accession: "0001628280-26-047722",
+      filed: "2026-07-08",
+      owners: ["Aggarwal Sanjeev"],
+      disposition: "restatement",
+      method: "orig_date_owner",
+      status: "pending",
+      review: "owed",
+      unresolved: true,
+      in_review: true,
+      original_accessions: ["0001628280-26-047404"],
+      candidate_accessions: ["0001628280-26-047404"],
+      kept_rows: ["0001628280-26-047404#0"],
+    };
+    serve({ owed: [MRAM], historical: [{ ...MRAM, accession: "0001628280-26-047720", review: "historical" }], total: 2 });
+    render(<InsiderAmendments />);
+    const row = screen.getAllByTestId("adm-amend-row")[0];
+    expect(row).toHaveTextContent("date and share count both changed");
+    expect(row).toHaveTextContent("The original stands until you decide.");
+    expect(within(row).queryByRole("button", { name: /Link to/ })).toBeNull();
+    await userEvent.click(within(row).getByRole("button", { name: "Apply amendment" }));
+    expect(mutate(h.apply)).toHaveBeenCalledWith({ securityId: MRAM.security_id, accession: MRAM.accession });
+    // a historical unresolved one offers Apply / Keep, never a Link to its own original
+    const hist = within(screen.getByTestId("adm-amend-historical")).getByTestId("adm-amend-historical-row");
+    expect(within(hist).queryByRole("button", { name: /Link to/ })).toBeNull();
+    await userEvent.click(within(hist).getByRole("button", { name: "Keep original" }));
+    expect(mutate(h.keep)).toHaveBeenCalledWith({ securityId: MRAM.security_id, accession: "0001628280-26-047720" });
   });
 
   it("shows a queued backlog quietly until the nightly sweep applies it", () => {

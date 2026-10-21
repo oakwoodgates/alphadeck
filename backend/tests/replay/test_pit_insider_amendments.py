@@ -124,20 +124,19 @@ def test_the_mirror_resolves_amendments_exactly_like_postgres(db, tmp_path, bask
 
 
 def test_the_mirror_reads_the_sweep_exactly_like_postgres_before_and_after_it(db, tmp_path):
-    """R8-B: the sweep's SYSTEM decisions (recorded NOW over links an R8-A ingest left pending) resolve on the
-    mirror byte-for-byte like Postgres — pinned before the sweep (IEHC's original sales, FLS's buy suppressed
-    by its pending void) and after it (the filer's restated sales)."""
+    """R8-B: the sweep's SYSTEM decisions (recorded NOW over links a pre-R8-B ingest left without one) — and the
+    ROW MATCH they carry — resolve on the mirror byte-for-byte like Postgres, pinned before the sweep (FRHC's
+    original title, FLS's buy suppressed by its pending void, MRCY's two sales) and after it (FRHC's corrected
+    title; MRCY's sales STAND beside the added grant); IEHC's unresolved match is never applied."""
     sids = {}
-    for t in ("IEHC", "FLS", "MRAM"):
+    for t in ("FRHC", "FLS", "MRCY", "IEHC"):
         sid = make_security(db, t)
         ingest_originals(db, sid, t, recorded_at=T_ORIG)
         for acc in amendments_of(t):
             ingest_amendment(db, sid, acc, recorded_at=T_LINK)
         sids[t] = sid
-    with db.cursor() as cur:  # the state R8-A's ingest left: no decision on these links
-        cur.execute(
-            "DELETE FROM insider_amendment_decision WHERE basis = 'system:filer-correction'"
-        )
+    with db.cursor() as cur:  # the decision-less backlog a pre-R8-B ingest left
+        cur.execute("DELETE FROM insider_amendment_decision WHERE detail->>'via' = 'ingest'")
     db.commit()
     before_sweep = db_now(db)
     db.commit()
@@ -147,15 +146,22 @@ def test_the_mirror_reads_the_sweep_exactly_like_postgres_before_and_after_it(db
     con = connect_mirror(tmp_path)
     ids = list(sids.values())
     for known_at in (T_LINK, before_sweep, FAR):
-        for asof in (date(2026, 6, 15), date(2026, 10, 20)):
+        for asof in (date(2026, 6, 15), date(2026, 8, 31), date(2026, 10, 20)):
             live = PointInTimeData(db, asof=asof, known_at=known_at, basket=ids)
             rep = ReplayPointInTimeData(con, asof=asof, known_at=known_at, basket=ids)
             for sid in ids:
                 _assert_equal(live.insider_txns(sid), rep.insider_txns(sid))
     pre = ReplayPointInTimeData(con, asof=date(2026, 10, 20), known_at=before_sweep)
     post = ReplayPointInTimeData(con, asof=date(2026, 10, 20), known_at=FAR)
-    assert {r["accession"] for r in pre.insider_txns(sids["IEHC"])} == {"0001174947-26-000817"}
-    assert {r["accession"] for r in post.insider_txns(sids["IEHC"])} == {"0001174947-26-000849"}
+    assert {r["insider_role"] for r in pre.insider_txns(sids["FRHC"])} == {
+        "Chief Financial Officer"
+    }
+    assert {r["insider_role"] for r in post.insider_txns(sids["FRHC"])} == {
+        "Special Advisor to CEO"
+    }
+    assert sorted(r["txn_code"] for r in pre.insider_txns(sids["MRCY"])) == ["S", "S"]
+    assert sorted(r["txn_code"] for r in post.insider_txns(sids["MRCY"])) == ["A", "S", "S"]
+    assert {r["accession"] for r in post.insider_txns(sids["IEHC"])} == {"0001174947-26-000817"}
 
 
 def test_parity_is_not_vacuous_the_resolution_moves_rows(db, tmp_path):

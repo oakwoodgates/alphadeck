@@ -230,7 +230,9 @@ replay stays honest.
   a replay pinned before the sweep reads the state the system actually held (pending: a void suppressing, a
   partial with no effect) — the backlog is applied forward, never back-dated. The public-clock mirror carries
   the standing system decisions like any standing decision (stamped at the acceptance — the same named
-  hindsight caveat). *Enforced by:* `tests/db/test_insider_amendments.py::
+  hindsight caveat). The row match a system (or operator) `apply` carries is computed when it is written
+  and stored on it (`replaced_rows`), so a windowed read never recomputes it, and both engines read it.
+  *Enforced by:* `tests/db/test_insider_amendments.py::
   test_a_replay_pinned_before_the_sweep_reads_the_pending_state_it_held`,
   `tests/replay/test_pit_insider_amendments.py::test_the_mirror_reads_the_sweep_exactly_like_postgres_before_and_after_it`.
 
@@ -468,12 +470,16 @@ surfaced to the operator, not silently resolved in code.**
   Admin as "Applied automatically" with its evidence and its exact Undo (*Keep original*), never hidden — what a
   void removes is suppressed at read, never deleted. An AMBIGUOUS link is never system-resolved: it is owed the
   operator when it touches a buy/sell row inside the review horizon, and otherwise listed as "unresolved —
-  historical" with its originals standing and its Link buttons kept (hidden from the PAGE, never from the
-  panel). **The named risk (MEASURED 2026-10-20, `FEED_LOOP.md` §R8-B):** "rows replace" drops an original row
-  a 4/A does not restate — the filer's correction when the 4/A restates the filing, but a silenced real sale when
-  it only adds an omitted line (nine such 4/As inside the review horizon, all sells; MRCY's inside tonight's
-  window). Each is visible with its evidence and undoable in one click; a class rule is an open operator
-  question, not shipped silently. Rows stored before the
+  historical" with its originals standing (hidden from the PAGE, never from the panel). **No buy or sale is
+  dropped that the filer did not account for (the row match, operator decision 2026-10-21):** an applied
+  partial / consolidation / addition / restatement / field change replaces only the original rows it matches
+  (same owner; same date with the same code or share count, else same code and share count) — an unmatched
+  original row STANDS (the nine "add an omitted line" 4/As measured on 2026-10-20 — MRCY, GD, WLTH, NNE, IBKR,
+  FLR, ACHR, COIN ×2 — keep their sales), and a match the rule cannot resolve (date AND shares both changed)
+  is not applied: it is the operator's, the original standing. **Named, still open (measured, `FEED_LOOP.md`
+  §R8-B):** a zero-row VOID still removes its original's rows; inside the review horizon only 6 of 17 say the
+  trade did not happen — the other 11 (AZTA, SMR, HIMS ×2, …) fix holdings / Table II / a power of attorney.
+  A text-keyed rule awaits the operator's sign-off. Rows stored before the
   other-issuer screen existed are KEPT and screened at read (keep-and-screen); the screen keeps any row whose
   issuer or member CIK is unknown, and counts every CIK the security has been known by (the T7 change log),
   so a successor-CIK re-point never hides the predecessor's own history. A filing the ingest no longer stores
@@ -561,10 +567,11 @@ would double-count), so a cancelled code-`P` buy stayed live to the conviction d
 buy, cancelled by the broker, was a CORE trigger). R8-A stores each 4/A as filed in `insider_amendment` (never
 in `fact_insider_txn`), links it to its original, and resolves every as-of insider read through one pure
 resolver shared with the replay mirror. Since R8-B (2026-10-20) every amendment resolved to a definite original
-is applied by the system — the filer's own correction — and listed with an Undo; only an ambiguous one touching a
+is applied by the system — the filer's own correction, replacing only the original rows it accounts for (the row
+match, 2026-10-21) — and listed with an Undo; only an ambiguous one, or an unresolved row match, touching a
 buy/sell inside the review horizon waits for the operator. The `supersedes` column is still vestigial. See
-`DATA_SOURCES.md` §Form 4/A, `CALL_LOGIC.md` §3 (insider) and `FEED_LOOP.md` §R8-B (incl. the open "omitted line"
-question).
+`DATA_SOURCES.md` §Form 4/A, `CALL_LOGIC.md` §3 (insider) and `FEED_LOOP.md` §R8-B (incl. the open, measured
+question of which zero-row voids are cancellations).
 
 **Known gap — basket composition is point-in-time from 2026-09-15 FORWARD, and unknowable before it.**
 `basket_member` is full-replace on promote with no timestamps, so which names were in a basket on a past

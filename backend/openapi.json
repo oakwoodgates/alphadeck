@@ -3929,6 +3929,18 @@
             "type": "boolean",
             "title": "In Review",
             "default": false
+          },
+          "unresolved": {
+            "type": "boolean",
+            "title": "Unresolved",
+            "default": false
+          },
+          "kept_rows": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Kept Rows"
           }
         },
         "type": "object",
@@ -3941,7 +3953,7 @@
           "status"
         ],
         "title": "AdminInsiderAmendmentOut",
-        "description": "One Form 4/A and everything the operator needs to ratify it.\n\n``disposition`` is what it changed (``domain.insider_amendments``); ``status`` its EFFECTIVE state \u2014\n``pending`` (not applied: an ambiguous link, an operator-linked one awaiting a verdict, one the operator\ntook back, or a pre-R8-B link awaiting the nightly sweep; a pending void/duplicates SUPPRESSES its target\nmeanwhile), ``applied`` (by the system, or ratified), ``kept`` (the original stands) or ``inert``.\n``review`` (R8-B) is where it sits for the operator: ``owed`` / ``auto`` (applied automatically) /\n``decided`` (a standing operator verdict) / ``historical`` (ambiguous, but no call reads the rows it\ntouches) / ``queued`` (the next nightly sweep applies it) / ``inert``. ``suppressing`` = the original\naccession(s) it currently removes from every read; ``undo_id`` = the standing OPERATOR decision an Undo\nrevokes (the verdict first, else the link) \u2014 ``None`` on an applied-automatically one, whose Undo is\n``keep`` (\"keep the original\"). ``system_basis`` = the basis of the standing system application\n(``system:filer-correction`` / ``system:no-signal-effect``; ``None`` for a correction applied by its link\nalone). ``touches_buy`` = a code-P row on either side. ``filing_url`` = the 4/A's EDGAR filing index.\n\n``signal_effect`` = its effect changes a row a call signal reads (a code a registered detector declares,\ncompared with the owner's role / name and the 10b5-1 flag); ``auto_resolved`` = applied by the system\n(``review == \"auto\"``); ``in_window`` = the signal codes whose changed rows sit inside a signal's live read\nhorizon today (it can move tonight's call); ``in_review`` = a changed signal row sits inside the review\nhorizon today (an ambiguous link is owed only then)."
+        "description": "One Form 4/A and everything the operator needs to ratify it.\n\n``disposition`` is what it changed (``domain.insider_amendments``); ``status`` its EFFECTIVE state \u2014\n``pending`` (not applied: an ambiguous link, an operator-linked one awaiting a verdict, one the operator\ntook back, or a pre-R8-B link awaiting the nightly sweep; a pending void/duplicates SUPPRESSES its target\nmeanwhile), ``applied`` (by the system, or ratified), ``kept`` (the original stands) or ``inert``.\n``review`` (R8-B) is where it sits for the operator: ``owed`` / ``auto`` (applied automatically) /\n``decided`` (a standing operator verdict) / ``historical`` (ambiguous, but no call reads the rows it\ntouches) / ``queued`` (the next nightly sweep applies it) / ``inert``. ``suppressing`` = the original\naccession(s) it currently removes from every read; ``undo_id`` = the standing OPERATOR decision an Undo\nrevokes (the verdict first, else the link) \u2014 ``None`` on an applied-automatically one, whose Undo is\n``keep`` (\"keep the original\"). ``system_basis`` = the basis of the standing system application\n(``system:filer-correction`` / ``system:no-signal-effect``; ``None`` for a correction applied by its link\nalone). ``touches_buy`` = a code-P row on either side. ``filing_url`` = the 4/A's EDGAR filing index.\n\n``signal_effect`` = its effect changes a row a call signal reads (a code a registered detector declares,\ncompared with the owner's role / name and the 10b5-1 flag); ``auto_resolved`` = applied by the system\n(``review == \"auto\"``); ``in_window`` = the signal codes whose changed rows sit inside a signal's live read\nhorizon today (it can move tonight's call); ``in_review`` = a changed signal row sits inside the review\nhorizon today (an ambiguous link is owed only then). R8-B's row match (a partial / consolidation / addition\n/ restatement / field change): ``kept_rows`` = the original rows (``\"<accession>#<seq>\"``) the amendment does\nNOT account for \u2014 they stand, the filer never retracted them; ``unresolved`` = a buy/sell whose date AND\nshare count both changed (restated, or an added trade? \u2014 owed to the operator, the original standing)."
       },
       "AdminInsiderAmendmentsOut": {
         "properties": {
@@ -4018,7 +4030,7 @@
         },
         "type": "object",
         "title": "AdminInsiderAmendmentsOut",
-        "description": "The \"Insider amendments\" panel (R8-B). ``owed`` is LOUD \u2014 only what the system cannot resolve and a call\ncan read: an AMBIGUOUS link touching a buy/sell row inside the review horizon (plus an operator-linked one\nawaiting its verdict, or one the operator took back), the IN-WINDOW ones first. The rest are QUIET lists,\nstill visible (#9 / WB#2): ``auto`` (applied automatically \u2014 the filer's own correction resolved to its\noriginal, or one that changes no signal row; each with its evidence and its Undo, Keep original),\n``decided`` (a standing operator verdict, each undoable), ``historical`` (ambiguous, but no call reads the\nrows it touches \u2014 the originals stand; still linkable), ``queued`` (a pre-R8-B link the next nightly sweep\napplies; a void suppresses meanwhile) and ``inert`` (clerical / no Table I rows / no stored original).\n``asof`` is the market day urgency and the review horizon were judged at; ``review_horizon_days`` the\nhorizon in force (``None`` = unbounded). Read live from the tables."
+        "description": "The \"Insider amendments\" panel (R8-B). ``owed`` is LOUD \u2014 only what the system cannot resolve and a call\ncan read: an AMBIGUOUS link or an UNRESOLVED row match touching a buy/sell row inside the review horizon\n(plus an operator-linked one awaiting its verdict, or one the operator took back), the IN-WINDOW ones first. The rest are QUIET lists,\nstill visible (#9 / WB#2): ``auto`` (applied automatically \u2014 the filer's own correction resolved to its\noriginal, or one that changes no signal row; each with its evidence and its Undo, Keep original),\n``decided`` (a standing operator verdict, each undoable), ``historical`` (ambiguous or unresolved, but no\ncall reads the rows it touches \u2014 the originals stand; an ambiguous one still linkable), ``queued`` (a pre-R8-B link the next nightly sweep\napplies; a void suppresses meanwhile) and ``inert`` (clerical / no Table I rows / no stored original).\n``asof`` is the market day urgency and the review horizon were judged at; ``review_horizon_days`` the\nhorizon in force (``None`` = unbounded). Read live from the tables."
       },
       "AdminInsiderDecisionOut": {
         "properties": {

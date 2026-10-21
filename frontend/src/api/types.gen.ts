@@ -2009,7 +2009,10 @@ export interface components {
          *     compared with the owner's role / name and the 10b5-1 flag); ``auto_resolved`` = applied by the system
          *     (``review == "auto"``); ``in_window`` = the signal codes whose changed rows sit inside a signal's live read
          *     horizon today (it can move tonight's call); ``in_review`` = a changed signal row sits inside the review
-         *     horizon today (an ambiguous link is owed only then).
+         *     horizon today (an ambiguous link is owed only then). R8-B's row match (a partial / consolidation / addition
+         *     / restatement / field change): ``kept_rows`` = the original rows (``"<accession>#<seq>"``) the amendment does
+         *     NOT account for — they stand, the filer never retracted them; ``unresolved`` = a buy/sell whose date AND
+         *     share count both changed (restated, or an added trade? — owed to the operator, the original standing).
          */
         AdminInsiderAmendmentOut: {
             /**
@@ -2103,16 +2106,23 @@ export interface components {
              * @default false
              */
             in_review: boolean;
+            /**
+             * Unresolved
+             * @default false
+             */
+            unresolved: boolean;
+            /** Kept Rows */
+            kept_rows?: string[];
         };
         /**
          * AdminInsiderAmendmentsOut
          * @description The "Insider amendments" panel (R8-B). ``owed`` is LOUD — only what the system cannot resolve and a call
-         *     can read: an AMBIGUOUS link touching a buy/sell row inside the review horizon (plus an operator-linked one
-         *     awaiting its verdict, or one the operator took back), the IN-WINDOW ones first. The rest are QUIET lists,
+         *     can read: an AMBIGUOUS link or an UNRESOLVED row match touching a buy/sell row inside the review horizon
+         *     (plus an operator-linked one awaiting its verdict, or one the operator took back), the IN-WINDOW ones first. The rest are QUIET lists,
          *     still visible (#9 / WB#2): ``auto`` (applied automatically — the filer's own correction resolved to its
          *     original, or one that changes no signal row; each with its evidence and its Undo, Keep original),
-         *     ``decided`` (a standing operator verdict, each undoable), ``historical`` (ambiguous, but no call reads the
-         *     rows it touches — the originals stand; still linkable), ``queued`` (a pre-R8-B link the next nightly sweep
+         *     ``decided`` (a standing operator verdict, each undoable), ``historical`` (ambiguous or unresolved, but no
+         *     call reads the rows it touches — the originals stand; an ambiguous one still linkable), ``queued`` (a pre-R8-B link the next nightly sweep
          *     applies; a void suppresses meanwhile) and ``inert`` (clerical / no Table I rows / no stored original).
          *     ``asof`` is the market day urgency and the review horizon were judged at; ``review_horizon_days`` the
          *     horizon in force (``None`` = unbounded). Read live from the tables.

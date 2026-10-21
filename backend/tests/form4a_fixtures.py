@@ -49,6 +49,15 @@ submissions index (``filings.recent``) as of that night:
 - ELTP ``0001465825-12-000008``: two different Form 4s by the owner were filed on its original date
   (``-000004``, ``-000005`` — the latter a 2012 code-``S`` sale) -> AMBIGUOUS, its signal rows dated 2012:
   outside the review horizon -> "unresolved — historical"; the originals stand.
+
+Under the R8-B ROW MATCH (``domain.insider_amendments.match_rows`` — an amendment replaces only the original rows
+it accounts for), same provenance:
+- IEHC and MRAM above change BOTH the date and the share count of their sales -> UNRESOLVED (restated, or an
+  added sale?): owed to the operator, the original standing.
+- MRCY ``0001049521-26-000071``: "to correct the inadvertent omission of the grant" — it reports only the grant
+  (code ``A``, 2026-08-17) and none of ``-000054``'s two sales -> applied, the sales STAND, the grant is added.
+- BAH ``0001443646-24-000094``: recodes ``-000061``'s ``S`` 2,142 sh to ``F`` (same date, same shares) -> the
+  sale is replaced by the withholding; the original's grant (code ``A``, not restated) stands.
 """
 
 from __future__ import annotations
@@ -176,6 +185,16 @@ FILINGS: dict[str, Filing] = {
     "0001465825-12-000005": _f("4", "2012-01-30", "2012-01-31T04:49:05.000Z", "0001053369", "ELTP"),
     "0001465825-12-000008": _f(
         "4/A", "2012-02-08", "2012-02-08T21:44:04.000Z", "0001053369", "ELTP"
+    ),
+    # R8-B row match — MRCY (CIK 1049521): a 4/A that only ADDS an omitted grant; the two sales stand
+    "0001049521-26-000054": _f("4", "2026-08-19", "2026-08-20T02:31:45.000Z", "0001049521", "MRCY"),
+    "0001049521-26-000071": _f(
+        "4/A", "2026-09-15", "2026-09-16T02:10:43.000Z", "0001049521", "MRCY"
+    ),
+    # R8-B row match — BAH (CIK 1443646): a code S -> F recode (same date, same shares); the grant stands
+    "0001443646-24-000061": _f("4", "2024-05-23", "2024-05-23T20:39:39.000Z", "0001443646", "BAH"),
+    "0001443646-24-000094": _f(
+        "4/A", "2024-05-28", "2024-05-28T20:38:00.000Z", "0001443646", "BAH"
     ),
 }
 

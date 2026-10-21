@@ -46,6 +46,8 @@ from domain.insider_amendments import (
     in_window_codes,
     is_other_issuer,
     link_amendment,
+    match_rows,
+    originals_rows,
     page_text,
     resolve_insider_rows,
     review_bucket,
@@ -208,26 +210,111 @@ def test_skyt_two_different_originals_on_the_date_is_ambiguous():
     assert (link.auto_resolved, link.basis) == (False, None)  # no definite original: never applied
 
 
-def test_iehc_addition_and_mram_restatement_are_applied_by_the_system():
-    """R8-B on the real in-window sells: IEHC's 4/A restates a director's sales and adds more (more rows than
-    the original), MRAM's restates the CEO's tax-withholding sale (date, price, shares) — each resolved to its
-    one original, each touching a code-S row, so each is the filer's correction, applied by the system.
+def test_iehc_and_mram_change_date_and_shares_so_their_match_is_unresolved():
+    """R8-B row match on the real in-window sells: IEHC's 4/A restates a director's sales with new dates AND
+    share counts (and adds more), MRAM's restates the CEO's tax-withholding sale's date, price AND share count.
+    Same owner, same code, but neither the date nor the share count matches: the rule cannot tell a
+    restatement from an added sale, so the system does NOT apply them — they are the operator's, the originals
+    standing meanwhile (no provisional effect)."""
+    for acc, disp, orig in (
+        ("0001174947-26-000849", ADDITION, "0001174947-26-000817"),
+        ("0001628280-26-047722", RESTATEMENT, "0001628280-26-047404"),
+    ):
+        link = _link(acc)
+        assert link.original_accessions == (orig,)
+        assert (link.disposition, link.status, link.basis) == (disp, STATUS_PENDING, None)
+        assert link.unresolved and link.signal_effect and not link.auto_resolved
+
+
+def test_mrcy_omitted_grant_keeps_both_sales_and_adds_the_grant():
+    """MRCY's 4/A only ADDS the omitted RSU grant (code A, 2026-08-17): a different code and a different
+    count on the sale's date is a different transaction, so neither sale is accounted for — both STAND. The
+    application changes no signal row (the sales are untouched), so the system applies it as no-signal-effect.
     """
-    iehc = _link("0001174947-26-000849")
-    assert iehc.original_accessions == ("0001174947-26-000817",)
-    assert (iehc.disposition, iehc.status, iehc.basis) == (
-        ADDITION,
+    link = _link("0001049521-26-000071")
+    assert link.original_accessions == ("0001049521-26-000054",)
+    assert link.disposition == PARTIAL and not link.unresolved
+    assert link.replaced_rows == ()  # it accounts for no original row
+    assert (link.status, link.basis, link.signal_effect) == (
+        STATUS_APPLIED,
+        BASIS_NO_SIGNAL_EFFECT,
+        False,
+    )
+    m = match_rows(
+        parse_form4a(xml("0001049521-26-000071")).rows,
+        originals_rows(["0001049521-26-000054"], _stored("MRCY")),
+        CODES,
+    )
+    assert m.kept == ("0001049521-26-000054#0", "0001049521-26-000054#1") and m.added == 1
+
+
+def test_bah_recode_replaces_the_sale_and_keeps_the_unmentioned_grant():
+    """BAH recodes S 2,142 sh -> F (same owner, date and share count: a recode, any code). The original's grant
+    (code A, a different count) is not restated: it STANDS."""
+    link = _link("0001443646-24-000094")
+    assert (link.disposition, link.status, link.basis) == (
+        PARTIAL,
         STATUS_APPLIED,
         BASIS_FILER_CORRECTION,
     )
-    assert iehc.signal_effect
-    mram = _link("0001628280-26-047722")
-    assert mram.original_accessions == ("0001628280-26-047404",)
-    assert (mram.disposition, mram.status, mram.basis) == (
-        RESTATEMENT,
-        STATUS_APPLIED,
-        BASIS_FILER_CORRECTION,
+    assert link.replaced_rows == ("0001443646-24-000061#1",)  # the S row
+    m = match_rows(
+        parse_form4a(xml("0001443646-24-000094")).rows,
+        originals_rows(["0001443646-24-000061"], _stored("BAH")),
+        CODES,
     )
+    assert m.kept == ("0001443646-24-000061#0",) and m.added == 0 and not m.unresolved
+
+
+def _r(code, day, shares, seq=0, owner="1", acc="O"):
+    return {
+        "accession": acc,
+        "txn_seq": seq,
+        "txn_code": code,
+        "valid_from": date.fromisoformat(day),
+        "shares": shares,
+        "price": 10.0,
+        "rpt_owner_cik": owner,
+        "insider_name": f"Owner {owner}",
+    }
+
+
+def _a(code, day, shares, seq=0, owner="1"):
+    return {
+        "txn_seq": seq,
+        "txn_code": code,
+        "txn_date": day,
+        "shares": shares,
+        "price": 10.0,
+        "rpt_owner_cik": owner,
+        "insider_name": f"Owner {owner}",
+    }
+
+
+def test_match_rows_contract():
+    """The matcher's contract over direct inputs (each the shape a stored / as-filed row has)."""
+    # a consolidation: three sales of one date restated as one -> all three accounted for
+    m = match_rows(
+        [_a("S", "2026-03-04", 6.0)],
+        [_r("S", "2026-03-04", s, i) for i, s in enumerate((1.0, 2.0, 3.0))],
+        CODES,
+    )
+    assert m.replaced == ("O#0", "O#1", "O#2") and m.kept == () and not m.unresolved
+    # a date fix (same code, same shares) — one-to-one, oldest first: the second identical sale stands
+    m = match_rows(
+        [_a("S", "2026-03-06", 100.0)],
+        [_r("S", "2026-03-04", 100.0, 0), _r("S", "2026-03-05", 100.0, 1)],
+        CODES,
+    )
+    assert m.replaced == ("O#0",) and m.kept == ("O#1",) and not m.unresolved
+    # date AND shares changed, same owner and code: unresolved (restated, or an added sale?)
+    m = match_rows([_a("S", "2026-03-06", 50.0)], [_r("S", "2026-03-04", 100.0)], CODES)
+    assert m.unresolved and m.kept == ("O#0",) and m.added == 1
+    # another owner never accounts for a row; a non-signal code never makes a conflict
+    m = match_rows([_a("S", "2026-03-04", 100.0, owner="2")], [_r("S", "2026-03-04", 100.0)], CODES)
+    assert m.kept == ("O#0",) and not m.unresolved
+    m = match_rows([_a("A", "2026-03-09", 7.0)], [_r("A", "2026-03-04", 5.0)], CODES)
+    assert m.kept == ("O#0",) and not m.unresolved
 
 
 def test_eltp_two_different_originals_is_ambiguous_with_a_2012_sell_row():
@@ -607,6 +694,39 @@ def test_a_correction_emits_the_amended_rows_in_the_fact_shape():
         )
         == []
     )
+
+
+def test_an_applied_match_replaces_only_its_rows_and_a_legacy_apply_the_whole_original():
+    """The resolver's R8-B contract with direct inputs: a verdict carrying ``replaced_rows`` suppresses exactly
+    those original rows (the rest stand) and emits the amendment's; one carrying none (every pre-R8-B decision,
+    an operator's apply of an unresolved match) replaces the whole original."""
+    am = {
+        "id": uuid4(),
+        "tenant_id": uuid4(),
+        "security_id": "s",
+        "accession": "A",
+        "rows": [{"txn_seq": 0, "txn_code": "A", "txn_date": "2026-09-24", "shares": 5.0}],
+        "accepted": T0,
+        "recorded_at": T0,
+    }
+    link = {**_link_rec(PARTIAL, originals=("O",)), "security_id": "s"}
+    rows = [_row("O", 0, code="S"), _row("O", 1, code="S")]
+
+    def _read(decision):
+        return resolve_insider_rows(
+            rows, amendments=[am], links=[link], decisions=[decision], asof=date(2026, 10, 1)
+        )
+
+    matched = _dec("apply", basis=BASIS_NO_SIGNAL_EFFECT, replaced_rows=[])
+    assert [(r["accession"], r["txn_code"]) for r in _read(matched)] == [
+        ("O", "S"),
+        ("O", "S"),
+        ("A", "A"),
+    ]
+    one = _dec("apply", basis=BASIS_FILER_CORRECTION, replaced_rows=["O#1"])
+    assert [(r["accession"], r["txn_seq"]) for r in _read(one)] == [("O", 0), ("A", 0)]
+    legacy = _dec("apply", basis="operator:apply")
+    assert [r["accession"] for r in _read(legacy)] == ["A"]
 
 
 def test_other_issuer_screen_is_keep_when_unknown():

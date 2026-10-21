@@ -1108,20 +1108,33 @@ insider; vocabulary and the pure rules: `domain/insider_amendments.py`.
 
 **How it runs.** (1) **At ingest** (`ingest.edgar.form4a`): every amendment the linker resolves to a definite
 original gets the system's `apply` decision in the link's own transaction (one `recorded_at` — a new 4/A is
-never pending), basis `system:filer-correction` (or `system:no-signal-effect` when it changes no `P`/`S` row).
+never pending), basis `system:filer-correction` (or `system:no-signal-effect` when it changes no `P`/`S` row),
+unless its row match (below) is unresolved — then it is the operator's.
 (2) **The SWEEP** (`pipeline/insider_amendment_scan.run_amendment_sweep` → `insider_amendment_repo.sweep`), run
 by the pass BEFORE its per-thesis loop — so the first nightly after deploy already calls on the applied state —
 appends the same decision for every resolvable amendment that has NO decision at all (the pre-R8-B backlog),
 stamped `recorded_at = now` (a replay pinned before it reads the pending state the system held: no rewrite of
-the past). Idempotent by construction — anything ever decided on an amendment (an operator verdict, link or
+the past) — carrying the row match below. Idempotent by construction — anything ever decided on an
+amendment (an operator verdict, link or
 Undo; an earlier system application) is never touched, re-checked under the amendment's row lock — so a
 re-run appends nothing (COUNT THE TABLE: `tests/db/test_insider_amendments.py`). Own connection, committed;
 fail-open (a fault is printed loud, rides the artifact, and the backlog simply waits — voids still
 suppressing). `--no-live` does not sweep. (3) **The scan** then counts the system applications recorded since
 the pass began — the ONE quiet line — and pages only the NEW owed items. The Admin panel lists what the system
 applied ("Applied automatically", collapsed, each with its evidence and **Keep original** as its exact Undo)
-and the ambiguous ones outside the horizon ("Unresolved — historical", collapsed and grayed, still linkable);
-`docs/ADMIN.md`.
+and the unresolvable ones outside the horizon ("Unresolved — historical", collapsed and grayed, still
+decidable); `docs/ADMIN.md`.
+
+**The row match (operator decision 2026-10-21: a correction removes a buy or sale only when it ACCOUNTS for that
+row).** An applied partial / consolidation / addition / restatement / field change replaces only the original
+rows it matches (`domain.insider_amendments.match_rows`, a pure function): same owner, and the same date with
+the same code or share count (a share / price fix, a consolidation, a recode such as BAH's `S`→`F`), else the same
+code and share count one-to-one (a date fix). An unmatched original row STANDS; an unmatched amendment row is an
+addition. An unmatched original buy/sell beside an unmatched amendment row of the same owner and code (date AND
+shares both changed) is UNRESOLVED: not applied, owed to the operator inside the review horizon, the original
+standing meanwhile (the operator's Apply ratifies it as a full restatement). The match is computed when the
+decision is written and stored on it (`replaced_rows`, migration 0053); every pre-R8-B decision replaces the whole
+original, as it always did.
 
 **The review horizon** is the dial `insider_amendment_review_horizon_days` (`Settings`; unset = derived by
 `signals.horizons.insider_amendment_review_horizon`): the two-year backtest window (730 days — the member price
@@ -1130,44 +1143,54 @@ insider read horizon a call detector declares (`P` 210) = **940 days**. An ambig
 signal rows are all older is read by no call — owing the operator a decision about it would be loudness that
 marks nothing (WB#3). A widened detector widens the horizon with no edit; an unbounded one unbounds it.
 
-**MEASURED on prod, read-only, asof 2026-10-20** (the new code's own reads over the stored links, the sweep's
-plan computed without writing):
-- **The queue under the new rule:** **owed 4** — CVNA, FIS, HROW, SKYT (all ambiguous; none inside tonight's
-  window) — **historical 39** (26 touch a `P`/`S` row older than the horizon, 13 touch none), **applied
-  automatically 1,716** after the sweep (618 already, `system:no-signal-effect`; the sweep records **1,098**:
-  the 336 formerly pending — partial 136 · void 96 · addition 41 · restatement 26 · field change 24 ·
-  consolidation 12 · duplicates 1, all `system:filer-correction` — plus the 762 corrections that were already
-  in effect by their links, now carrying a decision row: 246 `system:filer-correction`, 516
-  `system:no-signal-effect`), **inert 1,229**. The first nightly's quiet line will therefore read ~1,098
-  applied (thereafter single digits); it pages nothing new (the 4 owed keys already paged on 2026-10-20).
+**MEASURED on prod, read-only, asof 2026-10-20** (the branch's own reads over the stored links on 2026-10-21; the
+sweep's plan computed without writing):
+- **The row match on the class it was built for.** Of the 336 formerly pending, **144** drop an original `P`/`S`
+  row under "rows replace" (partial 115, restatement 21, addition 8). Under the match: **22 apply cleanly** (every
+  original buy/sell accounted for — BAH's eight `S`→`F` recodes among them), **96 apply and keep the unmatched
+  originals** (all nine "add an omitted line" 4/As keep their sales: MRCY $99,431, GD $5,600,304, WLTH
+  $12,047,980, NNE $3,276,423, IBKR $972,393, FLR $380,661, ACHR $124,706, COIN ×2 $6,785,046), **26 go to the
+  operator** (unresolved: 11 inside the review horizon — owed — and 15 older — historical). The filings expected
+  to "apply as restatements" do NOT all: MRAM's tax-sale 4/As (×5) and BKSY's (×4) change the date, the price AND
+  the share count, and IEHC's restates its sales with new dates and counts, so the rule cannot tell a restatement
+  from an added sale — they are owed (MRAM ×3 and IEHC inside tonight's sell window).
+- **The queue:** **owed 15** — 4 ambiguous (CVNA, FIS, HROW, SKYT) and 11 unresolved matches (IEHC, MRAM ×5,
+  BKSY ×4, YYAI); 4 inside tonight's window — **historical 54** (39 ambiguous, 15 unresolved), **applied
+  automatically 1,690** after the sweep (618 already; the sweep records **1,072**: the 310 resolvable formerly
+  pending — partial 129, void 96, addition 38, field change 24, consolidation 12, restatement 10, duplicates 1 —
+  and the 762 corrections already in effect by their links), **inert 1,229**. The first nightly's quiet line will
+  read ~1,072 applied (thereafter single digits); it pages nothing new (every owed key was in the 2026-10-20 pending
+  inventory, which already paged).
 - **The forward call effect** (all 12 active theses re-assembled through the production funnel at asof
-  2026-10-20, known_at = now, with vs without the sweep's decisions injected in memory; attributed by applying
-  one amendment at a time): **no state, verdict, headline, armed set or setup strength changes.** Three cards
-  change their insider-sell risk text — *AI Memory & Storage* and *Modern Defense*: MRCY's line re-reads
-  $41,674,761 / 29 txns → $41,575,330 / 27 txns (MRCY 0001049521-26-000071, a partial); *Modern Defense* also
-  gains a KN insider-sell line ($484,028 / 3 txns; KN 0001196914-26-000004, a field change: the filer says the
-  original wrongly marked the sales 10b5-1); *The Everything Exchange*: FRHC's line cites the 4/A
-  0000929638-26-003399 in place of its original (the title-only field change; same dollars). These three re-record
-  their content on the first nightly after deploy (its new as-of always appends); a same-as-of re-run after
-  deploy would append a second row for exactly these three.
+  2026-10-20, known_at = now, with vs without the sweep's decisions injected in memory): **no state, verdict,
+  headline, armed set or setup strength changes.** Two cards change insider-sell risk text — *Modern Defense*
+  gains a KN line ($484,028 / 3 txns; KN 0001196914-26-000004, a field change: the filer says the original
+  wrongly marked the sales 10b5-1); *The Everything Exchange*: FRHC's line cites the 4/A 0000929638-26-003399 in
+  place of its original (a title-only field change; same dollars). MRCY's line no longer moves (its sales stand).
+  These two re-record their content on the first nightly after deploy (its new as-of always appends); a same-as-of
+  re-run after deploy would append a second row for exactly these two.
 - **The history counterfactual** (R8-A's method: each of the **666** honest call rows re-assembled at its own
-  `(asof, known_at = recorded_at)`, every link and standing decision treated as known at its SEC acceptance —
-  the R8-A rule vs the R8-B rule): **0 thesis-level arm flips; 0 changes of state, verdict, headline or armed
-  set; 140 rows change only insider-sell risk text** (AI Memory & Storage 71, Modern Defense 35, The Everything
-  Exchange 34 — MRAM's restated tax-withholding sales, MRCY, KN, FRHC, and INFQ's addition disclosing that part
-  of a fund distribution was sold), **526 unchanged**.
+  `(asof, known_at = recorded_at)`, every link and standing decision treated as known at its SEC acceptance — the
+  R8-A rule vs the R8-B rule with the row match): **0 thesis-level arm flips; 0 changes of state, verdict, headline or armed set; 69 rows change only insider-sell risk text** (Modern Defense 35 — KN's corrected 10b5-1 flag and INFQ's addition disclosing that part of a fund distribution was sold; The Everything Exchange 34 — FRHC's provenance), **597 unchanged**. (The first R8-B build, before the row match, changed 140 rows — MRAM's restated sales and MRCY's dropped sales among them; MRAM is now owed and MRCY's sales stand.)
 
-**Open — the "omitted line" class (MEASURED, the operator's call).** "Rows replace" is the filer's correction
-only when the 4/A restates the whole filing. Of the 336 formerly pending, **144 drop an original `P`/`S` row**
-when applied (partial 115, restatement 21, addition 8); **33** of those sit inside the review horizon, 5 inside
-tonight's window. Most are the filer's own restatement (BAH's eight `S`→`F` code fixes, MRAM's and BKSY's date /
-price / share fixes, IEHC's restated sales). But by the filer's own remarks, **nine** 4/As only ADD an omitted line
-and never mention the sales they "drop": MRCY (the grant — $99,431 of sales, inside tonight's window), GD (a
-donation — $5,600,304), WLTH (withheld RSUs — $12,047,980), NNE ($3,276,423), IBKR ($972,393), FLR ($380,661),
-ACHR ($124,706), COIN ×2 (10b5-1 sales, $6,785,049). Applying those silences real sales (no buy is silenced in the
-horizon). Keep original fixes any one; a rule (e.g. "a partial whose omitted rows are signal rows waits for the
-operator", or merge semantics — which would double-count MRAM-style date restatements) is not built: it needs the
-operator's sign-off.
+**Open — voids (MEASURED, proposed, NOT built — the operator's call).** A zero-row 4/A (a "void") still removes
+its original's rows, as it did while pending under R8-A. Of the 96 that remove a `P`/`S` row, **17** sit inside
+the review horizon, and by the filer's OWN remarks / footnotes (a deterministic keyword match — a located passage,
+never a model) only **6** retract the trade: FLS ("was cancelled by the Reporting Person's broker"), AVEX ("does not
+hold any shares"), MNKD ("should not have been filed"), FIGR ("a transaction that did not in fact occur"), DVLT ×2
+("a sale … that did not occur"). The other **11** change no Table I row at all — holdings or ownership form (SMR,
+inside tonight's window; STEX, SCHW), Table II (HIMS ×2, SUPN, BTAI, MPTI), a power of attorney (AZTA: "No other
+changes have been made"), the issuer's address (CRCW), the filer's status (VWAV: "All transaction data in the
+original filing remains correct"). Older: 7 retractions, 72 not (42 with explicit no-Table-I-change language, 30
+other explanations — omitted holdings, exercise-price fixes). **Proposed rule:** a zero-row amendment removes the
+original's `P`/`S` rows ONLY with explicit retraction language (cancel/cancellation, did not occur, never occurred,
+no transactions occurred, not executed/consummated, should not have been filed/reported, filed in error,
+erroneously filed, erroneously reported a/the sale|purchase|…, rescinded, duplicate, void ab initio, never held,
+does not hold/own any, mistakenly filed/reported a … transaction, attributable to him/her); otherwise (a) INERT —
+the original stands — or (b) owed to the operator, the original standing. Counts: inside the horizon both suppress
+6; (a) makes 11 inert and owes 0, (b) owes 11 more (26 in all). Older: (a) 72 inert; (b) 72 historical. Known
+limits: a keyword names a transaction, not a row (MRAM's 2021 void retracts a grant but also removes a sale);
+DKNG's "erroneously reported 0 derivative securities" is why "erroneously reported" needs a transaction noun.
 
 ## The scheduling sidecar — the `cron` service + `scripts/daily_cron.sh`  `[BUILT #73]`
 

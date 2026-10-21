@@ -324,10 +324,11 @@ def _form4_leg(
     skips.extend(amend_skips)
     skipped += len(amend.skipped)
     if amend.stored:
-        # R8-B — a resolvable 4/A is applied by the system as it is stored; only an ambiguous one is not
+        # R8-B — a resolvable 4/A is applied by the system as it is stored; an ambiguous one (or an unresolved
+        # row match) is not
         applied = sum(1 for a in amend.stored if a.link is not None and a.link.auto_resolved)
         tail = f", {applied} applied by the system" if applied else ""
-        tail += f", {amend.pending} ambiguous (Admin)" if amend.pending else ""
+        tail += f", {amend.pending} for the operator (Admin)" if amend.pending else ""
         print(f"  {sec.ticker or sec.id}: +{len(amend.stored)} form 4/A stored + linked{tail}")
     return appended, skipped, txn_rejected, tuple(skips)
 

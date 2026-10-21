@@ -73,13 +73,12 @@ def _decisions_count(db) -> int:
 
 
 def _as_r8a_left_it(db, sid) -> None:
-    """The state R8-A's ingest left (no decision for a correction or a signal-touching routed amendment):
-    drop the ingest's filer-correction rows (a test-DB fixture step — prod holds exactly this shape).
-    """
+    """The decision-less backlog a pre-R8-B ingest left: drop the decisions R8-B's ingest wrote (``detail.via
+    = ingest``) — a test-DB fixture step; prod holds exactly this shape."""
     with db.cursor() as cur:
         cur.execute(
-            "DELETE FROM insider_amendment_decision WHERE security_id = %s AND basis = %s",
-            (sid, "system:filer-correction"),
+            "DELETE FROM insider_amendment_decision WHERE security_id = %s AND detail->>'via' = 'ingest'",
+            (sid,),
         )
     db.commit()
 
@@ -295,33 +294,31 @@ def test_the_page_cap_never_collapses_an_in_window_item():
 def test_the_sweep_applies_the_backlog_and_the_scan_counts_it_quietly(db):
     """The pass's sweep (own connection, committed) applies what a pre-R8-B ingest left pending; the scan
     counts the system applications recorded since the pass began (one quiet line), and none of them pages.
-    Re-running the sweep appends nothing — COUNT THE TABLE."""
-    fls, iehc, skyt = seed(db, "FLS"), seed(db, "IEHC"), seed(db, "SKYT")
-    for sid in (fls, iehc):
+    IEHC's unresolved row match (date AND shares changed) is not applied: it joins SKYT as owed. Re-running the
+    sweep appends nothing — COUNT THE TABLE."""
+    fls, mrcy, iehc, skyt = seed(db, "FLS"), seed(db, "MRCY"), seed(db, "IEHC"), seed(db, "SKYT")
+    for sid in (fls, mrcy, iehc):
         _as_r8a_left_it(db, sid)
-    _place(db, [fls, iehc, skyt])
+    _place(db, [fls, mrcy, iehc, skyt])
     started = db_now(db)
     db.commit()
     before = _decisions_count(db)
     sweep = run_amendment_sweep(allow_live=True, connect=connect)
     assert (sweep.ran, sweep.error, sweep.applied) == (True, None, 2)
-    assert sweep.by_basis == {"system:filer-correction": 2}
+    assert sweep.by_basis == {"system:filer-correction": 1, "system:no-signal-effect": 1}
     assert _decisions_count(db) == before + 2
     scan = _scan(None, since=started, sweep=sweep)
-    assert scan.applied == {"system:filer-correction": 2} and scan.swept == 2
-    assert [p.ticker for p in scan.pending] == ["SKYT"]  # the applied ones are not owed
-    assert scan.new_labels == (scan.pending[0].label,)
+    assert scan.applied == sweep.by_basis and scan.swept == 2
+    assert {p.ticker for p in scan.pending} == {"SKYT", "IEHC"}  # the applied ones are not owed
+    (iehc_owed,) = [p for p in scan.pending if p.ticker == "IEHC"]
+    assert iehc_owed.unresolved and "date and share count both changed" in iehc_owed.label
     assert count_line(scan) == (
-        "Form 4/A: 2 applied automatically (filer corrections), 1 owed your decision (quiet)"
+        "Form 4/A: 2 applied automatically (filer corrections), 2 owed your decision (quiet)"
     )
     assert report_lines(scan)[-1] == count_line(scan)
-    assert not any("FLS" in line or "IEHC" in line for line in report_lines(scan))
+    assert not any(line.lstrip().startswith(("FLS", "MRCY")) for line in report_lines(scan))
     block = scan.payload()["insider_amendments"]
-    assert (block["applied"], block["swept"], block["sweep_error"]) == (
-        {"system:filer-correction": 2},
-        2,
-        None,
-    )
+    assert (block["applied"], block["swept"], block["sweep_error"]) == (sweep.by_basis, 2, None)
     again = run_amendment_sweep(allow_live=True, connect=connect)
     assert again.applied == 0 and _decisions_count(db) == before + 2  # idempotent
 
