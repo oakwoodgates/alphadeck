@@ -38,7 +38,9 @@ from signals.base import window_prices
 
 # the aux columns the export wrote as JSON strings (jsonb / text[]) — decoded back to the Postgres shape
 _AUX_JSON_COLS: dict[str, tuple[str, ...]] = {
-    "insider_amendment": ("rows",),
+    # footnotes (jsonb ``[{id, text}]``) — the filer's words the composition reads, decoded so both engines hand
+    # ``compose_statements`` the same list
+    "insider_amendment": ("rows", "footnotes"),
     "insider_amendment_link": ("original_accessions", "voided_accessions", "candidate_accessions"),
     "insider_amendment_decision": ("original_accessions", "voided_accessions", "replaced_rows"),
 }

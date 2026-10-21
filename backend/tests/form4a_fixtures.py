@@ -116,6 +116,43 @@ on 2026-10-21; FILINGS rows from the cached submissions index):
 - AMSC ``0001209191-10-061925``: ``0001209191-10-062237`` re-dates two buys (34,000 + 20,000 to 2010-12-17);
   ``0001209191-11-004333`` (dated its own filing day; the same-day ``-11-004336`` was accepted AFTER it, the R8
   linker fix refuses it) re-reports the 80,000-share buy. Different trades: every row stands.
+
+Added for the R8 RE-DERIVATION (2026-10-21 — the legacy system decisions written before the row match, NULL =
+the whole original, re-recorded with their row match). The three documents were copied READ-ONLY out of prod's
+EDGAR cache (``docker cp alphadeck-cron-1:/data/edgar_cache/forms/<accession>/<doc>``, the bytes the live legs
+fetched: the Form 4 on 2026-08-05, the two 4/As on the first live 4/A night, 2026-10-20); the FILINGS rows are
+Caesars Entertainment's cached submissions index (``filings.recent`` — ``filingDate`` + ``acceptanceDateTime``),
+read in the same container on 2026-10-21. The issuer is Eldorado Resorts (CIK 1590895, now Caesars — the master's
+CZR):
+- CZR ``0000899243-17-011774``: an officer's merger-day Form 4 (2017-05-01 / 05-03) — a code-``A`` receipt of
+  33,031 shares, eight ``M`` RSU conversions and two ``F`` tax withholdings (11 rows; no ``P`` / ``S``).
+- ``0000899243-17-012327`` re-reports only the ``A`` line, as 33,118 shares ("corrects an error with respect to the
+  number of shares … received in connection with the Agreement and Plan of Merger"); ``0000899243-17-014616``
+  re-reports only the 2017-05-01 ``F`` line, as 2,859 shares. Both PARTIAL. Prod's first live night applied both
+  with no row match (``system:no-signal-effect``, NULL), so the later one replaced the WHOLE original and
+  superseded the earlier one: the read held only the 2,859-share withholding, the other ten original lines and the
+  restated 33,118 gone.
+
+Added for the COMPOSITION FIX (2026-10-21 — a later 4/A matched against an earlier AMENDMENT's standing rows by
+R8-B's own rules, plus the filer's SUPERSEDE words). Same provenance: every document copied READ-ONLY out of prod's
+EDGAR cache (``docker cp alphadeck-cron-1:/data/edgar_cache/forms/<accession>/<doc>``) on 2026-10-21; the FILINGS
+rows are the companies' cached submissions index (``filingDate`` + ``acceptanceDateTime``) read the same day:
+- ONTO (Onto Innovation, CIK 704532) ``0001407682-20-000030``: an officer's three code-``D`` withholding lines.
+  ``-000045`` (2020-02-11) recodes them ``F`` and adds the RSU grant (``A`` 31,210); ``-000102`` (2020-10-16)
+  re-counts the withholdings (2,760 / 2,910 / 2,730) and repeats the grant, in its words: "This amendment
+  supersedes the amendment filed on February 11, 2020". It accounts for no ORIGINAL line by exact shape, so
+  before the fix the two amendments' lines stacked once both were applied row by row.
+- ASTH (Apollo Medical, now Astrana, CIK 1083446; fixture group ``ASTH-COMPOSE``, so the linker-fix ASTH group
+  is untouched) ``0001553350-17-001361``: the merger-day ``J`` line, 1,546,026 shares. ``-17-001403`` (a 1:1
+  CORRECTION) reports Allied's 1,664,054; ``-18-000259`` reports both lines re-computed — 1,563,763 and 1,682,109
+  ("to correct a miscalculation in the number of shares … deemed to be beneficially owned"). The two do not sum
+  to 1,664,054. Since the FIX phrase "correct(s|ed|ing) a | an | the miscalculation" (2026-10-21) its own words
+  settle the leftover group: the two lines replace the correction's line.
+- LQDT (Liquidity Services, CIK 1235468) ``0001235468-23-000010``: four code-``M`` RSU lines; its 4/A
+  ``0001209191-23-024301`` adds a ``J`` 1,769-share relinquishment because "the issuer inadvertently miscalculated
+  the withholding amount" — one of the 24 other stored 4/As that say "miscalculat…", which the new phrase does
+  NOT read as a fix (the negative case). Copied read-only the same way on 2026-10-21; FILINGS rows from Liquidity
+  Services' cached submissions index.
 """
 
 from __future__ import annotations
@@ -428,6 +465,36 @@ FILINGS: dict[str, Filing] = {
         "4/A", "2011-01-20", "2011-01-21T02:11:44.000Z", "0000880807", "AMSC"
     ),
     "0001209191-11-004336": _f("4", "2011-01-20", "2011-01-21T02:34:02.000Z", "0000880807", "AMSC"),
+    # the R8 re-derivation — see the module docstring (issuer Eldorado Resorts, CIK 1590895, now Caesars)
+    "0000899243-17-011774": _f("4", "2017-05-03", "2017-05-04T01:56:19.000Z", "0001590895", "CZR"),
+    "0000899243-17-012327": _f(
+        "4/A", "2017-05-08", "2017-05-08T23:57:52.000Z", "0001590895", "CZR"
+    ),
+    "0000899243-17-014616": _f(
+        "4/A", "2017-05-26", "2017-05-26T22:22:42.000Z", "0001590895", "CZR"
+    ),
+    # the composition fix — see the module docstring
+    "0001407682-20-000030": _f("4", "2020-02-10", "2020-02-10T21:13:54.000Z", "0000704532", "ONTO"),
+    "0001407682-20-000045": _f(
+        "4/A", "2020-02-11", "2020-02-11T23:13:07.000Z", "0000704532", "ONTO"
+    ),
+    "0001407682-20-000102": _f(
+        "4/A", "2020-10-16", "2020-10-16T17:56:00.000Z", "0000704532", "ONTO"
+    ),
+    "0001553350-17-001361": _f(
+        "4", "2017-12-12", "2017-12-13T07:21:54.000Z", "0001083446", "ASTH", "ASTH-COMPOSE"
+    ),
+    "0001553350-17-001403": _f(
+        "4/A", "2017-12-18", "2017-12-19T05:37:37.000Z", "0001083446", "ASTH", "ASTH-COMPOSE"
+    ),
+    "0001553350-18-000259": _f(
+        "4/A", "2018-03-29", "2018-03-30T05:42:37.000Z", "0001083446", "ASTH", "ASTH-COMPOSE"
+    ),
+    # the "correct a miscalculation" FIX phrase's negative case — see the module docstring
+    "0001235468-23-000010": _f("4", "2023-01-04", "2023-01-04T23:24:18.000Z", "0001235468", "LQDT"),
+    "0001209191-23-024301": _f(
+        "4/A", "2023-04-14", "2023-04-14T20:11:39.000Z", "0001235468", "LQDT"
+    ),
 }
 
 CIKS = {f.key: f.cik for f in FILINGS.values()}

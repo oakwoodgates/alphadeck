@@ -1,0 +1,95 @@
+<?xml version="1.0"?>
+<ownershipDocument>
+
+    <schemaVersion>X0306</schemaVersion>
+
+    <documentType>4/A</documentType>
+
+    <periodOfReport>2017-05-01</periodOfReport>
+
+    <dateOfOriginalSubmission>2017-05-03</dateOfOriginalSubmission>
+
+    <notSubjectToSection16>0</notSubjectToSection16>
+
+    <issuer>
+        <issuerCik>0001590895</issuerCik>
+        <issuerName>Eldorado Resorts, Inc.</issuerName>
+        <issuerTradingSymbol>ERI</issuerTradingSymbol>
+    </issuer>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001356140</rptOwnerCik>
+            <rptOwnerName>Quatmann Edmund L Jr</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerStreet1>C/O ELDORADO RESORTS, INC.</rptOwnerStreet1>
+            <rptOwnerStreet2>100 WEST LIBERTY STREET, 11TH FLOOR</rptOwnerStreet2>
+            <rptOwnerCity>RENO</rptOwnerCity>
+            <rptOwnerState>NV</rptOwnerState>
+            <rptOwnerZipCode>89501</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>0</isDirector>
+            <isOfficer>1</isOfficer>
+            <isTenPercentOwner>0</isTenPercentOwner>
+            <isOther>0</isOther>
+            <officerTitle>See Remarks</officerTitle>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <nonDerivativeTable>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Common Stock</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2017-05-01</value>
+            </transactionDate>
+            <deemedExecutionDate></deemedExecutionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>F</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+            </transactionCoding>
+            <transactionTimeliness>
+                <value></value>
+            </transactionTimeliness>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>2859</value>
+                    <footnoteId id="F1"/>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>19.05</value>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>D</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>79040</value>
+                    <footnoteId id="F1"/>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>D</value>
+                </directOrIndirectOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+    </nonDerivativeTable>
+
+    <footnotes>
+        <footnote id="F1">This Amendment corrects an error in the calculation of the reporting person's net share settlement to satisfy tax liability upon the vesting of Isle of Capri, Inc. (&quot;Isle&quot;) restricted stock units that had vested at the effective time of the merger of a subsidiary of the Issuer with and into Isle (the &quot;Effective Time&quot;) and converted into 8,567 shares of ERI common stock at the Effective Time. The original Form 4 is being amended by this Form 4/A to increase the number of shares actually withheld by the Issuer by 610 shares and decrease the amount of securities beneficially owned following the transaction after final calculation of the resulting tax liability by a corresponding amount.</footnote>
+    </footnotes>
+
+    <remarks>Executive Vice President, Chief Legal Officer and Secretary</remarks>
+
+    <ownerSignature>
+        <signatureName>/s/ Edmund L. Quatmann, Jr.</signatureName>
+        <signatureDate>2017-05-26</signatureDate>
+    </ownerSignature>
+</ownershipDocument>

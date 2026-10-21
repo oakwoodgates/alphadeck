@@ -1,0 +1,96 @@
+<?xml version="1.0"?>
+<ownershipDocument>
+
+    <schemaVersion>X0306</schemaVersion>
+
+    <documentType>4/A</documentType>
+
+    <periodOfReport>2017-05-01</periodOfReport>
+
+    <dateOfOriginalSubmission>2017-05-03</dateOfOriginalSubmission>
+
+    <notSubjectToSection16>0</notSubjectToSection16>
+
+    <issuer>
+        <issuerCik>0001590895</issuerCik>
+        <issuerName>Eldorado Resorts, Inc.</issuerName>
+        <issuerTradingSymbol>ERI</issuerTradingSymbol>
+    </issuer>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001356140</rptOwnerCik>
+            <rptOwnerName>Quatmann Edmund L Jr</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerStreet1>C/O ELDORADO RESORTS, INC.</rptOwnerStreet1>
+            <rptOwnerStreet2>100 WEST LIBERTY STREET, 11TH FLOOR</rptOwnerStreet2>
+            <rptOwnerCity>RENO</rptOwnerCity>
+            <rptOwnerState>NV</rptOwnerState>
+            <rptOwnerZipCode>89501</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>0</isDirector>
+            <isOfficer>1</isOfficer>
+            <isTenPercentOwner>0</isTenPercentOwner>
+            <isOther>0</isOther>
+            <officerTitle>See Remarks</officerTitle>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <nonDerivativeTable>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Common Stock</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2017-05-01</value>
+            </transactionDate>
+            <deemedExecutionDate></deemedExecutionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>A</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+            </transactionCoding>
+            <transactionTimeliness>
+                <value></value>
+            </transactionTimeliness>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>33118</value>
+                    <footnoteId id="F1"/>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <footnoteId id="F1"/>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>A</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>79650</value>
+                    <footnoteId id="F2"/>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>D</value>
+                </directOrIndirectOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+    </nonDerivativeTable>
+
+    <footnotes>
+        <footnote id="F1">This Amendment corrects an error with respect to the number of shares of Eldorado Resorts, Inc. (&quot;ERI&quot;) common stock and cash the reporting person received in connection with the Agreement and Plan of Merger (the &quot;Merger Agreement&quot;), dated September 19, 2016, among ERI, Isle of Capri Casinos, Inc. (&quot;Isle&quot;), Eagle I Acquisition Corp. and Isle of Capri Casinos LLC (f/k/a Eagle II Acquisition Company LLC). In connection with the Merger Agreement, the reporting person actually received the shares of ERI common stock reported above and $425,730 in cash in exchange for 38,729 shares of Isle common stock.</footnote>
+        <footnote id="F2">This Amendment corrects an error in the calculation of the Amount of Securities Beneficially Owned Following Reported Transactions in Column 5 from the Form 4 filed on May 3, 2017.</footnote>
+    </footnotes>
+
+    <remarks>Executive Vice President, Chief Legal Officer and Secretary</remarks>
+
+    <ownerSignature>
+        <signatureName>/s/ Edmund L. Quatmann Jr.</signatureName>
+        <signatureDate>2017-05-08</signatureDate>
+    </ownerSignature>
+</ownershipDocument>

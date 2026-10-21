@@ -38,7 +38,9 @@ def _seed(db) -> dict[str, object]:
     """Every disposition the resolver acts on, from the real filings: ATCH corrections, the FLS void, the TDG
     duplicates, the SKYT pair the row tie-break settles (a system-applied partial), the CVNA ambiguous pair, the
     IEHC 4/A whose same-day later filing the order test refuses, COIN / LFST / AMSC (several applied amendments
-    of one original, composed), the AZTA power-of-attorney void, the AVAV grant-only void the
+    of one original, composed), ONTO (a later 4/A whose own words SUPERSEDE the earlier amendment — the
+    composition reads its remarks + footnotes, so both engines must carry them), ASTH-COMPOSE (a correction and
+    a later restatement the rules cannot account for), the AZTA power-of-attorney void, the AVAV grant-only void the
     system resolved (its ``system:no-signal-effect`` decision rides the mirror too), the FRHC field change,
     and a VWAV other-issuer filing stored the way the leg stored it before R8-A."""
     sids: dict[str, object] = {}
@@ -52,6 +54,8 @@ def _seed(db) -> dict[str, object]:
         "COIN",
         "LFST",
         "AMSC",
+        "ONTO",
+        "ASTH-COMPOSE",
         "AZTA",
         "AVAV",
         "FRHC",

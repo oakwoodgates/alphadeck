@@ -74,7 +74,9 @@ restate them all — IEHC), else unresolved. An unaccounted original that no lef
 amendment row is an addition. The match is computed once, against the full stored rows, when the ``apply``
 decision is written, and STORED on it (``replaced_rows``, migration 0053): the original row keys it replaces
 (``[]`` = it replaces nothing — an Add); NULL (every pre-R8-B decision, and the operator's "Use the correction")
-replaces the whole original.
+replaces the whole original. The SYSTEM's own NULL applications on a matched disposition — written on the first
+live night, before the row match existed — are re-derived forward, append-only, wherever their row match changes
+the read (``is_legacy_whole`` / ``rederive_scope``; ``pipeline.rederive_amendment_matches``).
 
 THE VOIDS (R8-B, operator decision 2026-10-21 — ``void_reading``): a zero-row 4/A retracts its original ONLY when
 BOTH the filer's text carries explicit retraction language (``RETRACTION_PHRASES``) AND the original holds exactly
@@ -238,6 +240,12 @@ BASIS_RELINK = "system:relink"
 # ambiguous and exactly one candidate holds a row the amendment accounts for
 RELINK_ORDER = "made-public-after"
 RELINK_TIE_BREAK = "row-tie-break"
+# the R8 re-derivation (2026-10-21) — the basis of the SYSTEM's ``revoke`` of its own LEGACY decision: an ``apply``
+# written before the row match existed (``replaced_rows`` NULL = the WHOLE original replaced) on a MATCHED
+# disposition, taken back and re-recorded with its row match (``match_rows``) when the row match changes the
+# read (``rederive_scope``) — append-only, stamped at the re-derivation. Never written over anything the
+# operator did.
+BASIS_REDERIVE = "system:rederive"
 _SYSTEM_PREFIX = "system:"
 # the operator's three verdicts on an owed amendment: Use the correction (``apply`` — the whole original replaced),
 # Keep the original (``keep``), Add to the original (an ``apply`` that replaces nothing — ``replaced_rows = []``:
@@ -630,6 +638,11 @@ FIX_PHRASES: tuple[str, ...] = (
     r"\bcorrect(?:s|ed|ing)?\b[^.;]{0,120}?\b(?:dates?|prices?|number of shares (?:sold|purchased|acquired|"
     r"disposed)|amounts? of (?:shares|securities) (?:sold|purchased|acquired|disposed)|transaction codes?)\b",
     r"\bincorrectly reported\b[^.;]{0,60}?\b(?:dates?|prices?|details|transactions?|sales?|purchases?)\b",
+    # 2026-10-21 (coordinator, measured): "to correct a miscalculation in the number of shares … deemed to be
+    # beneficially owned" — ASTH 0001553350-18-000259 re-computing its merger-day lines. MEASURED on prod
+    # (read-only): of the 2,988 stored 4/As it changes exactly that one reading (add -> fix); the 24 others that
+    # say "miscalculation" change no match.
+    r"\bcorrect(?:s|ed|ing)?\s+(?:a|an|the)\s+miscalculation\b",
 )
 # the filer ADDS a trade it left out (every original is kept; the amendment's rows are additions)
 ADD_PHRASES: tuple[str, ...] = (
@@ -638,9 +651,94 @@ ADD_PHRASES: tuple[str, ...] = (
     r"\bto report an? (?:additional|omitted)\b",
     r"\badditional (?:shares|sales?|purchases?|transactions?)\b",
 )
+# the filer SUPERSEDES an earlier AMENDMENT of the same original (the composition, ``compose_statements``): its
+# rows replace that amendment's rows ENTIRELY — ONTO 0001407682-20-000102, "This amendment supersedes the
+# amendment filed on February 11, 2020". The OBJECT must be an amendment (a 4/A): "supersedes the previously
+# filed Form 4" names the ORIGINAL (not this rule's — the row match settles an original), "superseded by this
+# amendment" is passive (TDG's duplicates), "does not replace" is a negation (OPCH) — none of them match.
+_AMENDMENT_NOUN = (
+    r"(?:amendments?|forms?\s+4\s*[/-]?\s*a|amended\s+forms?\s+4|form\s+4\s+amendments?)\b"
+)
+SUPERSEDE_PHRASES: tuple[str, ...] = (
+    r"(?<!not )\b(?:supersed(?:e|es|ing)|replac(?:e|es|ing))\s+(?:and\s+\w+\s+)?"
+    r"(?:the|any|all|each|such|its|his|her|their|that|those)\s+(?:[\w,-]+\s+){0,4}?"
+    + _AMENDMENT_NOUN,
+)
 _RX_RETRACTION = tuple(re.compile(x, re.I) for x in RETRACTION_PHRASES)
 _RX_FIX = tuple(re.compile(x, re.I) for x in FIX_PHRASES)
 _RX_ADD = tuple(re.compile(x, re.I) for x in ADD_PHRASES)
+_RX_SUPERSEDE = tuple(re.compile(x, re.I) for x in SUPERSEDE_PHRASES)
+_MONTHS = {
+    m: i + 1
+    for i, m in enumerate(
+        (
+            "january",
+            "february",
+            "march",
+            "april",
+            "may",
+            "june",
+            "july",
+            "august",
+            "september",
+            "october",
+            "november",
+            "december",
+        )
+    )
+}
+_RX_DATE = re.compile(
+    r"\b(?:(?P<mon>january|february|march|april|may|june|july|august|september|october|november|december)"
+    r"\.?\s+(?P<d1>\d{1,2}),?\s+(?P<y1>\d{4})|(?P<y2>\d{4})-(?P<m2>\d{2})-(?P<d2>\d{2})"
+    r"|(?P<m3>\d{1,2})/(?P<d3>\d{1,2})/(?P<y3>\d{4}))\b",
+    re.I,
+)
+
+
+def _dates_in(text: str) -> set[date]:
+    """Every calendar date written in ``text`` ("February 11, 2020", "2020-02-11", "2/11/2020"); an impossible
+    one is skipped."""
+    out: set[date] = set()
+    for m in _RX_DATE.finditer(text):
+        try:
+            if m.group("mon"):
+                out.add(
+                    date(int(m.group("y1")), _MONTHS[m.group("mon").lower()], int(m.group("d1")))
+                )
+            elif m.group("y2"):
+                out.add(date(int(m.group("y2")), int(m.group("m2")), int(m.group("d2"))))
+            else:
+                out.add(date(int(m.group("y3")), int(m.group("m3")), int(m.group("d3"))))
+        except ValueError:
+            continue
+    return out
+
+
+def superseded_amendments(text: str, earlier: Iterable[Mapping[str, Any]]) -> frozenset[str]:
+    """PURE — which EARLIER amendments (records of the same original) a 4/A's own words SUPERSEDE
+    (``SUPERSEDE_PHRASES``): when the sentence names a filing date ("supersedes the amendment filed on February
+    11, 2020"), the earlier amendments filed (or SEC-accepted) that day — none if no earlier one was (the
+    filer's date names nothing here: every row stands, #9); with no date, every earlier amendment. Empty when
+    the words supersede no amendment."""
+    earlier = list(earlier)
+    named: set[date] = set()
+    hit = False
+    for rx in _RX_SUPERSEDE:
+        for m in rx.finditer(text or ""):
+            hit = True
+            end = text.find(".", m.end())
+            named |= _dates_in(text[m.end() : end if end != -1 else len(text)])
+    if not hit:
+        return frozenset()
+    if not named:
+        return frozenset(str(a["accession"]) for a in earlier)
+    out = set()
+    for a in earlier:
+        accepted = a.get("accepted")
+        days = {_as_date(a.get("filed"))} | ({accepted.date()} if accepted is not None else set())
+        if days & named:
+            out.add(str(a["accession"]))
+    return frozenset(out)
 
 
 def filer_text(remarks: object, footnotes: Iterable[object] | None) -> str:
@@ -1644,28 +1742,44 @@ def compose_statements(
 
     - a WHOLE one supersedes the original AND every earlier amendment of it: what stands is its rows alone (the
       latest complete statement of that filing is the truth — the operator's "Use the correction");
+    - a ROW-LEVEL one, in its own words, SUPERSEDES an earlier AMENDMENT (``superseded_amendments`` —
+      ``SUPERSEDE_PHRASES``; ONTO 0001407682-20-000102, "This amendment supersedes the amendment filed on February
+      11, 2020"): that amendment's rows leave ENTIRELY (2026-10-21, the coordinator's rule);
     - a ROW-LEVEL one re-reports the SAME trade as an earlier amendment when they replace a common original row
       (an earlier WHOLE one replaced them all): it then replaces the rows of that earlier amendment it ACCOUNTS
-      for by exact shape (``match_rows`` with no filer words, against that amendment's own rows) — a second
-      correction of the same trade replaces the first, never stacks (LFST: a 10,000-share sale restated as 5,000,
-      then back to 10,000). Amendments of DIFFERENT trades of one original never touch each other's rows (AMSC:
-      one re-dates two buys, a later one re-reports a third — all stand). Its own rows join the ones that stand;
-      the original rows it replaces are its stored ``replaced_rows`` (the caller suppresses them).
+      for under R8-B's own rules against that amendment's STANDING rows (``match_rows`` with the filer's words:
+      the exact shapes, the sums — one line restated as lots that add up to it — and FIX / ADD words on the
+      leftovers) — a second correction of the same trade replaces the first, never stacks (LFST: a 10,000-share
+      sale restated as 5,000, then back to 10,000). Amendments of DIFFERENT trades of one original never touch
+      each other's rows (AMSC: one re-dates two buys, a later one re-reports a third — all stand; without this
+      scoping the share-fix shape would pair the 80,000-share line with a 34,000-share one at the same date and
+      price). There is no looser owner + date + code rule (the IBKR-class error: an added trade on the same day
+      never consumes a different one), so a genuine pure addition never consumes an earlier amendment's rows.
+      Its own rows join the ones that stand; the original rows it replaces are its stored ``replaced_rows``
+      (the caller suppresses them).
 
-    Computed over the amendment records' FULL rows (never a windowed read), so both engines compose
-    identically."""
+    Computed over the amendment records' FULL rows and their filer's words (remarks + footnotes — never a
+    windowed read), so both engines compose identically."""
     live: list[tuple[Mapping[str, Any], Mapping[str, Any], frozenset[str] | None]] = []
     for am, replaced in chain:
         rows = sorted(am.get("rows") or [], key=lambda x: x.get("txn_seq") or 0)
         if replaced is None:
             live = []
         elif live:
+            text = filer_text(am.get("remarks"), am.get("footnotes"))
+            earlier = {str(a["accession"]): a for a, _, _ in live}
+            dropped = superseded_amendments(text, earlier.values())
+            live = [x for x in live if str(x[0]["accession"]) not in dropped]
             same_trade = [
                 {**r, "accession": str(a["accession"])}
                 for a, r, rep in live
                 if rep is None or rep & replaced
             ]
-            gone = set(match_rows(rows, same_trade, frozenset()).replaced) if same_trade else set()
+            gone = (
+                set(match_rows(rows, same_trade, frozenset(), text).replaced)
+                if same_trade
+                else set()
+            )
             live = [
                 (a, r, rep)
                 for a, r, rep in live
@@ -1844,6 +1958,98 @@ class ResolutionInputs:
             lower=lower,
         )
         return screen_internal_transfers(collapse_joint_reports(resolved), resolved)
+
+
+def is_legacy_whole(eff: Effective, verdict: Mapping[str, Any] | None) -> bool:
+    """The R8 re-derivation's target (2026-10-21): a standing SYSTEM ``apply`` on a MATCHED disposition that
+    carries NO row match (``replaced_rows`` NULL — it replaces the WHOLE original). The first live night
+    (2026-10-20) wrote these before the row match existed; R8-B writes a row match on every one. Never an
+    operator verdict, a correction (1:1 by construction — whole is its meaning), a void / duplicates set, or a
+    keep."""
+    return (
+        verdict is not None
+        and verdict.get("action") == ACTION_APPLY
+        and is_system_basis(verdict.get("basis"))
+        and verdict.get("replaced_rows") is None
+        and eff.disposition in MATCHED_DISPOSITIONS
+        and eff.status == STATUS_APPLIED
+    )
+
+
+def read_key(row: Mapping[str, Any]) -> tuple[Any, ...]:
+    """One resolved row's identity in a read: a stored row by its natural key (accession, owner, date, seq); an
+    EMITTED row (a 4/A's) additionally by the original it amends (``AMENDS_ACCESSION``)."""
+    return (
+        str(row.get("accession")),
+        str(row.get("insider_name") or ""),
+        _row_date(row),
+        row.get("txn_seq"),
+        row.get(AMENDS_ACCESSION),
+    )
+
+
+def with_replaced_rows(
+    decisions: Iterable[Mapping[str, Any]], replaced: Mapping[str, Sequence[str]]
+) -> list[Mapping[str, Any]]:
+    """``decisions`` with the decision ids in ``replaced`` (``str(id) -> row keys``) carrying those
+    ``replaced_rows`` instead — the re-derived state, in memory (the plan's reads; nothing is written here).
+    """
+    return [
+        {**d, "replaced_rows": list(replaced[str(d["id"])])} if str(d["id"]) in replaced else d
+        for d in decisions
+    ]
+
+
+_FAR_ASOF = date.max
+
+
+def rederive_scope(
+    rows: Sequence[dict[str, Any]],
+    *,
+    amendments: Sequence[Mapping[str, Any]],
+    links: Sequence[Mapping[str, Any]],
+    decisions: Sequence[Mapping[str, Any]],
+    replaced: Mapping[str, Sequence[str]],
+    originals_of: Mapping[str, Sequence[str]],
+    own_ciks: Iterable[str] = (),
+) -> tuple[frozenset[str], list[dict[str, Any]], list[dict[str, Any]]]:
+    """PURE — the R8 re-derivation's scope for ONE security: which legacy whole-original decisions to re-derive,
+    and what that does to the read. Returns ``(decision ids, rows the read gains, rows it loses)``.
+
+    ``rows`` = the security's stored insider rows (the latest version of each, full history); ``amendments`` /
+    ``links`` / ``decisions`` = every version a read now sees; ``replaced`` = each legacy decision's row match
+    (``str(id) -> row keys`` — what R8-B stores); ``originals_of`` = the originals each one amends.
+
+    Compared over the 4/A resolution (``resolve_insider_rows``, every row — never a windowed read): the read with
+    every legacy decision re-derived vs the read as stored. An ORIGINAL whose read changes has EVERY legacy
+    decision that amends it re-derived (so its chain reads as R8-B composes it); a legacy decision whose
+    originals read the same is left exactly as it is (no churn). If re-deriving only those does not reproduce the
+    fully re-derived read (one amendment spanning originals), every legacy decision of the security is
+    re-derived. So after an apply the read IS the fully re-derived one, and a re-run plans nothing.
+    """
+    own = tuple(own_ciks)
+
+    def read(decs: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+        return resolve_insider_rows(
+            rows, amendments=amendments, links=links, decisions=decs, own_ciks=own, asof=_FAR_ASOF
+        )
+
+    if not replaced:
+        return frozenset(), [], []
+    old = read(decisions)
+    full = read(with_replaced_rows(decisions, replaced))
+    k_old, k_full = Counter(map(read_key, old)), Counter(map(read_key, full))
+    if k_old == k_full:
+        return frozenset(), [], []
+    by_key = {read_key(r): r for r in (*old, *full)}
+    gained = [by_key[k] for k in sorted((k_full - k_old).elements(), key=str)]
+    lost = [by_key[k] for k in sorted((k_old - k_full).elements(), key=str)]
+    changed = {str(r.get(AMENDS_ACCESSION) or r.get("accession")) for r in (*gained, *lost)}
+    picked = {i for i, origs in originals_of.items() if i in replaced and set(origs) & changed}
+    some = read(with_replaced_rows(decisions, {i: replaced[i] for i in picked}))
+    if Counter(map(read_key, some)) != k_full:
+        picked = set(replaced)
+    return frozenset(picked), gained, lost
 
 
 def group_inputs(

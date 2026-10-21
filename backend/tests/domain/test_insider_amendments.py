@@ -8,6 +8,7 @@ with direct inputs (no outcome is fitted: each input is the shape the ingest sto
 
 from __future__ import annotations
 
+import re
 from datetime import date, datetime, timedelta, timezone
 from uuid import uuid4
 
@@ -29,6 +30,7 @@ from domain.insider_amendments import (
     CORRECTION,
     DUPLICATES,
     FIELD_CHANGE,
+    FIX_PHRASES,
     METHOD_ORIG_DATE_OWNER,
     METHOD_OWNER_TXN_DATE,
     NO_ROWS,
@@ -62,12 +64,14 @@ from domain.insider_amendments import (
     effect_of,
     filer_text,
     in_window_codes,
+    is_legacy_whole,
     is_other_issuer,
     link_amendment,
     made_public_after,
     match_rows,
     originals_rows,
     page_text,
+    rederive_scope,
     relink_rule,
     resolve_insider_rows,
     review_bucket,
@@ -75,6 +79,7 @@ from domain.insider_amendments import (
     signal_signature,
     standing_decisions,
     statement_order,
+    superseded_amendments,
     sweep_resolution,
     system_basis,
     system_resolution,
@@ -1246,6 +1251,136 @@ def test_compose_a_row_level_amendment_after_a_whole_one_replaces_what_it_accoun
     ]
 
 
+def test_superseded_amendments_reads_only_a_sentence_whose_object_is_an_amendment():
+    """The SUPERSEDE contract (direct inputs; the sentences are prod's own, 2026-10-21): the object must be an
+    earlier AMENDMENT; a named filing date picks the earlier amendment(s) filed that day; no date = every earlier
+    one; a date naming none of them supersedes nothing (the rows stand, #9)."""
+    feb = _rec(
+        "E1", filed=date(2020, 2, 11), accepted=datetime(2020, 2, 11, 23, 13, tzinfo=timezone.utc)
+    )
+    mar = _rec("E2", filed=date(2020, 3, 2), accepted=None)
+    onto = "This amendment supersedes the amendment filed on February 11, 2020. Shares are RSUs."
+    assert superseded_amendments(onto, [feb, mar]) == frozenset({"E1"})
+    assert superseded_amendments(
+        "This Form 4/A supersedes the previously filed Form 4/A.", [feb, mar]
+    ) == frozenset({"E1", "E2"})
+    assert superseded_amendments(
+        "This amendment replaces the Form 4/A filed on 3/2/2020.", [feb, mar]
+    ) == frozenset({"E2"})
+    assert (
+        superseded_amendments("It supersedes the amendment filed on May 1, 2020.", [feb, mar])
+        == frozenset()
+    )
+    for not_an_amendment in (
+        # the ORIGINAL is the object (LOTT, CARG, FRMM) — the row match settles an original, not this rule
+        "This amendment is being filed to replace and supersede the previously filed Form 4 in its entirety",
+        "This Form 4/A amends and replaces the prior Form 4 filed by the Reporting Person on November 17, 2025",
+        # passive — the earlier filings are the object of THIS amendment (TDG's duplicates)
+        "-000010, also filed on June 22, 2026, were duplicate filings made in error and are superseded by this "
+        "amendment",
+        # a negation (OPCH)
+        "This Form 4 Amendment is in addition to, and does not replace, the disclosure contained in the original "
+        "Form 4",
+        "The final proration supersedes the estimated number of shares reported in the filing",  # OLN
+    ):
+        assert superseded_amendments(not_an_amendment, [feb, mar]) == frozenset(), not_an_amendment
+
+
+def test_compose_a_later_amendment_that_supersedes_an_earlier_one_replaces_its_rows_entirely():
+    """ONTO's shape (direct inputs): the later amendment accounts for no ORIGINAL line (``frozenset()``), so it is
+    no 'same trade' by its replaced rows — by shape alone both statements stand. Its SUPERSEDE sentence names the
+    earlier amendment: those rows leave; without the sentence they stay (a pure addition never consumes).
+    """
+    a1 = _rec(
+        "A1", _line(0, "F", 1391.0, 41.47, "2020-02-06"), _line(1, "A", 31210.0, 0.0, "2020-02-07")
+    )
+    a1["filed"] = date(2020, 2, 11)
+    later = (_line(0, "F", 2760.0, 41.47, "2020-02-06"), _line(1, "A", 31210.0, 0.0, "2020-02-07"))
+    plain = _rec("A2", *later)
+    worded = {
+        **plain,
+        "footnotes": [
+            {
+                "id": "F1",
+                "text": "This amendment supersedes the amendment " "filed on February 11, 2020.",
+            }
+        ],
+    }
+    rep = frozenset({"O#0", "O#1"})
+    assert _composed([(a1, rep), (plain, frozenset())]) == [
+        ("A1", "F", 1391.0),
+        ("A1", "A", 31210.0),
+        ("A2", "F", 2760.0),
+        ("A2", "A", 31210.0),
+    ]
+    assert _composed([(a1, rep), (worded, frozenset())]) == [
+        ("A2", "F", 2760.0),
+        ("A2", "A", 31210.0),
+    ]
+
+
+def test_compose_the_filers_fix_words_settle_a_restated_line_of_the_same_trade():
+    """R8-B's leftover rule against an earlier amendment's STANDING rows (direct inputs): a later correction of
+    the same trade (a common original line) re-dates AND re-counts the earlier amendment's sale — no exact shape.
+    Without words both stand; the filer's FIX words ("to correct the dates") replace the earlier line.
+    """
+    a1 = _rec("A1", _line(0, "S", 5000.0, 7.32, "2022-06-09"))
+    later = _line(0, "S", 4000.0, 7.10, "2022-06-10")
+    plain = _rec("A2", later)
+    fixed = {
+        **plain,
+        "remarks": "This amendment is filed to correct the dates and prices of the sale.",
+    }
+    rep = frozenset({"O#1"})
+    assert _composed([(a1, rep), (plain, rep)]) == [("A1", "S", 5000.0), ("A2", "S", 4000.0)]
+    assert _composed([(a1, rep), (fixed, rep)]) == [("A2", "S", 4000.0)]
+
+
+def test_correct_a_miscalculation_is_a_fix_and_miscalculated_alone_is_not():
+    """The FIX phrase added 2026-10-21, on the real filings. ASTH ``-18-000259`` ("to correct a miscalculation in
+    the number of shares … deemed to be beneficially owned") now FIXES its leftover ``J`` line — read ``add``
+    before. LQDT ``0001209191-23-024301`` ("the issuer inadvertently miscalculated the withholding amount"), one of
+    the 24 other stored 4/As that say "miscalculat…", is untouched: the phrase does not fire and its match reads
+    exactly as it did with no words at all."""
+    asth = "0001553350-18-000259"
+    p = parse_form4a(xml(asth))
+    text = filer_text(p.remarks, p.footnotes)
+    assert any(re.search(x, text, re.I) for x in FIX_PHRASES)
+    m = match_rows(
+        [_json_row(r) for r in p.rows],
+        originals_rows(["0001553350-17-001361"], _stored("ASTH-COMPOSE")),
+        CODES,
+        text,
+    )
+    assert (m.reading, m.replaced, m.added) == ("fix", ("0001553350-17-001361#0",), 0)
+
+    lqdt = "0001209191-23-024301"
+    q = parse_form4a(xml(lqdt))
+    words = filer_text(q.remarks, q.footnotes)
+    assert "miscalculated" in words
+    assert not any(re.search(x, words, re.I) for x in FIX_PHRASES)
+    lk = _link(lqdt)
+    assert (lk.disposition, lk.original_accessions) == (PARTIAL, ("0001235468-23-000010",))
+    rows = [_json_row(r) for r in q.rows]
+    originals = originals_rows(lk.original_accessions, _stored("LQDT"))
+    with_words = match_rows(rows, originals, CODES, words)
+    assert with_words == match_rows(rows, originals, CODES, "")
+    assert (with_words.replaced, len(with_words.kept), with_words.added) == ((), 4, 1)
+
+
+def test_compose_a_restated_line_split_into_lots_that_sum_to_it_replaces_it():
+    """The SUM rule against an earlier amendment's standing rows (direct inputs): one line re-stated as lots that
+    add up to it replaces it — never stacks."""
+    a1 = _rec("A1", _line(0, "J", 3000.0, 0.0, "2017-12-08"))
+    a2 = _rec(
+        "A2", _line(0, "J", 1000.0, 0.0, "2017-12-08"), _line(1, "J", 2000.0, 0.0, "2017-12-08")
+    )
+    assert _composed([(a1, None), (a2, frozenset({"O#0"}))]) == [
+        ("A2", "J", 1000.0),
+        ("A2", "J", 2000.0),
+    ]
+
+
 def test_statement_order_is_the_acceptance_then_the_filing_date_then_the_accession():
     t = datetime(2024, 3, 28, 3, 8, 45, tzinfo=timezone.utc)
     early = _rec("Z", accepted=t)
@@ -1291,6 +1426,123 @@ def test_the_resolver_composes_every_applied_amendment_of_one_original():
         ("A2", "M"),
     ]
     assert {r[AMENDS_ACCESSION] for r in out if r["accession"] != "O"} == {"O"}
+
+
+# --- the R8 re-derivation of the legacy whole-original decisions (2026-10-21) -------------------------------
+
+
+def test_a_legacy_whole_decision_is_a_standing_system_apply_with_no_row_match_on_a_matched_disposition():
+    link = _link_rec(PARTIAL)
+    legacy = _dec("apply", basis=BASIS_NO_SIGNAL_EFFECT, replaced_rows=None)
+    assert is_legacy_whole(effect_of(link, None, legacy), legacy)
+    matched = _dec("apply", basis=BASIS_NO_SIGNAL_EFFECT, replaced_rows=["O#0"])
+    assert not is_legacy_whole(effect_of(link, None, matched), matched)
+    # the operator's "Use the correction" is whole by the operator's choice, never the system's to re-derive
+    operator = _dec("apply", basis="operator:apply")
+    assert not is_legacy_whole(effect_of(link, None, operator), operator)
+    # a 1:1 correction replaces its whole original by meaning; a void / duplicates set removes, never matches
+    corr = _link_rec(CORRECTION, status=STATUS_APPLIED)
+    assert not is_legacy_whole(effect_of(corr, None, legacy), legacy)
+    assert not is_legacy_whole(effect_of(_link_rec(VOID), None, legacy), legacy)
+    keep = _dec("keep", basis=BASIS_NO_RETRACTION)
+    assert not is_legacy_whole(effect_of(link, None, keep), keep)
+    assert not is_legacy_whole(effect_of(link, None, None), None)
+
+
+def _legacy_state(ticker: str):
+    """The ticker's real originals and 4/As as prod's FIRST live night stored them: each 4/A linked by the cascade
+    and applied by the SYSTEM with no row match (``replaced_rows`` NULL — written before the row match existed).
+    """
+    stored = _stored(ticker)
+    rows = [r for rs in stored.values() for r in rs]
+    links, recs, decs, replaced, originals = [], [], [], {}, {}
+    for acc in amendments_of(ticker):
+        lk = _link(acc)
+        p = parse_form4a(xml(acc))
+        amend_rows = [_json_row(r) for r in p.rows]
+        recs.append({**_rec(acc, *amend_rows, accepted=FILINGS[acc].accepted), "id": uuid4()})
+        links.append(
+            {
+                **_link_rec(
+                    lk.disposition, originals=lk.original_accessions, status=STATUS_APPLIED
+                ),
+                "amendment_accession": acc,
+                "security_id": "s",
+            }
+        )
+        d = {
+            **_dec("apply", basis=BASIS_NO_SIGNAL_EFFECT, replaced_rows=None),
+            "amendment_accession": acc,
+        }
+        decs.append(d)
+        m = match_rows(
+            amend_rows,
+            originals_rows(lk.original_accessions, stored),
+            CODES,
+            filer_text(p.remarks, p.footnotes),
+        )
+        replaced[str(d["id"])] = m.replaced
+        originals[str(d["id"])] = lk.original_accessions
+    return rows, links, recs, decs, replaced, originals
+
+
+def test_czr_legacy_decisions_are_rederived_because_their_row_match_restores_what_whole_dropped():
+    """CZR (real filings, ``tests/form4a_fixtures.py``): two partials of one merger-day Form 4, applied whole by
+    the first live night. The later one (``-014616``, the 2017-05-01 withholding as 2,859 shares) then replaced the
+    whole original AND superseded the earlier one: the read held one row. Their row matches (``-012327`` accounts
+    for none of the 11 lines — its 33,118-share ``A`` line is kept beside the 33,031 one by R8-B's non-P/S leftover
+    rule; ``-014616`` accounts for the one withholding it restates) restore the ten other original lines and the
+    33,118 — so BOTH are re-derived, and nothing the read held is lost."""
+    rows, links, recs, decs, replaced, originals = _legacy_state("CZR")
+    late, early = "0000899243-17-014616", "0000899243-17-012327"
+    by_acc = {d["amendment_accession"]: str(d["id"]) for d in decs}
+    assert replaced[by_acc[early]] == ()
+    assert replaced[by_acc[late]] == ("0000899243-17-011774#3",)
+    picked, gained, lost = rederive_scope(
+        rows,
+        amendments=recs,
+        links=links,
+        decisions=decs,
+        replaced=replaced,
+        originals_of=originals,
+    )
+    assert picked == frozenset(by_acc.values())
+    assert lost == []
+    assert sorted((r["accession"], r["txn_seq"]) for r in gained) == sorted(
+        [("0000899243-17-011774", i) for i in (0, 1, 2, 4, 5, 6, 7, 8, 9, 10)] + [(early, 0)]
+    )
+    assert {r["txn_code"] for r in gained} == {"A", "M", "F"}  # no buy or sale: no call reads them
+
+
+def test_a_legacy_decision_whose_row_match_reads_the_same_is_left_as_it_is():
+    """The no-churn contract (direct inputs): a legacy whole apply whose row match accounts for every original
+    row — and no other amendment of that original — reads the same either way, so nothing is re-derived.
+    """
+    rows = [
+        {**_row("O", 0, code="F"), "shares": 10.0, "price": 5.0, "insider_name": "X"},
+        {**_row("O", 1, code="M"), "shares": 3.0, "price": 0.0, "insider_name": "X"},
+    ]
+    am = _rec(
+        "A",
+        {**_line(0, "F", 12.0, 5.0, "2026-09-24")},
+        {**_line(1, "M", 3.0, 0.0, "2026-09-24")},
+    )
+    link = {**_link_rec(RESTATEMENT, status=STATUS_APPLIED), "security_id": "s"}
+    legacy = _dec("apply", basis=BASIS_NO_SIGNAL_EFFECT, replaced_rows=None)
+    m = match_rows(am["rows"], originals_rows(["O"], {"O": rows}), CODES)
+    assert m.replaced == (
+        "O#0",
+        "O#1",
+    )  # a share fix + an identical line: every original row accounted for
+    picked, gained, lost = rederive_scope(
+        rows,
+        amendments=[am],
+        links=[link],
+        decisions=[legacy],
+        replaced={str(legacy["id"]): m.replaced},
+        originals_of={str(legacy["id"]): ("O",)},
+    )
+    assert (picked, gained, lost) == (frozenset(), [], [])
 
 
 def test_other_issuer_screen_is_keep_when_unknown():

@@ -37,8 +37,10 @@ def load_inputs(
     p = {"t": tenant_id, "ids": ids, "k": known_at}
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT id, tenant_id, security_id, accession, rows, accepted, filed, recorded_at "
-            "FROM insider_amendment "
+            # remarks + footnotes: the filer's own words the composition reads (a SUPERSEDE / FIX / ADD
+            # sentence — ``domain.insider_amendments.compose_statements``)
+            "SELECT id, tenant_id, security_id, accession, rows, accepted, filed, remarks, footnotes, "
+            "recorded_at FROM insider_amendment "
             "WHERE tenant_id = %(t)s AND security_id = ANY(%(ids)s) AND recorded_at <= %(k)s",
             p,
         )
