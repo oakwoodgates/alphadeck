@@ -164,6 +164,8 @@ from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
+from domain.insider_joint_reports import collapse_joint_reports
+
 # --- the vocabulary -----------------------------------------------------------------------------------
 
 NO_ROWS = "no_rows"
@@ -341,6 +343,8 @@ INSIDER_TXN_COLUMNS: tuple[str, ...] = (
     "accepted",
     "security_title",
     "issuer_foreign_symbol",
+    "direct_indirect",
+    "shares_owned_after",
 )
 
 
@@ -1696,6 +1700,9 @@ def emitted_row(
             "accepted": amendment.get("accepted"),
             "security_title": row.get("security_title"),
             "issuer_foreign_symbol": row.get("issuer_foreign_symbol"),
+            # the ownership evidence (0054) — absent on a 4/A record stored before it (-> None: never merges)
+            "direct_indirect": row.get("direct_indirect"),
+            "shares_owned_after": row.get("shares_owned_after"),
         }
     )
     out[AMENDS_ACCESSION] = original
@@ -1811,15 +1818,21 @@ class ResolutionInputs:
     def resolve(
         self, sid: Any, rows: Sequence[dict[str, Any]], *, asof: date, lower: date | None
     ) -> list[dict[str, Any]]:
+        """The 4/A resolution, THEN the joint-report collapse (``domain.insider_joint_reports``) on the resolved
+        rows — the one seam every as-of read of ``fact_insider_txn`` passes through (both engines), so a trade
+        several persons reported counts once for every reader. Nothing to resolve or collapse -> unchanged.
+        """
         key = str(sid)
-        return resolve_insider_rows(
-            rows,
-            amendments=self.amendments.get(key, ()),
-            links=self.links.get(key, ()),
-            decisions=self.decisions.get(key, ()),
-            own_ciks=self.own_ciks.get(key, ()),
-            asof=asof,
-            lower=lower,
+        return collapse_joint_reports(
+            resolve_insider_rows(
+                rows,
+                amendments=self.amendments.get(key, ()),
+                links=self.links.get(key, ()),
+                decisions=self.decisions.get(key, ()),
+                own_ciks=self.own_ciks.get(key, ()),
+                asof=asof,
+                lower=lower,
+            )
         )
 
 

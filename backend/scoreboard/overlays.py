@@ -27,6 +27,10 @@ bars themselves (``docs/CALL_LOGIC.md`` / invariant #1):
   (``fact_activist_stake``), unresolved filer identity shipping as ``None`` (kept, never dropped, #9);
   13G rows ride too — the fire policy lives in the detector, the passive-gray lives in the FE.
 
+Both insider overlays read through the shared as-of seam, so a trade several persons reported in separate
+filings (a joint report — ``domain.insider_joint_reports``) rides the ledger ONCE, its ``insider_name`` naming
+every reporter ("A / B (joint report)").
+
 The transaction axis is the load-bearing bit: every event is positioned by ``valid_from`` (the
 transaction / filed date) and GATED by ``recorded_at <= known_at`` — we only surface what we'd have
 KNOWN by ``known_at``. ``domain.market_time.known_at_for_asof`` (the router threads it in) caps that at
@@ -46,6 +50,7 @@ import psycopg
 
 from db.bitemporal import as_of
 from domain.config import DEFAULT_CONFIG
+from domain.insider_joint_reports import display_name
 from signals.display.insider_flow import BUY, SELL, _screen
 from signals.insider_sell import _FOREIGN, _SELF
 from signals.insider_sell import _screen as _sell_screen
@@ -179,7 +184,8 @@ def episode_insider_buys(
         buys.append(
             {
                 "d": vf,
-                "insider_name": r.get("insider_name"),
+                # a trade several persons reported rides ONCE, named for all of them (joint report)
+                "insider_name": display_name(r),
                 "insider_role": r.get("insider_role"),
                 "shares": _f(r.get("shares")),
                 "usd": _f(r.get("usd")),
@@ -260,7 +266,8 @@ def episode_insider_sells(
         sells.append(
             {
                 "d": vf,
-                "insider_name": r.get("insider_name"),
+                # a trade several persons reported rides ONCE, named for all of them (joint report)
+                "insider_name": display_name(r),
                 "insider_role": r.get("insider_role"),
                 "shares": _f(r.get("shares")),
                 "usd": _f(r.get("usd")),

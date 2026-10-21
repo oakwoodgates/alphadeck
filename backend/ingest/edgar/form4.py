@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import re
 import xml.etree.ElementTree as ET
 from datetime import date
@@ -161,6 +162,29 @@ def _aff_10b5_1(root: ET.Element) -> bool | None:
     return None  # an unparseable value is unknown, not a guess
 
 
+def _direct_indirect(t: Element) -> str | None:
+    """The transaction's ``<ownershipNature><directOrIndirectOwnership>``: ``'D'`` (the reporting person's own
+    shares) or ``'I'`` (held through a fund, trust, spouse, ...). Anything else — absent, empty, a value the
+    SEC schema does not define — is ``None`` (unknown), never a guess: the joint-report rule
+    (``domain/insider_joint_reports.py``) never merges a row without it."""
+    raw = (t.findtext("ownershipNature/directOrIndirectOwnership/value") or "").strip().upper()
+    return raw if raw in ("D", "I") else None
+
+
+def _shares_owned_after(t: Element) -> float | None:
+    """The transaction's ``<sharesOwnedFollowingTransaction>`` — the holding the trade left — or ``None`` when
+    absent (a filing may report ``valueOwnedFollowingTransaction`` instead) or not a number. TOLERANT on
+    purpose: this is evidence for the joint-report rule only, so a malformed value must cost the row its
+    evidence (it then never merges), never the filing its ingest (#9 — shares/price stay strict as before).
+    """
+    raw = (t.findtext("postTransactionAmounts/sharesOwnedFollowingTransaction/value") or "").strip()
+    try:
+        v = float(raw) if raw else None
+    except ValueError:
+        return None
+    return v if v is not None and math.isfinite(v) else None
+
+
 def _norm_cik(raw: str | None) -> str | None:
     """Normalize an EDGAR CIK for identity comparison — strip whitespace + leading zeros ('0001773751' ->
     '1773751'). Both the issuer CIK and the owner CIK come from the SAME filing (identically padded), so this
@@ -188,6 +212,13 @@ def parse_form4(xml: str) -> list[dict]:
     ``issuer_foreign_symbol`` (``<issuerForeignTradingSymbol>``) — the two fields the ADR/dual-listed screen
     reads to drop a home-market ordinary-share row mis-filed on a US ADR's tape (S2c; see
     ``_is_foreign_ordinary`` in the insider detectors). Both empty/absent -> None (recall-safe #9).
+
+    And the per-transaction OWNERSHIP evidence (migration 0054): ``direct_indirect`` (``'D'``/``'I'``) and
+    ``shares_owned_after`` (``<sharesOwnedFollowingTransaction>`` — the holding the trade left; ``None`` when
+    the filing reports a value instead). They are what proves that two filings by different reporting persons
+    report ONE trade (a joint report — ``domain/insider_joint_reports.py``). A joint filing's co-owners are NOT
+    stored: each transaction is ONE row under the first ``<reportingOwner>``, so one filing never
+    double-counts (``tests/ingest/test_form4_joint_reports.py``).
     """
     root = ET.fromstring(xml)
     owner = root.findtext("reportingOwner/reportingOwnerId/rptOwnerName")
@@ -231,6 +262,9 @@ def parse_form4(xml: str) -> list[dict]:
                 # the S2c ADR/dual-listed screen inputs — per-txn title + filing-level foreign symbol
                 "security_title": title,
                 "issuer_foreign_symbol": issuer_fsym,
+                # the per-txn ownership evidence (0054) — the joint-report rule's only inputs
+                "direct_indirect": _direct_indirect(t),
+                "shares_owned_after": _shares_owned_after(t),
             }
         )
     return txns
@@ -347,6 +381,10 @@ def ingest_form4(
             # pipeline.repair_adr_insider_misattribution (re-parse the cached XML, append-only re-version).
             "security_title": t["security_title"],
             "issuer_foreign_symbol": t["issuer_foreign_symbol"],
+            # the ownership evidence (migration 0054) — NULL on rows ingested before it; the stored history
+            # is repaired by pipeline.repair_insider_ownership. A NULL row never merges as a joint report.
+            "direct_indirect": t["direct_indirect"],
+            "shares_owned_after": t["shares_owned_after"],
         }
         if recorded_at is not None:
             values["recorded_at"] = recorded_at

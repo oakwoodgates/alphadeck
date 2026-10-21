@@ -22,6 +22,7 @@ from datetime import date, timedelta
 from typing import Any
 from uuid import UUID
 
+from domain.insider_joint_reports import joint_labels
 from signals.display.base import (
     DisplayBasis,
     DisplayEvent,
@@ -180,9 +181,10 @@ def _is_open_market_buy(txn: dict[str, Any], day_lows: dict[date, float]) -> boo
     return not _is_implausible(txn) and not _is_below_day_low(txn, day_lows)
 
 
-def _basis_note(offmarket: list[dict[str, Any]]) -> str:
+def _basis_note(offmarket: list[dict[str, Any]], joint: list[str] | None = None) -> str:
     """The epistemics that ride every payload — plus, when the screen fired, WHAT it set aside (#6 show
-    the work; #9 named, never silently dropped)."""
+    the work; #9 named, never silently dropped), and which trades several persons reported (each counted
+    ONCE — the joint-report collapse runs in the read, ``domain.insider_joint_reports``)."""
     note = "from ingested Form 4 only — zero is zero ingested, not proven-zero filings"
     if offmarket:
         set_aside, _ = _usd_sum(offmarket)
@@ -191,6 +193,8 @@ def _basis_note(offmarket: list[dict[str, Any]]) -> str:
             f"; screened {n} off-market code-P {'buy' if n == 1 else 'buys'} "
             f"(~{_usd_compact(set_aside)}) — offer-price subscriptions / implausible rows, not open-market"
         )
+    if joint:
+        note += f"; counted once: {'; '.join(joint)}"
     return note
 
 
@@ -311,7 +315,7 @@ def compute(
         },
         window_start=start + timedelta(days=1),
         window_end=asof,
-        note=_basis_note(offmarket),
+        note=_basis_note(offmarket, joint_labels(buys + sells)),
     )
     return DisplaySignal(
         kind=MEMBER_NAME,

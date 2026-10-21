@@ -6,6 +6,7 @@ from uuid import UUID
 
 from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.enums import Grade, Kind, Role
+from domain.insider_joint_reports import joint_accessions, joint_labels, roles_of
 from domain.signal import SignalEvent
 from signals.base import Detector, SignalPointInTimeData
 from signals.common import entry_signal_is_live, fired_signal, source_provenance
@@ -184,7 +185,11 @@ def _cluster_at(
     if total_usd < cfg.insider_min_usd:
         return None
     distinct = {t.get("insider_name") for t in buys if t.get("insider_name")}
-    senior = any(_is_senior(t.get("insider_role"), cfg.insider_senior_role_keywords) for t in buys)
+    # every role a row speaks for — a joint-report survivor carries its co-reporters' too, so a buy a senior
+    # officer co-reported stays senior when it is counted once (domain.insider_joint_reports)
+    senior = any(
+        _is_senior(role, cfg.insider_senior_role_keywords) for t in buys for role in roles_of(t)
+    )
     # core via a multi-insider cluster, OR a single strong senior buy above the high floor (calibration)
     is_core = senior and (
         (len(distinct) >= cfg.insider_core_min_distinct and total_usd >= cfg.insider_core_min_usd)
@@ -290,7 +295,16 @@ def score(
     # the strongest LIVE conviction: prefer a CORE cluster, then the most recent anchor — the same
     # selection key catalyst_conviction uses to pick among live catalysts.
     best = max(candidates, key=lambda c: (c.is_core, c.anchor))
-    by_accession = {t["accession"]: t for t in best.buys if t.get("accession")}
+    # the cluster's filings — a joint report's co-reporters' filings included (the work shown, #6)
+    by_accession = joint_accessions(best.buys)
+    label = (
+        f"{best.n_distinct} insider{'s' if best.n_distinct != 1 else ''}"
+        f"{' incl. senior officer' if best.senior else ''} bought "
+        f"${best.total_usd:,.0f} open-market (code P) across {len(best.buys)} txns"
+    )
+    joint = joint_labels(best.buys)  # trades several persons reported, counted once (named, #6)
+    if joint:
+        label += f"; counted once: {'; '.join(joint)}"
     return fired_signal(
         detector=DETECTOR_NAME,
         security_id=security_id,
@@ -298,11 +312,7 @@ def score(
         kind=Kind.INSIDER,
         grade=Grade.CORE if best.is_core else Grade.FLIP,
         score=_score(best.n_distinct, best.total_usd, best.senior, cfg),
-        label=(
-            f"{best.n_distinct} insider{'s' if best.n_distinct != 1 else ''}"
-            f"{' incl. senior officer' if best.senior else ''} bought "
-            f"${best.total_usd:,.0f} open-market (code P) across {len(best.buys)} txns"
-        ),
+        label=label,
         alpha_liveness_days=best.liveness,
         provenance=[source_provenance("form4", acc) for acc in sorted(by_accession)],
         asof=best.anchor,

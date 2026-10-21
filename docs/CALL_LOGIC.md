@@ -307,6 +307,20 @@ only *coincide* for insider buys, which is exactly why the two conviction source
   (MEASURED 2026-10-17, see `docs/FEED_LOOP.md`): FLS's cancelled $164k director buy stops being a CORE
   trigger (pending void); ATCH's five `A`→`P` recodes restore a missed CORE (5 insiders, $162,524); ARBE's
   50→50,000-share fix adds a FLIP; TDG's triplicated sells count once.
+  **Joint reports — one trade several persons reported, counted ONCE (operator-approved 2026-10-21).** After the
+  4/A resolution, in the same seam and for both engines (`domain/insider_joint_reports.py`), rows identical on
+  (date, code, shares, price, **post-trade holding**) from ≥ 2 reporting owners in ≥ 2 SEPARATE filings are one
+  trade: a fund and its partner (Maverick Capital + David Singer on INFQ), a spouse "By Spouse" (SMCI, OKLO), a
+  family vehicle and its five filers (AMKR). The evidence is the filing's own `directOrIndirectOwnership` +
+  `sharesOwnedFollowingTransaction` (migration 0054). **Never two direct holders** (two persons' own positions,
+  however identical — ALAB's co-founders); a post-trade holding of 0 or == shares merges only between filings a
+  non-trivial holding already linked; a row without the evidence NEVER merges (it can only stay double-counted).
+  The survivor is the direct holder's row when there is one, else the first filer of that owner-set (the same
+  filer for every trade of one joint report — the party counts once); it keeps its own name for the
+  distinct-insider count and carries every co-reporter's role (seniority — counted once, never demoted) and
+  filing (cited in the provenance), and the label names it: "…; counted once: A / B (joint report)". MEASURED
+  2026-10-21 on prod (read-only): 0 thesis-level flips over the 666 honest call rows; INFQ's "$95.2M across 2
+  insiders" (the 4/A pair -000507 / -000508) reads $47.6M by one party.
 - **`catalyst_conviction` `[approved]` — grade-DECOUPLED liveness (option A).** Liveness = the agreement's own
   **relevance horizon** (its period of performance), independent of grade; grade = the **customer-vs-sponsor**
   nature of the commitment — a DOE **contract** (DOE *buys your product* = revenue) or a **loan / loan

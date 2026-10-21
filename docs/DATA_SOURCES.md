@@ -481,6 +481,39 @@ Depth: the submissions `recent` window, the same accepted depth as Form 4.
   first nightly sweeps that backlog the same way — one system decision per resolvable amendment, `recorded_at =
   now` — so no past replay moves either.
 
+## Form 4 — joint reports: one trade, several filers, counted once `[BUILT — 0054; counted once at read]`
+
+**The defect (found 2026-10-21, INFQ "$95.2M across 2 insiders").** `parse_form4` stores each Table I
+transaction ONCE, under the filing's first `<reportingOwner>` — a joint filing's co-owners are not stored, so one
+filing never double-counts (MEASURED: 0 of 146,111 stored (security, accession) pairs carry a second owner). The
+double count is ACROSS filings: everyone with a beneficial interest in a trade held through a fund, a trust or a
+spouse files their OWN Form 4 for it. MEASURED on prod (read-only), cross-filing groups identical on (security,
+date, code, shares, price) with ≥ 2 owners: 15,268 (2,710 code P/S); by the filings' own XML, 2,083 of the P/S
+groups leave the SAME post-trade holding (the same position re-reported) and 627 a different one (separate
+trades); within one filing, identical rows are separate lots (several funds each selling the same lot size).
+
+**The capture (migration 0054).** `fact_insider_txn.direct_indirect` (`'D'`/`'I'`, per transaction —
+`<ownershipNature><directOrIndirectOwnership>`) and `shares_owned_after` (`<sharesOwnedFollowingTransaction>`;
+NULL when the filing reports a value instead). Nullable, progressive (the `aff_10b5_1` / `security_title` shape);
+4/A rows carry both keys through `parse_form4`. A malformed holding costs the row its evidence, never the filing
+its ingest.
+
+**The read (`domain/insider_joint_reports.py`, after the 4/A resolution, both engines).** The rule and its
+measured effect: `CALL_LOGIC.md` §3 ("Joint reports"). Every as-of reader goes through it: the two insider
+detectors, the Cockpit's insider-flow display member (its basis note names the joint reports), the Scoreboard's
+buy/sell ledger overlays (the survivor's name reads "A / B (joint report)"), and the replay mirror. Not collapsed,
+on purpose: per-filing views (the Admin 4/A panel's original-vs-amendment rows, the 4/A linker's stored-row read).
+
+**The history repair (`python -m pipeline.repair_insider_ownership`).** Re-parses the cached filing (no SEC
+request) and appends a NEW version of each candidate row with the evidence — the latest-version Form 4 rows and
+4/A records' rows that share (security, date, code, shares, price) with ANOTHER owner's row in ANOTHER filing (the
+only rows the rule can ever read evidence for), narrowed to the components of filings a P/S reader can reach
+(MEASURED 2026-10-21, prod read-only: 8,437 Form 4 rows + 128 4/A records from 2,650 cached filings, none
+uncached or mismatched, out of 50,635 candidates of every code). NULL-only + idempotent, dry-run by default (read-only connection),
+`--apply` under the call-of-record lock with the appended counts verified. Versions are stamped `now`: a replay
+pinned before the repair still reads the double count the system held (#1). A row it cannot repair (uncached,
+unparseable, a date/code/shares disagreement) stays bare — and a bare row never merges.
+
 ## 8-K item codes — the corporate-event tape `[BUILT — Band 03 S3; corporate_risk LIVE]`
 
 `fact_corporate_event` stores **every basket member's 8-Ks with their SEC item codes** — parsed from
