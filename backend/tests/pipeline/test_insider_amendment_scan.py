@@ -34,7 +34,7 @@ from pipeline.insider_amendment_scan import (
 from repositories import insider_amendment_repo
 from tests.form4a_fixtures import ingest_amendment, ingest_originals, make_security, seed
 
-SKYT_4A = "0001856680-26-000016"
+CVNA_4A = "0001690820-25-000275"
 
 
 def _place(db, sids) -> None:
@@ -59,10 +59,10 @@ def _scan(prior, **kw):
     )
 
 
-def _eltp(db):
-    sid = make_security(db, "ELTP")
-    ingest_originals(db, sid, "ELTP")
-    ingest_amendment(db, sid, "0001465825-12-000008")
+def _asth(db):
+    sid = make_security(db, "ASTH")
+    ingest_originals(db, sid, "ASTH")
+    ingest_amendment(db, sid, "0001134366-13-000009")
     return sid
 
 
@@ -97,45 +97,45 @@ def _hand_over(db, sid) -> None:
 
 
 def test_only_what_the_system_cannot_resolve_and_a_call_can_read_is_owed(db):
-    """FLS's void, TDG's duplicates, ATCH's corrections: applied by the system. RPAY: clerical. ELTP: ambiguous
-    but its rows are from 2012 (historical). Only SKYT — ambiguous, its candidates' sales inside the review
+    """FLS's void, TDG's duplicates, ATCH's corrections: applied by the system. RPAY: clerical. ASTH: ambiguous
+    but its rows are from 2008 / 2012 (historical). Only CVNA — ambiguous, its candidates' sales inside the review
     horizon — is owed, and the whole inventory pages ONCE without a baseline."""
-    sids = [seed(db, t) for t in ("FLS", "ATCH", "RPAY", "TDG", "SKYT")] + [_eltp(db)]
+    sids = [seed(db, t) for t in ("FLS", "ATCH", "RPAY", "TDG", "CVNA")] + [_asth(db)]
     _place(db, sids)
     scan = _scan(None)
     assert scan.evaluated and not scan.baseline
-    (skyt,) = scan.pending
-    assert (skyt.ticker, skyt.accession, skyt.disposition, skyt.candidates) == (
-        "SKYT",
-        SKYT_4A,
+    (cvna,) = scan.pending
+    assert (cvna.ticker, cvna.accession, cvna.disposition, cvna.candidates) == (
+        "CVNA",
+        CVNA_4A,
         "ambiguous",
         2,
     )
-    assert "2 candidate originals; pick the one it amends" in skyt.label
+    assert "2 candidate originals; pick the one it amends" in cvna.label
     assert scan.new == scan.pending  # no baseline: the whole (owed) inventory pages ONCE
     assert scan.new_labels == (
-        skyt.label,
+        cvna.label,
     )  # the page names only owed items — no system application
 
 
 def test_a_known_item_stays_quiet_and_a_decision_and_its_undo_move_it(db):
-    sid = seed(db, "SKYT")
+    sid = seed(db, "CVNA")
     _place(db, [sid])
     first = _scan(None)
     keys = {p.key for p in first.pending}
     second = _scan(keys)
     assert second.baseline and second.new == () and second.known == 1  # known: quiet
     insider_amendment_repo.link_candidate(
-        db, sid, SKYT_4A, "0001856680-26-000013", reason="the S row", basis="operator:link"
+        db, sid, CVNA_4A, "0001690820-25-000273", reason="the S rows", basis="operator:link"
     )
     db.commit()
     linked = _scan(keys)
     assert [p.accession for p in linked.pending] == [
-        SKYT_4A
+        CVNA_4A
     ] and linked.new == ()  # still the operator's
     assert linked.pending[0].candidates == 0  # linked: no longer "pick the original"
     d = insider_amendment_repo.decide(
-        db, sid, SKYT_4A, "apply", reason="restated", basis="operator:apply"
+        db, sid, CVNA_4A, "apply", reason="restated", basis="operator:apply"
     )
     db.commit()
     third = _scan(keys)
@@ -143,11 +143,11 @@ def test_a_known_item_stays_quiet_and_a_decision_and_its_undo_move_it(db):
     insider_amendment_repo.revoke(db, d["id"], reason="undo", basis="operator:revoke")
     db.commit()
     fourth = _scan({p.key for p in third.pending})
-    assert [p.accession for p in fourth.new] == [SKYT_4A]  # back, and it pages once
+    assert [p.accession for p in fourth.new] == [CVNA_4A]  # back, and it pages once
 
 
 def test_an_amendment_outside_the_active_baskets_is_not_paged(db):
-    seed(db, "SKYT")  # owed, but no thesis holds SKYT
+    seed(db, "CVNA")  # owed, but no thesis holds CVNA
     assert _scan(None).pending == ()
 
 
@@ -172,7 +172,7 @@ def test_no_live_neither_sweeps_nor_scans_and_a_fault_is_reported_never_raised()
 
 
 def test_the_baseline_is_the_newest_live_finished_evaluated_pass(db, tmp_path):
-    sid = seed(db, "SKYT")
+    sid = seed(db, "CVNA")
     _place(db, [sid])
     scan = _scan(None)
     t0 = datetime(2026, 10, 18, 2, 30, tzinfo=timezone.utc)
@@ -200,7 +200,7 @@ def test_the_baseline_is_the_newest_live_finished_evaluated_pass(db, tmp_path):
 
 
 def test_the_page_is_benign_class():
-    labels = (f"SKYT {SKYT_4A}: ambiguous — 2 candidate originals; pick the one it amends",)
+    labels = (f"CVNA {CVNA_4A}: ambiguous — 2 candidate originals; pick the one it amends",)
     health = daily.assess_health(
         [],
         asof=date(2026, 10, 17),
@@ -218,12 +218,12 @@ def test_the_page_is_benign_class():
 
 def test_the_page_names_owed_items_in_window_first_and_counts_beyond_the_cap(db):
     """Owed items here: three the operator took back from the system (FLS's buy void — tonight's P window;
-    TDG's duplicate sells and FRHC's role-restated sales — the S window; AZTA's 2025 buy — outside) and SKYT's
+    TDG's duplicate sells and FRHC's role-restated sales — the S window; AZTA's 2025 buy — outside) and CVNA's
     ambiguous link (outside tonight's window, inside the review horizon). The page names the in-window ones
-    first, then the rest; nothing the system applied (AVAV) and nothing historical (ELTP) is on it.
+    first, then the rest; nothing the system applied (AVAV) and nothing historical (ASTH) is on it.
     """
-    sids = {t: seed(db, t) for t in ("FLS", "TDG", "FRHC", "AZTA", "SKYT", "AVAV")}
-    sids["ELTP"] = _eltp(db)
+    sids = {t: seed(db, t) for t in ("FLS", "TDG", "FRHC", "AZTA", "CVNA", "AVAV")}
+    sids["ASTH"] = _asth(db)
     for t in ("FLS", "TDG", "FRHC", "AZTA"):
         _hand_over(db, sids[t])
     _place(db, sids.values())
@@ -239,7 +239,7 @@ def test_the_page_names_owed_items_in_window_first_and_counts_beyond_the_cap(db)
         "TDG",
         "FRHC",
     ]  # in-window, buy, suppressing
-    assert {p.ticker for p in scan.pending} == {"FLS", "TDG", "FRHC", "AZTA", "SKYT"}
+    assert {p.ticker for p in scan.pending} == {"FLS", "TDG", "FRHC", "AZTA", "CVNA"}
     named = scan.new_labels
     assert len(named) == 5 and scan.new_more == 0  # under the cap: every owed item named
     assert [label.split(" ")[0] for label in named][:3] == ["FLS", "TDG", "FRHC"]
@@ -295,8 +295,8 @@ def test_the_sweep_applies_the_backlog_and_the_scan_counts_it_quietly(db):
     """The pass's sweep (own connection, committed) resolves what a pre-R8-B ingest left pending; the scan counts
     the system decisions recorded since the pass began (one quiet line: applications, and the zero-row 4/As kept
     as filed), and none of them pages. YYAI (words neither fix nor add) and FIGR (retraction words against three
-    trades — held) are owed beside SKYT. Re-running the sweep appends nothing — COUNT THE TABLE."""
-    sids = {t: seed(db, t) for t in ("FLS", "MRCY", "IEHC", "SMR", "FIGR", "YYAI", "SKYT")}
+    trades — held) are owed beside CVNA. Re-running the sweep appends nothing — COUNT THE TABLE."""
+    sids = {t: seed(db, t) for t in ("FLS", "MRCY", "IEHC", "SMR", "FIGR", "YYAI", "CVNA")}
     for t in ("FLS", "MRCY", "IEHC", "SMR", "FIGR", "YYAI"):
         _as_r8a_left_it(db, sids[t])
     _place(db, sids.values())
@@ -314,7 +314,7 @@ def test_the_sweep_applies_the_backlog_and_the_scan_counts_it_quietly(db):
     assert _decisions_count(db) == before + 5
     scan = _scan(None, since=started, sweep=sweep)
     assert scan.applied == sweep.by_basis and scan.swept == 5
-    assert {p.ticker for p in scan.pending} == {"SKYT", "YYAI", "FIGR"}
+    assert {p.ticker for p in scan.pending} == {"CVNA", "YYAI", "FIGR"}
     by = {p.ticker: p for p in scan.pending}
     assert by["YYAI"].unresolved and "neither fix nor add" in by["YYAI"].label
     assert by["FIGR"].held and "which one is your call" in by["FIGR"].label

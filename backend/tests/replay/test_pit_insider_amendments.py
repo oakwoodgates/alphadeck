@@ -36,11 +36,26 @@ _KEY = ("accession", "insider_name", "valid_from", "txn_seq")
 
 def _seed(db) -> dict[str, object]:
     """Every disposition the resolver acts on, from the real filings: ATCH corrections, the FLS void, the TDG
-    duplicates, the SKYT ambiguous pair, the AZTA power-of-attorney void, the AVAV grant-only void the
+    duplicates, the SKYT pair the row tie-break settles (a system-applied partial), the CVNA ambiguous pair, the
+    IEHC 4/A whose same-day later filing the order test refuses, COIN / LFST / AMSC (several applied amendments
+    of one original, composed), the AZTA power-of-attorney void, the AVAV grant-only void the
     system resolved (its ``system:no-signal-effect`` decision rides the mirror too), the FRHC field change,
     and a VWAV other-issuer filing stored the way the leg stored it before R8-A."""
     sids: dict[str, object] = {}
-    for t in ("ATCH", "FLS", "TDG", "SKYT", "AZTA", "AVAV", "FRHC"):
+    for t in (
+        "ATCH",
+        "FLS",
+        "TDG",
+        "SKYT",
+        "CVNA",
+        "IEHC-MISLINK",
+        "COIN",
+        "LFST",
+        "AMSC",
+        "AZTA",
+        "AVAV",
+        "FRHC",
+    ):
         sid = make_security(db, t)
         ingest_originals(db, sid, t, recorded_at=T_ORIG)
         for acc in amendments_of(t):
@@ -56,7 +71,7 @@ def _seed(db) -> dict[str, object]:
 def _decide(db, sids) -> datetime:
     """The operator's decisions (recorded NOW): keep AZTA's buy (a keep stacked over the SYSTEM's application —
     R8-B), take FLS's void back from the system (revoke its application: pending, still suppressing), link +
-    apply SKYT. Returns an instant BEFORE all of them."""
+    apply CVNA. Returns an instant BEFORE all of them."""
     before = db_now(db)
     db.commit()
     insider_amendment_repo.decide(
@@ -71,14 +86,14 @@ def _decide(db, sids) -> datetime:
     insider_amendment_repo.revoke(db, system["id"], reason="mine", basis="operator:revoke")
     insider_amendment_repo.link_candidate(
         db,
-        sids["SKYT"],
-        "0001856680-26-000016",
-        "0001856680-26-000013",
+        sids["CVNA"],
+        "0001690820-25-000275",
+        "0001690820-25-000273",
         reason="S",
         basis="operator:link",
     )
     insider_amendment_repo.decide(
-        db, sids["SKYT"], "0001856680-26-000016", "apply", reason="restated", basis="operator:apply"
+        db, sids["CVNA"], "0001690820-25-000275", "apply", reason="restated", basis="operator:apply"
     )
     db.commit()
     return before

@@ -1276,6 +1276,116 @@ the revised rule; the sweep's plan computed without writing):
   v1, before the filer's words: 69 rows — MRAM owed then, SMR's void still suppressing; the first R8-B build,
   before any row match: 140.)
 
+### The R8 linker fix — an original precedes its amendment; one accounted candidate settles an ambiguous set (2026-10-21)  `[BUILT]`
+
+**The bug (found on prod 2026-10-21).** IEHC 4/A 0001174947-26-000336 re-reports the CEO's 2025-06-30 option
+exercise (M 46,217 sh at $6.00, F 29,190 sh at $9.50); its footnote names the original, "filed on July 1, 2025". It
+was linked to a MARCH 2026 Form 4 (two sales, 4,650 + 350 sh). **Root cause, from the stored data:** its
+`dateOfOriginalSubmission` is **2026-03-10 — its own filing date**, not July 1, 2025. Step 1 found the owner's
+only Form 4 filed that day, `-000338` — which SEC accepted **49 seconds AFTER the 4/A** (21:23:37 vs 21:22:48
+UTC). The July 2025 original (`0001174947-25-000979`, Table I identical) IS stored; step 2 would have found it,
+but step 1 never fell through. Under R8-B the row match read "exact" (the sales kept, the M / F rows ADDED), so
+the read carried the exercise twice.
+
+**Rule 1 — an original is never made public after its amendment** (`domain.insider_amendments.made_public_after`,
+both cascade steps; refused candidates ride on the link as `excluded_later`). The two instants come from ONE
+source: the submissions index the 4/A leg already reads (`acceptanceDateTime`, threaded as
+`accepted_by_accession`; else its `filingDate`s; unknown = kept, #9). **Not** the stored rows' `accepted`
+column — MEASURED (prod, read-only): it disagrees with the index by −4 h / −5 h / −8 h on 72,290 of 117,444
+stored filings of the 409 securities with a 4/A (another writer's clock), while every stored 4/A's `accepted`
+equals the index exactly. With the stored column the order test would have missed VVX and AIP below.
+
+**Rule 2 — the row tie-break** (`row_tie_break`, coordinator request): an AMBIGUOUS candidate set (either step)
+links to the ONE candidate holding a row the amendment accounts for under R8-B's exact shapes (`match_rows` with
+no filer words: identical, price / share / date fix, recode, sum), when every other candidate holds none;
+otherwise it stays the operator's. The link keeps every candidate (`candidate_accessions`) and `tie_break: true`.
+
+**What the fix deliberately does NOT add** (deviations from the first spec, MEASURED on prod's 2,988 stored links):
+- *No "filed after the stated date" bound on step 2.* 81 step-2 links have their original filed AFTER the stated
+  `dateOfOriginalSubmission` — the filer typed the TRANSACTION date (SBET, LRCX, MNKD …) or a year typo (VST
+  "1998-11-13", NKTR, BLNE, TDG) — and every one shares the amendment's exact transaction dates (gap 0). The bound
+  would unlink all of them. Step 2 only runs when the stated date found nothing; its evidence is the shared rows.
+- *No transaction-date-gap rule on step 1.* 26 links sit > 60 days from the amendment's rows; the ones read row
+  by row are correct by the filer's own words (CUBI, RDNW and AUSI name the original's filing date; ASTH rescinds
+  a grant months later), and the 365 / 366-day gaps link as 1:1 corrections (RBC, PDFS, NEU, DCO, RMAX — a
+  year typo fixed). The order test catches the wrong ones (IEHC, VIRT, AMSC, VVX, AIP) without a window.
+
+**The re-link — `python -m pipeline.relink_amendments`** (dry-run by default; `--apply` takes the call-of-record
+lock, appends in one transaction, counts the tables). It re-runs the fixed cascade over every stored link against
+the security's stored rows and its CACHED submissions index (cache-only, no SEC request) and moves a link ONLY when
+one of the two rules explains the difference (`relink_rule`; anything else is reported as drift, never moved) and
+NOTHING the operator did touches the amendment. Append-only: a new `insider_amendment_link` version, a system
+`revoke` (basis `system:relink`) of the standing system decision computed against the wrong original, and the
+system's decision against the new one when it resolves — all at `recorded_at = now`, so a read pinned before
+sees what the system held then. A re-run plans nothing. (`review` reads "the operator took it back" from an
+OPERATOR decision only, so the system's own revoke never makes an amendment owed.)
+
+**MEASURED on prod, read-only, 2026-10-21** (the branch's plan over the stored links + a read-only copy of prod's
+cached submissions index; the effects with the planned rows injected in memory, nothing written):
+- **The plan:** 2,988 links considered, **40 re-linked** — 12 by the order test, 28 by the tie-break; **0 drift**,
+  0 operator-held, 0 securities without an index. The order test: IEHC, VIRT, AMSC, VVX and AIP (4/As dated their
+  own filing day, the same-day "original" accepted after them) re-link to the true original found by step 2
+  (VIRT, IEHC, AIP clerical — an emitted duplicate disappears; VVX a correction against its Dec 2018 Form 4; AMSC
+  a partial against its Dec 2010 Form 4); AIN ×4 (zero-row 4/As filed 16-30 minutes BEFORE the Form 4 they were
+  linked to, which their applied voids were suppressing) and ONTO find no original (inert; 24 AIN rows return);
+  BHVN and GSIT (one candidate refused) leave a single original.
+- **Ambiguous: 43 → 13** — 30 settle (28 by the tie-break, 2 by the order test): owed **4 → 2** (FIS → its
+  withholding's filing, the code-P buy on the other candidate untouched; SKYT → the 81,401-share sale restated as
+  71,693, the exercise-and-sale lines standing); historical **39 → 11** (21 now applied automatically, 7 inert).
+  **CVNA and HROW stay owed:** both candidates hold an accounted row — CVNA's 28 sales match `-000271` and a
+  coincidental SUM (its 96-share line = `-000273`'s two 48-share lines) matches `-000273`; HROW's sale is
+  identical on `-011028` and a price-fix shape on `-000741` (its remarks name the March 20 filing — words never
+  pick a filing). PROPOSED, not built: dropping sums from the tie-break settles CVNA too (31 of 43); ranking by
+  most accounted rows settles 34 (adds CVNA, CTS, ENDV, SNX).
+- **Forward call effect** (all 12 active theses through the production funnel at asof 2026-10-21, known_at = now,
+  with vs without the planned rows): **0 card fields change** on any thesis.
+- **History counterfactual** (each honest call row at its own `(asof, known_at = recorded_at)`, every 4/A record /
+  link / standing decision treated as known at its SEC acceptance, today's links vs the re-linked ones): of the
+  **666** honest rows, the **409** whose thesis roster (live or any snapshot) ever held a re-linked security were
+  re-assembled — **all 409 identical card-for-card: 0 thesis-level flips, 0 changes of state, verdict,
+  headline, armed set or any card text**; the other 257 read identical inputs by construction (the resolver is
+  per-security). The `P`/`S` rows the re-link changes are SKYT's 2026-03-16 sale (81,401 → 71,693 shares; inside
+  the 120-day sell window only until 2026-07-14, and no card changed) and 2008–2022 buys / sales of ASTH, AMSC,
+  UAMY, LEU, STEX, GSIT and AIP; every other changed row is a non-`P`/`S` code.
+
+**The resolver composition — every applied amendment of one original counts (2026-10-21, same branch).** The
+resolver used to emit only the NEWEST applied statement per original. Under R8-B's row-level replacement that
+silently lost rows: an OLDER applied amendment's `replaced_rows` still suppressed its original lines while its
+own rows were dropped. `domain.insider_amendments.compose_statements` now composes them, in SEC-acceptance order
+(`statement_order`: the 4/A record's `accepted` — the index clock — else its filing date, else its accession):
+- a **whole** replacement (`replaced_rows` NULL — a 1:1 correction, every pre-row-match decision, the operator's
+  **Use the correction**) supersedes the original AND every earlier amendment of it: the latest complete
+  statement of the filing is the truth;
+- a **row-level** amendment re-reports the SAME trade as an earlier one when they replace a common original line
+  (an earlier whole one replaced them all); it then replaces the rows of that amendment it accounts for by exact
+  shape (`match_rows`, no filer words, against that amendment's own rows) — a second correction of the same trade
+  replaces the first, never stacks (LFST: 10,000 → 5,000 → 10,000). Amendments of DIFFERENT trades never touch
+  each other's rows (AMSC: two re-dated buys and a re-reported third all stand — without this scoping the
+  share-fix shape would pair the 80,000-share line with a 34,000-share one at the same date and price).
+
+One pure function, computed over the amendment records' full rows, for the Postgres read and the replay mirror
+(parity-tested; the Postgres loader now carries the 4/A's `filed`). MEASURED on prod (read-only, 2026-10-21; main's
+resolver vs this one, every security with a stored 4/A, full history at asof 2026-10-21):
+- **Rows restored:** AIR `0001127602-18-001958` — G 76,738 (`-001961`), G 76,738 + **S 76,738 at $41.73**
+  (`-002197`), 2018-01-15; AVAV `0001567619-23-000939` — **S 2,100 at $88.47** (`-23-001558`), 2023-01-12; COIN
+  `0001415889-24-004798` — F 2,247 at $180.31 (`-24-000053`), 2024-02-20; and, after the re-link, AMSC
+  `0001209191-10-061925` — **P 20,000 + P 34,000 at $28.87** (`-10-062237`), 2010-12-17. None inside the
+  940-day review horizon. Of the 9 originals first flagged, the other 6 (AVAV `-21-013077`, ELTP ×2, LFST, TAYD,
+  WLTH) lost nothing: each later amendment re-reports the earlier one's lines, and the composition replaces them.
+  **Every other original with 2+ applied emitting amendments (31 in all) reads exactly as before**; 3 of 409
+  securities' reads change (4 with the re-link), only by the rows above.
+- **NULL against stored cases:** in 4 originals a later WHOLE amendment does not re-report an earlier one's
+  lines, so "NULL supersedes every earlier amendment" drops them, exactly as the newest-only rule already did:
+  CZR (A 33,118), BHVN (three J lines), ASTH (J 1,664,054), ONTO (A 3,901). Every one is a legacy
+  `system:no-signal-effect` decision written with NULL before the row match existed (no code-P/S row). An
+  applied void or duplicates set on an original that also has an applied emitting amendment (FCEL ×3, RTX) is
+  outside the composition (a void emits nothing), unchanged.
+- **Call effect** (main's resolver on today's links vs this resolver plus the re-link): forward, the 12 active
+  theses at asof 2026-10-21 — **0 card fields change**; history (the method above, every link and standing
+  decision known at its SEC acceptance) — of the 666 honest rows, the **409** whose roster ever held a re-linked
+  or composed security re-assembled **all identical: 0 thesis-level flips, 0 changes of any card field**; the
+  other 257 read identical inputs by construction. Every restored row is outside every live signal window.
+
 ## The scheduling sidecar — the `cron` service + `scripts/daily_cron.sh`  `[BUILT #73]`
 
 The CLI is the **unit of work**; the sidecar is a **dumb trigger**.

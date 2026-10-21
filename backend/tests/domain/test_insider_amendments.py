@@ -30,11 +30,14 @@ from domain.insider_amendments import (
     DUPLICATES,
     FIELD_CHANGE,
     METHOD_ORIG_DATE_OWNER,
+    METHOD_OWNER_TXN_DATE,
     NO_ROWS,
     PARTIAL,
     READ_ADD,
     READ_FIX,
     READ_UNRESOLVED,
+    RELINK_ORDER,
+    RELINK_TIE_BREAK,
     RESTATEMENT,
     REVIEW_AUTO,
     REVIEW_DECIDED,
@@ -55,18 +58,23 @@ from domain.insider_amendments import (
     SystemResolution,
     VoidReading,
     classify,
+    compose_statements,
     effect_of,
     filer_text,
     in_window_codes,
     is_other_issuer,
     link_amendment,
+    made_public_after,
     match_rows,
     originals_rows,
     page_text,
+    relink_rule,
     resolve_insider_rows,
     review_bucket,
+    row_tie_break,
     signal_signature,
     standing_decisions,
+    statement_order,
     sweep_resolution,
     system_basis,
     system_resolution,
@@ -78,6 +86,7 @@ from ingest.edgar.form4a import _json_row, parse_form4a
 from signals.horizons import insider_signal_codes
 from tests.form4a_fixtures import (
     FILINGS,
+    accepted_by_accession,
     amendments_of,
     filed_by_accession,
     originals_of,
@@ -129,8 +138,10 @@ def _facts(accession: str) -> AmendmentFacts:
 
 
 def _link(accession: str):
-    t = FILINGS[accession].ticker
-    return link_amendment(_facts(accession), _stored(t), filed_by_accession(t), CODES)
+    t = FILINGS[accession].key
+    return link_amendment(
+        _facts(accession), _stored(t), filed_by_accession(t), CODES, accepted_by_accession(t)
+    )
 
 
 # --- the parse ------------------------------------------------------------------------------------------
@@ -219,11 +230,84 @@ def test_tdg_duplicates_keep_the_earliest_and_void_the_rest():
     }
 
 
-def test_skyt_two_different_originals_on_the_date_is_ambiguous():
+def test_skyt_tie_break_links_the_one_candidate_holding_the_restated_sale():
+    """Two different Form 4s by the owner were filed on SKYT's stated date. The 4/A re-reports the 2026-03-16
+    sale at $27.8398 with 9,708 fewer shares ("overstated by 9,708 shares"): ``-000013`` holds that sale (same
+    owner, date, code, price — a share fix), ``-000010`` holds only a tax withholding the 4/A does not account
+    for -> the row tie-break links ``-000013``; the candidates stay on the link (what it was chosen among).
+    """
     link = _link("0001856680-26-000016")
-    assert link.disposition == AMBIGUOUS and link.status == STATUS_PENDING
-    assert link.original_accessions == ()
+    assert link.method == METHOD_ORIG_DATE_OWNER and link.tie_break
+    assert link.original_accessions == ("0001856680-26-000013",)
     assert link.candidate_accessions == ("0001856680-26-000010", "0001856680-26-000013")
+    # resolved to a definite original -> the filer's correction, applied by the system: only the 81,401-share
+    # sale is replaced (the M / S 9,708 exercise-and-sale lines stand)
+    assert (link.disposition, link.status, link.basis) == (
+        PARTIAL,
+        STATUS_APPLIED,
+        BASIS_FILER_CORRECTION,
+    )
+    assert link.replaced_rows == ("0001856680-26-000013#2",)
+    assert link.excluded_later == ()
+
+
+def test_iehc_4a_dated_its_own_filing_day_links_to_the_july_2025_original_not_a_later_filing():
+    """THE MIS-LINK (prod, 2026-10-21). IEHC 0001174947-26-000336 states ``dateOfOriginalSubmission`` 2026-03-10
+    — its OWN filing date; its footnote names the real original ("filed on July 1, 2025"). The owner's only Form 4
+    filed that day, ``-000338`` (two March 2026 sales), was ACCEPTED 49 seconds AFTER the 4/A — it cannot be the
+    filing the 4/A amends. Refused, step 2 finds the owner's July 2025 Form 4 by the shared transaction date
+    (2025-06-30) — Table I identical (the 4/A fixes only a holdings figure) -> clerical, nothing to apply. The
+    other owner's Form 4 on the same transaction date (``-25-000985``) is never a candidate."""
+    link = _link("0001174947-26-000336")
+    assert link.excluded_later == ("0001174947-26-000338",)
+    assert (link.method, link.original_accessions) == (
+        METHOD_OWNER_TXN_DATE,
+        ("0001174947-25-000979",),
+    )
+    assert (link.disposition, link.status, link.basis) == (CLERICAL, STATUS_INERT, None)
+    assert "made public AFTER this amendment" in link.why
+
+
+def test_without_the_index_acceptance_a_same_day_later_filing_cannot_be_told_apart():
+    """The contract the ingest relies on: the order test reads the submissions index's ACCEPTANCE (the IEHC pair
+    shares one filing date). With only the filing dates, ``-000338`` is not provably later and step 1 keeps it
+    — which is why the leg threads ``accepted_by_accession`` from the same index as the 4/A's own ``accepted``.
+    """
+    t = "IEHC-MISLINK"
+    link = link_amendment(_facts("0001174947-26-000336"), _stored(t), filed_by_accession(t), CODES)
+    assert link.original_accessions == ("0001174947-26-000338",) and link.excluded_later == ()
+
+
+def test_a_void_filed_before_the_only_same_day_filing_finds_no_original():
+    """AIN 0001299383-15-000003: a zero-row 4/A whose stated date is its own filing day, accepted 19 minutes
+    BEFORE ``-000004`` — the old cascade voided that later filing (suppressing its rows). Refused as made public
+    after the amendment, nothing is left to link (no rows of its own -> NO_ROWS, inert): the rows stand.
+    """
+    link = _link("0001299383-15-000003")
+    assert link.excluded_later == ("0001299383-15-000004",)
+    assert (link.disposition, link.status, link.original_accessions) == (NO_ROWS, STATUS_INERT, ())
+
+
+def test_fis_tie_break_links_the_withholding_and_leaves_the_buy_alone():
+    """FIS: two different Form 4s by the owner on the stated date; the 4/A ("solely to correct … Column 5")
+    re-reports one tax withholding, held identically by ``-099049``; ``-099107`` holds only a code-P buy the 4/A
+    does not account for -> linked to ``-099049``; the buy's filing is not touched (no signal effect).
+    """
+    link = _link("0001193125-26-131811")
+    assert link.tie_break and link.original_accessions == ("0001193125-26-099049",)
+    assert link.disposition == PARTIAL and not link.signal_effect
+    assert link.basis == BASIS_NO_SIGNAL_EFFECT
+    assert link.replaced_rows == ("0001193125-26-099049#7",)
+
+
+def test_hrow_stays_ambiguous_when_both_candidates_hold_an_accounted_row():
+    """HROW: no Form 4 on the stated date (the transaction date); two of the owner's share it — the identical sale
+    and the same sale at another price (a price-fix shape). The tie-break needs EXACTLY one candidate holding an
+    accounted row; both do -> it stays the operator's (its remarks name the March 20 filing, but words never pick
+    a filing)."""
+    link = _link("0001641172-25-010338")
+    assert (link.disposition, link.status, link.tie_break) == (AMBIGUOUS, STATUS_PENDING, False)
+    assert link.candidate_accessions == ("0001493152-25-011028", "0001641172-25-000741")
     assert (link.auto_resolved, link.basis) == (False, None)  # no definite original: never applied
 
 
@@ -552,13 +636,112 @@ def test_attributable_to_him_is_ownership_boilerplate_and_mnkd_still_retracts_on
     )
 
 
-def test_eltp_two_different_originals_is_ambiguous_with_a_2012_sell_row():
+def test_eltp_tie_break_links_the_date_fix_and_the_2012_sale_stands():
+    """ELTP: two different Form 4s filed on the stated date; the 4/A re-dates ``-000004``'s conversion (same code
+    and shares, another date — a date fix) and accounts for nothing on ``-000005`` (a 2012 code-S sale) -> linked
+    to ``-000004``, a correction with no signal effect: the sale stands."""
     link = _link("0001465825-12-000008")
-    assert link.disposition == AMBIGUOUS and link.status == STATUS_PENDING
+    assert link.tie_break and link.original_accessions == ("0001465825-12-000004",)
     assert link.candidate_accessions == ("0001465825-12-000004", "0001465825-12-000005")
+    assert (link.disposition, link.signal_effect, link.basis) == (
+        CORRECTION,
+        False,
+        BASIS_NO_SIGNAL_EFFECT,
+    )
+
+
+def test_asth_stays_ambiguous_with_old_buy_rows():
+    """ASTH 0001134366-13-000009: two different Form 4s on the stated date, the 4/A accounting for a row on BOTH (a
+    date fix on ``-000002``, a price fix on ``-000004``) -> ambiguous; code-P rows of 2008 / 2012 (a signal
+    effect no call reads today — "unresolved — historical")."""
+    link = _link("0001134366-13-000009")
+    assert (link.disposition, link.status) == (AMBIGUOUS, STATUS_PENDING)
+    assert link.candidate_accessions == ("0001134366-13-000002", "0001134366-13-000004")
+    assert link.signal_effect and link.basis is None  # never applied
+
+
+def test_made_public_after_reads_the_index_instant_else_the_filing_date_else_keeps():
+    """The order test's contract with direct inputs: the index acceptance decides when both instants are known
+    (strictly later only — an equal instant is not after); else a later EDGAR filing date; unknown keeps the
+    candidate (over-include, #9)."""
+    t = datetime(2026, 3, 10, 21, 22, 48, tzinfo=timezone.utc)
+    am = AmendmentFacts("A", (), None, date(2026, 3, 10), t, ())
+    filed = {"X": date(2026, 3, 10), "Y": date(2026, 3, 11), "Z": date(2026, 3, 9)}
+    acc = {"X": t + timedelta(seconds=49), "Z": t + timedelta(hours=1)}
+    assert made_public_after("X", am, filed, acc)  # same day, 49 s later
+    assert not made_public_after("X", am, filed, {"X": t})  # the same instant is not after
+    assert made_public_after("Y", am, filed, acc)  # no instant: a later filing date
+    assert made_public_after("Z", am, filed, acc)  # the instant wins over the (earlier) date
+    assert not made_public_after("W", am, filed, acc)  # unknown either way: kept
+    undated = AmendmentFacts("A", (), None, None, None, ())
+    assert not made_public_after("Y", undated, filed, acc)
+
+
+def test_row_tie_break_needs_exactly_one_candidate_holding_an_accounted_row():
+    """The tie-break's contract with direct inputs: exact shape only (owner first) — one candidate holds the
+    identical row -> it; two hold one -> None; a zero-row amendment -> None; a bare same-date-same-code row
+    (another price AND shares) accounts for nothing."""
+    base = {"insider_name": "X", "rpt_owner_cik": "1", "valid_from": date(2026, 3, 16)}
+    sale = {**base, "txn_code": "S", "shares": 100.0, "price": 10.0}
+    stored = {
+        "O1": [{**sale, "accession": "O1", "txn_seq": 0}],
+        "O2": [
+            {**base, "txn_code": "F", "shares": 7.0, "price": 10.0, "accession": "O2", "txn_seq": 0}
+        ],
+        "O3": [{**sale, "shares": 55.0, "price": 9.0, "accession": "O3", "txn_seq": 0}],
+    }
+    amend = [
+        {
+            "insider_name": "X",
+            "rpt_owner_cik": "1",
+            "txn_date": "2026-03-16",
+            "txn_code": "S",
+            "shares": 100.0,
+            "price": 10.0,
+        }
+    ]
+    assert row_tie_break(amend, ["O1", "O2"], stored, CODES) == "O1"
     assert (
-        link.signal_effect and link.basis is None
-    )  # a code-S candidate row (2012) — never applied
+        row_tie_break(amend, ["O1", "O2", "O3"], stored, CODES) == "O1"
+    )  # O3: same date + code only
+    assert row_tie_break(amend, ["O1", "O1b"], {**stored, "O1b": stored["O1"]}, CODES) is None
+    assert row_tie_break([], ["O1", "O2"], stored, CODES) is None
+    other_owner = [{**amend[0], "insider_name": "Y", "rpt_owner_cik": "2"}]
+    assert row_tie_break(other_owner, ["O1", "O2"], stored, CODES) is None
+
+
+def test_relink_rule_moves_only_what_the_two_rules_explain():
+    """``relink_rule`` with direct inputs: a stored link naming a filing the fresh cascade refused as made public
+    after the amendment -> RELINK_ORDER; a stored AMBIGUOUS link the tie-break settles among the same candidates
+    -> RELINK_TIE_BREAK; the same link -> None; any other difference (drift) -> None."""
+    fresh_iehc = _link("0001174947-26-000336")
+    stored_iehc = {
+        "method": METHOD_ORIG_DATE_OWNER,
+        "disposition": RESTATEMENT,
+        "original_accessions": ["0001174947-26-000338"],
+        "voided_accessions": [],
+        "candidate_accessions": ["0001174947-26-000338"],
+    }
+    assert relink_rule(stored_iehc, fresh_iehc) == RELINK_ORDER
+    fresh_skyt = _link("0001856680-26-000016")
+    stored_skyt = {
+        "method": METHOD_ORIG_DATE_OWNER,
+        "disposition": AMBIGUOUS,
+        "original_accessions": [],
+        "voided_accessions": [],
+        "candidate_accessions": ["0001856680-26-000010", "0001856680-26-000013"],
+    }
+    assert relink_rule(stored_skyt, fresh_skyt) == RELINK_TIE_BREAK
+    same = {
+        "method": fresh_skyt.method,
+        "disposition": fresh_skyt.disposition,
+        "original_accessions": list(fresh_skyt.original_accessions),
+        "voided_accessions": [],
+        "candidate_accessions": list(fresh_skyt.candidate_accessions),
+    }
+    assert relink_rule(same, fresh_skyt) is None
+    drift = {**same, "original_accessions": ["0001856680-26-000010"], "disposition": PARTIAL}
+    assert relink_rule(drift, fresh_skyt) is None  # not explained by either rule: never moved
 
 
 def test_classify_against_the_skyt_candidate_the_amendment_corrects_is_partial():
@@ -982,6 +1165,132 @@ def test_an_applied_match_replaces_only_its_rows_and_a_legacy_apply_the_whole_or
     assert [(r["accession"], r["txn_seq"]) for r in _read(one)] == [("O", 0), ("A", 0)]
     legacy = _dec("apply", basis="operator:apply")
     assert [r["accession"] for r in _read(legacy)] == ["A"]
+
+
+# --- the composition of several applied amendments of one original (2026-10-21) ----------------------------
+
+
+def _line(seq: int, code: str, shares: float, price: float, day: str = "2010-12-17") -> dict:
+    return {
+        "txn_seq": seq,
+        "txn_code": code,
+        "txn_date": day,
+        "shares": shares,
+        "price": price,
+        "insider_name": "X",
+        "rpt_owner_cik": "1",
+    }
+
+
+def _rec(acc: str, *lines: dict, accepted: datetime | None = T0, filed=None) -> dict:
+    return {
+        "id": uuid4(),
+        "tenant_id": "t",
+        "security_id": "s",
+        "accession": acc,
+        "rows": list(lines),
+        "accepted": accepted,
+        "filed": filed,
+        "recorded_at": T0,
+    }
+
+
+def _composed(chain) -> list[tuple[str, str, float]]:
+    return [
+        (a["accession"], r["txn_code"], float(r["shares"])) for a, r in compose_statements(chain)
+    ]
+
+
+def test_compose_a_whole_replacement_supersedes_the_original_and_every_earlier_amendment():
+    a1 = _rec("A1", _line(0, "S", 5000.0, 7.32))
+    a2 = _rec("A2", _line(0, "F", 9.0, 7.32))
+    assert _composed([(a1, frozenset({"O#1"})), (a2, None)]) == [("A2", "F", 9.0)]
+
+
+def test_compose_a_second_correction_of_the_same_trade_replaces_the_first():
+    """LFST's shape: both re-report original row ``O#1`` — the later restatement (back to 10,000) replaces the
+    earlier one (5,000): never 5,000 + 10,000."""
+    a1 = _rec("A1", _line(0, "S", 5000.0, 7.32, "2022-06-09"))
+    a2 = _rec("A2", _line(0, "S", 10000.0, 7.32, "2022-06-09"))
+    assert _composed([(a1, frozenset({"O#1"})), (a2, frozenset({"O#1"}))]) == [("A2", "S", 10000.0)]
+
+
+def test_compose_corrections_of_different_trades_all_stand():
+    """AMSC's shape: one amendment re-dates two buys (``O#2``, ``O#3``), a later one re-reports a third (``O#0``)
+    at the same date and price — the share-fix SHAPE would pair them, but they replace no common original row,
+    so they are different trades: every row stands (COIN: a withholding and an exercise line likewise).
+    """
+    a1 = _rec("A1", _line(0, "P", 34000.0, 28.87), _line(1, "P", 20000.0, 28.87))
+    a2 = _rec("A2", _line(0, "P", 80000.0, 28.87))
+    assert _composed([(a1, frozenset({"O#2", "O#3"})), (a2, frozenset({"O#0"}))]) == [
+        ("A1", "P", 34000.0),
+        ("A1", "P", 20000.0),
+        ("A2", "P", 80000.0),
+    ]
+
+
+def test_compose_a_row_level_amendment_after_a_whole_one_replaces_what_it_accounts_for():
+    """AVAV's shape: an earlier WHOLE replacement (it replaced every original row) and a later row-level one
+    re-reporting its grant identically plus more lines: the grant is not stacked."""
+    a1 = _rec("A1", _line(0, "A", 1863.0, 0.0))
+    a2 = _rec("A2", _line(0, "A", 1863.0, 0.0), _line(1, "F", 505.0, 97.69))
+    assert _composed([(a1, None), (a2, frozenset({"O#0", "O#1"}))]) == [
+        ("A2", "A", 1863.0),
+        ("A2", "F", 505.0),
+    ]
+    # an amendment that replaces no original row (a pure addition) never consumes an earlier one's rows
+    a3 = _rec("A3", _line(0, "A", 1863.0, 0.0))
+    assert _composed([(a1, frozenset({"O#0"})), (a3, frozenset())]) == [
+        ("A1", "A", 1863.0),
+        ("A3", "A", 1863.0),
+    ]
+
+
+def test_statement_order_is_the_acceptance_then_the_filing_date_then_the_accession():
+    t = datetime(2024, 3, 28, 3, 8, 45, tzinfo=timezone.utc)
+    early = _rec("Z", accepted=t)
+    late = _rec("A", accepted=t + timedelta(days=300))
+    undated = _rec("B", accepted=None, filed=date(2020, 1, 1))
+    bare = _rec("C", accepted=None, filed=None)
+    assert sorted([bare, undated, late, early], key=statement_order) == [
+        early,
+        late,
+        undated,
+        bare,
+    ]
+
+
+def test_the_resolver_composes_every_applied_amendment_of_one_original():
+    """COIN's shape through the resolver: two applied row-level amendments of one original, each replacing a
+    different line — both lines replaced, BOTH amendments' rows emitted (the newest-only rule dropped the
+    earlier one's while its replaced row stayed suppressed)."""
+    rows = [_row("O", 0, code="M"), _row("O", 1, code="F"), _row("O", 2, code="M")]
+    t1 = T0 - timedelta(days=300)
+    a1 = {**_rec("A1", _line(0, "F", 2247.0, 180.31, "2026-09-24"), accepted=t1), "id": uuid4()}
+    a2 = {**_rec("A2", _line(0, "M", 290.0, 74.63, "2026-09-24")), "id": uuid4()}
+    links = [
+        {**_link_rec(PARTIAL), "amendment_accession": "A1", "security_id": "s"},
+        {**_link_rec(PARTIAL), "amendment_accession": "A2", "security_id": "s"},
+    ]
+    decisions = [
+        {
+            **_dec("apply", basis=BASIS_FILER_CORRECTION, replaced_rows=["O#1"]),
+            "amendment_accession": "A1",
+        },
+        {
+            **_dec("apply", basis=BASIS_FILER_CORRECTION, replaced_rows=["O#2"]),
+            "amendment_accession": "A2",
+        },
+    ]
+    out = resolve_insider_rows(
+        rows, amendments=[a1, a2], links=links, decisions=decisions, asof=date(2026, 10, 1)
+    )
+    assert [(r["accession"], r["txn_code"]) for r in out] == [
+        ("O", "M"),
+        ("A1", "F"),
+        ("A2", "M"),
+    ]
+    assert {r[AMENDS_ACCESSION] for r in out if r["accession"] != "O"} == {"O"}
 
 
 def test_other_issuer_screen_is_keep_when_unknown():

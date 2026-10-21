@@ -58,23 +58,23 @@ def _pin_today(monkeypatch, day: date) -> None:
 
 def test_the_panel_buckets_by_what_the_operator_owes(client, db, monkeypatch):
     _pin_today(monkeypatch, date(2026, 10, 20))
-    for t in ("FLS", "ATCH", "RPAY", "TDG", "SKYT"):
+    for t in ("FLS", "ATCH", "RPAY", "TDG", "HROW"):
         seed(db, t)
-    eltp = make_security(db, "ELTP")
-    ingest_originals(db, eltp, "ELTP")
-    ingest_amendment(db, eltp, "0001465825-12-000008")
+    asth = make_security(db, "ASTH")
+    ingest_originals(db, asth, "ASTH")
+    ingest_amendment(db, asth, "0001134366-13-000009")
     body = client.get(BASE).json()
     got = _by_acc(body)
     assert body["total"] == 10 and body["review_horizon_days"] == 940
     assert set(BUCKETS) <= set(body) and "pending" not in body and "applied" not in body
-    # owed: ONLY the SKYT ambiguous link (its candidates' sales sit inside the review horizon)
-    assert {a for a, (b, _) in got.items() if b == "owed"} == {"0001856680-26-000016"}
+    # owed: ONLY the HROW ambiguous link (its candidates' sales sit inside the review horizon)
+    assert {a for a, (b, _) in got.items() if b == "owed"} == {"0001641172-25-010338"}
     # applied automatically: the FLS void, the TDG duplicates, ATCH's five corrections
     auto = {a for a, (b, _) in got.items() if b == "auto"}
     assert auto == {"0001628280-26-037326", "0001352573-26-000011"} | {
         a for a in got if a.startswith("0001493152-26-0446")
     }
-    assert got["0001465825-12-000008"][0] == "historical"  # ELTP: a 2012 sale no call reads
+    assert got["0001134366-13-000009"][0] == "historical"  # ASTH: 2008 / 2012 buys no call reads
     assert got["0001104659-26-041960"][0] == "inert"  # RPAY clerical
     fls = got["0001628280-26-037326"][1]
     assert (fls["status"], fls["review"], fls["system_basis"], fls["auto_resolved"]) == (
@@ -98,11 +98,11 @@ def test_the_panel_buckets_by_what_the_operator_owes(client, db, monkeypatch):
     tdg = got["0001352573-26-000011"][1]
     assert tdg["disposition"] == "duplicates" and tdg["review"] == "auto"
     assert tdg["suppressing"] == ["0001352573-26-000009", "0001352573-26-000010"]
-    skyt = got["0001856680-26-000016"][1]
-    assert (skyt["disposition"], skyt["suppressing"], skyt["in_review"]) == ("ambiguous", [], True)
-    assert skyt["candidate_accessions"] == ["0001856680-26-000010", "0001856680-26-000013"]
-    eltp_item = got["0001465825-12-000008"][1]
-    assert eltp_item["in_review"] is False and eltp_item["signal_effect"] is True
+    hrow = got["0001641172-25-010338"][1]
+    assert (hrow["disposition"], hrow["suppressing"], hrow["in_review"]) == ("ambiguous", [], True)
+    assert hrow["candidate_accessions"] == ["0001493152-25-011028", "0001641172-25-000741"]
+    asth_item = got["0001134366-13-000009"][1]
+    assert asth_item["in_review"] is False and asth_item["signal_effect"] is True
 
 
 def test_keep_original_is_the_undo_of_a_system_application_and_undo_restores_it(client, db):
@@ -192,17 +192,17 @@ def test_keep_overrules_an_auto_applied_correction(client, db):
 
 
 def test_link_to_candidate_then_apply_then_undo_in_order(client, db):
-    sid = seed(db, "SKYT")
-    acc, asof = "0001856680-26-000016", date(2026, 3, 31)
+    sid = seed(db, "CTS")
+    acc, asof = "0001140361-12-021401", date(2012, 4, 30)
     assert client.post(f"{BASE}/{sid}/{acc}/apply").status_code == 409  # ambiguous: link first
     bad = client.post(f"{BASE}/{sid}/{acc}/link", json={"target_accession": "0001352573-26-000008"})
     assert bad.status_code == 409  # not one of its candidates
-    r = client.post(f"{BASE}/{sid}/{acc}/link", json={"target_accession": "0001856680-26-000013"})
+    r = client.post(f"{BASE}/{sid}/{acc}/link", json={"target_accession": "0001140361-12-008554"})
     assert r.status_code == 200
     linked = r.json()
     assert (linked["method"], linked["disposition"], linked["status"], linked["review"]) == (
         "operator",
-        "partial",
+        "addition",
         "pending",
         "owed",  # an operator-linked amendment stays the operator's — never applied by the system
     )
@@ -210,13 +210,13 @@ def test_link_to_candidate_then_apply_then_undo_in_order(client, db):
     assert applied["status"] == "applied"
     # Use the correction: the amendment replaces the whole linked original
     assert applied["kept_rows"] == []
-    assert _codes_of(db, sid, asof, "0001856680-26-000013") == set()
+    assert _codes_of(db, sid, asof, "0001140361-12-008554") == set()
     link_id = next(d["id"] for d in applied["decisions"] if d["action"] == "link")
     assert client.post(f"{BASE}/decisions/{link_id}/revoke").status_code == 409  # verdict first
     client.post(f"{BASE}/decisions/{applied['undo_id']}/revoke")
     back = client.post(f"{BASE}/decisions/{link_id}/revoke").json()
     assert back["disposition"] == "ambiguous" and back["status"] == "pending"
-    assert _codes_of(db, sid, asof, "0001856680-26-000013") == {"M", "S"}
+    assert _codes_of(db, sid, asof, "0001140361-12-008554") == {"A"}
 
 
 def test_nothing_to_ratify_on_an_inert_amendment(client, db):
@@ -251,11 +251,11 @@ def test_a_no_signal_effect_amendment_is_applied_automatically_under_its_own_bas
 
 def test_owed_lists_the_in_window_items_first(client, db, monkeypatch):
     """The panel judges urgency at today's market day — pinned to 2026-10-16. FLS's void handed back to the
-    operator (its system application revoked) sits in tonight's P window; SKYT's ambiguous link is outside the
+    operator (its system application revoked) sits in tonight's P window; HROW's ambiguous link is outside the
     window but inside the review horizon: FLS leads."""
     _pin_today(monkeypatch, date(2026, 10, 16))
     fls = seed(db, "FLS")
-    seed(db, "SKYT")
+    seed(db, "HROW")
     system = next(
         d
         for d in _by_acc(client.get(BASE).json())["0001628280-26-037326"][1]["decisions"]
@@ -265,7 +265,7 @@ def test_owed_lists_the_in_window_items_first(client, db, monkeypatch):
     body = client.get(BASE).json()
     assert body["asof"] == "2026-10-16"
     order = [(i["ticker"], i["in_window"]) for i in body["owed"]]
-    assert order == [("FLS", ["P"]), ("SKYT", [])]
+    assert order == [("FLS", ["P"]), ("HROW", [])]
     assert _accessions(db, fls, date(2026, 6, 15)).isdisjoint(
         {"0001628280-26-035913"}
     )  # still suppressed

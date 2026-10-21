@@ -47,8 +47,8 @@ disposition         when                                        effect (see ``ef
                     BHVN)
 ``addition``        more rows than the original                 APPLIED BY THE SYSTEM (as partial)
 ``restatement``     same row count, rows that do not pair 1:1   APPLIED BY THE SYSTEM (as partial)
-``ambiguous``       several candidate originals that differ     NONE — it cannot target a specific
-                                                                original; OWED the operator when it
+``ambiguous``       several candidate originals that differ,    NONE — it cannot target a specific
+                    and the row tie-break does not settle them  original; OWED the operator when it
                                                                 touches a signal row inside the review
                                                                 horizon, else "unresolved — historical"
 ==================  ==========================================  =========================================
@@ -161,7 +161,7 @@ import re
 from collections import Counter
 from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 # --- the vocabulary -----------------------------------------------------------------------------------
@@ -226,6 +226,15 @@ SYSTEM_BASES: tuple[str, ...] = (
     BASIS_NO_RETRACTION,
     BASIS_HELD,
 )
+# the R8 linker fix (2026-10-21) — the basis of the SYSTEM's ``revoke`` of its own earlier decision when it
+# RE-LINKS an amendment it had linked to the wrong original (``relink_rule``): the decision was computed
+# against that wrong original, so it is taken back — append-only, stamped at the re-link — and the decision
+# against the new original (if any) is recorded beside it. Never written over anything the operator did.
+BASIS_RELINK = "system:relink"
+# the two re-link rules: the old link's original was SEC-accepted after the amendment; the old link was
+# ambiguous and exactly one candidate holds a row the amendment accounts for
+RELINK_ORDER = "made-public-after"
+RELINK_TIE_BREAK = "row-tie-break"
 _SYSTEM_PREFIX = "system:"
 # the operator's three verdicts on an owed amendment: Use the correction (``apply`` — the whole original replaced),
 # Keep the original (``keep``), Add to the original (an ``apply`` that replaces nothing — ``replaced_rows = []``:
@@ -387,8 +396,8 @@ def review_bucket(
     - PENDING: an ambiguous link the operator has not linked is ``owed`` when ``in_review`` (it changes a
       signal row dated inside the review horizon — ``within_review_horizon``), else ``historical`` (no call
       reads those rows; the originals stand). An operator-linked one awaiting its verdict, and one whose
-      decision the operator UNDID (``ever_decided`` with nothing standing), are ``owed`` — the operator took
-      it. An ``unresolved`` row match (``match_rows`` — a buy/sell whose date AND share count both changed)
+      decision the operator UNDID (``ever_decided`` — an OPERATOR decision ever recorded; the system's own
+      ``system:relink`` revoke is not one — with nothing standing), are ``owed`` — the operator took it. An ``unresolved`` row match (``match_rows`` — a buy/sell whose date AND share count both changed)
       is the ambiguous link's twin: ``owed`` when ``in_review``, else ``historical``; the original stands. A
       resolvable one with no decision at all is ``queued``: a pre-R8-B link the next pass's sweep applies (a
       void suppresses meanwhile, as pending always did). A void the system HELD (``system:held`` — retraction
@@ -1010,6 +1019,12 @@ class LinkResult:
     candidate_accessions: tuple[str, ...] = ()
     owner_ciks: tuple[str, ...] = ()
     why: str = ""
+    # the R8 linker fix (2026-10-21) — the owner's stored Form 4s the cascade would have matched but REFUSED
+    # because SEC accepted them AFTER the amendment (an original is always public before its amendment —
+    # ``made_public_after``), and whether an ambiguous candidate set was settled by the ROW tie-break
+    # (``row_tie_break`` — exactly one candidate holds a row the amendment accounts for)
+    excluded_later: tuple[str, ...] = ()
+    tie_break: bool = False
     # does its effect change a row a call signal reads; does the SYSTEM apply it (R8-B: every disposition
     # resolved to a definite original), and under which basis (``system_basis`` — the ingest records it)
     signal_effect: bool = True
@@ -1099,18 +1114,77 @@ def _earliest(accessions: Iterable[str], stored: Mapping[str, Sequence[Mapping[s
     return sorted(accessions, key=key)[0]
 
 
+def made_public_after(
+    accession: str,
+    amendment: AmendmentFacts,
+    filed_by_accession: Mapping[str, date],
+    accepted_by_accession: Mapping[str, datetime] | None = None,
+) -> bool:
+    """PURE — the R8 linker fix (2026-10-21): was this stored Form 4 made public AFTER the amendment? Then it
+    cannot be the filing the amendment amends — an amendment names a filing that already exists. Judged by the
+    SEC acceptance instants when both are known, else by the EDGAR filing dates (a later filing date is later);
+    unknown either way = not after (keep the candidate — over-include, #9).
+
+    ONE SOURCE, ONE CLOCK: the candidate's instant and date come from the SAME submissions index the amendment's
+    own ``accepted`` / ``filed`` come from (``accepted_by_accession`` / ``filed_by_accession`` — the index's
+    ``acceptanceDateTime`` / ``filingDate``), never from the stored rows' ``accepted`` column: MEASURED on prod
+    (read-only, 2026-10-21) that column disagrees with the index by -4 h / -5 h / -8 h on ~72k of ~116k stored
+    filings (another writer's clock), while every stored 4/A's ``accepted`` equals the index's exactly.
+
+    WHY. IEHC 0001174947-26-000336 states ``dateOfOriginalSubmission`` 2026-03-10 — its OWN filing date (its
+    footnote names the real original: "filed on July 1, 2025"). The owner's only Form 4 filed that day,
+    ``-000338`` (two March 2026 sales), was accepted 49 seconds AFTER the 4/A, and step 1 linked to it.
+    """
+    cand = accepted_by_accession.get(accession) if accepted_by_accession else None
+    if cand is not None and amendment.accepted is not None:
+        try:
+            return cand > amendment.accepted
+        except TypeError:  # a naive and an aware instant cannot be ordered — fall back to the dates
+            pass
+    filed = filed_by_accession.get(accession)
+    return filed is not None and amendment.filed is not None and filed > amendment.filed
+
+
+def row_tie_break(
+    amend_rows: Sequence[Mapping[str, Any]],
+    candidates: Sequence[str],
+    stored: Mapping[str, Sequence[Mapping[str, Any]]],
+    signal_codes: Collection[str],
+) -> str | None:
+    """PURE — the tie-break for an AMBIGUOUS candidate set (coordinator, 2026-10-21): the ONE candidate that
+    holds a row the amendment ACCOUNTS FOR under R8-B's exact-shape rules (``match_rows`` with no filer words —
+    owner first; identical, a price fix, a recode, a date fix, a sum, a share fix), when every other candidate
+    holds none. ``None`` (it stays ambiguous) when no candidate, or several, hold such a row — and always for a
+    zero-row amendment (it accounts for nothing).
+
+    SKYT 0001856680-26-000016 re-reports a sale on 2026-03-16 at $27.8398 with 9,708 fewer shares ("overstated
+    by 9,708 shares"): ``-000013`` holds that sale (same owner, date, code and price — a share fix), ``-000010``
+    holds only a tax withholding (code ``F``) the amendment does not account for -> ``-000013``."""
+    if not amend_rows:
+        return None
+    hits = [
+        acc
+        for acc in candidates
+        if match_rows(amend_rows, originals_rows([acc], stored), signal_codes).replaced
+    ]
+    return hits[0] if len(hits) == 1 else None
+
+
 def link_amendment(
     amendment: AmendmentFacts,
     stored: Mapping[str, Sequence[Mapping[str, Any]]],
     filed_by_accession: Mapping[str, date],
     signal_codes: Collection[str],
+    accepted_by_accession: Mapping[str, datetime] | None = None,
 ) -> LinkResult:
     """PURE — link the 4/A (``_cascade``), then judge it: a MATCHED disposition's rows are matched against its
     original's (``match_rows`` — R8-B: only the rows it accounts for are replaced); ``signal_effect`` = its
     effect changes a row a call signal reads (``signal_codes``). A disposition resolved to a definite original
     is applied by the system (``auto_resolved``, status ``applied``, ``basis`` = ``system_basis``) unless its
-    row match is UNRESOLVED (then pending — the operator's); an ambiguous one is pending."""
-    base = _cascade(amendment, stored, filed_by_accession, signal_codes)
+    row match is UNRESOLVED (then pending — the operator's); an ambiguous one is pending.
+    ``accepted_by_accession`` = each stored Form 4's SEC acceptance from the submissions index (the R8 linker
+    fix's order test — ``made_public_after``)."""
+    base = _cascade(amendment, stored, filed_by_accession, signal_codes, accepted_by_accession)
     pool = {acc: rows for acc, rows in stored.items() if acc != amendment.accession and rows}
     match = match_for(
         base.disposition,
@@ -1151,6 +1225,7 @@ def _cascade(
     stored: Mapping[str, Sequence[Mapping[str, Any]]],
     filed_by_accession: Mapping[str, date],
     signal_codes: Collection[str],
+    accepted_by_accession: Mapping[str, datetime] | None = None,
 ) -> LinkResult:
     """PURE — find the 4/A's original among the security's STORED Form 4 rows and classify the change.
 
@@ -1163,33 +1238,81 @@ def _cascade(
     ambiguous): (1) a stored accession FILED on ``dateOfOriginalSubmission`` whose rows belong to one of the
     amendment's reporting owners — exactly one links; several with IDENTICAL Table I are filing-agent
     DUPLICATES (keep the earliest, void the rest — TDG); several that differ are AMBIGUOUS. (2) Else, an
-    accession filed on/before the amendment, of the same owner, sharing transaction dates with it — the one
-    with the most shared rows links; a tie is AMBIGUOUS. (3) Else UNLINKED (or NO_ROWS when the amendment
-    has no Table I rows: nothing to apply either way)."""
+    accession of the same owner sharing transaction dates with it — the one with the most shared rows links; a
+    tie is AMBIGUOUS. (3) Else UNLINKED (or NO_ROWS when the amendment has no Table I rows: nothing to apply
+    either way).
+
+    THE R8 LINKER FIX (2026-10-21). (a) A candidate SEC made public AFTER the amendment is never its original
+    (``made_public_after`` — both steps; refused candidates ride on ``excluded_later``): IEHC's 4/A states its
+    own filing date as the original's, and step 1 linked it to a sale filed 49 seconds later. With that
+    candidate refused, step 2 finds the owner's July 2025 Form 4 — the original the footnote names, Table I
+    identical (clerical). (b) An AMBIGUOUS set (either step) is settled when exactly ONE candidate holds a row
+    the amendment accounts for by exact shape (``row_tie_break``; ``tie_break``); otherwise it stays the
+    operator's. Nothing else is guessed: no step reaches past the owner's own filings, and none falls back to
+    the nearest filing in time."""
     ciks, names = _owner_keys(amendment.owners)
     owner_ciks = tuple(sorted(ciks))
     amend_rows = list(amendment.rows)
     pool = {acc: rows for acc, rows in stored.items() if acc != amendment.accession and rows}
+    excluded: list[str] = []
 
-    def linked(method: str, original: str, why: str) -> LinkResult:
+    def later(acc: str) -> bool:
+        return made_public_after(acc, amendment, filed_by_accession, accepted_by_accession)
+
+    def refused() -> str:
+        if not excluded:
+            return ""
+        return (
+            f"; refused {len(excluded)} Form 4(s) made public AFTER this amendment "
+            f"({', '.join(sorted(excluded))}) — an original always precedes its amendment"
+        )
+
+    def linked(
+        method: str, original: str, why: str, *, candidates: Sequence[str] = (), tie: bool = False
+    ) -> LinkResult:
         disp = classify(amend_rows, pool[original], signal_codes)
         return LinkResult(
             method=method,
             disposition=disp,
             status=status_for(disp),
             original_accessions=(original,),
-            candidate_accessions=(original,),
+            candidate_accessions=tuple(candidates) or (original,),
             owner_ciks=owner_ciks,
-            why=why,
+            why=why + refused(),
+            excluded_later=tuple(sorted(excluded)),
+            tie_break=tie,
+        )
+
+    def ambiguous(method: str, candidates: Sequence[str], why: str) -> LinkResult:
+        pick = row_tie_break(amend_rows, candidates, pool, signal_codes)
+        if pick is not None:
+            return linked(
+                method,
+                pick,
+                f"{why}; only {pick} holds a row this amendment accounts for (same owner, exact "
+                "shape) — the others hold none",
+                candidates=candidates,
+                tie=True,
+            )
+        return LinkResult(
+            method=method,
+            disposition=AMBIGUOUS,
+            status=status_for(AMBIGUOUS),
+            candidate_accessions=tuple(candidates),
+            owner_ciks=owner_ciks,
+            why=why + " — which one this amends is the operator's call" + refused(),
+            excluded_later=tuple(sorted(excluded)),
         )
 
     orig_date = amendment.date_of_original_submission
     if orig_date is not None:
-        step1 = sorted(
+        on_date = sorted(
             acc
             for acc, rows in pool.items()
             if filed_by_accession.get(acc) == orig_date and _owned_by(rows, ciks, names)
         )
+        excluded.extend(acc for acc in on_date if later(acc))
+        step1 = [acc for acc in on_date if acc not in excluded]
         if len(step1) == 1:
             return linked(
                 METHOD_ORIG_DATE_OWNER,
@@ -1213,32 +1336,32 @@ def _cascade(
                     why=(
                         f"{len(step1)} Form 4s by the owner filed {orig_date.isoformat()} carry IDENTICAL "
                         f"Table I rows — the earliest ({keep}) stands, {len(voided)} duplicate(s) voided"
-                    ),
+                    )
+                    + refused(),
+                    excluded_later=tuple(sorted(excluded)),
                 )
-            return LinkResult(
-                method=METHOD_ORIG_DATE_OWNER,
-                disposition=AMBIGUOUS,
-                status=status_for(AMBIGUOUS),
-                candidate_accessions=tuple(step1),
-                owner_ciks=owner_ciks,
-                why=(
-                    f"{len(step1)} different Form 4s by the owner were filed {orig_date.isoformat()} — "
-                    "which one this amends is the operator's call"
-                ),
+            return ambiguous(
+                METHOD_ORIG_DATE_OWNER,
+                step1,
+                f"{len(step1)} different Form 4s by the owner were filed {orig_date.isoformat()}",
             )
 
     dates = {d for d in (_row_date(r) for r in amend_rows) if d is not None}
     if dates:
         overlap: dict[str, int] = {}
         for acc, rows in pool.items():
-            filed = filed_by_accession.get(acc)
-            if filed is not None and amendment.filed is not None and filed > amendment.filed:
-                continue  # filed after the amendment — it cannot be what the amendment amends
             if not _owned_by(rows, ciks, names):
                 continue
             n = sum(1 for r in rows if _row_date(r) in dates)
-            if n:
-                overlap[acc] = n
+            if not n:
+                continue
+            if later(
+                acc
+            ):  # made public after the amendment — it cannot be what the amendment amends
+                if acc not in excluded:
+                    excluded.append(acc)
+                continue
+            overlap[acc] = n
         if overlap:
             best = max(overlap.values())
             top = sorted(acc for acc, n in overlap.items() if n == best)
@@ -1249,13 +1372,10 @@ def _cascade(
                     f"no Form 4 of the owner on the original date; {best} of its rows share the "
                     "amendment's transaction dates",
                 )
-            return LinkResult(
-                method=METHOD_OWNER_TXN_DATE,
-                disposition=AMBIGUOUS,
-                status=status_for(AMBIGUOUS),
-                candidate_accessions=tuple(top),
-                owner_ciks=owner_ciks,
-                why=f"{len(top)} Form 4s of the owner tie on shared transaction dates ({best} rows each)",
+            return ambiguous(
+                METHOD_OWNER_TXN_DATE,
+                top,
+                f"{len(top)} Form 4s of the owner tie on shared transaction dates ({best} rows each)",
             )
 
     disp = NO_ROWS if not amend_rows else UNLINKED
@@ -1269,8 +1389,49 @@ def _cascade(
             if disp == NO_ROWS
             else "no stored Form 4 of the owner matches (its original predates the stored tape, or stored "
             "no Table I rows)"
-        ),
+        )
+        + refused(),
+        excluded_later=tuple(sorted(excluded)),
     )
+
+
+def link_identity(link: Mapping[str, Any] | LinkResult) -> tuple[Any, ...]:
+    """What a link SAYS (method, disposition, originals, voided, candidates) — a stored link row or a fresh
+    ``LinkResult``, compared on the same terms (the re-link appends a version only when this changes).
+    """
+
+    def get(k: str) -> Any:
+        return getattr(link, k) if isinstance(link, LinkResult) else link.get(k)
+
+    return (
+        str(get("method")),
+        str(get("disposition")),
+        tuple(sorted(_list(get("original_accessions")))),
+        tuple(sorted(_list(get("voided_accessions")))),
+        tuple(sorted(_list(get("candidate_accessions")))),
+    )
+
+
+def relink_rule(stored: Mapping[str, Any], fresh: LinkResult) -> str | None:
+    """PURE — the R8 linker fix's re-link of a STORED link: ``RELINK_ORDER`` when the fresh cascade refuses an
+    original / candidate the stored link names as made public after the amendment (IEHC), ``RELINK_TIE_BREAK``
+    when it settles a stored AMBIGUOUS link by the row tie-break (SKYT); ``None`` when the fresh link says the
+    same thing, or differs for any OTHER reason (drift — rows or filing dates stored since; never re-linked by
+    this rule, only reported). Only these two rules move a stored link."""
+    if link_identity(stored) == link_identity(fresh):
+        return None
+    named = (
+        set(_list(stored.get("original_accessions")))
+        | set(_list(stored.get("voided_accessions")))
+        | set(_list(stored.get("candidate_accessions")))
+    )
+    if named & set(fresh.excluded_later):
+        return RELINK_ORDER
+    if fresh.tie_break and str(stored.get("disposition")) == AMBIGUOUS:
+        # the pick is settled among the SAME candidates the stored link offered the operator
+        if set(fresh.candidate_accessions) <= set(_list(stored.get("candidate_accessions"))):
+            return RELINK_TIE_BREAK
+    return None
 
 
 def link_to_candidate(
@@ -1441,11 +1602,69 @@ def effective_states(
 # --- the resolver ----------------------------------------------------------------------------------------
 
 
-@dataclass
-class _Emission:
-    order: tuple[Any, ...]
-    amendment: Mapping[str, Any]
-    original: str
+_MIN_INSTANT = datetime.min.replace(tzinfo=timezone.utc)
+
+
+def statement_order(amendment: Mapping[str, Any]) -> tuple[Any, ...]:
+    """The order in which one original's applied amendments are COMPOSED (``compose_statements``): the SEC
+    acceptance instant (the 4/A record's ``accepted`` — the submissions index's clock, the R8 linker fix's),
+    else its EDGAR filing date, else its accession. An unknown instant sorts after every known one.
+    """
+    accepted = amendment.get("accepted")
+    filed = _as_date(amendment.get("filed"))
+    return (
+        accepted is None,
+        accepted if accepted is not None else _MIN_INSTANT,
+        filed is None,
+        filed or date.min,
+        str(amendment["accession"]),
+    )
+
+
+def compose_statements(
+    chain: Sequence[tuple[Mapping[str, Any], frozenset[str] | None]],
+) -> list[tuple[Mapping[str, Any], Mapping[str, Any]]]:
+    """PURE — the rows that STAND for one original after every applied amendment of it, as ``(amendment, row)``
+    pairs. ``chain`` = the applied amendments emitting for that original, ``(amendment record, replaced)``, in
+    ``statement_order``; ``replaced`` = the original's rows (``row_key``) it replaces — ``None`` when it replaces
+    the WHOLE original (its decision carries no ``replaced_rows``: a 1:1 correction, every pre-row-match
+    decision, the operator's Use the correction).
+
+    THE COMPOSITION (2026-10-21 — before it, only the NEWEST applied statement emitted, so an OLDER row-level
+    amendment's ``replaced_rows`` still suppressed its originals while its own rows were dropped: COIN's corrected
+    2024 withholding, AVAV's 2023 sale restated as 2,100 shares, AIR's 2018 sale). Each amendment, in order:
+
+    - a WHOLE one supersedes the original AND every earlier amendment of it: what stands is its rows alone (the
+      latest complete statement of that filing is the truth — the operator's "Use the correction");
+    - a ROW-LEVEL one re-reports the SAME trade as an earlier amendment when they replace a common original row
+      (an earlier WHOLE one replaced them all): it then replaces the rows of that earlier amendment it ACCOUNTS
+      for by exact shape (``match_rows`` with no filer words, against that amendment's own rows) — a second
+      correction of the same trade replaces the first, never stacks (LFST: a 10,000-share sale restated as 5,000,
+      then back to 10,000). Amendments of DIFFERENT trades of one original never touch each other's rows (AMSC:
+      one re-dates two buys, a later one re-reports a third — all stand). Its own rows join the ones that stand;
+      the original rows it replaces are its stored ``replaced_rows`` (the caller suppresses them).
+
+    Computed over the amendment records' FULL rows (never a windowed read), so both engines compose
+    identically."""
+    live: list[tuple[Mapping[str, Any], Mapping[str, Any], frozenset[str] | None]] = []
+    for am, replaced in chain:
+        rows = sorted(am.get("rows") or [], key=lambda x: x.get("txn_seq") or 0)
+        if replaced is None:
+            live = []
+        elif live:
+            same_trade = [
+                {**r, "accession": str(a["accession"])}
+                for a, r, rep in live
+                if rep is None or rep & replaced
+            ]
+            gone = set(match_rows(rows, same_trade, frozenset()).replaced) if same_trade else set()
+            live = [
+                (a, r, rep)
+                for a, r, rep in live
+                if row_key({**r, "accession": str(a["accession"])}) not in gone
+            ]
+        live.extend((am, r, replaced) for r in rows)
+    return [(a, r) for a, r, _ in live]
 
 
 def emitted_row(
@@ -1514,9 +1733,11 @@ def resolve_insider_rows(
     1. Each amendment's effective state (``effective_states``) — the original accessions it SUPPRESSES and
        the ones whose rows it REPLACES.
     2. A suppressed accession's rows leave the read, and so does each single original row an applied MATCHED
-       amendment replaces (``suppress_rows`` — R8-B: the rest of that original stands); for an original several
-       applied amendments replace, only the NEWEST statement (by SEC acceptance, then accession) emits — one
-       statement per original.
+       amendment replaces (``suppress_rows`` — R8-B: the rest of that original stands). The applied amendments
+       of one original are COMPOSED in SEC-acceptance order (``compose_statements``): a whole replacement
+       supersedes the original and every earlier amendment; a row-level one replaces the earlier amendments'
+       rows it accounts for and adds its own — so no applied amendment's rows are silently dropped, and a second
+       correction of the same trade replaces the first instead of stacking.
     3. The other-issuer screen drops a row whose issuer is not this security.
 
     The kept rows keep their input ORDER (the engines' own natural-key order), and the emitted rows follow,
@@ -1533,20 +1754,24 @@ def resolve_insider_rows(
     by_acc = latest_by_accession(amendments, "accession")
     suppressed: set[str] = set()
     suppressed_rows: set[str] = set()  # R8-B — single original rows a matched amendment replaces
-    winners: dict[str, _Emission] = {}
+    # original -> its applied emitting amendments: (order, amendment record, the original rows it replaces —
+    # None = the whole original)
+    chains: dict[str, list[tuple[tuple[Any, ...], Mapping[str, Any], frozenset[str] | None]]] = {}
     for st in states:
         suppressed.update(st.suppress)
         suppressed_rows.update(st.suppress_rows)
         am = by_acc.get(st.accession)
         if am is None or not st.emit_for:
             continue  # nothing to emit (or the record is not visible: never invent rows)
-        accepted = am.get("accepted")
-        order = (accepted if accepted is not None else am["recorded_at"], st.accession)
+        order = statement_order(am)
         for original in st.emit_for:
-            cur = winners.get(original)
-            if cur is None or order > cur.order:
-                winners[original] = _Emission(order, am, original)
-    if not suppressed and not suppressed_rows and not winners and not screen:
+            replaced = (
+                None
+                if original in st.suppress
+                else frozenset(k for k in st.suppress_rows if k.startswith(f"{original}#"))
+            )
+            chains.setdefault(original, []).append((order, am, replaced))
+    if not suppressed and not suppressed_rows and not chains and not screen:
         return rows if isinstance(rows, list) else list(rows)
     kept = [
         r
@@ -1555,26 +1780,23 @@ def resolve_insider_rows(
         and row_key(r) not in suppressed_rows
         and not (screen and is_other_issuer(r, own))
     ]
+    # every original's composed statement; one amendment that replaces TWO originals emits its row once
+    standing: dict[tuple[str, Any], tuple[Mapping[str, Any], Mapping[str, Any], str]] = {}
+    for original in sorted(chains):
+        chain = [(am, rep) for _, am, rep in sorted(chains[original], key=lambda c: c[0])]
+        for am, x in compose_statements(chain):
+            standing.setdefault((str(am["accession"]), x.get("txn_seq")), (am, x, original))
     emitted: list[dict[str, Any]] = []
-    for original in sorted(winners, key=lambda o: (winners[o].order[1], o)):
-        em = winners[original]
-        for x in sorted(em.amendment.get("rows") or [], key=lambda x: x.get("txn_seq") or 0):
-            d = _row_date(x)
-            if d is None or d > asof or (lower is not None and d < lower):
-                continue
-            out = emitted_row(em.amendment, x, original)
-            if not is_other_issuer(out, own):
-                emitted.append(out)
-    # one amendment that replaces TWO originals emits once (dedup on the amended row's own identity)
-    seen: set[tuple[Any, ...]] = set()
-    unique: list[dict[str, Any]] = []
-    for e in emitted:
-        k = (e["accession"], e["txn_seq"])
-        if k in seen:
+    for _, (am, x, original) in sorted(
+        standing.items(), key=lambda kv: (kv[0][0], kv[0][1] or 0, kv[1][2])
+    ):
+        d = _row_date(x)
+        if d is None or d > asof or (lower is not None and d < lower):
             continue
-        seen.add(k)
-        unique.append(e)
-    return kept + unique
+        out = emitted_row(am, x, original)
+        if not is_other_issuer(out, own):
+            emitted.append(out)
+    return kept + emitted
 
 
 @dataclass

@@ -1,0 +1,244 @@
+<?xml version="1.0"?>
+<ownershipDocument>
+
+    <schemaVersion>X0303</schemaVersion>
+
+    <documentType>4/A</documentType>
+
+    <periodOfReport>2010-12-17</periodOfReport>
+
+    <dateOfOriginalSubmission>2010-12-21</dateOfOriginalSubmission>
+
+    <issuer>
+        <issuerCik>0000880807</issuerCik>
+        <issuerName>AMERICAN SUPERCONDUCTOR CORP /DE/</issuerName>
+        <issuerTradingSymbol>AMSC</issuerTradingSymbol>
+    </issuer>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001132859</rptOwnerCik>
+            <rptOwnerName>DOUGLAS KEVIN</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerStreet1>125 E. SIR FRANCIS DRAKE BLVD., STE 400</rptOwnerStreet1>
+            <rptOwnerStreet2></rptOwnerStreet2>
+            <rptOwnerCity>LARKSPUR</rptOwnerCity>
+            <rptOwnerState>CA</rptOwnerState>
+            <rptOwnerZipCode>94939</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>0</isDirector>
+            <isOfficer>0</isOfficer>
+            <isTenPercentOwner>1</isTenPercentOwner>
+            <isOther>1</isOther>
+            <otherText>13(d)(3) group</otherText>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001348445</rptOwnerCik>
+            <rptOwnerName>Douglas Michelle</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerStreet1>125 E. SIR FRANCIS DRAKE BLVD., STE 400</rptOwnerStreet1>
+            <rptOwnerStreet2></rptOwnerStreet2>
+            <rptOwnerCity>LARKSPUR</rptOwnerCity>
+            <rptOwnerState>CA</rptOwnerState>
+            <rptOwnerZipCode>94939</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>0</isDirector>
+            <isOfficer>0</isOfficer>
+            <isTenPercentOwner>1</isTenPercentOwner>
+            <isOther>1</isOther>
+            <otherText>13(d)(3) group</otherText>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001268474</rptOwnerCik>
+            <rptOwnerName>DOUGLAS FAMILY TRUST</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerStreet1>125 E. SIR FRANCIS DRAKE BLVD., STE 400</rptOwnerStreet1>
+            <rptOwnerStreet2></rptOwnerStreet2>
+            <rptOwnerCity>LARKSPUR</rptOwnerCity>
+            <rptOwnerState>CA</rptOwnerState>
+            <rptOwnerZipCode>94939</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>0</isDirector>
+            <isOfficer>0</isOfficer>
+            <isTenPercentOwner>1</isTenPercentOwner>
+            <isOther>1</isOther>
+            <otherText>13(d)(3) group</otherText>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001268475</rptOwnerCik>
+            <rptOwnerName>JAMES &amp; JEAN DOUGLAS IRREVOCABLE DESCENDANTS TRUST</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerStreet1>125 E. SIR FRANCIS DRAKE BLVD., STE 400</rptOwnerStreet1>
+            <rptOwnerStreet2></rptOwnerStreet2>
+            <rptOwnerCity>LARKSPUR</rptOwnerCity>
+            <rptOwnerState>CA</rptOwnerState>
+            <rptOwnerZipCode>94939</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>0</isDirector>
+            <isOfficer>0</isOfficer>
+            <isTenPercentOwner>1</isTenPercentOwner>
+            <isOther>1</isOther>
+            <otherText>13(d)(3) group</otherText>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001268476</rptOwnerCik>
+            <rptOwnerName>DOUGLAS JAMES E III</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerStreet1>125 E. SIR FRANCIS DRAKE BLVD., STE 400</rptOwnerStreet1>
+            <rptOwnerStreet2></rptOwnerStreet2>
+            <rptOwnerCity>LARKSPUR</rptOwnerCity>
+            <rptOwnerState>CA</rptOwnerState>
+            <rptOwnerZipCode>94939</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>0</isDirector>
+            <isOfficer>0</isOfficer>
+            <isTenPercentOwner>1</isTenPercentOwner>
+            <isOther>1</isOther>
+            <otherText>13(d)(3) group</otherText>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <nonDerivativeTable>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Common Stock</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2010-12-17</value>
+            </transactionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>P</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+            </transactionCoding>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>34000</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>28.87</value>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>A</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>1048232</value>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>I</value>
+                    <footnoteId id="F1"/>
+                    <footnoteId id="F2"/>
+                </directOrIndirectOwnership>
+                <natureOfOwnership>
+                    <value>By Douglas Family Trust</value>
+                </natureOfOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Common Stock</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2010-12-17</value>
+            </transactionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>P</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+            </transactionCoding>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>20000</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>28.87</value>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>A</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>632010</value>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>I</value>
+                    <footnoteId id="F1"/>
+                    <footnoteId id="F3"/>
+                </directOrIndirectOwnership>
+                <natureOfOwnership>
+                    <value>By James E Douglas III</value>
+                </natureOfOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+    </nonDerivativeTable>
+
+    <derivativeTable></derivativeTable>
+
+    <footnotes>
+        <footnote id="F1">Each of the reporting persons hereunder (individually, a &quot;Reporting Person&quot; and collectively the &quot;Reporting Persons&quot;) may be deemed a member of a &quot;group&quot; within the meaning of Section 13(d)(3) of the Securities and Exchange Act of 1934, as amended (the &quot;Exchange Act&quot;) or Rule 13d-5 promulgated under the Exchange Act, with one or more of the other Reporting Persons.  Although the Reporting Persons are reporting such securities as if they were members of a &quot;group&quot;, the filing of this Form 4 shall not be deemed an admission by any Reporting Person that such Reporting Person is a beneficial owner of any securities other than those directly held by such Reporting Person.</footnote>
+        <footnote id="F2">These shares are held directly by the Douglas Family Trust and indirectly by Kevin Douglas.  James E. Douglas, Jr. and Jean A. Douglas, husband and wife, are each a co-trustee of the Douglas Family Trust.  The purchase of these shares was reported on the initial Form 4 filed on December 21, 2010, however, the date of purchase was incorrectly reported as being made on 11/11/2010.</footnote>
+        <footnote id="F3">These shares are held directly by James E. Douglas III and indirectly by Kevin Douglas.  The purchase of these shares was reported on the initial Form 4 filed on December 21, 2010, however, the date of purchase was incorrectly reported as being made on 11/11/2010.</footnote>
+    </footnotes>
+
+    <remarks>This amendment is being filed solely to correct the date of purchase for these two transactions, which was incorrect on the intial Form
+4 filed December 21, 2010.</remarks>
+
+    <ownerSignature>
+        <signatureName>/s/ By Tim McGaw, Attorney in Fact for Kevin Douglas</signatureName>
+        <signatureDate>2010-12-22</signatureDate>
+    </ownerSignature>
+
+    <ownerSignature>
+        <signatureName>/s/ By Tim McGaw, Attorney in Fact for Michelle Douglas</signatureName>
+        <signatureDate>2010-12-22</signatureDate>
+    </ownerSignature>
+
+    <ownerSignature>
+        <signatureName>/s/ By Tim McGaw, Attorney in Fact for Douglas Family Trust</signatureName>
+        <signatureDate>2010-12-22</signatureDate>
+    </ownerSignature>
+
+    <ownerSignature>
+        <signatureName>/s/ By Tim McGaw, Attorney in Fact for James Douglas and Jean Douglas Irrevocable Descendants? Trust</signatureName>
+        <signatureDate>2010-12-22</signatureDate>
+    </ownerSignature>
+
+    <ownerSignature>
+        <signatureName>/s/ By Tim McGaw, Attorney in Fact for James E. Douglas III</signatureName>
+        <signatureDate>2010-12-22</signatureDate>
+    </ownerSignature>
+</ownershipDocument>

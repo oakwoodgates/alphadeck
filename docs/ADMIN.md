@@ -276,7 +276,11 @@ shows them: "Read as: the filer's words FIX the trade it re-reports — “…�
   `S` 120 days) sorts to the top and says "in today's P/S signal window — can move tonight's call". Each pages
   ONCE when new (`FEED_LOOP.md` §the amendment leg). MEASURED 2026-10-21 (asof 2026-10-20, after the first
   sweep): 6 — 4 ambiguous (CVNA, FIS, HROW, SKYT), 1 unresolved match (YYAI), 1 held void (FIGR); none in
-  tonight's signal windows.
+  tonight's signal windows. Since the R8 linker fix (`FEED_LOOP.md` §the R8 linker fix), an ambiguous set is
+  settled when exactly ONE candidate holds a row the amendment accounts for: once `python -m
+  pipeline.relink_amendments --apply` runs, FIS and SKYT move to "Resolved automatically" and the owed list is 4
+  (CVNA, HROW, YYAI, FIGR). A link the system settled shows every candidate beside it (the one it chose marked
+  "original"); its Undo is **Keep the original**.
 - **Resolved automatically** (quiet, collapsed) — every amendment the system resolved: the filer's correction
   applied (`system:filer-correction`), one that changes no buy or sale a call signal reads
   (`system:no-signal-effect`), a 1:1 correction applied by its link — each with **Keep the original** as its

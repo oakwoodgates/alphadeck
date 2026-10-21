@@ -435,7 +435,12 @@ Depth: the submissions `recent` window, the same accepted depth as Form 4.
   submissions index's `filingDate` — an acceptance after 17:30 ET files the next business day, so the
   acceptance instant is not a substitute) whose rows belong to one of the amendment's reporting owners;
   several with IDENTICAL Table I are filing-agent duplicates, several that differ are ambiguous. (2) Else an
-  earlier Form 4 of the same owner sharing transaction dates (a tie is ambiguous). (3) Else unlinked.
+  earlier Form 4 of the same owner sharing transaction dates (a tie is ambiguous). (3) Else unlinked. **The R8
+  linker fix (2026-10-21):** a Form 4 SEC made public AFTER the amendment is never its original (both
+  acceptance instants read from the SAME submissions index — `acceptanceDateTime` — else the filing dates; the
+  stored rows' `accepted` column is not that clock), and an ambiguous set is settled when exactly one candidate
+  holds a row the amendment accounts for by exact shape. Rule, measurement and the re-link of the stored links:
+  `FEED_LOOP.md` §the R8 linker fix.
 - **The dispositions** and what each does to the read are in `CALL_LOGIC.md` §3 (insider) and
   `domain/insider_amendments.py`: correction, void, duplicates, partial / consolidation / addition /
   restatement, **field change** (Table I identical but a signal row's owner role / name / 10b5-1 flag moved —

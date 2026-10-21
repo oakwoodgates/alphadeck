@@ -130,6 +130,102 @@ def system_decision_values(
     }
 
 
+def link_detail(
+    link: LinkResult,
+    signal_codes: Collection[str],
+    *,
+    rejected: int,
+    extra: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """A link row's ``detail`` (the cascade's reading, shown on Admin): the why, the system's judgment, and —
+    since the R8 linker fix — the candidates refused as made public after the amendment and whether the row
+    tie-break settled an ambiguous set."""
+    return {
+        "why": link.why,
+        "rejected_rows": rejected,
+        "signal_effect": link.signal_effect,
+        "auto_resolved": link.auto_resolved,
+        "basis": link.basis,
+        "unresolved_match": link.unresolved,
+        "void_reading": link.void_kind,
+        "signal_codes": sorted(signal_codes),
+        "excluded_later": list(link.excluded_later),
+        "tie_break": link.tie_break,
+        **(dict(extra) if extra else {}),
+    }
+
+
+def write_link(
+    cur: psycopg.Cursor[Any],
+    *,
+    tenant_id: UUID,
+    security_id: UUID,
+    accession: str,
+    link: LinkResult,
+    signal_codes: Collection[str],
+    accepted: datetime | None,
+    rejected: int,
+    via: str,
+    recorded_at: datetime | None = None,
+    extra_detail: Mapping[str, Any] | None = None,
+) -> int:
+    """Append one amendment's LINK and — when the system resolves it (R8-B) — the system's decision, in the
+    caller's transaction, both at ONE ``recorded_at`` (``now()`` unless given). The ingest's write and the
+    re-link's (``repositories.insider_amendment_repo.relink``) — one shape. Returns the decisions appended
+    (0 or 1)."""
+    common: dict[str, Any] = {"tenant": tenant_id, "sid": security_id, "acc": accession}
+    stamp = "%(rec)s" if recorded_at is not None else "now()"
+    if recorded_at is not None:
+        common["rec"] = recorded_at
+    cur.execute(
+        "INSERT INTO insider_amendment_link (tenant_id, security_id, amendment_accession, "
+        "original_accessions, voided_accessions, candidate_accessions, owner_ciks, method, "
+        "disposition, status, detail, accepted, recorded_at) VALUES (%(tenant)s, %(sid)s, %(acc)s, "
+        "%(orig)s, %(void)s, %(cand)s, %(owners)s, %(method)s, %(disp)s, %(status)s, %(detail)s, "
+        f"%(accepted)s, {stamp})",  # noqa: S608 — stamp is one of two literals
+        {
+            **common,
+            "orig": list(link.original_accessions),
+            "void": list(link.voided_accessions),
+            "cand": list(link.candidate_accessions),
+            "owners": list(link.owner_ciks),
+            "method": link.method,
+            "disp": link.disposition,
+            "status": link.status,
+            "detail": Json(link_detail(link, signal_codes, rejected=rejected, extra=extra_detail)),
+            "accepted": accepted,
+        },
+    )
+    if link.basis is None:
+        return 0
+    # the system's application, recorded exactly like an operator's verdict (append-only, undoable)
+    v = system_decision_values(
+        tenant_id=tenant_id,
+        security_id=security_id,
+        accession=accession,
+        basis=link.basis,
+        disposition=link.disposition,
+        signal_codes=signal_codes,
+        via=via,
+        replaced_rows=link.replaced_rows if link.system_action == "apply" else None,
+        action=link.system_action or "apply",
+    )
+    cur.execute(
+        "INSERT INTO insider_amendment_decision (tenant_id, security_id, amendment_accession, action, "
+        "reason, basis, detail, replaced_rows, recorded_at) VALUES (%(tenant)s, %(sid)s, %(acc)s, "
+        f"%(action)s, %(reason)s, %(basis)s, %(ddetail)s, %(replaced)s, {stamp})",  # noqa: S608
+        {
+            **common,
+            "action": v["action"],
+            "reason": v["reason"],
+            "basis": v["basis"],
+            "ddetail": Json(v["detail"]),
+            "replaced": v["replaced_rows"],
+        },
+    )
+    return 1
+
+
 def _opt_date(raw: str | None) -> date | None:
     try:
         return _txn_date(raw)
@@ -242,6 +338,7 @@ def ingest_form4a(
     recorded_at: datetime | None = None,
     stored: Mapping[str, list[dict[str, Any]]] | None = None,
     signal_codes: Collection[str] | None = None,
+    accepted_by_accession: Mapping[str, datetime] | None = None,
 ) -> AmendmentIngest:
     """Parse one 4/A, screen it, link it against the security's stored Form 4 rows and append the filing +
     its link (the caller owns the transaction — every row shares its ``now()``). ``stored`` may be passed in
@@ -257,7 +354,12 @@ def ingest_form4a(
     applied only when it retracts a single-trade original; otherwise the system records a ``keep`` (basis
     ``system:no-retraction`` — the original stands — or ``system:held`` — owed to the operator). Undoable on
     Admin. An ambiguous link, and a match neither shape nor words resolve, write no decision — they wait for the
-    operator (or read as historical)."""
+    operator (or read as historical).
+
+    ``accepted_by_accession`` (the R8 linker fix) = each Form 4's SEC acceptance from the SAME submissions index
+    as ``filed_by_accession`` and this 4/A's own ``accepted`` — the order test refuses a candidate made public
+    after the amendment (``domain.insider_amendments.made_public_after``); without it only the filing dates
+    order them (a same-day pair is then not told apart)."""
     if signal_codes is None:
         signal_codes = default_signal_codes()
     parsed = parse_form4a(xml)
@@ -293,12 +395,13 @@ def ingest_form4a(
         if stored is not None
         else stored_rows_by_accession(conn, security_id, tenant_id=tenant_id)
     )
-    link = link_amendment(facts, held, filed_by_accession, signal_codes)
+    link = link_amendment(facts, held, filed_by_accession, signal_codes, accepted_by_accession)
     common: dict[str, Any] = {"tenant": tenant_id, "sid": security_id, "acc": accession}
     stamp = "%(rec)s" if recorded_at is not None else "now()"
     if recorded_at is not None:
         common["rec"] = recorded_at
     with conn.cursor() as cur:
+        # the filing as filed first, then its link + the system's decision (``write_link``)
         cur.execute(
             "INSERT INTO insider_amendment (tenant_id, security_id, accession, issuer_cik, issuer_name, "
             "owners, date_of_original_submission, period_of_report, remarks, footnotes, rows, "
@@ -320,62 +423,18 @@ def ingest_form4a(
                 "accepted": accepted,
             },
         )
-        cur.execute(
-            "INSERT INTO insider_amendment_link (tenant_id, security_id, amendment_accession, "
-            "original_accessions, voided_accessions, candidate_accessions, owner_ciks, method, "
-            "disposition, status, detail, accepted, recorded_at) VALUES (%(tenant)s, %(sid)s, %(acc)s, "
-            "%(orig)s, %(void)s, %(cand)s, %(owners)s, %(method)s, %(disp)s, %(status)s, %(detail)s, "
-            f"%(accepted)s, {stamp})",  # noqa: S608 — stamp is one of two literals
-            {
-                **common,
-                "orig": list(link.original_accessions),
-                "void": list(link.voided_accessions),
-                "cand": list(link.candidate_accessions),
-                "owners": list(link.owner_ciks),
-                "method": link.method,
-                "disp": link.disposition,
-                "status": link.status,
-                "detail": Json(
-                    {
-                        "why": link.why,
-                        "rejected_rows": rejected,
-                        "signal_effect": link.signal_effect,
-                        "auto_resolved": link.auto_resolved,
-                        "basis": link.basis,
-                        "unresolved_match": link.unresolved,
-                        "void_reading": link.void_kind,
-                        "signal_codes": sorted(signal_codes),
-                    }
-                ),
-                "accepted": accepted,
-            },
+        write_link(
+            cur,
+            tenant_id=tenant_id,
+            security_id=security_id,
+            accession=accession,
+            link=link,
+            signal_codes=signal_codes,
+            accepted=accepted,
+            rejected=rejected,
+            via="ingest",
+            recorded_at=recorded_at,
         )
-        if link.basis is not None:
-            # the system's application, recorded exactly like an operator's verdict (append-only, undoable)
-            v = system_decision_values(
-                tenant_id=tenant_id,
-                security_id=security_id,
-                accession=accession,
-                basis=link.basis,
-                disposition=link.disposition,
-                signal_codes=signal_codes,
-                via="ingest",
-                replaced_rows=link.replaced_rows if link.system_action == "apply" else None,
-                action=link.system_action or "apply",
-            )
-            cur.execute(
-                "INSERT INTO insider_amendment_decision (tenant_id, security_id, amendment_accession, action, "
-                "reason, basis, detail, replaced_rows, recorded_at) VALUES (%(tenant)s, %(sid)s, %(acc)s, "
-                f"%(action)s, %(reason)s, %(basis)s, %(ddetail)s, %(replaced)s, {stamp})",  # noqa: S608
-                {
-                    **common,
-                    "action": v["action"],
-                    "reason": v["reason"],
-                    "basis": v["basis"],
-                    "ddetail": Json(v["detail"]),
-                    "replaced": v["replaced_rows"],
-                },
-            )
     return AmendmentIngest(
         accession=accession,
         issuer_cik=parsed.issuer_cik,
@@ -399,6 +458,19 @@ class AmendmentLegResult:
     def pending(self) -> int:
         """Stored tonight and NOT applied by the system (an ambiguous link, or an unresolved row match — R8-B)."""
         return sum(1 for a in self.stored if a.link is not None and a.link.status == STATUS_PENDING)
+
+
+def accepted_times(filings: Collection[Mapping[str, str]]) -> dict[str, datetime]:
+    """``accession -> SEC acceptance`` from enumerated submissions rows (``filings_of``'s shape) — the SAME
+    source as the amendment's own ``accepted`` (the R8 linker fix's order test,
+    ``domain.insider_amendments.made_public_after``); an unparseable one is left out (unknown, never a guess).
+    """
+    out: dict[str, datetime] = {}
+    for f in filings:
+        at = parse_acceptance(f.get("accepted"))
+        if at is not None:
+            out[f["accession"]] = at
+    return out
 
 
 def filed_dates(filings: Collection[Mapping[str, str]]) -> dict[str, date]:
@@ -444,7 +516,9 @@ def ingest_amendments(
     todo = [f for f in amendments if f["accession"] not in seen]
     if not todo:
         return result, ()
-    filed_by = filed_dates(filings_of(dict(submissions), "4"))
+    originals = filings_of(dict(submissions), "4")
+    filed_by = filed_dates(originals)
+    accepted_by = accepted_times(originals)  # the R8 linker fix's order test reads the SAME index
     # the stored Form 4 rows, read ONCE (the Form 4 leg above already appended tonight's originals)
     held = stored_rows_by_accession(conn, security_id, tenant_id=tenant_id)
     codes = frozenset(signal_codes) if signal_codes is not None else default_signal_codes()
@@ -465,6 +539,7 @@ def ingest_amendments(
                 acc,
                 member_cik=cik,
                 filed_by_accession=filed_by,
+                accepted_by_accession=accepted_by,
                 filed=filed,
                 accepted=parse_acceptance(f.get("accepted")),
                 tenant_id=tenant_id,
