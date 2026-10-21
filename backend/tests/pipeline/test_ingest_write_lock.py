@@ -49,6 +49,7 @@ class _FakeClient:
     the CIK in the document URL, the shape R8-A requires)."""
 
     live_fetches = 0
+    live_completed = 0  # O5 (#425) — the freeze detector's completed-fetch count, read by run_daily
 
     def __init__(self, **kwargs):
         pass
