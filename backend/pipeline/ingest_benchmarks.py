@@ -1,29 +1,30 @@
-"""Benchmark EOD ingest — the SPY + IWM tape in ``fact_price_eod`` (Signals §2.1), on TWO paths.
+"""Benchmark EOD ingest — the SPY + IWM tape in ``fact_price_eod`` (Signals §2.1).
 
 Seeds the benchmark master rows (``securities.benchmarks``) then pulls each benchmark's EOD tape through
 the ``PriceSource`` seam. The tape feeds the relative-strength DISPLAY column (``benchmark_rs``) — not a
-call input. Two callers, two transaction-time stamps (D1, 2026-10-16):
+call input. Two callers — the nightly leg in ``pipeline.daily.run_daily_pass`` (the cron, the Admin "Run
+daily now", a boot catch-up) and this module's CLI — and ONE transaction-time stamp:
 
-- **The RECURRING path — the nightly leg in ``pipeline.daily.run_daily_pass`` (the cron, the Admin "Run
-  daily now", a boot catch-up) and the default here.** A new bar lands with ``recorded_at = now`` — the
-  instant this system learned it, read from the DATABASE clock (``db.clock.db_now``) right after the pull,
-  so it is the same clock that stamps every other ``recorded_at`` and that a live read's ``known_at``
-  comes from (the one-clock rule). HONEST transaction time, the contract every thesis-name bar keeps.
-  It used to reuse the one-shot backfill's stamp below, so every nightly SPY/IWM bar claimed
-  ``recorded_at = D 00:00 UTC`` — about 26.5 h before it was really ingested, and before its own session
-  opened. The visibility contract is unchanged for every honest reader: the bar for day D, ingested at
-  ~22:35 ET on D, is inside ``known_at_for_asof(D)`` (the end of D's MARKET day — the serve-path
-  scrub-back and the Scoreboard's dated overlays) and inside the night's own call (``known_at = now``,
-  later), and outside every read with ``asof < D`` (``valid_from = D``) or pinned before it was ingested.
-  (The replay/backtest read no benchmark bar at all — RS is display-only — and a public-clock mirror
-  rewrites ``recorded_at`` to the bar date anyway.)
-- **The ONE-SHOT historical backfill — ``python -m pipeline.ingest_benchmarks`` (this CLI).** Deep history
-  lands with ``valid_from = recorded_at = the bar date d`` (``ingest_prices_backfill``): the documented
-  replay contract — "an EOD bar is knowable that evening" — which is what lets a record-clock replay
-  pinned in the past see each historical SPY/IWM bar on its own date instead of on the day the backfill
-  ran (the no-backfill trap). Opt-in only (``historical_backfill=True``); nothing recurring backdates.
+- **``recorded_at = now``, on every path.** A new bar lands with the instant this system learned it, read
+  from the DATABASE clock (``db.clock.db_now``) right after the pull, so it is the same clock that stamps
+  every other ``recorded_at`` and that a live read's ``known_at`` comes from (the one-clock rule). HONEST
+  transaction time, the contract every thesis-name bar keeps. Until D1 (2026-10-16) the nightly leg reused
+  the one-shot backfill's stamp, so every nightly SPY/IWM bar claimed ``recorded_at = D 00:00 UTC`` —
+  about 26.5 h before it was really ingested, and before its own session opened. The CLI kept that
+  backdated stamp for its "deep history" until 2026-10-21, when it was retired for the same reason (the
+  operator's "no backdated recorded_at" bar, and the self-audit's ``no_unsettled_bars`` check, which pages
+  on any stored close the store claims was known before its session settled). The visibility contract
+  for every honest reader: the bar for day D, ingested at ~22:35 ET on D, is inside
+  ``known_at_for_asof(D)`` (the end of D's MARKET day — the serve-path scrub-back and the Scoreboard's
+  dated overlays) and inside the night's own call (``known_at = now``, later), and outside every read with
+  ``asof < D`` (``valid_from = D``) or pinned before it was ingested. (The replay/backtest read no
+  benchmark bar at all — RS is display-only — and a public-clock mirror rewrites ``recorded_at`` to the bar
+  date anyway.) The consequence, accepted: a CLI run into an EMPTY store (a fresh install) lands its whole
+  range stamped now, so a scrub-back read pinned before that run shows no RS history — the honest answer
+  ("the system did not know it then"), never a lookahead. On a store that already holds the tape the CLI
+  is incremental like the nightly leg and cannot reach older dates at all.
 
-Both paths share the rest:
+Both callers share the rest:
 
 - **Settled bars only (D2)** — the fresh pull goes through ``ingest.prices.settle.withhold_unsettled``
   first, so today's in-progress bar is never stored as a close before ``Settings.price_settle_time``
@@ -42,8 +43,8 @@ Both paths share the rest:
   (what each pass would write), so a read-only dry run can show exactly that against a live store.
 - **Fail-visible** — one benchmark's error never aborts the other (each commits or rolls back alone).
 
-    python -m pipeline.ingest_benchmarks                 # one-shot backfill, live (needs ALPHADECK_USER_AGENT), ~5y
-    python -m pipeline.ingest_benchmarks --range 10y     # deeper history for a longer backtest window
+    python -m pipeline.ingest_benchmarks                 # one-shot pull, live (needs ALPHADECK_USER_AGENT), ~5y
+    python -m pipeline.ingest_benchmarks --range 10y     # a deeper first pull into an empty store
     python -m pipeline.ingest_benchmarks --no-live       # cache-only (no network)
 """
 
@@ -59,7 +60,7 @@ import psycopg
 from db.clock import db_now
 from db.session import DEFAULT_TENANT_ID, connect
 from domain.settings import get_settings
-from ingest.prices.eod_loader import ingest_prices, ingest_prices_backfill, stored_bars
+from ingest.prices.eod_loader import ingest_prices, stored_bars
 from ingest.prices.ingest_security import _restated
 from ingest.prices.settle import withhold_unsettled
 from ingest.prices.source import PriceSource, YahooPriceSource
@@ -140,14 +141,13 @@ def ingest_benchmarks(
     force_refresh: bool = False,
     source: PriceSource | None = None,
     range_: str = DEFAULT_RANGE,
-    historical_backfill: bool = False,
     window_sessions: int | None = None,
     now: datetime | None = None,
 ) -> list[BenchmarkResult]:
     """Seed the benchmark rows then ingest each one's EOD tape into ``fact_price_eod`` per
-    ``plan_benchmark_bars``. FIRST versions (tail + in-window holes) are stamped ``recorded_at = now`` on
-    the recurring path (the default) or at the bar date with ``historical_backfill=True`` (the one-shot CLI
-    only — see the module docstring); RESTATED versions are always stamped ``now``.
+    ``plan_benchmark_bars``. Every version it writes — FIRST versions (tail + in-window holes) and
+    RESTATED ones — is stamped ``recorded_at = now`` (the module docstring; the backdated
+    ``historical_backfill=True`` path was retired 2026-10-21).
 
     Incremental and window-bounded, so an identical re-run appends ZERO (count-the-table safe). Each
     benchmark runs in its own try (COMMIT on success, ROLLBACK on failure) so one bad pull never discards
@@ -174,15 +174,11 @@ def ingest_benchmarks(
                 now=stamp,
                 window_sessions=window,
             )
-            first_versions = plan.tail + plan.holes
-            if historical_backfill:
-                appended = ingest_prices_backfill(conn, sid, first_versions, tenant_id=tenant_id)
-            else:
-                appended = ingest_prices(
-                    conn, sid, first_versions, tenant_id=tenant_id, recorded_at=stamp
-                )
-            # a restatement is news learned NOW on either path — never backdated (a backdated correction
-            # would also collide with a backdated original on the (security, d, recorded_at) key)
+            appended = ingest_prices(
+                conn, sid, plan.tail + plan.holes, tenant_id=tenant_id, recorded_at=stamp
+            )
+            # a restatement is news learned NOW — never backdated (a backdated correction would also
+            # collide with a backdated original on the (security, d, recorded_at) key)
             restated = ingest_prices(
                 conn, sid, plan.restated, tenant_id=tenant_id, recorded_at=stamp
             )
@@ -202,16 +198,15 @@ def ingest_benchmarks(
     return results
 
 
-def _report(results: list[BenchmarkResult], *, historical_backfill: bool) -> int:
+def _report(results: list[BenchmarkResult]) -> int:
     """Print a per-benchmark summary; return the number that errored (the process exit signal). The
     restated / withheld counts ride only when nonzero (loudness marks the exception)."""
     errored = [r for r in results if r.error]
-    stamp = "backdated to bar date" if historical_backfill else "recorded now"
     for r in results:
         tail = f"   ERROR: {r.error}" if r.error else ""
         rs = f", {r.bars_restated} RESTATED (vendor revised)" if r.bars_restated else ""
         wh = f", {r.bars_withheld} unsettled bar(s) withheld" if r.bars_withheld else ""
-        print(f"  {r.ticker}: +{r.bars_appended} bars ({stamp}){rs}{wh}{tail}")
+        print(f"  {r.ticker}: +{r.bars_appended} bars (recorded now){rs}{wh}{tail}")
     total = sum(r.bars_appended for r in results)
     print(f"done: {len(results)} benchmarks, +{total} price bars, {len(errored)} errored")
     return len(errored)
@@ -219,8 +214,8 @@ def _report(results: list[BenchmarkResult], *, historical_backfill: bool) -> int
 
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(
-        description="One-shot backfill of SPY + IWM EOD history into fact_price_eod for the RS column "
-        "(Signals §2.1) — first versions are backdated to their bar date (the replay contract)."
+        description="One-shot pull of SPY + IWM EOD bars into fact_price_eod for the RS column "
+        "(Signals §2.1) — incremental, settled bars only, every version stamped recorded_at = now."
     )
     p.add_argument(
         "--no-live",
@@ -241,17 +236,17 @@ def main(argv: list[str] | None = None) -> None:
 
     conn = connect()
     try:
-        # the ONE caller that backdates: this CLI is the explicit historical backfill (module docstring)
+        # stamped NOW like every other writer (2026-10-21): the backdated `d 00:00 UTC` stamp it used to
+        # write claims a close was known before its session settled (the module docstring)
         results = ingest_benchmarks(
             conn,
             allow_live=not args.no_live,
             force_refresh=args.force_refresh,
             range_=args.range,
-            historical_backfill=True,
         )
     finally:
         conn.close()
-    if _report(results, historical_backfill=True):
+    if _report(results):
         raise SystemExit(1)  # surface partial failure to a wrapper, non-silently
 
 

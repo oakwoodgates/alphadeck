@@ -60,6 +60,38 @@ SAFETY:
 
     python -m pipeline.repair_benchmark_bars --dates 2026-08-25,2026-08-27           # dry run (default)
     python -m pipeline.repair_benchmark_bars --dates 2026-08-25,2026-08-27 --apply   # append the versions
+
+ANY SECURITY, EXPLICIT (ticker, date) PAIRS (2026-10-21). The same repair for a thesis name whose stored
+version is an early pull: ``--bars TICKER:YYYY-MM-DD[,...]`` (mixed pairs) or ``--ticker T --dates D[,...]``
+(one ticker's dates). Never a cross product — only the pairs named are compared. The case it was built for,
+MEASURED on prod (read-only, 2026-10-21): seven bars whose ONLY stored version was recorded before the
+bar's 18:00 ET settle instant (the settle audit's history — ``pipeline/self_audit.py``):
+
+    CBT, NEGG, APD 2026-07-09 (11:07 / 11:41 ET) · SCE-PG 2026-08-27 (14:09 and 16:42 ET)
+    SCE-PG, ETHE, SAIC 2026-10-13 (17:04 - 17:08 ET, the boot catch-up)
+
+What changes for a pair, and what does not:
+
+- **Resolution** — the ticker is looked up in the tenant's master (read-only, never resolved or seeded); a
+  ticker no row carries is reported missing. Each master row with that ticker is its own target (a
+  duplicate row holding the same early pull gets the same repair, reported by id).
+- **The vendor symbol is the nightly's** — ``price_symbol`` when the operator resolved one, else the ticker
+  (``ingest_bars_for_security``'s rule), pulled through the same ``YahooPriceSource`` at the nightly price
+  leg's own range (``ingest.prices.source.DEFAULT_RANGE``), live + force-refreshed into the throwaway cache.
+- **A BASIS check before any append (both modes)** — the vendor's chart is split-adjusted, so after a split
+  its value for an old date differs from ours by the split factor, and appending it for ONE date would plant
+  a mixed-basis island (T4's own defect class). So every bar this would append is first checked against its
+  neighbors: the stored latest close of each vendor session within ``_BASIS_SPAN_DAYS`` of it (excluding the
+  dates being repaired) must agree with the vendor's within ``_BASIS_TOL`` (5%: a split re-bases every bar
+  by its factor — 25% for the mildest 5:4 — while a settled close is revised by a fraction of a percent).
+  A neighbor that disagrees marks the bar ``basis_differs``: reported, never appended — the tape's basis is
+  the split list's job, not this repair's.
+- Everything else is Q3's: the per-date scope guard, the exact OHLCV compare, append-only versions stamped
+  ``now`` in one count-verified transaction, dry-run by default on a read-only connection, the
+  call-of-record lock on ``--apply``, provenance (``<stamp>-price-bars.json``).
+
+    python -m pipeline.repair_benchmark_bars --bars CBT:2026-07-09,SCE-PG:2026-08-27          # dry run
+    python -m pipeline.repair_benchmark_bars --ticker SCE-PG --dates 2026-08-27,2026-10-13 --apply
 """
 
 from __future__ import annotations
@@ -84,6 +116,7 @@ from domain.settings import get_settings
 from ingest.prices.eod_loader import ingest_prices
 from ingest.prices.ingest_security import _moved
 from ingest.prices.settle import is_settled, settle_instant
+from ingest.prices.source import DEFAULT_RANGE as NIGHTLY_RANGE
 from ingest.prices.source import PriceSource, YahooPriceSource
 from pipeline.ingest_benchmarks import DEFAULT_RANGE
 from pipeline.run_lock import EXIT_ALREADY_RUNNING, PassAlreadyRunning, acquire_pass_lock
@@ -101,10 +134,24 @@ APPEND = "append"
 MATCHES = "matches"
 NO_VENDOR_BAR = "no_vendor_bar"
 NO_STORED_BAR = "no_stored_bar"
+# BASIS_DIFFERS: the bar differs, but a NEIGHBOR's stored close disagrees with the vendor's too — the vendor
+# tape is on another basis (a split re-base); appending would plant a mixed-basis bar, so it is skipped.
+BASIS_DIFFERS = "basis_differs"
+ACTIONS: tuple[str, ...] = (APPEND, MATCHES, NO_VENDOR_BAR, NO_STORED_BAR, BASIS_DIFFERS)
+
+# The basis check (module docstring): neighbors within this many calendar days, and the relative close gap
+# above which a neighbor says "another basis". 5%: a split moves every bar by its factor (>= 25% for 5:4),
+# a settled close is revised by a fraction of a percent.
+_BASIS_SPAN_DAYS = 7
+_BASIS_TOL = 0.05
 
 EXIT_REFUSED = 2  # the scope guard said no (argparse's usage-error code); nothing was written
 
 RULE = "q3-benchmark-frozen-intraday"
+RULE_BARS = "pre-settle-only-version"  # the explicit-pairs mode (2026-10-21)
+
+MODE_BENCHMARKS = "benchmarks"
+MODE_BARS = "bars"
 
 # Provenance lives beside the backfills' / annotations' (the repo's gitignored data/ == the container's /data).
 _DEFAULT_LOG_DIR = Path(__file__).resolve().parents[2] / "data" / "repairs"
@@ -133,13 +180,29 @@ class BarRepair:
     stored: dict[str, Any] | None
     vendor: dict[str, Any] | None
     changed: tuple[str, ...] = ()
+    # BASIS_DIFFERS only: the neighbor that disagreed — "<date> stored <close> vs vendor <close>"
+    basis: str | None = None
+
+
+@dataclass(frozen=True)
+class Target:
+    """One security to repair: its label (the master ticker — with the id's first 8 hex when several rows
+    share the ticker), its id, the VENDOR symbol it is priced under (``price_symbol or ticker``, the
+    nightly's rule) and the session dates named for it."""
+
+    ticker: str
+    security_id: UUID
+    symbol: str
+    dates: tuple[date, ...]
 
 
 @dataclass
 class RepairResult:
     """One invocation's outcome. ``recorded_at`` is the stamp the appended versions carry (``--apply`` with
-    something to append); ``fetch_errors`` maps a benchmark to its failed vendor pull (on ``--apply`` any
-    such error means NOTHING was written); ``missing`` lists benchmarks with no master row."""
+    something to append); ``fetch_errors`` maps a ticker to its failed vendor pull (on ``--apply`` any such
+    error means NOTHING was written); ``missing`` lists tickers with no master row. ``mode`` is
+    ``benchmarks`` (``--dates``: SPY/IWM) or ``bars`` (explicit ``pairs``); ``range_`` the vendor range.
+    """
 
     dates: list[date]
     applied: bool
@@ -150,6 +213,9 @@ class RepairResult:
     missing: list[str] = field(default_factory=list)
     started_at: datetime | None = None
     finished_at: datetime | None = None
+    mode: str = MODE_BENCHMARKS
+    pairs: list[tuple[str, date]] = field(default_factory=list)
+    range_: str = DEFAULT_RANGE
 
     def count(self, action: str) -> int:
         return sum(1 for b in self.bars if b.action == action)
@@ -231,21 +297,91 @@ def plan_repairs(
     return out
 
 
+def neighbor_dates(d: date, vendor: list[dict[str, Any]], *, exclude: Iterable[date]) -> list[date]:
+    """PURE: the vendor's session dates within ``_BASIS_SPAN_DAYS`` of ``d`` — the basis check's
+    neighbors — leaving out ``d`` and every date being repaired (an early pull is not a reference).
+    """
+    skip = set(exclude) | {d}
+    return sorted(
+        r["d"] for r in vendor if r["d"] not in skip and abs((r["d"] - d).days) <= _BASIS_SPAN_DAYS
+    )
+
+
+def basis_disagreement(
+    neighbors: Iterable[date],
+    *,
+    vendor: list[dict[str, Any]],
+    stored: dict[date, dict[str, Any]],
+) -> str | None:
+    """PURE: the first neighbor whose stored latest close and the vendor's differ by more than
+    ``_BASIS_TOL`` (relative) — the vendor tape is on another basis — as ``"<date> stored <c> vs vendor
+    <c>"``; None when every comparable neighbor agrees (or none is comparable: no evidence of a re-base).
+    """
+    by_d = {r["d"]: r for r in vendor}
+    for n in sorted(neighbors):
+        v, s = by_d.get(n), stored.get(n)
+        if v is None or s is None or v.get("close") is None or s.get("close") is None:
+            continue
+        vc, sc = float(v["close"]), float(s["close"])
+        if sc == 0 or abs(vc / sc - 1.0) > _BASIS_TOL:
+            return f"{n} stored {sc:.6f} vs vendor {vc:.6f}"
+    return None
+
+
+def resolve_targets(
+    conn: psycopg.Connection,
+    pairs: Sequence[tuple[str, date]],
+    *,
+    tenant_id: UUID = DEFAULT_TENANT_ID,
+) -> tuple[list[Target], list[str]]:
+    """The explicit pairs -> one ``Target`` per master row carrying each ticker (READ-ONLY: a repair never
+    resolves or seeds a security), with the dates named for that ticker, plus the tickers no row carries.
+    The vendor symbol is ``price_symbol or ticker`` — what the nightly price leg pulls it under."""
+    dates_by_ticker: dict[str, set[date]] = {}
+    for t, d in pairs:
+        dates_by_ticker.setdefault(t, set()).add(d)
+    targets: list[Target] = []
+    missing: list[str] = []
+    with conn.cursor() as cur:
+        for t in sorted(dates_by_ticker):
+            cur.execute(
+                "SELECT id, ticker, price_symbol FROM security_master "
+                "WHERE tenant_id = %s AND ticker = %s ORDER BY recorded_at, id",
+                (tenant_id, t),
+            )
+            rows = cur.fetchall()
+            if not rows:
+                missing.append(t)
+            for r in rows:
+                label = t if len(rows) == 1 else f"{t} ({str(r['id'])[:8]})"
+                targets.append(
+                    Target(
+                        label,
+                        r["id"],
+                        r["price_symbol"] or r["ticker"],
+                        tuple(sorted(dates_by_ticker[t])),
+                    )
+                )
+    return targets, missing
+
+
 def _pull(
-    tickers: Iterable[str], source: PriceSource | None
+    targets: Iterable[Target], source: PriceSource | None, *, range_: str = DEFAULT_RANGE
 ) -> tuple[dict[str, list[dict]], dict[str, str]]:
-    """The vendor's current bars per benchmark (live, force-refreshed) + the pulls that failed. With no
-    injected ``source`` the Yahoo adapter writes its cache into a throwaway temp dir, removed on return —
-    the shared price cache is never touched."""
+    """The vendor's current bars per vendor SYMBOL (live, force-refreshed) + the pulls that failed, keyed by
+    the target's ticker label. With no injected ``source`` the Yahoo adapter writes its cache into a
+    throwaway temp dir, removed on return — the shared price cache is never touched."""
     bars: dict[str, list[dict]] = {}
     errors: dict[str, str] = {}
     with tempfile.TemporaryDirectory(prefix="alphadeck-q3-") as tmp:
-        src = source or YahooPriceSource(cache_dir=Path(tmp), range_=DEFAULT_RANGE)
-        for t in tickers:
+        src = source or YahooPriceSource(cache_dir=Path(tmp), range_=range_)
+        for t in targets:
+            if t.symbol in bars:
+                continue
             try:
-                bars[t] = src.get_bars(t, allow_live=True, force_refresh=True)
+                bars[t.symbol] = src.get_bars(t.symbol, allow_live=True, force_refresh=True)
             except Exception as e:  # noqa: BLE001 — fail-visible: reported; --apply writes nothing
-                errors[t] = f"{type(e).__name__}: {e}"
+                errors[t.ticker] = f"{type(e).__name__}: {e}"
     return bars, errors
 
 
@@ -302,16 +438,105 @@ def repair_benchmark_bars(
     ids = benchmark_ids(conn, tenant_id=tenant_id)  # read-only: a repair never seeds the master
     conn.rollback()  # no transaction stays open across the network pull
     result.missing = [t for t in BENCHMARKS if t not in ids]
-    vendor, result.fetch_errors = _pull(ids, source)
+    targets = [Target(t, sid, t, tuple(wanted)) for t, sid in ids.items()]
+    return _run(conn, targets, result, source=source, tenant_id=tenant_id, now=now)
+
+
+def repair_bars(
+    conn: psycopg.Connection,
+    pairs: Sequence[tuple[str, date]],
+    *,
+    apply: bool = False,
+    source: PriceSource | None = None,
+    tenant_id: UUID = DEFAULT_TENANT_ID,
+    now: datetime | None = None,
+) -> RepairResult:
+    """The same repair for EXPLICIT ``(ticker, date)`` pairs on any security (the module docstring): the
+    scope guard over every named date, the tickers resolved READ-ONLY in the master, each priced under its
+    nightly vendor symbol at the nightly range, only the named pairs compared. Same contract as
+    ``repair_benchmark_bars`` (``ScopeRefused`` before anything else; the caller owns the connection and,
+    for ``apply``, the lock; all-or-nothing on a failed pull; a count-verified commit)."""
+    started = datetime.now(timezone.utc)
+    dates = [d for _, d in pairs]
+    if not pairs:
+        raise ScopeRefused(
+            [
+                "no bars given: pass --bars TICKER:YYYY-MM-DD[,...] or --ticker T --dates YYYY-MM-DD[,...]"
+            ]
+        )
+    guard_now = now or db_now(conn)
+    conn.rollback()
+    refusals = scope_refusals(dates, now=guard_now)
+    if refusals:
+        raise ScopeRefused(refusals)
+    result = RepairResult(
+        dates=sorted(set(dates)),
+        applied=apply,
+        started_at=started,
+        mode=MODE_BARS,
+        pairs=sorted(set(pairs)),
+        range_=NIGHTLY_RANGE,
+    )
+    targets, result.missing = resolve_targets(conn, pairs, tenant_id=tenant_id)
+    conn.rollback()  # no transaction stays open across the network pull
+    return _run(conn, targets, result, source=source, tenant_id=tenant_id, now=now)
+
+
+def _run(
+    conn: psycopg.Connection,
+    targets: list[Target],
+    result: RepairResult,
+    *,
+    source: PriceSource | None,
+    tenant_id: UUID,
+    now: datetime | None,
+) -> RepairResult:
+    """Both modes' shared body: pull, plan (with the basis check), and with ``result.applied`` append."""
+    apply = result.applied
+    wanted = result.dates
+    vendor, result.fetch_errors = _pull(targets, source, range_=result.range_)
 
     try:
         # read AFTER the pull: the stamp never predates the bars being in hand
         stamp = now or db_now(conn)
-        for ticker, sid in ids.items():
-            if ticker in result.fetch_errors:
+        for t in targets:
+            if t.ticker in result.fetch_errors:
                 continue
-            stored = stored_versions(conn, sid, wanted, tenant_id=tenant_id)
-            result.bars += plan_repairs(ticker, sid, wanted, vendor=vendor[ticker], stored=stored)
+            bars = vendor[t.symbol]
+            stored = stored_versions(conn, t.security_id, t.dates, tenant_id=tenant_id)
+            planned = plan_repairs(t.ticker, t.security_id, t.dates, vendor=bars, stored=stored)
+            # the BASIS check: a bar to append whose neighbors disagree with the vendor is another basis
+            near = {
+                b.d: neighbor_dates(b.d, bars, exclude=t.dates)
+                for b in planned
+                if b.action == APPEND
+            }
+            ref = stored_versions(
+                conn,
+                t.security_id,
+                sorted({n for ns in near.values() for n in ns}),
+                tenant_id=tenant_id,
+            )
+            for b in planned:
+                why = (
+                    basis_disagreement(near[b.d], vendor=bars, stored=ref)
+                    if b.action == APPEND
+                    else None
+                )
+                result.bars.append(
+                    BarRepair(
+                        b.ticker,
+                        b.security_id,
+                        b.d,
+                        BASIS_DIFFERS,
+                        b.stored,
+                        b.vendor,
+                        b.changed,
+                        why,
+                    )
+                    if why
+                    else b
+                )
         todo = [b for b in result.bars if b.action == APPEND]
         if apply and todo and not result.fetch_errors:
             for b in todo:  # D1's writer: valid_from = d, an INSERT stamped now — never an UPDATE
@@ -359,18 +584,20 @@ def _bar_json(bar: dict[str, Any] | None, *, extra: tuple[str, ...] = ()) -> dic
 
 def build_payload(result: RepairResult) -> dict[str, Any]:
     """The provenance payload — PURE (no I/O)."""
+    bars_mode = result.mode == MODE_BARS
     return {
-        "kind": "repair_benchmark_bars",
-        "rule": f"{RULE}@{get_settings().image_sha or 'unknown'}",
+        "kind": "repair_price_bars" if bars_mode else "repair_benchmark_bars",
+        "rule": f"{RULE_BARS if bars_mode else RULE}@{get_settings().image_sha or 'unknown'}",
         "applied": result.applied,
         "dates": [d.isoformat() for d in result.dates],
+        "pairs": [{"ticker": t, "d": d.isoformat()} for t, d in result.pairs],
         "started_at": _jsonable(result.started_at),
         "finished_at": _jsonable(result.finished_at),
         "recorded_at": _jsonable(result.recorded_at),
-        "vendor": {"source": "yahoo chart (PriceSource seam)", "range": DEFAULT_RANGE},
+        "vendor": {"source": "yahoo chart (PriceSource seam)", "range": result.range_},
         "summary": {
             "appended": result.appended,
-            **{a: result.count(a) for a in (APPEND, MATCHES, NO_VENDOR_BAR, NO_STORED_BAR)},
+            **{a: result.count(a) for a in ACTIONS},
         },
         "appended": [
             {
@@ -388,23 +615,26 @@ def build_payload(result: RepairResult) -> dict[str, Any]:
         ],
         "skipped": [
             {"ticker": b.ticker, "d": b.d.isoformat(), "reason": b.action}
+            | ({"basis": b.basis} if b.basis else {})
             for b in result.bars
             if b.action != APPEND
         ],
         "fetch_errors": result.fetch_errors,
-        "missing_benchmarks": result.missing,
+        ("missing_tickers" if bars_mode else "missing_benchmarks"): result.missing,
     }
 
 
 def write_payload(payload: dict[str, Any], base_dir: Path | None = None) -> Path | None:
-    """Write the provenance JSON to ``<base>/<utc-timestamp>-benchmark-bars.json``; return the path, or
-    ``None`` fail-open (the committed appends ARE the repair; a provenance fault is logged, never raised).
+    """Write the provenance JSON to ``<base>/<utc-timestamp>-benchmark-bars.json`` (the explicit-pairs
+    mode: ``-price-bars.json``); return the path, or ``None`` fail-open (the committed appends ARE the
+    repair; a provenance fault is logged, never raised).
     """
     try:
         run_dir = base_dir or _DEFAULT_LOG_DIR
         run_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        path = run_dir / f"{stamp}-benchmark-bars.json"
+        suffix = "price-bars" if payload.get("kind") == "repair_price_bars" else "benchmark-bars"
+        path = run_dir / f"{stamp}-{suffix}.json"
         path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         return path
     except Exception:  # noqa: BLE001 — fail-open by contract
@@ -425,8 +655,9 @@ def _fmt(bar: dict[str, Any] | None) -> str:
 
 def report(result: RepairResult) -> None:
     """Print the per-bar comparison and the summary."""
+    what = "row in the master with this ticker" if result.mode == MODE_BARS else "benchmark row"
     for t in result.missing:
-        print(f"  {t}: no benchmark row in the master — nothing stored to repair")
+        print(f"  {t}: no {what} — nothing stored to repair")
     for t, err in result.fetch_errors.items():
         print(f"  {t}: VENDOR PULL FAILED — {err}")
     for b in result.bars:
@@ -435,6 +666,10 @@ def report(result: RepairResult) -> None:
             MATCHES: "matches the vendor — nothing to append",
             NO_VENDOR_BAR: "the vendor has NO bar for this date — skipped (never fabricated)",
             NO_STORED_BAR: "nothing stored for this date — skipped (a hole is a backfill, not a repair)",
+            BASIS_DIFFERS: (
+                f"differs ({', '.join(b.changed)}), but the vendor tape is on ANOTHER BASIS around it "
+                f"({b.basis}) — a split re-base? skipped, never appended (repair the basis first)"
+            ),
         }[b.action]
         print(f"  {b.ticker} {b.d}  {verb}")
         if b.stored is not None:
@@ -447,9 +682,10 @@ def report(result: RepairResult) -> None:
     verb = "appended" if result.applied else "would append"
     n = result.appended if result.applied else result.count(APPEND)
     stamp = f" · recorded_at {result.recorded_at.isoformat()}" if result.recorded_at else ""
+    basis = f" · basis differs {result.count(BASIS_DIFFERS)}" if result.count(BASIS_DIFFERS) else ""
     print(
         f"SUMMARY: {verb} {n} · matches {result.count(MATCHES)} · no vendor bar "
-        f"{result.count(NO_VENDOR_BAR)} · no stored bar {result.count(NO_STORED_BAR)}{stamp}"
+        f"{result.count(NO_VENDOR_BAR)} · no stored bar {result.count(NO_STORED_BAR)}{basis}{stamp}"
     )
 
 
@@ -460,29 +696,68 @@ def _parse_dates(raw: str) -> list[date]:
     return [date.fromisoformat(p.strip()) for p in raw.split(",") if p.strip()]
 
 
+def _parse_bars(raw: str) -> list[tuple[str, date]]:
+    """``TICKER:YYYY-MM-DD[,TICKER:YYYY-MM-DD...]`` -> explicit pairs (the ticker upper-cased, as the master
+    stores it). A malformed entry raises ``ValueError`` naming it."""
+    out: list[tuple[str, date]] = []
+    for part in (p.strip() for p in raw.split(",")):
+        if not part:
+            continue
+        ticker, sep, d = part.rpartition(":")
+        if not sep or not ticker.strip():
+            raise ValueError(f"{part!r} is not TICKER:YYYY-MM-DD")
+        out.append((ticker.strip().upper(), date.fromisoformat(d.strip())))
+    return out
+
+
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(
-        description="Q3: append corrected versions of SPY/IWM bars that differ from the vendor's current "
-        "bar, for the EXPLICIT --dates only (append-only, stamped now). Dry-run by default."
+        description="Append corrected versions of EOD bars that differ from the vendor's current bar, for "
+        "EXPLICIT bars only (append-only, stamped now; dry-run by default): --dates alone = the SPY/IWM "
+        "benchmarks (Q3); --bars TICKER:DATE,... or --ticker T --dates ... = any security's named bars."
     )
     p.add_argument(
         "--dates",
-        required=True,
-        help="comma-separated session dates, YYYY-MM-DD[,YYYY-MM-DD...] — explicit, never a range",
+        default=None,
+        help="comma-separated session dates, YYYY-MM-DD[,YYYY-MM-DD...] — explicit, never a range; alone = "
+        "the benchmarks, with --ticker = that ticker's bars",
+    )
+    p.add_argument("--ticker", default=None, help="one ticker whose --dates to repair")
+    p.add_argument(
+        "--bars",
+        default=None,
+        help="explicit pairs TICKER:YYYY-MM-DD[,TICKER:YYYY-MM-DD...] (never a cross product)",
     )
     p.add_argument(
         "--apply", action="store_true", help="write (default: dry-run, read-only, print only)"
     )
     args = p.parse_args(argv)
+    if args.bars is not None and (args.dates is not None or args.ticker is not None):
+        p.error("--bars names its own pairs: do not combine it with --dates / --ticker")
+    if args.bars is None and args.dates is None:
+        p.error("pass --dates (benchmarks, or with --ticker) or --bars")
+    pairs: list[tuple[str, date]] | None = None
+    dates: list[date] = []
     try:
-        dates = _parse_dates(args.dates)
+        if args.bars is not None:
+            pairs = _parse_bars(args.bars)
+        else:
+            dates = _parse_dates(args.dates)
+            if args.ticker is not None:
+                pairs = [(args.ticker.strip().upper(), d) for d in dates]
     except ValueError as exc:
-        p.error(f"--dates: {exc}")
+        p.error(f"{'--bars' if args.bars is not None else '--dates'}: {exc}")
 
     mode = "APPLY" if args.apply else "DRY-RUN (read-only connection; nothing written)"
+    if pairs is None:
+        scope = f"dates {', '.join(d.isoformat() for d in dates) or '—'}"
+        rng = DEFAULT_RANGE
+    else:
+        scope = f"bars {', '.join(f'{t}:{d.isoformat()}' for t, d in pairs) or '—'}"
+        rng = NIGHTLY_RANGE
     print(
-        f"repair_benchmark_bars · {mode} · dates {', '.join(d.isoformat() for d in dates) or '—'} · "
-        f"vendor: live Yahoo pull ({DEFAULT_RANGE}, force-refresh, throwaway cache dir)"
+        f"repair_benchmark_bars · {mode} · {scope} · "
+        f"vendor: live Yahoo pull ({rng}, force-refresh, throwaway cache dir)"
     )
     try:
         lock = acquire_pass_lock(holder="repair") if args.apply else None
@@ -493,7 +768,10 @@ def main(argv: list[str] | None = None) -> None:
         conn = connect()
         try:
             conn.read_only = not args.apply  # a dry run PHYSICALLY cannot write
-            result = repair_benchmark_bars(conn, dates, apply=args.apply)
+            if pairs is None:
+                result = repair_benchmark_bars(conn, dates, apply=args.apply)
+            else:
+                result = repair_bars(conn, pairs, apply=args.apply)
         except ScopeRefused as exc:
             print("REFUSED (nothing was written):")
             for line in exc.reasons:

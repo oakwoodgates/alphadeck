@@ -174,22 +174,23 @@ def ingest_prices_backfill(
     *,
     tenant_id: UUID = DEFAULT_TENANT_ID,
 ) -> int:
-    """Append EOD bars stamping BOTH bitemporal axes at the bar date ``d`` — the HISTORICAL backfill
-    contract (Signals R17 / plan A.2). ``valid_from = d`` (event time) AND ``recorded_at = d 00:00 UTC``
-    (transaction time: an EOD bar is knowable that evening), so a past-as-of replay/backtest sees each
-    bar ONLY on its own date. Returns the count appended; the caller owns the transaction.
+    """Append EOD bars stamping BOTH bitemporal axes at the bar date ``d`` — the RETIRED historical
+    backfill stamp (Signals R17 / plan A.2): ``valid_from = d`` (event time) AND ``recorded_at = d 00:00
+    UTC`` (transaction time), so a read pinned in the past sees each bar on its own date. Returns the count
+    appended; the caller owns the transaction. Reuses ``ingest_prices`` per bar so the exact column mapping
+    (OHLCV + ``valid_from = d``) stays in one place.
 
-    DISTINCT from ``ingest_prices`` (which leaves ``recorded_at`` at the DB default ``now()`` — correct
-    for the LIVE incremental ingest, which learns a bar today): a one-shot deep backfill of years-old
-    tape must backdate ``recorded_at`` to the bar date, or a lockstep replay pinned in the past is blind
-    to every historical bar (the "no-backfill trap", repo memory). Reuses ``ingest_prices`` per bar so
-    the exact column mapping (OHLCV + ``valid_from = d``) stays in one place.
-
-    ONE-SHOT ONLY (D1, 2026-10-16): its sole production caller is the explicit historical-backfill CLI
-    (``python -m pipeline.ingest_benchmarks`` → ``historical_backfill=True``). A RECURRING path must never
-    use it — the nightly benchmark leg once did, which stamped every nightly SPY/IWM bar ~26.5 h before
-    it was ingested; it now stamps ``now``. And never for a CORRECTION: a later version of a bar is news
-    learned now, and a backdated one would collide with a backdated original on the unique key."""
+    NO PRODUCTION CALLER (2026-10-21). Its last one, the benchmark CLI (``python -m
+    pipeline.ingest_benchmarks``), now stamps ``now`` like every other writer: a backdated stamp claims a
+    close was known before its session settled (``d 00:00 UTC`` is the evening BEFORE the session in market
+    time), which the operator's "no backdated recorded_at" bar rules out and the self-audit's
+    ``no_unsettled_bars`` check pages on. The nightly benchmark leg used it until D1 (2026-10-16), stamping
+    every nightly SPY/IWM bar ~26.5 h before it was ingested — 2,598 such rows remain on prod, history.
+    KEPT for the TEST FIXTURES that reproduce exactly that history (the pre-D1 SPY/IWM rows prod still
+    holds) or seed a past-dated tape a pinned read must see (``tests/app/test_theses_api.py``,
+    ``tests/pipeline/test_backfill.py``, ``test_annotate_phantom_arms.py``, ``test_ingest_benchmarks.py``,
+    ``test_repair_benchmark_bars.py``, ``test_settle_audit.py``). ``tests/pipeline/test_ingest_benchmarks.py``
+    pins that no production module calls it."""
     count = 0
     for r in rows:
         d = r["d"]

@@ -239,8 +239,13 @@ contract for deep history) and the nightly leg reused it, so every nightly SPY/I
 re-version pass either, the two market-hours bars it froze (SPY 2026-08-25 765.27 vs a final 765.91; 08-27
 770.82 vs 771.10; IWM the same two days) were the only versions ever held. Now:
 - the **recurring path** (the nightly leg, and any pass through `run_daily_pass`) stamps `recorded_at = now`
-  from the **database clock** (`db_now`, the one-clock rule); only the **CLI** (`python -m
-  pipeline.ingest_benchmarks` → `historical_backfill=True`) backdates, for deep history;
+  from the **database clock** (`db_now`, the one-clock rule). The **CLI** (`python -m
+  pipeline.ingest_benchmarks`) kept the backdated `d 00:00 UTC` stamp "for deep history" until 2026-10-21;
+  it now stamps `now` too (the operator's "no backdated recorded_at" bar — and the settle audit pages on a
+  close the store claims was known before its session settled). `eod_loader.ingest_prices_backfill` has no
+  production caller left (a test pins it); it stays only to seed fixtures with the history prod holds. The
+  accepted consequence: a CLI pull into an EMPTY store lands its range stamped now, so a scrub-back read
+  pinned before that pull shows no RS history — honest, never a lookahead;
 - the thesis path's EXACT restatement compare (`_restated`, unchanged; Q11's older-bar tolerance and revert
   hold below are the thesis path's alone) runs over the vendor's newest
   **`Settings.benchmark_restate_window` = 5 settled sessions**: a revised stored bar gets a NEW version
@@ -272,6 +277,23 @@ or later, and an unsettled session (exit 2). `--apply` holds the call-of-record 
 held) and writes its provenance to `data/repairs/`. **It re-records no call:** the benchmark tape feeds only
 the display-only RS column (`benchmark_prices` is called only from `signals/display/relative_strength.py`;
 no basket member is a benchmark row). Run `--apply` on prod after a labeled backup.
+
+**The same repair for ANY security's named bars (2026-10-21)** `[BUILT]`. `--bars TICKER:YYYY-MM-DD[,...]`
+(or `--ticker T --dates D[,...]`) compares only the named pairs — never a cross product — for any ticker in
+the master (resolved read-only; one target per master row carrying it), priced under the nightly's vendor
+symbol (`price_symbol or ticker`) at the nightly range (`2y`). The same guard, compare, count-verified append,
+lock and dry-run default; provenance `<stamp>-price-bars.json`. **New in both modes: a BASIS check** — the
+vendor's chart is split-adjusted, so a bar to append is first checked against the vendor sessions within a
+week of it (excluding the repaired dates): if any stored neighbor's close disagrees with the vendor's by more
+than 5% the tape is on another basis (a split re-base), and the bar is `basis_differs` — reported, never
+appended (one re-based bar would plant a mixed-basis island). It exists for the settle audit's history: the
+**seven bars whose only stored version is a pre-settle pull**. *DRY-RUN against prod, read-only, 2026-10-21*:
+CBT, NEGG, APD 2026-07-09 (11:07 / 11:41 ET intraday — close and volume differ) and ETHE, SAIC 2026-10-13
+(17:04 ET — only high/low differ by cents) would each append the vendor's final; **SCE-PG 2026-08-27 and
+2026-10-13 cannot be repaired from the vendor** — Yahoo's chart for SCE-PG returns ONE bar (the current
+day) under every range (2y, ytd), so both are reported `no_vendor_bar` and left as stored. (The same fact
+means the nightly builds SCE-PG's tape one live bar per night: no restatement compare ever runs for it, and a
+missed night is never backfilled.)
 
 ### Price restatements — which restated bars a pass writes (Q11: T6 + T5, 2026-10-17)  `[BUILT]`
 
