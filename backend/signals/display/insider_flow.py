@@ -22,6 +22,7 @@ from datetime import date, timedelta
 from typing import Any
 from uuid import UUID
 
+from domain.insider_internal_transfers import is_internal_transfer
 from domain.insider_joint_reports import joint_labels
 from signals.display.base import (
     DisplayBasis,
@@ -63,6 +64,8 @@ SELF_FILING = (
 )
 PRIMARY_MARKET = "primary_market"  # an offer-price subscription (IPO/PIPE/placement) — set aside
 IMPLAUSIBLE = "implausible"  # physically-impossible $ — bad source data — set aside
+# a buy matched to a sale between LINKED filers (the read's tag, domain.insider_internal_transfers) — set aside
+INTERNAL_TRANSFER = "internal_transfer"
 
 # The COMPLETE set of characters ``_screen`` can return — the single source of truth for the buy
 # character vocabulary, co-located with the constants so a dev ADDING a character updates it right HERE
@@ -73,7 +76,7 @@ IMPLAUSIBLE = "implausible"  # physically-impossible $ — bad source data — s
 # orphan Literal value) fails THAT test loudly, never as a runtime response-validation 500 on
 # ``/scoreboard/price-window``.
 BUY_SCREEN_CHARACTERS: frozenset[str] = frozenset(
-    {OPEN_MARKET, SELF_FILING, PRIMARY_MARKET, IMPLAUSIBLE}
+    {OPEN_MARKET, SELF_FILING, PRIMARY_MARKET, IMPLAUSIBLE, INTERNAL_TRANSFER}
 )
 
 
@@ -143,7 +146,8 @@ def _is_issuer_self(txn: dict[str, Any], issuer_name: str | None) -> bool:
 
 def _screen(txn: dict[str, Any], day_lows: dict[date, float], issuer_name: str | None) -> str:
     """Which CHARACTER does this code-P buy carry? Ordered most-structural first (implausible data,
-    then identity, then price — mirroring ``insider_sell._screen``) so a row tripping several screens
+    then identity — the issuer itself, then a transfer from a linked filer (the read's tag) — then price,
+    mirroring ``insider_sell._screen``) so a row tripping several screens
     has ONE deterministic attribution. Pure field predicates only (#3); the row is never mutated.
 
     ``aff_10b5_1`` is deliberately NOT read here: a 10b5-1 planned buy is still an open-market buy —
@@ -156,6 +160,8 @@ def _screen(txn: dict[str, Any], day_lows: dict[date, float], issuer_name: str |
         return IMPLAUSIBLE
     if _is_issuer_self(txn, issuer_name):
         return SELF_FILING
+    if is_internal_transfer(txn):
+        return INTERNAL_TRANSFER
     if _is_below_day_low(txn, day_lows):
         return PRIMARY_MARKET
     return OPEN_MARKET
@@ -181,10 +187,16 @@ def _is_open_market_buy(txn: dict[str, Any], day_lows: dict[date, float]) -> boo
     return not _is_implausible(txn) and not _is_below_day_low(txn, day_lows)
 
 
-def _basis_note(offmarket: list[dict[str, Any]], joint: list[str] | None = None) -> str:
+def _basis_note(
+    offmarket: list[dict[str, Any]],
+    joint: list[str] | None = None,
+    transfers: list[dict[str, Any]] | None = None,
+) -> str:
     """The epistemics that ride every payload — plus, when the screen fired, WHAT it set aside (#6 show
-    the work; #9 named, never silently dropped), and which trades several persons reported (each counted
-    ONCE — the joint-report collapse runs in the read, ``domain.insider_joint_reports``)."""
+    the work; #9 named, never silently dropped), which trades several persons reported (each counted
+    ONCE — the joint-report collapse runs in the read, ``domain.insider_joint_reports``), and which buys and
+    sales were transfers between linked filers (``domain.insider_internal_transfers``, also in the read).
+    """
     note = "from ingested Form 4 only — zero is zero ingested, not proven-zero filings"
     if offmarket:
         set_aside, _ = _usd_sum(offmarket)
@@ -192,6 +204,13 @@ def _basis_note(offmarket: list[dict[str, Any]], joint: list[str] | None = None)
         note += (
             f"; screened {n} off-market code-P {'buy' if n == 1 else 'buys'} "
             f"(~{_usd_compact(set_aside)}) — offer-price subscriptions / implausible rows, not open-market"
+        )
+    if transfers:
+        moved, _ = _usd_sum(transfers)
+        n = len(transfers)
+        note += (
+            f"; set aside {n} internal-transfer {'txn' if n == 1 else 'txns'} (~{_usd_compact(moved)}) — "
+            "a buy and a sale between linked filers, not open-market"
         )
     if joint:
         note += f"; counted once: {'; '.join(joint)}"
@@ -245,14 +264,21 @@ def compute(
     against it exactly as the call is (``_is_open_market_buy``): an offer-price IPO/PIPE subscription files
     as code P yet transacts below the public tape, so it drops out of the buy total (and is NAMED in the
     basis, never silently dropped). Absent/empty ``day_lows`` screens nothing on price (recall-safe, #9).
-    Only buys are screened — the offer-price conflation is a buy-side phenomenon; sells are the raw code-S
-    tape.
+    Only buys are screened on price — the offer-price conflation is a buy-side phenomenon; sells are the raw
+    code-S tape. The one screen on BOTH sides is the internal transfer (a buy and a sale between linked filers,
+    tagged in the read — ``domain.insider_internal_transfers``): neither leg is open-market flow, so both are
+    set aside and named in the basis, exactly as the call leaves them out.
     """
     if not rows:
         return None  # nothing ingested for this name — nothing to say, honestly absent
     lows = day_lows or {}
     start = asof - timedelta(days=WINDOW_DAYS)
-    windowed = [r for r in rows if start < r["valid_from"] <= asof]
+    in_window = [r for r in rows if start < r["valid_from"] <= asof]
+    # internal-transfer legs (P and S) leave the flow, named in the basis (never silently dropped, #9)
+    transfers = [
+        r for r in in_window if r.get("txn_code") in (BUY, SELL) and is_internal_transfer(r)
+    ]
+    windowed = [r for r in in_window if not is_internal_transfer(r)]
     buys: list[dict[str, Any]] = []
     # set-aside off-market / implausible code-P rows — named in the basis, never silently dropped (#9)
     # DEFERRED (Band 03 S2c, operator decision 3): this 90d net-flow still counts an issuer SELF-FILING
@@ -315,7 +341,7 @@ def compute(
         },
         window_start=start + timedelta(days=1),
         window_end=asof,
-        note=_basis_note(offmarket, joint_labels(buys + sells)),
+        note=_basis_note(offmarket, joint_labels(buys + sells), transfers),
     )
     return DisplaySignal(
         kind=MEMBER_NAME,

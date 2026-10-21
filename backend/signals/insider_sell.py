@@ -25,6 +25,10 @@ display tape, ``signals/display/insider_flow.py``, which shows sells unscreened;
   risk family (the dilution tape's future job), not open-market selling pressure; set aside, named.
   No above-high screen (the buy side's forward-split rationale, mirrored).
 - **Implausible rows** (> ``insider_max_plausible_txn_usd``) are bad source data (#3).
+- **Internal transfers** — a sale matched to a buy between LINKED filers (the read's ``INTERNAL_TRANSFER`` tag,
+  ``domain.insider_internal_transfers``: James Kim's AMKR shares "distributed" to his children's Sujoda
+  Investments, and Agnes Kim's "By Spouse" report of it) are never insider supply; screened out and NAMED
+  ("; 2 internal-transfer txns ($37,999,990) screened"). A private sale to an unrelated buyer is not tagged.
 
 **Joint reports arrive already counted once.** A sale several persons reported in separate filings (a fund and
 its partner, a spouse "By Spouse") is collapsed at READ, before this detector sees it
@@ -61,6 +65,7 @@ from uuid import UUID
 
 from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.enums import Kind, Role
+from domain.insider_internal_transfers import is_internal_transfer, screened_label
 from domain.insider_joint_reports import JOINT_REPORTERS, joint_accessions, joint_labels, roles_of
 from domain.signal import SignalEvent
 from signals.base import Detector, SignalPointInTimeData
@@ -81,6 +86,9 @@ _SELF = "self"  # the issuer filing on itself — never personal insider supply
 _BELOW_LOW = "below_low"  # below the day's tape — a discounted secondary, a different risk family
 _IMPLAUSIBLE = "implausible"  # physically-impossible $ — bad source data (#3)
 _FOREIGN = "foreign"  # a home-market ordinary line mis-filed on the ADR's tape — the wrong instrument (S2c)
+# a sale matched to a buy between LINKED filers (domain.insider_internal_transfers, tagged in the read) — an
+# internal transfer, never insider supply. Its wire value is the bucket verbatim.
+_TRANSFER = "internal_transfer"
 
 # The COMPLETE vocabulary ``_screen`` can return — the single source of truth for the sell-screen
 # buckets, co-located with the constants so a dev ADDING a bucket updates it right HERE (beside the
@@ -89,7 +97,7 @@ _FOREIGN = "foreign"  # a home-market ordinary line mis-filed on the ADR's tape 
 # in ``InsiderSellOut.character``'s Literal — so a new bucket added WITHOUT its wire-map entry + Literal
 # value fails THAT test loudly, never as a runtime response-validation 500 on ``/scoreboard/price-window``.
 SELL_SCREEN_BUCKETS: frozenset[str] = frozenset(
-    {_KEPT, _PLANNED, _SELF, _BELOW_LOW, _IMPLAUSIBLE, _FOREIGN}
+    {_KEPT, _PLANNED, _SELF, _BELOW_LOW, _IMPLAUSIBLE, _FOREIGN, _TRANSFER}
 )
 
 
@@ -160,7 +168,8 @@ def _screen(
     cfg: CallConfig,
 ) -> str:
     """Which bucket does this code-S row land in? Ordered most-structural first (implausible data, then
-    the wrong-INSTRUMENT foreign line, then identity, then price, then the plan flag) so a row tripping
+    the wrong-INSTRUMENT foreign line, then identity — the issuer itself, then a transfer to a linked filer —
+    then price, then the plan flag) so a row tripping
     several screens has ONE deterministic attribution. Absent price context only disables the below-low
     screen — a sale with no day low is KEPT (recall-safe, #9: we cannot prove it was off-market). Note the
     direction of error is inverted vs the buy side: over-screening SELLS makes the platform MORE bullish,
@@ -171,6 +180,10 @@ def _screen(
         return _FOREIGN
     if _is_issuer_self(txn, issuer_name):
         return _SELF
+    if is_internal_transfer(
+        txn
+    ):  # a sale to a linked filer (the read's tag) — no insider supply at all
+        return _TRANSFER
     price = txn.get("price")
     low = day_lows.get(txn.get("valid_from"))
     if price is not None and low is not None:
@@ -237,14 +250,7 @@ def score(
     ]
     if not rows:
         return None
-    buckets: dict[str, list[dict[str, Any]]] = {
-        _KEPT: [],
-        _PLANNED: [],
-        _SELF: [],
-        _BELOW_LOW: [],
-        _IMPLAUSIBLE: [],
-        _FOREIGN: [],
-    }
+    buckets: dict[str, list[dict[str, Any]]] = {b: [] for b in SELL_SCREEN_BUCKETS}
     for t in rows:
         buckets[_screen(t, lows, issuer_name, cfg)].append(t)
     kept = buckets[_KEPT]
@@ -303,6 +309,7 @@ def score(
     self_w = [t for t in buckets[_SELF] if _in_window(t)]
     implausible_w = [t for t in buckets[_IMPLAUSIBLE] if _in_window(t)]
     foreign_w = [t for t in buckets[_FOREIGN] if _in_window(t)]
+    transfer_w = [t for t in buckets[_TRANSFER] if _in_window(t)]
     unknown_plan = [t for t in cluster if t.get("aff_10b5_1") is None]
 
     label = (
@@ -320,6 +327,9 @@ def score(
             f"; {len(below_low_w)} below-day-low txn{'s' if len(below_low_w) != 1 else ''} "
             f"set aside (not open-market)"
         )
+    transfers = screened_label(transfer_w)  # sales to a linked filer, set aside (named, #6)
+    if transfers:
+        label += f"; {transfers}"
     joint = joint_labels(cluster)  # trades several persons reported, counted once (named, #6)
     if joint:
         label += f"; counted once: {'; '.join(joint)}"
@@ -343,6 +353,11 @@ def score(
     if joint:  # only when present — a card without a joint report keeps its exact detail (no churn)
         detail["joint_reports_counted_once"] = sum(1 for t in cluster if t.get(JOINT_REPORTERS))
         detail["joint_reporters"] = joint
+    if transfer_w:  # likewise only when present — a card without a transfer keeps its exact detail
+        detail["internal_transfer_screened"] = len(transfer_w)
+        detail["internal_transfer_screened_usd"] = round(
+            float(sum(float(t.get("usd") or 0) for t in transfer_w)), 2
+        )
     # the cluster's filings — a joint report's co-reporters' filings included (the work shown, #6)
     by_accession = joint_accessions(cluster)
     return fired_signal(

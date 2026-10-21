@@ -514,6 +514,44 @@ uncached or mismatched, out of 50,635 candidates of every code). NULL-only + ide
 pinned before the repair still reads the double count the system held (#1). A row it cannot repair (uncached,
 unparseable, a date/code/shares disagreement) stays bare — and a bare row never merges.
 
+## Form 4 — the filer's own words: internal transfers + private purchases `[BUILT — 0055; screened at read]`
+
+**The defect (found 2026-10-21, AMKR).** An internal transfer looks like a buy plus a sale: James J. Kim's
+869,565 AMKR shares "distributed" to his children's Sujoda Investments, LP at $21.85 armed AMKR on a phantom CORE
+buy. The 0054 evidence does not link the two sides (MEASURED: it links 0 of the 3 AMKR transfer pairs — the
+holdings differ); what does is in each filing's own words, which no stored row carried.
+
+**The capture (migration 0055).** Per transaction: `ownership_nature` (`<natureOfOwnership>` — "By Spouse",
+"By Sujoda Investments, LP") and `txn_footnotes` (the text of every footnote the transaction cites, first-reference
+order). Per filing, stamped on each of its rows: `filing_natures` (every INDIRECT ownership nature the filing
+states on its Table I transactions AND holdings — "By James J. Kim 2024 GRAT dtd. 8/5/24"). `text[]` for the two
+arrays (NULL = not captured, `{}` = the filing states none — the `fact_corporate_event.items` precedent, so every
+repair tool that copies a row verbatim keeps working); the mirror decodes them back to lists. 4/A rows carry all
+three keys through `parse_form4`. Nullable, progressive.
+
+**The read.** `domain/insider_internal_transfers.py` (after the joint collapse, both engines) tags a buy and a
+sale between linked filers — the rule and its measured effect: `CALL_LOGIC.md` §3 ("Internal transfers"). Readers:
+the two insider detectors (left out, named), the Cockpit's insider-flow member (set aside on BOTH sides, named in
+the basis — the panel claims open-market flow), the Scoreboard ledgers (`character = internal_transfer`,
+`transfer_with`), the replay mirror. `domain/insider_private_purchases.py` (display only) locates a private-
+purchase passage in a counted buy's `txn_footnotes` for the Event Ledger note — MEASURED over prod's 26,573
+code-P rows: the raw phrases matched 2,730 rows, almost all the weighted-average boilerplate ("purchased in
+multiple transactions at prices ranging from …"); the shipped list (a FROM-party required; "open market",
+public offerings and plan purchases — dividend reinvestment, ESPP — excluded) locates 86 rows on prod's cache,
+every passage read by eye (25 in the last two years, 6 inside the 240-day insider read).
+
+**The history repair (`python -m pipeline.repair_insider_filer_text`).** The 0054 tool's mechanism and rules
+(cached XML, `parse_form4`, verified on date + code + shares, NULL-only, idempotent, dry-run by default,
+`--apply` under the call-of-record lock, count-verified, stamped `now` — #1). WHICH ROWS: every code-P / code-S
+row on a (security, date, shares, price) signature holding a buy and a sale of DIFFERENT owners (the only rows the
+named-holding link reads; a same-owner pair links on identity alone), plus every code-P row whose own footnotes
+the note's phrase list locates; a version also fills the 0054 evidence where the row lacks it (the co-report rule
+reads `direct_indirect`). MEASURED 2026-10-21 (prod read-only, the plan against a local copy of the cron's forms
+cache): 126 transfer candidates (124 Form 4 + 2 rows of 4/A records), 27,122 code-P rows read across 10,613
+filings → WOULD version 203 Form 4 rows (transfer 122, private purchase 86 — 5 both) + 1 4/A record; 255 filings
+referenced by candidate rows are NOT in prod's forms cache (507 of their rows are 4/A records' code-P rows; 2 are
+transfer candidates) — they stay bare: counted, never screened by name, no note.
+
 ## 8-K item codes — the corporate-event tape `[BUILT — Band 03 S3; corporate_risk LIVE]`
 
 `fact_corporate_event` stores **every basket member's 8-Ks with their SEC item codes** — parsed from

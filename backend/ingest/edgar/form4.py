@@ -185,6 +185,47 @@ def _shares_owned_after(t: Element) -> float | None:
     return v if v is not None and math.isfinite(v) else None
 
 
+def _text(raw: str | None) -> str | None:
+    """Whitespace-collapsed text, ``None`` when empty — the filer's words as stated (never rewritten)."""
+    s = " ".join((raw or "").split())
+    return s or None
+
+
+def _ownership_nature(el: Element) -> str | None:
+    """The element's ``<ownershipNature><natureOfOwnership>`` ("By Spouse", "By Sujoda Investments, LP") — the
+    filer's own statement of WHOSE shares it reports — or ``None`` when the filing states none (migration 0055).
+    """
+    return _text(el.findtext("ownershipNature/natureOfOwnership/value"))
+
+
+def _footnotes_cited(el: Element, footnotes: dict[str, str]) -> list[str]:
+    """The text of every footnote ``el`` cites (any ``<footnoteId>`` inside it — on the shares, the price, the
+    nature, ...), in first-reference order, each once; a cited id the filing does not define is skipped.
+    ``[]`` = the transaction cites none. The located passage behind the private-purchase note (0055).
+    """
+    seen: list[str] = []
+    for f in el.iter("footnoteId"):
+        fid = f.get("id")
+        if fid and fid not in seen:
+            seen.append(fid)
+    return [footnotes[fid] for fid in seen if footnotes.get(fid)]
+
+
+def _filing_natures(root: Element) -> list[str]:
+    """Every INDIRECT ownership nature the filing states on its Table I transactions AND holdings, each once,
+    in document order — the filer's statement of whose shares it reports (Susan Y. Kim's AMKR filing: "By
+    James J. Kim 2024 GRAT dtd. 8/5/24"). The internal-transfer screen's linking evidence
+    (``domain/insider_internal_transfers.py``); ``[]`` = the filing states none (migration 0055)."""
+    out: list[str] = []
+    for el in root.findall("nonDerivativeTable/*"):
+        if _direct_indirect(el) != "I":
+            continue
+        nature = _ownership_nature(el)
+        if nature and nature not in out:
+            out.append(nature)
+    return out
+
+
 def _norm_cik(raw: str | None) -> str | None:
     """Normalize an EDGAR CIK for identity comparison — strip whitespace + leading zeros ('0001773751' ->
     '1773751'). Both the issuer CIK and the owner CIK come from the SAME filing (identically padded), so this
@@ -219,6 +260,13 @@ def parse_form4(xml: str) -> list[dict]:
     report ONE trade (a joint report — ``domain/insider_joint_reports.py``). A joint filing's co-owners are NOT
     stored: each transaction is ONE row under the first ``<reportingOwner>``, so one filing never
     double-counts (``tests/ingest/test_form4_joint_reports.py``).
+
+    And the filer's own WORDS about whose shares it reports (migration 0055): ``ownership_nature`` (the
+    transaction's ``<natureOfOwnership>``), ``txn_footnotes`` (the text of every footnote the transaction
+    cites) and the filing-level ``filing_natures`` (every indirect nature the filing states, transactions and
+    holdings). The internal-transfer screen links a buy and a sale on them
+    (``domain/insider_internal_transfers.py``); the Event Ledger's private-purchase note locates its passage in
+    ``txn_footnotes`` (``domain/insider_private_purchases.py``).
     """
     root = ET.fromstring(xml)
     owner = root.findtext("reportingOwner/reportingOwnerId/rptOwnerName")
@@ -231,6 +279,12 @@ def parse_form4(xml: str) -> list[dict]:
     issuer_fsym = (root.findtext("issuer/issuerForeignTradingSymbol") or "").strip() or None
     role = _role(root.find("reportingOwner/reportingOwnerRelationship"))
     aff = _aff_10b5_1(root)  # filing-level -> stamped onto every row below
+    footnotes = {
+        f.get("id"): text
+        for f in root.findall("footnotes/footnote")
+        if f.get("id") and (text := _text("".join(f.itertext())))
+    }
+    natures = _filing_natures(root)  # filing-level -> stamped onto every row below (0055)
 
     txns: list[dict] = []
     for t in root.findall("nonDerivativeTable/nonDerivativeTransaction"):
@@ -265,6 +319,11 @@ def parse_form4(xml: str) -> list[dict]:
                 # the per-txn ownership evidence (0054) — the joint-report rule's only inputs
                 "direct_indirect": _direct_indirect(t),
                 "shares_owned_after": _shares_owned_after(t),
+                # the filer's own words (0055) — the internal-transfer screen's linking evidence + the
+                # private-purchase note's located passage; a fresh list per row (never shared)
+                "ownership_nature": _ownership_nature(t),
+                "txn_footnotes": _footnotes_cited(t, footnotes),
+                "filing_natures": list(natures),
             }
         )
     return txns
@@ -385,6 +444,12 @@ def ingest_form4(
             # is repaired by pipeline.repair_insider_ownership. A NULL row never merges as a joint report.
             "direct_indirect": t["direct_indirect"],
             "shares_owned_after": t["shares_owned_after"],
+            # the filer's own words (migration 0055) — NULL on rows ingested before it; the stored history is
+            # repaired by pipeline.repair_insider_filer_text. A NULL filing_natures links nothing as an
+            # internal transfer (never screened on missing evidence).
+            "ownership_nature": t["ownership_nature"],
+            "txn_footnotes": t["txn_footnotes"],
+            "filing_natures": t["filing_natures"],
         }
         if recorded_at is not None:
             values["recorded_at"] = recorded_at

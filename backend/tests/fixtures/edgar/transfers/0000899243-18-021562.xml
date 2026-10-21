@@ -1,0 +1,208 @@
+<?xml version="1.0"?>
+<ownershipDocument>
+
+    <schemaVersion>X0306</schemaVersion>
+
+    <documentType>4</documentType>
+
+    <periodOfReport>2018-08-06</periodOfReport>
+
+    <notSubjectToSection16>0</notSubjectToSection16>
+
+    <issuer>
+        <issuerCik>0001590714</issuerCik>
+        <issuerName>Platform Specialty Products Corp</issuerName>
+        <issuerTradingSymbol>PAH</issuerTradingSymbol>
+    </issuer>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001336528</rptOwnerCik>
+            <rptOwnerName>Pershing Square Capital Management, L.P.</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerStreet1>888 SEVENTH AVENUE</rptOwnerStreet1>
+            <rptOwnerStreet2>42ND FLOOR</rptOwnerStreet2>
+            <rptOwnerCity>NEW YORK</rptOwnerCity>
+            <rptOwnerState>NY</rptOwnerState>
+            <rptOwnerZipCode>10019</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>1</isDirector>
+            <isOfficer>0</isOfficer>
+            <isTenPercentOwner>1</isTenPercentOwner>
+            <isOther>0</isOther>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001336477</rptOwnerCik>
+            <rptOwnerName>PS Management GP, LLC</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerStreet1>888 SEVENTH AVENUE</rptOwnerStreet1>
+            <rptOwnerStreet2>42ND FLOOR</rptOwnerStreet2>
+            <rptOwnerCity>NEW YORK</rptOwnerCity>
+            <rptOwnerState>NY</rptOwnerState>
+            <rptOwnerZipCode>10019</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>1</isDirector>
+            <isOfficer>0</isOfficer>
+            <isTenPercentOwner>1</isTenPercentOwner>
+            <isOther>0</isOther>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001056513</rptOwnerCik>
+            <rptOwnerName>ACKMAN WILLIAM A</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerStreet1>888 SEVENTH AVENUE</rptOwnerStreet1>
+            <rptOwnerStreet2>42ND FLOOR</rptOwnerStreet2>
+            <rptOwnerCity>NEW YORK</rptOwnerCity>
+            <rptOwnerState>NY</rptOwnerState>
+            <rptOwnerZipCode>10019</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>1</isDirector>
+            <isOfficer>0</isOfficer>
+            <isTenPercentOwner>1</isTenPercentOwner>
+            <isOther>0</isOther>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <nonDerivativeTable>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Common Stock, par value $0.01 per share</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2018-08-06</value>
+            </transactionDate>
+            <deemedExecutionDate></deemedExecutionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>S</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+                <footnoteId id="F4"/>
+            </transactionCoding>
+            <transactionTimeliness>
+                <value></value>
+            </transactionTimeliness>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>9968304</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>12.10</value>
+                    <footnoteId id="F4"/>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>D</value>
+                    <footnoteId id="F4"/>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>40451506</value>
+                    <footnoteId id="F4"/>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>I</value>
+                </directOrIndirectOwnership>
+                <natureOfOwnership>
+                    <value>See footnotes</value>
+                    <footnoteId id="F1"/>
+                    <footnoteId id="F2"/>
+                    <footnoteId id="F3"/>
+                    <footnoteId id="F4"/>
+                    <footnoteId id="F5"/>
+                </natureOfOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Common Stock, par value $0.01 per share</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2018-08-06</value>
+            </transactionDate>
+            <deemedExecutionDate></deemedExecutionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>P</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+                <footnoteId id="F4"/>
+            </transactionCoding>
+            <transactionTimeliness>
+                <value></value>
+            </transactionTimeliness>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>9968304</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>12.10</value>
+                    <footnoteId id="F4"/>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>A</value>
+                    <footnoteId id="F4"/>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>40451506</value>
+                    <footnoteId id="F4"/>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>I</value>
+                </directOrIndirectOwnership>
+                <natureOfOwnership>
+                    <value>See footnotes</value>
+                    <footnoteId id="F1"/>
+                    <footnoteId id="F2"/>
+                    <footnoteId id="F3"/>
+                    <footnoteId id="F4"/>
+                    <footnoteId id="F5"/>
+                </natureOfOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+    </nonDerivativeTable>
+
+    <footnotes>
+        <footnote id="F1">In addition to Pershing Square Capital Management, L.P., a Delaware limited partnership (&quot;Pershing Square&quot;), this Form 4 is being filed jointly by PS Management GP, LLC, a Delaware limited liability company (&quot;PS Management&quot;), and William A. Ackman, a citizen of the United States of America (collectively, the &quot;Reporting Persons&quot;), each of whom has the same business address as Pershing Square and may be deemed to have a pecuniary interest in securities reported on this Form 4 (the &quot;Subject Securities&quot;).</footnote>
+        <footnote id="F2">Pershing Square advises the accounts of Pershing Square, L.P., a Delaware limited partnership (&quot;PS&quot;), Pershing Square II, L.P., a Delaware limited partnership (&quot;PS II&quot;), Pershing Square International, Ltd., a Cayman Islands exempted company (&quot;PS International&quot;), and Pershing Square Holdings, Ltd., a limited liability company incorporated in Guernsey (&quot;PSH&quot; and together with PS, PS II and PS International, the &quot;Pershing Square Funds&quot;).</footnote>
+        <footnote id="F3">Pershing Square, as the investment adviser to the Pershing Square Funds, may be deemed to be the beneficial owner of the Subject Securities for purposes of Rule 16a-1(a) under the Securities Exchange Act of 1934. As the general partner of Pershing Square, PS Management may be deemed to be the beneficial owner of the Subject Securities for purposes of Rule 16a-1(a). By virtue of Mr. Ackman's position as Chief Executive Officer of Pershing Square and managing member of PS Management, Mr. Ackman may be deemed to be the beneficial owner of the Subject Securities for purposes of Rule 16a-1(a).  Each of the Reporting Persons disclaims any beneficial ownership of any of the Subject Securities, except to the extent of any pecuniary interest therein.</footnote>
+        <footnote id="F4">This Form 4 is being filed as a result of ordinary course rebalancing transactions in which the Pershing Square Funds purchased and sold Subject Securities among themselves.  All of the rebalancing transactions were effected at the same time.  There were no changes in the aggregate number of Subject Securities beneficially owned by the Pershing Square Funds as a result of such transactions, and column 5 of Table I specifies that aggregate number.</footnote>
+        <footnote id="F5">Ryan Israel, a member of the board of directors of the Issuer of the Subject Securities, was elected to that board as a representative of the Reporting Persons, the Pershing Square Funds and Pershing Square GP, LLC.  As a result, each of those persons are directors by deputization for purposes of Section 16 of the Securities Exchange Act of 1934.</footnote>
+    </footnotes>
+
+    <remarks></remarks>
+
+    <ownerSignature>
+        <signatureName>Pershing Square Capital Management, L.P., By: PS Management GP, LLC, its General Partner, By: /s/ William A. Ackman, Managing Member</signatureName>
+        <signatureDate>2018-08-07</signatureDate>
+    </ownerSignature>
+
+    <ownerSignature>
+        <signatureName>PS Management GP, LLC, By: /s/ William A. Ackman, Managing Member</signatureName>
+        <signatureDate>2018-08-07</signatureDate>
+    </ownerSignature>
+
+    <ownerSignature>
+        <signatureName>/s/ William A. Ackman</signatureName>
+        <signatureDate>2018-08-07</signatureDate>
+    </ownerSignature>
+</ownershipDocument>

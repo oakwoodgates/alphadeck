@@ -248,6 +248,15 @@ replay stays honest.
   pinned before the repair reads the double count the system held (operator decision 4, 2026-10-21). *Enforced
   by:* `tests/pipeline/test_repair_insider_ownership.py::test_a_pre_repair_replay_still_reads_what_the_system_held`,
   `tests/replay/test_pit_joint_reports.py` (row-for-row parity, both read shapes; an old mirror reads as before).
+- *Also honored by (internal transfers — a buy and a sale between linked filers; migration 0055):* the screen
+  (`domain/insider_internal_transfers.py`) is one pure function in the same seam, after the joint collapse, and it
+  reads only the legs' OWN filings' evidence (never another date's filing) — so every reader, bounded or not,
+  screens alike, and both engines identically. The named-holding evidence arrives on stored history only by
+  `pipeline.repair_insider_filer_text`'s append-only versions stamped `recorded_at = now`: a read pinned before the
+  repair reads the unscreened legs the system held. *Enforced by:*
+  `tests/pipeline/test_repair_insider_filer_text.py::test_a_pre_repair_replay_still_reads_what_the_system_held`,
+  `tests/replay/test_pit_internal_transfers.py` (row-for-row parity, both read shapes; an old mirror links nothing
+  by name).
 
 ## 5. Tenant isolation; production is a fresh tenant, never a destructive wipe
 
@@ -517,6 +526,15 @@ surfaced to the operator, not silently resolved in code.**
   unrepaired row can only stay double-counted, never vanish. *Enforced by:*
   `tests/ingest/test_form4_joint_reports.py` (the real-filing table: INFQ, AMKR, SMCI, OKLO; the ALAB and TSM
   negatives), `tests/domain/test_insider_joint_reports.py` (the rule's contract).
+- *Also honored by (internal transfers, 2026-10-21):* screening a transfer drops no row and hides no leg. Every
+  leg stays on the read, TAGGED; the detectors name what they left out ("…; 2 internal-transfer txns ($X)
+  screened"), the Cockpit flow names it in its basis, the Scoreboard ledger shows each leg grayed with its
+  counterparty ("internal transfer within the filer group (with …) — not counted"). A private purchase between
+  unrelated people is never screened (it stays counted; its ledger note is display only), a buy and a sale with no
+  linking evidence in their own filings stay counted, and a row without the 0055 capture links nothing by name —
+  over-counting is the safe direction. *Enforced by:* `tests/ingest/test_form4_internal_transfers.py` (the
+  real-filing table: AMKR, SLSN, Pershing Square, ValueAct, Goldman; FTHM / RDNW / ASTH / FRMM / MGM counted;
+  the joint-report cases untouched), `tests/domain/test_insider_internal_transfers.py` (the rule's contract).
 
 ## 10. The LLM recommends; the operator decides — a recommendation is pending until confirmed, never auto-applied
 
