@@ -37,7 +37,7 @@ def load_inputs(
     p = {"t": tenant_id, "ids": ids, "k": known_at}
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT id, tenant_id, security_id, accession, rows, accepted, recorded_at "
+            "SELECT id, tenant_id, security_id, accession, rows, accepted, filed, recorded_at "
             "FROM insider_amendment "
             "WHERE tenant_id = %(t)s AND security_id = ANY(%(ids)s) AND recorded_at <= %(k)s",
             p,

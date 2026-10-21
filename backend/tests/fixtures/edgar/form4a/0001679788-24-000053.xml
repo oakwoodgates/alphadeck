@@ -1,0 +1,94 @@
+<?xml version="1.0"?>
+<ownershipDocument>
+
+    <schemaVersion>X0508</schemaVersion>
+
+    <documentType>4/A</documentType>
+
+    <periodOfReport>2024-02-20</periodOfReport>
+
+    <dateOfOriginalSubmission>2024-02-22</dateOfOriginalSubmission>
+
+    <notSubjectToSection16>0</notSubjectToSection16>
+
+    <issuer>
+        <issuerCik>0001679788</issuerCik>
+        <issuerName>Coinbase Global, Inc.</issuerName>
+        <issuerTradingSymbol>COIN</issuerTradingSymbol>
+    </issuer>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001851432</rptOwnerCik>
+            <rptOwnerName>Jones Jennifer N.</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerStreet1>C/O COINBASE GLOBAL, INC.</rptOwnerStreet1>
+            <rptOwnerStreet2></rptOwnerStreet2>
+            <rptOwnerCity>NOT APPLICABLE</rptOwnerCity>
+            <rptOwnerState>DE</rptOwnerState>
+            <rptOwnerZipCode></rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>0</isDirector>
+            <isOfficer>1</isOfficer>
+            <isTenPercentOwner>0</isTenPercentOwner>
+            <isOther>0</isOther>
+            <officerTitle>Chief Accounting Officer</officerTitle>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <aff10b5One>0</aff10b5One>
+
+    <nonDerivativeTable>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Class A Common Stock</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2024-02-20</value>
+            </transactionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>F</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+                <footnoteId id="F1"/>
+            </transactionCoding>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>2247</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>180.31</value>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>D</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>31211</value>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>D</value>
+                </directOrIndirectOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+    </nonDerivativeTable>
+
+    <derivativeTable></derivativeTable>
+
+    <footnotes>
+        <footnote id="F1">Exempt transaction pursuant to Section 16b-3(e) - payment of exercise price or tax liability by delivering or withholding securities incident to the receipt, exercise or vesting of a security issued in accordance with Rule 16b-3. All of the shares reported as disposed of in this Form 4 were relinquished by the Reporting Person and cancelled by the Issuer in exchange for the Issuer's agreement to pay federal and state tax withholding obligations of the Reporting Person resulting from the vesting of Restricted Stock Units.</footnote>
+    </footnotes>
+
+    <remarks>This amendment to Form 4 filed on February 22, 2024 reflects a correction to the number of shares of the Issuer's Class A Common Stock relinquished by the Reporting Person and cancelled by the Issuer in exchange for the Issuer's agreement to pay federal and state tax obligations of the Reporting Person resulting from the vesting of Restricted Stock Units. Exhibit 24 - Powers of Attorney.</remarks>
+
+    <ownerSignature>
+        <signatureName>/s/ Jennifer N. Jones, by Lailey Rezai, Attorney-in-Fact</signatureName>
+        <signatureDate>2024-03-27</signatureDate>
+    </ownerSignature>
+</ownershipDocument>

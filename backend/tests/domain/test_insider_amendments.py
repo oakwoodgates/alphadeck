@@ -58,6 +58,7 @@ from domain.insider_amendments import (
     SystemResolution,
     VoidReading,
     classify,
+    compose_statements,
     effect_of,
     filer_text,
     in_window_codes,
@@ -73,6 +74,7 @@ from domain.insider_amendments import (
     row_tie_break,
     signal_signature,
     standing_decisions,
+    statement_order,
     sweep_resolution,
     system_basis,
     system_resolution,
@@ -1163,6 +1165,132 @@ def test_an_applied_match_replaces_only_its_rows_and_a_legacy_apply_the_whole_or
     assert [(r["accession"], r["txn_seq"]) for r in _read(one)] == [("O", 0), ("A", 0)]
     legacy = _dec("apply", basis="operator:apply")
     assert [r["accession"] for r in _read(legacy)] == ["A"]
+
+
+# --- the composition of several applied amendments of one original (2026-10-21) ----------------------------
+
+
+def _line(seq: int, code: str, shares: float, price: float, day: str = "2010-12-17") -> dict:
+    return {
+        "txn_seq": seq,
+        "txn_code": code,
+        "txn_date": day,
+        "shares": shares,
+        "price": price,
+        "insider_name": "X",
+        "rpt_owner_cik": "1",
+    }
+
+
+def _rec(acc: str, *lines: dict, accepted: datetime | None = T0, filed=None) -> dict:
+    return {
+        "id": uuid4(),
+        "tenant_id": "t",
+        "security_id": "s",
+        "accession": acc,
+        "rows": list(lines),
+        "accepted": accepted,
+        "filed": filed,
+        "recorded_at": T0,
+    }
+
+
+def _composed(chain) -> list[tuple[str, str, float]]:
+    return [
+        (a["accession"], r["txn_code"], float(r["shares"])) for a, r in compose_statements(chain)
+    ]
+
+
+def test_compose_a_whole_replacement_supersedes_the_original_and_every_earlier_amendment():
+    a1 = _rec("A1", _line(0, "S", 5000.0, 7.32))
+    a2 = _rec("A2", _line(0, "F", 9.0, 7.32))
+    assert _composed([(a1, frozenset({"O#1"})), (a2, None)]) == [("A2", "F", 9.0)]
+
+
+def test_compose_a_second_correction_of_the_same_trade_replaces_the_first():
+    """LFST's shape: both re-report original row ``O#1`` — the later restatement (back to 10,000) replaces the
+    earlier one (5,000): never 5,000 + 10,000."""
+    a1 = _rec("A1", _line(0, "S", 5000.0, 7.32, "2022-06-09"))
+    a2 = _rec("A2", _line(0, "S", 10000.0, 7.32, "2022-06-09"))
+    assert _composed([(a1, frozenset({"O#1"})), (a2, frozenset({"O#1"}))]) == [("A2", "S", 10000.0)]
+
+
+def test_compose_corrections_of_different_trades_all_stand():
+    """AMSC's shape: one amendment re-dates two buys (``O#2``, ``O#3``), a later one re-reports a third (``O#0``)
+    at the same date and price — the share-fix SHAPE would pair them, but they replace no common original row,
+    so they are different trades: every row stands (COIN: a withholding and an exercise line likewise).
+    """
+    a1 = _rec("A1", _line(0, "P", 34000.0, 28.87), _line(1, "P", 20000.0, 28.87))
+    a2 = _rec("A2", _line(0, "P", 80000.0, 28.87))
+    assert _composed([(a1, frozenset({"O#2", "O#3"})), (a2, frozenset({"O#0"}))]) == [
+        ("A1", "P", 34000.0),
+        ("A1", "P", 20000.0),
+        ("A2", "P", 80000.0),
+    ]
+
+
+def test_compose_a_row_level_amendment_after_a_whole_one_replaces_what_it_accounts_for():
+    """AVAV's shape: an earlier WHOLE replacement (it replaced every original row) and a later row-level one
+    re-reporting its grant identically plus more lines: the grant is not stacked."""
+    a1 = _rec("A1", _line(0, "A", 1863.0, 0.0))
+    a2 = _rec("A2", _line(0, "A", 1863.0, 0.0), _line(1, "F", 505.0, 97.69))
+    assert _composed([(a1, None), (a2, frozenset({"O#0", "O#1"}))]) == [
+        ("A2", "A", 1863.0),
+        ("A2", "F", 505.0),
+    ]
+    # an amendment that replaces no original row (a pure addition) never consumes an earlier one's rows
+    a3 = _rec("A3", _line(0, "A", 1863.0, 0.0))
+    assert _composed([(a1, frozenset({"O#0"})), (a3, frozenset())]) == [
+        ("A1", "A", 1863.0),
+        ("A3", "A", 1863.0),
+    ]
+
+
+def test_statement_order_is_the_acceptance_then_the_filing_date_then_the_accession():
+    t = datetime(2024, 3, 28, 3, 8, 45, tzinfo=timezone.utc)
+    early = _rec("Z", accepted=t)
+    late = _rec("A", accepted=t + timedelta(days=300))
+    undated = _rec("B", accepted=None, filed=date(2020, 1, 1))
+    bare = _rec("C", accepted=None, filed=None)
+    assert sorted([bare, undated, late, early], key=statement_order) == [
+        early,
+        late,
+        undated,
+        bare,
+    ]
+
+
+def test_the_resolver_composes_every_applied_amendment_of_one_original():
+    """COIN's shape through the resolver: two applied row-level amendments of one original, each replacing a
+    different line — both lines replaced, BOTH amendments' rows emitted (the newest-only rule dropped the
+    earlier one's while its replaced row stayed suppressed)."""
+    rows = [_row("O", 0, code="M"), _row("O", 1, code="F"), _row("O", 2, code="M")]
+    t1 = T0 - timedelta(days=300)
+    a1 = {**_rec("A1", _line(0, "F", 2247.0, 180.31, "2026-09-24"), accepted=t1), "id": uuid4()}
+    a2 = {**_rec("A2", _line(0, "M", 290.0, 74.63, "2026-09-24")), "id": uuid4()}
+    links = [
+        {**_link_rec(PARTIAL), "amendment_accession": "A1", "security_id": "s"},
+        {**_link_rec(PARTIAL), "amendment_accession": "A2", "security_id": "s"},
+    ]
+    decisions = [
+        {
+            **_dec("apply", basis=BASIS_FILER_CORRECTION, replaced_rows=["O#1"]),
+            "amendment_accession": "A1",
+        },
+        {
+            **_dec("apply", basis=BASIS_FILER_CORRECTION, replaced_rows=["O#2"]),
+            "amendment_accession": "A2",
+        },
+    ]
+    out = resolve_insider_rows(
+        rows, amendments=[a1, a2], links=links, decisions=decisions, asof=date(2026, 10, 1)
+    )
+    assert [(r["accession"], r["txn_code"]) for r in out] == [
+        ("O", "M"),
+        ("A1", "F"),
+        ("A2", "M"),
+    ]
+    assert {r[AMENDS_ACCESSION] for r in out if r["accession"] != "O"} == {"O"}
 
 
 def test_other_issuer_screen_is_keep_when_unknown():

@@ -104,6 +104,18 @@ as of the 2026-10-20 nightly:
   all 28 of ``-000271``'s sales (two re-dated) — and, by a coincidental SUM (its 96-share line = ``-000273``'s two
   48-share lines on 2025-07-08), for two of ``-000273``'s -> STAYS ambiguous under the exactly-one rule (owed: 2025
   sales inside the review horizon); linked by the operator to ``-000273`` it is an ADDITION.
+
+Added for the RESOLVER COMPOSITION (2026-10-21 — every applied amendment of one original composes, in SEC
+acceptance order; before it only the newest emitted). Same provenance (copied READ-ONLY from prod's EDGAR cache
+on 2026-10-21; FILINGS rows from the cached submissions index):
+- COIN ``0001415889-24-004798``: two row-level corrections of DIFFERENT lines — ``0001679788-24-000053`` restates
+  the tax withholding (F 2,308 -> 2,247), ``0001679788-25-000033`` an exercise line (M 290 at $74.63). Both
+  stand; before the composition the earlier one's withholding was suppressed AND dropped.
+- LFST ``0000899243-22-022392``: two corrections of the SAME sale — ``-023093`` restates 10,000 shares as 5,000,
+  ``-023602`` restates it back to 10,000. The later replaces the earlier (never 5,000 + 10,000).
+- AMSC ``0001209191-10-061925``: ``0001209191-10-062237`` re-dates two buys (34,000 + 20,000 to 2010-12-17);
+  ``0001209191-11-004333`` (dated its own filing day; the same-day ``-11-004336`` was accepted AFTER it, the R8
+  linker fix refuses it) re-reports the 80,000-share buy. Different trades: every row stands.
 """
 
 from __future__ import annotations
@@ -393,6 +405,29 @@ FILINGS: dict[str, Filing] = {
     ),
     "0001690820-25-000271": _f("4", "2025-07-10", "2025-07-11T02:01:32.000Z", "0001690820", "CVNA"),
     "0001690820-25-000273": _f("4", "2025-07-10", "2025-07-11T02:10:52.000Z", "0001690820", "CVNA"),
+    # the resolver composition — see the module docstring
+    "0001415889-24-004798": _f("4", "2024-02-22", "2024-02-23T02:23:29.000Z", "0001679788", "COIN"),
+    "0001679788-24-000053": _f(
+        "4/A", "2024-03-27", "2024-03-28T03:08:45.000Z", "0001679788", "COIN"
+    ),
+    "0001679788-25-000033": _f(
+        "4/A", "2025-02-24", "2025-02-25T02:15:26.000Z", "0001679788", "COIN"
+    ),
+    "0000899243-22-022392": _f("4", "2022-06-14", "2022-06-15T00:40:45.000Z", "0001845257", "LFST"),
+    "0000899243-22-023093": _f(
+        "4/A", "2022-06-17", "2022-06-18T00:30:48.000Z", "0001845257", "LFST"
+    ),
+    "0000899243-22-023602": _f(
+        "4/A", "2022-06-22", "2022-06-23T02:24:47.000Z", "0001845257", "LFST"
+    ),
+    "0001209191-10-061925": _f("4", "2010-12-21", "2010-12-21T18:42:24.000Z", "0000880807", "AMSC"),
+    "0001209191-10-062237": _f(
+        "4/A", "2010-12-22", "2010-12-22T21:26:05.000Z", "0000880807", "AMSC"
+    ),
+    "0001209191-11-004333": _f(
+        "4/A", "2011-01-20", "2011-01-21T02:11:44.000Z", "0000880807", "AMSC"
+    ),
+    "0001209191-11-004336": _f("4", "2011-01-20", "2011-01-21T02:34:02.000Z", "0000880807", "AMSC"),
 }
 
 CIKS = {f.key: f.cik for f in FILINGS.values()}

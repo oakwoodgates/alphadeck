@@ -1347,12 +1347,44 @@ cached submissions index; the effects with the planned rows injected in memory, 
   per-security). The `P`/`S` rows the re-link changes are SKYT's 2026-03-16 sale (81,401 → 71,693 shares; inside
   the 120-day sell window only until 2026-07-14, and no card changed) and 2008–2022 buys / sales of ASTH, AMSC,
   UAMY, LEU, STEX, GSIT and AIP; every other changed row is a non-`P`/`S` code.
-- **Found in passing, NOT changed (the resolver's rule):** the resolver emits only the NEWEST applied statement per
-  original. With R8-B's row-level replacement that drops an OLDER applied amendment's emitted rows while its
-  `replaced_rows` still suppress — 9 originals on prod already (AIR, AVAV ×2, COIN, ELTP ×2, LFST, TAYD, WLTH; all
-  outside the review horizon). The AMSC re-link adds a 10th: its 2011 4/A becomes the newest statement on the
-  Dec 2010 Form 4, so the earlier 4/A's re-dated 20,000 + 34,000-share buys (2010-12-17) leave the read. Outside
-  every horizon (no call reads 2010); flagged for its own change.
+
+**The resolver composition — every applied amendment of one original counts (2026-10-21, same branch).** The
+resolver used to emit only the NEWEST applied statement per original. Under R8-B's row-level replacement that
+silently lost rows: an OLDER applied amendment's `replaced_rows` still suppressed its original lines while its
+own rows were dropped. `domain.insider_amendments.compose_statements` now composes them, in SEC-acceptance order
+(`statement_order`: the 4/A record's `accepted` — the index clock — else its filing date, else its accession):
+- a **whole** replacement (`replaced_rows` NULL — a 1:1 correction, every pre-row-match decision, the operator's
+  **Use the correction**) supersedes the original AND every earlier amendment of it: the latest complete
+  statement of the filing is the truth;
+- a **row-level** amendment re-reports the SAME trade as an earlier one when they replace a common original line
+  (an earlier whole one replaced them all); it then replaces the rows of that amendment it accounts for by exact
+  shape (`match_rows`, no filer words, against that amendment's own rows) — a second correction of the same trade
+  replaces the first, never stacks (LFST: 10,000 → 5,000 → 10,000). Amendments of DIFFERENT trades never touch
+  each other's rows (AMSC: two re-dated buys and a re-reported third all stand — without this scoping the
+  share-fix shape would pair the 80,000-share line with a 34,000-share one at the same date and price).
+
+One pure function, computed over the amendment records' full rows, for the Postgres read and the replay mirror
+(parity-tested; the Postgres loader now carries the 4/A's `filed`). MEASURED on prod (read-only, 2026-10-21; main's
+resolver vs this one, every security with a stored 4/A, full history at asof 2026-10-21):
+- **Rows restored:** AIR `0001127602-18-001958` — G 76,738 (`-001961`), G 76,738 + **S 76,738 at $41.73**
+  (`-002197`), 2018-01-15; AVAV `0001567619-23-000939` — **S 2,100 at $88.47** (`-23-001558`), 2023-01-12; COIN
+  `0001415889-24-004798` — F 2,247 at $180.31 (`-24-000053`), 2024-02-20; and, after the re-link, AMSC
+  `0001209191-10-061925` — **P 20,000 + P 34,000 at $28.87** (`-10-062237`), 2010-12-17. None inside the
+  940-day review horizon. Of the 9 originals first flagged, the other 6 (AVAV `-21-013077`, ELTP ×2, LFST, TAYD,
+  WLTH) lost nothing: each later amendment re-reports the earlier one's lines, and the composition replaces them.
+  **Every other original with 2+ applied emitting amendments (31 in all) reads exactly as before**; 3 of 409
+  securities' reads change (4 with the re-link), only by the rows above.
+- **NULL against stored cases:** in 4 originals a later WHOLE amendment does not re-report an earlier one's
+  lines, so "NULL supersedes every earlier amendment" drops them, exactly as the newest-only rule already did:
+  CZR (A 33,118), BHVN (three J lines), ASTH (J 1,664,054), ONTO (A 3,901). Every one is a legacy
+  `system:no-signal-effect` decision written with NULL before the row match existed (no code-P/S row). An
+  applied void or duplicates set on an original that also has an applied emitting amendment (FCEL ×3, RTX) is
+  outside the composition (a void emits nothing), unchanged.
+- **Call effect** (main's resolver on today's links vs this resolver plus the re-link): forward, the 12 active
+  theses at asof 2026-10-21 — **0 card fields change**; history (the method above, every link and standing
+  decision known at its SEC acceptance) — of the 666 honest rows, the **409** whose roster ever held a re-linked
+  or composed security re-assembled **all identical: 0 thesis-level flips, 0 changes of any card field**; the
+  other 257 read identical inputs by construction. Every restored row is outside every live signal window.
 
 ## The scheduling sidecar — the `cron` service + `scripts/daily_cron.sh`  `[BUILT #73]`
 

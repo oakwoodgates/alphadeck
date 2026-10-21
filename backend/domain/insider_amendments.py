@@ -161,7 +161,7 @@ import re
 from collections import Counter
 from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 # --- the vocabulary -----------------------------------------------------------------------------------
@@ -1602,11 +1602,69 @@ def effective_states(
 # --- the resolver ----------------------------------------------------------------------------------------
 
 
-@dataclass
-class _Emission:
-    order: tuple[Any, ...]
-    amendment: Mapping[str, Any]
-    original: str
+_MIN_INSTANT = datetime.min.replace(tzinfo=timezone.utc)
+
+
+def statement_order(amendment: Mapping[str, Any]) -> tuple[Any, ...]:
+    """The order in which one original's applied amendments are COMPOSED (``compose_statements``): the SEC
+    acceptance instant (the 4/A record's ``accepted`` — the submissions index's clock, the R8 linker fix's),
+    else its EDGAR filing date, else its accession. An unknown instant sorts after every known one.
+    """
+    accepted = amendment.get("accepted")
+    filed = _as_date(amendment.get("filed"))
+    return (
+        accepted is None,
+        accepted if accepted is not None else _MIN_INSTANT,
+        filed is None,
+        filed or date.min,
+        str(amendment["accession"]),
+    )
+
+
+def compose_statements(
+    chain: Sequence[tuple[Mapping[str, Any], frozenset[str] | None]],
+) -> list[tuple[Mapping[str, Any], Mapping[str, Any]]]:
+    """PURE — the rows that STAND for one original after every applied amendment of it, as ``(amendment, row)``
+    pairs. ``chain`` = the applied amendments emitting for that original, ``(amendment record, replaced)``, in
+    ``statement_order``; ``replaced`` = the original's rows (``row_key``) it replaces — ``None`` when it replaces
+    the WHOLE original (its decision carries no ``replaced_rows``: a 1:1 correction, every pre-row-match
+    decision, the operator's Use the correction).
+
+    THE COMPOSITION (2026-10-21 — before it, only the NEWEST applied statement emitted, so an OLDER row-level
+    amendment's ``replaced_rows`` still suppressed its originals while its own rows were dropped: COIN's corrected
+    2024 withholding, AVAV's 2023 sale restated as 2,100 shares, AIR's 2018 sale). Each amendment, in order:
+
+    - a WHOLE one supersedes the original AND every earlier amendment of it: what stands is its rows alone (the
+      latest complete statement of that filing is the truth — the operator's "Use the correction");
+    - a ROW-LEVEL one re-reports the SAME trade as an earlier amendment when they replace a common original row
+      (an earlier WHOLE one replaced them all): it then replaces the rows of that earlier amendment it ACCOUNTS
+      for by exact shape (``match_rows`` with no filer words, against that amendment's own rows) — a second
+      correction of the same trade replaces the first, never stacks (LFST: a 10,000-share sale restated as 5,000,
+      then back to 10,000). Amendments of DIFFERENT trades of one original never touch each other's rows (AMSC:
+      one re-dates two buys, a later one re-reports a third — all stand). Its own rows join the ones that stand;
+      the original rows it replaces are its stored ``replaced_rows`` (the caller suppresses them).
+
+    Computed over the amendment records' FULL rows (never a windowed read), so both engines compose
+    identically."""
+    live: list[tuple[Mapping[str, Any], Mapping[str, Any], frozenset[str] | None]] = []
+    for am, replaced in chain:
+        rows = sorted(am.get("rows") or [], key=lambda x: x.get("txn_seq") or 0)
+        if replaced is None:
+            live = []
+        elif live:
+            same_trade = [
+                {**r, "accession": str(a["accession"])}
+                for a, r, rep in live
+                if rep is None or rep & replaced
+            ]
+            gone = set(match_rows(rows, same_trade, frozenset()).replaced) if same_trade else set()
+            live = [
+                (a, r, rep)
+                for a, r, rep in live
+                if row_key({**r, "accession": str(a["accession"])}) not in gone
+            ]
+        live.extend((am, r, replaced) for r in rows)
+    return [(a, r) for a, r, _ in live]
 
 
 def emitted_row(
@@ -1675,9 +1733,11 @@ def resolve_insider_rows(
     1. Each amendment's effective state (``effective_states``) — the original accessions it SUPPRESSES and
        the ones whose rows it REPLACES.
     2. A suppressed accession's rows leave the read, and so does each single original row an applied MATCHED
-       amendment replaces (``suppress_rows`` — R8-B: the rest of that original stands); for an original several
-       applied amendments replace, only the NEWEST statement (by SEC acceptance, then accession) emits — one
-       statement per original.
+       amendment replaces (``suppress_rows`` — R8-B: the rest of that original stands). The applied amendments
+       of one original are COMPOSED in SEC-acceptance order (``compose_statements``): a whole replacement
+       supersedes the original and every earlier amendment; a row-level one replaces the earlier amendments'
+       rows it accounts for and adds its own — so no applied amendment's rows are silently dropped, and a second
+       correction of the same trade replaces the first instead of stacking.
     3. The other-issuer screen drops a row whose issuer is not this security.
 
     The kept rows keep their input ORDER (the engines' own natural-key order), and the emitted rows follow,
@@ -1694,20 +1754,24 @@ def resolve_insider_rows(
     by_acc = latest_by_accession(amendments, "accession")
     suppressed: set[str] = set()
     suppressed_rows: set[str] = set()  # R8-B — single original rows a matched amendment replaces
-    winners: dict[str, _Emission] = {}
+    # original -> its applied emitting amendments: (order, amendment record, the original rows it replaces —
+    # None = the whole original)
+    chains: dict[str, list[tuple[tuple[Any, ...], Mapping[str, Any], frozenset[str] | None]]] = {}
     for st in states:
         suppressed.update(st.suppress)
         suppressed_rows.update(st.suppress_rows)
         am = by_acc.get(st.accession)
         if am is None or not st.emit_for:
             continue  # nothing to emit (or the record is not visible: never invent rows)
-        accepted = am.get("accepted")
-        order = (accepted if accepted is not None else am["recorded_at"], st.accession)
+        order = statement_order(am)
         for original in st.emit_for:
-            cur = winners.get(original)
-            if cur is None or order > cur.order:
-                winners[original] = _Emission(order, am, original)
-    if not suppressed and not suppressed_rows and not winners and not screen:
+            replaced = (
+                None
+                if original in st.suppress
+                else frozenset(k for k in st.suppress_rows if k.startswith(f"{original}#"))
+            )
+            chains.setdefault(original, []).append((order, am, replaced))
+    if not suppressed and not suppressed_rows and not chains and not screen:
         return rows if isinstance(rows, list) else list(rows)
     kept = [
         r
@@ -1716,26 +1780,23 @@ def resolve_insider_rows(
         and row_key(r) not in suppressed_rows
         and not (screen and is_other_issuer(r, own))
     ]
+    # every original's composed statement; one amendment that replaces TWO originals emits its row once
+    standing: dict[tuple[str, Any], tuple[Mapping[str, Any], Mapping[str, Any], str]] = {}
+    for original in sorted(chains):
+        chain = [(am, rep) for _, am, rep in sorted(chains[original], key=lambda c: c[0])]
+        for am, x in compose_statements(chain):
+            standing.setdefault((str(am["accession"]), x.get("txn_seq")), (am, x, original))
     emitted: list[dict[str, Any]] = []
-    for original in sorted(winners, key=lambda o: (winners[o].order[1], o)):
-        em = winners[original]
-        for x in sorted(em.amendment.get("rows") or [], key=lambda x: x.get("txn_seq") or 0):
-            d = _row_date(x)
-            if d is None or d > asof or (lower is not None and d < lower):
-                continue
-            out = emitted_row(em.amendment, x, original)
-            if not is_other_issuer(out, own):
-                emitted.append(out)
-    # one amendment that replaces TWO originals emits once (dedup on the amended row's own identity)
-    seen: set[tuple[Any, ...]] = set()
-    unique: list[dict[str, Any]] = []
-    for e in emitted:
-        k = (e["accession"], e["txn_seq"])
-        if k in seen:
+    for _, (am, x, original) in sorted(
+        standing.items(), key=lambda kv: (kv[0][0], kv[0][1] or 0, kv[1][2])
+    ):
+        d = _row_date(x)
+        if d is None or d > asof or (lower is not None and d < lower):
             continue
-        seen.add(k)
-        unique.append(e)
-    return kept + unique
+        out = emitted_row(am, x, original)
+        if not is_other_issuer(out, own):
+            emitted.append(out)
+    return kept + emitted
 
 
 @dataclass

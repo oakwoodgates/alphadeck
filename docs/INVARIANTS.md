@@ -487,6 +487,13 @@ surfaced to the operator, not silently resolved in code.**
   no retraction words → the original stands (the 11 holdings / Table II / power-of-attorney fixes inside the
   horizon — SMR, AZTA, VWAV, HIMS ×2, …); retraction words against several trades → held for the operator, the
   original standing (FIGR's $7.43M sale). The phrase lists are deterministic and named in `FEED_LOOP.md` §R8-B.
+  **No applied amendment's rows are dropped either (2026-10-21):** the resolver COMPOSES every applied amendment
+  of one original in SEC-acceptance order — a whole replacement supersedes the original and every earlier
+  amendment, a row-level one replaces only the earlier rows of the same trade it accounts for — where it used to
+  emit only the newest and silently lost an older amendment's rows (COIN, AVAV, AIR; AMSC after the R8 re-link).
+  *Enforced by:* `tests/db/test_insider_amendments.py::test_coin_two_row_level_corrections_of_one_original_both_stand`,
+  `::test_amsc_amendments_of_different_trades_of_one_original_all_stand`,
+  `::test_lfst_a_second_correction_of_the_same_sale_replaces_the_first`, and the mirror's parity seed.
   *Enforced by:* `tests/db/test_insider_amendments.py::test_the_real_row_check_table` (each case on its real
   filing), `tests/domain/test_insider_amendments.py` (the `match_rows` / `void_reading` contracts). Rows stored
   before the

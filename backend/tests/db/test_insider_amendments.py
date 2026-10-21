@@ -813,6 +813,87 @@ def test_the_real_row_check_table(db):
     ) == [900.0, 3400.0, 28400.0]
 
 
+# --- the composition of several applied amendments of one original (2026-10-21) ------------------------------
+
+
+def _lines(rows: list[dict]) -> list[tuple]:
+    return sorted((r["accession"], r["txn_code"], float(r["shares"])) for r in rows)
+
+
+def _decisions_of(db, sid, accession: str) -> list[dict]:
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT * FROM insider_amendment_decision WHERE security_id = %s AND amendment_accession = %s",
+            (sid, accession),
+        )
+        return cur.fetchall()
+
+
+def test_coin_two_row_level_corrections_of_one_original_both_stand(db):
+    """COIN's original carries seven lines; one 4/A restates its withholding (F 2,308 -> 2,247), a later one an
+    exercise line (M 290). Each replaces only its own line, and BOTH amendments' rows are read — before the
+    composition the newest-only rule dropped the earlier one's withholding while still suppressing the 2,308
+    (the row silently gone from the tape: MEASURED on prod)."""
+    sid = seed(db, "COIN")
+    original = "0001415889-24-004798"
+    (d1,) = _decisions_of(db, sid, "0001679788-24-000053")
+    (d2,) = _decisions_of(db, sid, "0001679788-25-000033")
+    assert d1["replaced_rows"] and d2["replaced_rows"]
+    assert set(d1["replaced_rows"]).isdisjoint(d2["replaced_rows"])  # different lines
+    got = _rows(db, sid, date(2025, 3, 31))
+    assert ("0001679788-24-000053", "F", 2247.0) in _lines(got)
+    assert ("0001679788-25-000033", "M", 290.0) in _lines(got)
+    assert ("0001415889-24-004798", "F", 2308.0) not in _lines(got)  # replaced, not stacked
+    assert (
+        len([r for r in got if r["accession"] == original]) == 7 - 2
+    )  # the rest of the original stands
+    assert len(got) == 7  # seven lines in, seven lines out
+
+
+def test_lfst_a_second_correction_of_the_same_sale_replaces_the_first(db):
+    """LFST: one 4/A restates the 10,000-share 2022-06-09 sale as 5,000; a later one restates it back to
+    10,000. A read pinned between them reads the first correction; after both, the second REPLACES it — never
+    5,000 + 10,000. A PIT read pinned before both reads the original exactly."""
+    sid = make_security(db, "LFST")
+    t0 = db_now(db) - timedelta(days=3)
+    t1, t2 = t0 + timedelta(days=1), t0 + timedelta(days=2)
+    ingest_originals(db, sid, "LFST", recorded_at=t0)
+    ingest_amendment(db, sid, "0000899243-22-023093", recorded_at=t1)
+    ingest_amendment(db, sid, "0000899243-22-023602", recorded_at=t2)
+    asof = date(2022, 6, 30)
+    assert _lines(_rows(db, sid, asof, t1 - timedelta(seconds=1))) == [
+        ("0000899243-22-022392", "S", 10000.0),
+        ("0000899243-22-022392", "S", 67479.0),
+    ]
+    assert _lines(_rows(db, sid, asof, t1 + timedelta(seconds=1))) == [
+        ("0000899243-22-022392", "S", 67479.0),
+        ("0000899243-22-023093", "S", 5000.0),
+    ]
+    assert _lines(_rows(db, sid, asof)) == [
+        ("0000899243-22-022392", "S", 67479.0),
+        ("0000899243-22-023602", "S", 10000.0),
+    ]
+
+
+def test_amsc_amendments_of_different_trades_of_one_original_all_stand(db):
+    """AMSC: ``-10-062237`` re-dates two buys of the Dec 2010 Form 4 (34,000 + 20,000 to 2010-12-17); the 2011
+    4/A ``-11-004333`` — dated its own filing day, the same-day ``-11-004336`` accepted AFTER it and refused —
+    re-reports the 80,000-share buy. They replace no common original line, so every row stands: the R8 re-link
+    would otherwise have dropped the two re-dated buys (the newest-only rule)."""
+    sid = seed(db, "AMSC")
+    out = {i.accession: i for i in insider_amendment_repo.items(db, security_ids=[sid])}
+    db.rollback()
+    late = out["0001209191-11-004333"]
+    assert late.effective.original_accessions == ("0001209191-10-061925",)
+    got = [r for r in _rows(db, sid, date(2010, 12, 31))]
+    assert _lines(got) == [
+        ("0001209191-10-061925", "P", 66000.0),
+        ("0001209191-10-062237", "P", 20000.0),
+        ("0001209191-10-062237", "P", 34000.0),
+        ("0001209191-11-004333", "P", 80000.0),
+    ]
+
+
 # --- both read shapes agree ----------------------------------------------------------------------------------
 
 
