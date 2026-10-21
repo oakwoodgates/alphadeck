@@ -1,27 +1,34 @@
-"""The Form 4/A amendment log (migration 0050, R8-A) — the Admin panel's reads and the operator's decisions.
+"""The Form 4/A amendment log (migration 0050, R8-A / R8-B) — the Admin panel's reads, the operator's decisions,
+and the nightly SWEEP that applies the filer's own corrections.
 
 Three append-only tables (``insider_amendment`` as filed, ``insider_amendment_link``, the
 ``insider_amendment_decision`` log); this module reads them and WRITES ONLY decisions. The ingest writes the
-filings and links (``ingest.edgar.form4a``); the read path resolves against all three
-(``db.insider_resolution`` -> ``domain.insider_amendments``).
+filings and links (``ingest.edgar.form4a``, with the system's ``apply`` for every resolvable one since R8-B);
+the read path resolves against all three (``db.insider_resolution`` -> ``domain.insider_amendments``).
 
 THE VERBS, each with its visible inverse (WB#1):
 
 - ``decide(..., "apply")`` — ratify: a VOID / DUPLICATES keeps its suppression (now ratified), a routed
   restatement's rows replace the original's. ``decide(..., "keep")`` — the original stands; the amendment
-  changes nothing (the AZTA power-of-attorney 4/A; also allowed on an auto-applied correction, to overrule it).
+  changes nothing (the AZTA power-of-attorney 4/A). Since R8-B ``keep`` is also the exact UNDO of a SYSTEM
+  application (and of a correction applied by its link): it stands OVER the system's ``apply`` without revoking
+  it, so revoking the keep restores the system's application.
 - ``link_candidate`` — an AMBIGUOUS amendment's original, picked by the operator from the candidates the
   cascade found; the disposition against it is computed HERE (against the full stored rows) and STORED on the
   decision, so a read never recomputes it from a windowed row set.
 - ``revoke`` — the Undo of any standing decision: appends a ``revoke`` row naming it.
+- ``sweep`` (R8-B, the SYSTEM's only write here) — appends a system ``apply`` for every resolvable amendment
+  that has NO decision at all (a pre-R8-B link left pending). Idempotent by construction: it never touches an
+  amendment anything was ever decided on.
 
 EXACTNESS RULES (why a decision can be trusted):
 
 1. Every write locks the amendment's link rows ``FOR UPDATE`` first, so two clicks on one amendment
-   serialize.
-2. At most ONE standing link decision and ONE standing verdict per amendment: a second is refused
+   serialize (and the sweep serializes with a click).
+2. At most ONE standing link decision and ONE standing OPERATOR verdict per amendment: a second is refused
    (``AmendmentConflict`` — undo the first), and a link cannot be undone while a verdict decided under it
-   stands. So the pure resolver's "newest standing of each kind" is always the one the operator meant.
+   stands. The one sanctioned stack is the operator's ``keep`` over a standing SYSTEM ``apply`` (R8-B); the
+   pure resolver's "newest standing verdict" is then the operator's keep — the one the operator meant.
 3. Nothing judges the filing here: which disposition an amendment has is the linker's
    (``domain.insider_amendments``); this module only refuses a verdict that the disposition does not admit.
 
@@ -40,25 +47,41 @@ import psycopg
 from psycopg.types.json import Json
 
 from domain.insider_amendments import (
+    ACTION_ADD,
     ACTION_APPLY,
+    ACTION_KEEP,
     ACTION_LINK,
     AMBIGUOUS,
     AUTO_DISPOSITIONS,
-    BASIS_NO_SIGNAL_EFFECT,
+    BASIS_HELD,
     INERT_DISPOSITIONS,
+    REVIEW_AUTO,
+    REVIEW_OWED,
     ROUTED_DISPOSITIONS,
-    STATUS_PENDING,
+    ROUTED_NO_PROVISIONAL,
+    STATUS_APPLIED,
     VERDICTS,
     Effective,
+    RowMatch,
+    SystemResolution,
+    VoidReading,
     before_after,
     changed_signal_rows,
     effect_of,
+    filer_text,
     in_window_codes,
+    is_system_basis,
     latest_by_accession,
     link_to_candidate,
+    match_for,
+    review_bucket,
     standing_decisions,
+    sweep_resolution,
+    system_resolution,
+    void_for,
+    within_review_horizon,
 )
-from ingest.edgar.form4a import stored_rows_by_accession
+from ingest.edgar.form4a import stored_rows_by_accession, system_decision_values
 
 
 class AmendmentConflict(Exception):
@@ -91,18 +114,65 @@ class AmendmentItem:
     decisions: list[dict[str, Any]] = field(default_factory=list)  # every decision, oldest first
     # accession -> its stored rows
     originals: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
-    # the signal-effect rule: does its effect change a row a call signal reads; was it resolved by the SYSTEM
-    # (a standing ``system:no-signal-effect`` apply); which signal codes' changed rows sit inside the live read
-    # horizon at the read's asof (the urgency); does either side carry a code-P buy
+    # does its effect change a row a call signal reads; was it applied by the SYSTEM (``review == auto``);
+    # which signal codes' changed rows sit inside the live read horizon at the read's asof (the urgency); does
+    # either side carry a code-P buy
     signal_effect: bool = True
     auto_resolved: bool = False
     in_window: tuple[str, ...] = ()
     touches_buy: bool = False
+    # R8-B — the basis of the standing verdict (``system:*`` = the system applied it, ``operator:*`` = yours);
+    # does a changed signal row sit inside the review horizon at the read's asof; where it sits in the
+    # operator's review (``domain.insider_amendments.review_bucket``)
+    verdict_basis: str | None = None
+    in_review: bool = False
+    review: str = REVIEW_OWED
+    # R8-B — a MATCHED disposition's row match against the FULL stored originals (``match_rows``): which original
+    # rows it accounts for, which STAND, and whether it is unresolved (owed); ``None`` for any other disposition
+    match: RowMatch | None = None
+    # the original rows (``row_key``) this amendment does not replace — they STAND beside it: when applied, the
+    # originals its stored match did not account for (none for a whole-original replacement); else its match's
+    kept_rows: tuple[str, ...] = ()
+    # R8-B revised — a void's reading (``void_reading``), and what the SYSTEM records for it now (the sweep's
+    # input; ``None`` = nothing — the operator's, or inert)
+    void: VoidReading | None = None
+    resolution: SystemResolution | None = None
+
+    @property
+    def unresolved(self) -> bool:
+        return self.match is not None and self.match.unresolved
+
+    @property
+    def held(self) -> bool:
+        """The system kept the original of a retraction it cannot place (``system:held``) — owed."""
+        return self.verdict_basis == BASIS_HELD
+
+    @property
+    def reading(self) -> str | None:
+        """How the filer's words settled it: a row match's reading, or a void's kind."""
+        if self.match is not None:
+            return self.match.reading
+        return self.void.kind if self.void is not None else None
+
+    @property
+    def passage(self) -> str | None:
+        """The filer's words that settled it (the located passage shown on Admin)."""
+        if self.match is not None:
+            return self.match.passage
+        return self.void.passage if self.void is not None else None
 
     @property
     def needs_operator(self) -> bool:
-        """Owed an operator decision: routed and not yet decided, or ambiguous and not yet linked."""
-        return self.effective.status == STATUS_PENDING
+        """OWED an operator decision (R8-B): an ambiguous link touching a signal row inside the review horizon,
+        an operator-linked one awaiting its verdict, or one the operator took back with an Undo. Never a
+        system application, never a historical ambiguous one."""
+        return self.review == REVIEW_OWED
+
+    @property
+    def system_basis(self) -> str | None:
+        """The basis of the standing SYSTEM application, or ``None`` (not applied by the system, or a
+        correction applied by its link alone — a pre-R8-B link the sweep has not recorded yet)."""
+        return self.verdict_basis if is_system_basis(self.verdict_basis) else None
 
 
 def _lock(conn: psycopg.Connection, security_id: UUID, accession: str) -> list[dict[str, Any]]:
@@ -137,6 +207,20 @@ def _state(
     return effect_of(link, link_d, verdict), link_d, verdict
 
 
+def _amendment_rows(
+    conn: psycopg.Connection, security_id: UUID, accession: str
+) -> list[dict[str, Any]]:
+    """The 4/A's Table I rows as filed (its newest stored version)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT rows FROM insider_amendment WHERE security_id = %s AND accession = %s "
+            "ORDER BY recorded_at DESC, id DESC LIMIT 1",
+            (security_id, accession),
+        )
+        row = cur.fetchone()
+    return list((row or {}).get("rows") or [])
+
+
 def _insert(conn: psycopg.Connection, values: dict[str, Any]) -> dict[str, Any]:
     cols = list(values)
     with conn.cursor() as cur:
@@ -157,23 +241,29 @@ def decide(
     reason: str,
     basis: str,
 ) -> dict[str, Any]:
-    """Append the operator's verdict (``apply`` / ``keep``) on one amendment. ``AmendmentConflict`` when the
-    disposition admits no such verdict or one already stands; ``LookupError`` for an unknown amendment.
+    """Append the operator's verdict on one amendment (R8-B revised, 2026-10-21) — one of three, each undoable:
+
+    - ``apply`` — **Use the correction**: the amendment as filed REPLACES its whole original (a void / duplicates
+      removes its targets) — stored with ``replaced_rows`` NULL;
+    - ``keep`` — **Keep the original**: the amendment changes nothing;
+    - ``add`` — **Add to the original**: every original row stands and the amendment's rows are added — stored
+      as an ``apply`` that replaces nothing (``replaced_rows = []``); a partial / consolidation / addition /
+      restatement / field change only (a zero-row 4/A has nothing to add).
+
+    An operator verdict may stand OVER a standing SYSTEM decision (the system's apply or keep stays on record;
+    the newest standing verdict wins, so revoking the operator's restores the system's) — never over another
+    operator verdict (``AmendmentConflict`` — undo it first). ``LookupError`` for an unknown amendment.
     """
-    if action not in VERDICTS:
-        raise ValueError(f"action must be one of {sorted(VERDICTS)}, got {action!r}")
+    if action not in (ACTION_APPLY, ACTION_KEEP, ACTION_ADD):
+        raise ValueError(f"action must be one of apply / keep / add, got {action!r}")
     if not reason.strip() or not basis.strip():
         raise ValueError("a decision needs a reason and a basis")
     links = _lock(conn, security_id, accession)
     eff, link_d, verdict = _state(links, _decisions(conn, security_id, accession), accession)
-    if verdict is not None:
-        who = (
-            "the system (no signal effect)"
-            if verdict.get("basis") == BASIS_NO_SIGNAL_EFFECT
-            else "you"
-        )
+    over_system = verdict is not None and is_system_basis(verdict.get("basis"))
+    if verdict is not None and not over_system:
         raise AmendmentConflict(
-            f"{accession}: a '{verdict['action']}' decision by {who} already stands — undo it first"
+            f"{accession}: your '{verdict['action']}' decision already stands — undo it first"
         )
     disp = eff.disposition
     if disp == AMBIGUOUS and link_d is None:
@@ -182,8 +272,10 @@ def decide(
         )
     if disp in INERT_DISPOSITIONS:
         raise AmendmentConflict(f"{accession} is {disp} — there is nothing to ratify")
-    if disp in AUTO_DISPOSITIONS and action == ACTION_APPLY:
+    if disp in AUTO_DISPOSITIONS and action != ACTION_KEEP:
         raise AmendmentConflict(f"{accession} is an auto-applied correction — it already applies")
+    if action == ACTION_ADD and disp not in ROUTED_NO_PROVISIONAL:
+        raise AmendmentConflict(f"{accession} is a {disp} — it has no rows to add")
     if disp not in ROUTED_DISPOSITIONS and disp not in AUTO_DISPOSITIONS:
         raise AmendmentConflict(f"{accession}: unknown disposition {disp!r}")
     sec = links[-1]
@@ -193,10 +285,17 @@ def decide(
             "tenant_id": sec["tenant_id"],
             "security_id": security_id,
             "amendment_accession": accession,
-            "action": action,
+            "action": ACTION_APPLY if action == ACTION_ADD else action,
             "reason": reason.strip(),
             "basis": basis,
-            "detail": {"disposition": disp, "status_before": eff.status},
+            "replaced_rows": [] if action == ACTION_ADD else None,
+            "detail": {
+                "disposition": disp,
+                "status_before": eff.status,
+                "verdict": action,
+                # the system decision this verdict stands over (its Undo restores it) — R8-B
+                **({"over_system_decision": str(verdict["id"])} if over_system else {}),
+            },
         },
     )
 
@@ -231,14 +330,7 @@ def link_candidate(
         )
     if target not in (link["candidate_accessions"] or []):
         raise AmendmentConflict(f"{target} is not a candidate original of {accession}")
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT rows FROM insider_amendment WHERE security_id = %s AND accession = %s "
-            "ORDER BY recorded_at DESC, id DESC LIMIT 1",
-            (security_id, accession),
-        )
-        row = cur.fetchone()
-    amend_rows = (row or {}).get("rows") or []
+    amend_rows = _amendment_rows(conn, security_id, accession)
     held = stored_rows_by_accession(conn, security_id, tenant_id=link["tenant_id"])
     disposition, originals = link_to_candidate(amend_rows, target, held.get(target, []), codes)
     return _insert(
@@ -300,22 +392,36 @@ def revoke(
 # --- the reads ---------------------------------------------------------------------------------------------
 
 
+_UNSET: Any = object()
+
+
 def items(
     conn: psycopg.Connection,
     *,
     security_ids: Iterable[UUID] | None = None,
     asof: date | None = None,
     horizons: Mapping[str, int | None] | None = None,
+    review_days: int | None = _UNSET,
 ) -> list[AmendmentItem]:
-    """Every linked amendment (optionally of these securities) with its CURRENT effective state — the Admin
-    panel's whole read, and the nightly scan's. Ordered by URGENCY: owed a decision AND changing a signal row
-    inside a signal's live read horizon at ``asof`` first (``in_window``), then the rest by ticker and
-    acceptance (newest first). ``horizons`` is ``{code: days}`` from the detectors' own declarations
-    (``signals.horizons.insider_signal_codes``; its keys are the signal codes) — derived when omitted; without
-    ``asof`` nothing is in-window. Read-only."""
+    """Every linked amendment (optionally of these securities) with its CURRENT effective state and where it
+    sits in the operator's review (R8-B ``review``) — the Admin panel's whole read, the nightly scan's and the
+    sweep's. Ordered by URGENCY: owed a decision AND changing a signal row inside a signal's live read horizon
+    at ``asof`` first (``in_window``), then the rest by ticker and acceptance (newest first). ``horizons`` is
+    ``{code: days}`` from the detectors' own declarations (``signals.horizons.insider_signal_codes``; its keys
+    are the signal codes) — derived when omitted; without ``asof`` nothing is in-window. ``review_days`` is the
+    review horizon (``review_horizon_days()`` when omitted; ``None`` = unbounded) — without ``asof`` an
+    ambiguous amendment is judged against today's market day. Read-only."""
     if horizons is None:
         horizons = default_horizons()
+    if review_days is _UNSET:
+        review_days = review_horizon_days()
     codes = frozenset(horizons)
+    if asof is None:
+        from domain.market_time import market_today  # lazy: the review horizon needs SOME asof
+
+        review_asof = market_today()
+    else:
+        review_asof = asof
     sid_filter = list(security_ids) if security_ids is not None else None
     where = "" if sid_filter is None else " WHERE x.security_id = ANY(%(ids)s)"
     p: dict[str, Any] = {"ids": sid_filter}
@@ -357,6 +463,25 @@ def items(
                 | set(eff.voided_accessions)
             )
             amend_rows = list(f.get("rows") or [])
+            # R8-B — the row match against the FULL stored originals; what an APPLIED one replaces is what its
+            # decision stored (whole originals for a pre-R8-B decision), else what the match accounts for
+            text = filer_text(f.get("remarks"), f.get("footnotes"))
+            match = match_for(
+                eff.disposition, eff.original_accessions, held_cache[sid], amend_rows, codes, text
+            )
+            void = void_for(eff.disposition, eff.original_accessions, held_cache[sid], codes, text)
+            replaced: tuple[str, ...] | None
+            kept: tuple[str, ...] = ()
+            if match is None:
+                replaced = None
+            elif eff.status == STATUS_APPLIED:
+                replaced = None if eff.suppress else eff.suppress_rows
+                if replaced is not None:
+                    gone = set(replaced)
+                    kept = tuple(k for k in sorted((*match.replaced, *match.kept)) if k not in gone)
+            else:
+                replaced = None if match.unresolved else match.replaced
+                kept = match.kept
             before, after = before_after(
                 eff.disposition,
                 original_accessions=eff.original_accessions,
@@ -364,9 +489,24 @@ def items(
                 candidate_accessions=eff.candidate_accessions,
                 stored=held_cache[sid],
                 amend_rows=amend_rows,
+                replaced=replaced,
             )
             changed = changed_signal_rows(eff.disposition, before, after, codes)
-            auto = verdict is not None and verdict.get("basis") == BASIS_NO_SIGNAL_EFFECT
+            own = [d for d in by_sid_dec.get(sid, []) if d["amendment_accession"] == acc]
+            unresolved = match is not None and match.unresolved
+            in_review = within_review_horizon(
+                match.conflicts if unresolved else changed, review_asof, review_days
+            )
+            review = review_bucket(
+                eff,
+                verdict_basis=verdict.get("basis") if verdict is not None else None,
+                ever_decided=bool(own),
+                in_review=in_review,
+                unresolved=unresolved,
+            )
+            resolution = system_resolution(
+                eff.disposition, signal_effect=bool(changed), match=match, void=void
+            )
             out.append(
                 AmendmentItem(
                     security_id=sid,
@@ -385,17 +525,25 @@ def items(
                     effective=eff,
                     why=str((link.get("detail") or {}).get("why") or ""),
                     link_recorded_at=link["recorded_at"],
-                    decisions=sorted(
-                        (d for d in by_sid_dec.get(sid, []) if d["amendment_accession"] == acc),
-                        key=lambda d: (d["recorded_at"], str(d["id"])),
-                    ),
+                    decisions=sorted(own, key=lambda d: (d["recorded_at"], str(d["id"]))),
                     originals={a: held_cache[sid].get(a, []) for a in sorted(wanted)},
                     signal_effect=bool(changed),
-                    auto_resolved=auto and eff.status == "applied",
+                    auto_resolved=review == REVIEW_AUTO,
                     in_window=(
                         in_window_codes(changed, asof, horizons) if asof is not None else ()
                     ),
                     touches_buy=any(r.get("txn_code") == "P" for r in (*before, *after)),
+                    verdict_basis=(
+                        str(verdict["basis"])
+                        if verdict is not None and eff.verdict is not None
+                        else None
+                    ),
+                    in_review=in_review,
+                    review=review,
+                    match=match,
+                    kept_rows=kept,
+                    void=void,
+                    resolution=resolution,
                 )
             )
     out.sort(
@@ -419,18 +567,137 @@ def default_horizons() -> dict[str, int | None]:
     return insider_signal_codes(DEFAULT_CONFIG)
 
 
+def review_horizon_days() -> int | None:
+    """R8-B — the review horizon in force: the ``insider_amendment_review_horizon_days`` setting when set (a
+    negative value reads as 0), else the DERIVED default — the backtest window plus the longest detector read
+    horizon on ``fact_insider_txn`` (``signals.horizons.insider_amendment_review_horizon``; ``None`` =
+    unbounded). Lazy imports: the detector registry sits above the repository."""
+    from domain.config import DEFAULT_CONFIG
+    from domain.settings import get_settings
+    from signals.horizons import insider_amendment_review_horizon
+
+    pinned = get_settings().insider_amendment_review_horizon_days
+    if pinned is not None:
+        return max(0, int(pinned))
+    return insider_amendment_review_horizon(DEFAULT_CONFIG)
+
+
 def pending_keys(
     conn: psycopg.Connection,
     *,
     security_ids: Iterable[UUID],
     asof: date | None = None,
     horizons: Mapping[str, int | None] | None = None,
+    review_days: int | None = _UNSET,
 ) -> dict[str, AmendmentItem]:
     """``"<security_id>:<accession>" -> item`` for every amendment OWED an operator decision among these
-    securities — the nightly scan's inventory (it pages the NEW ones once), urgency-ordered (``items``). The
-    ones the system resolved (no signal effect) are applied, so never here and never paged."""
+    securities — the nightly scan's inventory (it pages the NEW ones once), urgency-ordered (``items``). R8-B:
+    only ambiguous links that touch a signal row inside the review horizon (plus operator-linked ones awaiting
+    a verdict, and any the operator took back) — a system application and a historical ambiguous link are
+    never here and never paged."""
     return {
         f"{i.security_id}:{i.accession}": i
-        for i in items(conn, security_ids=security_ids, asof=asof, horizons=horizons)
+        for i in items(
+            conn, security_ids=security_ids, asof=asof, horizons=horizons, review_days=review_days
+        )
         if i.needs_operator
     }
+
+
+# --- the SYSTEM's sweep (R8-B) ------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SweepResult:
+    """One sweep's outcome: the decisions it appended, by basis and by disposition (``applied`` = keys
+    ``"<security_id>:<accession>"``), and how many it considered."""
+
+    considered: int = 0
+    applied: tuple[str, ...] = ()
+    by_basis: dict[str, int] = field(default_factory=dict)
+    by_disposition: dict[str, int] = field(default_factory=dict)
+
+
+def sweep_plan(found: Iterable[AmendmentItem]) -> list[tuple[AmendmentItem, SystemResolution]]:
+    """PURE over ``items`` output — ``(item, resolution)`` for every amendment the system resolves now: no
+    decision ever recorded on it, and a system resolution (``domain.insider_amendments.system_resolution`` —
+    an ``apply`` carrying its row match, or a void's ``keep``). An ambiguous link, an unresolved row match, an
+    inert one, and anything the operator (or the system) ever decided are left exactly as they are.
+    """
+    out: list[tuple[AmendmentItem, SystemResolution]] = []
+    for it in found:
+        res = sweep_resolution(
+            it.effective, ever_decided=bool(it.decisions), resolution=it.resolution
+        )
+        if res is not None:
+            out.append((it, res))
+    return out
+
+
+def sweep(
+    conn: psycopg.Connection,
+    *,
+    security_ids: Iterable[UUID] | None = None,
+    signal_codes: Collection[str] | None = None,
+) -> SweepResult:
+    """R8-B — APPLY every resolvable amendment a pre-R8-B ingest left without a decision: append one SYSTEM
+    ``apply`` each (basis ``system:filer-correction``, or ``system:no-signal-effect`` when it changes no signal
+    row — ``domain.insider_amendments.system_basis``; a matched disposition carries its row match, so only the
+    original rows it accounts for are replaced), stamped ``recorded_at = now()`` — so a read pinned
+    before tonight still sees the state the system held then (pending; a void suppressing): no rewrite of the
+    past. Every security when ``security_ids`` is None (the resolver reads amendments for any security).
+
+    IDEMPOTENT — re-running appends nothing: an amendment is swept only while it has NO decision row at all,
+    re-checked under the amendment's ``FOR UPDATE`` lock (so a click racing the sweep wins or waits, never
+    doubles). Never touches an operator decision, an operator link, or an Undo (an amendment the operator took
+    back stays the operator's). The caller owns the transaction."""
+    codes = frozenset(signal_codes) if signal_codes is not None else frozenset(default_horizons())
+    # the plan is time-free (no asof, an unbounded review horizon): WHETHER the system applies an amendment
+    # depends on its disposition and decisions only, never on a date window
+    found = items(
+        conn, security_ids=security_ids, horizons={c: None for c in codes}, review_days=None
+    )
+    applied: list[str] = []
+    by_basis: dict[str, int] = {}
+    by_disp: dict[str, int] = {}
+    for it, res in sweep_plan(found):
+        links = _lock(conn, it.security_id, it.accession)
+        decisions = _decisions(conn, it.security_id, it.accession)
+        eff, _, _ = _state(links, decisions, it.accession)
+        if decisions or eff.disposition != it.effective.disposition:
+            continue  # decided (or re-linked) since the read: the newer state wins
+        v = system_decision_values(
+            tenant_id=links[-1]["tenant_id"],
+            security_id=it.security_id,
+            accession=it.accession,
+            basis=res.basis,
+            disposition=eff.disposition,
+            signal_codes=codes,
+            via="sweep",
+            replaced_rows=res.replaced_rows,
+            action=res.action,
+        )
+        _insert(conn, v)
+        applied.append(f"{it.security_id}:{it.accession}")
+        by_basis[res.basis] = by_basis.get(res.basis, 0) + 1
+        by_disp[eff.disposition] = by_disp.get(eff.disposition, 0) + 1
+    return SweepResult(
+        considered=len(found),
+        applied=tuple(applied),
+        by_basis=by_basis,
+        by_disposition=by_disp,
+    )
+
+
+def system_applied_since(conn: psycopg.Connection, since: datetime) -> dict[str, int]:
+    """``{basis: n}`` of the SYSTEM decisions (applications and keeps) recorded at/after ``since`` (any
+    security) — the cron's quiet count line ("N applied automatically, K kept as filed"). Read-only.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT basis, count(*) AS n FROM insider_amendment_decision "
+            "WHERE action IN ('apply', 'keep') AND basis LIKE 'system:%%' AND recorded_at >= %s "
+            "GROUP BY basis",
+            (since,),
+        )
+        return {r["basis"]: int(r["n"]) for r in cur.fetchall()}

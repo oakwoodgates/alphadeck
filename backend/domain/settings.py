@@ -175,6 +175,15 @@ class Settings(BaseSettings):
     # deliberately NOT injected by docker-compose — one fewer always-present fallback to keep in step with
     # this default.
     tape_stale_days: int = 5
+    # R8-B — the Form 4/A REVIEW HORIZON (calendar days): an AMBIGUOUS amendment (several candidate originals —
+    # the only kind the system cannot apply itself) is OWED the operator only when one of the buy/sell rows it
+    # would change is dated within this many days of the read's asof; older, it is listed quietly as
+    # "unresolved — historical" (no call reads those rows; the originals stand; it never pages). UNSET (the
+    # default) = DERIVED: the backtest window plus the longest insider read horizon a call detector declares
+    # (``signals.horizons.insider_amendment_review_horizon`` — 730 + 210 = 940 at today's config), so a widened
+    # detector widens it with no edit here. A number pins it (a negative one reads as 0). Read via the
+    # env_prefix (ALPHADECK_INSIDER_AMENDMENT_REVIEW_HORIZON_DAYS); NOT injected by docker-compose.
+    insider_amendment_review_horizon_days: int | None = None
     # T1 — the CLOSED-TAPE PROXIMITY window: a stopped price tape reads "closed — stopped trading" (quiet,
     # never pages) only when a SEC delisting form (25 / 25-NSE / 15-12B / 15-12G) was filed within this many
     # CALENDAR days BEFORE / AFTER its last bar (and EDGAR lists no different ticker for the company —

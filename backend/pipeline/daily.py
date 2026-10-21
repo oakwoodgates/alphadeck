@@ -101,6 +101,7 @@ from pipeline.insider_amendment_scan import (
     AmendmentScan,
     previous_amendment_keys,
     run_amendment_scan,
+    run_amendment_sweep,
 )
 from pipeline.insider_amendment_scan import report_lines as amendment_report_lines
 from pipeline.name_errors import NameIngestError, dedup_name_errors, name_errors_of
@@ -717,10 +718,11 @@ def assess_health(
     (``pipeline/successor_cik.py``), NEW since the previous evaluated pass. Benign-class the same way: a
     data gap the operator's Adopt repairs, not a cron fault — it pages once.
 
-    R8-A — ``insider_amendments_new`` are the labels of Form 4/A amendments NEWLY owed the operator's
-    decision inside tonight's signal windows (every one named), ``insider_amendments_more`` the count of the
-    other new ones (``pipeline/insider_amendment_scan.py``). Benign-class the same way: the decision is the
-    operator's, the run did its job — it pages once.
+    R8-A / R8-B — ``insider_amendments_new`` are the labels of Form 4/A amendments NEWLY owed the operator's
+    decision the page names (every in-window one, then the others up to the cap — since R8-B only an
+    ambiguous link the system cannot resolve), ``insider_amendments_more`` the count of the rest
+    (``pipeline/insider_amendment_scan.py``). Benign-class the same way: the decision is the operator's, the
+    run did its job — it pages once. A system application never reaches here.
     """
     theses = len(results)
     # split withheld by its ACTUAL reason — a --no-live dev run is benign, a total failure is an alarm; a page
@@ -1131,6 +1133,17 @@ def _run_daily_pass_locked(
     # The read is fail-open by construction (`previous_ingest_skips` skips a bad artifact) and changes
     # only what is PRINTED — what is stored, skipped or raised is identical.
     prior_skips = timed("baselines")(previous_ingest_skips)()
+    # R8-B — THE FORM 4/A SWEEP (`pipeline/insider_amendment_scan.run_amendment_sweep`): apply every Form 4/A
+    # resolved to a definite original that a pre-R8-B ingest left without a decision (one SYSTEM `apply` each,
+    # `recorded_at = now` — a replay pinned before tonight still reads the pending state it held). BEFORE the
+    # per-thesis loop, so tonight's calls read the applied state (new 4/As are applied at ingest, inside the
+    # loop). Idempotent (an amendment with any decision is never touched — the operator's stay the operator's);
+    # own connection + transaction; fail-open (a fault is printed loud and rides the artifact via the scan).
+    amendment_sweep = timed("amendment_sweep")(run_amendment_sweep)(
+        allow_live=allow_live, connect=_pass_connect
+    )
+    if amendment_sweep.error:
+        print(f"WARNING: Form 4/A sweep failed: {amendment_sweep.error}")
     conn = _pass_connect()
     try:
         results = run_daily(
@@ -1260,16 +1273,20 @@ def _run_daily_pass_locked(
         previous=previous_successor_keys,
         clock=perf_counter,
     )
-    # R8-A — THE FORM 4/A INVENTORY (`pipeline/insider_amendment_scan.py`): every stored 4/A of the active
-    # basket union OWED the operator's decision (a pending void suppresses its original meanwhile), read
-    # whole from the amendment tables and diffed against the last evaluated pass so a NEW one pages once.
-    # BEFORE the artifact, for the same reason as the diffs above. Fail-open (a fault rides `error`).
+    # R8-A / R8-B — THE FORM 4/A INVENTORY (`pipeline/insider_amendment_scan.py`): every stored 4/A of the
+    # active basket union OWED the operator's decision (since R8-B only what the system cannot resolve — an
+    # ambiguous link touching a signal row inside the review horizon), read whole from the amendment tables and
+    # diffed against the last evaluated pass so a NEW one pages once; plus the count of SYSTEM applications
+    # recorded since this pass started (the sweep above + tonight's ingest — one quiet report line, never a
+    # page). BEFORE the artifact, for the same reason as the diffs above. Fail-open (a fault rides `error`).
     amendments = timed("amendment_scan")(run_amendment_scan)(
         asof=asof,
         allow_live=allow_live,
         connect=_pass_connect,
         previous=previous_amendment_keys,
         clock=perf_counter,
+        since=started_at,
+        sweep=amendment_sweep,
     )
     # I1/I2 — THE RUN IDENTITY on the artifact: the same sha / cfg hash / run kind `run_daily` stamped on
     # every row it wrote (the identical expressions — `run_daily` holds its cfg local as DEFAULT_CONFIG and
@@ -1581,7 +1598,8 @@ def _report(
     if successor is not None:
         for line in successor_report_lines(successor):
             print(line)
-    # R8-A — the Form 4/A block: NEW items loud, known ones one quiet line, a failed scan loud
+    # R8-A / R8-B — the Form 4/A block: NEW owed items loud, a failed sweep/scan loud, ONE quiet count line
+    # (system applications this pass + the owed inventory)
     if amendments is not None:
         for line in amendment_report_lines(amendments):
             print(line)

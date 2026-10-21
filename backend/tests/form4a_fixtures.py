@@ -36,6 +36,43 @@ cache, same provenance as above):
   a void with NO signal effect, resolved by the system.
 - MASS ``0002115341-26-000008``: adds a code-``M`` row beside ``-000005``'s unchanged sale -> an addition with
   NO signal effect, resolved by the system.
+
+Added for R8-B (2026-10-21; the filer's own correction applied by default). Every document — 4/A and original —
+was copied READ-ONLY from prod's EDGAR cache (``/data/edgar_cache/forms/<accession>/<doc>``, the bytes the live
+4/A leg fetched on its first night, 2026-10-20), and the FILINGS rows below are the companies' cached
+submissions index (``filings.recent``) as of that night:
+- IEHC ``0001174947-26-000849``: restates ``-000817``'s two director sales (2026-08-13/14) with the correct dates
+  and prices and adds more shares sold -> an ADDITION touching code ``S`` inside the sell window at asof
+  2026-10-20; applied by the system.
+- MRAM ``0001628280-26-047722``: the CEO's tax-withholding sale ``-047404`` restated (date, price, shares) -> a
+  RESTATEMENT touching code ``S`` inside the sell window; applied by the system.
+- ELTP ``0001465825-12-000008``: two different Form 4s by the owner were filed on its original date
+  (``-000004``, ``-000005`` — the latter a 2012 code-``S`` sale) -> AMBIGUOUS, its signal rows dated 2012:
+  outside the review horizon -> "unresolved — historical"; the originals stand.
+
+Under the R8-B ROW MATCH (``domain.insider_amendments.match_rows`` — an amendment replaces only the original rows
+it accounts for), same provenance:
+- IEHC and MRAM above change BOTH the date and the share count of their sales -> UNRESOLVED (restated, or an
+  added sale?): owed to the operator, the original standing.
+- MRCY ``0001049521-26-000071``: "to correct the inadvertent omission of the grant" — it reports only the grant
+  (code ``A``, 2026-08-17) and none of ``-000054``'s two sales -> applied, the sales STAND, the grant is added.
+- BAH ``0001443646-24-000094``: recodes ``-000061``'s ``S`` 2,142 sh to ``F`` (same date, same shares) -> the
+  sale is replaced by the withholding; the original's grant (code ``A``, not restated) stands.
+
+Added for the REVISED R8-B rule (operator-approved 2026-10-21 — the real-row check table). Every document (4/A
+and original) was copied READ-ONLY from prod's EDGAR cache (``/data/edgar_cache/forms/<accession>/<doc>``) on
+2026-10-21, and each FILINGS row below is the company's cached submissions index (``filings.recent``):
+- zero-row 4/As read by the filer's words: SMR ``0001922054-26-000007`` (a holdings fix), VWAV
+  ``0002105221-26-000002`` (a status fix — "All transaction data … remains correct") -> no retraction, the
+  original stands; FIGR ``0001493152-25-024508`` ("shares withheld … did not in fact occur" against an original
+  of three trades) -> held for the operator; MNKD ``0001193125-26-215284``, DVLT ``0001104659-24-127212`` /
+  ``-127204`` -> a retraction of a single-trade original, applied.
+- the exact-shape / filer's-words row match: IBKR ``0001381197-25-000139`` ("to include shares sold … inadvertently
+  excluded") -> ADD; MRAM ``-047720`` / ``-047718`` / ``-047716`` / ``-047714`` and BKSY ``0001615454-25-000014``,
+  ``0001400954-25-000012``, ``0001349983-25-000011``, ``0001443092-25-000015`` -> FIX; YYAI ``0002091629-25-000011``
+  (neither) -> owed; BAH ``-000095`` .. ``-000101`` (the other seven ``S`` -> ``F`` recodes); BETR
+  ``0001628280-24-050110`` (one sale split into two lots that sum to it) and BHVN ``0001027035-26-000006``
+  (25,000 + 3,400 restated as 28,400; the two trust lots it does not mention stand) -> sums.
 """
 
 from __future__ import annotations
@@ -148,6 +185,134 @@ FILINGS: dict[str, Filing] = {
     "0002115341-26-000008": _f(
         "4/A", "2026-03-05", "2026-03-06T02:50:42.000Z", "0001555279", "MASS"
     ),
+    # R8-B — IEHC (CIK 50292): an ADDITION restating a director's sales (code S, in the sell window)
+    "0001174947-26-000817": _f("4", "2026-08-20", "2026-08-20T20:55:54.000Z", "0000050292", "IEHC"),
+    "0001174947-26-000849": _f(
+        "4/A", "2026-09-08", "2026-09-08T21:02:23.000Z", "0000050292", "IEHC"
+    ),
+    # R8-B — MRAM (CIK 1438423): a RESTATEMENT of the CEO's tax-withholding sale (code S, in the sell window)
+    "0001628280-26-047404": _f("4", "2026-07-06", "2026-07-07T02:42:41.000Z", "0001438423", "MRAM"),
+    "0001628280-26-047722": _f(
+        "4/A", "2026-07-08", "2026-07-09T04:10:16.000Z", "0001438423", "MRAM"
+    ),
+    # R8-B — ELTP (CIK 1053369): AMBIGUOUS — two different originals on the date, its signal rows from 2012
+    "0001465825-12-000004": _f("4", "2012-01-30", "2012-01-31T04:38:37.000Z", "0001053369", "ELTP"),
+    "0001465825-12-000005": _f("4", "2012-01-30", "2012-01-31T04:49:05.000Z", "0001053369", "ELTP"),
+    "0001465825-12-000008": _f(
+        "4/A", "2012-02-08", "2012-02-08T21:44:04.000Z", "0001053369", "ELTP"
+    ),
+    # R8-B row match — MRCY (CIK 1049521): a 4/A that only ADDS an omitted grant; the two sales stand
+    "0001049521-26-000054": _f("4", "2026-08-19", "2026-08-20T02:31:45.000Z", "0001049521", "MRCY"),
+    "0001049521-26-000071": _f(
+        "4/A", "2026-09-15", "2026-09-16T02:10:43.000Z", "0001049521", "MRCY"
+    ),
+    # R8-B row match — BAH (CIK 1443646): a code S -> F recode (same date, same shares); the grant stands
+    "0001443646-24-000061": _f("4", "2024-05-23", "2024-05-23T20:39:39.000Z", "0001443646", "BAH"),
+    "0001443646-24-000094": _f(
+        "4/A", "2024-05-28", "2024-05-28T20:38:00.000Z", "0001443646", "BAH"
+    ),
+    # R8-B revised (2026-10-21) — the real-row check table: voids by the filer's words, the exact-shape /
+    # filer's-words row match (see the module docstring)
+    "0001922054-26-000007": _f(
+        "4/A", "2026-09-11", "2026-09-12T02:13:33.000Z", "0001822966", "SMR"
+    ),
+    "0001922054-26-000003": _f("4", "2026-08-28", "2026-08-29T00:52:36.000Z", "0001822966", "SMR"),
+    "0002105221-26-000002": _f(
+        "4/A", "2026-02-17", "2026-02-18T03:51:52.000Z", "0002038439", "VWAV"
+    ),
+    "0002105221-26-000001": _f("4", "2026-02-12", "2026-02-13T03:01:56.000Z", "0002038439", "VWAV"),
+    "0001493152-25-024508": _f(
+        "4/A", "2025-11-20", "2025-11-21T03:45:36.000Z", "0002064124", "FIGR"
+    ),
+    "0002079716-25-000008": _f("4", "2025-09-16", "2025-09-17T03:13:17.000Z", "0002064124", "FIGR"),
+    "0001193125-26-215284": _f(
+        "4/A", "2026-05-08", "2026-05-09T01:20:03.000Z", "0000899460", "MNKD"
+    ),
+    "0001193125-26-100839": _f("4", "2026-03-10", "2026-03-11T01:30:02.000Z", "0000899460", "MNKD"),
+    "0001104659-24-127212": _f(
+        "4/A", "2024-12-10", "2024-12-11T02:30:56.000Z", "0001682149", "DVLT"
+    ),
+    "0001104659-24-122190": _f("4", "2024-11-22", "2024-11-23T03:53:39.000Z", "0001682149", "DVLT"),
+    "0001104659-24-127204": _f(
+        "4/A", "2024-12-10", "2024-12-11T02:29:01.000Z", "0001682149", "DVLT"
+    ),
+    "0001104659-24-122191": _f("4", "2024-11-22", "2024-11-23T03:55:46.000Z", "0001682149", "DVLT"),
+    "0001381197-25-000139": _f(
+        "4/A", "2025-10-03", "2025-10-04T00:05:48.000Z", "0001381197", "IBKR"
+    ),
+    "0001381197-25-000131": _f("4", "2025-09-23", "2025-09-24T00:03:36.000Z", "0001381197", "IBKR"),
+    "0001628280-26-047720": _f(
+        "4/A", "2026-07-08", "2026-07-09T04:08:59.000Z", "0001438423", "MRAM"
+    ),
+    "0001628280-26-047402": _f("4", "2026-07-06", "2026-07-07T02:37:25.000Z", "0001438423", "MRAM"),
+    "0001628280-26-047718": _f(
+        "4/A", "2026-07-08", "2026-07-09T04:07:35.000Z", "0001438423", "MRAM"
+    ),
+    "0001628280-26-047411": _f("4", "2026-07-06", "2026-07-07T02:48:26.000Z", "0001438423", "MRAM"),
+    "0001628280-26-047716": _f(
+        "4/A", "2026-07-08", "2026-07-09T04:05:46.000Z", "0001438423", "MRAM"
+    ),
+    "0001628280-26-023225": _f("4", "2026-04-02", "2026-04-03T00:32:05.000Z", "0001438423", "MRAM"),
+    "0001628280-26-047714": _f(
+        "4/A", "2026-07-08", "2026-07-09T04:04:11.000Z", "0001438423", "MRAM"
+    ),
+    "0001628280-26-023218": _f("4", "2026-04-02", "2026-04-03T00:29:21.000Z", "0001438423", "MRAM"),
+    "0001615454-25-000014": _f(
+        "4/A", "2025-10-17", "2025-10-17T20:07:42.000Z", "0001753539", "BKSY"
+    ),
+    "0001615454-25-000011": _f("4", "2025-09-15", "2025-09-15T20:28:28.000Z", "0001753539", "BKSY"),
+    "0001400954-25-000012": _f(
+        "4/A", "2025-10-17", "2025-10-17T20:06:41.000Z", "0001753539", "BKSY"
+    ),
+    "0001400954-25-000009": _f("4", "2025-09-15", "2025-09-15T20:28:55.000Z", "0001753539", "BKSY"),
+    "0001349983-25-000011": _f(
+        "4/A", "2025-10-17", "2025-10-17T20:06:10.000Z", "0001753539", "BKSY"
+    ),
+    "0001349983-25-000008": _f("4", "2025-09-15", "2025-09-15T20:29:37.000Z", "0001753539", "BKSY"),
+    "0001443092-25-000015": _f(
+        "4/A", "2025-10-17", "2025-10-17T20:05:36.000Z", "0001753539", "BKSY"
+    ),
+    "0001443092-25-000012": _f("4", "2025-09-15", "2025-09-15T20:33:44.000Z", "0001753539", "BKSY"),
+    "0002091629-25-000011": _f(
+        "4/A", "2025-10-30", "2025-10-30T23:11:34.000Z", "0001674440", "YYAI"
+    ),
+    "0002091629-25-000003": _f("4", "2025-10-15", "2025-10-15T17:09:39.000Z", "0001674440", "YYAI"),
+    "0001443646-24-000095": _f(
+        "4/A", "2024-05-28", "2024-05-28T20:38:12.000Z", "0001443646", "BAH"
+    ),
+    "0001443646-24-000067": _f("4", "2024-05-23", "2024-05-23T20:41:42.000Z", "0001443646", "BAH"),
+    "0001443646-24-000096": _f(
+        "4/A", "2024-05-28", "2024-05-28T20:38:24.000Z", "0001443646", "BAH"
+    ),
+    "0001443646-24-000064": _f("4", "2024-05-23", "2024-05-23T20:40:35.000Z", "0001443646", "BAH"),
+    "0001443646-24-000097": _f(
+        "4/A", "2024-05-28", "2024-05-28T20:38:36.000Z", "0001443646", "BAH"
+    ),
+    "0001443646-24-000066": _f("4", "2024-05-23", "2024-05-23T20:41:29.000Z", "0001443646", "BAH"),
+    "0001443646-24-000098": _f(
+        "4/A", "2024-05-28", "2024-05-28T20:38:48.000Z", "0001443646", "BAH"
+    ),
+    "0001443646-24-000062": _f("4", "2024-05-23", "2024-05-23T20:39:52.000Z", "0001443646", "BAH"),
+    "0001443646-24-000099": _f(
+        "4/A", "2024-05-28", "2024-05-28T20:39:01.000Z", "0001443646", "BAH"
+    ),
+    "0001443646-24-000063": _f("4", "2024-05-23", "2024-05-23T20:40:09.000Z", "0001443646", "BAH"),
+    "0001443646-24-000100": _f(
+        "4/A", "2024-05-28", "2024-05-28T20:39:13.000Z", "0001443646", "BAH"
+    ),
+    "0001443646-24-000065": _f("4", "2024-05-23", "2024-05-23T20:41:07.000Z", "0001443646", "BAH"),
+    "0001443646-24-000101": _f(
+        "4/A", "2024-05-28", "2024-05-28T20:39:25.000Z", "0001443646", "BAH"
+    ),
+    "0001443646-24-000060": _f("4", "2024-05-23", "2024-05-23T20:39:22.000Z", "0001443646", "BAH"),
+    "0001628280-24-050110": _f(
+        "4/A", "2024-12-05", "2024-12-06T03:04:11.000Z", "0001835856", "BETR"
+    ),
+    "0001628280-24-049753": _f("4", "2024-12-03", "2024-12-04T02:14:53.000Z", "0001835856", "BETR"),
+    "0001027035-26-000006": _f(
+        "4/A", "2026-03-09", "2026-03-10T02:12:05.000Z", "0001935979", "BHVN"
+    ),
+    "0001935979-25-000018": _f("4", "2025-03-05", "2025-03-05T17:01:52.000Z", "0001935979", "BHVN"),
 }
 
 CIKS = {f.ticker: f.cik for f in FILINGS.values()}

@@ -224,6 +224,18 @@ replay stays honest.
   same — the ratified-table hindsight caveat, named. *Enforced by:* `tests/db/test_insider_amendments.py`
   (a read pinned before the link / before a decision), `tests/replay/test_pit_insider_amendments.py` (row-for-row
   parity at four pins, both read shapes; the public-clock acceptance).
+- *Also honored by (R8-B — the system resolves the filer's own correction):* the system's resolution (an
+  `apply`, or a `keep` of a void its words do not retract) is an append-only decision like the operator's,
+  carrying its own `recorded_at` — in the link's transaction at ingest (so a new 4/A is never seen pending), or
+  `now` when the nightly sweep resolves the pre-R8-B backlog. So a replay pinned before the sweep reads the
+  state the system actually held (pending: a void suppressing, a partial with no effect) — the backlog is
+  resolved forward, never back-dated. The public-clock mirror carries
+  the standing system decisions like any standing decision (stamped at the acceptance — the same named
+  hindsight caveat). The row match a system (or operator) `apply` carries is computed when it is written
+  and stored on it (`replaced_rows`), so a windowed read never recomputes it, and both engines read it.
+  *Enforced by:* `tests/db/test_insider_amendments.py::
+  test_a_replay_pinned_before_the_sweep_reads_the_pending_state_it_held`,
+  `tests/replay/test_pit_insider_amendments.py::test_the_mirror_reads_the_sweep_exactly_like_postgres_before_and_after_it`.
 
 ## 5. Tenant isolation; production is a fresh tenant, never a destructive wipe
 
@@ -453,16 +465,26 @@ surfaced to the operator, not silently resolved in code.**
   visible names, never a filter that silently eats one (`TRIAGE.md`).
 - *Also honored by (R8-A — Form 4/A amendments and the other-issuer screen):* no insider row is DELETED and no
   amendment is silently dropped. A 4/A is stored as filed (never written into, never subtracted from,
-  `fact_insider_txn`); what it does is decided per disposition and SHOWN on Admin with its evidence — an
-  auto-applied correction, a clerical / no-rows / unlinked one, and every routed one stay listed, and the
-  only provisional removal is the operator's own condition (a pending void suppresses the original it
-  cancels; *Keep original* restores it, an AMBIGUOUS link suppresses nothing). A routed amendment with NO
-  signal effect (the signal-effect rule, 2026-10-18: it changes no code-`P`/`S` row's code, date, shares,
-  price, 10b5-1 flag, owner role or name) is applied by the system — a deterministic content comparison,
-  never a date window or screen, recorded as an append-only `system:no-signal-effect` decision — and it is
-  LISTED on Admin as "applied — no signal effect" with its Undo (which returns it to the operator's queue),
-  never hidden; what such a void suppresses is by construction no row a call signal reads (AVAV's voided
-  grant-only Form 4). An ambiguous link is never system-resolved. Rows stored before the
+  `fact_insider_txn`); what it does is decided per disposition and SHOWN on Admin with its evidence — every
+  amendment stays listed. Since R8-B (2026-10-20, revised 2026-10-21) every amendment resolved to a definite
+  original is resolved by the system (an append-only `system:*` decision) and LISTED on Admin as "Resolved
+  automatically" with its evidence and its exact Undo, never hidden — what an applied void hides is suppressed
+  at read, never deleted. What the system cannot resolve is never system-resolved: an AMBIGUOUS link, an
+  unresolved row match, a held void — owed the operator when it touches a buy/sell row inside the review
+  horizon, otherwise listed as "unresolved — historical" with its originals standing (hidden from the PAGE,
+  never from the panel). **No buy or sale is dropped that the filer did not account for (operator decision
+  2026-10-21):** an applied partial / consolidation / addition / restatement / field change replaces only the
+  original rows it accounts for by EXACT shape (identical, a price / share / date fix, a recode, a same-day
+  sum) or that the filer's own FIX words restate; ADD words keep every original (IBKR's omitted sale beside two
+  real same-day sales — the old same-date rule replaced both, $3,275,356); words that neither fix nor add
+  leave it to the operator, the original standing (YYAI). **A zero-row VOID removes its original only when its
+  own words retract a trade AND the original holds a single `P`/`S` transaction** (FLS, AVEX, MNKD, DVLT ×2);
+  no retraction words → the original stands (the 11 holdings / Table II / power-of-attorney fixes inside the
+  horizon — SMR, AZTA, VWAV, HIMS ×2, …); retraction words against several trades → held for the operator, the
+  original standing (FIGR's $7.43M sale). The phrase lists are deterministic and named in `FEED_LOOP.md` §R8-B.
+  *Enforced by:* `tests/db/test_insider_amendments.py::test_the_real_row_check_table` (each case on its real
+  filing), `tests/domain/test_insider_amendments.py` (the `match_rows` / `void_reading` contracts). Rows stored
+  before the
   other-issuer screen existed are KEPT and screened at read (keep-and-screen); the screen keeps any row whose
   issuer or member CIK is unknown, and counts every CIK the security has been known by (the T7 change log),
   so a successor-CIK re-point never hides the predecessor's own history. A filing the ingest no longer stores
@@ -506,6 +528,17 @@ them coexist.
   is persisted as a tier or auto-applied (a recommendation rides display-only, like the `matched_terms`
   provenance tags, never mutating `authored_by` until the operator acts).
 
+**What #10 does NOT cover — a filer's own Form 4/A (R8-B, operator decision 2026-10-20).** The system applying
+a Form 4/A that the deterministic linker resolves to the Form 4 it amends is not an auto-applied recommendation:
+no model is involved, and the content is the insider's own legal correction of their own filing, filed under
+penalty. Applying it is DATA HANDLING (like storing the original Form 4), recorded as an append-only system
+decision (`system:filer-correction` / `system:no-signal-effect`, or `system:no-retraction` / `system:held` for a
+void it keeps), listed on Admin with its evidence and an exact Undo. Where the filer's own words settle a
+leftover or a void, they are read by a deterministic phrase list — a located passage, never a model's reading.
+The operator rules only on what the system cannot resolve — an ambiguous link, an unresolved row match, a held
+void — when a call can read the rows it touches, with three verdicts (Use the correction / Keep the original /
+Add to the original). `CALL_LOGIC.md` §3 insider; `FEED_LOOP.md` §R8-B.
+
 **The #10 family — the shipped recommend→confirm seams** (the pattern the frame calls out, `STAGE_MODEL.md`): the
 **tier recommendation** (SIGNAL/BROAD per term — `DISCOVERY.md`), the **off-thesis flag** (the narrator's opinion —
 `CHAIN_DRAFTER.md`), the **grounded purity estimate** + the **market-cap estimate** (SURFACE values —
@@ -541,9 +574,13 @@ were not reconciled (the 4/A was never ingested at all, and `accession` in the n
 would double-count), so a cancelled code-`P` buy stayed live to the conviction detector (FLS's $164k director
 buy, cancelled by the broker, was a CORE trigger). R8-A stores each 4/A as filed in `insider_amendment` (never
 in `fact_insider_txn`), links it to its original, and resolves every as-of insider read through one pure
-resolver shared with the replay mirror — a pending void suppresses its original, a 1:1 correction applies, the
-rest wait for the operator or, with no signal effect, are applied by the system and listed with an Undo. The
-`supersedes` column is still vestigial. See `DATA_SOURCES.md` §Form 4/A and `CALL_LOGIC.md` §3 (insider).
+resolver shared with the replay mirror. Since R8-B (2026-10-20, revised 2026-10-21) every amendment resolved
+to a definite original is resolved by the system — the filer's own correction, replacing only the original rows
+it accounts for (exact shape, or the filer's own FIX words), and a zero-row void removing its original only on
+explicit retraction words against a single-trade original — and listed with an Undo; only an ambiguous one, an
+unresolved row match or a held void, touching a buy/sell inside the review horizon, waits for the operator. The
+`supersedes` column is still vestigial. See `DATA_SOURCES.md` §Form 4/A, `CALL_LOGIC.md` §3 (insider) and
+`FEED_LOOP.md` §R8-B.
 
 **Known gap — basket composition is point-in-time from 2026-09-15 FORWARD, and unknowable before it.**
 `basket_member` is full-replace on promote with no timestamps, so which names were in a basket on a past

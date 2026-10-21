@@ -245,39 +245,66 @@ Undo is exact the same way: each change row stores the PRIOR and NEW value of ev
 (cik, name, the submissions-sourced identity, `enriched_source` / `enriched_at`); Undo writes the prior ones
 back verbatim, only for the name's newest standing change, and refuses (409) if the master drifted since.
 
-### Insider amendments — "which Form 4/As owe me a decision?"  `[BUILT, R8-A]`
+### Insider amendments — "which Form 4/As owe me a decision?"  `[BUILT, R8-A; R8-B 2026-10-20]`
 
 A sibling card (its own read, `GET /admin/insider-amendments`, live from the amendment tables of migration
 0050; the writes are `/admin/insider-amendments/*`). Every Form 4/A the nightly leg stored, with what it changed
-(the disposition — `CALL_LOGIC.md` §3 insider) and the EVIDENCE to ratify on: the amendment's remarks and
-footnotes, a link to its EDGAR filing index, and its Table I rows beside each original's (role `original`,
-`voided` for a duplicate, `candidate` for an ambiguous link). Rendered only when an amendment is stored.
+(the disposition — `CALL_LOGIC.md` §3 insider) and its EVIDENCE: the amendment's remarks and footnotes, a link
+to its EDGAR filing index, and its Table I rows beside each original's (role `original`, `voided` for a
+duplicate, `candidate` for an ambiguous link). Rendered only when an amendment is stored.
 
-- **Owed a decision** (loud) — only an amendment whose effect changes a buy or sale a call signal reads (the
-  signal-effect rule — `CALL_LOGIC.md` §3 insider), plus every ambiguous link: a **void** or **duplicates** set
-  (the line says it is SUPPRESSING the original from every call until you decide — the operator's condition: a
-  cancelled buy never fires) with **Ratify void** and **Keep original**; a **partial / consolidation / addition
-  / restatement / field change** (no effect until applied) with **Apply amendment** and **Keep original**; an
-  **ambiguous** link (suppresses nothing) with one **Link to <accession>** per candidate — linking computes its
-  disposition against that original, and a routed one is then owed a ratification. **In-window first:** an item
-  whose changed rows sit inside a signal's own read horizon today (`P` 210 days, `S` 120 days — derived from
-  the detectors) sorts to the top and says "in today's P/S signal window — can move tonight's call". Each pages
-  ONCE when new; the page names every in-window item and counts the rest (`FEED_LOOP.md` §the amendment leg).
-- **Decided by you** (quiet) — every standing decision with its **Undo**.
-- **Applied — no signal effect** (quiet) — a routed amendment that changes no row a call signal reads (a void
-  of a grant-only Form 4, an exercise added beside an unchanged sale), applied by the SYSTEM at ingest (basis
-  `system:no-signal-effect`) and never paged, each with its **Undo** — which returns it to the owed list.
-- **Applied automatically** (quiet) — the clean 1:1 corrections (never paged), each with **Keep original** to
-  overrule it.
+**R8-B — the filer's own correction is applied by default.** A Form 4/A the linker resolves to the Form 4 it
+amends is the insider's legal correction of their own filing — deterministic data, not a model's recommendation —
+so the SYSTEM resolves it (`FEED_LOOP.md` §R8-B): it applies it, replacing only the original rows it accounts for
+(the leftovers settled by the filer's own FIX / ADD words), or — for a zero-row 4/A whose words retract nothing —
+keeps the original as filed. The operator is asked only about what the system cannot resolve, with three verdicts,
+each with its **Undo**: **Use the correction** (the amendment's rows replace the whole original; a void hides it),
+**Keep the original**, **Add to the original** (every original row stands and the amendment's rows are added —
+not offered on a zero-row 4/A, which has nothing to add). Where the filer's words settled it, the evidence
+shows them: "Read as: the filer's words FIX the trade it re-reports — “…”".
+
+- **Owed your decision** (loud, on top) — what the system cannot resolve, when its buy/sell rows sit inside
+  the review horizon (`insider_amendment_review_horizon_days`, 940 days derived — the backtest window plus the
+  longest signal read): an **ambiguous** amendment (several Form 4s it could amend), with one **Link to
+  <accession>** per candidate (linking computes its disposition against that original; it then waits for your
+  verdict, with **Undo link**); an **unresolved row match** — a buy or sale it re-reports matches no original
+  row and the filer's words neither fix nor add (YYAI): Use the correction if it restates the original, Add to
+  the original if it reports a new trade, Keep the original if neither; and a **held void** — a zero-row 4/A
+  whose words retract a trade while the original holds several (FIGR). The original stands until you decide. An
+  amendment you took back from the system (by revoking its decision through the API) is owed here too.
+  **In-window first:** an item whose changed rows sit inside a signal's own read horizon today (`P` 210 days,
+  `S` 120 days) sorts to the top and says "in today's P/S signal window — can move tonight's call". Each pages
+  ONCE when new (`FEED_LOOP.md` §the amendment leg). MEASURED 2026-10-21 (asof 2026-10-20, after the first
+  sweep): 6 — 4 ambiguous (CVNA, FIS, HROW, SKYT), 1 unresolved match (YYAI), 1 held void (FIGR); none in
+  tonight's signal windows.
+- **Resolved automatically** (quiet, collapsed) — every amendment the system resolved: the filer's correction
+  applied (`system:filer-correction`), one that changes no buy or sale a call signal reads
+  (`system:no-signal-effect`), a 1:1 correction applied by its link — each with **Keep the original** as its
+  exact Undo — and a zero-row 4/A kept as filed because its words retract nothing (`system:no-retraction`: a
+  holdings / Table II / power-of-attorney fix — SMR, AZTA, VWAV), with **Use the correction** as its Undo. Each
+  shows its evidence (remarks, footnotes, the filer's words that settled it, the original's rows — each one the
+  4/A does not account for marked "stands" — beside the amendment's). Never paged; never worded "owed your
+  decision".
+- **Decided by you** (quiet) — every standing operator verdict ("correction used by you", "original kept by
+  you", "added to the original by you") with its **Undo** (over a system decision it says "Undo restores the
+  system's resolution").
+- **Unresolved — historical (no call reads these rows)** (quiet, collapsed, grayed) — an ambiguous amendment,
+  an unresolved row match or a held void older than the review horizon (or touching no buy or sale): the
+  originals stand, it never pages, and it stays decidable — **Link to <accession>** on an ambiguous one, the
+  three verdicts on the others (MEASURED 2026-10-21: 60 — 39 ambiguous, 17 unresolved, 4 held).
+- **Awaiting the nightly sweep** (quiet) — a pre-R8-B link with no decision yet (a void suppresses meanwhile);
+  empty after the first nightly pass that runs the sweep.
 - **Nothing to apply** (quiet) — clerical, no Table I rows, or no stored original — still listed (#9).
 
 Every decision is an append-only `insider_amendment_decision` row naming its author (`operator:apply` / `keep`
-/ `link` / `revoke`, or `system:no-signal-effect` for the system's apply); **Undo** appends a `revoke` naming it,
-and the amendment
-returns to the state before. At most one standing link and one standing verdict per amendment — a second is
-refused (409, undo the first), and a link cannot be undone while a verdict decided under it stands. A decision
-reaches calls at the next read and re-records a card only where the resolved rows change; a replay pinned
-before it reads the pending state the system held (#1).
+/ `add` / `link` / `revoke`, or `system:filer-correction` / `system:no-signal-effect` for the system's apply,
+`system:no-retraction` / `system:held` for its keep of a void); **Undo**
+appends a `revoke` naming the operator's decision and the amendment returns to the state before. At most one
+standing link and one standing OPERATOR verdict per amendment — a second is refused (409, undo the first); the
+one sanctioned stack is your verdict over a system decision. A link cannot be undone while a verdict decided
+under it stands. A decision reaches calls at the next read and re-records a card only where the resolved rows
+change; a replay pinned before it (or before the system's application) reads the pending state the system held
+(#1).
 
 #### ETF fund-shares tapes — "is every sleeve still being sampled?"  `[BUILT, F1]`
 
@@ -595,9 +622,10 @@ the freeze it is adjacent to: `POSTMORTEM_CRON_FREEZE_2026-07.md`.
 | `POST /admin/price-feed/acks/{ack_id}/revoke` | → the revoke row | 404 when no active acknowledgment |
 | `POST /admin/price-feed/{security_id}/adopt-cik` | `{cik}` → the CIK change row | the detector's recommended successor only (409 otherwise / master moved / CIK held by another row); no network |
 | `POST /admin/price-feed/cik-changes/{change_id}/undo` | → the undo row | exact restore; 409 already undone / a later change stands / the master moved |
-| `GET /admin/insider-amendments` | the Form 4/A panel: `pending` (in-window first) / `decided` / `auto` / `applied` / `inert`, plus `asof` | read-only, live from the 0050 tables |
-| `POST /admin/insider-amendments/{security_id}/{accession}/apply` | `{reason?}` → the amendment | ratify (a void keeps suppressing); 409 nothing to ratify / a verdict stands / ambiguous and unlinked |
-| `POST /admin/insider-amendments/{security_id}/{accession}/keep` | `{reason?}` → the amendment | the original stands (lifts a pending void, overrules a correction); 409 a verdict stands |
+| `GET /admin/insider-amendments` | the Form 4/A panel (R8-B): `owed` (in-window first) / `auto` / `decided` / `historical` / `queued` / `inert`, plus `asof` and `review_horizon_days`; each item carries `review`, `system_basis`, `in_review`, `unresolved`, `held`, `kept_rows`, `reading`, `passage` | read-only, live from the 0050 tables |
+| `POST /admin/insider-amendments/{security_id}/{accession}/apply` | `{reason?}` → the amendment | **Use the correction** — the amendment's rows replace the whole original (a void hides it); allowed over a system decision; 409 nothing to ratify / a correction (it applies) / an operator verdict stands / ambiguous and unlinked |
+| `POST /admin/insider-amendments/{security_id}/{accession}/keep` | `{reason?}` → the amendment | **Keep the original** — the amendment changes nothing (lifts a pending void; the Undo of a system application — stacked over it); 409 an operator verdict stands |
+| `POST /admin/insider-amendments/{security_id}/{accession}/add` | `{reason?}` → the amendment | **Add to the original** — every original row stands, the amendment's rows are added (stored as an `apply` with `replaced_rows = []`); partial / consolidation / addition / restatement / field change only; 409 a zero-row or correction amendment / an operator verdict stands |
 | `POST /admin/insider-amendments/{security_id}/{accession}/link` | `{target_accession, reason?}` → the amendment | an ambiguous amendment's candidate only; 409 otherwise / already linked |
 | `POST /admin/insider-amendments/decisions/{decision_id}/revoke` | → the amendment | Undo; 404 unknown / already undone, 409 a verdict stands under the link |
 | `GET /admin/runs?limit=` | the run-of-record history, newest first | read-only file parse; skip-unreadable |

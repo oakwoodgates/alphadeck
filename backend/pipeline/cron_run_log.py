@@ -379,11 +379,14 @@ def build_run_payload(
     recommendation the Admin panel offers for the operator's Adopt), and `new` = what PAGED. `successor=None`
     writes the not-evaluated block; readers use `.get`.
 
-    R8-A — THE FORM 4/A INVENTORY. `insider_amendments` (`pipeline/insider_amendment_scan.AmendmentScan
+    R8-A / R8-B — THE FORM 4/A INVENTORY. `insider_amendments` (`pipeline/insider_amendment_scan.AmendmentScan
     .payload`) — `{evaluated, error, baseline, duration_s, pending: [{key, security_id, ticker, accession,
-    disposition, suppressing, touches_buy, label}], new: [{key, label}]}` — every amendment owed the
-    operator's decision (read whole from the amendment tables), and `new` = what PAGED. `amendments=None`
-    writes the not-evaluated block; readers use `.get`.
+    disposition, suppressing, touches_buy, in_window, candidates, label}], new: [{key, label, in_window,
+    named}], applied: {basis: n}, swept, sweep_error}` — every amendment owed the operator's decision (read
+    whole from the amendment tables; since R8-B only what the system cannot resolve), `new` = what PAGED
+    (`named` = named on the page, else counted), `applied` = the SYSTEM applications recorded during the pass
+    (the pre-loop sweep + tonight's ingest), `swept` / `sweep_error` = the sweep's own outcome.
+    `amendments=None` writes the not-evaluated block; readers use `.get`.
 
     Q18 — THE SKIPPED FILINGS (`pipeline/ingest_skips.SkipDiff.payload`): `ingest_skips_evaluated` (a
     LIVE pass — the only kind that is a baseline) and `ingest_skips`, one block per kind

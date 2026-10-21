@@ -178,7 +178,7 @@ def _problems(health: HealthEvent | None) -> list[str]:
         n = len(health.insider_amendments_new) + health.insider_amendments_more
         out.append(
             f"{n} Form 4/A amendment(s) newly owed a decision: "
-            f"{page_text(health.insider_amendments_new, health.insider_amendments_more)} — ratify on the "
+            f"{page_text(health.insider_amendments_new, health.insider_amendments_more)} — decide on the "
             f"Insider amendments panel, {_BENIGN_MARK} in this run"
         )
     return out

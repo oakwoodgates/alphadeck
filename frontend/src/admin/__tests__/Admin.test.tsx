@@ -336,12 +336,13 @@ vi.mock("../../api/hooks", () => ({
   useUndoCikChange: () => h.repair,
   // R8-A — the Insider amendments panel (its own behavior is in InsiderAmendments.test.tsx): empty here
   useInsiderAmendments: () => ({
-    data: { pending: [], decided: [], auto: [], applied: [], inert: [], total: 0 },
+    data: { owed: [], auto: [], decided: [], historical: [], queued: [], inert: [], total: 0 },
     isError: false,
     error: null,
   }),
   useApplyAmendment: () => h.repair,
   useKeepOriginal: () => h.repair,
+  useAddToOriginal: () => h.repair,
   useLinkAmendment: () => h.repair,
   useRevokeAmendmentDecision: () => h.repair,
   // split plan S1 — the Splits panel (its own behavior is in SplitList.test.tsx): empty here

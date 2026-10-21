@@ -23,59 +23,124 @@ disposition         when                                        effect (see ``ef
 ``no_rows``         no Table I rows on either side              none (inert)
 ``clerical``        Table I identical and no signal row         none (inert) — never double-counts
                     changes in any other field
-``field_change``    Table I identical, but a field a call       PENDING; no provisional effect (applied:
-                    signal reads changed on a signal row (the   the amendment's rows replace — FRHC's
-                    owner's role or name, the 10b5-1 flag)      CFO -> "Special Advisor to CEO")
+``field_change``    Table I identical, but a field a call       APPLIED BY THE SYSTEM (R8-B): the
+                    signal reads changed on a signal row (the   amendment's rows replace — FRHC's CFO ->
+                    owner's role or name, the 10b5-1 flag)      "Special Advisor to CEO"
 ``unlinked``        no stored original found                    none (inert, listed)
-``correction``      same row count, every changed row pairs     AUTO-APPLIED: the amendment's rows replace
-                    1:1 (same date+code, else date, else           the original's, as of the link's
-                    code+shares) — shares / price / code /         ``recorded_at``
-                    date corrections
-``void``            zero rows, the original has rows            PENDING ratification; while pending it
-                                                                SUPPRESSES the original (the operator's
-                                                                condition: a cancelled buy never fires)
-``duplicates``      the cascade found several originals with    PENDING; while pending it SUPPRESSES the
-                    IDENTICAL Table I (filing-agent duplicates  later duplicates and keeps the earliest
-                    — TDG)                                      (1->N void)
-``partial``         fewer rows, some original (date, code)      PENDING; no provisional effect
-                    missing from the amendment
-``consolidation``   fewer rows, same (date, code) set (N->1 —   PENDING; no provisional effect
+``correction``      same row count, every changed row pairs     APPLIED: the amendment's rows replace the
+                    1:1 (same date+code, else date, else           original's, as of the link's
+                    code+shares) — shares / price / code /         ``recorded_at`` (with or without the
+                    date corrections                               system's decision row)
+``void``            zero rows, the original has rows            SETTLED BY THE FILER'S WORDS (THE VOIDS
+                                                                below): retraction words + a single
+                                                                P/S original -> APPLIED (it is
+                                                                hidden); no retraction words -> KEPT
+                                                                as filed; retraction against several
+                                                                trades -> HELD for the operator.
+                                                                SUPPRESSES while pending (unswept)
+``duplicates``      the cascade found several originals with    APPLIED BY THE SYSTEM: SUPPRESSES the
+                    IDENTICAL Table I (filing-agent duplicates  later duplicates, keeps the earliest
+                    — TDG)                                      (1->N void; also while pending)
+``partial``         fewer rows, some original (date, code)      APPLIED BY THE SYSTEM: rows replace (no
+                    missing from the amendment                  provisional effect while pending)
+``consolidation``   fewer rows, same (date, code) set (N->1 —   APPLIED BY THE SYSTEM (as partial)
                     BHVN)
-``addition``        more rows than the original                 PENDING; no provisional effect
-``restatement``     same row count, rows that do not pair 1:1   PENDING; no provisional effect
+``addition``        more rows than the original                 APPLIED BY THE SYSTEM (as partial)
+``restatement``     same row count, rows that do not pair 1:1   APPLIED BY THE SYSTEM (as partial)
 ``ambiguous``       several candidate originals that differ     NONE — it cannot target a specific
-                                                                original; surfaced loudly with the
-                                                                candidates until the operator links one
+                                                                original; OWED the operator when it
+                                                                touches a signal row inside the review
+                                                                horizon, else "unresolved — historical"
 ==================  ==========================================  =========================================
 
-THE SIGNAL-EFFECT RULE (operator-approved 2026-10-18). A routed amendment (void / duplicates / partial /
-consolidation / addition / restatement) whose effect changes NO row a CALL signal reads has no call effect, so
-it is RESOLVED BY THE SYSTEM — applied, with an append-only ``apply`` decision whose basis is
-``system:no-signal-effect`` (``BASIS_NO_SIGNAL_EFFECT``), visible on Admin as "applied — no signal effect" with
-its Undo, and never paged. Decided by CONTENT, never by date window or detector screen: the "signal rows" are
-the rows whose transaction code a registered call detector reads (``signal_codes`` — derived from each
-detector's declared ``txn_codes``, ``signals.horizons.insider_signal_codes``; today ``P`` and ``S``), compared
-on code, date, shares, price, the 10b5-1 flag (as the screens read it — only an explicit ``True`` is planned)
-AND the reporting owner's role and name (seniority reads the role). An AMBIGUOUS link always routes (it has
-no target to apply), and an operator-linked one waits for the operator. MEASURED 2026-10-18 on the first-night
-backlog (prod, read-only): of the 181 formerly routed, 56 change a signal row and 4 are ambiguous; 7 field
-changes the old Table-I-only clerical rule hid join them -> 67 owed the operator; 121 resolve themselves.
+"Applied by the system" = an ``apply`` verdict the system writes under its own basis instead of waiting for the
+operator. What an applied partial / consolidation / addition / restatement / field change does to the rows is
+the ROW MATCH below — it replaces only the original rows it accounts for.
 
-Why partial / consolidation / addition / restatement carry NO provisional effect while a void does: the
-operator's condition is about CANCELLATIONS, and only a zero-row amendment (or a named duplicate) states
-one. A partial restatement usually re-reports just the corrected row (MEASURED on the 85 non-zero partials
-of 2026-10-17: every one of the seven that omits an original ``P`` row says why in its own text — a share
-count typo, a holding-column correction, an ownership-nature fix — and none is a cancellation), so
-suppressing the rows it omits would silence real buys while it waits.
+THE ROW MATCH (R8-B, operator decision 2026-10-21, revised the same day — ``match_rows``): a correction removes
+a buy or sale ONLY when it ACCOUNTS for that row; an amendment that merely ADDS an omitted line is not retracting
+the sales it does not mention (MRCY 0001049521-26-000071 adds a grant and re-reports none of its original's two
+sales). Accounting is EXACT SHAPE only, owner first: identical; same date + code + shares (a price fix); same
+date + shares, another code (a recode — BAH's ``S`` -> ``F``); same code + shares, another date (a date fix); a
+SUM on the same date + code (a consolidation — BHVN; one sale split into lots — BETR); then same date + code +
+price (a share fix). A bare "same date + same code" never matches (IBKR's 4/A adds an omitted 09-19 sale beside
+two real 09-19 sales). LEFTOVERS — an unaccounted original and an unmatched amendment row of the same owner AND
+code — are settled by the FILER'S OWN WORDS (remarks + footnotes, ``filer_text``; the deterministic phrase lists
+below): FIX words -> the amendment's rows replace those leftovers (MRAM, BKSY, IEHC); ADD words -> every original
+stays and the amendment's rows are added (IBKR); NEITHER -> UNRESOLVED (YYAI): the system does not apply it, it
+is owed to the operator inside the review horizon (historical outside), and the original stands meanwhile; BOTH
+-> FIX when, in every leftover group, the amendment re-reports at least as many rows as the original (its rows
+restate them all — IEHC), else unresolved. An unaccounted original that no leftover settles STANDS; an unmatched
+amendment row is an addition. The match is computed once, against the full stored rows, when the ``apply``
+decision is written, and STORED on it (``replaced_rows``, migration 0053): the original row keys it replaces
+(``[]`` = it replaces nothing — an Add); NULL (every pre-R8-B decision, and the operator's "Use the correction")
+replaces the whole original.
 
-THE OPERATOR'S DECISIONS (append-only, ``insider_amendment_decision``): ``apply`` (ratify the amendment —
-for a void/duplicates: keep the suppression; otherwise its rows replace the original's), ``keep`` (the
-original stands; the amendment changes nothing — the AZTA case, a zero-row 4/A that only attached a power
-of attorney), ``link`` (an AMBIGUOUS amendment: the operator picks the original; the disposition against it
-is computed at decision time and STORED on the decision, so a read never recomputes it from a windowed row
-set), and ``revoke`` (the Undo of any of them). A decision counts at a read iff it was recorded at/before the
+THE VOIDS (R8-B, operator decision 2026-10-21 — ``void_reading``): a zero-row 4/A retracts its original ONLY when
+BOTH the filer's text carries explicit retraction language (``RETRACTION_PHRASES``) AND the original holds exactly
+ONE transaction, a code-P/S one — the words can then mean only that trade (FLS, AVEX, MNKD, DVLT: APPLIED, the
+original hidden). No retraction language -> the system KEEPS the original as filed (a ``keep``, basis
+``system:no-retraction`` — a holdings / Table II / power-of-attorney fix: SMR, AZTA, VWAV; quiet, listed as
+resolved automatically). Retraction language against several transactions -> HELD (a ``keep``, basis
+``system:held``): owed inside the review horizon (historical outside), the original standing meanwhile (FIGR:
+"did not in fact occur" beside a $7.43M sale). Words are never mapped to codes (FLS's text says "sale" for a
+code-P buy). A duplicates set keeps its own handling (the later duplicates suppressed, the earliest standing).
+
+THE FILER'S OWN CORRECTION IS APPLIED BY DEFAULT (R8-B, operator decision 2026-10-20). Every amendment the
+linker resolves to a DEFINITE original — a correction, void, duplicates set, partial, consolidation, addition,
+restatement or field change (``RESOLVED_DISPOSITIONS``) — is RESOLVED BY THE SYSTEM (``system_resolution``): an
+append-only decision whose basis names why — an ``apply`` carrying its row match (``system:no-signal-effect``
+when its effect changes no row a call signal reads — the 2026-10-18 rule, kept — else
+``system:filer-correction``), or, for a void its words do not retract, a ``keep`` (``system:no-retraction`` /
+``system:held`` — THE VOIDS above); an UNRESOLVED row match gets no decision at all. A 4/A is the insider's OWN
+legal correction of their own filing, filed under penalty — deterministic data, not a model's recommendation —
+so applying it is data handling, never a decision taken from the operator (#3 / #10 untouched), and every one
+keeps its exact Undo: an operator verdict stands OVER a system decision without revoking it, and undoing that
+verdict restores the system's resolution. The ingest records the decision in the SAME transaction as the link
+(one ``recorded_at``: there is never a pending window for a new 4/A); the amendments a pre-R8-B ingest left
+pending are resolved by the idempotent nightly SWEEP (``sweep_resolution`` —
+``repositories.insider_amendment_repo.sweep``), each decision stamped ``recorded_at = now``, so a replay pinned
+before the sweep still reads the state the system held then (pending; a void suppressing) — no rewrite of the
+past (#1). The sweep acts only on an amendment with NO decision at all: anything the operator did (a verdict,
+a link, an Undo) stays the operator's.
+
+ONLY WHAT THE SYSTEM CANNOT RESOLVE IS OWED THE OPERATOR (``review_bucket``) — an AMBIGUOUS link (several
+differing candidate originals: the system cannot know which filing it amends), an UNRESOLVED row match, or a
+HELD void — and only when it MATTERS: it would change a row a call signal reads AND one of those rows is dated
+inside the REVIEW HORIZON (``within_review_horizon``; the dial ``insider_amendment_review_horizon_days``, derived
+by default as the two-year backtest window plus the longest detector read horizon — ``signals.horizons
+.insider_amendment_review_horizon``; 940 days at today's config). Any of them outside that is "unresolved —
+historical": no call reads those rows, the originals stand, it never pages, and the operator can still decide
+it. MEASURED 2026-10-21 (prod, read-only, asof 2026-10-20, after the first sweep): 6 owed (4 ambiguous — CVNA,
+FIS, HROW, SKYT; 1 unresolved match — YYAI; 1 held void — FIGR), none touching a row in tonight's signal
+windows; 60 historical (39 ambiguous, 17 unresolved, 4 held).
+
+THE SIGNAL-EFFECT TEST (operator-approved 2026-10-18; since R8-B it picks the system's BASIS and the ambiguous
+owed test, never whether a resolvable amendment applies). Decided by CONTENT: the "signal rows" are the rows
+whose transaction code a registered call detector reads (``signal_codes`` — derived from each detector's
+declared ``txn_codes``, ``signals.horizons.insider_signal_codes``; today ``P`` and ``S``), compared on code,
+date, shares, price, the 10b5-1 flag (as the screens read it — only an explicit ``True`` is planned) AND the
+reporting owner's role and name (seniority reads the role).
+
+What the PENDING state still means (a pre-R8-B link not yet swept, an operator-linked amendment awaiting the
+operator's verdict, or one the operator took back with an Undo): a void / duplicates SUPPRESSES its target
+meanwhile (the operator's condition — a canceled buy never fires); a partial / consolidation / addition /
+restatement / field change carries NO provisional effect (MEASURED on the 85 non-zero partials of 2026-10-17:
+every one of the seven that omits an original ``P`` row says why in its own text and none is a cancellation),
+so suppressing the rows it omits would silence real buys while it waits.
+
+THE OPERATOR'S DECISIONS (append-only, ``insider_amendment_decision``) — three verdicts, each with its exact
+Undo: USE THE CORRECTION (``apply`` with no ``replaced_rows`` — for a void/duplicates: the suppression;
+otherwise a FULL replace, the amendment's rows replacing the whole original), KEEP THE ORIGINAL (``keep`` — the
+original stands; the amendment changes nothing), ADD TO THE ORIGINAL (``apply`` with ``replaced_rows = []`` and
+basis ``operator:add`` — every original row stands and the amendment's rows are added; only for an amendment
+that has rows); plus ``link`` (an AMBIGUOUS amendment: the operator picks the original; the disposition against
+it is computed at decision time and STORED on the decision, so a read never recomputes it from a windowed row
+set) and ``revoke`` (the Undo of any of them). A decision counts at a read iff it was recorded at/before the
 read's ``known_at`` and no revoke recorded at/before ``known_at`` names it — so a replay pinned before a
-ratification sees the pending state it actually held.
+ratification sees the pending state it actually held. The NEWEST standing verdict wins, which is how an operator
+verdict overrules a standing SYSTEM decision (R8-B) without erasing it: revoke the operator's verdict and the
+system's resolution is the newest standing verdict again — the exact inverse pair (WB#1).
 
 PIT. Every input is gated on ITS OWN ``recorded_at <= known_at`` by the caller (the amendment, the link, each
 decision); ``accepted`` (the SEC acceptance instant) is display + ordering only, never a gate. A read pinned
@@ -91,6 +156,8 @@ never screens the predecessor's own history. An empty ``own_ciks`` or a NULL ``i
 
 from __future__ import annotations
 
+import itertools
+import re
 from collections import Counter
 from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
@@ -128,16 +195,82 @@ DISPOSITIONS: tuple[str, ...] = (
 )
 # inert: nothing to apply and nothing to ratify (listed quietly)
 INERT_DISPOSITIONS = frozenset({NO_ROWS, CLERICAL, UNLINKED})
-# applied without the operator — a clean 1:1 correction (the operator may still `keep` the original)
+# applied by the LINK itself — a clean 1:1 correction (the operator may still `keep` the original)
 AUTO_DISPOSITIONS = frozenset({CORRECTION})
-# routed to the operator; a CANCELLATION suppresses its target while it is pending
+# applied by a decision (the system's since R8-B); a CANCELLATION suppresses its target while pending too
 SUPPRESS_WHILE_PENDING = frozenset({VOID, DUPLICATES})
-# routed to the operator; nothing changes until the operator applies it
+# applied by a decision (the system's since R8-B); nothing changes while one is pending
 ROUTED_NO_PROVISIONAL = frozenset({PARTIAL, CONSOLIDATION, ADDITION, RESTATEMENT, FIELD_CHANGE})
 ROUTED_DISPOSITIONS = SUPPRESS_WHILE_PENDING | ROUTED_NO_PROVISIONAL
+# R8-B — every disposition the linker resolves to a DEFINITE original: the system applies each one
+RESOLVED_DISPOSITIONS = AUTO_DISPOSITIONS | ROUTED_DISPOSITIONS
+# R8-B — the dispositions whose application REPLACES rows: applied by ``match_rows`` — an original row is
+# replaced only when the amendment accounts for it (a correction already pairs every changed row 1:1; a void /
+# duplicates removes, it does not replace)
+MATCHED_DISPOSITIONS = ROUTED_NO_PROVISIONAL
 
-# the author of a system resolution: a routed amendment that changes no signal row (the signal-effect rule)
+# the authors of a SYSTEM application (an ``apply`` decision). ``system:no-signal-effect`` = its effect changes
+# no row a call signal reads (the 2026-10-18 rule); ``system:filer-correction`` = every other amendment resolved
+# to a definite original (R8-B, 2026-10-20 — the filer's own legal correction, applied by default)
 BASIS_NO_SIGNAL_EFFECT = "system:no-signal-effect"
+BASIS_FILER_CORRECTION = "system:filer-correction"
+# the SYSTEM's resolutions that KEEP the original (a ``keep`` decision) — a zero-row 4/A (a void) whose filer's
+# text retracts nothing (``system:no-retraction``: it fixes holdings / Table II / a power of attorney — inert,
+# quiet), or retracts but whose original holds several transactions (``system:held``: the text cannot say which
+# one it retracts — the original stands, owed to the operator) — ``void_reading``
+BASIS_NO_RETRACTION = "system:no-retraction"
+BASIS_HELD = "system:held"
+SYSTEM_BASES: tuple[str, ...] = (
+    BASIS_FILER_CORRECTION,
+    BASIS_NO_SIGNAL_EFFECT,
+    BASIS_NO_RETRACTION,
+    BASIS_HELD,
+)
+_SYSTEM_PREFIX = "system:"
+# the operator's three verdicts on an owed amendment: Use the correction (``apply`` — the whole original replaced),
+# Keep the original (``keep``), Add to the original (an ``apply`` that replaces nothing — ``replaced_rows = []``:
+# every original row stands and the amendment's rows are added)
+ACTION_ADD = "add"
+BASIS_OPERATOR_ADD = "operator:add"
+
+# R8-B — where an amendment sits in the operator's review (``review_bucket``):
+# owed       — only the operator can resolve it, and a call can read the rows it touches
+# auto       — resolved automatically (a standing system apply or no-retraction keep, or a correction applied
+#              by its link)
+# decided    — a standing OPERATOR verdict (including one over a system decision)
+# queued     — resolvable, no decision yet: the next pass's sweep resolves it (a pre-R8-B link)
+# historical — unresolvable (ambiguous, an unresolved row match, or a held void), but no call reads the rows it
+#              touches: the originals stand
+# inert      — nothing to apply
+REVIEW_OWED = "owed"
+REVIEW_AUTO = "auto"
+REVIEW_DECIDED = "decided"
+REVIEW_QUEUED = "queued"
+REVIEW_HISTORICAL = "historical"
+REVIEW_INERT = "inert"
+REVIEWS: tuple[str, ...] = (
+    REVIEW_OWED,
+    REVIEW_AUTO,
+    REVIEW_DECIDED,
+    REVIEW_QUEUED,
+    REVIEW_HISTORICAL,
+    REVIEW_INERT,
+)
+
+
+def is_system_basis(basis: object) -> bool:
+    """Was a decision written by the SYSTEM (``system:*``), not the operator (``operator:*``)?"""
+    return str(basis or "").startswith(_SYSTEM_PREFIX)
+
+
+def system_basis(disposition: str, signal_effect: bool) -> str | None:
+    """R8-B — the basis the SYSTEM applies an amendment of ``disposition`` with, or ``None`` when it cannot (an
+    ambiguous link has no definite original; an inert one has nothing to apply). ``signal_effect`` only picks
+    the basis — a resolved amendment is applied either way."""
+    if disposition not in RESOLVED_DISPOSITIONS:
+        return None
+    return BASIS_FILER_CORRECTION if signal_effect else BASIS_NO_SIGNAL_EFFECT
+
 
 # the link cascade's methods
 METHOD_ORIG_DATE_OWNER = "orig_date_owner"  # issuer (the member) + owner + dateOfOriginalSubmission
@@ -164,8 +297,9 @@ AMENDS_ACCESSION = "amends_accession"
 
 
 def page_text(named: Sequence[str], more: int) -> str:
-    """A page's list of NEW amendments owed a decision: EVERY in-window one named (an item that can move
-    tonight's call is never collapsed into a count), the rest counted — ``(+N more in Admin)``."""
+    """A page's list of NEW amendments owed a decision: the named ones (every in-window one — an item that can
+    move tonight's call is never collapsed into a count — then the other owed ones up to the page's cap), the
+    rest counted — ``(+N more in Admin)``."""
     if not named:
         return f"none inside tonight's signal windows (+{more} in Admin)" if more else ""
     shown = ", ".join(named)
@@ -202,22 +336,136 @@ INSIDER_TXN_COLUMNS: tuple[str, ...] = (
 
 
 def status_for(disposition: str, signal_effect: bool = True) -> str:
-    """The status the SYSTEM gives a link of ``disposition`` (before any operator decision): a correction is
-    applied; a routed one that changes no signal row is applied BY THE SYSTEM (the signal-effect rule — the
-    ingest records its ``system:no-signal-effect`` decision); a routed one that does, and every ambiguous one,
-    is pending; the rest are inert."""
-    if disposition in AUTO_DISPOSITIONS:
+    """The status the SYSTEM gives a link of ``disposition`` (before any operator decision). R8-B: every
+    disposition resolved to a definite original is APPLIED (the ingest records the system's ``apply`` decision
+    in the link's transaction — ``system_basis``); an ambiguous one is pending (it has no target to apply); the
+    rest are inert. ``signal_effect`` no longer changes the status (it picks the system's basis)."""
+    del signal_effect  # kept in the signature: callers pass it, the status no longer depends on it
+    if disposition in RESOLVED_DISPOSITIONS:
         return STATUS_APPLIED
     if disposition == AMBIGUOUS:
         return STATUS_PENDING
-    if disposition in ROUTED_DISPOSITIONS:
-        return STATUS_PENDING if signal_effect else STATUS_APPLIED
     return STATUS_INERT
 
 
 def auto_resolves(disposition: str, signal_effect: bool) -> bool:
-    """Does the system resolve this amendment itself (a routed disposition that changes no signal row)?"""
-    return disposition in ROUTED_DISPOSITIONS and not signal_effect
+    """Does the system apply this amendment itself? R8-B: every disposition resolved to a definite original."""
+    return system_basis(disposition, signal_effect) is not None
+
+
+def within_review_horizon(
+    changed: Iterable[Mapping[str, Any]], asof: date, days: int | None
+) -> bool:
+    """R8-B — does any CHANGED signal row sit inside the review horizon at ``asof`` (dated on/after ``asof -
+    days``; ``None`` = unbounded)? The horizon is the dial ``insider_amendment_review_horizon_days`` (derived:
+    the backtest window plus the longest detector read horizon — ``signals.horizons
+    .insider_amendment_review_horizon``): a row older than it is read by no call, live or replayed. A row dated
+    after ``asof`` is inside (over-include: tomorrow's call reads it). Empty ``changed`` = no signal effect =
+    outside."""
+    rows = [r for r in changed if _row_date(r) is not None]
+    if not rows:
+        return False
+    if days is None:
+        return True
+    edge = asof - timedelta(days=days)
+    return any(_row_date(r) >= edge for r in rows)  # type: ignore[operator]
+
+
+def review_bucket(
+    eff: Effective,
+    *,
+    verdict_basis: object,
+    ever_decided: bool,
+    in_review: bool,
+    unresolved: bool = False,
+) -> str:
+    """R8-B — PURE: where one amendment sits in the operator's review, from its effective state.
+
+    - ``inert`` — nothing to apply.
+    - a standing verdict -> ``auto`` when the SYSTEM wrote it, else ``decided`` (the operator's — including a
+      keep over a system application). A correction with no verdict is applied by its link -> ``auto``.
+    - PENDING: an ambiguous link the operator has not linked is ``owed`` when ``in_review`` (it changes a
+      signal row dated inside the review horizon — ``within_review_horizon``), else ``historical`` (no call
+      reads those rows; the originals stand). An operator-linked one awaiting its verdict, and one whose
+      decision the operator UNDID (``ever_decided`` with nothing standing), are ``owed`` — the operator took
+      it. An ``unresolved`` row match (``match_rows`` — a buy/sell whose date AND share count both changed)
+      is the ambiguous link's twin: ``owed`` when ``in_review``, else ``historical``; the original stands. A
+      resolvable one with no decision at all is ``queued``: a pre-R8-B link the next pass's sweep applies (a
+      void suppresses meanwhile, as pending always did). A void the system HELD (``system:held`` — retraction
+      language, several trades on the original) is ``owed`` / ``historical`` the same way, its original
+      standing."""
+    if eff.status == STATUS_INERT:
+        return REVIEW_INERT
+    if eff.verdict is not None:
+        if verdict_basis == BASIS_HELD:  # the system kept the original for the operator to decide
+            return REVIEW_OWED if in_review else REVIEW_HISTORICAL
+        return REVIEW_AUTO if is_system_basis(verdict_basis) else REVIEW_DECIDED
+    if eff.status == STATUS_APPLIED:
+        return REVIEW_AUTO
+    if eff.disposition == AMBIGUOUS and eff.link_decision_id is None:
+        return REVIEW_OWED if in_review else REVIEW_HISTORICAL
+    if eff.link_decision_id is not None or ever_decided:
+        return REVIEW_OWED
+    if unresolved:
+        return REVIEW_OWED if in_review else REVIEW_HISTORICAL
+    return REVIEW_QUEUED
+
+
+@dataclass(frozen=True)
+class SystemResolution:
+    """What the SYSTEM records for one amendment: an ``apply`` (the filer's correction — with the row match it
+    accounts for, ``replaced_rows``, for a matched disposition) or a ``keep`` (a void whose text retracts nothing
+    — ``system:no-retraction`` — or retracts against several trades — ``system:held``)."""
+
+    action: str
+    basis: str
+    replaced_rows: tuple[str, ...] | None = None
+
+
+def system_resolution(
+    disposition: str,
+    *,
+    signal_effect: bool,
+    match: RowMatch | None = None,
+    void: VoidReading | None = None,
+) -> SystemResolution | None:
+    """R8-B (revised 2026-10-21) — PURE: the system's resolution of one amendment, or ``None`` when it has none
+    (an ambiguous link, an unresolved row match, an inert disposition — the operator's, or nothing to do).
+
+    - a correction / duplicates set -> ``apply`` (a correction pairs 1:1; a duplicate is an exact copy);
+    - a void -> by ``void_reading``: a retraction of a single-trade original -> ``apply`` (it is hidden); no
+      retraction language -> ``keep`` (``system:no-retraction`` — the original stands, quietly); retraction
+      language against several trades -> ``keep`` (``system:held`` — the original stands, owed);
+    - a partial / consolidation / addition / restatement / field change -> ``apply`` carrying its row match
+      (``match_rows``) — unless the match is unresolved."""
+    if disposition not in RESOLVED_DISPOSITIONS:
+        return None
+    basis = system_basis(disposition, signal_effect) or BASIS_FILER_CORRECTION
+    if disposition == VOID:
+        kind = void.kind if void is not None else VOID_RETRACT
+        if kind == VOID_NO_RETRACTION:
+            return SystemResolution(ACTION_KEEP, BASIS_NO_RETRACTION)
+        if kind == VOID_HELD:
+            return SystemResolution(ACTION_KEEP, BASIS_HELD)
+        return SystemResolution(ACTION_APPLY, basis)
+    if disposition in MATCHED_DISPOSITIONS:
+        if match is None:
+            return SystemResolution(ACTION_APPLY, basis)
+        if match.unresolved:
+            return None
+        return SystemResolution(ACTION_APPLY, basis, match.replaced)
+    return SystemResolution(ACTION_APPLY, basis)
+
+
+def sweep_resolution(
+    eff: Effective, *, ever_decided: bool, resolution: SystemResolution | None
+) -> SystemResolution | None:
+    """R8-B — what the nightly SWEEP records for one amendment, or ``None`` to leave it alone. It acts ONLY on an
+    amendment with no decision at all (``ever_decided`` False — anything the operator did, or an earlier system
+    resolution, stays as it is: re-running appends nothing)."""
+    if ever_decided or eff.verdict is not None or eff.link_decision_id is not None:
+        return None
+    return resolution
 
 
 def norm_cik(raw: object) -> str | None:
@@ -291,16 +539,345 @@ def before_after(
     candidate_accessions: Sequence[str],
     stored: Mapping[str, Sequence[Mapping[str, Any]]],
     amend_rows: Sequence[Mapping[str, Any]],
+    replaced: Collection[str] | None = None,
 ) -> tuple[list[Mapping[str, Any]], list[Mapping[str, Any]]]:
     """``(the stored rows the amendment acts on, the rows it would leave in their place)`` — a void/duplicates
     removes its targets, every other disposition replaces its originals with the amendment's rows (an
-    ambiguous one with every candidate, its target being unknown)."""
+    ambiguous one with every candidate, its target being unknown). R8-B: with ``replaced`` (the original row
+    keys a MATCHED disposition accounts for — ``match_rows``), only those are replaced; every other original row
+    stays on the after side too."""
     if disposition == DUPLICATES:
         return [r for a in voided_accessions for r in stored.get(a, ())], []
     if disposition == AMBIGUOUS:
         return [r for a in candidate_accessions for r in stored.get(a, ())], list(amend_rows)
-    before = [r for a in original_accessions for r in stored.get(a, ())]
-    return before, ([] if disposition == VOID else list(amend_rows))
+    before = originals_rows(original_accessions, stored)
+    if disposition == VOID:
+        return before, []
+    if replaced is not None and disposition in MATCHED_DISPOSITIONS:
+        gone = set(replaced)
+        return before, [r for r in before if row_key(r) not in gone] + list(amend_rows)
+    return before, list(amend_rows)
+
+
+def row_key(row: Mapping[str, Any]) -> str:
+    """A STORED row's identity inside its filing: ``"<accession>#<txn_seq>"`` (one row per transaction — the
+    filing's position — so the pair is unique within the security's tape)."""
+    return f"{row.get('accession')}#{row.get('txn_seq')}"
+
+
+def _same_owner(a: Mapping[str, Any], b: Mapping[str, Any]) -> bool:
+    """One reporting owner on both rows: by CIK when both carry one, else by the casefolded name."""
+    ca, cb = norm_cik(a.get("rpt_owner_cik")), norm_cik(b.get("rpt_owner_cik"))
+    if ca and cb:
+        return ca == cb
+    return _norm_text(a.get("insider_name")) == _norm_text(b.get("insider_name"))
+
+
+# --- R8-B: what the filer's OWN words say (deterministic phrase lists — a located passage, never a model) ---
+# Kept small and explicit; each is matched case-insensitively against the 4/A's remarks + footnotes
+# (``filer_text``). Documented in ``docs/FEED_LOOP.md`` §R8-B.
+_TXN_NOUN = r"(?:sale|purchase|acquisition|disposition|transaction|grant)s?"
+# "cancel" counts only beside a TRADE (the same sentence, within 60 characters, either order): FLS's "previously
+# reported sale … was cancelled", CZR's "cancellation of such transaction" — never "options … cancelled in
+# exchange" or a merger's "each share … was canceled and converted" (an option / share cancellation, not a
+# retraction). ``\b`` after the noun, so "granted" is no "grant".
+_CANCEL = r"\bcancel(?:l?ed|lation|l?ing)?\b"
+_CANCEL_CONTEXT = rf"\b(?:{_TXN_NOUN}|trades?|orders?)\b"
+# a zero-row 4/A RETRACTS a trade only in these words (``void_reading``). Tightened 2026-10-21 (coordinator
+# review): boilerplate-prone phrases removed or narrowed so a future filing's ownership / joint-filer / option
+# boilerplate can never quietly hide a single real trade — "attributable to him" dropped (ownership boilerplate);
+# "duplicate" only as a duplicate FILING (never joint-filer "may be duplicative of the shares reported by X");
+# "cancel" only beside a trade (above).
+RETRACTION_PHRASES: tuple[str, ...] = (
+    rf"{_CANCEL}[^.;]{{0,60}}?{_CANCEL_CONTEXT}",
+    rf"{_CANCEL_CONTEXT}[^.;]{{0,60}}?{_CANCEL}",
+    r"\bdid not (?:in fact )?occur\b",
+    r"\bnever occurred\b",
+    r"\bno transactions? occurred\b",
+    r"\bnot (?:actually )?(?:executed|consummated|effected)\b",
+    r"\bshould not have been (?:filed|reported|made)\b",
+    r"\b(?:filed|submitted) in error\b",
+    r"\berroneously (?:filed|submitted)\b",
+    rf"\berroneously reported (?:a|an|the) {_TXN_NOUN}",
+    r"\brescind(?:ed)?\b",
+    r"\bduplicate (?:filings?|form 4s?|reports?|submissions?)\b",
+    r"\bfiled in duplicate\b",
+    r"\bduplicative (?:filings?|reports?)\b",
+    r"\bvoid(?:ed)? ab initio\b",
+    r"\bnever (?:held|owned|acquired|purchased|sold)\b",
+    r"\bdoes not (?:hold|own) any\b",
+    rf"\bmistakenly (?:filed|reported) (?:a|an|the) (?:\w+ )?{_TXN_NOUN}",
+)
+# the filer FIXES the trade it re-reports (a leftover original is replaced by the amendment's rows)
+FIX_PHRASES: tuple[str, ...] = (
+    r"\bcorrect(?:s|ed|ing)?\b[^.;]{0,120}?\b(?:dates?|prices?|number of shares (?:sold|purchased|acquired|"
+    r"disposed)|amounts? of (?:shares|securities) (?:sold|purchased|acquired|disposed)|transaction codes?)\b",
+    r"\bincorrectly reported\b[^.;]{0,60}?\b(?:dates?|prices?|details|transactions?|sales?|purchases?)\b",
+)
+# the filer ADDS a trade it left out (every original is kept; the amendment's rows are additions)
+ADD_PHRASES: tuple[str, ...] = (
+    r"\binadvertent(?:ly)? (?:excluded|omitted|omission)\b",
+    r"\bto include\b[^.;]{0,80}?\b(?:not (?:previously )?reported|additional|omitted|excluded)\b",
+    r"\bto report an? (?:additional|omitted)\b",
+    r"\badditional (?:shares|sales?|purchases?|transactions?)\b",
+)
+_RX_RETRACTION = tuple(re.compile(x, re.I) for x in RETRACTION_PHRASES)
+_RX_FIX = tuple(re.compile(x, re.I) for x in FIX_PHRASES)
+_RX_ADD = tuple(re.compile(x, re.I) for x in ADD_PHRASES)
+
+
+def filer_text(remarks: object, footnotes: Iterable[object] | None) -> str:
+    """The filer's own words on a 4/A: its remarks plus every footnote (a stored footnote is ``{id, text}``)."""
+    parts = [str(remarks or "")]
+    for f in footnotes or ():
+        parts.append(str(f.get("text") or "") if isinstance(f, Mapping) else str(f or ""))
+    return " ".join(" ".join(x.split()) for x in parts if x)
+
+
+def _passage(text: str, patterns: Sequence[re.Pattern[str]]) -> str | None:
+    """The first phrase hit as a short located passage (shown on Admin as the evidence), or ``None``."""
+    for rx in patterns:
+        m = rx.search(text or "")
+        if m:
+            a, b = max(0, m.start() - 60), min(len(text), m.end() + 60)
+            return ("…" if a else "") + text[a:b] + ("…" if b < len(text) else "")
+    return None
+
+
+# R8-B — the readings
+READ_EXACT = "exact"  # every leftover is accounted for by shape (or nothing conflicts)
+READ_FIX = "fix"  # the filer's words FIX the trade: leftover originals replaced
+READ_ADD = "add"  # the filer's words ADD a trade: every original kept, the amendment's rows added
+READ_UNRESOLVED = "unresolved"  # neither (or a both-ways text the tie-break cannot settle): owed
+VOID_RETRACT = "retract"  # retraction language + a single-trade original: the void applies (hidden)
+VOID_NO_RETRACTION = "no_retraction"  # no retraction language: the original stands (inert)
+VOID_HELD = "held"  # retraction language, several trades on the original: owed, the original stands
+
+
+@dataclass(frozen=True)
+class VoidReading:
+    """A zero-row 4/A read by the filer's words and its original's shape (``void_reading``)."""
+
+    kind: str
+    passage: str | None = None
+
+
+def void_reading(
+    text: str, original_rows: Sequence[Mapping[str, Any]], signal_codes: Collection[str]
+) -> VoidReading:
+    """PURE — R8-B (operator-approved 2026-10-21): does a zero-row amendment RETRACT its original? Only when BOTH
+    hold — the filer's own text carries explicit retraction language (``RETRACTION_PHRASES``) AND the original
+    holds exactly ONE transaction, a code-P/S one (so the words can only mean that trade: FLS's text says "sale"
+    for a code-P buy, so words are never mapped to codes). No retraction language -> the original stands (a
+    holdings / Table II / power-of-attorney fix: SMR, AZTA, VWAV). Retraction language against several trades
+    -> held for the operator (FIGR: "shares withheld … did not in fact occur" beside a $7.4M sale).
+    """
+    passage = _passage(text, _RX_RETRACTION)
+    if passage is None:
+        return VoidReading(VOID_NO_RETRACTION)
+    if len(original_rows) == 1 and original_rows[0].get("txn_code") in signal_codes:
+        return VoidReading(VOID_RETRACT, passage)
+    return VoidReading(VOID_HELD, passage)
+
+
+@dataclass(frozen=True)
+class RowMatch:
+    """What an amendment ACCOUNTS for among its originals' rows (``match_rows``).
+
+    ``replaced`` = the original row keys it replaces when applied; ``kept`` = the original row keys it does not
+    (they STAND); ``added`` = how many amendment rows match no original row (additions); ``reading`` = how the
+    leftovers were settled (``exact`` / ``fix`` / ``add`` / ``unresolved``) and ``passage`` the filer's words that
+    settled them; ``conflicts`` = the rows behind an UNRESOLVED match (an unaccounted original buy/sell and an
+    unmatched amendment row of the same owner and code, the filer's words deciding neither way): owed to the
+    operator, the original standing meanwhile."""
+
+    replaced: tuple[str, ...] = ()
+    kept: tuple[str, ...] = ()
+    added: int = 0
+    conflicts: tuple[Mapping[str, Any], ...] = ()
+    reading: str = READ_EXACT
+    passage: str | None = None
+
+    @property
+    def unresolved(self) -> bool:
+        return bool(self.conflicts)
+
+
+_SUM_GROUP_CAP = (
+    12  # the most rows one subset-sum search scans (2^12 subsets — a filing's lots, never more)
+)
+
+
+def _eq_shares(a: object, b: object) -> bool:
+    x, y = _num(a), _num(b)
+    return x is not None and y is not None and abs(x - y) <= 1e-6 * max(1.0, abs(y))
+
+
+def _subset_summing(
+    pool: Sequence[int], rows: Sequence[Mapping[str, Any]], target: object
+) -> tuple[int, ...] | None:
+    """The smallest subset (two or more, index order) of ``pool`` whose share counts sum to ``target``."""
+    t = _num(target)
+    if t is None or len(pool) < 2 or len(pool) > _SUM_GROUP_CAP:
+        return None
+    for size in range(2, len(pool) + 1):
+        for combo in itertools.combinations(pool, size):
+            total = sum(_num(rows[i].get("shares")) or 0.0 for i in combo)
+            if abs(total - t) <= 1e-6 * max(1.0, abs(t)):
+                return combo
+    return None
+
+
+def match_rows(
+    amend_rows: Sequence[Mapping[str, Any]],
+    original_rows: Sequence[Mapping[str, Any]],
+    signal_codes: Collection[str],
+    text: str = "",
+) -> RowMatch:
+    """PURE — R8-B (operator-approved 2026-10-21): which of the originals' rows does the amendment ACCOUNT for? A
+    correction removes a buy or sale only when it accounts for that row — an amendment that merely ADDS an
+    omitted line is not retracting the sales it does not mention. Owner first, then:
+
+    1. EXACT SHAPE, one-to-one, in this order: identical; same date + code + shares (a price fix); same date +
+       shares, another code (a recode — BAH's ``S`` -> ``F``); same code + shares, another date (a date fix).
+    2. SUMS, same owner + date + code: an amendment row whose shares equal the sum of two or more originals (a
+       consolidation — BHVN's 25,000 + 3,400 restated as 28,400; the trust lots it does not mention stand), or an
+       original whose shares equal the sum of two or more amendment rows (one sale split into lots — BETR). The
+       smallest such subset, in date order.
+    3. Then same date + code + price (a share fix) — after the sums, so equal-priced lots consolidate by their
+       sum rather than pairing one-to-one. A bare "same date + same code" never matches (IBKR's 4/A adds an
+       omitted 09-19 sale beside two real 09-19 sales).
+    4. LEFTOVERS — an unaccounted original and an unmatched amendment row of the same owner AND code — are
+       settled by the FILER'S WORDS (``text``, the remarks + footnotes): FIX language (``FIX_PHRASES``) -> the
+       amendment's rows replace those leftovers (MRAM, BKSY); ADD language (``ADD_PHRASES``) -> every original is
+       kept, the amendment's rows are additions (IBKR); BOTH -> FIX when, in every leftover group, the amendment
+       re-reports at least as many rows as the original (its rows restate all of them — IEHC), else unresolved;
+       NEITHER -> unresolved (YYAI) when a buy/sell is among them (owed, the original standing); a non-signal
+       leftover with no decisive words is simply kept beside the addition.
+
+    Every other unaccounted original row STANDS; every other unmatched amendment row is an addition.
+    """
+
+    def _key_order(r: Mapping[str, Any]) -> tuple[Any, ...]:
+        return (_row_date(r) or date.min, int(r.get("txn_seq") or 0))
+
+    origs = sorted(original_rows, key=_key_order)
+    amends = sorted(amend_rows, key=_key_order)
+    accounted: set[int] = set()
+    used: set[int] = set()
+
+    def same_date(o: Mapping[str, Any], a: Mapping[str, Any]) -> bool:
+        return _row_date(o) == _row_date(a)
+
+    def same_code(o: Mapping[str, Any], a: Mapping[str, Any]) -> bool:
+        return o.get("txn_code") == a.get("txn_code")
+
+    def same_shares(o: Mapping[str, Any], a: Mapping[str, Any]) -> bool:
+        return _eq_shares(o.get("shares"), a.get("shares"))
+
+    def same_price(o: Mapping[str, Any], a: Mapping[str, Any]) -> bool:
+        po, pa = _num(o.get("price")), _num(a.get("price"))
+        return po is not None and pa is not None and po == pa
+
+    def pair(rule: Any) -> None:  # one-to-one, both sides in date order
+        for i, o in enumerate(origs):
+            if i in accounted:
+                continue
+            for j, a in enumerate(amends):
+                if j not in used and _same_owner(o, a) and rule(o, a):
+                    accounted.add(i)
+                    used.add(j)
+                    break
+
+    def sums() -> None:
+        # an amendment row = the sum of several originals (a consolidation)
+        for j, a in enumerate(amends):
+            if j in used:
+                continue
+            pool = [
+                i
+                for i, o in enumerate(origs)
+                if i not in accounted and _same_owner(o, a) and same_date(o, a) and same_code(o, a)
+            ]
+            combo = _subset_summing(pool, origs, a.get("shares"))
+            if combo:
+                accounted.update(combo)
+                used.add(j)
+        # an original = the sum of several amendment rows (one trade split into lots)
+        for i, o in enumerate(origs):
+            if i in accounted:
+                continue
+            pool = [
+                j
+                for j, a in enumerate(amends)
+                if j not in used and _same_owner(o, a) and same_date(o, a) and same_code(o, a)
+            ]
+            combo = _subset_summing(pool, amends, o.get("shares"))
+            if combo:
+                accounted.add(i)
+                used.update(combo)
+
+    # the exact shapes that keep the share count first, then the sums (exact arithmetic), then the share fix
+    # (same date + code + price — last, so equal-priced lots consolidate by their sum, never pair one-to-one)
+    pair(
+        lambda o, a: same_date(o, a) and same_code(o, a) and same_shares(o, a) and same_price(o, a)
+    )
+    pair(lambda o, a: same_date(o, a) and same_code(o, a) and same_shares(o, a))
+    pair(lambda o, a: same_date(o, a) and same_shares(o, a) and not same_code(o, a))
+    pair(lambda o, a: same_code(o, a) and same_shares(o, a) and not same_date(o, a))
+    sums()
+    pair(lambda o, a: same_date(o, a) and same_code(o, a) and same_price(o, a))
+    # the leftovers of one owner and one code on both sides — the filer's words settle them
+    groups: list[tuple[list[int], list[int]]] = []
+    for i, o in enumerate(origs):
+        if i in accounted or any(i in g[0] for g in groups):
+            continue
+        g_orig = [
+            k
+            for k, x in enumerate(origs)
+            if k not in accounted and _same_owner(o, x) and same_code(o, x)
+        ]
+        g_amend = [
+            j
+            for j, a in enumerate(amends)
+            if j not in used and _same_owner(o, a) and same_code(o, a)
+        ]
+        if g_amend:
+            groups.append((g_orig, g_amend))
+    reading, passage = READ_EXACT, None
+    conflicts: list[Mapping[str, Any]] = []
+    if groups:
+        fix, add = _passage(text, _RX_FIX), _passage(text, _RX_ADD)
+        if fix and add:
+            restates = all(len(ga) >= len(go) for go, ga in groups)
+            reading, passage = (READ_FIX, fix) if restates else (READ_UNRESOLVED, None)
+        elif fix:
+            reading, passage = READ_FIX, fix
+        elif add:
+            reading, passage = READ_ADD, add
+        else:
+            reading = READ_UNRESOLVED
+        if reading == READ_FIX:
+            for go, ga in groups:
+                accounted.update(go)
+                used.update(ga)
+        elif reading == READ_UNRESOLVED:
+            for go, ga in groups:
+                if origs[go[0]].get("txn_code") in signal_codes:
+                    conflicts.extend(origs[k] for k in go)
+                    conflicts.extend(amends[j] for j in ga)
+            if (
+                not conflicts
+            ):  # only non-signal leftovers: keep them beside the additions (nothing a call reads)
+                reading = READ_ADD
+    return RowMatch(
+        replaced=tuple(sorted(row_key(o) for i, o in enumerate(origs) if i in accounted)),
+        kept=tuple(sorted(row_key(o) for i, o in enumerate(origs) if i not in accounted)),
+        added=sum(1 for j in range(len(amends)) if j not in used),
+        conflicts=tuple(conflicts),
+        reading=reading,
+        passage=passage,
+    )
 
 
 def changed_signal_rows(
@@ -417,6 +994,8 @@ class AmendmentFacts:
     filed: date | None
     accepted: datetime | None
     rows: tuple[Mapping[str, Any], ...]
+    # R8-B — the filer's own words (remarks + footnotes, ``filer_text``): what settles a void and a leftover
+    text: str = ""
 
 
 @dataclass(frozen=True)
@@ -431,10 +1010,68 @@ class LinkResult:
     candidate_accessions: tuple[str, ...] = ()
     owner_ciks: tuple[str, ...] = ()
     why: str = ""
-    # the signal-effect rule: does its effect change a row a call signal reads, and so does the SYSTEM resolve
-    # it (a routed disposition with no signal effect — the ingest records a ``system:no-signal-effect`` apply)
+    # does its effect change a row a call signal reads; does the SYSTEM apply it (R8-B: every disposition
+    # resolved to a definite original), and under which basis (``system_basis`` — the ingest records it)
     signal_effect: bool = True
     auto_resolved: bool = False
+    basis: str | None = None
+    # R8-B — a MATCHED disposition's row match (``match_rows``): the original row keys it replaces when
+    # applied (``None`` for a disposition that does not match rows); ``unresolved`` = owed to the operator
+    replaced_rows: tuple[str, ...] | None = None
+    unresolved: bool = False
+    # R8-B — the SYSTEM decision the ingest records (``apply`` / ``keep``; ``None`` = none — the operator's or
+    # nothing to do), and a void's reading (``void_reading``)
+    system_action: str | None = None
+    void_kind: str | None = None
+
+
+def originals_rows(
+    accessions: Iterable[str], stored: Mapping[str, Sequence[Mapping[str, Any]]]
+) -> list[Mapping[str, Any]]:
+    """The stored rows of ``accessions``, each carrying its ``accession`` (the row key needs it)."""
+    return [{**r, "accession": a} for a in accessions for r in stored.get(a, ())]
+
+
+def match_for(
+    disposition: str,
+    original_accessions: Iterable[str],
+    stored: Mapping[str, Sequence[Mapping[str, Any]]],
+    amend_rows: Sequence[Mapping[str, Any]],
+    signal_codes: Collection[str],
+    text: str = "",
+) -> RowMatch | None:
+    """``match_rows`` for a MATCHED disposition against its originals' FULL stored rows and the filer's words;
+    ``None`` for any other disposition (a correction pairs 1:1 by construction; a void / duplicates /
+    ambiguous / inert one replaces nothing)."""
+    if disposition not in MATCHED_DISPOSITIONS:
+        return None
+    return match_rows(amend_rows, originals_rows(original_accessions, stored), signal_codes, text)
+
+
+def void_for(
+    disposition: str,
+    original_accessions: Iterable[str],
+    stored: Mapping[str, Sequence[Mapping[str, Any]]],
+    signal_codes: Collection[str],
+    text: str = "",
+) -> VoidReading | None:
+    """``void_reading`` for a VOID against its original's FULL stored rows; ``None`` for any other disposition."""
+    if disposition != VOID:
+        return None
+    return void_reading(text, originals_rows(original_accessions, stored), signal_codes)
+
+
+def status_of(disposition: str, res: SystemResolution | None, *, unresolved: bool) -> str:
+    """The status the SYSTEM gives a link (R8-B revised): applied when it applies it; inert when it keeps the
+    original of a void that retracts nothing; pending when it holds it for the operator, when the match is
+    unresolved, or when the link is ambiguous; else the disposition's own (inert)."""
+    if res is None:
+        if unresolved or disposition == AMBIGUOUS:
+            return STATUS_PENDING
+        return status_for(disposition)
+    if res.action == ACTION_APPLY:
+        return STATUS_APPLIED
+    return STATUS_INERT if res.basis == BASIS_NO_RETRACTION else STATUS_PENDING
 
 
 def _owner_keys(owners: Iterable[tuple[str | None, str | None]]) -> tuple[set[str], set[str]]:
@@ -468,11 +1105,22 @@ def link_amendment(
     filed_by_accession: Mapping[str, date],
     signal_codes: Collection[str],
 ) -> LinkResult:
-    """PURE — link the 4/A (``_cascade``), then apply the signal-effect rule: ``signal_effect`` = its effect
-    changes a row a call signal reads (``signal_codes``); a routed disposition without one is resolved by the
-    system (``auto_resolved``, status ``applied``)."""
+    """PURE — link the 4/A (``_cascade``), then judge it: a MATCHED disposition's rows are matched against its
+    original's (``match_rows`` — R8-B: only the rows it accounts for are replaced); ``signal_effect`` = its
+    effect changes a row a call signal reads (``signal_codes``). A disposition resolved to a definite original
+    is applied by the system (``auto_resolved``, status ``applied``, ``basis`` = ``system_basis``) unless its
+    row match is UNRESOLVED (then pending — the operator's); an ambiguous one is pending."""
     base = _cascade(amendment, stored, filed_by_accession, signal_codes)
     pool = {acc: rows for acc, rows in stored.items() if acc != amendment.accession and rows}
+    match = match_for(
+        base.disposition,
+        base.original_accessions,
+        pool,
+        list(amendment.rows),
+        signal_codes,
+        amendment.text,
+    )
+    void = void_for(base.disposition, base.original_accessions, pool, signal_codes, amendment.text)
     before, after = before_after(
         base.disposition,
         original_accessions=base.original_accessions,
@@ -480,13 +1128,21 @@ def link_amendment(
         candidate_accessions=base.candidate_accessions,
         stored=pool,
         amend_rows=list(amendment.rows),
+        replaced=match.replaced if match is not None else None,
     )
     effect = bool(changed_signal_rows(base.disposition, before, after, signal_codes))
+    unresolved = match is not None and match.unresolved
+    res = system_resolution(base.disposition, signal_effect=effect, match=match, void=void)
     return replace(
         base,
         signal_effect=effect,
-        status=status_for(base.disposition, effect),
-        auto_resolved=auto_resolves(base.disposition, effect),
+        status=status_of(base.disposition, res, unresolved=unresolved),
+        auto_resolved=res is not None and res.basis != BASIS_HELD,
+        basis=res.basis if res is not None else None,
+        replaced_rows=match.replaced if match is not None else None,
+        unresolved=unresolved,
+        system_action=res.action if res is not None else None,
+        void_kind=void.kind if void is not None else None,
     )
 
 
@@ -662,9 +1318,11 @@ class Effective:
     verdict_id: Any = None
     link_decision_id: Any = None
     suppress: tuple[str, ...] = ()
-    emit_for: tuple[
-        str, ...
-    ] = ()  # the originals whose rows the amendment's rows replace (non-empty = emit)
+    # the originals whose rows the amendment's rows replace (non-empty = emit)
+    emit_for: tuple[str, ...] = ()
+    # R8-B — the individual original rows (``row_key``) an applied MATCHED amendment replaces; with these the
+    # rest of the original stands (``suppress`` stays empty for it)
+    suppress_rows: tuple[str, ...] = ()
 
 
 def standing_decisions(
@@ -695,7 +1353,11 @@ def effect_of(
     verdict: Mapping[str, Any] | None,
 ) -> Effective:
     """PURE — the effective state of one amendment from its newest visible system link, its standing
-    operator link (an ambiguous amendment's pick) and its standing verdict. See the module table."""
+    operator link (an ambiguous amendment's pick) and its standing verdict. See the module table. An applied
+    MATCHED disposition whose verdict carries ``replaced_rows`` (R8-B — the rows its match accounts for,
+    stored when the decision was written) replaces exactly those rows; one whose verdict carries none (every
+    pre-R8-B decision, and an operator's apply of an unresolved match) replaces its whole original.
+    """
     src = link_decision if link_decision is not None else link
     disp = str(src["disposition"])
     originals = _list(src.get("original_accessions"))
@@ -703,6 +1365,7 @@ def effect_of(
     v = verdict["action"] if verdict is not None else None
     suppress: tuple[str, ...] = ()
     emit_for: tuple[str, ...] = ()
+    suppress_rows: tuple[str, ...] = ()
     if disp in INERT_DISPOSITIONS or (disp == AMBIGUOUS and link_decision is None):
         status = STATUS_INERT if disp != AMBIGUOUS else STATUS_PENDING
         v = None  # nothing to ratify: a stray verdict changes nothing
@@ -722,7 +1385,12 @@ def effect_of(
     elif disp in ROUTED_NO_PROVISIONAL:
         if v == ACTION_APPLY:
             status = STATUS_APPLIED
-            suppress, emit_for = originals, originals
+            emit_for = originals
+            rows = verdict.get("replaced_rows") if verdict is not None else None
+            if rows is None:
+                suppress = originals  # the whole original (R8-A semantics)
+            else:
+                suppress_rows = _list(rows)
         else:
             status = "kept" if v == ACTION_KEEP else STATUS_PENDING
     else:  # an unknown disposition (a newer writer) — inert, never a guess
@@ -741,6 +1409,7 @@ def effect_of(
         link_decision_id=link_decision["id"] if link_decision is not None else None,
         suppress=suppress,
         emit_for=emit_for,
+        suppress_rows=suppress_rows,
     )
 
 
@@ -844,8 +1513,10 @@ def resolve_insider_rows(
 
     1. Each amendment's effective state (``effective_states``) — the original accessions it SUPPRESSES and
        the ones whose rows it REPLACES.
-    2. A suppressed accession's rows leave the read; for an original several applied amendments replace,
-       only the NEWEST statement (by SEC acceptance, then accession) emits — one statement per original.
+    2. A suppressed accession's rows leave the read, and so does each single original row an applied MATCHED
+       amendment replaces (``suppress_rows`` — R8-B: the rest of that original stands); for an original several
+       applied amendments replace, only the NEWEST statement (by SEC acceptance, then accession) emits — one
+       statement per original.
     3. The other-issuer screen drops a row whose issuer is not this security.
 
     The kept rows keep their input ORDER (the engines' own natural-key order), and the emitted rows follow,
@@ -861,9 +1532,11 @@ def resolve_insider_rows(
     states = effective_states(links, decisions)
     by_acc = latest_by_accession(amendments, "accession")
     suppressed: set[str] = set()
+    suppressed_rows: set[str] = set()  # R8-B — single original rows a matched amendment replaces
     winners: dict[str, _Emission] = {}
     for st in states:
         suppressed.update(st.suppress)
+        suppressed_rows.update(st.suppress_rows)
         am = by_acc.get(st.accession)
         if am is None or not st.emit_for:
             continue  # nothing to emit (or the record is not visible: never invent rows)
@@ -873,12 +1546,14 @@ def resolve_insider_rows(
             cur = winners.get(original)
             if cur is None or order > cur.order:
                 winners[original] = _Emission(order, am, original)
-    if not suppressed and not winners and not screen:
+    if not suppressed and not suppressed_rows and not winners and not screen:
         return rows if isinstance(rows, list) else list(rows)
     kept = [
         r
         for r in rows
-        if str(r.get("accession")) not in suppressed and not (screen and is_other_issuer(r, own))
+        if str(r.get("accession")) not in suppressed
+        and row_key(r) not in suppressed_rows
+        and not (screen and is_other_issuer(r, own))
     ]
     emitted: list[dict[str, Any]] = []
     for original in sorted(winners, key=lambda o: (winners[o].order[1], o)):

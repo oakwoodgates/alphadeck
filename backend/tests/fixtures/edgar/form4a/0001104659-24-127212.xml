@@ -1,0 +1,74 @@
+<?xml version="1.0"?>
+<ownershipDocument>
+
+    <schemaVersion>X0508</schemaVersion>
+
+    <documentType>4/A</documentType>
+
+    <periodOfReport>2024-11-20</periodOfReport>
+
+    <dateOfOriginalSubmission>2024-11-22</dateOfOriginalSubmission>
+
+    <notSubjectToSection16>1</notSubjectToSection16>
+
+    <issuer>
+        <issuerCik>0001682149</issuerCik>
+        <issuerName>WISA TECHNOLOGIES, INC.</issuerName>
+        <issuerTradingSymbol>WISA</issuerTradingSymbol>
+    </issuer>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001250879</rptOwnerCik>
+            <rptOwnerName>WILLIAMS GARY</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerStreet1>C/O WISA TECHNOLOGIES, INC.</rptOwnerStreet1>
+            <rptOwnerStreet2>15268 NW GREENBRIER PKWY</rptOwnerStreet2>
+            <rptOwnerCity>BEAVERTON</rptOwnerCity>
+            <rptOwnerState>OR</rptOwnerState>
+            <rptOwnerZipCode>97006</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>0</isDirector>
+            <isOfficer>1</isOfficer>
+            <isTenPercentOwner>0</isTenPercentOwner>
+            <isOther>0</isOther>
+            <officerTitle>See Remarks</officerTitle>
+            <otherText></otherText>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <aff10b5One>0</aff10b5One>
+
+    <nonDerivativeTable>
+        <nonDerivativeHolding>
+            <securityTitle>
+                <value>Common Stock</value>
+            </securityTitle>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>60183</value>
+                    <footnoteId id="F1"/>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>D</value>
+                </directOrIndirectOwnership>
+            </ownershipNature>
+        </nonDerivativeHolding>
+    </nonDerivativeTable>
+
+    <footnotes>
+        <footnote id="F1">The original Form 4, filed on November 22, 2024, is being amended by this Form 4 amendment to correct an administrative error. The original Form 4 was mistakenly filed reporting a sale of 58 shares of common stock, par value $0.0001 per share, that did not occur. As of November 20, 2024, the reporting person owned 60,183 shares of common stock.</footnote>
+    </footnotes>
+
+    <remarks>Former Chief Accounting Officer and VP of Finance</remarks>
+
+    <ownerSignature>
+        <signatureName>/s/ Gary Williams</signatureName>
+        <signatureDate>2024-12-10</signatureDate>
+    </ownerSignature>
+</ownershipDocument>

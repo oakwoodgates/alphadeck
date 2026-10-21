@@ -1,0 +1,110 @@
+<?xml version="1.0"?>
+<ownershipDocument>
+
+    <schemaVersion>X0508</schemaVersion>
+
+    <documentType>4/A</documentType>
+
+    <periodOfReport>2025-09-19</periodOfReport>
+
+    <dateOfOriginalSubmission>2025-09-23</dateOfOriginalSubmission>
+
+    <issuer>
+        <issuerCik>0001381197</issuerCik>
+        <issuerName>Interactive Brokers Group, Inc.</issuerName>
+        <issuerTradingSymbol>IBKR</issuerTradingSymbol>
+    </issuer>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001391403</rptOwnerCik>
+            <rptOwnerName>Brody Paul Jonathan</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerStreet1>ONE PICKWICK PLAZA</rptOwnerStreet1>
+            <rptOwnerStreet2></rptOwnerStreet2>
+            <rptOwnerCity>GREENWICH</rptOwnerCity>
+            <rptOwnerState>CT</rptOwnerState>
+            <rptOwnerZipCode>06830</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>true</isDirector>
+            <isOfficer>true</isOfficer>
+            <officerTitle>Chief Financial Officer</officerTitle>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <aff10b5One>true</aff10b5One>
+
+    <nonDerivativeTable>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Class A common stock</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2025-09-19</value>
+            </transactionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>S</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+            </transactionCoding>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>6928</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>64.66</value>
+                    <footnoteId id="F2"/>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>D</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>101473</value>
+                    <footnoteId id="F1"/>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>I</value>
+                </directOrIndirectOwnership>
+                <natureOfOwnership>
+                    <value>by PJB Holdings LLC</value>
+                </natureOfOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+        <nonDerivativeHolding>
+            <securityTitle>
+                <value>Class A common stock</value>
+            </securityTitle>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>2885496</value>
+                    <footnoteId id="F3"/>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>D</value>
+                </directOrIndirectOwnership>
+            </ownershipNature>
+        </nonDerivativeHolding>
+    </nonDerivativeTable>
+
+    <footnotes>
+        <footnote id="F1">Represents number of securities acquired by a limited liability company, owned indirectly by the Reporting Person, in a partial redemption of its interest in IBG Holdings LLC. Such securities were acquired by IBG Holdings LLC from Interactive Brokers Group, Inc. immediately prior to the redemption in exchange for membership interest in IBG LLC.</footnote>
+        <footnote id="F2">The price reported in Column 4 is a weighted average price. These shares were sold in multiple transactions at prices ranging from $64.32 to $65.15. The Reporting Person undertakes to provide Interactive Brokers Group, Inc. (the &quot;Company&quot;), any security holder of the Company, or the staff of the Securities and Exchange Commission, upon request, full information regarding the number of shares sold at each price within the ranges set forth in footnote (2) to this Form 4.</footnote>
+        <footnote id="F3">This amount includes (a) Class A common stock attributable to vested restricted stock units that were awarded under the amended 2007 Stock Incentive Plan (&quot;Plan&quot;) and (b) unvested restricted stock units that were awarded under the Plan.</footnote>
+    </footnotes>
+
+    <remarks>This amended Form 4 is filed to include shares sold on September 19, 2025, inadvertently excluded from the original filing. Subsequently filed Form 4s through October 1, 2025 are hereby amended to reduce the number of shares indirectly beneficially owned at the end of the period reported on such form (which are shown in column 5) by the shares shown to be sold in this amended report. All other information contained on the original Form 4 was accurately reported.</remarks>
+
+    <ownerSignature>
+        <signatureName>/s/ Raymond Bussiere as authorized signatory for Paul J. Brody</signatureName>
+        <signatureDate>2025-10-03</signatureDate>
+    </ownerSignature>
+</ownershipDocument>

@@ -54,16 +54,21 @@ def _seed(db) -> dict[str, object]:
 
 
 def _decide(db, sids) -> datetime:
-    """The operator's decisions (recorded NOW): keep AZTA's buy, ratify FLS's void, link + apply SKYT.
-    Returns an instant BEFORE all of them."""
+    """The operator's decisions (recorded NOW): keep AZTA's buy (a keep stacked over the SYSTEM's application —
+    R8-B), take FLS's void back from the system (revoke its application: pending, still suppressing), link +
+    apply SKYT. Returns an instant BEFORE all of them."""
     before = db_now(db)
     db.commit()
     insider_amendment_repo.decide(
         db, sids["AZTA"], "0001193125-25-282945", "keep", reason="POA only", basis="operator:keep"
     )
-    insider_amendment_repo.decide(
-        db, sids["FLS"], "0001628280-26-037326", "apply", reason="cancelled", basis="operator:apply"
-    )
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT id FROM insider_amendment_decision WHERE security_id = %s AND basis LIKE 'system:%%'",
+            (sids["FLS"],),
+        )
+        (system,) = cur.fetchall()
+    insider_amendment_repo.revoke(db, system["id"], reason="mine", basis="operator:revoke")
     insider_amendment_repo.link_candidate(
         db,
         sids["SKYT"],
@@ -116,6 +121,51 @@ def test_the_mirror_resolves_amendments_exactly_like_postgres(db, tmp_path, bask
                 _assert_equal(live.insider_txns(sid), rep.insider_txns(sid))
                 checked += 1
     assert checked == len(asofs) * len(pins) * len(ids)
+
+
+def test_the_mirror_reads_the_sweep_exactly_like_postgres_before_and_after_it(db, tmp_path):
+    """R8-B: the sweep's SYSTEM decisions (recorded NOW over links a pre-R8-B ingest left without one) — and the
+    ROW MATCH they carry — resolve on the mirror byte-for-byte like Postgres, pinned before the sweep (FRHC's
+    original title, FLS's buy and SMR's sale suppressed by pending voids, MRCY's two sales) and after it (FRHC's
+    corrected title; MRCY's sales STAND beside the added grant; IEHC's sales restated by FIX words; SMR's sale
+    back — its 4/A retracts nothing)."""
+    sids = {}
+    for t in ("FRHC", "FLS", "MRCY", "IEHC", "SMR"):
+        sid = make_security(db, t)
+        ingest_originals(db, sid, t, recorded_at=T_ORIG)
+        for acc in amendments_of(t):
+            ingest_amendment(db, sid, acc, recorded_at=T_LINK)
+        sids[t] = sid
+    with db.cursor() as cur:  # the decision-less backlog a pre-R8-B ingest left
+        cur.execute("DELETE FROM insider_amendment_decision WHERE detail->>'via' = 'ingest'")
+    db.commit()
+    before_sweep = db_now(db)
+    db.commit()
+    insider_amendment_repo.sweep(db, security_ids=list(sids.values()))
+    db.commit()
+    export_snapshot(db, tmp_path)
+    con = connect_mirror(tmp_path)
+    ids = list(sids.values())
+    for known_at in (T_LINK, before_sweep, FAR):
+        for asof in (date(2026, 6, 15), date(2026, 8, 31), date(2026, 10, 20)):
+            live = PointInTimeData(db, asof=asof, known_at=known_at, basket=ids)
+            rep = ReplayPointInTimeData(con, asof=asof, known_at=known_at, basket=ids)
+            for sid in ids:
+                _assert_equal(live.insider_txns(sid), rep.insider_txns(sid))
+    pre = ReplayPointInTimeData(con, asof=date(2026, 10, 20), known_at=before_sweep)
+    post = ReplayPointInTimeData(con, asof=date(2026, 10, 20), known_at=FAR)
+    assert {r["insider_role"] for r in pre.insider_txns(sids["FRHC"])} == {
+        "Chief Financial Officer"
+    }
+    assert {r["insider_role"] for r in post.insider_txns(sids["FRHC"])} == {
+        "Special Advisor to CEO"
+    }
+    assert sorted(r["txn_code"] for r in pre.insider_txns(sids["MRCY"])) == ["S", "S"]
+    assert sorted(r["txn_code"] for r in post.insider_txns(sids["MRCY"])) == ["A", "S", "S"]
+    assert {r["accession"] for r in pre.insider_txns(sids["IEHC"])} == {"0001174947-26-000817"}
+    assert {r["accession"] for r in post.insider_txns(sids["IEHC"])} == {"0001174947-26-000849"}
+    assert "S" not in {r["txn_code"] for r in pre.insider_txns(sids["SMR"])}
+    assert "S" in {r["txn_code"] for r in post.insider_txns(sids["SMR"])}
 
 
 def test_parity_is_not_vacuous_the_resolution_moves_rows(db, tmp_path):
