@@ -927,20 +927,21 @@ def test_onto_a_4a_that_supersedes_the_earlier_amendment_replaces_its_rows_entir
     ]
 
 
-def test_asth_a_restatement_the_rules_cannot_account_for_stands_beside_the_earlier_line(db):
-    """The known limit, stated on the real filings: ASTH ``-18-000259`` re-computes the merger-day lines as
-    1,563,763 and 1,682,109 after the 1:1 CORRECTION ``-17-001403`` reported 1,664,054. No exact shape pairs them
-    (the counts differ; no price), they do not SUM to it (3,245,872), and its words carry no FIX or SUPERSEDE
-    sentence ("to correct a miscalculation in the number of shares … deemed to be beneficially owned" is not one
-    of the phrases). With no looser owner + date + code rule, the correction's line stands beside them.
-    """
+def test_asth_a_restatement_settled_by_the_filers_fix_words_replaces_the_earlier_line(db):
+    """ASTH ``-18-000259`` re-computes the merger-day lines as 1,563,763 and 1,682,109 after the 1:1 CORRECTION
+    ``-17-001403`` reported 1,664,054. No exact shape pairs them (the counts differ; no price) and they do not SUM
+    to it (3,245,872) — but its own words, "to correct a miscalculation in the number of shares … deemed to be
+    beneficially owned", are a FIX (the phrase added 2026-10-21): the leftover group (one owner, code ``J``) is
+    settled, so the two re-computed lines replace the correction's — against the original (its row match reads
+    ``fix``) and in the composition — never three lines."""
     sid = seed(db, "ASTH-COMPOSE")
     out = {i.accession: i for i in insider_amendment_repo.items(db, security_ids=[sid])}
     db.rollback()
     assert out["0001553350-17-001403"].effective.disposition == "correction"
-    assert out["0001553350-18-000259"].effective.original_accessions == ("0001553350-17-001361",)
+    late = out["0001553350-18-000259"]
+    assert late.effective.original_accessions == ("0001553350-17-001361",)
+    assert (late.match.reading, late.match.replaced) == ("fix", ("0001553350-17-001361#0",))
     assert _lines(_rows(db, sid, date(2017, 12, 31))) == [
-        ("0001553350-17-001403", "J", 1664054.0),
         ("0001553350-18-000259", "J", 1563763.0),
         ("0001553350-18-000259", "J", 1682109.0),
     ]

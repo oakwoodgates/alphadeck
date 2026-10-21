@@ -146,8 +146,13 @@ rows are the companies' cached submissions index (``filingDate`` + ``acceptanceD
   is untouched) ``0001553350-17-001361``: the merger-day ``J`` line, 1,546,026 shares. ``-17-001403`` (a 1:1
   CORRECTION) reports Allied's 1,664,054; ``-18-000259`` reports both lines re-computed — 1,563,763 and 1,682,109
   ("to correct a miscalculation in the number of shares … deemed to be beneficially owned"). The two do not sum
-  to 1,664,054 and its words carry no FIX / SUPERSEDE sentence, so the rules leave the correction's line standing
-  beside them (the known limit; no looser owner + date + code rule).
+  to 1,664,054. Since the FIX phrase "correct(s|ed|ing) a | an | the miscalculation" (2026-10-21) its own words
+  settle the leftover group: the two lines replace the correction's line.
+- LQDT (Liquidity Services, CIK 1235468) ``0001235468-23-000010``: four code-``M`` RSU lines; its 4/A
+  ``0001209191-23-024301`` adds a ``J`` 1,769-share relinquishment because "the issuer inadvertently miscalculated
+  the withholding amount" — one of the 24 other stored 4/As that say "miscalculat…", which the new phrase does
+  NOT read as a fix (the negative case). Copied read-only the same way on 2026-10-21; FILINGS rows from Liquidity
+  Services' cached submissions index.
 """
 
 from __future__ import annotations
@@ -484,6 +489,11 @@ FILINGS: dict[str, Filing] = {
     ),
     "0001553350-18-000259": _f(
         "4/A", "2018-03-29", "2018-03-30T05:42:37.000Z", "0001083446", "ASTH", "ASTH-COMPOSE"
+    ),
+    # the "correct a miscalculation" FIX phrase's negative case — see the module docstring
+    "0001235468-23-000010": _f("4", "2023-01-04", "2023-01-04T23:24:18.000Z", "0001235468", "LQDT"),
+    "0001209191-23-024301": _f(
+        "4/A", "2023-04-14", "2023-04-14T20:11:39.000Z", "0001235468", "LQDT"
     ),
 }
 

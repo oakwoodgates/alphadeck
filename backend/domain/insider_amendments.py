@@ -638,6 +638,11 @@ FIX_PHRASES: tuple[str, ...] = (
     r"\bcorrect(?:s|ed|ing)?\b[^.;]{0,120}?\b(?:dates?|prices?|number of shares (?:sold|purchased|acquired|"
     r"disposed)|amounts? of (?:shares|securities) (?:sold|purchased|acquired|disposed)|transaction codes?)\b",
     r"\bincorrectly reported\b[^.;]{0,60}?\b(?:dates?|prices?|details|transactions?|sales?|purchases?)\b",
+    # 2026-10-21 (coordinator, measured): "to correct a miscalculation in the number of shares … deemed to be
+    # beneficially owned" — ASTH 0001553350-18-000259 re-computing its merger-day lines. MEASURED on prod
+    # (read-only): of the 2,988 stored 4/As it changes exactly that one reading (add -> fix); the 24 others that
+    # say "miscalculation" change no match.
+    r"\bcorrect(?:s|ed|ing)?\s+(?:a|an|the)\s+miscalculation\b",
 )
 # the filer ADDS a trade it left out (every original is kept; the amendment's rows are additions)
 ADD_PHRASES: tuple[str, ...] = (

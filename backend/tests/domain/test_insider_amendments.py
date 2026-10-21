@@ -8,6 +8,7 @@ with direct inputs (no outcome is fitted: each input is the shape the ingest sto
 
 from __future__ import annotations
 
+import re
 from datetime import date, datetime, timedelta, timezone
 from uuid import uuid4
 
@@ -29,6 +30,7 @@ from domain.insider_amendments import (
     CORRECTION,
     DUPLICATES,
     FIELD_CHANGE,
+    FIX_PHRASES,
     METHOD_ORIG_DATE_OWNER,
     METHOD_OWNER_TXN_DATE,
     NO_ROWS,
@@ -1332,6 +1334,38 @@ def test_compose_the_filers_fix_words_settle_a_restated_line_of_the_same_trade()
     rep = frozenset({"O#1"})
     assert _composed([(a1, rep), (plain, rep)]) == [("A1", "S", 5000.0), ("A2", "S", 4000.0)]
     assert _composed([(a1, rep), (fixed, rep)]) == [("A2", "S", 4000.0)]
+
+
+def test_correct_a_miscalculation_is_a_fix_and_miscalculated_alone_is_not():
+    """The FIX phrase added 2026-10-21, on the real filings. ASTH ``-18-000259`` ("to correct a miscalculation in
+    the number of shares … deemed to be beneficially owned") now FIXES its leftover ``J`` line — read ``add``
+    before. LQDT ``0001209191-23-024301`` ("the issuer inadvertently miscalculated the withholding amount"), one of
+    the 24 other stored 4/As that say "miscalculat…", is untouched: the phrase does not fire and its match reads
+    exactly as it did with no words at all."""
+    asth = "0001553350-18-000259"
+    p = parse_form4a(xml(asth))
+    text = filer_text(p.remarks, p.footnotes)
+    assert any(re.search(x, text, re.I) for x in FIX_PHRASES)
+    m = match_rows(
+        [_json_row(r) for r in p.rows],
+        originals_rows(["0001553350-17-001361"], _stored("ASTH-COMPOSE")),
+        CODES,
+        text,
+    )
+    assert (m.reading, m.replaced, m.added) == ("fix", ("0001553350-17-001361#0",), 0)
+
+    lqdt = "0001209191-23-024301"
+    q = parse_form4a(xml(lqdt))
+    words = filer_text(q.remarks, q.footnotes)
+    assert "miscalculated" in words
+    assert not any(re.search(x, words, re.I) for x in FIX_PHRASES)
+    lk = _link(lqdt)
+    assert (lk.disposition, lk.original_accessions) == (PARTIAL, ("0001235468-23-000010",))
+    rows = [_json_row(r) for r in q.rows]
+    originals = originals_rows(lk.original_accessions, _stored("LQDT"))
+    with_words = match_rows(rows, originals, CODES, words)
+    assert with_words == match_rows(rows, originals, CODES, "")
+    assert (with_words.replaced, len(with_words.kept), with_words.added) == ((), 4, 1)
 
 
 def test_compose_a_restated_line_split_into_lots_that_sum_to_it_replaces_it():

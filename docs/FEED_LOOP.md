@@ -1304,7 +1304,9 @@ disposition | transaction | grant, optionally plural):
 - **Fix:** `correct(s|ed|ing)` followed within the sentence (≤ 120 characters, no `.`/`;`) by `date(s)` |
   `price(s)` | `number of shares sold | purchased | acquired | disposed` | `amount(s) of shares | securities sold |
   purchased | acquired | disposed` | `transaction code(s)`; `incorrectly reported` followed within 60 characters
-  by `date(s)` | `price(s)` | `details` | `transaction(s)` | `sale(s)` | `purchase(s)`.
+  by `date(s)` | `price(s)` | `details` | `transaction(s)` | `sale(s)` | `purchase(s)`; `correct(s|ed|ing) a | an |
+  the miscalculation` (added 2026-10-21 — ASTH `-18-000259`, "to correct a miscalculation in the number of shares
+  … deemed to be beneficially owned"; MEASURED: the one stored 4/A it changes, §R8 re-derivation).
 - **Add:** `inadvertent(ly) excluded | omitted | omission`; `to include` followed within 80 characters by `not
   (previously) reported` | `additional` | `omitted` | `excluded`; `to report a(n) additional | omitted`;
   `additional shares | sale(s) | purchase(s) | transaction(s)`.
@@ -1558,48 +1560,59 @@ the Postgres loader (`db.insider_resolution.load_inputs`) now selects `remarks` 
 decodes `footnotes` (`replay.pit._AUX_JSON_COLS`; mirrors already export every column) — parity-tested with ONTO
 and ASTH in `tests/replay/test_pit_insider_amendments.py`.
 
-**MEASURED on prod, read-only, 2026-10-21** (the branch's dry run over the stored tables, with the composition fix;
-the effects with the planned decisions injected in memory, nothing written):
+**MEASURED on prod, read-only, 2026-10-21** (the branch's dry run over the stored tables, with the composition fix
+and the "correct a miscalculation" FIX phrase; the effects with the planned decisions injected in memory, nothing
+written):
 - **The composition fix alone changes nothing on prod as stored**: every one of the 409 securities with a 4/A
   reads row-for-row the same whole-history under main's composition and the branch's (0 rows gained or lost).
   Across all 2,988 stored 4/As the SUPERSEDE list matches ONE text, ONTO `-20-000102`; FIX / ADD words in the
   composition move no stored read.
+- **The FIX phrase `correct(s|ed|ing) a | an | the miscalculation`** (§R8-B's list) changes exactly ONE stored
+  amendment's row match across the 2,988 — ASTH `-18-000259`, add → fix — and no stored read (its legacy decision
+  is whole). It fires on four more texts, ASTH's 2020 option-grant 4/As (`-20-046377/79/81/83`), all zero-row
+  (`no_rows`, inert); the 20 other stored texts that say "miscalculat…" ("inadvertently miscalculated", "a clerical
+  miscalculation" …) do not match it (`tests/domain/test_insider_amendments.py::
+  test_correct_a_miscalculation_is_a_fix_and_miscalculated_alone_is_not` — LQDT `-23-024301`, unchanged).
 - **The plan:** **372** legacy decisions — every one `system:no-signal-effect` (partial 213, addition 90,
-  consolidation 43, restatement 26; no field change), 0 operator-touched, 0 unresolved. **277 re-derived** on 112
-  securities; **95 unchanged**, left as they are — the 87 whose match accounts for every original line, 6 partials
-  whose original an applied void already removes (RTX, FCEL ×3) or a later applied amendment already settles (AVAV
-  ×2), and ONTO's two (`-000045`, `-000102`): with the SUPERSEDE words their row-level composition reads exactly
-  what the stored whole decisions read. (Before the fix: 279 re-derived, 93 unchanged.)
-- **The read gains 537 rows on 272 originals and loses none** — by code A 190, M 153, F 110, J 31, D 28, C 13, G 12;
+  consolidation 43, restatement 26; no field change), 0 operator-touched, 0 unresolved. **276 re-derived** on 112
+  securities (reading exact 236, add 35, fix 5); **96 unchanged**, left as they are — the 87 whose match accounts
+  for every original line, 6 partials whose original an applied void already removes (RTX, FCEL ×3) or a later
+  applied amendment already settles (AVAV ×2), ONTO's two (`-000045`, `-000102` — their SUPERSEDE words) and ASTH
+  `-18-000259` (its FIX words): each one's row-level composition reads exactly what its stored whole decision reads.
+  (First build: 279 re-derived, 93 unchanged; with the composition fix alone: 277 / 95.)
+- **The read gains 536 rows on 271 originals and loses none** — by code A 190, M 153, F 110, J 30, D 28, C 13, G 12;
   **no `P` / `S` row**; dated 2008 → 2026-08-24. 269 originals regain only their own unaccounted lines (R8-B's rule:
   an original line the amendment does not account for STANDS — including the operator-approved clause that a
-  non-`P`/`S` leftover with no decisive words is kept beside the addition); 3 also regain an earlier amendment's
-  lines (the composition): CZR `-17-011774` (ten original lines + `-012327`'s A 33,118 — the test fixture), BHVN
-  `-22-007074` (24 original lines + `-007103`'s three J lots) and ASTH `-17-001361` (below).
-- **ONTO `-20-000030` resolves:** forced row by row, main's composition reads eight lines (`-000045`'s and
-  `-000102`'s), the branch's reads `-000102`'s four — the same as the stored whole decisions.
-- **ASTH `-17-001361` still stacks — the known limit of the rule as specified:** `-18-000259` re-computes the
-  merger-day lines as 1,563,763 + 1,682,109 after the 1:1 correction `-17-001403` reported 1,664,054. No exact
-  shape (the counts differ; no price), no SUM (3,245,872), and no FIX or SUPERSEDE sentence: its words are "to
-  correct a miscalculation in the number of shares … deemed to be beneficially owned", outside `FIX_PHRASES`
-  (`number of shares` must be followed by sold / purchased / acquired / disposed, and `date` sits 125 characters
-  after `correct`, past the 120 limit). Re-deriving it stands the correction's J 1,664,054 beside the two (1 row,
-  code J). Pinned honestly by `tests/db/test_insider_amendments.py::
-  test_asth_a_restatement_the_rules_cannot_account_for_stands_beside_the_earlier_line`. PROPOSED, not built (a
-  phrase-list change is the operator's): add the FIX phrase `correct(s|ed|ing) a | an | the miscalculation` —
-  MEASURED, read-only, in a scratch process: it changes exactly ONE stored amendment's row match (ASTH `-18-000259`,
-  add → fix) and ONE composed read (ASTH's J 1,664,054 leaves); the plan becomes 276 re-derived, 536 rows gained.
-  The 24 other stored 4/As that say "miscalculation" change nothing.
+  non-`P`/`S` leftover with no decisive words is kept beside the addition); 2 also regain an earlier amendment's
+  lines (the composition): CZR `-17-011774` (ten original lines + `-012327`'s A 33,118 — the test fixture) and BHVN
+  `-22-007074` (24 original lines + `-007103`'s lots 249,130 / 156,750 / 9,565).
+- **ONTO `-20-000030` and ASTH `-17-001361` resolve without stacking:** forced row by row, main's composition reads
+  eight ONTO lines (`-000045`'s and `-000102`'s), the branch's `-000102`'s four; ASTH reads `-18-000259`'s two
+  re-computed J lines, never the correction's 1,664,054 beside them — both exactly what the stored whole decisions
+  read, so neither is re-derived.
+- **Known, not fixed — BHVN's fourth lot:** `-22-007176` reports a 0-share, $0 J line on 2022-10-03 (an RSU
+  adjustment); the share-fix shape (same owner, date, code, price $0) pairs it with `-007103`'s 46,025-share lot, so
+  that lot is replaced by the 0-share line. One non-`P`/`S` row. **Considered and NOT adopted — "the share fix
+  needs a nonzero price on both rows"** (MEASURED read-only over all 2,988 stored 4/As, 2026-10-21): it changes 59
+  stored row matches, not one — 48 turn exact → add, keeping an original $0 line beside its restatement, among
+  them genuine share corrections that would STACK again (GD `-24-005239`, "to correct the number of shares
+  granted": A 4,510 → 3,605 would read both; BRR A 200,000 + 400,000; NRG's four restated withholdings beside the
+  originals); 11 turn exact → fix and 10 grant lines would LEAVE (TW ×7 — the leftover group's FIX words take the
+  03-15 grant though the 4/A restates the 03-18 line; CYCN ×3); 8 stored R8-B decisions would no longer match the rule
+  (MRCY, ACHR, SONM, DIOD, INFQ ×2, NOC ×2), and 3 link tie-breaks would move (TER, UAVS → ambiguous; CTS →
+  settled); shipped reads +47 / −10 rows on 28 securities (0 `P` / `S`). The narrower "a 0-SHARE line never pairs
+  by the share fix" changes 2 matches — BHVN (right) and OSS `-26-000006` (wrong: its 0-share A line restates a
+  21,000-unit grant the filer says was reported in error, which would come back) — so it is not adopted either.
 - **ONTO's A 3,901** (named in §composition above) is NOT a legacy decision's: original `-20-000038`'s later 4/A
   `-000094` is a 1:1 CORRECTION, whole by meaning, so it supersedes `-000040`'s grant line — unchanged here (out of
   this repair's scope).
-- **Call effect** (main — main's composition, decisions as stored — vs the branch — the fixed composition plus the
-  planned re-derivations): forward, the 12 active theses at asof 2026-10-21 (known_at = now) through the production
-  funnel — **0 of 12 cards change**. History (R8-A's method: each honest row at its own `(asof, known_at =
-  recorded_at)`, every 4/A record, latest link and standing decision treated as known at its SEC acceptance): of the
-  **666** honest rows, the **501** whose roster held ANY security with a stored 4/A were re-assembled — **all
-  identical card-for-card, 0 thesis-level flips**; the other 165 read identical inputs by construction (the
-  resolver is per-security).
+- **Call effect** (main — main's composition, decisions as stored — vs the branch — the fixed composition, the new
+  FIX phrase and the planned re-derivations): forward, the 12 active theses at asof 2026-10-21 (known_at = now)
+  through the production funnel — **0 of 12 cards change**. History (R8-A's method: each honest row at its own
+  `(asof, known_at = recorded_at)`, every 4/A record, latest link and standing decision treated as known at its SEC
+  acceptance): of the **666** honest rows, the **501** whose roster held ANY security with a stored 4/A were
+  re-assembled — **all identical card-for-card, 0 thesis-level flips**; the other 165 read identical inputs by
+  construction (the resolver is per-security).
 
 ## The scheduling sidecar — the `cron` service + `scripts/daily_cron.sh`  `[BUILT #73]`
 
