@@ -240,11 +240,12 @@ def test_the_vendor_re_basing_a_raw_store_lands_on_the_first_night_and_is_counte
     assert _rows(db, sid) == n0 + pre
 
 
-def test_a_divide_back_is_counted_per_reason_and_logged_at_warning(db, caplog):
+def test_a_divide_back_is_counted_per_reason_and_the_price_leg_logs_nothing(db, caplog):
     """The visibility half of B1: PBM's repaired tape (raw prints) against the vendor's real double-adjusted
-    pull — every pre-01-20 bar is divided back. Nothing is written, the count rides ``BarsResult`` per reason
-    (into the run artifact and the pass summary), and the price leg logs it at WARNING — the level that reaches
-    stderr with no logging config."""
+    pull — every pre-01-20 bar is divided back. Nothing is written and the count rides ``BarsResult`` per
+    reason (into the run artifact and the pass summary). The price leg itself logs NOTHING: a divide-back that
+    stands every night is not news (the re-review's N2) — the pass summary decides what to announce.
+    """
     import logging
 
     tk = "PBM"
@@ -256,41 +257,148 @@ def test_a_divide_back_is_counted_per_reason_and_logged_at_warning(db, caplog):
     with caplog.at_level(logging.WARNING, logger="ingest.prices.ingest_security"):
         res = _night(db, sid, tk, _Vendor(fx.yahoo(tk)), NIGHTS[0])
     assert (res.reversioned, res.held) == (0, 0) and _rows(db, sid) == n0
-    assert (
-        set(res.split_normalized) == {"vendor_doubled"}
-        and res.split_normalized["vendor_doubled"] > 300
-    )
-    warned = [r for r in caplog.records if r.levelno == logging.WARNING and "PBM" in r.getMessage()]
-    assert warned and "vendor doubled" in warned[0].getMessage()
+    assert set(res.split_normalized) == {"vendor_doubled"}
+    assert res.split_normalized["vendor_doubled"] > 300
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
 
 
-def test_the_pass_summary_prints_the_split_reads(capsys):
-    """``print_split_lines``: one quiet totals line, deduped by security across theses; a divide-back and a
-    first night each get their own line; vendor_raw alone stays in the totals."""
+def _names():
     import uuid
 
-    from pipeline.ingest_thesis import NameResult, print_split_lines
+    from pipeline.ingest_thesis import NameResult
 
     a, b = uuid.uuid4(), uuid.uuid4()
     rows = [
         NameResult("BTOC", a, 0, 0, price_bars_split_normalized={"vendor_raw": 496}),
         NameResult("BTOC", a, 0, 0, price_bars_split_normalized={"vendor_raw": 496}),  # 2nd thesis
-        NameResult(
-            "PBM",
-            b,
-            0,
-            0,
-            price_bars_split_normalized={"vendor_doubled": 311},
-            price_split_first_night=("1-for-10 reverse split 2026-10-26",),
-        ),
+        NameResult("PBM", b, 0, 0, price_bars_split_normalized={"vendor_doubled": 311}),
         NameResult("OPTT", uuid.uuid4(), 0, 0),
     ]
-    print_split_lines(rows)
-    out = capsys.readouterr().out.splitlines()
+    return a, b, rows
+
+
+def test_the_pass_summary_announces_a_divide_back_once_then_only_when_it_changes(capsys, caplog):
+    """``print_split_lines`` (the re-review's N2, #7 honest loudness): ONE quiet totals line every pass, deduped
+    by security across theses. A divide-back is named (and logged at WARNING) the first time — no baseline —
+    and then only when it CHANGES: a standing one, drifting by a bar or two as the vendor's window slides, is
+    not re-announced; a jump, a new reason, or the divide-back stopping is. vendor_raw stays in the totals.
+    """
+    import logging
+
+    from pipeline.ingest_thesis import NameResult, print_split_lines
+
+    a, b, rows = _names()
+
+    def run(previous):
+        caplog.clear()
+        with caplog.at_level(logging.WARNING, logger="pipeline.ingest_thesis"):
+            print_split_lines(rows, previous=previous)
+        warned = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+        return capsys.readouterr().out.splitlines(), warned
+
+    out, warned = run(None)  # the first pass: no baseline — everything is news, once
     assert out[0].startswith("split list: 807 price bar(s) of 2 name(s)")
     assert "vendor doubled 311" in out[0] and "vendor raw 496" in out[0]
     assert "PBM: split list divided the vendor's bars back — 311 vendor doubled" in out
-    assert any(line.startswith("PBM: split applied to the stored history") for line in out)
     assert not any(line.startswith("BTOC:") for line in out)
-    print_split_lines([NameResult("OPTT", uuid.uuid4(), 0, 0)])
+    assert len(warned) == 1 and "PBM" in warned[0]
+
+    for prev in (311, 310, 307):  # standing (the window drift)
+        out, warned = run({str(b): {"vendor_doubled": prev}, str(a): {"vendor_raw": 497}})
+        assert len(out) == 1 and out[0].startswith("split list:") and warned == []
+
+    out, warned = run({str(b): {"vendor_doubled": 150}})  # a jump: news
+    assert (
+        "PBM: split list divided the vendor's bars back — 311 vendor doubled (last pass: 150 vendor doubled)"
+        in out
+    )
+    assert len(warned) == 1
+    out, warned = run({str(b): {"mis_factored": 311}})  # a different reason: news
+    assert any(line.startswith("PBM: split list divided") for line in out) and len(warned) == 1
+
+    rows[2] = NameResult("PBM", b, 0, 0, price_bars_split_normalized={"vendor_raw": 311})
+    out, warned = run({str(b): {"vendor_doubled": 311}})  # stopped dividing back: a quiet line
+    assert "PBM: split list no longer divides the vendor's bars back" in out and warned == []
+
+    print_split_lines([NameResult("OPTT", rows[3].security_id, 0, 0)], previous=None)
     assert capsys.readouterr().out == ""
+
+
+def test_a_first_night_and_holes_left_as_served_are_always_reported(capsys, caplog):
+    import logging
+    import uuid
+
+    from pipeline.ingest_thesis import NameResult, print_split_lines
+
+    sid = uuid.uuid4()
+    rows = [
+        NameResult(
+            "YYAI",
+            sid,
+            0,
+            0,
+            price_bars_split_normalized={"first_night": 399, "hole_as_served": 1},
+            price_split_first_night=("1-for-20 reverse split 2026-08-17",),
+        )
+    ]
+    with caplog.at_level(logging.WARNING, logger="pipeline.ingest_thesis"):
+        print_split_lines(rows, previous={str(sid): {"first_night": 399}})
+    out = capsys.readouterr().out.splitlines()
+    assert out[0] == (
+        "split list: 399 price bar(s) of 1 name(s) read onto the list's scale (first night 399); "
+        "1 hole(s) left as served beside a rescaled neighbor"
+    )
+    assert out[1].startswith(
+        "YYAI: split applied to the stored history for the first time — 1-for-20"
+    )
+    assert [r for r in caplog.records if r.levelno == logging.WARNING]
+
+
+def test_the_split_reads_baseline_is_the_newest_live_finished_pass_that_recorded_them(tmp_path):
+    """``cron_run_log.previous_split_reads``: the artifact carries ``split_reads`` per name; a ``--no-live``
+    pass, a killed pass's start artifact and an artifact written before the key existed are skipped; no
+    qualifying artifact = ``None`` (everything is news once)."""
+    import json
+    import uuid
+
+    from pipeline import cron_run_log, daily
+    from pipeline.ingest_thesis import NameResult
+
+    t0 = datetime(2026, 10, 21, 2, 30, tzinfo=timezone.utc)
+    sid = uuid.uuid4()
+
+    def write(i, n, *, allow_live=True):
+        res = daily.ThesisRunResult(thesis_id=uuid.uuid4(), name="T")
+        res.ingested = [
+            NameResult("PBM", sid, 0, 0, price_bars_split_normalized={"vendor_doubled": n})
+        ]
+        at = t0 + timedelta(hours=i)
+        return cron_run_log.write_cron_run_log(
+            [res],
+            asof=date(2026, 10, 20),
+            allow_live=allow_live,
+            started_at=at,
+            finished_at=at,
+            base_dir=tmp_path,
+        )
+
+    assert cron_run_log.previous_split_reads(base_dir=tmp_path) is None
+    first = write(0, 311)
+    doc = json.loads(first.read_text(encoding="utf-8"))
+    assert doc["split_reads"] == {
+        str(sid): {"ticker": "PBM", "reasons": {"vendor_doubled": 311}, "first_night": []}
+    }
+    write(1, 999, allow_live=False)  # --no-live: never a baseline
+    old = write(2, 555)  # strip the key: an artifact from before it existed
+    blob = json.loads(old.read_text(encoding="utf-8"))
+    blob.pop("split_reads")
+    old.write_text(json.dumps(blob), encoding="utf-8")
+    assert cron_run_log.write_run_start(
+        asof=date(2026, 10, 20),
+        allow_live=True,
+        started_at=t0 + timedelta(hours=3),
+        base_dir=tmp_path,
+    )  # a pass that never finished
+    assert cron_run_log.previous_split_reads(base_dir=tmp_path) == {
+        str(sid): {"vendor_doubled": 311}
+    }

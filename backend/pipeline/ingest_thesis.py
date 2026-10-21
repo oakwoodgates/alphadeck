@@ -38,6 +38,7 @@ ever). It is:
 from __future__ import annotations
 
 import argparse
+import logging
 import xml.etree.ElementTree as ET
 from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass, field
@@ -83,6 +84,7 @@ from ingest.funds.source import FundSharesSource
 from ingest.prices.eod_loader import latest_bar_date
 from ingest.prices.ingest_security import ingest_bars_for_security
 from ingest.prices.source import PriceSource, YahooPriceSource
+from ingest.prices.split_normalize import DIVIDE_BACK_REASONS, REASON_HOLE_AS_SERVED
 from ingest.skips import (
     FORM4_OTHER_ISSUER,
     FORM4_UNPARSEABLE,
@@ -96,6 +98,8 @@ from pipeline.fetch_ahead import FetchAhead, Handoff, fetch_workers, thread_comp
 from pipeline.pass_timings import timed
 from repositories import thesis_repo
 from securities import master
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -1083,44 +1087,95 @@ def print_held_lines(results: Iterable[NameResult]) -> None:
         )
 
 
-def print_split_lines(results: Iterable[NameResult]) -> None:
-    """S2 — the split list's reads this pass, deduped by security across theses (the biggest count per name and
-    reason wins: two theses holding a name pull it twice). ONE quiet line with the per-reason totals, plus ONE
-    line per name for each exception — a divide-back (the vendor applied a split twice, or a different factor)
-    or a first night (a split applied to the stored history for the first time). Nothing at all when nothing
-    was read. ``vendor_raw`` alone stays in the totals: it is the steady state of a repaired tape whose vendor
-    still serves the unadjusted basis (it writes nothing), not news (#7); a divide-back is the one read that
-    could hold a genuine vendor change back, so it is never silent (the B1 review fix)."""
-    by_sec: dict[UUID, tuple[str, dict[str, int], tuple[str, ...]]] = {}
+def split_reads_of(results: Iterable[NameResult]) -> dict[str, dict]:
+    """S2 — the split list's reads this pass PER NAME, deduped by security across theses (the biggest count per
+    name and reason wins: two theses holding a name pull it twice): ``{security_id (str): {"ticker",
+    "reasons": {reason: n}, "first_night": [labels]}}``. Names that read nothing are absent. The run
+    artifact's run-level ``split_reads`` (the next pass's baseline, ``cron_run_log.previous_split_reads``) and
+    the pass summary both read it."""
+    out: dict[str, dict] = {}
     for r in results:
-        if not (r.price_bars_split_normalized or r.price_split_first_night):
+        counts = getattr(r, "price_bars_split_normalized", None) or {}
+        first = tuple(getattr(r, "price_split_first_night", ()) or ())
+        if not (counts or first):
             continue
-        label, seen, first = by_sec.get(r.security_id, (r.ticker or str(r.security_id), {}, ()))
-        merged = {
-            k: max(seen.get(k, 0), r.price_bars_split_normalized.get(k, 0))
-            for k in set(seen) | set(r.price_bars_split_normalized)
-        }
-        by_sec[r.security_id] = (label, merged, first or r.price_split_first_night)
-    if not by_sec:
+        key = str(r.security_id)
+        cur = out.setdefault(key, {"ticker": r.ticker or key, "reasons": {}, "first_night": []})
+        for k, n in counts.items():
+            cur["reasons"][k] = max(cur["reasons"].get(k, 0), int(n))
+        cur["first_night"] = sorted(set(cur["first_night"]) | set(first))
+    for v in out.values():
+        v["reasons"] = dict(sorted(v["reasons"].items()))
+    return out
+
+
+# A standing divide-back drifts by a few bars a night as the vendor's two-year window slides; a change smaller
+# than this (bars, or share of the last count, whichever is larger) is the same condition, not news.
+SPLIT_READ_DRIFT_BARS = 5
+SPLIT_READ_DRIFT_SHARE = 0.05
+
+
+def _fmt_reasons(counts: dict[str, int]) -> str:
+    return ", ".join(f"{n} {k.replace('_', ' ')}" for k, n in sorted(counts.items()))
+
+
+def _standing(cur: dict[str, int], prev: dict[str, int]) -> bool:
+    """The same divide-back as the last pass: the same reasons, each count within the window drift."""
+    if set(cur) != set(prev):
+        return False
+    return all(
+        abs(n - prev[k]) <= max(SPLIT_READ_DRIFT_BARS, SPLIT_READ_DRIFT_SHARE * prev[k])
+        for k, n in cur.items()
+    )
+
+
+def print_split_lines(
+    results: Iterable[NameResult], *, previous: dict[str, dict[str, int]] | None = None
+) -> None:
+    """S2 — the split list's reads this pass (``split_reads_of``). ONE quiet line with the per-reason totals,
+    whenever anything was read; nothing at all otherwise. Per name, a line only for NEWS:
+
+    - a divide-back (``DIVIDE_BACK_REASONS``: the vendor applied a split twice, or a different factor) that
+      CHANGED from the last pass — new, gone, or beyond the window drift — or every one when there is no
+      baseline (``previous`` None: the first pass, or the CLI). A divide-back that stands night after night
+      (ATRO's mis-factor, PBM's double adjustment, once repaired) is a standing condition: it stays in the
+      totals and is not re-announced (#7, the re-review's N2). Each announced one is also logged at WARNING
+      (it reaches stderr with no logging config — the level ``pipeline.backup`` uses for the same reason);
+    - a first night (a split applied to the stored history for the first time) — always: it happens once.
+
+    ``vendor_raw`` stays in the totals only: the steady absorb of a vendor still serving the unadjusted basis.
+    ``previous`` is ``{security_id: {reason: n}}`` from the last live, finished pass."""
+    reads = split_reads_of(results)
+    if not reads:
         return
     totals: dict[str, int] = {}
-    for _, counts, _ in by_sec.values():
-        for k, n in counts.items():
+    for v in reads.values():
+        for k, n in v["reasons"].items():
             totals[k] = totals.get(k, 0) + n
+    kept = totals.pop(REASON_HOLE_AS_SERVED, 0)
     parts = " · ".join(f"{k.replace('_', ' ')} {n}" for k, n in sorted(totals.items()))
+    held = f"; {kept} hole(s) left as served beside a rescaled neighbor" if kept else ""
     print(
-        f"split list: {sum(totals.values())} price bar(s) of {len(by_sec)} name(s) read onto the list's "
-        f"scale ({parts})"
+        f"split list: {sum(totals.values())} price bar(s) of {len(reads)} name(s) read onto the list's "
+        f"scale ({parts}){held}"
     )
-    for label, counts, first in by_sec.values():
-        back = {k: n for k, n in counts.items() if k in ("vendor_doubled", "mis_factored")}
-        if back:
-            what = ", ".join(f"{n} {k.replace('_', ' ')}" for k, n in sorted(back.items()))
-            print(f"{label}: split list divided the vendor's bars back — {what}")
-        if first:
-            print(
-                f"{label}: split applied to the stored history for the first time — {'; '.join(first)}"
-            )
+    for key, v in reads.items():
+        label = v["ticker"]
+        back = {k: n for k, n in v["reasons"].items() if k in DIVIDE_BACK_REASONS}
+        prev = {
+            k: n for k, n in ((previous or {}).get(key) or {}).items() if k in DIVIDE_BACK_REASONS
+        }
+        if back and (previous is None or not _standing(back, prev)):
+            what = _fmt_reasons(back)
+            was = f" (last pass: {_fmt_reasons(prev)})" if prev else ""
+            print(f"{label}: split list divided the vendor's bars back — {what}{was}")
+            _log.warning("price split normalization: %s — %s%s", label, what, was)
+        elif prev and not back:
+            print(f"{label}: split list no longer divides the vendor's bars back")
+        if v["first_night"]:
+            line = f"split applied to the stored history for the first time — {'; '.join(v['first_night'])}"
+            print(f"{label}: {line}")
+            _log.warning("price split normalization: %s — %s", label, line)
 
 
 def main(argv: list[str] | None = None) -> None:

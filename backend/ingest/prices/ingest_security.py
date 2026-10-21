@@ -50,8 +50,8 @@ implementation means the invariants can't fork:
   rescaled on a read alone: only a run the tape PROVES (the store flat where the vendor steps; a "twice" read
   only where the store positively carries the split), so a vendor's genuine re-base of a raw store, or of an
   unlisted later split, always lands (the B1 review fix). ``BarsResult.split_normalized`` counts the bars read
-  that way per reason (most write nothing), into the run artifact and the pass summary; a divide-back or a
-  first night is also logged at WARNING.
+  that way per reason (most write nothing), into the run artifact and the pass summary; the summary names a
+  divide-back (and logs it at WARNING) only when it changes from the last pass, and every first night.
 
 Price bars are FEED data (like Form 4s), not operator-ratified facts — the recommend→confirm seam does
 not apply to them; what they feed (the market cap) stays display until the operator acts.
@@ -81,7 +81,7 @@ from ingest.prices.restatement import (
 )
 from ingest.prices.settle import withhold_unsettled
 from ingest.prices.source import PriceSource, YahooPriceSource
-from ingest.prices.split_normalize import WARN_REASONS, normalize
+from ingest.prices.split_normalize import REASON_HOLE_AS_SERVED, normalize
 from repositories import split_repo
 
 _log = logging.getLogger(__name__)
@@ -289,17 +289,12 @@ def ingest_bars_for_security(
             dict(norm.scaled),
             tuple(norm.first_night),
         )
-        # a divide-back or a first-time rescale of history is the exception: WARNING (reaches stderr with no
-        # logging config — the level ``pipeline.backup`` uses for the same reason); the steady vendor-raw
-        # absorb is counted in the pass summary only (``BarsResult.split_normalized``)
-        loud = {k: n for k, n in norm.scaled.items() if k in WARN_REASONS}
-        if loud or norm.first_night:
-            _log.warning(
-                "price split normalization: %s — %s%s",
-                sec.ticker,
-                ", ".join(f"{n} {why.replace('_', ' ')}" for why, n in sorted(loud.items())),
-                f" (first night: {'; '.join(norm.first_night)})" if norm.first_night else "",
-            )
+        if norm.as_served:
+            split_normalized[REASON_HOLE_AS_SERVED] = norm.as_served
+        # no log line here: a divide-back that stands night after night (ATRO's mis-factor, PBM's double
+        # adjustment, once repaired) is a standing condition, not news. The pass summary names a name — and
+        # logs it at WARNING — only when its divide-back CHANGES from the last pass, or on a first night
+        # (``pipeline.ingest_thesis.print_split_lines``, the re-review's N2)
 
     appended = ingest_prices(
         conn,

@@ -237,6 +237,9 @@ def test_first_night_the_raw_history_is_put_on_the_new_scale(tk, first_session, 
     assert any(s.effective_date == first_session for s in in_force)
     norm = normalize(fresh, stored, in_force)
     assert norm.first_night and set(norm.scaled) == {REASON_FIRST_NIGHT}
+    # YYAI's never-stored 08-14 was served ALREADY adjusted (price x17.66 against the raw 08-13, volume
+    # x0.046): left as served beside its rescaled neighbor, and counted (the re-review's N1)
+    assert norm.as_served == (1 if tk == "YYAI" else 0)
     pre = [b for b in norm.bars if b["d"] < first_session]
     post = [b for b in norm.bars if b["d"] >= first_session]
     step = post[0]["close"] / pre[-1]["close"]
@@ -450,6 +453,42 @@ def test_holes_in_a_proven_raw_run_take_the_runs_scale_through_local_neighbors()
     assert sorted(r["d"] for r in plan.holes) == ds
     for r in plan.holes:
         assert r["close"] == pytest.approx(full[r["d"]]["close"], rel=1e-6)
+
+
+def test_a_pump_day_in_a_hole_is_not_read_as_a_split():
+    """The re-review's N1. CONTRACT (two stated edits): BURU's repaired store with 2025-06-11 never stored (a
+    hole), and that day served as a genuine +420% pump — price x5.2, volume x5 — inside the vendor's raw run.
+    Its ratio to the neighbor (x5.03) reads as BURU's 1-for-4.99 ahead, so the old rule stored the pump at a
+    fifth of its scale. A basis change moves volume the OTHER way; a pump moves both up: the hole takes its
+    neighbor's scale and lands as the pump on the store's scale."""
+    full = _stored(_repaired("BURU"))
+    d0 = date(2025, 6, 11)
+    stored = {d: b for d, b in full.items() if d != d0}
+    fresh = [
+        {**r, "close": r["close"] * 5.2, "volume": r["volume"] * 5} if r["d"] == d0 else dict(r)
+        for r in fx.yahoo("BURU")
+    ]
+    norm = normalize(fresh, stored, applicable(fx.splits("BURU"), on=T))
+    assert norm.as_served == 0
+    plan = plan_overlap(norm.bars, stored, last=max(stored))
+    (hole,) = [r for r in plan.holes if r["d"] == d0]
+    assert hole["close"] == pytest.approx(full[d0]["close"] * 5.2, rel=1e-6)
+
+
+def test_a_correction_too_big_to_read_inside_a_proven_run_takes_the_runs_scale():
+    """The re-review's residual (b). CONTRACT: BTOC's real raw series against its repaired store, with ONE raw
+    close moved +50% — beyond the x1.25 read band, so the bar reads nothing. Inside a proven raw run it was
+    served on the run's (raw) scale like its neighbors: it takes the run's x16 and re-versions at +50% on the
+    ADJUSTED scale (it used to keep x1 and land as a one-bar x1/16 island)."""
+    stored = _stored(_repaired("BTOC"))
+    target = date(2026, 3, 2)
+    fresh = [
+        {**r, "close": r["close"] * 1.5} if r["d"] == target else dict(r) for r in fx.yahoo("BTOC")
+    ]
+    norm = normalize(fresh, stored, applicable(fx.splits("BTOC"), on=T))
+    plan = plan_overlap(norm.bars, stored, last=max(stored))
+    assert [r["d"] for r in plan.old] == [target]
+    assert plan.old[0]["close"] == pytest.approx(stored[target]["close"] * 1.5, rel=1e-6)
 
 
 # --- B7: an announced split that never happened changes nothing ------------------------------------------------

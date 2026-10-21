@@ -259,6 +259,36 @@ def amend_run_timings(
         return None
 
 
+def _split_reads(results) -> dict[str, dict]:
+    """The pass's per-name split reads (S2) — ``ingest_thesis.split_reads_of`` over every thesis's names
+    (imported lazily: this module is the artifact writer, kept free of the ingest leg's import graph).
+    """
+    from pipeline.ingest_thesis import split_reads_of
+
+    return split_reads_of(x for r in results for x in getattr(r, "ingested", None) or ())
+
+
+def previous_split_reads(*, base_dir: Path | None = None) -> dict[str, dict[str, int]] | None:
+    """``{security_id: {reason: n}}`` — the split list's per-name reads on the most recent LIVE, FINISHED pass
+    that recorded them (``split_reads``): the baseline the pass summary compares against, so a divide-back
+    that stands night after night is named once, not every night (``ingest_thesis.print_split_lines``, the
+    re-review's N2). A ``--no-live`` pass, a killed pass's start artifact, and an artifact written before the
+    key existed are skipped. ``None`` = no such artifact yet: every divide-back is news, so each prints once.
+    Newest-first, first match wins; fail-open per artifact (``.get`` throughout). Pure file read."""
+    for doc in list_run_logs(base_dir=base_dir):
+        if doc.get("mode") != "live" or not is_finished(doc) or "split_reads" not in doc:
+            continue
+        reads = doc.get("split_reads")
+        if not isinstance(reads, dict):
+            continue
+        return {
+            str(k): dict((v or {}).get("reasons") or {})
+            for k, v in reads.items()
+            if isinstance(v, dict)
+        }
+    return None
+
+
 def _sum_reasons(counts) -> dict[str, int]:
     """Per-reason totals over the names' split-normalization counts (S2), key-sorted for a stable artifact."""
     out: dict[str, int] = {}
@@ -475,6 +505,10 @@ def build_run_payload(
         "audit": [a.to_json() for a in audit],
         # T4 — the split-basis monitor: the inventory + the new-defect diff (flag only, never a call input)
         **(split or SplitScan()).payload(),
+        # S2 — the split list's reads PER NAME, deduped across theses (``ingest_thesis.split_reads_of``): the
+        # baseline the next pass reads (``previous_split_reads``) so a standing divide-back is not re-announced
+        # nightly (the re-review's N2). Readers use `.get` (an older artifact lacks it).
+        "split_reads": _split_reads(results),
         # T2 — the rename probe: splice-verified successor recommendations (pending; never applied)
         **(rename_probe or RenameProbe()).payload(),
         # T7 — the successor-CIK detector: members now filing under another CIK (pending; never applied)

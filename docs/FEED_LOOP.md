@@ -1254,11 +1254,18 @@ that only approximates a scale is a correction: ATRO's +15% used to be written a
 three-state — `STORE_RAW` / `STORE_CONTINUOUS` / `STORE_UNREADABLE` — and unreadable is never read as either.
 MEASURED on 119 real dev windows: the store as it is reads CONTINUOUS 118 / unreadable 1; the same tapes put
 back raw read RAW 110 / unreadable 9 / CONTINUOUS 0. The mis-factor rule (no tape can show a 4% step) reads
-same-scale bars only, needs a confirmed split and the next segment agreeing with the store. A hole or
-pre-split tail bar takes its scale only from a decided neighbor ≤ 2 sessions away, and reads a scale change
-against it only at ×3 or more. `BarsResult.split_normalized` counts bars read that way per reason, into the
-run artifact (`price_bars_split_normalized`) and one quiet pass-summary line; a divide-back or a first night
-also gets its own line and a WARNING log.
+same-scale bars only, needs a confirmed split and the next segment agreeing with the store. A correction too
+big to read inside a proven run takes the run's factor (it lands as a correction on the store's scale, never a
+one-bar raw island). A hole or pre-split tail bar takes its scale only from a decided neighbor ≤ 2 sessions
+away, and reads a scale change against it only when the price ratio reads a factor of ×3 or more AND the
+volume moved the other way (a pump moves both up — the re-review's N1; YYAI's real 08-14 sits 11.7% off its
+factor, so a "within 3%" price rule would have doubled it). A hole left as served beside a rescaled
+neighbor is counted (`hole_as_served`). `BarsResult.split_normalized` counts bars read that way per reason,
+into the run artifact (`price_bars_split_normalized`, and run-level `split_reads` per name) and one quiet
+pass-summary line. A divide-back is named on its own line, with a WARNING, the first time and whenever it
+CHANGES from the last live pass (`cron_run_log.previous_split_reads`; a few bars of drift as the vendor's
+window slides is the same condition) — a standing one, ATRO's or PBM's once repaired, is not re-announced
+nightly (#7). A first night is always named.
 
 **The repair** (`python -m pipeline.repair_split_basis`, operator-run). Labels every STORED bar before a split
 in force RAW / ADJUSTED / OVER-ADJUSTED / MIS-FACTORED by continuity with the bars after it

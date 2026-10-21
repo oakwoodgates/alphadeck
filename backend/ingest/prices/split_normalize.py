@@ -121,10 +121,13 @@ REASON_VENDOR_RAW = "vendor_raw"
 REASON_VENDOR_DOUBLED = "vendor_doubled"
 REASON_MIS_FACTORED = "mis_factored"
 REASON_FIRST_NIGHT = "first_night"
-# the reasons that DIVIDE BACK a vendor's bar or rescale history for the first time — the exceptions the price
-# leg logs at WARNING (vendor_raw, the steady absorb of a vendor still serving the unadjusted basis, is counted
-# in the pass summary only)
-WARN_REASONS = frozenset({REASON_VENDOR_DOUBLED, REASON_MIS_FACTORED, REASON_FIRST_NIGHT})
+# not a rescale: a hole left as served beside a rescaled neighbor (``Normalized.as_served``), counted under this
+# key in the price leg's per-reason counts
+REASON_HOLE_AS_SERVED = "hole_as_served"
+# the reasons that DIVIDE BACK a vendor's bar — the exceptions the pass summary names per name (and logs at
+# WARNING) when they CHANGE from the last pass; a first night is always named. vendor_raw, the steady absorb
+# of a vendor still serving the unadjusted basis, is counted in the totals line only
+DIVIDE_BACK_REASONS = frozenset({REASON_VENDOR_DOUBLED, REASON_MIS_FACTORED})
 
 
 @dataclass
@@ -136,6 +139,10 @@ class Normalized:
     bars: list[dict]
     scaled: dict[str, int] = field(default_factory=dict)
     first_night: list[str] = field(default_factory=list)
+    # holes / pre-split tail bars left AS SERVED although the neighbor they were read against was rescaled
+    # (judged already on the store's scale, or no volume to judge by) — counted, never silent (the re-review's
+    # N1); not part of ``total`` (nothing was rescaled)
+    as_served: int = 0
 
     @property
     def total(self) -> int:
@@ -413,6 +420,9 @@ def normalize(
         return _EDGE_FLAT if cb and ca and _flat(cb, ca, lk) else _EDGE_STEP
 
     proven: dict[date, tuple[float, str]] = {}
+    spans: list[tuple[date, date, float, str]] = (
+        []
+    )  # each proven run: first / last date, factor, reason
     for i, r in enumerate(runs):
         if r.sign == 0:
             continue
@@ -436,6 +446,7 @@ def normalize(
         reason = REASON_VENDOR_RAW if r.sign < 0 else REASON_VENDOR_DOUBLED
         for d in r.dates:
             proven[d] = (c, reason)
+        spans.append((r.dates[0], r.dates[-1], c, reason))
 
     # --- 3. per bar: the proven scale, then the first night's factor
     decided: dict[date, float] = {}  # d -> the factor the bar is multiplied by (1.0 = as served)
@@ -444,6 +455,13 @@ def normalize(
         if d >= last:
             continue
         c, reason = proven.get(d, (1.0, None))
+        if hit is None:
+            # a correction too big to read (beyond the band) INSIDE a proven run: it was served on the run's
+            # scale like its neighbors, so it takes the run's factor and lands as a correction on the store's
+            # scale — never as a one-bar raw-scale island (the re-review's residual (b))
+            inside = next(((sc, sr) for a, z, sc, sr in spans if a < d < z), None)
+            if inside is not None:
+                c, reason = inside
         if hit is not None:
             _, js, sign = hit
             # the first night: the store's run lacks the new split, so the vendor's bar lacks it too unless
@@ -489,8 +507,14 @@ def normalize(
 
     # --- 5. a bar the store does not hold yet (a hole the vendor filled, a pre-split tail bar on a first
     # night): its scale is read against a decided neighbor at most NEIGHBOR_MAX_SESSIONS away IN THE VENDOR'S
-    # OWN SERIES, or it is left as served (MEASURED: YYAI's first night served 08-14, never stored, already on
-    # the new scale beside a raw 08-13)
+    # OWN SERIES (MEASURED: YYAI's first night served 08-14, never stored, already on the new scale beside a raw
+    # 08-13). A scale change between the two is read only on BOTH tells of a basis: a price ratio reading a
+    # factor of x3 or more AND the volume moving the other way by at least half of it. A genuine pump moves
+    # price and volume TOGETHER (the re-review's N1: a +220% day beside a listed 1-for-3 read as a scale and was
+    # stored at a third) — the hole then takes its neighbor's scale. MEASURED, why not "the price within 3% of
+    # the factor": YYAI's real 08-14 sits 11.7% off its 1-for-20 (x17.66 — the genuine one-day move rides on
+    # top), while its volume fell x0.046. A hole judged ALREADY on the store's scale beside a rescaled
+    # neighbor, or one with no volume to judge by, is left as served and COUNTED (``Normalized.as_served``).
     f_dates = sorted(fresh_dates)
     pos = {d: i for i, d in enumerate(f_dates)}
     for b in neighbors:
@@ -507,19 +531,28 @@ def normalize(
         if not near_by:
             continue
         near = min(near_by, key=lambda x: (abs(pos[x] - i), x))
-        nc = _num(by_d[near].get("close"))
+        nb = by_d[near]
+        nc = _num(nb.get("close"))
         c = decided[near]
         if nc:
-            # a ONE-session move read as a scale change only at x3 or more (no genuine split-day move came
-            # near it: +26% to -37% across 96 measured split days); anything less is the same scale
             hit = _read(fc / nc, _candidates(ahead(d), factors))
             if hit is not None and abs(_log(hit[0])) >= _log(FIRST_NIGHT_MIN_FACTOR):
-                c = c / hit[0]
+                fv, nv = _num(b.get("volume")), _num(nb.get("volume"))
+                lk = _log(hit[0])
+                if not (fv and nv):
+                    c = 1.0  # no volume to tell a basis from a pump: as served, counted
+                elif _log(fv / nv) * lk < 0 and abs(_log(fv / nv)) >= 0.5 * abs(lk):
+                    c = (
+                        c / hit[0]
+                    )  # price AND volume say a basis change: the hole is on the other scale
+                # else: price and volume moved together — a genuine move on the neighbor's scale
         decided[d] = c
         if abs(c - 1.0) > 1e-12:
             reasons[d] = (
                 REASON_FIRST_NIGHT if d > last_stored else reasons.get(near, REASON_VENDOR_RAW)
             )
+        elif abs(decided[near] - 1.0) > 1e-12:
+            out.as_served += 1
 
     result: dict[date, dict] = {}
     for b in fresh:
