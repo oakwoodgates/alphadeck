@@ -146,14 +146,12 @@ def test_a_public_clock_run_says_public_and_lockstep_and_carries_the_exclusions(
     m = outcome.manifest
     assert m.clock == "public"
     assert m.known_at_mode == "lockstep", "the fact axis must follow the clock, not a second flag"
-    # B2 excludes any table with no declared public clock, and names them
-    assert set(m.mirror.excluded_tables) == {
-        "fact_revenue_mix",
-        "fact_shares_outstanding",
-        "fact_cash_burn",
-        "fact_fund_shares",
-    }
-    assert m.mirror.blind_detectors == []  # none of those is read by a call detector
+    # B2 excludes any table with no declared public clock, and names them — since 2026-10-21 every fact table
+    # carries one (db.public_clock: the Workbench-ratified tables and the fund samples at their ratification /
+    # sampling), so nothing is excluded and nothing blinded (the mechanism itself:
+    # tests/replay/test_public_clock.py::test_a_table_without_a_clock_is_excluded_whole_and_named)
+    assert m.mirror.excluded_tables == []
+    assert m.mirror.blind_detectors == []
     assert m.mirror.hash and len(m.mirror.hash) == 64
     # ...and the numbers that say how much of the tape survived the rewrite
     counts = m.mirror.tables["fact_insider_txn"]

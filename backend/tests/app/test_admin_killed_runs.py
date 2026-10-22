@@ -195,10 +195,10 @@ def test_a_BACKFILLED_night_is_QUIET_but_a_truly_MISSING_thesis_still_reads_PART
     a, b, c = (_thesis(db, f"B{i}") for i in range(3))
     _record(db, [a, b, c], [_WEEK[0], _WEEK[2], _WEEK[4]])  # Mon, Wed, Fri: the live pass, full
     # Tue: the host was off — every thesis backfilled
-    run_backfill(db, asof=_WEEK[1], known_at=_et(9, 9, 9, 0).astimezone(timezone.utc))
+    run_backfill(db, asof=_WEEK[1])
     # Thu: `a` recorded live, `b` backfilled, `c` has NOTHING — a genuine new miss
     _record(db, [a], [_WEEK[3]])
-    run_backfill(db, asof=_WEEK[3], known_at=_et(9, 11, 9, 0).astimezone(timezone.utc), thesis_id=b)
+    run_backfill(db, asof=_WEEK[3], thesis_id=b)
     for d in _WEEK:
         _finished(d, _et(9, d.day, 22, 30), 3)
     _pin(monkeypatch, _et(9, 11, 23, 0))
@@ -218,7 +218,7 @@ def test_a_BACKFILLED_night_is_QUIET_but_a_truly_MISSING_thesis_still_reads_PART
     assert "2026-09-08" not in body["cron"]["detail"]
 
     # backfill the last gap: the window now reads HEALTHY, both nights listed quietly
-    run_backfill(db, asof=_WEEK[3], known_at=_et(9, 11, 9, 0).astimezone(timezone.utc), thesis_id=c)
+    run_backfill(db, asof=_WEEK[3], thesis_id=c)
     body = _status(client)
     assert body["cron"]["status"] == "healthy", body["cron"]
     assert body["cron"]["alarms"] == [] and body["record"]["partial_nights"] == []
