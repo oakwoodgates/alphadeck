@@ -131,6 +131,39 @@ def test_scored_healthy_history_is_not_flagged(client, db, security_id):
     assert m["thin_price_history"] is False
 
 
+def test_scored_carries_the_operators_FEED_LIMITATION_note_only_while_marked(
+    client, db, security_id
+):
+    """0056: a name whose price feed the operator marked "the vendor serves no history" carries the mark's
+    reason as ``price_feed_limitation`` (the name panel's quiet data note); unmarked = ``None`` (the common
+    case renders nothing), and an Undo takes it away. Display-only — the meters are untouched by it.
+    """
+    from repositories import price_feed_repo
+
+    tid = _scored_thesis(db, security_id)
+
+    def _member() -> dict:
+        r = client.get(f"/workbench/theses/{tid}/scored", params={"asof": "2026-06-02"})
+        return r.json()["members"][0]
+
+    before = _member()
+    assert before["price_feed_limitation"] is None
+    mark, _ = price_feed_repo.mark_limited_history(
+        db, security_id, reason="vendor serves one bar", basis="operator:limited-history"
+    )
+    db.commit()
+    marked = _member()
+    assert marked["price_feed_limitation"] == "vendor serves one bar"
+    assert {k: v for k, v in marked.items() if k != "price_feed_limitation"} == {
+        k: v for k, v in before.items() if k != "price_feed_limitation"
+    }
+    price_feed_repo.revoke(
+        db, mark.id, reason="undone", basis="operator:revoke", action="limited_history"
+    )
+    db.commit()
+    assert _member()["price_feed_limitation"] is None
+
+
 def test_promote_creates_incubating_thesis_on_the_board(client, security_id):
     payload = {
         "name": "Nuclear (promoted)",

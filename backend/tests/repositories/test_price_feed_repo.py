@@ -5,9 +5,12 @@ before the change and after its undo. The names are the real measured ones (HLLK
 
 from __future__ import annotations
 
+import uuid
+
 import psycopg
 import pytest
 
+from db.session import DEFAULT_TENANT_ID
 from repositories import price_feed_repo as repo
 from repositories.price_feed_repo import RepairConflict
 from securities import master
@@ -209,3 +212,121 @@ def test_standing_changes_lists_each_names_newest_change_with_its_undoability(db
     assert set(rows) == {"HLLK", "WONDF"}
     assert rows["HLLK"].undoable is True and rows["HLLK"].current_symbol == "SDCO"
     assert rows["WONDF"].id == w.id and rows["WONDF"].undoable is False
+
+
+# --- 0056: a KNOWN FEED LIMITATION ("the vendor serves no history") ------------------------------------
+# SCE-PG is the real case (MEASURED on prod 2026-10-21, read-only): a Southern California Edison preferred
+# in a basket; Yahoo serves ONE bar for it under every range. The master values below are prod's.
+
+
+def _sce_pg(db) -> uuid.UUID:
+    sid = uuid.uuid4()
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO security_master (id, tenant_id, ticker, cik, name, valid_from) "
+            "VALUES (%s, %s, %s, %s, %s, %s)",
+            (
+                sid,
+                DEFAULT_TENANT_ID,
+                "SCE-PG",
+                "0000092103",
+                "SOUTHERN CALIFORNIA EDISON Co",
+                "2026-01-01",
+            ),
+        )
+    db.commit()
+    return sid
+
+
+_WHY = "Yahoo serves one bar (the current day) for SCE-PG under every range"
+
+
+def test_limited_history_MARK_then_UNDO_then_MARK_AGAIN_is_append_only(db):
+    """Mark SCE-PG (idempotent: a double-click is ONE row), Undo it (a revoke row naming the mark — the
+    mark stays, now undone), then mark it again (a NEW row). Count the TABLE every step; the list shows the
+    newest mark per name, active first."""
+    sid = _sce_pg(db)
+    mark, created = repo.mark_limited_history(
+        db, sid, reason=_WHY, basis="operator:limited-history", detail={"symbol": "SCE-PG"}
+    )
+    again, created_again = repo.mark_limited_history(
+        db, sid, reason="again", basis="operator:limited-history"
+    )
+    db.commit()
+    assert created is True and created_again is False and again.id == mark.id
+    assert mark.action == "limited_history" and mark.reason == _WHY
+    assert _count(db, "price_feed_ack") == 1
+    (lim,) = repo.feed_limitations(db)
+    assert (lim.id, lim.ticker, lim.active, lim.detail) == (
+        mark.id,
+        "SCE-PG",
+        True,
+        {"symbol": "SCE-PG"},
+    )
+    assert set(repo.limited_history_marks(db, [sid], tenant_id=DEFAULT_TENANT_ID)) == {sid}
+    assert repo.active_limitation(db, sid).id == mark.id
+
+    rv = repo.revoke(
+        db,
+        mark.id,
+        reason="undone by the operator",
+        basis="operator:revoke",
+        action="limited_history",
+    )
+    db.commit()
+    assert rv.action == "revoke" and rv.revokes == mark.id
+    assert _count(db, "price_feed_ack") == 2  # the mark AND its revoke — nothing deleted
+    (lim,) = repo.feed_limitations(db)
+    assert lim.id == mark.id and lim.active is False and lim.revoked_at == rv.created_at
+    assert repo.limited_history_marks(db, [sid], tenant_id=DEFAULT_TENANT_ID) == {}
+    assert repo.active_limitation(db, sid) is None
+    with pytest.raises(LookupError, match="no active feed-limitation mark"):
+        repo.revoke(db, mark.id, reason="again", basis="operator:revoke", action="limited_history")
+    db.rollback()
+
+    new, created3 = repo.mark_limited_history(
+        db, sid, reason="still one bar", basis="operator:limited-history"
+    )
+    db.commit()
+    assert created3 is True and new.id != mark.id
+    assert _count(db, "price_feed_ack") == 3
+    (lim,) = repo.feed_limitations(db)  # the NEWEST mark per name
+    assert lim.id == new.id and lim.active is True
+
+
+def test_a_limitation_is_NEVER_an_acknowledgment_and_neither_revokes_as_the_other(db):
+    """The structural separation the nightly pass relies on: a limited-history mark is invisible to the
+    acknowledged-unpriceable reads (Q8 quiet / T3 expected 404), and a revoke must name its own kind.
+    """
+    sce = _sce_pg(db)
+    wondf = fx.insert_security(db, "WONDF", with_tape=False)
+    mark, _ = repo.mark_limited_history(db, sce, reason=_WHY, basis="operator:limited-history")
+    ack, _ = repo.acknowledge(db, wondf, reason="keep it", basis="operator:acknowledge")
+    db.commit()
+
+    assert repo.acknowledged_security_ids(db) == {wondf}  # never SCE-PG
+    assert [a.id for a in repo.active_acks(db)] == [ack.id]
+    assert [lim.id for lim in repo.feed_limitations(db)] == [mark.id]  # never WONDF's ack
+    with pytest.raises(LookupError, match="no active acknowledgment"):
+        repo.revoke(db, mark.id, reason="x", basis="operator:revoke")  # the default kind
+    db.rollback()
+    with pytest.raises(LookupError, match="no active feed-limitation mark"):
+        repo.revoke(db, ack.id, reason="x", basis="operator:revoke", action="limited_history")
+    db.rollback()
+    assert _count(db, "price_feed_ack") == 2
+
+
+def test_the_database_accepts_the_new_action_and_still_refuses_an_unknown_one(db):
+    sid = _sce_pg(db)
+    with pytest.raises(psycopg.Error, match="price_feed_ack_action_check"):
+        with db.cursor() as cur:
+            cur.execute(
+                "INSERT INTO price_feed_ack (tenant_id, security_id, action, reason, basis) "
+                "SELECT tenant_id, id, 'bogus', 'r', 'hand' FROM security_master WHERE id = %s",
+                (sid,),
+            )
+    db.rollback()
+    with pytest.raises(ValueError, match="needs a reason"):
+        repo.mark_limited_history(db, sid, reason="   ", basis="operator:limited-history")
+    db.rollback()
+    assert _count(db, "price_feed_ack") == 0

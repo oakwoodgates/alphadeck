@@ -35,6 +35,7 @@ from pipeline.repair_benchmark_bars import (
     repair_bars,
     resolve_targets,
 )
+from repositories import price_feed_repo
 
 ET = ZoneInfo("America/New_York")
 NOW = datetime(
@@ -153,6 +154,36 @@ def test_SCE_PG_the_vendor_serves_one_bar_so_its_early_pulls_are_reported_and_le
     assert b.action == NO_VENDOR_BAR and b.stored["versions"] == 2  # 14:09 and 16:42 ET, both early
     assert result.appended == 0 and _px_count(db) == before
     assert len(_versions(db, sid, A27)) == 2
+    assert result.limitations == {} and result.limited(b) is None  # unmarked: reads as before
+
+
+_LIMITED_WHY = "Yahoo serves one bar (the current day) for SCE-PG under every range"
+
+
+def test_SCE_PG_MARKED_limited_history_its_no_vendor_bar_is_a_KNOWN_LIMITATION_not_news(db):
+    """0056: with SCE-PG marked "the vendor serves no history" (the operator's Admin mark), the same real
+    pull is still ``no_vendor_bar`` with nothing appended — the OUTCOME is unchanged — but the result and
+    the provenance carry the mark, so the report can say it is expected."""
+    sid = _seed(db, "SCE-PG")
+    mark, _ = price_feed_repo.mark_limited_history(
+        db, sid, reason=_LIMITED_WHY, basis="operator:limited-history"
+    )
+    db.commit()
+    before = _px_count(db)
+
+    result = repair_bars(db, [("SCE-PG", A27)], apply=True, source=_Source(), now=NOW)
+
+    (b,) = result.bars
+    assert b.action == NO_VENDOR_BAR and result.appended == 0 and _px_count(db) == before
+    note = f"marked {mark.created_at.date().isoformat()}: {_LIMITED_WHY}"
+    assert result.limitations == {sid: note} and result.limited(b) == note
+    (skipped,) = RB.build_payload(result)["skipped"]
+    assert skipped == {
+        "ticker": "SCE-PG",
+        "d": "2026-08-27",
+        "reason": NO_VENDOR_BAR,
+        "feed_limitation": note,
+    }
 
 
 # --- resolution, symbol, scope -----------------------------------------------------------------------
@@ -314,8 +345,31 @@ def test_the_cli_bars_dry_run_is_read_only_and_writes_nothing(db, cli, capsys):
     assert seen["read_only"] is True and _px_count(db) == before and not log_dir.exists()
     out = capsys.readouterr().out
     assert "DRY-RUN" in out and f"({NIGHTLY_RANGE}," in out
-    assert "SUMMARY: would append 1 · matches 0 · no vendor bar 1" in out
+    assert "SUMMARY: would append 1 · matches 0 · no vendor bar 1 · no stored bar 0" in out
     assert "85.910004" in out and "85.519997" in out
+    assert "KNOWN FEED LIMITATION" not in out  # nothing marked: the no_vendor_bar line is unchanged
+
+
+def test_the_cli_says_a_MARKED_names_no_vendor_bar_is_a_known_feed_limitation(db, cli, capsys):
+    """The operator's report: SCE-PG's line names the limitation and its reason, the summary counts it, and
+    CBT (unmarked) beside it reads exactly as before. Still a dry run: nothing written."""
+    _, seen = cli
+    _seed(db, "CBT")
+    sid = _seed(db, "SCE-PG")
+    price_feed_repo.mark_limited_history(
+        db, sid, reason=_LIMITED_WHY, basis="operator:limited-history"
+    )
+    db.commit()
+    before = _px_count(db)
+
+    RB.main(["--bars", "CBT:2026-07-09,SCE-PG:2026-08-27"])
+
+    assert seen["read_only"] is True and _px_count(db) == before
+    out = capsys.readouterr().out
+    assert "SCE-PG 2026-08-27  the vendor has NO bar for this date — a KNOWN FEED LIMITATION" in out
+    assert _LIMITED_WHY in out and "can never be repaired from it" in out
+    assert "no vendor bar 1 (1 a known feed limitation) · no stored bar 0" in out
+    assert "CBT 2026-07-09  APPEND (" in out
 
 
 def test_the_cli_ticker_form_is_the_same_pairs(db, cli, capsys):

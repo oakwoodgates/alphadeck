@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import type {
   AdminCikChangeOut,
+  AdminFeedLimitationOut,
   AdminPriceRepairsOut,
   AdminPriceSymbolChangeOut,
   AdminProbeCandidateOut,
@@ -14,9 +15,11 @@ import {
   useAcknowledgeUnpriceable,
   useAdoptPriceSymbol,
   useAdoptSuccessorCik,
+  useMarkLimitedHistory,
   useRevokeAcknowledgment,
   useSetPriceSymbol,
   useUndoCikChange,
+  useUndoLimitedHistory,
   useUndoPriceSymbolChange,
 } from "../api/hooks";
 import { workbenchPath } from "../nav";
@@ -24,7 +27,8 @@ import { errText } from "../workbench/format";
 
 /** The security ids this panel renders a row for — the freshness card leaves THESE out of its own stale
  *  and closed blocks, so a name is shown once (in the place it can be acted on) and never dropped: a row
- *  the panel does not hold stays in the freshness card (#9). */
+ *  the panel does not hold stays in the freshness card (#9). A KNOWN FEED LIMITATION is deliberately NOT
+ *  here: the mark quiets nothing, so a marked name whose tape stopped stays a loud stale feed there. */
 export function repairHandledIds(r: AdminPriceRepairsOut | null | undefined): Set<string> {
   if (!r) return new Set();
   return new Set([
@@ -95,6 +99,54 @@ function AppliedLine({
 const thesesText = (row: { theses?: { name: string }[] }) =>
   (row.theses ?? []).map((t) => t.name).join(", ");
 
+/** One known feed limitation (0056): what the operator marked and why, the vendor pull that evidenced it,
+ *  and its inverse — Undo while it stands; an undone mark stays listed, grayed, with "Mark again" (WB#1/#2).
+ *  A marked name whose tape STOPPED says so loudly: the mark never excuses a real gap. */
+function LimitationRow({
+  l,
+  busy,
+  onUndo,
+  onMarkAgain,
+}: {
+  l: AdminFeedLimitationOut;
+  busy: boolean;
+  onUndo: () => void;
+  onMarkAgain: () => void;
+}) {
+  const bars = l.vendor_bars;
+  return (
+    <li className={l.active ? undefined : "adm-grayed"} data-testid="adm-limitation-row">
+      <b>{l.ticker ?? l.security_id}</b> — the vendor serves no history: its tape builds one bar per night
+      and cannot be restated or backfilled · “{l.reason}” · marked {l.created_at.slice(0, 10)}
+      {bars != null && (
+        <span className="adm-sub">
+          {" "}
+          (vendor: {bars} bar{bars === 1 ? "" : "s"} at {l.vendor_range ?? "the nightly range"})
+        </span>
+      )}
+      {l.tape_stopped && (
+        <span className="adm-loud" data-testid="adm-limitation-stopped">
+          {" "}
+          · its tape has STOPPED (last bar {l.tape_edge ?? "never"}) — a real gap the mark does not
+          excuse; listed with the stale feeds
+        </span>
+      )}{" "}
+      {l.active ? (
+        <button type="button" className="adm-minibtn" disabled={busy} onClick={onUndo}>
+          Undo
+        </button>
+      ) : (
+        <>
+          · undone {l.revoked_at?.slice(0, 10) ?? ""}{" "}
+          <button type="button" className="adm-minibtn" disabled={busy} onClick={onMarkAgain}>
+            Mark again
+          </button>
+        </>
+      )}
+    </li>
+  );
+}
+
 /** A standing successor-CIK re-point on its row: what was adopted, and its Undo (WB#1). */
 function AppliedCikLine({
   change,
@@ -149,7 +201,7 @@ function SuccessorIdentity({ c }: { c: AdminSuccessorCandidateOut }) {
  *  T7 adds a LOUD block for a member whose company now files under a NEW CIK (the filing legs read the dead
  *  one) with its recommended successor to Adopt, and a quiet list of the re-points in force.
  *  Every action is the operator's click, and every one has its inverse beside it (WB#1): Adopt/Set ⇄ Undo,
- *  Acknowledge ⇄ Revoke. Nothing here is applied by the system (#3). Renders nothing when there is nothing
+ *  Acknowledge ⇄ Revoke, a known feed limitation ⇄ Undo / Mark again (0056 — a QUIET list). Nothing here is applied by the system (#3). Renders nothing when there is nothing
  *  to show (honest loudness). */
 export function PriceFeedRepairs({ repairs }: { repairs: AdminPriceRepairsOut }) {
   const adopt = useAdoptPriceSymbol();
@@ -159,6 +211,8 @@ export function PriceFeedRepairs({ repairs }: { repairs: AdminPriceRepairsOut })
   const revoke = useRevokeAcknowledgment();
   const adoptCik = useAdoptSuccessorCik();
   const undoCik = useUndoCikChange();
+  const markLimited = useMarkLimitedHistory();
+  const undoLimited = useUndoLimitedHistory();
   const [symbols, setSymbols] = useState<Record<string, string>>({});
   const [reasons, setReasons] = useState<Record<string, string>>({});
 
@@ -170,6 +224,8 @@ export function PriceFeedRepairs({ repairs }: { repairs: AdminPriceRepairsOut })
   const applied = repairs.applied.filter((c) => !onRow.has(c.security_id));
   const onSuccessorRow = new Set(successor.map((r) => r.security_id));
   const cikApplied = (repairs.cik_applied ?? []).filter((c) => !onSuccessorRow.has(c.security_id));
+  const limitations = repairs.limitations ?? [];
+  const activeLimits = limitations.filter((l) => l.active).length;
   const busy =
     adopt.isPending ||
     setSym.isPending ||
@@ -177,7 +233,9 @@ export function PriceFeedRepairs({ repairs }: { repairs: AdminPriceRepairsOut })
     ack.isPending ||
     revoke.isPending ||
     adoptCik.isPending ||
-    undoCik.isPending;
+    undoCik.isPending ||
+    markLimited.isPending ||
+    undoLimited.isPending;
   const anything =
     renamed.length ||
     unpriceable.length ||
@@ -186,11 +244,14 @@ export function PriceFeedRepairs({ repairs }: { repairs: AdminPriceRepairsOut })
     applied.length ||
     successor.length ||
     cikApplied.length ||
+    limitations.length ||
     repairs.successor_error ||
     repairs.probe_error;
   if (!anything) return null;
 
-  const failed = [adopt, setSym, undo, ack, revoke, adoptCik, undoCik].find((m) => m.isError);
+  const failed = [adopt, setSym, undo, ack, revoke, adoptCik, undoCik, markLimited, undoLimited].find(
+    (m) => m.isError,
+  );
 
   return (
     <section className="adm-card" data-testid="adm-price-repairs">
@@ -435,6 +496,32 @@ export function PriceFeedRepairs({ repairs }: { repairs: AdminPriceRepairsOut })
               </li>
             ))}
           </ul>
+        </details>
+      )}
+
+      {limitations.length > 0 && (
+        <details className="adm-quietlist" data-testid="adm-limitations">
+          <summary className="adm-line adm-quiet">
+            {activeLimits} known feed limitation(s) — the vendor serves no history (marked by the
+            operator; quiet, never paged)
+            {limitations.length > activeLimits && <> · {limitations.length - activeLimits} undone</>}
+          </summary>
+          <ul className="adm-problems adm-quietrows">
+            {limitations.map((l) => (
+              <LimitationRow
+                key={l.id}
+                l={l}
+                busy={busy}
+                onUndo={() => undoLimited.mutate({ markId: l.id })}
+                onMarkAgain={() => markLimited.mutate({ securityId: l.security_id, reason: l.reason })}
+              />
+            ))}
+          </ul>
+          <div className="adm-sub">
+            A marked name&apos;s bar repair reads its missing vendor bars as this known limitation, not
+            news. The mark quiets nothing else: a marked tape that stops is still a loud stale feed, and
+            its vendor 404 an error.
+          </div>
         </details>
       )}
 

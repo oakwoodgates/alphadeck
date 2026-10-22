@@ -128,3 +128,19 @@ describe("NamePanel — the #1 thin-history data-health flag (honest loudness)",
     expect(screen.queryByText(/thin price history/)).toBeNull();
   });
 });
+
+describe("NamePanel — the known feed-limitation note (0056, honest loudness)", () => {
+  const WHY = "Yahoo serves no history for SCE-PG: one bar (the current day) under every range";
+
+  it("shows the quiet note ONLY when the operator marked the feed, with the reason on hover", () => {
+    renderPanel(scored({ ticker: "SCE-PG", price_feed_limitation: WHY } as Partial<ScoredMemberOut>));
+    const note = screen.getByText("price history limited: vendor serves no history");
+    expect(note.className).toBe("np-feednote"); // the quiet gray note, not the amber warning
+    expect(note.getAttribute("title")).toBe(WHY);
+  });
+
+  it("renders nothing for an unmarked feed (the common case)", () => {
+    renderPanel(scored({ price_feed_limitation: null } as Partial<ScoredMemberOut>));
+    expect(screen.queryByText(/price history limited/)).toBeNull();
+  });
+});

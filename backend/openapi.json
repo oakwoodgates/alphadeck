@@ -2443,6 +2443,104 @@
         }
       }
     },
+    "/admin/price-feed/{security_id}/limited-history": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Mark Limited History",
+        "description": "MARK a name's price feed with a KNOWN LIMITATION: the vendor serves no history for its symbol, so its\ntape builds one bar per night and can never be restated, repaired or backfilled from the vendor (an\nappend-only ``price_feed_ack`` row ``limited_history``, basis ``operator:limited-history``; the\noperator's ``reason`` is REQUIRED). EVIDENCED first by ONE live vendor pull of the name's nightly symbol\n(``price_symbol``, else the ticker) at the nightly range into a throwaway cache, stored with the mark:\nthe vendor must return at least one bar and at most ``LIMITED_HISTORY_MAX_VENDOR_BARS``, else **409** and\nnothing is written. QUIET: it pages nothing and quiets nothing on the nightly path \u2014 a stopped tape on a\nmarked name stays a loud stale row and its vendor 404 an error; the named-bar repair's\n``no_vendor_bar`` and the name panel note it instead. Idempotent: an already-marked name returns its\nactive mark (no fetch). Undo with ``POST /admin/price-feed/limitations/{id}/revoke``. **404** unknown\nsecurity, **409** no symbol to price / the vendor returned no bars / the vendor serves a history, **422**\na blank reason.",
+        "operationId": "mark_limited_history_admin_price_feed__security_id__limited_history_post",
+        "parameters": [
+          {
+            "name": "security_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Security Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminFeedLimitationIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminFeedLimitationOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/price-feed/limitations/{mark_id}/revoke": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Revoke Limited History",
+        "description": "UNDO a feed-limitation mark \u2014 append the inverse ``revoke`` row (basis ``operator:revoke``); the\nname's notes go away from the next read. The undone mark stays listed (``active: false``), so marking it\nagain is one click. Returns the mark as it now stands. **404** when no ACTIVE mark has that id (unknown,\nalready undone, or an acknowledgment \u2014 those revoke at ``/acks/{id}/revoke``).",
+        "operationId": "revoke_limited_history_admin_price_feed_limitations__mark_id__revoke_post",
+        "parameters": [
+          {
+            "name": "mark_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Mark Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminFeedLimitationOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/admin/price-feed/{security_id}/adopt-cik": {
       "post": {
         "tags": [
@@ -3708,6 +3806,149 @@
         "title": "AdminCronOut",
         "description": "The one-word cron verdict + a plain-English detail. ``unhealthy`` (the LAST run froze / errored /\nwithheld on total ingest failure / failed to refresh the benchmark tape) is deliberately its own\nLOUD state, peer to ``stale`` \u2014 a bad run\nmust read as loud as a missing one, never hide behind green (the R1 freeze lesson). A benign\n``--no-live`` dev run is NOT unhealthy. ``never_ran`` = no run artifact at all (quiet). ``gappy`` =\nthe edge is current and the last run clean, but the recent window has a night with NO call-of-record\n(a wrong-day fire) \u2014 as loud as ``stale``. Priority: never_ran > unhealthy > stale > gappy > healthy.\n\n``alarms`` (Phase 1B) are the STATUS-level alarms that are not one run's health, each a plain-English\nline, and any of them makes the verdict ``unhealthy`` (they are listed even under ``never_ran``): the\ncron's last pass ran with an UNKNOWN ``code_sha``; the cron's sha differs from this backend's own (an\nimage left stale by a partial rebuild) or the backend's own is unknown \u2014 compared only for a cron pass\nthat started after this backend process did, so a full deploy does not read ``unhealthy`` until the\nnight's pass confirms it; the last live pass paged\nthrough the LOG notifier (``SLACK_WEBHOOK_URL`` unset \u2014 a bad night pages nobody) or ran with\n``ALPHADECK_USER_AGENT`` unset; the newest unlabeled DB dump is older than\n``ALPHADECK_BACKUP_STALE_HOURS`` in schedule time (B4 \u2014 only on a stack whose run history shows the cron\nsidecar, where a nightly dump is expected). ``[]`` on a clean stack.\n\nM1 adds three alarms and one verdict. Alarms: **the last pass did not finish** (the newest artifact still\nreads ``running`` past the run timeout \u2014 killed or hung), **the last pass crashed** (``crashed``), and\n**rows without a run artifact** (a night has post-``RUN_AT`` rows but no pass artifact at all for it).\n``gappy`` now also covers a PARTIAL night (``record.partial_nights``). ``running`` = a pass is in flight\ninside its timeout and nothing else is wrong; its own night is not judged until it finishes, so a\nhealthy pass mid-loop never reads partial or stale. Priority: never_ran > unhealthy > stale > gappy >\nrunning > healthy."
       },
+      "AdminFeedLimitationIn": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reason"
+        ],
+        "title": "AdminFeedLimitationIn",
+        "description": "Why the operator marks a name's price feed as a known limitation (REQUIRED \u2014 the mark is the\noperator's statement, so it carries the operator's words; blank is refused)."
+      },
+      "AdminFeedLimitationOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "basis": {
+            "type": "string",
+            "title": "Basis"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "active": {
+            "type": "boolean",
+            "title": "Active",
+            "default": true
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked At"
+          },
+          "vendor_symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor Symbol"
+          },
+          "vendor_range": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor Range"
+          },
+          "vendor_bars": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor Bars"
+          },
+          "vendor_last_bar": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor Last Bar"
+          },
+          "tape_stopped": {
+            "type": "boolean",
+            "title": "Tape Stopped",
+            "default": false
+          },
+          "tape_edge": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tape Edge"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "security_id",
+          "reason",
+          "basis",
+          "created_at"
+        ],
+        "title": "AdminFeedLimitationOut",
+        "description": "One KNOWN FEED LIMITATION the operator marked (``price_feed_ack`` ``limited_history``, 0056): the\nprice vendor serves no history for the name's symbol \u2014 its tape builds one bar per night and can never\nbe restated, repaired or backfilled from the vendor. QUIET by design: it pages nothing and quiets\nnothing on the nightly path (a stopped tape on a marked name stays a loud stale row); it only lets the\nreaders that would be loud SOLELY because the vendor lacks history say so.\n\n``active`` = no revoke names it (``revoked_at`` = when it was undone \u2014 an undone mark stays listed,\ngrayed, so marking it again is one click). ``vendor_*`` = the vendor pull that evidenced the mark\n(symbol, range, how many bars it returned, the newest); ``tape_stopped`` = the newest pass found the\nname's price tape STALE \u2014 a real gap the mark does not excuse (``tape_edge`` = its last stored bar)."
+      },
       "AdminFilingRefOut": {
         "properties": {
           "form": {
@@ -4658,11 +4899,19 @@
             "type": "array",
             "title": "Cik Applied",
             "default": []
+          },
+          "limitations": {
+            "items": {
+              "$ref": "#/components/schemas/AdminFeedLimitationOut"
+            },
+            "type": "array",
+            "title": "Limitations",
+            "default": []
           }
         },
         "type": "object",
         "title": "AdminPriceRepairsOut",
-        "description": "The \"Price feed repairs\" panel (T2 + Q8 + T3 + T7): one place for every feed decision the operator\nowes or has made. The INVENTORY (``renamed`` / ``unpriceable`` / ``closed``) comes from the newest\nfinished, full-roster live run artifact that evaluated recency (``asof`` / ``ran_at``); the DECISIONS are\nread LIVE from the append-only repair logs, so a click shows at once: an acknowledged name moves from\n``unpriceable`` to ``acknowledged``, an Adopt shows as the row's ``change`` with its Undo. Read-only.\n\n- ``renamed`` \u2014 loud: the splice-probed successors, each with Adopt (and Undo once adopted);\n- ``unpriceable`` \u2014 loud: never priced, not acknowledged \u2014 Set symbol / Acknowledge / Remove;\n- ``acknowledged`` \u2014 QUIET: every active acknowledgment, each revocable;\n- ``closed`` \u2014 QUIET: names that stopped trading (T1) \u2014 no repair; their vendor 404 is expected (T3);\n- ``applied`` \u2014 every STANDING operator price-symbol change, each with its Undo (the inverse stays\n  visible after the repair healed the tape and the name left the inventory, WB#1);\n- ``expected_misses`` \u2014 how many vendor 404s that pass excused as expected (closed / acknowledged);\n- ``successor`` (T7) \u2014 loud: members whose company now files under a NEW CIK (the filing legs read the\n  dead one), each with its recommended successor to Adopt (and Undo once adopted). From the newest\n  finished, full-roster live artifact whose successor scan RAN (``successor_asof``);\n- ``cik_applied`` (T7) \u2014 every STANDING successor-CIK re-point, each with its Undo (WB#1).\n``probe_error`` = the rename probe failed on that pass (``renamed`` rows then carry no verdict);\n``successor_error`` = the newest live pass's successor scan failed (its rows then are the last good\npass's, or none)."
+        "description": "The \"Price feed repairs\" panel (T2 + Q8 + T3 + T7): one place for every feed decision the operator\nowes or has made. The INVENTORY (``renamed`` / ``unpriceable`` / ``closed``) comes from the newest\nfinished, full-roster live run artifact that evaluated recency (``asof`` / ``ran_at``); the DECISIONS are\nread LIVE from the append-only repair logs, so a click shows at once: an acknowledged name moves from\n``unpriceable`` to ``acknowledged``, an Adopt shows as the row's ``change`` with its Undo. Read-only.\n\n- ``renamed`` \u2014 loud: the splice-probed successors, each with Adopt (and Undo once adopted);\n- ``unpriceable`` \u2014 loud: never priced, not acknowledged \u2014 Set symbol / Acknowledge / Remove;\n- ``acknowledged`` \u2014 QUIET: every active acknowledgment, each revocable;\n- ``closed`` \u2014 QUIET: names that stopped trading (T1) \u2014 no repair; their vendor 404 is expected (T3);\n- ``applied`` \u2014 every STANDING operator price-symbol change, each with its Undo (the inverse stays\n  visible after the repair healed the tape and the name left the inventory, WB#1);\n- ``expected_misses`` \u2014 how many vendor 404s that pass excused as expected (closed / acknowledged);\n- ``successor`` (T7) \u2014 loud: members whose company now files under a NEW CIK (the filing legs read the\n  dead one), each with its recommended successor to Adopt (and Undo once adopted). From the newest\n  finished, full-roster live artifact whose successor scan RAN (``successor_asof``);\n- ``cik_applied`` (T7) \u2014 every STANDING successor-CIK re-point, each with its Undo (WB#1);\n- ``limitations`` (0056) \u2014 QUIET: the known feed limitations (\"the vendor serves no history\"), the\n  newest mark per name \u2014 active ones with their Undo, then undone ones (grayed, \"Mark again\").\n``probe_error`` = the rename probe failed on that pass (``renamed`` rows then carry no verdict);\n``successor_error`` = the newest live pass's successor scan failed (its rows then are the last good\npass's, or none)."
       },
       "AdminPriceSymbolChangeOut": {
         "properties": {
@@ -13243,6 +13492,17 @@
             "type": "boolean",
             "title": "Thin Price History",
             "default": false
+          },
+          "price_feed_limitation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Feed Limitation"
           }
         },
         "type": "object",

@@ -32,10 +32,10 @@ nights, and containers that don't always restart. Three questions and one safety
   click — never on a page load, mount, or poll (the **cost thread**: cost is the operator's to spend, never
   ambient). Reads may poll; the triggers never do.
 - **The price-feed repairs are the ONE place this surface writes data** (T2 + Q8, `/admin/price-feed/*`,
-  its own router): the operator's Adopt / Set / Undo of a vendor price symbol and Acknowledge / Revoke of an
-  unpriceable name — each an explicit click, each with its exact inverse beside it, each recorded append-only
-  (migration 0046) with the operator named as its author. `GET /admin/status` still writes nothing: it reads
-  that log, never appends to it.
+  its own router): the operator's Adopt / Set / Undo of a vendor price symbol, Acknowledge / Revoke of an
+  unpriceable name, and Mark / Undo of a known feed limitation (0056) — each an explicit click (or API call),
+  each with its exact inverse beside it, each recorded append-only (migration 0046) with the operator named
+  as its author. `GET /admin/status` still writes nothing: it reads that log, never appends to it.
 - **Honest loudness (#7).** Staleness is measured against the last **expected** scheduled run (never raw
   `today − edge`), so a weekend never cries wolf; and a bad LAST run (freeze / errors / total ingest failure)
   is its own loud `unhealthy` verdict, **peer to** `stale` — the R1 freeze must never hide behind a green
@@ -211,6 +211,24 @@ something is in it.
   404 is expected.
 - **In force** (quiet) — every standing Adopt / Set whose name already left the inventory (its tape healed),
   each with its **Undo** — the inverse never vanishes with the problem (WB#1).
+- **Known feed limitations** (quiet, 0056 — `limitations`) — names whose price VENDOR serves no history:
+  its chart returns only the current session's bar under every range, so the tape is built one live bar per
+  night and can never be restated, repaired or backfilled from the vendor (a night the pass missed stays a
+  hole). SCE-PG is the first (MEASURED 2026-10-21). Each row shows your reason, the date, the vendor pull
+  that evidenced it ("vendor: 1 bar at 2y") and **Undo**; an undone mark stays listed, grayed, with **Mark
+  again** (the inverse never vanishes). **The mark quiets nothing**: a marked name never leaves any other
+  list — if its tape STOPS it is still a loud stale feed on the freshness card (the row also says "its tape
+  has STOPPED"), and its vendor 404 is still an error. What it changes is the wording of the readers that
+  would otherwise be loud *only because the vendor lacks history*: the named-bar repair
+  (`pipeline.repair_benchmark_bars --bars`) prints the bar's `no_vendor_bar` as "a KNOWN FEED LIMITATION" with
+  your reason (summary: "no vendor bar N (M a known feed limitation)"), and the Cockpit name panel shows a
+  quiet "price history limited: vendor serves no history" note (the reason on hover). **Marking** is
+  `POST /admin/price-feed/{security_id}/limited-history` with a REQUIRED `reason` (there is no form for a
+  name the page does not list — the name is not a stale row, so it appears nowhere else here; the call is
+  made once, then the list carries its Undo / Mark again). The server first pulls the name's nightly vendor
+  symbol ONCE at the nightly range into a throwaway cache: the vendor must return at least one bar (none = an
+  unpriceable feed: Acknowledge it) and at most 5 (more = it has a history) — else 409 and nothing is
+  written. Append-only (`price_feed_ack`, `action = 'limited_history'`, basis `operator:limited-history`).
 
 **Undo is exact.** Every change row carries the master's PRIOR and NEW `price_symbol`, `price_symbol_basis`
 and (when an Adopt refreshed it) `name`; Undo writes the prior values back verbatim and appends an `undo` row.
@@ -635,6 +653,8 @@ the freeze it is adjacent to: `POSTMORTEM_CRON_FREEZE_2026-07.md`.
 | `POST /admin/price-feed/changes/{change_id}/undo` | → the undo row | exact restore; 409 already undone / a later change stands / the master moved |
 | `POST /admin/price-feed/{security_id}/acknowledge` | `{reason?}` → the acknowledgment | unpriceable names only (409 otherwise); idempotent |
 | `POST /admin/price-feed/acks/{ack_id}/revoke` | → the revoke row | 404 when no active acknowledgment |
+| `POST /admin/price-feed/{security_id}/limited-history` | `{reason}` → the mark (`AdminFeedLimitationOut`) | a known feed limitation (0056); ONE vendor fetch evidences it first (no bars or > 5 bars → 409, nothing written); blank reason 422; idempotent (an active mark returns as is, no fetch) |
+| `POST /admin/price-feed/limitations/{mark_id}/revoke` | → the mark as it now stands (`active: false`) | Undo; 404 when no active mark has that id (an acknowledgment revokes at `/acks/…`) |
 | `POST /admin/price-feed/{security_id}/adopt-cik` | `{cik}` → the CIK change row | the detector's recommended successor only (409 otherwise / master moved / CIK held by another row); no network |
 | `POST /admin/price-feed/cik-changes/{change_id}/undo` | → the undo row | exact restore; 409 already undone / a later change stands / the master moved |
 | `GET /admin/insider-amendments` | the Form 4/A panel (R8-B): `owed` (in-window first) / `auto` / `decided` / `historical` / `queued` / `inert`, plus `asof` and `review_horizon_days`; each item carries `review`, `system_basis`, `in_review`, `unresolved`, `held`, `kept_rows`, `reading`, `passage` | read-only, live from the 0050 tables |

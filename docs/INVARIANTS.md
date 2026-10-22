@@ -275,7 +275,7 @@ catch it. (RLS is the auth-era defense-in-depth; see `docs/PRODUCTION_TENANT.md`
 
 - *Enforced by:* `tenant_id` on every table; `DEFAULT_TENANT_ID` for the demo; seeds upsert/append; the
   poison-row proof `tests/db/test_tenant_isolation.py` (grown for each new accessor — insider/price/theme,
-  the three scoring facts, the Workbench scored read).
+  the three scoring facts, the Workbench scored read, the known-feed-limitation read of 0056).
 
 ## 6. The call-assembler is pure and deterministic
 

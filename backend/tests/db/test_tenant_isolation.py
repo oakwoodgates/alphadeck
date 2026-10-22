@@ -631,6 +631,26 @@ def test_scoreboard_issuer_name_read_is_tenant_isolated(db):
     assert security_issuer_name(db, PROD_TENANT_ID, demo_sec) is None  # never the demo row's name
 
 
+def test_feed_limitation_read_is_tenant_isolated(db):
+    """The known-feed-limitation read the Workbench scored view and the bar repair call
+    (``price_feed_repo.limited_history_marks``, 0056) is tenant-scoped: asked with BOTH tenants' securities
+    (the poison row) it returns only this tenant's mark. Grows the poison-row proof to the new read surface
+    (discipline-not-RLS holds only if each new read path stays on the tenant filter)."""
+    from repositories import price_feed_repo
+
+    provision_tenant(db, "prod-limited", tenant_id=PROD_TENANT_ID)
+    demo_sec = _security(db, DEFAULT_TENANT_ID, ticker="SCE-PG", cik="0000092103")
+    prod_sec = _security(db, PROD_TENANT_ID, ticker="SCE-PG", cik="0000092103")
+    for sid, why in ((demo_sec, "DEMO"), (prod_sec, "PROD")):
+        price_feed_repo.mark_limited_history(db, sid, reason=why, basis="operator:limited-history")
+
+    both = [demo_sec, prod_sec]
+    demo = price_feed_repo.limited_history_marks(db, both, tenant_id=DEFAULT_TENANT_ID)
+    prod = price_feed_repo.limited_history_marks(db, both, tenant_id=PROD_TENANT_ID)
+    assert {k: v.reason for k, v in demo.items()} == {demo_sec: "DEMO"}  # never the prod mark
+    assert {k: v.reason for k, v in prod.items()} == {prod_sec: "PROD"}
+
+
 def test_basket_prefetch_read_is_tenant_isolated(db):
     """The per-basket PREFETCH (``as_of_many`` + the basket-scoped ``PointInTimeData``, Board/Cockpit
     perf PR-1b) is a new read surface — it stays on the tenant filter exactly like ``as_of``: a batch

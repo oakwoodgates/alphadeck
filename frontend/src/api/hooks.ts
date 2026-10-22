@@ -1300,6 +1300,33 @@ export function useRevokeAcknowledgment() {
   });
 }
 
+// --- Known feed limitations (0056): "the vendor serves no history for this symbol" ---
+export type AdminFeedLimitationOut = components["schemas"]["AdminFeedLimitationOut"];
+
+// MARK a name's price feed as a known limitation (the reason is REQUIRED; the server evidences it with ONE
+// vendor pull and refuses a feed that has a history). The panel fires it as "Mark again" on an undone mark.
+export function useMarkLimitedHistory() {
+  return useAdminRepair(async (vars: { securityId: string; reason: string }) => {
+    const { data, error } = await api.POST("/admin/price-feed/{security_id}/limited-history", {
+      params: { path: { security_id: vars.securityId } },
+      body: { reason: vars.reason },
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
+// UNDO a feed-limitation mark — the inverse row; the mark stays listed, undone, with "Mark again".
+export function useUndoLimitedHistory() {
+  return useAdminRepair(async (vars: { markId: string }) => {
+    const { data, error } = await api.POST("/admin/price-feed/limitations/{mark_id}/revoke", {
+      params: { path: { mark_id: vars.markId } },
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
 // --- Successor CIK (T7): a member whose company now files under a NEW CIK ---
 export type AdminSuccessorRowOut = components["schemas"]["AdminSuccessorRowOut"];
 export type AdminSuccessorCandidateOut = components["schemas"]["AdminSuccessorCandidateOut"];

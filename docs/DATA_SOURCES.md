@@ -361,6 +361,18 @@ the ingest cannot tell that from "this name had a quiet year". Two classes, one 
   it no longer counts as an ingest error or spoils `ingest_fresh`. The fetch still runs for those names
   every night — the classification is derived from the tape, and a name that starts trading again is noticed
   only because its bars can still land.
+- **Some symbols get NO history from Yahoo — only the current bar** `[MARKABLE, 0056 2026-10-21]`. Seen on a
+  preferred share (and the shape a newly listed or re-listed symbol can take): Yahoo's chart for **SCE-PG**
+  returns exactly ONE bar, the current session, under every range (2y, ytd; `firstTradeDate` 2026-07-17 in
+  the payload — MEASURED 2026-10-21), although the same symbol served a year of history on 2026-07-27. The
+  nightly leg still stores that night's bar, so the tape grows one bar per night, but it can never be
+  restated (no overlap to compare), repaired (the named-bar repair reads `no_vendor_bar`) or backfilled (a
+  missed night is a permanent hole — 8 such sessions on SCE-PG between 2026-08-20 and 10-20). Nothing
+  detects this automatically; the operator MARKS it on Admin as a **known feed limitation** (an append-only
+  `price_feed_ack` `limited_history` row with a reason, evidenced by one vendor pull of ≤ 5 bars; Undo-able).
+  The mark only changes wording where the missing history alone would be loud (the bar repair, the name
+  panel note) — it never quiets a stopped tape or excuses a 404. The alternative, a second price source for
+  such names, was considered and not chosen (2026-10-21). See `FEED_LOOP.md` §Known feed limitations.
 
 ### The ETF fund-shares sampler stops the same silent way `[MONITORED, F1; repair is manual]`
 

@@ -303,6 +303,8 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .np-hintline { margin-top: 9px; font-size: 10.5px; color: var(--txt-3); }
 /* #1 thin-history DATA-HEALTH flag — rendered ONLY when the tape is starved (honest loudness) */
 .np-thinflag { margin-top: 9px; font-size: 10.5px; color: var(--warn, #b8860b); }
+/* 0056 — a KNOWN FEED LIMITATION the operator marked: a quiet gray note (an explained, ratified condition) */
+.np-feednote { margin-top: 9px; font-size: 10.5px; color: var(--txt-3); cursor: help; }
 /* the board-table thin marker — a quiet amber caret beside the ticker, only on a starved row */
 .thin-mark { color: var(--warn, #b8860b); font-size: 10px; margin-left: 5px; cursor: help; }
 .np-fit { font-style: italic; color: var(--txt-2); font-size: 12px; line-height: 1.55; border-left: 2px solid var(--line-2); padding-left: 11px; }

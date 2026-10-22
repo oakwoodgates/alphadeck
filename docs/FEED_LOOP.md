@@ -293,7 +293,8 @@ CBT, NEGG, APD 2026-07-09 (11:07 / 11:41 ET intraday — close and volume differ
 2026-10-13 cannot be repaired from the vendor** — Yahoo's chart for SCE-PG returns ONE bar (the current
 day) under every range (2y, ytd), so both are reported `no_vendor_bar` and left as stored. (The same fact
 means the nightly builds SCE-PG's tape one live bar per night: no restatement compare ever runs for it, and a
-missed night is never backfilled.)
+missed night is never backfilled.) The operator chose to MARK it as a known feed limitation (0056, below —
+"Known feed limitations"); once marked, the repair prints those two bars as the known limitation, not news.
 
 ### Price restatements — which restated bars a pass writes (Q11: T6 + T5, 2026-10-17)  `[BUILT]`
 
@@ -1040,6 +1041,54 @@ x1.000; SVIAW rejected at x0.143), BTAI → **BTAIQ** (495, x1.000), VRME → **
 **unpriceable**; the 8 closes read closed. Nuclear Buildout and Rainbow Rush get `ingest_fresh=true` back
 (GTLS / XOMA / CPRX / AVNS are excused as closed); Modern Defense (HLLK) and The Everything Exchange (WONDF)
 stay `false` until the operator Adopts SDCO and decides WONDF.
+
+### Known feed limitations — a vendor that serves no history (0056, 2026-10-21)  `[BUILT]`
+
+A fourth reading of a price feed, beside closed / renamed / unpriceable — and the only one that is about a
+LIVE tape. **The case (MEASURED on prod, read-only, 2026-10-21): SCE-PG**, a Southern California Edison
+preferred in Nuclear Buildout. Yahoo's chart returns exactly ONE bar for it — the current session — under every
+range (2y, ytd; the payload's `firstTradeDate` is 2026-07-17), so:
+
+- its tape is built **one live bar per night** — the price leg appends the night's bar and has no overlap to
+  restate against (no D1/Q11 restatement ever runs for it, so a pre-settle or provisional value is never
+  corrected);
+- a night the pass MISSED is a **permanent hole**: the stored tape (304 dates, 2025-07-25 → 2026-10-20, from
+  when the vendor still served a history — its first pull on 2026-07-27 brought a year) lacks **8 sessions
+  between 2026-08-20 and 10-20 that SPY has** (08-31, 09-01, 09-04, 09-08, 09-09, 09-29, 09-30, 10-12);
+- the named-bar repair cannot fix its two pre-settle-only bars (08-27, 10-13): both read `no_vendor_bar`.
+
+The operator chose (2026-10-21) to **mark it as a known limitation** rather than find another price source.
+The mark is an append-only `price_feed_ack` row with `action = 'limited_history'` (migration 0056 widened the
+action CHECK; the revoke, the pairing CHECK, the one-revoke index and the same-security trigger are 0046's),
+with the operator's REQUIRED reason, basis `operator:limited-history`, and in `detail` the ONE vendor pull that
+evidenced it (the Admin endpoint refuses a feed whose pull returns no bars — an unpriceable feed — or more
+than 5 — a feed with a history). Undo appends the `revoke`; the undone mark stays listed on Admin with "Mark
+again".
+
+**What the mark changes, and what it does not — by construction, not by a filter.** A new `action` value (not a
+`kind` column) because every existing reader of the table selects `action = 'acknowledge'`: the pass's
+acknowledged-unpriceable set (Q8's quiet row) and its expected-404 excuse (T3), the Admin "acknowledged" list,
+the acknowledge idempotency read. So a limitation is INVISIBLE to the quieting machinery — it cannot make a
+stale row quiet or excuse a 404 even through a reader that forgets a filter. A marked name whose tape STOPS is
+still the loud stale row the recency monitor makes of any name (it pages once through the newly-stale diff;
+the Admin freshness card keeps it, and the limitation row says "its tape has STOPPED"), and its vendor 404 is
+still a name error. **The readers that note it** are only those that would be loud SOLELY because the vendor
+lacks history — found by reading every reader of vendor history:
+
+- **the named-bar repair** (`pipeline/repair_benchmark_bars.py --bars` / `--ticker`) — its `no_vendor_bar` on
+  a marked name prints as "a KNOWN FEED LIMITATION … this bar can never be repaired from it (marked <date>:
+  <reason>)", the summary counts it ("no vendor bar N (M a known feed limitation)"), and the provenance's
+  skipped entry carries `feed_limitation`. The outcome is unchanged (reported, never fabricated, nothing
+  appended);
+- **the Cockpit name panel** — a quiet "price history limited: vendor serves no history" note beside the
+  thin-history flag (`ScoredMemberOut.price_feed_limitation`, the reason on hover; read live — it describes
+  the feed, not a fact as-of anything; display-only, never a call input).
+
+Checked and **left alone**, because none is loud for a no-history vendor: the D1/Q11 restatement (it compares
+only the overlap the vendor serves — a one-bar pull has none and says nothing), the split-basis monitor (T4 —
+it reads the STORED tape only), the settle audit (it judges rows recorded since the previous pass, so the
+pre-guard SCE-PG bars never page), and the thin-history flag (SCE-PG's 304 stored dates clear its 200-bar
+floor; on a marked name that is starved the flag stays — the starvation is real, and the note explains it).
 
 ### The identity monitor — a SUCCESSOR CIK (T7, 2026-10-17)  `[BUILT]`
 

@@ -1324,6 +1324,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/price-feed/{security_id}/limited-history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark Limited History
+         * @description MARK a name's price feed with a KNOWN LIMITATION: the vendor serves no history for its symbol, so its
+         *     tape builds one bar per night and can never be restated, repaired or backfilled from the vendor (an
+         *     append-only ``price_feed_ack`` row ``limited_history``, basis ``operator:limited-history``; the
+         *     operator's ``reason`` is REQUIRED). EVIDENCED first by ONE live vendor pull of the name's nightly symbol
+         *     (``price_symbol``, else the ticker) at the nightly range into a throwaway cache, stored with the mark:
+         *     the vendor must return at least one bar and at most ``LIMITED_HISTORY_MAX_VENDOR_BARS``, else **409** and
+         *     nothing is written. QUIET: it pages nothing and quiets nothing on the nightly path — a stopped tape on a
+         *     marked name stays a loud stale row and its vendor 404 an error; the named-bar repair's
+         *     ``no_vendor_bar`` and the name panel note it instead. Idempotent: an already-marked name returns its
+         *     active mark (no fetch). Undo with ``POST /admin/price-feed/limitations/{id}/revoke``. **404** unknown
+         *     security, **409** no symbol to price / the vendor returned no bars / the vendor serves a history, **422**
+         *     a blank reason.
+         */
+        post: operations["mark_limited_history_admin_price_feed__security_id__limited_history_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/price-feed/limitations/{mark_id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revoke Limited History
+         * @description UNDO a feed-limitation mark — append the inverse ``revoke`` row (basis ``operator:revoke``); the
+         *     name's notes go away from the next read. The undone mark stays listed (``active: false``), so marking it
+         *     again is one click. Returns the mark as it now stands. **404** when no ACTIVE mark has that id (unknown,
+         *     already undone, or an acknowledgment — those revoke at ``/acks/{id}/revoke``).
+         */
+        post: operations["revoke_limited_history_admin_price_feed_limitations__mark_id__revoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/price-feed/{security_id}/adopt-cik": {
         parameters: {
             query?: never;
@@ -1971,6 +2025,73 @@ export interface components {
             alarms: string[];
         };
         /**
+         * AdminFeedLimitationIn
+         * @description Why the operator marks a name's price feed as a known limitation (REQUIRED — the mark is the
+         *     operator's statement, so it carries the operator's words; blank is refused).
+         */
+        AdminFeedLimitationIn: {
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * AdminFeedLimitationOut
+         * @description One KNOWN FEED LIMITATION the operator marked (``price_feed_ack`` ``limited_history``, 0056): the
+         *     price vendor serves no history for the name's symbol — its tape builds one bar per night and can never
+         *     be restated, repaired or backfilled from the vendor. QUIET by design: it pages nothing and quiets
+         *     nothing on the nightly path (a stopped tape on a marked name stays a loud stale row); it only lets the
+         *     readers that would be loud SOLELY because the vendor lacks history say so.
+         *
+         *     ``active`` = no revoke names it (``revoked_at`` = when it was undone — an undone mark stays listed,
+         *     grayed, so marking it again is one click). ``vendor_*`` = the vendor pull that evidenced the mark
+         *     (symbol, range, how many bars it returned, the newest); ``tape_stopped`` = the newest pass found the
+         *     name's price tape STALE — a real gap the mark does not excuse (``tape_edge`` = its last stored bar).
+         */
+        AdminFeedLimitationOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker?: string | null;
+            /** Reason */
+            reason: string;
+            /** Basis */
+            basis: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Active
+             * @default true
+             */
+            active: boolean;
+            /** Revoked At */
+            revoked_at?: string | null;
+            /** Vendor Symbol */
+            vendor_symbol?: string | null;
+            /** Vendor Range */
+            vendor_range?: string | null;
+            /** Vendor Bars */
+            vendor_bars?: number | null;
+            /** Vendor Last Bar */
+            vendor_last_bar?: string | null;
+            /**
+             * Tape Stopped
+             * @default false
+             */
+            tape_stopped: boolean;
+            /** Tape Edge */
+            tape_edge?: string | null;
+        };
+        /**
          * AdminFilingRefOut
          * @description One filing named as evidence (T7): its form, FILING date, accession and — an 8-K-family form — the
          *     item codes EDGAR resolved (``[]`` = none).
@@ -2414,7 +2535,9 @@ export interface components {
          *     - ``successor`` (T7) — loud: members whose company now files under a NEW CIK (the filing legs read the
          *       dead one), each with its recommended successor to Adopt (and Undo once adopted). From the newest
          *       finished, full-roster live artifact whose successor scan RAN (``successor_asof``);
-         *     - ``cik_applied`` (T7) — every STANDING successor-CIK re-point, each with its Undo (WB#1).
+         *     - ``cik_applied`` (T7) — every STANDING successor-CIK re-point, each with its Undo (WB#1);
+         *     - ``limitations`` (0056) — QUIET: the known feed limitations ("the vendor serves no history"), the
+         *       newest mark per name — active ones with their Undo, then undone ones (grayed, "Mark again").
          *     ``probe_error`` = the rename probe failed on that pass (``renamed`` rows then carry no verdict);
          *     ``successor_error`` = the newest live pass's successor scan failed (its rows then are the last good
          *     pass's, or none).
@@ -2480,6 +2603,11 @@ export interface components {
              * @default []
              */
             cik_applied: components["schemas"]["AdminCikChangeOut"][];
+            /**
+             * Limitations
+             * @default []
+             */
+            limitations: components["schemas"]["AdminFeedLimitationOut"][];
         };
         /**
          * AdminPriceSymbolChangeOut
@@ -6642,6 +6770,8 @@ export interface components {
              * @default false
              */
             thin_price_history: boolean;
+            /** Price Feed Limitation */
+            price_feed_limitation?: string | null;
         };
         /**
          * SecurityCandidate
@@ -8739,6 +8869,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdminPriceFeedAckOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    mark_limited_history_admin_price_feed__security_id__limited_history_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                security_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminFeedLimitationIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminFeedLimitationOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_limited_history_admin_price_feed_limitations__mark_id__revoke_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mark_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminFeedLimitationOut"];
                 };
             };
             /** @description Validation Error */

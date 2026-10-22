@@ -20,6 +20,16 @@ What the operator can do here, and its inverse:
 - **Acknowledge, keep unpriced** -> an append-only ``price_feed_ack`` row: the name goes QUIET (no page, a
   quiet count, still listed — #9) and its 404 counts as expected (T3). **Revoke** appends the inverse.
 - **Remove from basket** is NOT here: the panel links to the existing basket editor (no second delete path).
+- **Mark limited history** (0056) — a KNOWN FEED LIMITATION on a name the vendor prices but serves no
+  HISTORY for (its chart returns only the current bar under every range — SCE-PG): its tape builds one bar
+  per night and can never be restated, repaired or backfilled from the vendor. Evidenced by ONE vendor pull
+  into a throwaway cache (the same validation a Set makes), recorded as an append-only
+  ``price_feed_ack`` row ``limited_history`` with the operator's REQUIRED reason (basis
+  ``operator:limited-history``). QUIET: it pages nothing and quiets nothing on the nightly path — a stopped
+  tape on a marked name stays a loud stale row and its 404 an error; it only lets the readers that would be
+  loud SOLELY because the vendor lacks history say so (the named-bar repair's ``no_vendor_bar``, the name
+  panel's data note). **Undo** appends the inverse ``revoke``; the undone mark stays listed, grayed, with
+  "Mark again".
 
 T7 — the SUCCESSOR CIK (``pipeline/successor_cik.py``): a member whose company now files under a NEW CIK
 (the CIK we store lists no tickers, and SEC's ticker map assigns our symbol to another registrant — UROY,
@@ -55,6 +65,8 @@ from app.deps import get_conn
 from app.schemas_api import (
     AdminAcknowledgeIn,
     AdminCikChangeOut,
+    AdminFeedLimitationIn,
+    AdminFeedLimitationOut,
     AdminFilingRefOut,
     AdminFormerNameOut,
     AdminNameChangeFilingOut,
@@ -80,6 +92,8 @@ from pipeline.tape_health import is_unpriceable
 from repositories import cik_change_repo, price_feed_repo
 from repositories.cik_change_repo import CikChange, StandingCikChange
 from repositories.price_feed_repo import (
+    ACK_LIMITED_HISTORY,
+    FeedLimitation,
     PriceFeedAck,
     PriceSymbolChange,
     RepairConflict,
@@ -100,6 +114,14 @@ BASIS_UNDO = "operator:undo"
 BASIS_ACK = "operator:acknowledge"
 BASIS_REVOKE = "operator:revoke"
 BASIS_ADOPT_CIK = "operator:adopt-cik"
+BASIS_LIMITED = "operator:limited-history"
+
+# A LIMITED-HISTORY mark is refused when the vendor pull that should evidence it returns MORE than this many
+# bars at the nightly range: that vendor serves a history, so the mark would be a false label (the name panel
+# would say "vendor serves no history" about a feed that has one). MEASURED 2026-10-21: SCE-PG returns exactly
+# ONE bar (the current session) under every range; 5 leaves room for a vendor that keeps a few recent sessions,
+# while any symbol with a real history at the 2y range returns hundreds. PROPOSED threshold, not a measured cut.
+LIMITED_HISTORY_MAX_VENDOR_BARS = 5
 
 
 # --- the inventory: the newest pass that looked ---------------------------------------------------------
@@ -404,6 +426,31 @@ def _ack_out(
     )
 
 
+def _limitation_out(lim: FeedLimitation, *, stale: _Row | None = None) -> AdminFeedLimitationOut:
+    """One mark for the "Known feed limitations" list: the stored decision, the vendor pull that evidenced
+    it (``detail``), and — from the newest pass's inventory — whether the name's tape has STOPPED (a real gap
+    the mark never excuses)."""
+    val = lim.detail.get("validation") if isinstance(lim.detail, dict) else None
+    val = val if isinstance(val, dict) else {}
+    bars = val.get("bars")
+    return AdminFeedLimitationOut(
+        id=lim.id,
+        security_id=lim.security_id,
+        ticker=lim.ticker,
+        reason=lim.reason,
+        basis=lim.basis,
+        created_at=lim.created_at,
+        active=lim.active,
+        revoked_at=lim.revoked_at,
+        vendor_symbol=lim.detail.get("symbol") if isinstance(lim.detail, dict) else None,
+        vendor_range=lim.detail.get("range") if isinstance(lim.detail, dict) else None,
+        vendor_bars=bars if isinstance(bars, int) else None,
+        vendor_last_bar=_date(val.get("last_bar")),
+        tape_stopped=stale is not None,
+        tape_edge=stale.edge if stale is not None else None,
+    )
+
+
 def _master_symbols(
     conn: psycopg.Connection, ids: list[UUID]
 ) -> dict[UUID, tuple[str | None, str | None]]:
@@ -509,6 +556,12 @@ def price_repairs_out(conn: psycopg.Connection, payloads: list[dict]) -> AdminPr
     # T7 — the successor-CIK block reads its OWN inventory artifact (the newest pass whose scan ran) and the
     # live CIK change log; independent of the price inventory above
     sdoc, successor, cik_applied = _successor_out(conn, payloads)
+    # 0056 — the known feed limitations (quiet), each joined to the inventory: a marked name whose tape
+    # STOPPED is still a stale row everywhere else on this page; its limitation row says so too
+    limitations = [
+        _limitation_out(lim, stale=inv.get(lim.security_id))
+        for lim in price_feed_repo.feed_limitations(conn)
+    ]
     return AdminPriceRepairsOut(
         successor_asof=_date((sdoc or {}).get("asof")),
         successor_evaluated=sdoc is not None,
@@ -525,6 +578,7 @@ def price_repairs_out(conn: psycopg.Connection, payloads: list[dict]) -> AdminPr
         closed=closed,
         applied=[_change_out(c) for c in standing.values()],
         expected_misses=len(expected),
+        limitations=limitations,
     )
 
 
@@ -755,6 +809,109 @@ def revoke_acknowledgment(
         ticker=_ticker_of(conn, out.security_id),  # type: ignore[union-attr]
         still_unpriceable=None,
     )
+
+
+# --- 0056: the known feed limitations ------------------------------------------------------------------
+
+
+def _price_target(conn: psycopg.Connection, security_id: UUID) -> tuple[str | None, str | None]:
+    """``(ticker, the vendor symbol the nightly prices it under — price_symbol or the ticker)``; **404**
+    for an unknown security."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT ticker, price_symbol FROM security_master WHERE id = %s", (security_id,)
+        )
+        row = cur.fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="security not found")
+    return row["ticker"], (row["price_symbol"] or row["ticker"])
+
+
+def _limitation_read(conn: psycopg.Connection, mark_id: UUID) -> AdminFeedLimitationOut:
+    """A mark as it stands NOW (after a committed write), joined to the newest pass's inventory."""
+    lim = price_feed_repo.get_limitation(conn, mark_id)
+    conn.rollback()  # a read: end it
+    if lim is None:  # pragma: no cover — read back right after its own committed write
+        raise HTTPException(status_code=404, detail=f"no feed-limitation mark with id {mark_id}")
+    _doc, stale = _inventory_row(lim.security_id)
+    return _limitation_out(lim, stale=stale)
+
+
+@router.post("/{security_id}/limited-history", response_model=AdminFeedLimitationOut)
+def mark_limited_history(
+    security_id: UUID,
+    body: AdminFeedLimitationIn,
+    conn: psycopg.Connection = Depends(get_conn),
+) -> AdminFeedLimitationOut:
+    """MARK a name's price feed with a KNOWN LIMITATION: the vendor serves no history for its symbol, so its
+    tape builds one bar per night and can never be restated, repaired or backfilled from the vendor (an
+    append-only ``price_feed_ack`` row ``limited_history``, basis ``operator:limited-history``; the
+    operator's ``reason`` is REQUIRED). EVIDENCED first by ONE live vendor pull of the name's nightly symbol
+    (``price_symbol``, else the ticker) at the nightly range into a throwaway cache, stored with the mark:
+    the vendor must return at least one bar and at most ``LIMITED_HISTORY_MAX_VENDOR_BARS``, else **409** and
+    nothing is written. QUIET: it pages nothing and quiets nothing on the nightly path — a stopped tape on a
+    marked name stays a loud stale row and its vendor 404 an error; the named-bar repair's
+    ``no_vendor_bar`` and the name panel note it instead. Idempotent: an already-marked name returns its
+    active mark (no fetch). Undo with ``POST /admin/price-feed/limitations/{id}/revoke``. **404** unknown
+    security, **409** no symbol to price / the vendor returned no bars / the vendor serves a history, **422**
+    a blank reason."""
+    reason = body.reason.strip()
+    if not reason:
+        raise HTTPException(status_code=422, detail="a feed-limitation mark needs a reason")
+    ticker, symbol = _price_target(conn, security_id)
+    existing = price_feed_repo.active_limitation(conn, security_id)
+    conn.rollback()  # no transaction stays open across the vendor pull
+    if existing is not None:
+        return _limitation_read(conn, existing.id)
+    who = ticker or security_id
+    if not symbol:
+        raise HTTPException(
+            status_code=409, detail=f"{who} has no ticker or price symbol to price — nothing marked"
+        )
+    check = _probe_symbol(symbol)
+    if check.get("error") or not check.get("bars"):
+        why = check.get("error") or "no bars"
+        raise HTTPException(
+            status_code=409,
+            detail=f"the vendor returned no bars for {symbol} ({why}) — that is an unpriceable feed "
+            "(acknowledge it once the nightly lists it), not a limited history; nothing was marked",
+        )
+    if check["bars"] > LIMITED_HISTORY_MAX_VENDOR_BARS:
+        raise HTTPException(
+            status_code=409,
+            detail=f"the vendor serves {check['bars']} bars for {symbol} at {DEFAULT_RANGE} "
+            f"({check.get('first_bar')} → {check.get('last_bar')}) — it has a history, so this is not a "
+            "limited-history feed; nothing was marked",
+        )
+    detail = {"symbol": symbol, "range": DEFAULT_RANGE, "validation": check}
+    mark, _created = _commit(  # type: ignore[misc]
+        conn,
+        lambda: price_feed_repo.mark_limited_history(
+            conn, security_id, reason=reason, basis=BASIS_LIMITED, detail=detail
+        ),
+    )
+    return _limitation_read(conn, mark.id)
+
+
+@router.post("/limitations/{mark_id}/revoke", response_model=AdminFeedLimitationOut)
+def revoke_limited_history(
+    mark_id: UUID, conn: psycopg.Connection = Depends(get_conn)
+) -> AdminFeedLimitationOut:
+    """UNDO a feed-limitation mark — append the inverse ``revoke`` row (basis ``operator:revoke``); the
+    name's notes go away from the next read. The undone mark stays listed (``active: false``), so marking it
+    again is one click. Returns the mark as it now stands. **404** when no ACTIVE mark has that id (unknown,
+    already undone, or an acknowledgment — those revoke at ``/acks/{id}/revoke``)."""
+    _commit(
+        conn,
+        lambda: price_feed_repo.revoke(
+            conn,
+            mark_id,
+            reason="undone by the operator",
+            basis=BASIS_REVOKE,
+            action=ACK_LIMITED_HISTORY,
+        ),
+    )
+    return _limitation_read(conn, mark_id)
 
 
 # --- T7: the successor-CIK writes ----------------------------------------------------------------------
