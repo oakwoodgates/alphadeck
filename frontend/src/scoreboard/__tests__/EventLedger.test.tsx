@@ -257,3 +257,26 @@ describe("EventLedger — the Cockpit strip", () => {
     expect(screen.getByText("current tape · as-of Jul 15")).toBeInTheDocument();
   });
 });
+
+describe("EventLedger — editions S4: a re-run edition drops our fetch timing, the record keeps it", () => {
+  // traded 06-10, accepted by SEC 06-12, stored by us only on 06-14
+  const LATE = buildOverlayEvents(
+    ep({ arm_date: "2026-06-01" }),
+    [buy({ d: "2026-06-10", disclosed: "2026-06-12", ingested: "2026-06-14" })],
+    BARS as PriceBar[],
+  );
+  const insiderDetail = (c: HTMLElement) =>
+    rows(c).find((r) => r.textContent?.includes("insider buy"))!.textContent ?? "";
+
+  it("Edition 0 (default) shows both clocks: the disclosure and our ingest lag", () => {
+    const { container } = renderLedger({ events: LATE });
+    expect(insiderDetail(container)).toContain("disclosed 2d later (2026-06-12)");
+    expect(insiderDetail(container)).toContain("ingested 4d later (2026-06-14)");
+  });
+
+  it("an edition >= 1 (hideIngest) keeps the public disclosure line and drops the ingest line", () => {
+    const { container } = renderLedger({ events: LATE, hideIngest: true });
+    expect(insiderDetail(container)).toContain("disclosed 2d later (2026-06-12)");
+    expect(insiderDetail(container)).not.toContain("ingested");
+  });
+});

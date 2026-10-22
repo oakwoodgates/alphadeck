@@ -24,6 +24,8 @@ export interface EventLedgerProps {
   /** Set (to the drawer's asof) for a CLOSED/matured episode → the "current tape · as-of X" caption, so a
    *  name-current 90d figure isn't misread as the episode's own period. Null for a still-open episode. */
   tapeAsof?: string | null;
+  /** Editions S4: a re-run edition's drawer — drop the "ingested Nd later" lines (our fetch timing). */
+  hideIngest?: boolean;
 }
 
 export function EventLedger({
@@ -33,6 +35,7 @@ export function EventLedger({
   identity,
   signals,
   tapeAsof,
+  hideIngest = false,
 }: EventLedgerProps) {
   if (events.length === 0) return null; // no drawn events yet → no table (mirrors the chart's empty state)
   return (
@@ -50,7 +53,7 @@ export function EventLedger({
           </thead>
           <tbody>
             {events.map((e) => {
-              const r = ledgerRow(e);
+              const r = ledgerRow(e, hideIngest);
               // A set-aside row (screened buy/sell, passive 13G) is MUTED, never removed (WB #2) —
               // the type cell keeps its family label; the gray + the detail's screen line carry the
               // exception (#7). Same `eventSetAside` the chart chip reads — the two never disagree.

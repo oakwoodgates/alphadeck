@@ -266,6 +266,7 @@ export function EpisodeScorecard({
               onActivate={setActiveN}
               loading={windowQ.isLoading}
               error={windowQ.isError}
+              hideIngest={rerun}
             />
           </Suspense>
         )}
@@ -371,6 +372,7 @@ export function EpisodeScorecard({
           identity={identity}
           signals={signals}
           tapeAsof={tapeAsof}
+          hideIngest={rerun}
         />
       )}
 
