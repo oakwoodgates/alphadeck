@@ -28,7 +28,9 @@ What each one is for:
 
 from __future__ import annotations
 
+import json
 from datetime import date, datetime, time, timezone
+from pathlib import Path
 from uuid import UUID
 
 import psycopg
@@ -516,3 +518,68 @@ def first_filed(versions: list[Version]) -> dict[date, tuple[date, str]]:
         if pe not in out or filed < out[pe][0]:
             out[pe] = (filed, accn)
     return out
+
+
+# --- REAL companyfacts documents, trimmed to their revenue nodes (the label-switch fix, 2026-10-20) --------
+#
+# ``tests/fixtures/edgar/companyfacts_revenue/<TICKER>.json`` = data.sec.gov companyfacts as the dev EDGAR cache
+# held it (fetched by the nightly 2026-09-12, 02:30 UTC), cut to ``cik`` / ``entityName`` and the
+# ``REVENUE_CONCEPTS`` nodes present, every row verbatim (the source's own spelling and keys). Nothing is edited.
+#
+# - ``AMD`` — tagged ``Revenues`` for two 2017 quarters, then ``RevenueFromContract…ExcludingAssessedTax``
+#   to 2026-06-27; the old first-present rule kept the 2017 pair (MEASURED on prod: its stored revenue
+#   series ended 2017-09-30).
+# - ``HON`` — ``Revenues`` 2008-2012, the contract tag 2017-2026 (it also restates 2025 for the Solstice spin).
+# - ``NEE`` — ``Revenues`` 2008-2013, ``RevenueFromContract…IncludingAssessedTax`` 2018-2026.
+# - ``VICR`` — both labels on the SAME filings in 2024-2025, equal on every shared filing but one: the
+#   2025-08-01 10-Q's Q2-2025 is 141,046,000 under ``Revenues`` and 96,046,000 under the contract tag (the
+#   9-month YTDs differ by the same 45,000,000). The overlap case, and the same-filing supersession.
+# - ``LHX`` — a ``Revenues`` node whose rows extract to NO quarter; the old rule picked it and stored no revenue.
+#   Also the data-quality screen's two quarter-context cases: the 2026 10-K files FY2024's $21.325B under a Q4
+#   context (beside the FY row), and FY2025's $21.865B ONLY under a Q4 context (no FY row at all).
+# - ``LFMD`` — FY2024 restated to $154.8M (continuing operations) on 2026-03-10, after its 9-month last moved on
+#   2025-11-17: FY − 9-month = a $5.5M "Q4" (the screen's restated-basis case).
+# - ``TTMI`` — the tie-break (``Revenues`` 4 quarters vs the contract tag 70, both to 2026-06-29), and a recast
+#   that IS on one basis (FY2019 recast 2021-02-22 after its 9-month was recast) beside one that is not (FY2018).
+# - ``KULR`` — the tie-break again (29 vs 52 quarters, both to 2026-06-30).
+# - ``XEL`` / ``HAPN`` — the two tags appended to ``REVENUE_CONCEPTS``: a utility's
+#   ``RegulatedAndUnregulatedOperatingRevenue`` and a bank's ``RevenuesNetOfInterestExpense``; their listed tags
+#   stop in 2019 / 2020. ``NEE`` carries the utility tag too (162 quarters vs the contract tag's 68).
+# - ``MTRN`` — a ``Revenues`` that is a sub-line ($11.68M) beside the contract tag's total ($303.5M) on the SAME
+#   filings, both reported again a year later: Q1-2018 is superseded on its 2018-04-26 10-Q AND its 2019-05-02
+#   comparative — the shape that broke D3a's run before the per-filing collapse.
+COMPANYFACTS_REVENUE_DIR = (
+    Path(__file__).resolve().parent / "fixtures" / "edgar" / "companyfacts_revenue"
+)
+COMPANYFACTS_CIK = {
+    "AMD": "0000002488",
+    "HON": "0000773840",
+    "NEE": "0000753308",
+    "VICR": "0000751978",
+    "LHX": "0000202058",
+    "LFMD": "0000948320",
+    "TTMI": "0001116942",
+    "KULR": "0001662684",
+    "XEL": "0000072903",
+    "HAPN": "0001409970",
+    "MTRN": "0001104657",
+}
+
+
+def companyfacts_revenue(ticker: str) -> dict:
+    """One trimmed real companyfacts document (see above)."""
+    return json.loads((COMPANYFACTS_REVENUE_DIR / f"{ticker}.json").read_text(encoding="utf-8"))
+
+
+def companyfacts_cache(cache_dir: Path, *tickers: str) -> Path:
+    """Lay the fixtures out as an EDGAR cache (``companyfacts/CIK<10>.json``) under ``cache_dir`` — what a
+    cache-first ``EdgarClient(cache_dir=..., allow_live=False)`` reads, so the REAL fetch path runs offline.
+    """
+    fc = cache_dir / "companyfacts"
+    fc.mkdir(parents=True, exist_ok=True)
+    for t in tickers:
+        name = f"CIK{int(COMPANYFACTS_CIK[t]):010d}.json"
+        (fc / name).write_text(
+            (COMPANYFACTS_REVENUE_DIR / f"{t}.json").read_text(encoding="utf-8"), encoding="utf-8"
+        )
+    return cache_dir

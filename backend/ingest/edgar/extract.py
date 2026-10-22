@@ -538,11 +538,23 @@ _REVENUE = [
     ("us-gaap", "Revenues"),
     ("us-gaap", "RevenueFromContractWithCustomerExcludingAssessedTax"),
     ("us-gaap", "RevenueFromContractWithCustomerIncludingAssessedTax"),
+    # 2026-10-20 — the TOTAL-revenue tags of two industries the three above miss, appended AFTER them so the
+    # order-based tie fallback is unchanged for everyone else. Utilities: total operating revenue (XEL, DTE,
+    # TVE report it and none of the above). Banks: total net revenue = net interest income + noninterest
+    # income (HAPN). Deliberately NOT ``RevenuesExcludingInterestAndDividends`` (a bank's noninterest income —
+    # one component) nor broker-dealer lines (``PrincipalTransactionsRevenue``, ``BrokerageCommissionsRevenue``,
+    # ``SalesCommissionsAndFees``): parts of revenue, never the total.
+    ("us-gaap", "RegulatedAndUnregulatedOperatingRevenue"),
+    ("us-gaap", "RevenuesNetOfInterestExpense"),
 ]
 
-# Public alias: the §2.2 fundamentals ingest (``ingest.fundamentals``) reads the SAME revenue concepts (first
-# present wins, ``_first`` semantics) so "which companyfacts tag IS revenue" has ONE source of truth and can
-# never drift between the Workbench AUTO tier and the quarterly-series backfill.
+# Public alias: the §2.2 fundamentals ingest (``ingest.fundamentals``) reads the SAME revenue concepts so
+# "which companyfacts tag IS revenue" has ONE source of truth and can never drift between the Workbench and
+# the quarterly-series backfill. Neither reader takes the FIRST present tag any more (2026-10-20): most filers
+# moved from ``Revenues`` to a ``RevenueFromContractWithCustomer*`` tag around ASC 606, so the first present
+# tag is often a dead series. The ingest picks the CURRENT tag (``ingest.fundamentals.select_revenue``); the
+# purity branch below asks whether ANY tag reports annual revenue. The ORDER here is the last tie-break: two
+# tags whose newest quarter ends on the same date go to the one with more quarters, then to the earlier tag.
 REVENUE_CONCEPTS = _REVENUE
 
 # The purity passage is WIDE (vs the default ±110): the grounded purity-estimate seam (SURFACE 1b) proposes a %
@@ -553,8 +565,15 @@ _PURITY_WINDOW = 1500
 
 
 def _has_annual_revenue(facts: dict) -> bool:
-    rows = _first(facts, _REVENUE, "USD")
-    return any((r.get("start") and _days(r) > 300 and float(r["val"]) > 0) for r in rows)
+    """Does the company report positive annual revenue under ANY revenue tag? (It used ``_first``, so a
+    company whose first-present tag is a dead or odd-span series — a ``Revenues`` node with no annual row,
+    the current tag carrying it — read as pre-revenue and got the Item-1 passage instead of its segment
+    table.) Only which passage the HUMAN purity candidate locates depends on this; never a value."""
+    return any(
+        r.get("start") and _days(r) > 300 and float(r["val"]) > 0
+        for tax, concept in _REVENUE
+        for r in _rows(facts, tax, concept, "USD")
+    )
 
 
 def _purity(facts: dict, tenk_text: str, ref: str, period_end: date) -> ExtractedFact:
