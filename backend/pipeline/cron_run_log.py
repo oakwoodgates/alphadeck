@@ -48,7 +48,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, time, tzinfo
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from domain.feed_kinds import StaleFeedLabel, feed_kind
 from ingest.skips import dedup_skips
@@ -327,6 +327,7 @@ def build_run_payload(
     timings: dict | None = None,
     amendments: AmendmentScan | None = None,
     edgar_coverage: EdgarCoverage | None = None,
+    split_detect: Any = None,
 ) -> dict:
     """The run-of-record payload — PURE (no I/O), extracted from the artifact writer so the admin
     "run now" job can shape its poll result IDENTICALLY to a parsed artifact (one schema, two readers).
@@ -517,6 +518,9 @@ def build_run_payload(
         **(skips or SkipDiff()).payload(),
         # R8-A — the Form 4/A inventory owed an operator decision + what paged (pending; never applied)
         **(amendments or AmendmentScan()).payload(),
+        # S4 — the nightly split detection (``pipeline/detect_splits.SplitDetection``): the new split-list rows,
+        # the filings it could not place, the Polygon source's status; absent = not run (readers use ``.get``)
+        **(split_detect.payload() if split_detect is not None else {}),
         # EDGAR network pulls this run ATTEMPTED (a pull that then failed counts too) — "times we reached out".
         "edgar_fetches": edgar_fetches,
         # O5 — THE FREEZE DETECTOR: the attempts that COMPLETED (a 2xx body arrived). A frozen index and a
@@ -783,6 +787,7 @@ def write_cron_run_log(
     timings: dict | None = None,
     amendments: AmendmentScan | None = None,
     edgar_coverage: EdgarCoverage | None = None,
+    split_detect: Any = None,
 ) -> Path | None:
     """Dump one cron pass (``build_run_payload``, above — the payload's meaning lives there) to
     ``<base>/<utc-timestamp>.json``; return the path (or ``None`` fail-open). The whole write — payload
@@ -821,6 +826,7 @@ def write_cron_run_log(
             timings=timings,
             amendments=amendments,
             edgar_coverage=edgar_coverage,
+            split_detect=split_detect,
         )
         run_dir = base_dir or _DEFAULT_CRON_RUNS
         run_dir.mkdir(parents=True, exist_ok=True)

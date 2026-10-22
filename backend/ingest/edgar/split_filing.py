@@ -41,8 +41,9 @@ the real filings forced (named so the rule stays checkable):
 - an AUTHORIZED RANGE, ceiling or illustration: a ratio within ``_RANGE_LOOKBACK`` characters after
   "range", "between", "up to", "not less than", "exceeds", "assuming" … — the proxy language ("at a ratio of
   up to one-for-two hundred (1:200)", "select a ratio of between 1-for-5 and 1-for-50", "shall not effect …
-  splits that, in the aggregate, exceeds 1-for-12"). A filing that states ONLY a range abstains: no ratio was
-  set.
+  splits that, in the aggregate, exceeds 1-for-12"), and an "every N TO M … into one" span ("every two (2) to
+  two hundred and fifty (250) Ordinary Shares shall be converted into one (1)", MTEK). A filing that states
+  ONLY a range abstains: no ratio was set.
 - a PAST split: a ratio whose sentence's every date is more than ``HISTORICAL_GAP_DAYS`` before the filing's
   own effective date (PBM's 6-K restates "a 1-for-7.97 consolidation ratio which was implemented Monday, May 5,
   2025" beside its 1-for-6.25). Only judged when an effective date was read.
@@ -188,6 +189,8 @@ _EVERY_INTO = re.compile(
     re.I,
 )
 _COMBINE_VERB = re.compile(r"combin|consolidat|reclassif|convert|chang|exchang|become", re.I)
+# "every two (2) TO two hundred and fifty (250) … into one (1)": the "every" number opens a RANGE
+_EVERY_RANGE = re.compile(rf"\s*(?:to|through|-)\s+(?:{_DIGNUM}|{_WORD})", re.I)
 
 _MONTHS = {
     "jan": 1,
@@ -545,9 +548,12 @@ def _mentions(docs: list[_Doc], doc_direction: str | None) -> list[_Mention]:
                 (a, ca), (b, cb) = _side(m, "a"), _side(m, "b")
                 if not (_plausible(a, plain_for=False) and _plausible(b, plain_for=False)):
                     continue
-                found.append(
-                    (m.start(), m.end(), a, b, "conflict" if ca or cb else "explicit", m.group(0))
-                )
+                kind = "conflict" if ca or cb else "explicit"
+                if kind == "explicit" and _EVERY_RANGE.match(m.group("fill")):
+                    # "every two (2) to two hundred and fifty (250) Ordinary Shares shall be converted into
+                    # one (1)" (MTEK's proxy 6-K) — the low end of an authorized range, not the ratio set
+                    kind = "range"
+                found.append((m.start(), m.end(), a, b, kind, m.group(0)))
             for m in _FOR_EVERY.finditer(sent):
                 (a, ca), (b, cb) = _side(m, "a"), _side(m, "b")
                 if not (_plausible(a, plain_for=False) and _plausible(b, plain_for=False)):

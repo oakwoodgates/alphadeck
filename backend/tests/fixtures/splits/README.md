@@ -19,6 +19,11 @@ hand-written or edited; the only change is TRIMMING, and the source's spelling i
   (the request carried no API key, so none is stored).
 - `polygon/rows_2024-10.json` — the 7 real rows, from the DEV backfill's 2024-10-01 pull (2026-10-20, the
   cached pages in the dev container), that pair with the filings added from that run (below).
+- `polygon/rows_2026-10-22.json` — S4: the 6 real rows for GAME / NXL / MDCX / VRME / AXG / ENHA from the
+  nightly-shaped pull of 2026-10-22 (`execution_date.gte=2026-07-24`), `results` filtered to those tickers.
+- `tape_2026-10-22.json` — S4: EVERY stored version (close, volume, `recorded_at`) of the price bars around the
+  GAME / NXL / VRME / MDCX / FDCT splits, read from a read-only copy of prod on 2026-10-22, untouched — the
+  tape-confirmation tests read each bar's FIRST-served version from it, exactly as the detector does.
 
 The table's LAST SEVEN rows (ELBM … LGHL) were added from the 2026-10-20 dev backfill: each was copied from
 the dev EDGAR cache (the text the backfill read) and trimmed the same way — filings the first extractor sent to
@@ -53,3 +58,15 @@ review, kept as the regression set for the phrasings it then learned.
 | 0001493152-26-031419 | NIPG | 6-K | ADS ratio change, "the same effect as a one-for-thirty reverse ADS split", effective 2026-07-06 |
 | 0001213900-25-110404 | ASNS | 8-K | 1-for-10, 2025-11-18 (plus "… in the aggregate, exceeds 1-for-12", a ceiling) |
 | 0001213900-24-111258 | LGHL | 6-K | interim results restating a PAST (2023-07-13) one-for-fifty ADS ratio change |
+
+S4 (the nightly detection, 2026-10-22) added six more, copied from the EDGAR cache the S4 recall run read and
+trimmed the same way (each extracts identically to its full submission — checked when trimmed):
+
+| accession | filer | form | what it states |
+|---|---|---|---|
+| 0001493152-26-039213 | GAME | 8-K | 1-for-8, split-adjusted trading 2026-08-24 (filed 08-19, ahead of the split) |
+| 0001829126-26-009387 | NXL | 8-K | 1-for-30, trading 2026-08-31 (filed 08-27) |
+| 0001062993-26-005382 | MDCX | 8-K | 1-for-50, a LEGAL effective date 2026-10-12, filed 10-16 — after the split |
+| 0001493152-26-040184 | FDCT | 8-K | 1-for-100, trading 2026-07-10, filed 08-26 — 47 days after, outside S1's window |
+| 0001185185-26-004872 | MTEK | 6-K | a proxy RANGE, "every two (2) to two hundred and fifty (250) … into one (1)" — abstains |
+| 0001493152-26-039876 | WSHP | 6-K | interim results restating a PAST 1-for-4 (effective 2025-10-22) |

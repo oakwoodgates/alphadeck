@@ -53,9 +53,12 @@ from domain.splits import (
 )
 
 AUTHOR_BACKFILL = "system:backfill_splits"
+# S4 — the nightly detector (``pipeline/detect_splits.py``); its versions carry action ``detect`` (0061)
+AUTHOR_DETECT = "system:detect_splits"
 AUTHOR_OPERATOR = "operator"
 
 ACTION_BACKFILL = "backfill"
+ACTION_DETECT = "detect"
 ACTION_CONFIRM = "confirm"
 ACTION_REJECT = "reject"
 ACTION_REVOKE = "revoke"
@@ -157,7 +160,8 @@ def content_of(values: dict[str, Any]) -> tuple[Any, ...]:
 
 
 def decision_values(d: SplitDecision) -> dict[str, Any]:
-    """A matcher decision as the columns a backfill version carries."""
+    """A matcher decision as the columns a system version carries (an SEC-only decision has no Polygon side:
+    its ``polygon_*`` columns are NULL)."""
     s, p = d.sec, d.polygon
     return {
         "effective_date": d.effective_date,
@@ -177,11 +181,11 @@ def decision_values(d: SplitDecision) -> dict[str, Any]:
         "sec_ratio_from": s.ratio_from if s else None,
         "sec_ratio_to": s.ratio_to if s else None,
         "sec_abstain_reason": s.abstain_reason if s else None,
-        "polygon_id": p.id,
-        "polygon_ticker": p.ticker,
-        "polygon_execution_date": p.execution_date,
-        "polygon_split_from": p.split_from,
-        "polygon_split_to": p.split_to,
+        "polygon_id": p.id if p else None,
+        "polygon_ticker": p.ticker if p else None,
+        "polygon_execution_date": p.execution_date if p else None,
+        "polygon_split_from": p.split_from if p else None,
+        "polygon_split_to": p.split_to if p else None,
         "note": d.note,
         "valid_from": d.valid_from,
         "valid_to": None,

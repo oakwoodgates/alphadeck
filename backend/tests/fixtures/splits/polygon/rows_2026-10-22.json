@@ -1,0 +1,47 @@
+{
+ "results": [
+  {
+   "execution_date": "2026-08-24",
+   "id": "Ef974c494a920e7d54af8bcf90241430a3f677004da6c93dba44fe231603b5977",
+   "split_from": 8,
+   "split_to": 1,
+   "ticker": "GAME"
+  },
+  {
+   "execution_date": "2026-08-31",
+   "id": "Ecdbe89b2d45362015b7909350048cac63d85fa365fcded389c3da7654f90819d",
+   "split_from": 30,
+   "split_to": 1,
+   "ticker": "NXL"
+  },
+  {
+   "execution_date": "2026-09-29",
+   "id": "E2e8f4a1c2211f87df766e43027ef7ec18837285e8c0dc4c1f6a934e458db5778",
+   "split_from": 10,
+   "split_to": 1,
+   "ticker": "VRME"
+  },
+  {
+   "execution_date": "2026-10-12",
+   "id": "E5dc3b4e68cf2356ab130bba30db902a2dea7d1c4dc0a4fca87862a88e89d7599",
+   "split_from": 50,
+   "split_to": 1,
+   "ticker": "MDCX"
+  },
+  {
+   "execution_date": "2026-10-26",
+   "id": "E510a2cfe8483485886172e4d1917f2bf166cc49265b963a819973c9081fa5486",
+   "split_from": 200,
+   "split_to": 1,
+   "ticker": "AXG"
+  },
+  {
+   "execution_date": "2026-10-28",
+   "id": "E721be7c706d6d89459a370eaaf791f10e5f65c19ebd26abcee6a96c7b42300f9",
+   "split_from": 10,
+   "split_to": 1,
+   "ticker": "ENHA"
+  }
+ ],
+ "status": "OK"
+}
