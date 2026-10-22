@@ -94,6 +94,44 @@ def test_known_wrong_sorts_first_and_a_row_is_marked_only_when_a_cell_is_reached
     assert m.MemberFlags(security_id="x", ticker="X", flags=(reached,)).marked
 
 
+def test_snex_marked_only_by_its_reaching_flags_which_sort_first():
+    """SNEX on prod's 2026-10-22 read: its 2025-03-24 needs-review split reaches no cell (columns []), its
+    2026-03-23 / 2026-07-20 ones and the market cap do. The row is marked by THOSE, and they lead the list, so a
+    reader of the first flag never sees a history-only one under a mark; the history-only flag alone marks
+    nothing (the HIST shape)."""
+    hist = m.DataFlag(
+        kind=m.SPLIT_REVIEW, level=m.IN_DOUBT, reason="r", clears="c", since=date(2025, 3, 24)
+    )
+    mar = m.DataFlag(
+        kind=m.SPLIT_REVIEW,
+        level=m.IN_DOUBT,
+        reason="r",
+        clears="c",
+        since=date(2026, 3, 23),
+        columns=("sma", "ret_1y"),
+    )
+    jul = m.DataFlag(
+        kind=m.SPLIT_REVIEW,
+        level=m.IN_DOUBT,
+        reason="r",
+        clears="c",
+        since=date(2026, 7, 20),
+        columns=("sma", "ret_90d", "ret_1y", "path"),
+    )
+    cap = m.DataFlag(
+        kind=m.MKTCAP_SHARES,
+        level=m.IN_DOUBT,
+        reason="r",
+        clears="c",
+        since=date(2026, 7, 20),
+        columns=("mktcap",),
+    )
+    ordered = m.sort_flags([hist, mar, jul, cap])
+    assert ordered == [mar, jul, cap, hist]
+    assert m.MemberFlags(security_id="s", ticker="SNEX", flags=tuple(ordered)).marked
+    assert not m.MemberFlags(security_id="s", ticker="HIST", flags=(hist,)).marked
+
+
 def _imports(path: Path) -> set[str]:
     tree = ast.parse(path.read_text(encoding="utf-8"))
     mods: set[str] = set()

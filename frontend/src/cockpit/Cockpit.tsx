@@ -204,7 +204,19 @@ export function Cockpit({
   // entry has no flag (the common case). Only the cells a flag names change (in doubt: grayed + the reason
   // on hover; known wrong: "—" + the reason), and the row's quiet mark rides after the ticker.
   const flagsQ = useThesisDataFlags(thesisId, asof);
-  const flagBySid = flagsBySid(flagsQ.data);
+  // A flag qualifies the NUMBERS on its row, so it is applied only to the reads it was computed beside: this
+  // thesis + as-of's display and scored reads, landed (not still loading, not a previous thesis's / date's
+  // placeholder). The flag read is the faster one (MEASURED on prod's data: 1.8 s vs the display read's
+  // 3.5 s on a 159-name basket), so without this gate the marks arrived first and sat beside rows whose
+  // cells were still "—" (loading) or another view's numbers (placeholder) — which read as "the flag blanked
+  // the row". Until both land, no row is flagged; the table already dims while recomputing (C2).
+  const flagsApply =
+    flagsQ.data != null &&
+    !flagsQ.isPlaceholderData &&
+    (displayQ.data != null || displayQ.isError) &&
+    !displayQ.isPlaceholderData &&
+    !scoredQ.isPlaceholderData;
+  const flagBySid = flagsBySid(flagsApply ? flagsQ.data : undefined);
   const flagsFor = (sid: string | null | undefined): MemberDataFlagsOut | null =>
     sid ? (flagBySid.get(sid) ?? null) : null;
   // the company's splits inside the sparkline's window: a tick at most (plan section 11)

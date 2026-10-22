@@ -256,10 +256,14 @@ def md(d: date) -> str:
 
 
 def sort_flags(flags: Iterable[DataFlag]) -> list[DataFlag]:
-    """Known-wrong first (it hides a number), then by kind order, then the oldest issue first."""
+    """The flags that reach a cell on the row first (they are what the row's mark speaks for — a reader of
+    the first flag must never see a history-only one and conclude the mark has no cell: SNEX's 2025-03 split
+    reaches nothing, its 2026 ones do), then known wrong (it hides a number), then by kind, oldest first.
+    """
     return sorted(
         flags,
         key=lambda f: (
+            0 if f.columns else 1,
             0 if f.level == KNOWN_WRONG else 1,
             KINDS.index(f.kind) if f.kind in KINDS else len(KINDS),
             f.since or date.min,
