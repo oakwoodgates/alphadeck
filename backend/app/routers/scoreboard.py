@@ -15,6 +15,8 @@ from app.schemas_api import (
     InsiderSellOut,
     LateNightOut,
     PriceBar,
+    ScoreboardEditionOut,
+    ScoreboardEditionsResponse,
     ScoreboardMetricOut,
     ScoreboardPriceWindowOut,
     ScoreboardReplayResponse,
@@ -32,7 +34,7 @@ from domain.splits import tape_scale
 from domain.thesis import Thesis
 from pipeline.schedule import expected_runs_behind, last_expected_asof, parse_run_at
 from replay.metrics import MetricResult
-from repositories import calls_repo, split_repo
+from repositories import calls_repo, editions_repo, split_repo
 from scoreboard.artifact import read_snapshot
 from scoreboard.assemble import assemble_scoreboard
 from scoreboard.overlays import (
@@ -96,19 +98,33 @@ def get_scoreboard(
         "(ALPHADECK_SCOREBOARD_EXCLUDE_LATE, default: set aside). The response's summary.late_policy "
         "names the reading used",
     ),
+    edition: int | None = Query(
+        None,
+        ge=0,
+        description="which EDITION to score: 0 = the original record (the calls log); N >= 1 = the "
+        "stored re-run Edition N (404 if it does not exist); omitted = the server setting "
+        "(ALPHADECK_SCOREBOARD_DEFAULT_EDITION, default 0 — an unpublished default falls back to 0). "
+        "The response's `edition` block names the edition served",
+    ),
     conn: psycopg.Connection = Depends(get_conn),
+    current_tenant: UUID = Depends(get_current_tenant),
 ) -> ScoreboardResponse:
-    """The Scoreboard (SCORE): the call-of-record scored as-of ``asof`` — a READ-ONLY pass over
-    the immutable calls log, the operator-decision log, and realized asof-capped prices. The
-    RECORD is the scoring source, never a recompute (replay re-derives history; this holds the
-    platform to what it actually said). Aggregate metrics judge only matured, non-censored
-    episodes and gate below ``min_n`` — an instrument, not a claim, until n accrues.
+    """The Scoreboard (SCORE): one EDITION scored as-of ``asof`` — a READ-ONLY pass over the
+    immutable calls log (or a stored edition's frozen pages), the operator-decision log, and realized
+    asof-capped prices. Edition 0, the default, is the call-of-record: the RECORD is the scoring
+    source, never a recompute (this holds the platform to what it actually said). Edition N >= 1 is a
+    stored re-run of today's rules from each company's join date on the public clock, scored on read
+    the same way. Aggregate metrics judge only matured, non-censored episodes and gate below
+    ``min_n`` — an instrument, not a claim, until n accrues.
 
-    Three kinds of recorded row are set aside before scoring: reconstructed rows (always), rows
-    annotated as phantom arms (by the annotated-night policy, which ``include_annotated`` overrides
-    per request), and rows recorded after their night's next EDGAR open (by the late-night policy,
-    which ``include_late`` overrides per request). Every reading is available; nothing is deleted.
+    On Edition 0 three kinds of recorded row are set aside before scoring: reconstructed rows
+    (always), rows annotated as phantom arms (by the annotated-night policy, which
+    ``include_annotated`` overrides per request), and rows recorded after their night's next EDGAR
+    open (by the late-night policy, which ``include_late`` overrides per request). Every reading is
+    available; nothing is deleted. An edition has none of those rows: its lists come back empty and
+    both policies read ``n/a``.
     """
+    chosen = _resolve_edition(conn, current_tenant, edition)
     result = assemble_scoreboard(
         conn,
         asof=asof,
@@ -117,6 +133,7 @@ def get_scoreboard(
         exclude_annotated=None if include_annotated is None else not include_annotated,
         # L1 — the same tri-state for the late-night reading
         exclude_late=None if include_late is None else not include_late,
+        edition=chosen,
     )
     theses_out = []
     for t in result.theses:
@@ -197,6 +214,76 @@ def get_scoreboard(
             today=now.date(),
         ),
         theses=theses_out,
+        edition=(
+            _edition_out(chosen)
+            if chosen is not None
+            else _record_edition_out(calls_repo.record_first(conn), edge)
+        ),
+    )
+
+
+# --- editions (S4) -------------------------------------------------------------------------------------
+
+
+def _resolve_edition(
+    conn: psycopg.Connection, tenant: UUID, requested: int | None
+) -> editions_repo.Edition | None:
+    """The edition a read serves: ``None`` = Edition 0 (the record). An explicit N >= 1 that this tenant has
+    not published is a 404; an omitted ``edition`` reads the setting, and a default naming an edition that
+    does not exist falls back to Edition 0 — the default view never 404s."""
+    if requested is None:
+        n = get_settings().scoreboard_default_edition
+        return editions_repo.get_by_number(conn, tenant_id=tenant, number=n) if n >= 1 else None
+    if requested == 0:
+        return None
+    found = editions_repo.get_by_number(conn, tenant_id=tenant, number=requested)
+    if found is None:
+        raise HTTPException(status_code=404, detail=f"edition {requested} not found")
+    return found
+
+
+def _record_edition_out(first: date | None, last: date | None) -> ScoreboardEditionOut:
+    return ScoreboardEditionOut(
+        number=0, label=editions_repo.EDITION_0_LABEL, first_night=first, last_night=last
+    )
+
+
+def _edition_out(e: editions_repo.Edition) -> ScoreboardEditionOut:
+    return ScoreboardEditionOut(
+        number=e.number,
+        label=e.label,
+        causes=list(e.causes),
+        cut=e.data_known_by,
+        first_night=e.first_night,
+        last_night=e.last_night,
+        n_pages=e.n_pages,
+        n_entries=e.n_entries,
+        n_entries_estimated=e.n_entries_estimated,
+        engine_fingerprint=e.engine_fingerprint,
+        config_hash=e.config_hash,
+        code_sha=e.code_sha,
+        published_at=e.created_at,
+    )
+
+
+@router.get("/editions", response_model=ScoreboardEditionsResponse)
+def get_scoreboard_editions(
+    conn: psycopg.Connection = Depends(get_conn),
+    current_tenant: UUID = Depends(get_current_tenant),
+) -> ScoreboardEditionsResponse:
+    """Every edition the Scoreboard can show: Edition 0 (the original record, the calls log — always
+    present, never stored) first, then each stored re-run edition ascending, with its cut, nights, join-date
+    counts and engine fingerprint. ``default`` = the edition ``GET /scoreboard`` serves when the request
+    names none (the setting; an unpublished default reads as 0). Read-only."""
+    stored = editions_repo.list_editions(conn, tenant_id=current_tenant)
+    n = get_settings().scoreboard_default_edition
+    default = n if n >= 1 and any(e.number == n for e in stored) else 0
+    return ScoreboardEditionsResponse(
+        default=default,
+        editions=[
+            _record_edition_out(calls_repo.record_first(conn), calls_repo.record_edge(conn)),
+            *(_edition_out(e) for e in stored),
+        ],
     )
 
 
@@ -285,6 +372,13 @@ def get_price_window(
     ),
     asof: date = Query(
         ..., description="score as-of this date — the series is CAPPED here (no-lookahead)"
+    ),
+    edition: int | None = Query(
+        None,
+        ge=0,
+        description="the EDITION the drawer belongs to (the `/scoreboard` param's semantics): an "
+        "edition >= 1 reads every dated overlay on the PUBLIC clock, a live as-of included; 0 / omitted "
+        "with the default 0 = the record's reading, unchanged",
     ),
     thesis: Thesis = Depends(get_thesis_or_404),
     current_tenant: UUID = Depends(get_current_tenant),
@@ -376,6 +470,11 @@ def get_price_window(
     # ingested it; a live asof stays on the record clock (where the two coincide) — ``serve_view``'s rule.
     known_at = known_at_for_asof(asof, now=db_now(conn))
     _, clock = serve_view(asof)
+    # Editions S4: an edition is a history view on the PUBLIC clock end to end, so its drawer reads every
+    # overlay there — a live as-of included (where the two clocks coincide anyway, ``db.public_clock``).
+    # The same shared ``clock="public"`` reads #433 gave a past as-of; no edition-specific clock.
+    if _resolve_edition(conn, current_tenant, edition) is not None:
+        clock = "public"
     buys = episode_insider_buys(
         conn,
         tenant_id=tenant,

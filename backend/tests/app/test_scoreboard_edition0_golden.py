@@ -6,10 +6,11 @@ timeline-source seam under ``scoreboard/record.py``; this test pins that Edition
 SAME JSON the endpoint returned before the seam existed.
 
 The golden (``tests/fixtures/scoreboard/edition0_golden.json``) was written from the pre-S4 code by running
-this file with ``ALPHADECK_WRITE_GOLDEN=1``. Only two things are dropped before the compare: ``generated_at``
-(the read's own wall-clock stamp) and the ``edition`` block S4 adds (it did not exist before; its content is
-tested in ``test_scoreboard_editions_api.py``). Everything the seed touches carries a FIXED id and stamp, and
-the router's clock seam is pinned, so the payload is deterministic.
+this file with ``ALPHADECK_WRITE_GOLDEN=1``. Only three things are dropped before the compare: ``generated_at``
+(the read's own wall-clock stamp), the ``edition`` block S4 adds (asserted to name Edition 0; the rest of it
+is tested in ``test_scoreboard_editions_api.py``) and the per-episode ``edition_join`` S4 adds (asserted
+null: the record has no join dates). Every pre-existing key must match exactly. Everything the seed touches
+carries a FIXED id and stamp, and the router's clock seam is pinned, so the payload is deterministic.
 """
 
 from __future__ import annotations
@@ -142,19 +143,27 @@ def seed(db) -> None:
     db.commit()
 
 
-def payloads(client) -> dict[str, object]:
-    """Every read the golden pins: the three Scoreboard readings and one drawer price window."""
+def payloads(client, edition: dict[str, str] | None = None) -> dict[str, object]:
+    """Every read the golden pins: the three Scoreboard readings and one drawer price window. ``edition``
+    adds S4's explicit ``edition=0`` to every request (it must change nothing)."""
+    ed = edition or {}
     out: dict[str, object] = {}
     for name, extra in (
         ("default", {}),
         ("include_annotated", {"include_annotated": "true"}),
         ("include_late", {"include_late": "true"}),
     ):
-        r = client.get("/scoreboard", params={"asof": ASOF, **extra})
+        r = client.get("/scoreboard", params={"asof": ASOF, **extra, **ed})
         assert r.status_code == 200, r.text
         body = r.json()
         body.pop("generated_at")
-        body.pop("edition", None)  # S4's new block — absent before it, tested on its own
+        block = body.pop("edition", None)  # S4's new block — absent before it
+        if block is not None:  # once S4 lands, the default read IS Edition 0
+            assert (block["number"], block["label"]) == (0, "the original record")
+        for t in body["theses"]:
+            for ep in t["episodes"]:
+                # S4's per-episode join date: an edition-only field, null on the record
+                assert ep.pop("edition_join", None) is None
         out[name] = body
     r = client.get(
         "/scoreboard/price-window",
@@ -164,6 +173,7 @@ def payloads(client) -> dict[str, object]:
             "start": "2026-07-10",
             "end": "2026-11-07",
             "asof": ASOF,
+            **ed,
         },
     )
     assert r.status_code == 200, r.text
@@ -181,3 +191,5 @@ def test_edition_0_returns_exactly_the_pre_editions_json(client, db, monkeypatch
         pytest.skip(f"golden written to {GOLDEN}")
     want = json.loads(GOLDEN.read_text(encoding="utf-8"))
     assert got == want
+    # S4: naming Edition 0 explicitly is the same read
+    assert payloads(client, {"edition": "0"}) == want

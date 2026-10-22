@@ -1152,6 +1152,24 @@ class ScoreboardEpisodeOut(BaseModel):
     tape_behind_market: bool = False
     insufficient_prices: bool = False  # e.g. a day-1 arm: no bar on/after the arm yet
     operator: "EpisodeOperatorOut | None" = None  # None = no decision logged (the capture gap)
+    # Editions S4 — the company's join date in the edition being read. Null on Edition 0 (the record has no
+    # join dates: it simply began). On an edition >= 1 the drawer renders ``note`` (set only for an
+    # ESTIMATED join); ``armed_on_join_night`` = the arm fell on that estimated night, so the episode is
+    # ``censored_start`` there (the true arm date is unknowable).
+    edition_join: "EditionJoinOut | None" = None
+
+
+class EditionJoinOut(BaseModel):
+    """The episode's company's join date in an edition (``edition_entry``): the date, whether it is the
+    option-A ESTIMATE (a deploy-seed member whose real join predates the snapshot record), the rule that
+    produced it, whether the arm fell on that estimated night, and the drawer's backend-authored note.
+    """
+
+    entry_date: date
+    estimated: bool
+    method: str
+    armed_on_join_night: bool = False
+    note: str | None = None
 
 
 def _scoreboard_episode_out(
@@ -1221,6 +1239,9 @@ def _scoreboard_episode_out(
         tape_behind_market=out.tape_behind_market,
         insufficient_prices=out.insufficient_prices,
         operator=_operator_out(e.operator),
+        edition_join=(
+            EditionJoinOut(**e.edition_join.model_dump()) if e.edition_join is not None else None
+        ),
     )
 
 
@@ -1352,15 +1373,18 @@ class ScoreboardSummaryOut(BaseModel):
     # (an active `exclude` annotation, migration 0045) were dropped before the per-as-of dedup, exactly like
     # reconstructed rows; "included" = they were scored, as before D3b. Default = the server setting
     # (ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED); `?include_annotated=` overrides per request. A number quoted
-    # from this response should name this reading. `annotated_nights` lists the nights either way.
-    annotated_policy: Literal["excluded", "included"] = "excluded"
+    # from this response should name this reading. `annotated_nights` lists the nights either way. "n/a" on an
+    # edition >= 1: a re-run has no annotated rows (the list comes back empty).
+    annotated_policy: Literal["excluded", "included", "n/a"] = "excluded"
     annotated_nights: list[AnnotatedNightOut] = []
     # L1 — the late-night READ POLICY this response was computed under: "excluded" = rows recorded after
     # their night's next EDGAR open were dropped before the per-as-of dedup (an on-time row for the night
     # wins; a late-only night reads like a cron gap); "included" = they were scored, as before L1. Default =
     # the server setting (ALPHADECK_SCOREBOARD_EXCLUDE_LATE); `?include_late=` overrides per request.
-    # `late_nights` lists the nights either way. Composes with the two filters above by AND.
-    late_policy: Literal["excluded", "included"] = "excluded"
+    # `late_nights` lists the nights either way. Composes with the two filters above by AND. "n/a" on an
+    # edition >= 1: every page of a re-run is computed the same way, none is late (the list comes back empty,
+    # as does `reconstructed_nights`).
+    late_policy: Literal["excluded", "included", "n/a"] = "excluded"
     late_nights: list[LateNightOut] = []
     # Record freshness (compute-on-read; the read still writes nothing) — is the call-of-record
     # current NOW, measured against the last EXPECTED Mon-Fri+RUN_AT run (never raw today - edge),
@@ -1374,13 +1398,50 @@ class ScoreboardSummaryOut(BaseModel):
     today: date
 
 
+class ScoreboardEditionOut(BaseModel):
+    """Which EDITION a Scoreboard read shows (editions S4). Edition 0 = the original record: the calls log,
+    never stored as an edition (``cut`` null — the record is append-only and current; ``first_night`` /
+    ``last_night`` = the calls log's first / latest as-of; no join dates, so the entry counts are null and the
+    engine fields too). Edition N >= 1 = a stored re-run of today's rules from each company's join date on
+    the public clock, frozen at ``cut`` (the newest row it could hold): ``causes`` names why it was cut
+    (``initial`` for Edition 1), ``n_entries_estimated`` of ``n_entries`` join dates are option-A estimates,
+    and the engine fingerprint / policy hash / code sha say which rules and code produced it (``code_sha``
+    null when unknown, never fabricated)."""
+
+    number: int
+    label: str
+    causes: list[str] = []
+    cut: datetime | None = None
+    first_night: date | None = None
+    last_night: date | None = None
+    n_pages: int | None = None
+    n_entries: int | None = None
+    n_entries_estimated: int | None = None
+    engine_fingerprint: str | None = None
+    config_hash: str | None = None
+    code_sha: str | None = None
+    published_at: datetime | None = None
+
+
+class ScoreboardEditionsResponse(BaseModel):
+    """Every edition the Scoreboard can show, Edition 0 (the original record) first, then each stored
+    edition ascending; ``default`` = the edition a ``GET /scoreboard`` with no ``edition`` serves.
+    """
+
+    default: int
+    editions: list[ScoreboardEditionOut] = []
+
+
 class ScoreboardResponse(BaseModel):
-    """The Scoreboard: the call-of-record scored as-of ``asof`` — the record, never a recompute."""
+    """The Scoreboard: one EDITION scored as-of ``asof`` — Edition 0 is the call-of-record (the record, never
+    a recompute); Edition N >= 1 is a stored re-run, read from its frozen pages (``edition`` says which).
+    """
 
     asof: date
     generated_at: str  # known_at honesty stamp (ISO): when this read of the record was taken
     summary: ScoreboardSummaryOut
     theses: list[ScoreboardThesisOut] = []
+    edition: ScoreboardEditionOut
 
 
 class PriceBar(BaseModel):

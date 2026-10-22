@@ -1779,7 +1779,7 @@
           "scoreboard"
         ],
         "summary": "Get Scoreboard",
-        "description": "The Scoreboard (SCORE): the call-of-record scored as-of ``asof`` \u2014 a READ-ONLY pass over\nthe immutable calls log, the operator-decision log, and realized asof-capped prices. The\nRECORD is the scoring source, never a recompute (replay re-derives history; this holds the\nplatform to what it actually said). Aggregate metrics judge only matured, non-censored\nepisodes and gate below ``min_n`` \u2014 an instrument, not a claim, until n accrues.\n\nThree kinds of recorded row are set aside before scoring: reconstructed rows (always), rows\nannotated as phantom arms (by the annotated-night policy, which ``include_annotated`` overrides\nper request), and rows recorded after their night's next EDGAR open (by the late-night policy,\nwhich ``include_late`` overrides per request). Every reading is available; nothing is deleted.",
+        "description": "The Scoreboard (SCORE): one EDITION scored as-of ``asof`` \u2014 a READ-ONLY pass over the\nimmutable calls log (or a stored edition's frozen pages), the operator-decision log, and realized\nasof-capped prices. Edition 0, the default, is the call-of-record: the RECORD is the scoring\nsource, never a recompute (this holds the platform to what it actually said). Edition N >= 1 is a\nstored re-run of today's rules from each company's join date on the public clock, scored on read\nthe same way. Aggregate metrics judge only matured, non-censored episodes and gate below\n``min_n`` \u2014 an instrument, not a claim, until n accrues.\n\nOn Edition 0 three kinds of recorded row are set aside before scoring: reconstructed rows\n(always), rows annotated as phantom arms (by the annotated-night policy, which\n``include_annotated`` overrides per request), and rows recorded after their night's next EDGAR\nopen (by the late-night policy, which ``include_late`` overrides per request). Every reading is\navailable; nothing is deleted. An edition has none of those rows: its lists come back empty and\nboth policies read ``n/a``.",
         "operationId": "get_scoreboard_scoreboard_get",
         "parameters": [
           {
@@ -1841,6 +1841,25 @@
               "title": "Include Late"
             },
             "description": "the late-night reading: true = score rows recorded after their night's next EDGAR open (06:00 ET the next weekday) as before; false = set them aside, so an on-time row for the night wins and a late-only night reads like a cron gap; omitted = the server setting (ALPHADECK_SCOREBOARD_EXCLUDE_LATE, default: set aside). The response's summary.late_policy names the reading used"
+          },
+          {
+            "name": "edition",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "which EDITION to score: 0 = the original record (the calls log); N >= 1 = the stored re-run Edition N (404 if it does not exist); omitted = the server setting (ALPHADECK_SCOREBOARD_DEFAULT_EDITION, default 0 \u2014 an unpublished default falls back to 0). The response's `edition` block names the edition served",
+              "title": "Edition"
+            },
+            "description": "which EDITION to score: 0 = the original record (the calls log); N >= 1 = the stored re-run Edition N (404 if it does not exist); omitted = the server setting (ALPHADECK_SCOREBOARD_DEFAULT_EDITION, default 0 \u2014 an unpublished default falls back to 0). The response's `edition` block names the edition served"
           }
         ],
         "responses": {
@@ -1860,6 +1879,28 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/scoreboard/editions": {
+      "get": {
+        "tags": [
+          "scoreboard"
+        ],
+        "summary": "Get Scoreboard Editions",
+        "description": "Every edition the Scoreboard can show: Edition 0 (the original record, the calls log \u2014 always\npresent, never stored) first, then each stored re-run edition ascending, with its cut, nights, join-date\ncounts and engine fingerprint. ``default`` = the edition ``GET /scoreboard`` serves when the request\nnames none (the setting; an unpublished default reads as 0). Read-only.",
+        "operationId": "get_scoreboard_editions_scoreboard_editions_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScoreboardEditionsResponse"
                 }
               }
             }
@@ -1945,6 +1986,25 @@
               "title": "Asof"
             },
             "description": "score as-of this date \u2014 the series is CAPPED here (no-lookahead)"
+          },
+          {
+            "name": "edition",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "the EDITION the drawer belongs to (the `/scoreboard` param's semantics): an edition >= 1 reads every dated overlay on the PUBLIC clock, a live as-of included; 0 / omitted with the default 0 = the record's reading, unchanged",
+              "title": "Edition"
+            },
+            "description": "the EDITION the drawer belongs to (the `/scoreboard` param's semantics): an edition >= 1 reads every dated overlay on the PUBLIC clock, a live as-of included; 0 / omitted with the default 0 = the record's reading, unchanged"
           },
           {
             "name": "thesis_id",
@@ -9940,6 +10000,47 @@
         "title": "EditTermsRequest",
         "description": "Body for ``PUT /theses/{id}/terms/edit`` \u2014 the operator's full, edited term set, saved DIRECTLY (no LLM,\nmirroring LLM-out-of-promote). Authorship is re-stamped server-side: an untouched ``system_drafted`` BROAD\nterm keeps its authorship so a later regenerate can re-roll it; only operator-touched entries become\n``operator_set`` (added) / ``operator_edited`` (re-tiered). An empty list clears the set (a visible operator\nchoice)."
       },
+      "EditionJoinOut": {
+        "properties": {
+          "entry_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Entry Date"
+          },
+          "estimated": {
+            "type": "boolean",
+            "title": "Estimated"
+          },
+          "method": {
+            "type": "string",
+            "title": "Method"
+          },
+          "armed_on_join_night": {
+            "type": "boolean",
+            "title": "Armed On Join Night",
+            "default": false
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "entry_date",
+          "estimated",
+          "method"
+        ],
+        "title": "EditionJoinOut",
+        "description": "The episode's company's join date in an edition (``edition_entry``): the date, whether it is the\noption-A ESTIMATE (a deploy-seed member whose real join predates the snapshot record), the rule that\nproduced it, whether the arm fell on that estimated night, and the drawer's backend-authored note."
+      },
       "EpisodeOperatorOut": {
         "properties": {
           "action": {
@@ -13046,6 +13147,169 @@
         "title": "SavedRunSummary",
         "description": "One saved draft-run artifact's summary for the run-loader picker (the cheap label fields \u2014 never the\ndraft itself; the detail endpoint returns the inner ``ChainDraftOut``). RUN metadata only: no score, no\nnumber (#3). ``run_id`` is the artifact's filename stem (the detail-endpoint path segment)."
       },
+      "ScoreboardEditionOut": {
+        "properties": {
+          "number": {
+            "type": "integer",
+            "title": "Number"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "causes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Causes",
+            "default": []
+          },
+          "cut": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cut"
+          },
+          "first_night": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Night"
+          },
+          "last_night": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Night"
+          },
+          "n_pages": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "N Pages"
+          },
+          "n_entries": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "N Entries"
+          },
+          "n_entries_estimated": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "N Entries Estimated"
+          },
+          "engine_fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Fingerprint"
+          },
+          "config_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config Hash"
+          },
+          "code_sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code Sha"
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "number",
+          "label"
+        ],
+        "title": "ScoreboardEditionOut",
+        "description": "Which EDITION a Scoreboard read shows (editions S4). Edition 0 = the original record: the calls log,\nnever stored as an edition (``cut`` null \u2014 the record is append-only and current; ``first_night`` /\n``last_night`` = the calls log's first / latest as-of; no join dates, so the entry counts are null and the\nengine fields too). Edition N >= 1 = a stored re-run of today's rules from each company's join date on\nthe public clock, frozen at ``cut`` (the newest row it could hold): ``causes`` names why it was cut\n(``initial`` for Edition 1), ``n_entries_estimated`` of ``n_entries`` join dates are option-A estimates,\nand the engine fingerprint / policy hash / code sha say which rules and code produced it (``code_sha``\nnull when unknown, never fabricated)."
+      },
+      "ScoreboardEditionsResponse": {
+        "properties": {
+          "default": {
+            "type": "integer",
+            "title": "Default"
+          },
+          "editions": {
+            "items": {
+              "$ref": "#/components/schemas/ScoreboardEditionOut"
+            },
+            "type": "array",
+            "title": "Editions",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "default"
+        ],
+        "title": "ScoreboardEditionsResponse",
+        "description": "Every edition the Scoreboard can show, Edition 0 (the original record) first, then each stored\nedition ascending; ``default`` = the edition a ``GET /scoreboard`` with no ``edition`` serves."
+      },
       "ScoreboardEpisodeOut": {
         "properties": {
           "thesis_id": {
@@ -13550,6 +13814,16 @@
                 "type": "null"
               }
             ]
+          },
+          "edition_join": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EditionJoinOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -13950,16 +14224,20 @@
             "type": "array",
             "title": "Theses",
             "default": []
+          },
+          "edition": {
+            "$ref": "#/components/schemas/ScoreboardEditionOut"
           }
         },
         "type": "object",
         "required": [
           "asof",
           "generated_at",
-          "summary"
+          "summary",
+          "edition"
         ],
         "title": "ScoreboardResponse",
-        "description": "The Scoreboard: the call-of-record scored as-of ``asof`` \u2014 the record, never a recompute."
+        "description": "The Scoreboard: one EDITION scored as-of ``asof`` \u2014 Edition 0 is the call-of-record (the record, never\na recompute); Edition N >= 1 is a stored re-run, read from its frozen pages (``edition`` says which)."
       },
       "ScoreboardSummaryOut": {
         "properties": {
@@ -14086,7 +14364,8 @@
             "type": "string",
             "enum": [
               "excluded",
-              "included"
+              "included",
+              "n/a"
             ],
             "title": "Annotated Policy",
             "default": "excluded"
@@ -14103,7 +14382,8 @@
             "type": "string",
             "enum": [
               "excluded",
-              "included"
+              "included",
+              "n/a"
             ],
             "title": "Late Policy",
             "default": "excluded"
