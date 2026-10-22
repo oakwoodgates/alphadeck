@@ -150,13 +150,11 @@ def test_the_cap_is_the_end_of_the_nights_market_day():
 
 def test_a_fact_public_before_the_night_is_in_the_row_however_late_we_ingested_it(db, security_id):
     """The Wells buy was ACCEPTED 05-28 — public days before the night — but our database ingested it 06-20.
-    The night's reconstruction SEES it (both keys → ARMED): the public clock, not our ingest history. The
-    retired record-clock view at the same instant hid it — that only replayed our own lateness."""
+    The night's reconstruction SEES it (both keys → ARMED): the public clock, not our ingest history.
+    """
     tid = _seed_hims(db, security_id, accepted=_PUBLIC_BEFORE)
     public = call_for_thesis(db, tid, _ASOF, known_at=_CAP, clock="public", record=False)
-    held = call_for_thesis(db, tid, _ASOF, known_at=_CAP, record=False)  # the retired record view
     assert public.state is State.ARMED and public.key_conviction.turned
-    assert held.state is State.WARMING and not held.key_conviction.turned
 
     results = run_backfill(db, asof=_ASOF)
     assert [(r.state, r.verdict, r.recorded, r.error) for r in results] == [

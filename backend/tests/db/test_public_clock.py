@@ -114,7 +114,6 @@ def test_a_form4_ingested_late_but_public_before_the_asof_is_visible(db, securit
     # the row carries the axis it was judged on, and our honest ingest instant beside it
     assert public[0]["recorded_at"] == datetime(2026, 6, 3, 21, 0, tzinfo=timezone.utc)
     assert public[0][INGESTED_COL] == datetime(2026, 9, 1, tzinfo=timezone.utc)
-    assert _read(db, "fact_insider_txn", security_id, asof, _eod(asof), "record") == []
     # traded 06-01, accepted 06-03 at 17:00 ET: a 06-02 view cannot see it, nor 06-03 before 17:00 ET
     assert (
         _read(
@@ -222,10 +221,6 @@ def test_a_reparse_shares_its_filings_public_instant_so_the_best_parse_is_read(d
     asof = date(2026, 6, 5)
     (pub,) = _read(db, "fact_insider_txn", security_id, asof, _eod(asof), "public")
     assert pub["insider_role"] == "REPAIRED ROLE"
-    (rec,) = _read(db, "fact_insider_txn", security_id, asof, _eod(asof), "record")
-    assert (
-        rec["insider_role"] == "OLD ROLE"
-    )  # the record clock replays what we held — the retired view
 
 
 # --- the live coincidence + the basket read ------------------------------------------------------------
@@ -397,5 +392,3 @@ def test_the_pit_threads_the_clock_to_every_read(db, security_id):
         # mx-1's best parse (public at its acceptance); mx-2 has no acceptance and was first held 06-06 00:00
         # UTC = 06-05 20:00 ET — inside the 06-05 market day, so the night held it
         assert [r["insider_role"] for r in pit.insider_txns(security_id)] == ["B", "CEO"]
-        rec = PointInTimeData(db, asof=asof, known_at=_eod(asof), basket=basket)
-        assert [float(r["close"]) for r in rec.price_history(security_id)] == [10.0]
