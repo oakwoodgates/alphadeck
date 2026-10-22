@@ -47,7 +47,13 @@ from domain.insider_amendments import (
     norm_cik,
 )
 from ingest.edgar.form4 import _txn_date, implausible_txn_date, parse_form4
-from ingest.edgar.submissions import filings_of, form4_doc_url, parse_acceptance
+from ingest.edgar.submissions import (
+    filed_on_or_after,
+    filings_of,
+    form4_doc_url,
+    form4_filings,
+    parse_acceptance,
+)
 from ingest.skips import (
     FORM4_OTHER_ISSUER,
     FORM4_UNPARSEABLE,
@@ -57,6 +63,24 @@ from ingest.skips import (
 )
 
 AMENDMENT_FORM = "4/A"
+
+
+def form4_leg_filings(
+    submissions: Mapping[str, Any], *, filed_since: date | None = None
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    """THE ONE RULE for which filing documents the Form 4 leg reads — ``(originals, amendments)`` — shared by
+    the leg itself (``pipeline.ingest_thesis._form4_leg``) and the fetch-ahead that pre-fetches them
+    (``pipeline.fetch_ahead``), so the two can never read different documents.
+
+    The normal walk (``filed_since`` None): every Form 4 and every Form 4/A in the submissions index. X1 — a
+    name still ONBOARDING (``filed_since`` set): only the Form 4s filed on/after that date
+    (``submissions.filed_on_or_after``) and NO 4/A at all — a 4/A links to the original it amends, which may be
+    older than the window and so not stored yet; the onboarding job's full walk stores the originals, then the
+    4/As, in order. The caller still skips the accessions it has already stored."""
+    subs = dict(submissions)
+    originals = filed_on_or_after(form4_filings(subs), filed_since)
+    amendments = [] if filed_since is not None else filings_of(subs, AMENDMENT_FORM)
+    return originals, amendments
 
 
 @dataclass(frozen=True)

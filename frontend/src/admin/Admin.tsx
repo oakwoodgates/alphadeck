@@ -19,6 +19,7 @@ import { scoreboardPath } from "../nav";
 import { hoursLate } from "../scoreboard/late";
 import { errText } from "../workbench/format";
 import { InsiderAmendments } from "./InsiderAmendments";
+import { Onboarding } from "./Onboarding";
 import { PriceFeedRepairs, repairHandledIds } from "./PriceFeedRepairs";
 import { SplitList } from "./SplitList";
 
@@ -536,6 +537,12 @@ export function Admin({ header }: Props) {
               by side, Confirm / Reject); the auto-confirmed, announced and set-aside ones quiet. Its own read;
               renders nothing when the list is empty. */}
           <SplitList />
+
+          {/* 1e — ONBOARDING (X1): the staged cold-ingest queue — new names whose filing history loads in
+              batches outside the nightly window. Quiet (a summary line + collapsed lists) while names wait or
+              load; loud only for a FAILED name (with Retry) or a STALLED queue. Its own read; renders nothing
+              when the queue has never held a name. */}
+          <Onboarding />
 
           {/* 2 — cron health: the one-word verdict + the last run */}
           <section className="adm-card" data-testid="adm-cron">

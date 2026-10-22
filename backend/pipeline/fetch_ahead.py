@@ -33,6 +33,12 @@ earlier row of the same walk already fetched (its cache is warm, exactly as in t
 W1 lock DEFERRED (it is ingested after a wait, so it re-reads fresh), a ``--no-live`` walk (no round trip to
 overlap), and ``Settings.ingest_fetch_concurrency = 1`` — the kill switch: no pool, the serial loop verbatim.
 
+X1 — A NAME STILL ONBOARDING (``pipeline/onboarding.py``) is fetched exactly as its legs will read it, never
+more: one DEFERRED past the pass's onboarding cap gets no job at all (no planning read, no fetch); a WINDOWED
+one's job fetches its submissions index, its price and only the Form 4 documents filed inside its window —
+no 4/A — through the same ``form4_leg_filings`` call the Form 4 leg makes, so the two cannot drift and a cold
+name never pulls its whole history inside the pass.
+
 THE SETTLE GUARD (D2). The price leg judges which bars have settled at ``now``. With a handoff (and no
 ``now`` from the caller) that is the instant the worker STARTED the pull: the vendor's answer reflects that
 moment, so a session that settled between the pull and the write is still withheld — conservative, never a
@@ -47,20 +53,21 @@ exist at once.
 from __future__ import annotations
 
 import threading
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 from uuid import UUID
 
 import psycopg
 
+from domain.onboarding import OnboardingWindow
 from domain.settings import get_settings
 from domain.thesis import BasketMember
 from ingest.edgar.form4 import existing_accessions
-from ingest.edgar.form4a import AMENDMENT_FORM, existing_amendment_accessions
-from ingest.edgar.submissions import filings_of, form4_doc_url, form4_filings
+from ingest.edgar.form4a import existing_amendment_accessions, form4_leg_filings
+from ingest.edgar.submissions import form4_doc_url
 from pipeline import pass_timings
 from pipeline.pass_timings import timed
 from securities import master
@@ -232,6 +239,9 @@ class _Job:
     seen_form4: frozenset[str]
     seen_amendments: frozenset[str]
     symbol: str | None
+    # X1 — a name still ONBOARDING: the Form 4 leg reads only the filings filed since this date and no 4/A,
+    # so the job fetches exactly those (``form4_leg_filings`` — the one rule both use). None = the full walk.
+    filed_since: date | None = None
 
 
 class FetchAhead:
@@ -257,6 +267,7 @@ class FetchAhead:
         workers: int,
         fetch_submissions: Callable[[Any, str], dict[str, Any]],
         lookahead: int | None = None,
+        onboarding: Mapping[UUID, OnboardingWindow] | None = None,
     ) -> None:
         self._conn = conn
         self._client = client
@@ -266,6 +277,9 @@ class FetchAhead:
         self._allow_live = allow_live
         self._force_refresh = force_refresh
         self._fetch_submissions = fetch_submissions
+        # X1 — the walk's onboarding treatment (``ingest_thesis(onboarding=...)``): a DEFERRED name gets no job
+        # at all; a WINDOWED one's job fetches only what its windowed legs will read
+        self._onboarding = dict(onboarding or {})
         self._lookahead = max(1, lookahead if lookahead is not None else 2 * workers)
         self._pool = ThreadPoolExecutor(
             max_workers=max(1, workers), thread_name_prefix="fetch-ahead"
@@ -341,6 +355,11 @@ class FetchAhead:
         if sid is None or sid in self._sids:
             return None  # a later basket row of the same company reads for itself (the serial walk's reads)
         self._sids.add(sid)
+        window = self._onboarding.get(sid)
+        if window is not None and window.defer:
+            # X1 — past the pass's onboarding cap: the writer does not walk it, so nothing is read for it —
+            # no planning read, no fetch (the onboarding job loads it outside the window)
+            return None
         sec = master.get(self._conn, sid, tenant_id=self._tenant_id)
         if sec is None:
             return None
@@ -365,7 +384,14 @@ class FetchAhead:
                 symbol = wanted
         if cik is None and symbol is None:
             return None
-        return _Job(str(sec.ticker or sec.id), cik, seen4, seen4a, symbol)
+        return _Job(
+            str(sec.ticker or sec.id),
+            cik,
+            seen4,
+            seen4a,
+            symbol,
+            filed_since=window.filed_since if window is not None else None,
+        )
 
     # --- the pool's tasks --------------------------------------------------------------------------------
 
@@ -397,12 +423,11 @@ class FetchAhead:
             subs = self._fetch_submissions(rec, job.cik)
         except Exception:  # noqa: BLE001 — recorded: the writer's first read raises it in place
             return
-        new = [f for f in form4_filings(subs) if f["accession"] not in job.seen_form4]
-        new += [
-            f
-            for f in filings_of(dict(subs), AMENDMENT_FORM)
-            if f["accession"] not in job.seen_amendments
-        ]
+        # exactly the documents the Form 4 leg will read (THE ONE RULE, ``form4_leg_filings``): for a name still
+        # onboarding (X1) only the in-window Form 4s and no 4/A, so a cold name never pulls its history here
+        originals, amendments = form4_leg_filings(subs, filed_since=job.filed_since)
+        new = [f for f in originals if f["accession"] not in job.seen_form4]
+        new += [f for f in amendments if f["accession"] not in job.seen_amendments]
         for f in new:
             # the SAME url + key the Form 4 / 4-A legs build (``ingest_thesis._form4_leg``, ``form4a``)
             key = f"forms/{f['accession']}/{f['primary_doc'].rsplit('/', 1)[-1]}"

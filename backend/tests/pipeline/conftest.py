@@ -17,3 +17,14 @@ def _cron_runs_home(tmp_path, monkeypatch):
     d = tmp_path / "cron_runs_home"
     monkeypatch.setattr(cron_run_log, "_DEFAULT_CRON_RUNS", d)
     return d
+
+
+@pytest.fixture(autouse=True)
+def _onboard_runs_home(tmp_path, monkeypatch):
+    """X1 — the same redirect for the staged onboarding job's run artifacts (``pipeline/onboarding``): a batch
+    writes ``data/onboard_runs/<started>.json``, which a test must never litter (or read back)."""
+    from pipeline import onboarding
+
+    d = tmp_path / "onboard_runs_home"
+    monkeypatch.setattr(onboarding, "_DEFAULT_RUNS_DIR", d)
+    return d

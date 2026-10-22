@@ -75,6 +75,8 @@ _DEFAULT_CRON_RUNS = Path(__file__).resolve().parents[2] / "data" / "cron_runs"
 RUN_STATUS_RUNNING = "running"
 RUN_STATUS_FINISHED = "finished"
 RUN_STATUS_CRASHED = "crashed"
+# X1 — the run's KIND (what it does), stamped on every artifact this module writes: always the nightly here
+PASS_KIND_NIGHTLY = "nightly"
 
 
 def run_status(doc: dict) -> str:
@@ -126,6 +128,7 @@ def build_start_payload(
     the explicit ``status`` check each of them makes."""
     return {
         "status": RUN_STATUS_RUNNING,
+        "pass_kind": PASS_KIND_NIGHTLY,  # X1 — see `build_run_payload`
         "started_at": started_at.isoformat(),
         "finished_at": None,
         "asof": asof.isoformat(),
@@ -436,6 +439,10 @@ def build_run_payload(
     fresh_anywhere = pass_fresh(results)
     return {
         "status": RUN_STATUS_FINISHED,
+        # X1 — WHAT this run does (the server-move note's `pass_kind`), beside `run_kind` (how it was
+        # triggered). Every artifact in this directory is the nightly's; the staged onboarding job writes its
+        # own (`pass_kind: "onboard"`) under `data/onboard_runs/`, so no reader here ever sees one.
+        "pass_kind": PASS_KIND_NIGHTLY,
         "started_at": started_at.isoformat(),
         "finished_at": finished_at.isoformat(),
         "duration_s": round((finished_at - started_at).total_seconds(), 3),
@@ -618,10 +625,38 @@ def build_run_payload(
                     for x in r.ingested
                     if getattr(x, "lock_busy", None) or getattr(x, "lock_waited_s", 0.0)
                 ],
+                # X1 — the names whose HISTORY was still loading in the staged onboarding job
+                # (`pipeline/onboarding.py`): walked with their per-filing legs windowed to filings since
+                # `filed_since` (null = not walked here: `deferred` past the pass's onboarding cap, or another
+                # writer held the company); the thesis recorded with `ingest_fresh=false`. Listed, never
+                # dropped (#9). Readers use `.get`.
+                "onboarding": _onboarding_rows(r.ingested),
             }
             for r in results
         ],
     }
+
+
+def _onboarding_rows(names: Sequence) -> list[dict]:
+    """X1 — one row per security still onboarding (deduped: a name in N segments is N basket rows)."""
+    out: dict[str, dict] = {}
+    for x in names:
+        status = getattr(x, "onboarding", None)
+        if not status:
+            continue
+        since = getattr(x, "filed_since", None)
+        out.setdefault(
+            str(x.security_id),
+            {
+                "security_id": str(x.security_id),
+                "ticker": x.ticker,
+                "status": status,
+                "filed_since": since.isoformat() if since else None,
+                # past the pass's onboarding cap: listed, not ingested at all tonight
+                "deferred": bool(getattr(x, "onboarding_deferred", False)),
+            },
+        )
+    return list(out.values())
 
 
 def write_cron_run_log(

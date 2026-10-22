@@ -70,6 +70,12 @@ bash scripts/deploy.sh --env-only cron                                    # a cr
     at the latest) appends exactly what was missing. Refusing on them would make a deploy flaky during
     ordinary Workbench use for no protection.
 
+    The same holds for the **staged onboarding job** (X1, the cron sidecar's second schedule — below):
+    a `cron` rebuild kills a batch in flight, which is safe by the same argument plus its per-name
+    checkpoint (`security_onboarding.legs_done`, written after each leg commits): the next run resumes each
+    name at its next leg and appends nothing twice. Its own job lock (`(0x41444B, 3)`) is session-level and
+    dies with the container. The wrapper does not wait for it.
+
   It lists every refusal in one run. A bad invocation, such as an unknown service or no `--label`,
   exits 2.
 - **Then:** the backup (step 1 below), then the rebuild with `GIT_SHA` read from
@@ -276,7 +282,7 @@ then re-run step 1 + step 2.
   restart alphadeck-cron-1` does not. An env-ONLY change can keep the image:
   `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps --no-build cron`,
   which is what `scripts/deploy.sh --env-only cron` runs. After changing any of the cron service's vars, confirm with
-  `docker exec alphadeck-cron-1 printenv TZ ALPHADECK_MARKET_TZ RUN_AT ALPHADECK_CRON_AT RETRY_DELAY_S DB_WAIT_S RUN_TIMEOUT_S PYTHONUNBUFFERED`
+  `docker exec alphadeck-cron-1 printenv TZ ALPHADECK_MARKET_TZ RUN_AT ALPHADECK_CRON_AT RETRY_DELAY_S DB_WAIT_S RUN_TIMEOUT_S ONBOARD_EVERY_S ONBOARD_TIMEOUT_S PYTHONUNBUFFERED`
   and `docker exec alphadeck-backend-1 printenv TZ ALPHADECK_MARKET_TZ ALPHADECK_CRON_AT PYTHONUNBUFFERED`.
   The heartbeat URLs are credentials, so check them as set/unset, never by value:
   `docker exec alphadeck-cron-1 sh -c 'echo HEARTBEAT_URL=${HEARTBEAT_URL:+set} HEARTBEAT_BACKUP_URL=${HEARTBEAT_BACKUP_URL:+set}'`
@@ -291,9 +297,20 @@ then re-run step 1 + step 2.
   (`ALPHADECK_CRON_DB_WAIT_S`, default 300 s — the most the boot catch-up and each scheduled run wait for
   Postgres to accept a connection before firing anyway; see `FEED_LOOP.md` §catch-up on boot),
   **`RUN_TIMEOUT_S`** (`ALPHADECK_CRON_RUN_TIMEOUT_S`, default 5400 s — the most one `pipeline.daily` pass
-  may run before the script's `timeout` stops it; a timed-out pass is retried, then paged), and the two
+  may run before the script's `timeout` stops it; a timed-out pass is retried, then paged), the two
   optional external-heartbeat URLs **`HEARTBEAT_URL`** / **`HEARTBEAT_BACKUP_URL`** (same names in `.env`,
-  empty by default = a silent no-op; see `FEED_LOOP.md` §the scheduling sidecar). `SLACK_WEBHOOK_URL` now
+  empty by default = a silent no-op; see `FEED_LOOP.md` §the scheduling sidecar), and the **second
+  schedule** (X1): **`ONBOARD_EVERY_S`** (`ALPHADECK_ONBOARD_EVERY_S`, default 1800 s — how long after one
+  run of the staged onboarding job ends the next fires; **0 turns it off**) and **`ONBOARD_TIMEOUT_S`**
+  (`ALPHADECK_ONBOARD_TIMEOUT_S`, default 2700 s — the hard bound on one run; the job's own 1500 s budget is
+  checked between legs, and one heavy filer's Form 4 leg alone MEASURED ~10 min, so the bound only stops a
+  hung run). The job's other dials are `Settings` (`ALPHADECK_ONBOARD_*`), read where they act and NOT
+  injected by compose (the code defaults apply): the cron container reads the job's
+  `_WINDOW_BEFORE_MIN` / `_WINDOW_AFTER_MIN`, `_BATCH_MAX_NAMES`, `_BATCH_BUDGET_S`, `_DAILY_MAX_NAMES`,
+  `_MAX_ATTEMPTS` and the nightly's `_NIGHTLY_WINDOW_DAYS`; the backend reads the promote's
+  `_FAST_LANE_MAX` and the same window (a promote inside it queues). To change the window, set it on BOTH
+  services' `environment:`. Confirm the loop started with
+  `docker logs alphadeck-cron-1 | grep onboard-cron` → `onboard-cron: every 1800s …`. `SLACK_WEBHOOK_URL` now
   also carries the shell's failure page (`python -m notify.page`). `PYTHONUNBUFFERED=1` is baked into the
   image (not compose), so it needs a rebuild, not a recreate. Compose also caps the backend, cron and
   frontend logs at 50 MB × 5 (`logging:`), which, like an env change, applies when the container is recreated.

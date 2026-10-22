@@ -1060,6 +1060,50 @@
         }
       }
     },
+    "/workbench/theses/{thesis_id}/onboarding": {
+      "get": {
+        "tags": [
+          "workbench"
+        ],
+        "summary": "Get Thesis Onboarding",
+        "description": "X1 \u2014 the staged onboarding queue SCOPED to this thesis's members: what the Workbench polls after a\npromote whose cold names were queued (``PromoteOut.onboarding``) \u2014 counts per status, the pending names,\nthe latest done ones, the nightly window the job yields to. Read-only. A member with no queue row (its\nhistory was already loaded), or one loaded long ago for ANOTHER thesis, is absent \u2014 the counts describe\nthe names this thesis is still waiting on and the ones its own promotes queued.",
+        "operationId": "get_thesis_onboarding_workbench_theses__thesis_id__onboarding_get",
+        "parameters": [
+          {
+            "name": "thesis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thesis Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingReadoutOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/workbench/theses/{thesis_id}/ingest/jobs/{job_id}": {
       "get": {
         "tags": [
@@ -3190,6 +3234,72 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AdminSplitListEntryOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/onboarding": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Get Onboarding",
+        "description": "The staged onboarding queue (X1): counts per status, the pending names with their per-leg checkpoint,\nthe latest done ones, the latest job run, the nightly window the job yields to, and whether the queue\nSTALLED. Read-only.",
+        "operationId": "get_onboarding_admin_onboarding_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingReadoutOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/onboarding/{security_id}/retry": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Retry Onboarding",
+        "description": "Re-queue a FAILED name (attempts reset, checkpoint kept); the job loads it on its next run outside the\nnightly window. 409 when the name is not failed (already queued, in progress or done); 404 when it is not\nin the queue. Returns the refreshed queue.",
+        "operationId": "retry_onboarding_admin_onboarding__security_id__retry_post",
+        "parameters": [
+          {
+            "name": "security_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Security Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingReadoutOut"
                 }
               }
             }
@@ -10732,6 +10842,268 @@
         "title": "MirrorInfo",
         "description": "The frozen Parquet mirror this run swept, and what it does NOT contain.\n\n``excluded_tables`` + ``blind_detectors`` are a pair on purpose: naming a table that was left out is\nonly half an answer, because the reader still has to work out what stopped firing. Saying both means a\nresult can never be read as \"that detector is inert on this tape\" when the truth is \"that detector had\nno tape\"."
       },
+      "OnboardingNameOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "in_progress",
+              "done",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "legs_done": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Legs Done"
+          },
+          "attempts": {
+            "type": "integer",
+            "title": "Attempts"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "in_live_basket": {
+            "type": "boolean",
+            "title": "In Live Basket"
+          },
+          "enqueued_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Enqueued At"
+          },
+          "last_attempt_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Attempt At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "status",
+          "legs_done",
+          "attempts",
+          "source",
+          "in_live_basket",
+          "enqueued_at"
+        ],
+        "title": "OnboardingNameOut",
+        "description": "X1 \u2014 one name in the staged onboarding queue (``security_onboarding``). ``legs_done`` is its checkpoint;\n``in_live_basket`` false = PARKED (no live basket holds it any more, so the job leaves it \u2014 re-adding the\nname resumes it). ``last_error`` is the latest leg failure (on a ``done`` row: a tail leg's note)."
+      },
+      "OnboardingReadoutOut": {
+        "properties": {
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Counts"
+          },
+          "pending": {
+            "items": {
+              "$ref": "#/components/schemas/OnboardingNameOut"
+            },
+            "type": "array",
+            "title": "Pending"
+          },
+          "recent_done": {
+            "items": {
+              "$ref": "#/components/schemas/OnboardingNameOut"
+            },
+            "type": "array",
+            "title": "Recent Done"
+          },
+          "last_run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OnboardingRunOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "window": {
+            "type": "string",
+            "title": "Window"
+          },
+          "stalled": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stalled"
+          },
+          "paused": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paused"
+          },
+          "history_legs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "History Legs"
+          }
+        },
+        "type": "object",
+        "required": [
+          "counts",
+          "pending",
+          "recent_done",
+          "window",
+          "history_legs"
+        ],
+        "title": "OnboardingReadoutOut",
+        "description": "X1 \u2014 the staged onboarding queue as the operator reads it (``pipeline/onboarding.readout``): ``counts``\nper status (+ ``parked``), the PENDING names (failed first), the latest done ones, the latest run, the\nnightly window the job yields to, and ``stalled`` (names waiting with no finished run for\n``Settings.onboard_stalled_after_h`` \u2014 LOUD). Quiet unless a name failed or the queue stalled (WB#3)."
+      },
+      "OnboardingRunOut": {
+        "properties": {
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "run_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Kind"
+          },
+          "stopped": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stopped"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Counts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "started_at",
+          "status"
+        ],
+        "title": "OnboardingRunOut",
+        "description": "X1 \u2014 the latest run of the onboarding job (its artifact, ``data/onboard_runs``): ``stopped`` = why it\nended (``done`` / ``window`` / ``pass_running`` / ``budget_names`` / ``budget_time`` / ``daily_cap``),\n``counts`` = names per outcome (``done`` / ``requeued`` / ``failed`` / ``yielded`` / ``busy`` / ...)."
+      },
       "OperatorSpanOut": {
         "properties": {
           "take_id": {
@@ -11192,6 +11564,30 @@
         "title": "PromoteIngestRef",
         "description": "The promote response's ingest kick (PR-4): a promote that ADDED members starts their back-half\ningest (Form 4 + 8-K + 13D/G + EOD \u2014 the same per-thesis unit the cron runs, scoped to the new ids)\nas a background job so a fresh basket needn't wait for the nightly cron. ``new_members`` is THIS\npromote's newly-added count; the FE polls ``GET .../ingest/jobs/{job_id}``. Absent (``ingest`` null)\n= nothing was added, nothing was kicked (the cost thread: every editor Save promotes, so only\ngenuinely-new names ever pay)."
       },
+      "PromoteOnboardingRef": {
+        "properties": {
+          "queued": {
+            "type": "integer",
+            "title": "Queued"
+          },
+          "new_members": {
+            "type": "integer",
+            "title": "New Members"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "queued",
+          "new_members",
+          "reason"
+        ],
+        "title": "PromoteOnboardingRef",
+        "description": "X1 \u2014 the promote added COLD names (no other live basket holds them) that were QUEUED for the staged\nonboarding job instead of ingested at once: more of them than the fast lane takes\n(``Settings.onboard_fast_lane_max``), or the promote landed inside the nightly window. ``queued`` = this\npromote's cold names now waiting (including any already queued), ``new_members`` = its newly-added count,\n``reason`` = why they were queued. The FE polls ``GET .../onboarding`` for their progress."
+      },
       "PromoteOut": {
         "properties": {
           "id": {
@@ -11305,6 +11701,16 @@
                 "type": "null"
               }
             ]
+          },
+          "onboarding": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PromoteOnboardingRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -11314,7 +11720,7 @@
           "narrative"
         ],
         "title": "PromoteOut",
-        "description": "The promote response: the saved ``ThesisDetail`` (the FE re-snapshot \u2014 unchanged) + the ADDITIVE\n``ingest`` ref when this promote kicked a new-member ingest job. Optional/defaulted, so every\npre-existing consumer of the promote response keeps its exact shape."
+        "description": "The promote response: the saved ``ThesisDetail`` (the FE re-snapshot \u2014 unchanged) + the ADDITIVE\n``ingest`` ref when this promote kicked a new-member ingest job (the fast lane), or the ADDITIVE\n``onboarding`` ref when its cold names were queued for the staged onboarding job (X1). At most one of the\ntwo is set. Optional/defaulted, so every pre-existing consumer of the promote response keeps its exact\nshape."
       },
       "PromoteThesisRequest": {
         "properties": {

@@ -159,6 +159,56 @@ class Settings(BaseSettings):
     # refuses (exit 75, nothing written). ALPHADECK_REPAIR_LOCK_WAIT_S.
     repair_lock_wait_s: float = 60.0
 
+    # --- X1 — the STAGED COLD-INGEST job (pipeline/onboarding.py) ---
+    # A COLD name's first ingest (its whole Form 4 history, every 13D/G identity) costs 300-600 s against ~3.5 s warm
+    # (MEASURED 2026-10-21: median 396 s, n=10; prod's X5 average was ~110 s), so a big onboarding inside the 22:30 pass would run the night past its 5,400 s bound. The
+    # history load runs in its own resumable job, OUTSIDE the nightly window; these are its dials.
+    # THE WINDOW: the job refuses to start, and stops between names / legs, from `onboard_window_before_min`
+    # before RUN_AT (`cron_run_at`) until `onboard_window_after_min` after it, in market time — every day, so a
+    # moved RUN_AT moves the window with it. 60/60 = 21:30-23:30 ET at the default RUN_AT: an hour of lead is
+    # far more than one name's hold (the longest leg measured is ~2-3 min), and the job ALSO yields to any
+    # running pass it sees holding the call-of-record lock (a long night, a retry, an Admin "Run daily now").
+    # ALPHADECK_ONBOARD_WINDOW_BEFORE_MIN / _AFTER_MIN.
+    onboard_window_before_min: int = 60
+    onboard_window_after_min: int = 60
+    # THE BATCH: at most this many names per run and this much wall time per run (the sidecar fires the job every
+    # ONBOARD_EVERY_S, 30 min by default, so a 25-min budget keeps runs from queuing behind each other), and at
+    # most `onboard_daily_max_names` names attempted per market day (the plan's ≤200/day: ~6 h of SEC load at
+    # prod's ~110 s/name average — more for heavy filers, where the run's time budget binds first — leaving the rest of the day's SEC budget to the Workbench). 0 = no cap on that dial.
+    # ALPHADECK_ONBOARD_BATCH_MAX_NAMES / _BATCH_BUDGET_S / _DAILY_MAX_NAMES.
+    onboard_batch_max_names: int = 50
+    onboard_batch_budget_s: float = 1500.0
+    onboard_daily_max_names: int = 200
+    # How many runs may FAIL a name's history legs before it is marked `failed` (loud on Admin, Retry re-queues
+    # it). A yield to the nightly is never a failure. ALPHADECK_ONBOARD_MAX_ATTEMPTS.
+    onboard_max_attempts: int = 3
+    # THE NIGHTLY'S TREATMENT OF A NOT-YET-WARM NAME: the per-filing legs (Form 4, 13D/G) read only filings
+    # FILED within this many calendar days of the pass's as-of (the 4/A leg waits for the full load: a 4/A links
+    # to its original, which may be older than the window); the 8-K tape, prices and fundamentals run as for
+    # any name (they cost the same cold or warm). The call row is stamped `ingest_fresh=false` and the name is
+    # listed as onboarding — visible, never dropped (#9). 30 = the insider cluster window
+    # (`CallConfig.insider_cluster_window_days`), which also covers a flip buy's 18-day liveness. 0 = only the
+    # filings filed on the pass's own as-of. ALPHADECK_ONBOARD_NIGHTLY_WINDOW_DAYS.
+    onboard_nightly_window_days: int = 30
+    # THE PASS'S BOUND on that treatment: at most this many DISTINCT not-yet-warm names get the windowed walk in
+    # one pass; past it, a name is listed as onboarding but NOT ingested tonight (no leg, no fetch — the job
+    # loads it), so even a promote of thousands of names cannot run the night past its 5,400 s bound. 300 x the
+    # MEASURED first-night windowed cost per cold name (docs/FEED_LOOP.md §onboarding) leaves the pass well
+    # inside the bound at today's warm cost; the names past it are named in the report and on the artifact.
+    # 0 = no cap. ALPHADECK_ONBOARD_NIGHTLY_MAX_NAMES.
+    onboard_nightly_max_names: int = 300
+    # THE FAST LANE: a Workbench promote that adds at most this many COLD names (no other live basket holds them)
+    # ingests them at once, in the background, exactly as before X1; more than this are queued for the staged
+    # job instead (the promote returns at once either way). MEASURED (docs/FEED_LOOP.md §onboarding): the worst
+    # cold name took ~600 s (a heavy filer's whole Form 4 history), so 5 is the most whose worst case
+    # (~50 min) stays inside the on-promote job's 3,600 s reaper TTL and the window's 60-min lead; at the
+    # prod-measured ~110 s average it is ~9 min, and a 3-name promote stays exactly as instant as it was.
+    # Inside the nightly window a promote always queues. ALPHADECK_ONBOARD_FAST_LANE_MAX.
+    onboard_fast_lane_max: int = 5
+    # Admin: a queue with pending names and no finished job run for this many hours reads as STALLED (loud).
+    # ALPHADECK_ONBOARD_STALLED_AFTER_H.
+    onboard_stalled_after_h: float = 6.0
+
     # --- Admin ops surface (Slice 1) — the "Run daily now" job registry + the schedule read ---
     # The daily-run job's OWN reaper TTLs (pipeline/daily_job.py — deliberately NOT the drafter's dials
     # above: a COLD daily pass measured ~65 min, so the drafter's 900s running TTL would flip a healthy

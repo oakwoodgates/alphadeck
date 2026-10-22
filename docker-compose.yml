@@ -218,6 +218,12 @@ services:
       # no thesis names. Treat both as secrets in `.env`: anyone holding one can fake the heartbeat.
       HEARTBEAT_URL: ${HEARTBEAT_URL:-}
       HEARTBEAT_BACKUP_URL: ${HEARTBEAT_BACKUP_URL:-}
+      # X1 — the sidecar's SECOND schedule: the staged cold-ingest job (`python -m pipeline.onboarding`), fired
+      # this many seconds after its previous run ends (0 = OFF), each run bounded by ONBOARD_TIMEOUT_S. The job
+      # refuses inside the nightly window and yields to a running pass on its own (docs/FEED_LOOP.md). Numeric
+      # fallbacks, the same reason as RETRY_DELAY_S above.
+      ONBOARD_EVERY_S: ${ALPHADECK_ONBOARD_EVERY_S:-1800}
+      ONBOARD_TIMEOUT_S: ${ALPHADECK_ONBOARD_TIMEOUT_S:-2700}
       # No ANTHROPIC_API_KEY: ingest + the call engine are deterministic — no LLM on this path.
       # The notify delivery channel — this is the AUTOMATED path that fires the daily -> armed push, and (H3)
       # the shell's failure page (`python -m notify.page`) when a night or a backup fails for good. Unset ->

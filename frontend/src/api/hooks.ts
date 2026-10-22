@@ -27,6 +27,11 @@ export type PromoteThesisRequest = components["schemas"]["PromoteThesisRequest"]
 // the on-promote ingest kick (PR-4): the promote response's additive `ingest` ref + its poll body
 export type PromoteIngestRef = components["schemas"]["PromoteIngestRef"];
 export type IngestJobStatusOut = components["schemas"]["IngestJobStatusOut"];
+// X1 — the staged onboarding queue: the promote's additive `onboarding` ref (its cold names were queued, not
+// ingested at once) + the queue readout (Admin, and the Workbench's per-thesis progress read)
+export type PromoteOnboardingRef = components["schemas"]["PromoteOnboardingRef"];
+export type OnboardingReadoutOut = components["schemas"]["OnboardingReadoutOut"];
+export type OnboardingNameOut = components["schemas"]["OnboardingNameOut"];
 export type SecurityMatchOut = components["schemas"]["SecurityMatchOut"];
 export type BasketMember = components["schemas"]["BasketMember"];
 export type ExtractedFact = components["schemas"]["ExtractedFact"];
@@ -839,6 +844,45 @@ export function useIngestJobStatus(thesisId: string, jobId: string | null) {
   return q;
 }
 
+// X1 — the staged onboarding queue SCOPED to one thesis's members: what the Workbench polls after a promote
+// whose cold names were QUEUED (`PromoteOut.onboarding`). Polls every 15s while a name is still waiting
+// (queued / in progress) and stops once none is; each time more names finish loading, this thesis's card,
+// tape and scored view re-read (their facts just landed). retry:false — an error is a visible line.
+export function useThesisOnboarding(thesisId: string, enabled: boolean) {
+  const q = useQuery({
+    queryKey: ["workbench-onboarding", thesisId] as const,
+    enabled: enabled && !!thesisId,
+    retry: false,
+    refetchInterval: (query) => {
+      const c = query.state.data?.counts;
+      return c && (c.queued ?? 0) + (c.in_progress ?? 0) > 0 ? 15_000 : false;
+    },
+    queryFn: async () => {
+      const { data, error } = await api.GET("/workbench/theses/{thesis_id}/onboarding", {
+        params: { path: { thesis_id: thesisId } },
+      });
+      if (error) throw error;
+      return data;
+    },
+  });
+  const qc = useQueryClient();
+  const done = q.data?.counts?.done ?? 0;
+  const seen = useRef<number | null>(null);
+  useEffect(() => {
+    if (seen.current !== null && done > seen.current) {
+      for (const queryKey of [
+        ["call", thesisId],
+        ["display-signals", thesisId],
+        ["workbench-scored", thesisId],
+      ]) {
+        qc.invalidateQueries({ queryKey });
+      }
+    }
+    seen.current = done;
+  }, [done, thesisId, qc]);
+  return q;
+}
+
 // --- Run loader (the saved-draft-run picker, a dev/test cost-saver) ---
 // List a thesis's saved draft runs, newest-first. GATED backend-side by ALPHADECK_RUN_LOADER_ENABLED: when the
 // loader is disabled the endpoint 404s -> this query `isError`, and the picker self-hides (the single flag drives
@@ -1468,6 +1512,40 @@ export function useSplitList() {
       const { data, error } = await api.GET("/admin/splits");
       if (error) throw error;
       return data;
+    },
+  });
+}
+
+// X1 — the staged onboarding queue (Admin "Onboarding"): counts per status, the pending names with their
+// per-leg checkpoint, the latest done ones, the latest job run, whether the queue STALLED. Same cadence as the
+// status read.
+export function useOnboarding() {
+  return useQuery({
+    queryKey: ["admin-onboarding"] as const,
+    refetchInterval: 60_000,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/admin/onboarding");
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+// RETRY a failed onboarding name (back to queued, attempts reset, its checkpoint kept). The response IS the
+// refreshed queue, so it replaces the cached read directly.
+export function useRetryOnboarding() {
+  const qc = useQueryClient();
+  return useMutation({
+    retry: false,
+    mutationFn: async (securityId: string) => {
+      const { data, error } = await api.POST("/admin/onboarding/{security_id}/retry", {
+        params: { path: { security_id: securityId } },
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (data) => {
+      qc.setQueryData(["admin-onboarding"], data);
     },
   });
 }

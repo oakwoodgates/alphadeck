@@ -743,3 +743,44 @@ def test_backfill_accepted_basket_only_worklist_is_tenant_isolated(db):
 
     assert (DEFAULT_TENANT_ID, shared) in scopes  # the tenant that actually holds the basket
     assert (PROD_TENANT_ID, shared) not in scopes  # ...and NEVER the other one's rows
+
+
+def test_the_onboarding_queue_reads_are_tenant_isolated(db):
+    """X1 — the staged onboarding queue (``security_onboarding``, ``pipeline/onboarding``) is a new read surface:
+    the Admin / Workbench readout and the ``rows`` read under one tenant never list the other tenant's row, and
+    the promote's cold-name test (``cold_ids``) counts only its OWN tenant's live baskets as proof a name is
+    loaded. Grows the poison-row proof (discipline-not-RLS holds only if each new read path stays on the tenant
+    filter)."""
+    from pipeline import onboarding
+
+    provision_tenant(db, "prod-onboarding", tenant_id=PROD_TENANT_ID)
+    demo_sec = _security(db, DEFAULT_TENANT_ID, ticker="DEMO", cik="0000000101")
+    prod_sec = _security(db, PROD_TENANT_ID, ticker="PROD", cik="0000000102")
+    onboarding.enqueue(db, [demo_sec], tenant_id=DEFAULT_TENANT_ID, source="cli")
+    onboarding.enqueue(db, [prod_sec], tenant_id=PROD_TENANT_ID, source="cli")
+    # a DEMO live basket holds `held` — it must not make that name read as loaded for PROD
+    held = _security(db, DEFAULT_TENANT_ID, ticker="HELD", cik="0000000103")
+    tid = uuid.uuid4()
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO thesis (id, tenant_id, name, narrative) VALUES (%s, %s, %s, %s)",
+            (tid, DEFAULT_TENANT_ID, "demo basket", "n"),
+        )
+        cur.execute(
+            "INSERT INTO basket_member (tenant_id, thesis_id, ordinal, ticker, role, security_id) "
+            "VALUES (%s, %s, %s, %s, %s, %s)",
+            (DEFAULT_TENANT_ID, tid, 0, "HELD", "core", held),
+        )
+    db.commit()
+
+    demo = onboarding.readout(db, tenant_id=DEFAULT_TENANT_ID)
+    prod = onboarding.readout(db, tenant_id=PROD_TENANT_ID)
+    assert [r.security_id for r in demo.pending] == [demo_sec]
+    assert [r.security_id for r in prod.pending] == [prod_sec]
+    assert [r.security_id for r in onboarding.rows(db, tenant_id=PROD_TENANT_ID)] == [prod_sec]
+    # under DEMO the demo basket proves HELD loaded (warm); under PROD it proves nothing (cold)
+    assert onboarding.cold_ids(db, [held], tenant_id=DEFAULT_TENANT_ID, thesis_id=None) == set()
+    assert onboarding.cold_ids(db, [held], tenant_id=PROD_TENANT_ID, thesis_id=None) == {held}
+    # demo_sec's PENDING row is DEMO's: under PROD that row does not exist
+    assert onboarding.pending_status(db)[(DEFAULT_TENANT_ID, demo_sec)] == "queued"
+    assert (PROD_TENANT_ID, demo_sec) not in onboarding.pending_status(db)

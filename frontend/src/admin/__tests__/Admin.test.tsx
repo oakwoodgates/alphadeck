@@ -358,6 +358,21 @@ vi.mock("../../api/hooks", () => ({
   useRejectSplit: () => h.repair,
   useRevokeSplit: () => h.repair,
   useRestoreSplit: () => h.repair,
+  // X1 — the Onboarding panel (its own behavior is in Onboarding.test.tsx): an empty queue here
+  useOnboarding: () => ({
+    data: {
+      counts: { queued: 0, in_progress: 0, done: 0, failed: 0, parked: 0 },
+      pending: [],
+      recent_done: [],
+      last_run: null,
+      window: "21:30-23:30 EDT",
+      stalled: null,
+      history_legs: ["form4", "form8k", "schedule13"],
+    },
+    isError: false,
+    error: null,
+  }),
+  useRetryOnboarding: () => h.repair,
 }));
 
 beforeEach(() => {

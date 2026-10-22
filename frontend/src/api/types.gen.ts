@@ -538,6 +538,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/workbench/theses/{thesis_id}/onboarding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Thesis Onboarding
+         * @description X1 — the staged onboarding queue SCOPED to this thesis's members: what the Workbench polls after a
+         *     promote whose cold names were queued (``PromoteOut.onboarding``) — counts per status, the pending names,
+         *     the latest done ones, the nightly window the job yields to. Read-only. A member with no queue row (its
+         *     history was already loaded), or one loaded long ago for ANOTHER thesis, is absent — the counts describe
+         *     the names this thesis is still waiting on and the ones its own promotes queued.
+         */
+        get: operations["get_thesis_onboarding_workbench_theses__thesis_id__onboarding_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/workbench/theses/{thesis_id}/ingest/jobs/{job_id}": {
         parameters: {
             query?: never;
@@ -1675,6 +1699,50 @@ export interface paths {
          *     aside.
          */
         post: operations["restore_split_admin_splits__version_id__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/onboarding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Onboarding
+         * @description The staged onboarding queue (X1): counts per status, the pending names with their per-leg checkpoint,
+         *     the latest done ones, the latest job run, the nightly window the job yields to, and whether the queue
+         *     STALLED. Read-only.
+         */
+        get: operations["get_onboarding_admin_onboarding_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/onboarding/{security_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retry Onboarding
+         * @description Re-queue a FAILED name (attempts reset, checkpoint kept); the job loads it on its next run outside the
+         *     nightly window. 409 when the name is not failed (already queued, in progress or done); 404 when it is not
+         *     in the queue. Returns the refreshed queue.
+         */
+        post: operations["retry_onboarding_admin_onboarding__security_id__retry_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5524,6 +5592,100 @@ export interface components {
             blind_detectors?: string[];
         };
         /**
+         * OnboardingNameOut
+         * @description X1 — one name in the staged onboarding queue (``security_onboarding``). ``legs_done`` is its checkpoint;
+         *     ``in_live_basket`` false = PARKED (no live basket holds it any more, so the job leaves it — re-adding the
+         *     name resumes it). ``last_error`` is the latest leg failure (on a ``done`` row: a tail leg's note).
+         */
+        OnboardingNameOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker?: string | null;
+            /** Name */
+            name?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "in_progress" | "done" | "failed";
+            /** Legs Done */
+            legs_done: string[];
+            /** Attempts */
+            attempts: number;
+            /** Last Error */
+            last_error?: string | null;
+            /** Source */
+            source: string;
+            /** In Live Basket */
+            in_live_basket: boolean;
+            /**
+             * Enqueued At
+             * Format: date-time
+             */
+            enqueued_at: string;
+            /** Last Attempt At */
+            last_attempt_at?: string | null;
+            /** Finished At */
+            finished_at?: string | null;
+        };
+        /**
+         * OnboardingReadoutOut
+         * @description X1 — the staged onboarding queue as the operator reads it (``pipeline/onboarding.readout``): ``counts``
+         *     per status (+ ``parked``), the PENDING names (failed first), the latest done ones, the latest run, the
+         *     nightly window the job yields to, and ``stalled`` (names waiting with no finished run for
+         *     ``Settings.onboard_stalled_after_h`` — LOUD). Quiet unless a name failed or the queue stalled (WB#3).
+         */
+        OnboardingReadoutOut: {
+            /** Counts */
+            counts: {
+                [key: string]: number;
+            };
+            /** Pending */
+            pending: components["schemas"]["OnboardingNameOut"][];
+            /** Recent Done */
+            recent_done: components["schemas"]["OnboardingNameOut"][];
+            last_run?: components["schemas"]["OnboardingRunOut"] | null;
+            /** Window */
+            window: string;
+            /** Stalled */
+            stalled?: string | null;
+            /** Paused */
+            paused?: string | null;
+            /** History Legs */
+            history_legs: string[];
+        };
+        /**
+         * OnboardingRunOut
+         * @description X1 — the latest run of the onboarding job (its artifact, ``data/onboard_runs``): ``stopped`` = why it
+         *     ended (``done`` / ``window`` / ``pass_running`` / ``budget_names`` / ``budget_time`` / ``daily_cap``),
+         *     ``counts`` = names per outcome (``done`` / ``requeued`` / ``failed`` / ``yielded`` / ``busy`` / ...).
+         */
+        OnboardingRunOut: {
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /** Finished At */
+            finished_at?: string | null;
+            /** Status */
+            status: string;
+            /** Run Kind */
+            run_kind?: string | null;
+            /** Stopped */
+            stopped?: string | null;
+            /** Detail */
+            detail?: string | null;
+            /** Counts */
+            counts?: {
+                [key: string]: number;
+            };
+        };
+        /**
          * OperatorSpanOut
          * @description An off-record take→close span (answering no armed episode), with the stance FROZEN on the
          *     take row at logging time. ``override`` = entered while the platform said not-armed — the
@@ -5741,10 +5903,28 @@ export interface components {
             new_members: number;
         };
         /**
+         * PromoteOnboardingRef
+         * @description X1 — the promote added COLD names (no other live basket holds them) that were QUEUED for the staged
+         *     onboarding job instead of ingested at once: more of them than the fast lane takes
+         *     (``Settings.onboard_fast_lane_max``), or the promote landed inside the nightly window. ``queued`` = this
+         *     promote's cold names now waiting (including any already queued), ``new_members`` = its newly-added count,
+         *     ``reason`` = why they were queued. The FE polls ``GET .../onboarding`` for their progress.
+         */
+        PromoteOnboardingRef: {
+            /** Queued */
+            queued: number;
+            /** New Members */
+            new_members: number;
+            /** Reason */
+            reason: string;
+        };
+        /**
          * PromoteOut
          * @description The promote response: the saved ``ThesisDetail`` (the FE re-snapshot — unchanged) + the ADDITIVE
-         *     ``ingest`` ref when this promote kicked a new-member ingest job. Optional/defaulted, so every
-         *     pre-existing consumer of the promote response keeps its exact shape.
+         *     ``ingest`` ref when this promote kicked a new-member ingest job (the fast lane), or the ADDITIVE
+         *     ``onboarding`` ref when its cold names were queued for the staged onboarding job (X1). At most one of the
+         *     two is set. Optional/defaulted, so every pre-existing consumer of the promote response keeps its exact
+         *     shape.
          */
         PromoteOut: {
             /**
@@ -5797,6 +5977,7 @@ export interface components {
              */
             exclusions: components["schemas"]["ExcludedName"][];
             ingest?: components["schemas"]["PromoteIngestRef"] | null;
+            onboarding?: components["schemas"]["PromoteOnboardingRef"] | null;
         };
         /**
          * PromoteThesisRequest
@@ -8008,6 +8189,37 @@ export interface operations {
             };
         };
     };
+    get_thesis_onboarding_workbench_theses__thesis_id__onboarding_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                thesis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingReadoutOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_member_ingest_job_workbench_theses__thesis_id__ingest_jobs__job_id__get: {
         parameters: {
             query?: never;
@@ -9349,6 +9561,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdminSplitListEntryOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_onboarding_admin_onboarding_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingReadoutOut"];
+                };
+            };
+        };
+    };
+    retry_onboarding_admin_onboarding__security_id__retry_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                security_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingReadoutOut"];
                 };
             };
             /** @description Validation Error */

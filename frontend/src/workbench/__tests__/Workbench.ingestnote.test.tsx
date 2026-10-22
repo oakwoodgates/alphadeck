@@ -89,6 +89,21 @@ vi.mock("../../api/hooks", () => ({
   }),
   // PR-4: the ingest-job poll IngestNote runs — driven per test via h.jobQ
   useIngestJobStatus: () => h.jobQ,
+  // X1: the thesis's onboarding-queue poll OnboardingNote runs (a fixed mid-load readout)
+  useThesisOnboarding: () => ({
+    data: {
+      counts: { queued: 8, in_progress: 1, done: 3, failed: 0, parked: 0 },
+      pending: [],
+      recent_done: [],
+      last_run: null,
+      window: "21:30-23:30 EDT",
+      stalled: null,
+      paused: null,
+      history_legs: ["form4", "form8k", "schedule13"],
+    },
+    isError: false,
+    error: null,
+  }),
   useResolveSecurities: () => ({ data: [], isFetching: false }),
   useSectionData: () => ({ run: vi.fn(), running: false, report: null, reset: vi.fn() }),
   useIngestPrices: () => ({ mutate: vi.fn(), isPending: false, isError: false, error: null }),
@@ -183,4 +198,29 @@ describe("Workbench — the on-promote ingest note (PR-4)", () => {
     expect(await screen.findByText(/Chain saved/)).toBeInTheDocument();
     expect(screen.getByText(/Fetching data for 2 new names/)).toBeInTheDocument();
   });
+
+  // X1 — a save whose cold names were QUEUED for the staged onboarding job carries `onboarding` instead of
+  // `ingest`: the quiet onboarding note renders (polling the thesis's queue) and the fetch note does not
+  it("a save whose cold names were QUEUED renders the quiet onboarding note, from either save surface", async () => {
+    const user = userEvent.setup();
+    h.mutate.mockImplementation((_b: unknown, opts?: { onSuccess?: (data: unknown) => void }) =>
+      opts?.onSuccess?.({ ...fx.thesis, ingest: null, onboarding: ONBOARD }),
+    );
+    renderWb();
+
+    await user.click(screen.getByRole("button", { name: /edit the basket/i }));
+    await user.click(screen.getByRole("button", { name: "Save chain" }));
+
+    expect(await screen.findByText(/Chain saved/)).toBeInTheDocument();
+    const note = screen.getByText(/Queued 12 new names to load their filing history/);
+    expect(note).toHaveClass("muted");
+    expect(note).toHaveTextContent("3 loaded, 9 waiting");
+    expect(screen.queryByText(/Fetching data/)).not.toBeInTheDocument();
+  });
 });
+
+const ONBOARD = {
+  queued: 12,
+  new_members: 12,
+  reason: "12 new names is more than the 5 the fast lane loads at once",
+};
