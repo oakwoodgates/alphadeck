@@ -550,6 +550,9 @@ def ingest_thesis(
     # waiting, in basket order; a held one is DEFERRED, so a busy company never delays the free ones.
     results: list[NameResult | None] = [None] * len(members)
     deferred: list[int] = []
+    # a deferred company's worker completions: its handoff is dropped, but what the workers fetched for it
+    # this walk is on disk and is what its second-pass legs read — so it still counts as fresh SEC data
+    deferred_completed: dict[int, int] = {}
     try:
         for i, m in enumerate(members):
             handoff = None
@@ -561,9 +564,11 @@ def ingest_thesis(
             try:
                 lock = acquire_company_lock(conn, m.security_id, wait_s=0)
             except CompanyLockBusy:
-                # deferred: its fetched reads are dropped — after the wait it re-reads fresh, like the
-                # serial walk always did
+                # deferred: its handed-over reads are dropped — after the wait its legs read for
+                # themselves, like the serial walk always did
                 deferred.append(i)
+                if handoff is not None:
+                    deferred_completed[i] = handoff.completed
                 continue
             with lock:
                 results[i] = one(m, handoff)
@@ -590,6 +595,7 @@ def ingest_thesis(
             continue
         with lock:
             r = one(m)
+            r.edgar_completed += deferred_completed.get(i, 0)
             r.lock_waited_s = round(lock.waited_s, 1)
             results[i] = r
     return [r for r in results if r is not None]

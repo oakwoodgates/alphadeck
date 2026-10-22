@@ -624,6 +624,8 @@ def test_W1_a_company_held_by_another_writer_is_deferred_never_written_while_hel
     assert [r.ticker for r in results].index("FLS") == 6
     assert len(fls) == 1 and fls[0].lock_busy is None and fls[0].error is None
     assert fls[0].price_bars_appended > 0 and fls[0].form4_appended > 0
+    # the freeze floor still sees it as FRESH: what it ingested was fetched (by a worker) this walk
+    assert fls[0].edgar_cik is not None and fls[0].edgar_completed > 0
     with db.cursor() as cur:
         cur.execute(
             "SELECT count(*) n, count(DISTINCT d) d FROM fact_price_eod WHERE security_id = %s",
