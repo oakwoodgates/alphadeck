@@ -256,14 +256,19 @@ with it confirmed; PTIX 2025-05-19 and JAGX 09-22 / 09-23 are never held; ZCSH's
 (Polygon only, needs review) holds its fast breakdown and names Polygon's row once it is public; GAME's step is
 on the operator's list three sessions on, and is not once listed.
 
-**MEASURED on prod (a read-only copy, 2026-10-22).** Live (asof today, the record clock): **0 holds, 0 cards
-changed** across the 12 active theses. History (the public clock): 180 cards (15 Fridays 07-10..10-16 x 12
-theses) — 5 holds opened, **4 cards changed**; the split nights (13 nights x 12 theses) — the four golden
-nights are NOT held on today's list (each split is listed and public by its night: one scale), 7 holds opened
-elsewhere, 4 cards changed. The holds that changed a card were real unlisted splits (OFAL's 1-for-10 and
-SMTK's 1-for-50, both still one-source on the list then; ZCSH's forward split) and down-steps on heavy volume
-with no split listed (YYAI, WNRS, KXIN, AXG — most likely genuine crashes; their breakdown/laggard readings
-were frozen for up to three sessions): the operator-approved cost of holding both directions.
+**MEASURED on prod (a read-only copy, 2026-10-22; each card assembled with and without the hold over one
+view).** Live (asof today, the record clock): **0 holds, 0 cards changed** across the 12 active theses.
+History (the public clock): 180 cards (15 Fridays 07-10..10-16 x 12 theses) — **5 changed, each a card with a
+hold open**; the split nights (13 nights x 12 theses) — the four golden nights are NOT held on today's list
+(each split is listed and public by its night: one scale), 7 cards carry a hold elsewhere. Every change is the
+hold's line; one moved an arm: AI Memory & Storage 08-21 drops ARM, whose laggard arm was cued by SMTK's fake
++3,288% breakout (SMTK's 1-for-50, one source on the list then); state and verdict changed nowhere. The holds:
+real splits not yet in force (OFAL 1-for-10 and SMTK 1-for-50 — fake breakouts withheld; ZCSH's 3-for-1 forward
+split — a fake fast breakdown withheld) and down-steps on heavy volume with no split listed (YYAI, WNRS, KXIN,
+BTAI, AXG — most likely genuine crashes; WNRS's structural breakdown and YYAI's fast breakdown were held for up
+to three sessions): the operator-approved cost of holding both directions. The released, unlisted list held 1
+to 5 items on each of those Fridays, all but WNRS's 07-13 up-step being down-steps; today it holds 1 (AXG's
+09-25 fall to 1/6.5).
 
 ## 3. Grade decision  `[built — insider]` · `[approved — catalyst]`
 
