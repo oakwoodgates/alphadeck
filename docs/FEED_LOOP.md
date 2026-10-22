@@ -434,7 +434,9 @@ per-thesis; **archived theses are skipped by the list's default**, the archive s
   *attempts*; since O5 (2026-10-21) the **freeze detector** is `edgar_fetches_completed` — the attempts that
   returned data (a frozen cache reaches out 0 times, a dead feed reaches out and gets nothing back; a healthy
   run completes hundreds), so a freeze is visible in the log instead of hiding behind a plausible quiet
-  night. `already_ran_live(asof, run_at, tz)` reads these logs
+  night. Since the ratio floor (2026-10-21) the log also carries the per-COMPANY freshness the floor reads —
+  `edgar_companies` / `edgar_companies_fresh` / `freeze_completed_floor` per run, the first two per thesis
+  ("Known gaps" below). `already_ran_live(asof, run_at, tz)` reads these logs
   (mode==`live`, **started at/after that night's `RUN_AT`** in market time, **and the call step RECORDED for
   at least one thesis** — G2b) to decide whether the night already ran — the basis of R6 catch-up and of the
   failed-run retry above. **Why the recorded test (G2b):** the guard used to credit any live post-`RUN_AT`
@@ -561,8 +563,11 @@ per-thesis; **archived theses are skipped by the list's default**, the archive s
   (Slack via `SLACK_WEBHOOK_URL`, **fail-open**; `LogNotifier` otherwise) when a run is a **FREEZE**
   (since O5: `frozen = allow_live and` the theses the pass PROCESSED — a `--catch-up`'s M2-skipped ones left
   out — completed **zero** EDGAR fetches; the page says "0 of N EDGAR fetches COMPLETED" when pulls were
-  attempted; an artifact written before O5 keeps the old `edgar_fetches == 0` rule with a catch-up exempt,
-  so the Admin history never changes a past verdict), has **withheld** calls, has **thesis
+  attempted; **or**, by the RATIO FLOOR, fewer than `Settings.freeze_completed_floor` (50%) of its
+  EDGAR-eligible companies got fresh SEC data — "the SEC feed looks starved: only N of M companies"; see
+  "Known gaps"; an artifact written before O5 keeps the old `edgar_fetches == 0` rule with a catch-up exempt,
+  and one written before the floor keeps the rule it was paged under, so the Admin history never changes a
+  past verdict), has **withheld** calls, has **thesis
   errors**, **failed to refresh the benchmark tape** (below), or found a **newly stale price tape** (G5a,
   below — pageable but not a cron alarm). A healthy run returns `None` — silent
   (loudness marks the exception). This is the page R1 lacked: the platform now notices its own blindness.
@@ -2033,14 +2038,52 @@ Recorded here where a builder of the pager/scheduler will hit them; the full acc
   cause is the documented empty User-Agent, which completes none). Every stored artifact re-derives with
   its old verdict (81 of 81 MEASURED through the new Admin reader). The one stored catch-up (2026-10-13
   16:57 ET, 744 attempts) is unchanged by the narrowing.
-- **Still OPEN — a near-zero pass is not a zero pass.** The predicate fires only at EXACTLY zero completed
-  fetches. MEASURED on the same 81 artifacts: eleven live passes made 1–4 attempts across 255–494 names
-  (0.2–1.6% of names) while most theses fetched nothing — 07-17 23:00, 07-21 08:43, 07-21 22:30, 07-22 23:43,
-  07-23 22:52, 07-23 23:06, 07-24 22:29, 08-17 22:30, 08-25 22:55, 08-27 16:41, 08-27 23:14 ET — all pre-G1
-  (12h TTL): some read a cache hours old (the daytime-warmth class G1 closed), some ran minutes after a full
-  pass. Neither rule pages them. Every other live pass fetched ≥ 10.7% of its names (≥ 96% on all 25 since
-  G1). A ratio floor (e.g. completed < 10% of names ingested) would separate the two cleanly — PROPOSED, not
-  built: a new paging threshold is the operator's call.
+- **A near-zero pass is not a zero pass — CLOSED by the RATIO FLOOR (operator decision 2026-10-21).** O5's
+  predicate fires only at EXACTLY zero completed fetches, and the July freeze did not look like zero: MEASURED
+  on the same 81 artifacts, eleven live passes made 1–4 attempts across 255–494 names (0.2–1.6% of names)
+  while most theses fetched nothing — 07-17 23:00, 07-21 08:43, 07-21 22:30, 07-22 23:43, 07-23 22:52,
+  07-23 23:06, 07-24 22:29, 08-17 22:30, 08-25 22:55, 08-27 16:41, 08-27 23:14 ET — all pre-G1 (12h TTL): some
+  read a cache hours old (the daytime-warmth class G1 closed), some ran minutes after a full pass. Now a LIVE
+  pass also pages FROZEN when **fewer than `Settings.freeze_completed_floor` (default 0.5 — 50%) of its
+  EDGAR-eligible companies got fresh SEC data** (`pipeline/edgar_coverage.py`), with the page reading e.g.
+  `FROZEN — the SEC feed looks starved: only 4 of 255 companies (1.6%) got fresh SEC data this pass — below
+  the 50% floor`. The exact ratio:
+  - **a company is a CIK** (zero-padded; two share classes or N segment rows of one issuer are one company);
+  - **denominator** = the distinct CIKs whose EDGAR legs (Form 4 / 8-K / 13D/G) RAN, across the theses the
+    pass PROCESSED (a `--catch-up`'s M2-skipped theses add nothing). Out: a member with no CIK (its legs
+    return before any request), one missing from the master, and a company another writer held past the W1
+    wait (`lock_busy` — its legs did not run here). A CLOSED or acknowledged-unpriceable name stays IN: T3 /
+    Q8 excuse only its price 404, its EDGAR legs run like any other's; an ETF is in exactly when it has a CIK;
+  - **numerator** = those with ≥ 1 COMPLETED EDGAR fetch (a 2xx body) while their legs ran, **anywhere in the
+    pass** — each name's completions are the client's `live_completed` delta across its legs
+    (`NameResult.edgar_completed`), and the pass takes the UNION over theses, because each thesis builds its
+    own client and a company another thesis fetched minutes earlier is a fresh-cache hit there. MEASURED on
+    the 2026-10-19 22:30 ET pass (X5 counters + the baskets' CIKs, read-only): a 14-company thesis run right
+    after a 190-company one holding 13 of them made exactly 1 submissions fetch — 1 of 14 per thesis, all 14
+    fresh per pass;
+  - FROZEN when `fresh < floor × eligible` — strictly fewer, exactly at the floor does not page; no eligible
+    company = no floor; `--no-live` is never frozen; 0 disables the floor (the zero rule still pages).
+
+  The artifact carries the coverage and the floor at run level (`edgar_companies`, `edgar_companies_fresh`,
+  `freeze_completed_floor`) plus a per-thesis diagnostic pair (its companies, and how many were fresh anywhere
+  in the pass). The Admin history re-judges the floor from those keys **with the floor that pass recorded**,
+  so changing the setting never recolors a past night; an artifact without them (every one written before
+  the floor, O5's included) keeps the rule it was paged under. *MEASURED separation, prod's 81 stored
+  artifacts (2026-10-21, read-only):* none carries per-company completions (no stored artifact was written
+  by O5 or later code), so the history is read through the proxy they DO hold — the run's EDGAR fetch
+  ATTEMPTS over its basket ROWS, the reading the "≥ 96% since G1" figure was made in (attempts include Form 4
+  documents and companyfacts; rows count a multi-segment or multi-thesis company more than once). At 50% that
+  proxy flags **twelve passes, every one pre-G1** — the eleven above plus 2026-07-31 22:30 ET (36 / 335 =
+  10.7%; its small theses made 0 attempts against 1 the night before) — and **none since G1**: the lowest
+  of the 25 live passes since G1 is 2026-10-13 22:30 ET at 710 / 740 = 95.9%. Not flagged by the proxy,
+  pre-G1: 07-24 21:05 ET (71.0% — but every EDGAR-fetching name errored, so its completions were 0 and the
+  zero rule pages it; INFERRED, as above) and 07-24 21:18 ET (74.9%). For the July passes the proxy is a BOUND: each completed fetch serves at most one company, so ≤ 4
+  of ~255 companies were fresh. *Per company, MEASURED directly once:* the 2026-10-20 22:30 ET pass rewrote
+  the submissions index of 686 of its 687 eligible companies DURING the pass (the cache's file times; the
+  687th was re-fetched since, so unknown; 0 were older than the pass) — a healthy pass sits near 100%.
+  Residual, loud by construction (as for the zero rule): a pass whose companies were mostly fetched in the
+  five minutes before it (only a catch-up right behind a killed pass) reads them as cache hits and can page
+  once — a repeat page, never a silenced freeze.
 - **A missing run doesn't page (dead-man's switch) — BUILT (H2, 2026-10-16), inert until the operator
   creates the check.** The sidecar now pings `HEARTBEAT_URL` from the shell once the last expected night is
   recorded (the sidecar section), so an outside service alerts when the ping does not come: a host that

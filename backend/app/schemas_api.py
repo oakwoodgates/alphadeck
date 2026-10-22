@@ -1728,14 +1728,15 @@ class AdminRunOut(BaseModel):
     """One daily pass, as the run-of-record artifact recorded it (``pipeline/cron_run_log.py`` — the
     field names are the ARTIFACT's, not inventions): counts + outcomes only, value-free. ``healthy`` /
     ``problems`` are ``assess_health`` re-read from the same numbers, so the freeze detector
-    (``edgar_fetches_completed == 0`` on a live run over the theses it processed — O5), withheld calls,
-    thesis errors, and a failed BENCHMARK refresh (the shared SPY/IWM tape ``benchmark_rs`` reads — a
-    fail-open passenger leg whose faults used to reach stdout only) surface on every row — a bad run can
-    never hide behind a green history. The benchmark counts live on the artifact for exactly that reason;
-    a row written before they existed reads clean, never broken. ``mode`` is ``"live" | "no-live"`` (the
-    R2 recording-gate signal); ``ran_at`` is the artifact's ``started_at`` (UTC ISO). ``catch_up`` = a
-    ``--catch-up`` pass (the sidecar's boot / late-wake catch-up); an artifact written before the key
-    existed reads ``False``.
+    (``edgar_fetches_completed == 0`` on a live run over the theses it processed — O5 — or, on an artifact
+    that recorded the ratio floor, fewer than that floor of its EDGAR-eligible companies with fresh SEC
+    data), withheld calls, thesis errors, and a failed BENCHMARK refresh (the shared SPY/IWM tape
+    ``benchmark_rs`` reads — a fail-open passenger leg whose faults used to reach stdout only) surface on
+    every row — a bad run can never hide behind a green history. The benchmark counts live on the artifact
+    for exactly that reason; a row written before they existed reads clean, never broken. ``mode`` is
+    ``"live" | "no-live"`` (the R2 recording-gate signal); ``ran_at`` is the artifact's ``started_at`` (UTC
+    ISO). ``catch_up`` = a ``--catch-up`` pass (the sidecar's boot / late-wake catch-up); an artifact
+    written before the key existed reads ``False``.
 
     O5 — ``edgar_fetches`` is the EDGAR pulls the pass ATTEMPTED; ``edgar_fetches_completed`` the ones that
     returned data, which is what the freeze verdict reads (an empty User-Agent once made 255 attempts and

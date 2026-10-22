@@ -72,6 +72,7 @@ from pipeline.cron_run_log import (
 )
 from pipeline.daily import ThesisRunResult, assess_health
 from pipeline.daily_job import DailyRunInFlight, get_job, start_daily_job
+from pipeline.edgar_coverage import EdgarCoverage
 from pipeline.insider_amendment_scan import new_labels_of as amendment_new_labels
 from pipeline.insider_amendment_scan import new_more_of as amendment_new_more
 from pipeline.night_coverage import NightCoverage, read_night_coverage
@@ -213,7 +214,9 @@ def _admin_run_out(payload: dict) -> AdminRunOut:
     ``edgar_fetches_completed`` is judged by COMPLETED fetches over the theses it processed (a catch-up's
     skipped ones left out); one written before O5 by attempts, with a ``catch_up`` pass exempt wholesale
     exactly as it was then — so no past night's row changes color. An artifact from before ``catch_up``
-    reads False.
+    reads False. The RATIO FLOOR (``pipeline/edgar_coverage.py``) is re-judged only on an artifact carrying the
+    run-level coverage (``edgar_companies`` / ``edgar_companies_fresh`` / ``freeze_completed_floor``), with the
+    floor THAT pass recorded; one without it (every artifact written before the floor) keeps its rule.
 
     The RUN-LEVEL keys added after the original schema (``catch_up``, and G4's benchmark counts) are read
     with ``.get`` ON PURPOSE, unlike the strict ``payload[...]`` above: this function is strict by design and
@@ -298,6 +301,9 @@ def _admin_run_out(payload: dict) -> AdminRunOut:
         # R8-A — re-derive the Form 4/A page, so the history shows the same page the run emitted
         insider_amendments_new=amendment_new_labels(payload),
         insider_amendments_more=amendment_new_more(payload),
+        # the RATIO FLOOR, re-judged with the coverage AND the floor this pass recorded (None on an artifact
+        # written before the floor existed — that night keeps the rule it was paged under)
+        edgar_coverage=EdgarCoverage.from_payload(payload),
     )
     summary = payload["summary"]
     pass_total_s, top_leg, top_leg_s = _timings_headline(payload)

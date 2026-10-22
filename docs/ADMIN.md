@@ -496,7 +496,13 @@ verdict reads COMPLETED EDGAR fetches (O5, 2026-10-21):** each row carries `edga
 pass attempted) and `edgar_fetches_completed` (the ones that returned data — the number the verdict reads;
 `null` on an artifact written before O5). A live pass whose processed theses completed zero is `FROZEN`, and
 the line says `0 of N EDGAR fetches COMPLETED` when pulls were attempted and failed (a dead feed, e.g. an
-empty User-Agent — not a cold cache). The run-history table shows `completed/attempted` in the fetches
+empty User-Agent — not a cold cache). **The RATIO FLOOR (2026-10-21):** a live pass is also `FROZEN` when
+fewer than `Settings.freeze_completed_floor` (50%) of its EDGAR-eligible companies (distinct CIKs whose EDGAR
+legs ran) got fresh SEC data anywhere in the pass — the line reads `FROZEN — the SEC feed looks starved: only
+N of M companies (x%) got fresh SEC data this pass — below the 50% floor`. It is re-judged from the coverage
+and the floor the artifact recorded (`edgar_companies` / `edgar_companies_fresh` / `freeze_completed_floor`),
+so a later change of the setting never recolors a row; an artifact without those keys keeps its rule
+(`FEED_LOOP.md` "Known gaps"). The run-history table shows `completed/attempted` in the fetches
 column when they differ. A **`--catch-up`** pass (the sidecar's boot / late-wake catch-up; a small
 **catch-up** tag, `AdminRunOut.catch_up`) is judged on the theses it PROCESSED — the ones M2 skipped, whose
 on-time row stood, are left out. Every row is re-derived by the rule its pass was assessed under: an

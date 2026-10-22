@@ -24,11 +24,16 @@ surfaces) + `docs/POSTMORTEM_CRON_FREEZE_2026-07.md` (what a freeze looks like).
   attempts). `FROZEN — 0 of N EDGAR fetches COMPLETED` = pulls went out and none came
   back (a dead feed: check `env.user_agent_set`, then SEC reachability);
   `FROZEN — 0 EDGAR fetches` = the cache never reached out (a real freeze, or a pass
-  started within five minutes of another). Corroborate with the run log and the
-  record edge before declaring one. The check fires only at EXACTLY zero — a pass
-  that completed a handful of fetches across hundreds of names is not paged (open
-  gap, `FEED_LOOP.md` "Known gaps"): compare `edgar_fetches_completed` with the
-  names ingested yourself.
+  started within five minutes of another). Since 2026-10-21 a third line, the RATIO
+  FLOOR: `FROZEN — the SEC feed looks starved: only N of M companies (x%) got fresh
+  SEC data this pass — below the 50% floor` = some data came back, for too few
+  companies (the July shape: a stale cache served, nothing errored). Read the
+  artifact's `edgar_companies` / `edgar_companies_fresh` (per run, and per thesis —
+  per thesis counts a company fresh if ANY thesis fetched it that pass) and
+  `freeze_completed_floor`. Corroborate with the run log and the record edge before
+  declaring any of the three. An artifact written before 2026-10-21 has no company
+  counts: compare `edgar_fetches_completed` (or, before O5, `edgar_fetches`) with
+  the names ingested yourself (`FEED_LOOP.md` "Known gaps").
 
 ## Steps
 1. **The verdict first:** `curl http://localhost:8000/admin/status`:
@@ -48,13 +53,17 @@ surfaces) + `docs/POSTMORTEM_CRON_FREEZE_2026-07.md` (what a freeze looks like).
      failure names `TICKER d @ recorded` — an in-progress value stored as a close, so
      find the writer that bypassed `ingest/prices/settle.py`);
    - `last_run.edgar_fetches` / `edgar_fetches_completed`: attempted vs completed
-     EDGAR pulls (the freeze verdict reads the completed count; `null` before O5);
+     EDGAR pulls (the freeze verdict reads the completed count; `null` before O5) —
+     the per-company coverage the ratio floor reads is on the run artifact (step 2);
    - `last_run.name_errors_new`: newly failing names (known ones are a quiet count);
    - `split_defects`: the T4 split-basis monitor.
 
    `healthy` with a current edge, no alarms, no partial nights and all audit checks passing → report and stop.
 2. **Not healthy → read the run-of-record:** the newest JSON in `/data/cron_runs/` inside the cron container (`MSYS_NO_PATHCONV=1 docker exec alphadeck-cron-1 ls /data/cron_runs`; append-only, one per pass). It holds:
    - per-thesis ingest tallies and `name_errors` with reasons;
+   - the EDGAR freshness: `edgar_fetches` (attempts), `edgar_fetches_completed`, and
+     since 2026-10-21 `edgar_companies` / `edgar_companies_fresh` / `freeze_completed_floor`
+     (the ratio floor — a healthy pass reads near 100% of companies fresh);
    - appended / unchanged / errored / skipped counts;
    - `code_sha` / `config_hash` / `run_kind` / `env`;
    - the audit;
@@ -67,7 +76,8 @@ surfaces) + `docs/POSTMORTEM_CRON_FREEZE_2026-07.md` (what a freeze looks like).
    stopped at `RUN_TIMEOUT_S` — C2), `heartbeat` (`sent` / `held` / `FAILED` — H2)
    and `backup:` (`wrote` / `skipped` — the boot's age gate, M3).
 4. **Runs happen but data looks frozen → suspect cache freshness** (the 2026-07
-   failure shape): mutable EDGAR prefixes refresh on a key-classed 12h TTL — check
+   failure shape): mutable EDGAR prefixes refresh on a key-classed TTL (five minutes
+   on the nightly's recurring client, 12h on an interactive one; G1) — check
    a stale-looking name's newest insider fact date against EDGAR's actual filings
    (`docs/DATA_SOURCES.md` §cache-freshness).
 5. **Report MEASURED findings** — verdict, evidence (edge dates, run-log excerpts),

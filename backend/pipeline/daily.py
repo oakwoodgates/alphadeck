@@ -89,6 +89,7 @@ from pipeline.cron_run_log import (
     write_cron_run_log,
     write_run_start,
 )
+from pipeline.edgar_coverage import EdgarCoverage, company_sets, coverage_of
 from pipeline.ingest_fundamentals import NameResult as FundamentalsResult
 from pipeline.ingest_fundamentals import PassMemo
 from pipeline.ingest_skips import SkipDiff, diff_skips, known_keys
@@ -244,6 +245,14 @@ class ThesisRunResult:
     # thesis a --catch-up SKIPPED (no client was built), and every result rebuilt from an artifact written
     # before O5 (which `assess_health` then judges by the rule that pass was paged under).
     edgar_fetches_completed: int | None = None
+    # THE RATIO FLOOR's per-company facts (``pipeline/edgar_coverage.py``): the CIKs of the EDGAR-ELIGIBLE
+    # companies this thesis's ingest walked (a CIK, and its EDGAR legs ran), and those among them with >= 1
+    # COMPLETED EDGAR fetch while they ran. SETS, not counts: the pass judges the UNION across its theses (a
+    # company another thesis fetched minutes earlier is a fresh-cache hit here, and fresh for the pass). None =
+    # not measured — a thesis a --catch-up SKIPPED, and every result rebuilt from an artifact (the Admin
+    # history re-judges the floor from the artifact's run-level coverage instead).
+    edgar_ciks: frozenset[str] | None = None
+    edgar_ciks_fresh: frozenset[str] | None = None
     # R2a — why the call-of-record was WITHHELD (not recorded), or None if it was recorded/attempted. A run
     # that didn't meaningfully refresh has no business writing the log of record: "no-live" (a cache-only dev
     # run, Source A) or "total ingest failure" (the ingest raised, or EVERY name errored, Source C). A healthy
@@ -524,6 +533,8 @@ def run_daily(
         # pulls, and "0 fetches" must mean the freeze, not "we bailed before the counter was read"
         res.edgar_fetches = edgar_client.live_fetches
         res.edgar_fetches_completed = edgar_client.live_completed  # O5 — what the freeze page reads
+        # the ratio floor's per-company facts (a thesis whose ingest raised walked nothing: two empty sets)
+        res.edgar_ciks, res.edgar_ciks_fresh = company_sets(res.ingested)
         # G5a/F1 — THE FEED-RECENCY JUDGMENT, both feeds. `ingest_thesis` reported each name's EDGES (facts:
         # the latest stored price bar, and for an ETF sleeve the latest stored shares sample); the judgment
         # belongs HERE because this is the layer that holds the run's `asof` — time stays a parameter, never
@@ -692,12 +703,24 @@ def assess_health(
     successor_cik_new: tuple[str, ...] = (),
     insider_amendments_new: tuple[str, ...] = (),
     insider_amendments_more: int = 0,
+    edgar_coverage: EdgarCoverage | None = None,
 ) -> HealthEvent | None:
     """R4 — the run's pageable health, or None when the run was clean (loudness marks the exception). Unhealthy
     = a FREEZE (a live run during which no EDGAR fetch COMPLETED across the theses it processed — the R1
-    cache-never-refreshed signal, and since O5 also the every-pull-failed one), any WITHHELD call (no-live /
+    cache-never-refreshed signal, and since O5 also the every-pull-failed one — or, by the RATIO FLOOR, one in
+    which fewer than the floor of its EDGAR-eligible companies got fresh SEC data), any WITHHELD call (no-live /
     total ingest failure), any thesis ERROR, or a failed BENCHMARK refresh. Pure over the collected results,
     so it is unit-testable without a DB; ``main`` emits it through the notifier.
+
+    THE RATIO FLOOR (operator decision 2026-10-21; ``pipeline/edgar_coverage.py`` holds the exact ratio) —
+    ``edgar_coverage`` is the pass's per-COMPANY freshness: of the distinct EDGAR-eligible companies (CIKs) its
+    processed theses ingested, how many had >= 1 completed EDGAR fetch anywhere in the pass, and the floor it
+    is judged under. A live pass whose ``fresh < floor x eligible`` is FROZEN beside the zero rule — the July
+    shape the zero rule missed (1-4 fetches across 255-494 names: a stale cache served, nothing errored).
+    PASSED IN, like the benchmark counts: the pass computes it once (``coverage_of``) for both the artifact
+    and this page, and the Admin history re-reads it off the artifact (``EdgarCoverage.from_payload``) with
+    the floor THAT pass was judged under. ``None`` = the floor is not judged: an artifact written before it
+    existed keeps the rule it was paged under, and a pre-O5 result never reaches the floor at all.
 
     O5 — THE FREEZE PREDICATE, two corrections (``docs/FEED_LOOP.md`` "Known gaps"):
 
@@ -783,7 +806,9 @@ def assess_health(
     if processed and all(r.edgar_fetches_completed is not None for r in processed):
         edgar_fetches_completed = sum(r.edgar_fetches_completed or 0 for r in processed)
         freeze_theses = len(processed)
-        frozen = freeze_check and allow_live and edgar_fetches_completed == 0
+        # the RATIO FLOOR beside the zero rule: too few of the eligible companies got fresh SEC data
+        starved = edgar_coverage is not None and edgar_coverage.starved
+        frozen = freeze_check and allow_live and (edgar_fetches_completed == 0 or starved)
     else:
         # the PRE-O5 rule, for results rebuilt from an artifact that carries no completed count — and for a
         # pass that processed nothing (every thesis skipped, or no roster), which it can never call frozen
@@ -814,6 +839,9 @@ def assess_health(
         frozen=frozen,
         edgar_fetches_completed=edgar_fetches_completed,
         freeze_theses=freeze_theses,
+        edgar_companies=edgar_coverage.eligible if edgar_coverage is not None else None,
+        edgar_companies_fresh=edgar_coverage.fresh if edgar_coverage is not None else None,
+        freeze_completed_floor=edgar_coverage.floor if edgar_coverage is not None else None,
         benchmark_errors=benchmark_errors,
         benchmark_leg_failed=benchmark_leg_failed,
         tape_stale_new=tape_stale_new,
@@ -890,6 +918,10 @@ class DailyPassOutcome:
     # R8-A — the Form 4/A inventory owed an operator decision (``pipeline/insider_amendment_scan.py``),
     # computed ONCE in the pass so the artifact, the printed report and the page agree
     amendments: AmendmentScan = field(default_factory=AmendmentScan)
+    # the freeze page's RATIO FLOOR (``pipeline/edgar_coverage.py``): the pass's per-company EDGAR freshness
+    # and the floor it was judged under, computed ONCE so the artifact, the Admin poll payload and the page
+    # agree. None = not measured (the pass processed no thesis).
+    edgar_coverage: EdgarCoverage | None = None
 
     def payload_kwargs(self) -> dict:
         """Every run-level field ``cron_run_log.build_run_payload`` / ``write_cron_run_log`` take, from this
@@ -921,6 +953,7 @@ class DailyPassOutcome:
             "skips": self.skips,
             "timings": self.timings,
             "amendments": self.amendments,
+            "edgar_coverage": self.edgar_coverage,
         }
 
 
@@ -1381,6 +1414,10 @@ def _run_daily_pass_locked(
         audit: tuple[AuditResult, ...] = tuple(timed("self_audit")(run_audit)(audit_ctx))
     except Exception as e:  # noqa: BLE001 — a broken audit is an alarm, never a failed pass
         audit = (AuditResult("audit", False, f"the self-audit could not start: {_crash_label(e)}"),)
+    # THE FREEZE PAGE's RATIO FLOOR — the per-company EDGAR freshness over the theses this pass processed,
+    # judged against the floor in force NOW; computed once for the artifact (so the Admin history re-judges
+    # it under this same floor, whatever the setting says later) and the page below.
+    edgar_coverage = coverage_of(results, floor=settings.freeze_completed_floor)
     outcome = DailyPassOutcome(
         results=results,
         asof=asof,
@@ -1410,6 +1447,7 @@ def _run_daily_pass_locked(
         # X5 — the timings so far; `run_daily_pass` amends the artifact with the final block (post-legs)
         timings=pass_timings.snapshot(),
         amendments=amendments,
+        edgar_coverage=edgar_coverage,
     )
     # R3 — the cron's run-of-record, so the next freeze is noticed by the platform, not by eye. Written
     # AFTER the run from the collected results (write-only, no DB); fail-open, so it never fails the cron.
@@ -1443,6 +1481,8 @@ def _run_daily_pass_locked(
         # R8-A — the NEW Form 4/A amendments owed a decision page once (benign-class)
         insider_amendments_new=amendments.new_labels,
         insider_amendments_more=amendments.new_more,
+        # the RATIO FLOOR: too few of the eligible companies got fresh SEC data pages FROZEN too
+        edgar_coverage=edgar_coverage,
     )
     if health is not None:
         timed("health_page")(notifier.notify_health)(health)
