@@ -20,7 +20,9 @@ WHAT THIS MODULE IS, AND IS NOT:
 - **A MONITOR, not a signal.** It imports nothing from ``calls/`` or ``signals/`` and is imported by
   neither. It cannot fire, arm, veto or grade anything (#3/#4). Its output rides on the run RESULT and the
   run-of-record artifact — deliberately **never on the CallCard**: a day-varying field in the card would
-  flap ``record_if_changed``'s substance compare and break the cron's idempotency.
+  flap ``record_if_changed``'s substance compare and break the cron's idempotency. Since split plan S3 the
+  Cockpit's data flag reads ``is_tape_stale`` on the view's newest bar, and this pass's classification
+  (closed / renamed) from the carried artifact, on read (``pipeline/data_flags.py`` — display-only).
 - **PURE.** No I/O, no DB, no clock: ``asof`` and ``stale_days`` are parameters (the signal-purity
   discipline applied to a monitor — time is never ambient). The FACTS it judges (a name's latest stored bar
   date, and an ETF sleeve's latest stored shares sample) are read in ``pipeline/ingest_thesis.py`` and

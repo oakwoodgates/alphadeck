@@ -25,7 +25,10 @@ WHAT THIS MODULE IS, AND IS NOT (the ``tape_health`` discipline):
   (S2), and a split's first nights before it is listed are the split-night hold's (S5,
   ``domain/split_hold.py`` — its own bar-to-bar step test, never this monitor's flag). Its output rides
   the run artifact, the cron's printed report, the R4 health page and ``/admin/status`` — evidence for the
-  operator (#3/#6), never a call input (#4).
+  operator (#3/#6), never a call input (#4). Since split plan S3 the Cockpit's data flag runs the pure
+  detectors below on read over a name's whole stored tape (``pipeline/data_flags.py`` — the
+  ``mixed_scale_history`` kind, display-only), and settles a flapping bar whose newest version sits on the
+  split list's scale.
 - **Deterministic and pure at the core.** ``tape_findings`` / ``flap_findings`` are pure functions of the
   bars (no I/O, no clock — the window bound is a parameter). ``scan_split_defects`` is the one READ: two
   windowed queries over the active basket union, then the pure detectors.

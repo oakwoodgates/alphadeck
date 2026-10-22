@@ -242,6 +242,27 @@ def test_skyt_stopped_trading_is_known_wrong_on_every_price_cell():
     assert f.columns == m.PRICE_CELLS + m.VOLUME_CELLS + ("mktcap",)
 
 
+def test_hllk_renamed_feed_on_the_night_the_nightly_read_it():
+    """HLLK's real stale row from the 2026-10-19 pass (renamed: EDGAR listed SDCO). The operator adopted SDCO
+    after that pass and the re-pull hole-filled the tape, so today's view carries no stopped-feed flag; the
+    flag the 10-19 view showed is this one."""
+    row = _provenance()["hllk_stale"]
+    doc = {"asof": row["asof"], "theses": [{"name": row["thesis"], "tape_stale": [row["row"]]}]}
+    reading = df.stop_readings(doc)[UUID(row["row"]["security_id"])]
+    f = df.stopped_flag(
+        date(2026, 9, 24),
+        asof=date(2026, 10, 19),
+        stale_days=STALE_DAYS,
+        reading=reading,
+        ticker="HLLK",
+    )
+    assert f is not None and f.level == m.KNOWN_WRONG and f.since == date(2026, 9, 24)
+    assert f.reason == (
+        "Price feed stopped 2026-09-24: renamed (EDGAR now lists SDCO); the vendor's series under HLLK ended."
+    )
+    assert "Price feed repairs" in f.clears
+
+
 def test_without_the_nightly_reading_a_stopped_feed_says_only_what_the_tape_shows():
     (f,) = flags_of("SKYT", "2026-10-22").flags
     assert f.reason.startswith("Price feed stopped: no price since 2026-08-07 (76 days)")

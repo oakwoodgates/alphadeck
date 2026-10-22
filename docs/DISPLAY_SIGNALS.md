@@ -33,6 +33,13 @@ moves) would make `_canonical` differ every night → one appended `calls` row p
 idempotency gone and the call-of-record / Scoreboard polluted. So indicators ride their own
 **compute-on-read** endpoint and are never persisted, never on the cron.
 
+**A sibling read with the same rule: the data flags (split plan S3).** "Is this number real?" — a split-night
+hold, a split that needs review, a mixed-scale tape, a stopped feed, a market cap on a pre-split share count —
+rides its own compute-on-read endpoint (`GET /theses/{id}/data-flags`, `domain/data_flags.py` +
+`pipeline/data_flags.py`) for exactly the reason above: a day-varying field on the card would re-record it
+nightly. It changes how a display cell RENDERS (grayed, or "—"), never what a member computes, and nothing on
+the call path can import it (`tests/domain/test_data_flags.py`). Surfaces: `docs/BOARD.md`.
+
 ## The wire
 
 `GET /theses/{thesis_id}/display-signals?asof=` → `DisplaySignalsResponse` — per resolved basket

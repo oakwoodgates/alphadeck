@@ -1,5 +1,5 @@
 {
- "_provenance": "data/repairs/20261022T094736Z-split-basis.json (prod) trimmed to BTOC + ARTL, 3 bars each; data/cron_runs/20261022T023001Z.json (prod) SKYT tape_stale row",
+ "_provenance": "data/repairs/20261022T094736Z-split-basis.json (prod) trimmed to BTOC + ARTL, 3 bars each; data/cron_runs/20261022T023001Z.json (prod) SKYT tape_stale row; data/cron_runs/20261020T023002Z.json (prod, the 2026-10-19 pass) HLLK tape_stale row",
  "repair": {
   "kind": "repair_split_basis",
   "rule": "split-basis-repair@cef8887717d80bfbfb2cac2aafb9c83b4c1430a1",
@@ -96,6 +96,23 @@
    "closed_at": "2026-08-10",
    "renamed": false,
    "edgar_tickers": [],
+   "unpriceable": false,
+   "acknowledged": false
+  }
+ },
+ "hllk_stale": {
+  "asof": "2026-10-19",
+  "thesis": "Modern Defense",
+  "row": {
+   "security_id": "1ab2376c-df06-4928-9d6a-868a49eb936b",
+   "ticker": "HLLK",
+   "edge": "2026-09-24",
+   "kind": "price",
+   "closed_at": null,
+   "renamed": true,
+   "edgar_tickers": [
+    "SDCO"
+   ],
    "unpriceable": false,
    "acknowledged": false
   }

@@ -42,7 +42,9 @@ persisted for display. Change the as-of, and the whole board re-derives — it i
 - **The Decision Queue** — the one loud element: an armed-only strip so an actionable call can't be
   forgotten. A multi-name theme shows its **single top-ranked actionable name** with a quiet `+N` hint
   that a ranked menu sits behind it (anti-flooding — never every member). Empty state: *"Nothing armed.
-  Nothing to do. ✓"* — a calm board is a working board.
+  Nothing to do. ✓"* — a calm board is a working board. The headline name — and a single-name card's ticker —
+  carries the same quiet **data-flag mark** as its Cockpit row (S3, `GET /data-flags`), only when a flag
+  reaches a number on it.
 - **"Calls that didn't compute" (keep-it-visible, #216)** — when a thesis's `/call` errors, it lands in a
   **visible strip at the bottom of the Board** ("⚠ Calls that didn't compute (N)") instead of silently
   vanishing from every column, and the Decision Queue **withholds its all-clear** ("Some calls didn't
@@ -146,6 +148,21 @@ aggregate, never a call input (#4): it changes no membership, no order, no call;
 it exactly where it was. Re-computed per group per lens — the value-chain lens counts a multi-link name
 once per link (each link-row is a real membership).
 
+**The data flag — "is this real?" (split plan S3).** A number on a row can rest on data the platform knows is
+wrong or cannot vouch for: a split-night hold (S5), a split that still needs review, a price tape that mixes two
+scales (T4), a stopped feed (renamed / closed / a plain gap), a market cap on a pre-split or unreadable share
+count. `GET /theses/{id}/data-flags?asof=` computes these **on read** (never stored, never on the call card,
+never a call input — `domain/data_flags.py` + `pipeline/data_flags.py`, on the view's clock) and names, per flag,
+the exact **cells** its dates reach (`cells_for`: a step a window straddles, a bar a window reads). Only those
+cells change: **in doubt** keeps the number, grayed and dotted, the reason on hover; **known wrong** replaces it
+with a muted "—" carrying the reason. The row gets a quiet hollow-diamond **mark after the ticker** only when some
+flag reaches a cell on it (WB#3 — a split two years back that no column reads marks nothing; the panel and Admin
+still list it). The header's 7d median **leaves flagged 7d values out** and says so ("· 2 left out", the why on
+hover). The sparkline gets a dashed **tick** at an applied split inside its window, nothing more. No alert,
+ever (#7). MEASURED on a read-only copy of prod (2026-10-22): 26 of 688 names carry a mark (3/90 AI Memory,
+1/34 Digital Asset, 4/190 Modern Defense, 2/79 Nuclear, 8/155 Rainbow Rush, 9/159 Everything Exchange), and
+all twelve live call cards were byte-identical with and without the flags read.
+
 **Columns:** `Dot · Ticker · Name · Type · SMA · 1d · 7d · 30d · 90d · 1Y · Path · RVOL 8D · RVOL 20D ·
 Ins 30d · Ins 90d · Mkt cap · Entry-by · Exit-by`.
 
@@ -244,6 +261,11 @@ Esc / ✕ / re-clicking the row closes it; the rail dims, never hides). Top to b
   read as the signal conviction beside it (the two meanings never cross), and the authored
   role/detail. Then the **thesis-fit** prose with its authorship tag, and the **scoring snapshot**
   (the four meters — already fetched for the mkt-cap bridge).
+- **Data · this name** (S3, only when there is something to say) — each data flag in full: its level, the
+  reason, the evidence (the SEC filing link, the Polygon row), since when, what clears it, and the cells it
+  touches (or "no number on the row is affected"); then the company's **split rows** with their events —
+  announced (the SEC filing), confirmed (by which sources), took effect (and the factor the prices before it
+  carry), history corrected (only when Alpha Deck re-scaled the vendor's bars — the repair's provenance).
 - **Indicators · this name** — the read-only display signals (`GET /theses/{id}/display-signals`,
   the engine doc is `docs/DISPLAY_SIGNALS.md`): every registered member rendered uniformly as quiet
   metric chips (SMA position + % distances, the trailing-return ladder, RVOL 8D / RVOL 20D, insider
