@@ -85,7 +85,7 @@ from llm.flag_explanation import explain_flag
 from llm.purity_estimate import propose_purity
 from llm.tier_recommendation import recommend_tiers
 from pipeline import ingest_thesis as ingest_thesis_mod
-from repositories import thesis_repo
+from repositories import price_feed_repo, thesis_repo
 from securities import coherence, figi, fund_tickers, master
 from securities.business_type import resolve_business_type
 from securities.price_history_health import is_thin_history
@@ -149,12 +149,22 @@ def get_scored(
     # -> 0 -> thin, covering the resolver's blind spots). Display-only, never a call input.
     bar_counts = recent_distinct_bar_counts(conn, sec_ids, asof=asof, tenant_id=thesis.tenant_id)
     thin_for = {sid: is_thin_history(bar_counts.get(sid, 0)) for sid in sec_ids}
+    # 0056 — the operator's KNOWN FEED LIMITATION marks (the vendor serves no history for the symbol): the
+    # name panel's quiet data note beside the thin-history flag. Operational state read live (it describes
+    # the feed, not a fact as-of anything); display-only, never a call input.
+    limited_for = {
+        sid: mark.reason
+        for sid, mark in price_feed_repo.limited_history_marks(
+            conn, sec_ids, tenant_id=thesis.tenant_id
+        ).items()
+    }
     return WorkbenchScored(
         thesis_id=thesis.id,
         asof=asof,
         segments=list(thesis.segments),
         members=[
-            ScoredMemberOut.from_scored(m, cik_for, ticker_for, ident_for, thin_for) for m in scored
+            ScoredMemberOut.from_scored(m, cik_for, ticker_for, ident_for, thin_for, limited_for)
+            for m in scored
         ],
     )
 

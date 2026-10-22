@@ -18,6 +18,8 @@ const h = vi.hoisted(() => ({
   revoke: {} as Record<string, unknown>,
   adoptCik: {} as Record<string, unknown>,
   undoCik: {} as Record<string, unknown>,
+  markLimited: {} as Record<string, unknown>,
+  undoLimited: {} as Record<string, unknown>,
 }));
 
 vi.mock("../../api/hooks", () => ({
@@ -28,6 +30,8 @@ vi.mock("../../api/hooks", () => ({
   useRevokeAcknowledgment: () => h.revoke,
   useAdoptSuccessorCik: () => h.adoptCik,
   useUndoCikChange: () => h.undoCik,
+  useMarkLimitedHistory: () => h.markLimited,
+  useUndoLimitedHistory: () => h.undoLimited,
 }));
 
 const m = () => ({ mutate: vi.fn(), isPending: false, isError: false, error: null });
@@ -40,6 +44,8 @@ beforeEach(() => {
   h.revoke = m();
   h.adoptCik = m();
   h.undoCik = m();
+  h.markLimited = m();
+  h.undoLimited = m();
 });
 
 const HLLK_ID = "1ab2376c-df06-4928-9d6a-868a49eb936b";
@@ -371,6 +377,71 @@ describe("PriceFeedRepairs — the successor CIK (T7)", () => {
     await userEvent.click(screen.getByRole("button", { name: "Undo" }));
     expect(h.undoCik.mutate).toHaveBeenCalledWith({ changeId: "k1" });
     expect(screen.getByTestId("adm-successor-error").textContent).toContain("OSError: map fetch failed");
+  });
+});
+
+// 0056 — the known feed limitations, on the real case: SCE-PG (a Southern California Edison preferred) whose
+// vendor serves ONE bar under every range (MEASURED 2026-10-21); the mark's evidence is that one-bar pull.
+const SCE_ID = "219ae6ad-605a-484a-a9fb-9e6ae5dcfb16";
+const SCE_WHY = "Yahoo serves no history for SCE-PG: one bar (the current day) under every range";
+const SCE_MARK = {
+  id: "l1",
+  security_id: SCE_ID,
+  ticker: "SCE-PG",
+  reason: SCE_WHY,
+  basis: "operator:limited-history",
+  created_at: "2026-10-22T14:00:00+00:00",
+  active: true,
+  revoked_at: null,
+  vendor_symbol: "SCE-PG",
+  vendor_range: "2y",
+  vendor_bars: 1,
+  vendor_last_bar: "2026-10-21",
+  tape_stopped: false,
+  tape_edge: null,
+};
+
+describe("PriceFeedRepairs — the known feed limitations (0056)", () => {
+  it("a marked feed is a QUIET list row with the reason, the vendor evidence and its Undo", async () => {
+    show({ ...EMPTY, limitations: [SCE_MARK] });
+    const list = screen.getByTestId("adm-limitations");
+    expect(list.tagName).toBe("DETAILS"); // collapsed, never paged
+    expect(list.querySelector(".adm-loud")).toBeNull();
+    expect(list.textContent).toContain("1 known feed limitation(s) — the vendor serves no history");
+    const row = screen.getByTestId("adm-limitation-row");
+    expect(row.textContent).toContain("SCE-PG — the vendor serves no history");
+    expect(row.textContent).toContain(`“${SCE_WHY}” · marked 2026-10-22`);
+    expect(row.textContent).toContain("(vendor: 1 bar at 2y)");
+    expect(h.undoLimited.mutate as ReturnType<typeof vi.fn>).not.toHaveBeenCalled(); // not on mount
+    expect(h.markLimited.mutate as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(h.undoLimited.mutate).toHaveBeenCalledWith({ markId: "l1" });
+  });
+
+  it("an UNDONE mark stays listed, grayed, with Mark again (the inverse never vanishes)", async () => {
+    const undone = { ...SCE_MARK, active: false, revoked_at: "2026-10-23T09:00:00+00:00" };
+    show({ ...EMPTY, limitations: [undone] });
+    const row = screen.getByTestId("adm-limitation-row");
+    expect(row.className).toBe("adm-grayed");
+    expect(row.textContent).toContain("undone 2026-10-23");
+    expect(screen.getByTestId("adm-limitations").textContent).toContain(
+      "0 known feed limitation(s) — the vendor serves no history",
+    );
+    expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Mark again" }));
+    expect(h.markLimited.mutate).toHaveBeenCalledWith({ securityId: SCE_ID, reason: SCE_WHY });
+  });
+
+  it("a marked name whose tape STOPPED says so loudly — the mark never excuses a real gap", () => {
+    show({ ...EMPTY, limitations: [{ ...SCE_MARK, tape_stopped: true, tape_edge: "2026-08-31" }] });
+    expect(screen.getByTestId("adm-limitation-stopped").textContent).toContain(
+      "its tape has STOPPED (last bar 2026-08-31)",
+    );
+  });
+
+  it("a limitation is NOT a handled id: a marked name that stopped stays a stale feed on the freshness card", () => {
+    const ids = repairHandledIds({ ...EMPTY, limitations: [SCE_MARK] } as unknown as AdminPriceRepairsOut);
+    expect(ids.has(SCE_ID)).toBe(false);
   });
 });
 

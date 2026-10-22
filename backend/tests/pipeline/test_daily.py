@@ -2733,6 +2733,55 @@ def test_Q8_an_acknowledgment_never_silences_a_name_that_HAS_bars(db, monkeypatc
     assert _health(db, tid) == {"ingest_fresh": False, "ingest_errors": 1}
 
 
+def _sce_pg(db) -> uuid.UUID:
+    """SCE-PG's master row as prod holds it (MEASURED 2026-10-21, read-only)."""
+    sid = uuid.uuid4()
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO security_master (id, tenant_id, ticker, cik, name, valid_from) "
+            "VALUES (%s, %s, %s, %s, %s, %s)",
+            (
+                sid,
+                DEFAULT_TENANT_ID,
+                "SCE-PG",
+                "0000092103",
+                "SOUTHERN CALIFORNIA EDISON Co",
+                "2026-01-01",
+            ),
+        )
+    db.commit()
+    return sid
+
+
+def test_a_LIMITED_HISTORY_mark_never_quiets_a_STOPPED_tape_nor_excuses_its_404(db, monkeypatch):
+    """0056: the operator marked SCE-PG "the vendor serves no history" (Yahoo serves it one bar). The mark
+    quiets NOTHING on the nightly path — the pass's quieting reads acknowledgments only. So a marked name
+    whose tape STOPPED (no new bar for 30 days — no error, nothing appended) is a LOUD stale row, and a
+    vendor 404 on it is still a name error (ingest_fresh false), exactly as for an unmarked name."""
+    sce = _sce_pg(db)
+    price_feed_repo.mark_limited_history(
+        db, sce, reason="Yahoo serves one bar for SCE-PG", basis="operator:limited-history"
+    )
+    db.commit()
+    stopped = _OCT16 - timedelta(days=30)
+
+    # the stopped-tape shape: the vendor answers, nothing new lands
+    names = [_nr(ticker="SCE-PG", security_id=sce, tape_edge=stopped), _nr(tape_edge=_OCT16)]
+    monkeypatch.setattr(daily, "ingest_thesis", _ingest_returning(names))
+    _thesis(db, "Nuclear Buildout")
+    (res,) = daily.run_daily(db, asof=_OCT16, allow_live=True)
+    (row,) = res.tape_stale
+    assert (row.security_id, row.edge) == (sce, stopped)
+    assert not row.quiet and not row.acknowledged and not row.closed and not row.unpriceable
+
+    # the vendor-404 shape: still a name error (it counts toward ingest_errors), never an expected miss
+    names = [_real("SCE-PG", sce, tape_edge=stopped), _nr(tape_edge=_OCT16)]
+    monkeypatch.setattr(daily, "ingest_thesis", _ingest_returning(names))
+    (res,) = daily.run_daily(db, asof=_OCT16, allow_live=True)
+    assert res.expected_price_misses == () and not res.tape_stale[0].quiet
+    assert [x.error is not None for x in res.ingested] == [True, False]
+
+
 def test_the_acknowledged_read_FAILS_TOWARD_LOUD(db, monkeypatch, capsys):
     """A fault reading the acknowledgments is one warning line and an empty set: the unpriceable name stays
     loud and its 404 an error for this pass — never silenced on a guess — and the pass still records.

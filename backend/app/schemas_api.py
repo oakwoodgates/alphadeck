@@ -348,6 +348,12 @@ class ScoredMemberOut(BaseModel):
     # genuinely-uncovered name (0 bars, no resolvable symbol) still flags True. Honest loudness: the FE
     # renders the flag ONLY when True (a healthy name shows nothing).
     thin_price_history: bool = False
+    # DATA-HEALTH note (0056) — the operator marked this name's price feed with a KNOWN LIMITATION: the vendor
+    # serves no history for its symbol (its tape builds one bar per night; it can never be restated or
+    # backfilled). The value is the operator's recorded reason; ``None`` = no active mark (the common case —
+    # the FE renders the quiet note ONLY when set). Operational state read LIVE (the mark describes the feed,
+    # not a fact as-of anything), display-only, never a call input — structurally out of the call path.
+    price_feed_limitation: str | None = None
 
     @classmethod
     def from_scored(
@@ -357,6 +363,7 @@ class ScoredMemberOut(BaseModel):
         tickers: Mapping[UUID, str | None],
         identity: Mapping[UUID, Mapping[str, str | bool | None]] | None = None,
         thin_history: Mapping[UUID, bool] | None = None,
+        limitations: Mapping[UUID, str] | None = None,
     ) -> "ScoredMemberOut":
         cik = ciks.get(m.security_id)
         ident = (identity or {}).get(m.security_id, {})
@@ -396,6 +403,7 @@ class ScoredMemberOut(BaseModel):
             fit=m.fit,
             unconfirmed_estimates=m.unconfirmed_estimates,
             thin_price_history=bool((thin_history or {}).get(m.security_id, False)),
+            price_feed_limitation=(limitations or {}).get(m.security_id),
         )
 
 
@@ -2148,6 +2156,35 @@ class AdminPriceFeedAckOut(BaseModel):
     still_unpriceable: bool | None = None
 
 
+class AdminFeedLimitationOut(BaseModel):
+    """One KNOWN FEED LIMITATION the operator marked (``price_feed_ack`` ``limited_history``, 0056): the
+    price vendor serves no history for the name's symbol — its tape builds one bar per night and can never
+    be restated, repaired or backfilled from the vendor. QUIET by design: it pages nothing and quiets
+    nothing on the nightly path (a stopped tape on a marked name stays a loud stale row); it only lets the
+    readers that would be loud SOLELY because the vendor lacks history say so.
+
+    ``active`` = no revoke names it (``revoked_at`` = when it was undone — an undone mark stays listed,
+    grayed, so marking it again is one click). ``vendor_*`` = the vendor pull that evidenced the mark
+    (symbol, range, how many bars it returned, the newest); ``tape_stopped`` = the newest pass found the
+    name's price tape STALE — a real gap the mark does not excuse (``tape_edge`` = its last stored bar).
+    """
+
+    id: UUID
+    security_id: UUID
+    ticker: str | None = None
+    reason: str
+    basis: str
+    created_at: datetime
+    active: bool = True
+    revoked_at: datetime | None = None
+    vendor_symbol: str | None = None
+    vendor_range: str | None = None
+    vendor_bars: int | None = None
+    vendor_last_bar: date | None = None
+    tape_stopped: bool = False
+    tape_edge: date | None = None
+
+
 class AdminRenamedRowOut(BaseModel):
     """A stopped price tape whose company EDGAR lists under another symbol (T1's ``renamed``), with the
     nightly splice probe's verdict on each candidate (T2) and the EDGAR evidence — a pending
@@ -2282,7 +2319,9 @@ class AdminPriceRepairsOut(BaseModel):
     - ``successor`` (T7) — loud: members whose company now files under a NEW CIK (the filing legs read the
       dead one), each with its recommended successor to Adopt (and Undo once adopted). From the newest
       finished, full-roster live artifact whose successor scan RAN (``successor_asof``);
-    - ``cik_applied`` (T7) — every STANDING successor-CIK re-point, each with its Undo (WB#1).
+    - ``cik_applied`` (T7) — every STANDING successor-CIK re-point, each with its Undo (WB#1);
+    - ``limitations`` (0056) — QUIET: the known feed limitations ("the vendor serves no history"), the
+      newest mark per name — active ones with their Undo, then undone ones (grayed, "Mark again").
     ``probe_error`` = the rename probe failed on that pass (``renamed`` rows then carry no verdict);
     ``successor_error`` = the newest live pass's successor scan failed (its rows then are the last good
     pass's, or none).
@@ -2303,6 +2342,7 @@ class AdminPriceRepairsOut(BaseModel):
     successor_error: str | None = None
     successor: list[AdminSuccessorRowOut] = []
     cik_applied: list[AdminCikChangeOut] = []
+    limitations: list[AdminFeedLimitationOut] = []
 
 
 class AdminPriceSymbolIn(BaseModel):
@@ -2315,6 +2355,13 @@ class AdminAcknowledgeIn(BaseModel):
     """Why the operator keeps an unpriceable name unpriced (optional — a default reason is stored)."""
 
     reason: str | None = Field(default=None, max_length=500)
+
+
+class AdminFeedLimitationIn(BaseModel):
+    """Why the operator marks a name's price feed as a known limitation (REQUIRED — the mark is the
+    operator's statement, so it carries the operator's words; blank is refused)."""
+
+    reason: str = Field(min_length=1, max_length=500)
 
 
 class AdminSuccessorCikIn(BaseModel):

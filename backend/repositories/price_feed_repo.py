@@ -8,7 +8,14 @@ Two append-only tables, two pairs of verbs:
   history of its own (0032), so every change row records the master's PRIOR and NEW values of each column
   it touched — ``price_symbol``, ``price_symbol_basis``, and (an Adopt that refreshed it) ``name`` — and an
   undo puts exactly the prior values back, appending an ``undo`` row that names the change it reversed.
-- ``price_feed_ack`` — ``acknowledge`` ("keep this unpriceable name, unpriced") and ``revoke``.
+- ``price_feed_ack`` — ``acknowledge`` ("keep this unpriceable name, unpriced") and ``revoke``; and
+  (0056) ``mark_limited_history`` — a KNOWN FEED LIMITATION: "the vendor serves no history for this
+  symbol; its tape builds one bar per night and can never be restated or backfilled" — revoked the same
+  way. The two kinds are distinct ``action`` values, so nothing that reads acknowledgments (the nightly
+  pass's quiet-unpriceable set and expected-404 excuse) can ever pick a limitation up: a limitation quiets
+  NOTHING on the nightly path — a stopped tape on a marked name stays a loud stale row. It is read only by
+  the places that would otherwise be loud SOLELY because the vendor lacks history (the named-bar repair's
+  ``no_vendor_bar``), and by the quiet display note on the name panel.
 
 EXACTNESS RULES (why an undo can be trusted to restore what was there):
 
@@ -29,6 +36,7 @@ transaction (commit after a successful write; roll back on an exception).
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -40,6 +48,13 @@ from pydantic import BaseModel
 from securities import master
 
 ACTIONS_CHANGE = ("adopt", "set")  # 'undo' is written only by `undo_change`
+
+# The two DECISIONS a ``price_feed_ack`` row can record (0046 + 0056); 'revoke' is written only by `revoke`.
+ACK_ACKNOWLEDGE = (
+    "acknowledge"  # an unpriceable name kept unpriced (Q8): quiet + its 404 expected (T3)
+)
+ACK_LIMITED_HISTORY = "limited_history"  # a known feed limitation: the vendor serves no history
+ACK_DECISIONS = (ACK_ACKNOWLEDGE, ACK_LIMITED_HISTORY)
 
 # THE STANDING PREDICATE, stated once: change `c` still stands iff no undo row reverses it.
 NOT_UNDONE_SQL = "NOT EXISTS (SELECT 1 FROM price_symbol_change u WHERE u.undoes = c.id)"
@@ -87,7 +102,7 @@ class StandingChange(PriceSymbolChange):
 
 
 class PriceFeedAck(BaseModel):
-    """One ``price_feed_ack`` row, as stored (an ``acknowledge`` or a ``revoke``)."""
+    """One ``price_feed_ack`` row, as stored (an ``acknowledge``, a ``limited_history`` or a ``revoke``)."""
 
     id: UUID
     tenant_id: UUID
@@ -98,6 +113,20 @@ class PriceFeedAck(BaseModel):
     detail: dict[str, Any] = {}
     revokes: UUID | None = None
     created_at: datetime
+
+
+class FeedLimitation(PriceFeedAck):
+    """A ``limited_history`` mark joined to the master's ticker and to its revoke, if any — what the Admin
+    "Known feed limitations" list renders. ``revoked_at`` is ``None`` while the mark stands (``active``);
+    an undone mark keeps its row (grayed, with "Mark again" — the inverse stays visible, WB#1/WB#2).
+    """
+
+    ticker: str | None = None
+    revoked_at: datetime | None = None
+
+    @property
+    def active(self) -> bool:
+        return self.revoked_at is None
 
 
 def _holds(
@@ -298,32 +327,79 @@ def acknowledge(
     already exists it is returned with ``False`` and nothing is written (a double-click appends one row,
     not two); else the new row with ``True``. ``LookupError`` for an unknown security; ``ValueError`` for a
     blank reason / basis. The caller owns the transaction."""
+    return _decide(conn, security_id, ACK_ACKNOWLEDGE, reason=reason, basis=basis, detail=detail)
+
+
+def mark_limited_history(
+    conn: psycopg.Connection,
+    security_id: UUID,
+    *,
+    reason: str,
+    basis: str,
+    detail: dict[str, Any] | None = None,
+) -> tuple[PriceFeedAck, bool]:
+    """Mark one name's price feed with a KNOWN LIMITATION (0056): the vendor serves no history for its
+    symbol, so its tape builds one bar per night and can never be restated or backfilled. Same contract as
+    ``acknowledge`` (idempotent under the master row lock — an active mark is returned with ``False``;
+    ``LookupError`` unknown security; ``ValueError`` blank reason / basis). Whether the vendor really serves
+    no history is the CALLER's evidence (the Admin endpoint's vendor pull, stored in ``detail``); this only
+    records the operator's decision. The caller owns the transaction."""
+    return _decide(
+        conn, security_id, ACK_LIMITED_HISTORY, reason=reason, basis=basis, detail=detail
+    )
+
+
+def _decide(
+    conn: psycopg.Connection,
+    security_id: UUID,
+    action: str,
+    *,
+    reason: str,
+    basis: str,
+    detail: dict[str, Any] | None,
+) -> tuple[PriceFeedAck, bool]:
+    """The one writer of a ``price_feed_ack`` DECISION row (``acknowledge`` / ``limited_history``): lock
+    the master row, return the security's ACTIVE row of that action when one exists (``False`` — nothing
+    written), else append a new one (``True``). One active row per (security, action), by the lock.
+    """
+    if action not in ACK_DECISIONS:
+        raise ValueError(f"action must be one of {ACK_DECISIONS}, got {action!r}")
     if not reason.strip() or not basis.strip():
         raise ValueError("an acknowledgment needs a reason and a basis")
     before = _lock_master(conn, security_id)
     with conn.cursor() as cur:
         cur.execute(
             f"""SELECT a.* FROM price_feed_ack a
-                 WHERE a.security_id = %s AND a.action = 'acknowledge' AND {ACK_ACTIVE_SQL}
+                 WHERE a.security_id = %s AND a.action = %s AND {ACK_ACTIVE_SQL}
                  ORDER BY a.created_at DESC, a.id DESC LIMIT 1""",  # noqa: S608 — module constant
-            (security_id,),
+            (security_id, action),
         )
         existing = cur.fetchone()
         if existing is not None:
             return PriceFeedAck(**existing), False
         cur.execute(
             """INSERT INTO price_feed_ack (tenant_id, security_id, action, reason, basis, detail)
-               VALUES (%s, %s, 'acknowledge', %s, %s, %s) RETURNING *""",
-            (before["tenant_id"], security_id, reason.strip(), basis, Json(detail or {})),
+               VALUES (%s, %s, %s, %s, %s, %s) RETURNING *""",
+            (before["tenant_id"], security_id, action, reason.strip(), basis, Json(detail or {})),
         )
         return PriceFeedAck(**cur.fetchone()), True
 
 
-def revoke(conn: psycopg.Connection, ack_id: UUID, *, reason: str, basis: str) -> PriceFeedAck:
-    """Withdraw one ACTIVE acknowledgment by appending a ``revoke`` row that names it (the name is loud
-    again from the next pass). ``LookupError`` when no active acknowledgment has that id (unknown, already
-    revoked, or itself a revoke) — the DB's trigger + unique index refuse the same shapes a second time.
-    The caller owns the transaction."""
+def revoke(
+    conn: psycopg.Connection,
+    ack_id: UUID,
+    *,
+    reason: str,
+    basis: str,
+    action: str = ACK_ACKNOWLEDGE,
+) -> PriceFeedAck:
+    """Withdraw one ACTIVE decision row of ``action`` (an acknowledgment by default — the name is loud
+    again from the next pass; or a ``limited_history`` mark — the limitation note goes away) by appending a
+    ``revoke`` row that names it. ``LookupError`` when no active row of that action has that id (unknown,
+    already revoked, a row of the OTHER kind, or itself a revoke) — the DB's trigger + unique index refuse
+    the same shapes a second time. The caller owns the transaction."""
+    if action not in ACK_DECISIONS:
+        raise ValueError(f"action must be one of {ACK_DECISIONS}, got {action!r}")
     if not reason.strip() or not basis.strip():
         raise ValueError("a revoke needs a reason and a basis")
     with conn.cursor() as cur:
@@ -332,14 +408,83 @@ def revoke(conn: psycopg.Connection, ack_id: UUID, *, reason: str, basis: str) -
                     (tenant_id, security_id, action, reason, basis, detail, revokes)
                 SELECT a.tenant_id, a.security_id, 'revoke', %(reason)s, %(basis)s, '{{}}'::jsonb, a.id
                   FROM price_feed_ack a
-                 WHERE a.id = %(id)s AND a.action = 'acknowledge' AND {ACK_ACTIVE_SQL}
+                 WHERE a.id = %(id)s AND a.action = %(action)s AND {ACK_ACTIVE_SQL}
                 RETURNING *""",  # noqa: S608 — ACK_ACTIVE_SQL is a module constant
-            {"id": ack_id, "reason": reason.strip(), "basis": basis},
+            {"id": ack_id, "reason": reason.strip(), "basis": basis, "action": action},
         )
         row = cur.fetchone()
     if row is None:
-        raise LookupError(f"no active acknowledgment with id {ack_id}")
+        what = "acknowledgment" if action == ACK_ACKNOWLEDGE else "feed-limitation mark"
+        raise LookupError(f"no active {what} with id {ack_id}")
     return PriceFeedAck(**row)
+
+
+# THE LIMITATION READ, stated once: each `limited_history` mark with its master ticker and its revoke (if
+# any). `a` = the mark; `r` = the revoke row naming it (at most one — 0046's unique index).
+_LIMITATION_SQL = """
+    SELECT a.*, sm.ticker, r.created_at AS revoked_at
+      FROM price_feed_ack a
+      JOIN security_master sm ON sm.id = a.security_id AND sm.tenant_id = a.tenant_id
+      LEFT JOIN price_feed_ack r ON r.revokes = a.id
+     WHERE a.action = 'limited_history'
+"""
+
+
+def feed_limitations(conn: psycopg.Connection) -> list[FeedLimitation]:
+    """The Admin "Known feed limitations" list: the NEWEST ``limited_history`` mark per security — its
+    standing mark when one is active (``mark_limited_history`` keeps at most one active, and a new mark is
+    possible only once the last was revoked, so the newest is the standing one), else the last undone one
+    (kept, grayed, so "Mark again" stays one click away — the inverse never vanishes). Active first, then
+    ticker order. Read-only."""
+    with conn.cursor() as cur:
+        cur.execute(
+            f"""SELECT * FROM (
+                    SELECT DISTINCT ON (l.security_id) l.*
+                      FROM ({_LIMITATION_SQL}) l
+                     ORDER BY l.security_id, l.created_at DESC, l.id DESC
+                ) s ORDER BY (s.revoked_at IS NOT NULL), s.ticker NULLS LAST, s.security_id"""  # noqa: S608
+        )
+        return [FeedLimitation(**r) for r in cur.fetchall()]
+
+
+def get_limitation(conn: psycopg.Connection, mark_id: UUID) -> FeedLimitation | None:
+    """One ``limited_history`` mark by id (active or undone), or ``None``. Read-only."""
+    with conn.cursor() as cur:
+        cur.execute(f"{_LIMITATION_SQL} AND a.id = %s", (mark_id,))  # noqa: S608 — module constant
+        row = cur.fetchone()
+    return FeedLimitation(**row) if row else None
+
+
+def active_limitation(conn: psycopg.Connection, security_id: UUID) -> FeedLimitation | None:
+    """The security's ACTIVE ``limited_history`` mark, or ``None``. Read-only."""
+    with conn.cursor() as cur:
+        cur.execute(
+            f"{_LIMITATION_SQL} AND a.security_id = %s AND r.id IS NULL "  # noqa: S608
+            "ORDER BY a.created_at DESC, a.id DESC LIMIT 1",
+            (security_id,),
+        )
+        row = cur.fetchone()
+    return FeedLimitation(**row) if row else None
+
+
+def limited_history_marks(
+    conn: psycopg.Connection, security_ids: Iterable[UUID], *, tenant_id: UUID
+) -> dict[UUID, PriceFeedAck]:
+    """``security_id -> its ACTIVE limited_history mark`` for the given securities of ``tenant_id`` — the
+    read of the places that NOTE the limitation (the named-bar repair's ``no_vendor_bar``, the name panel).
+    Nothing on the nightly path reads it. Read-only."""
+    ids = list(security_ids)
+    if not ids:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute(
+            f"""SELECT a.* FROM price_feed_ack a
+                 WHERE a.tenant_id = %s AND a.security_id = ANY(%s)
+                   AND a.action = 'limited_history' AND {ACK_ACTIVE_SQL}
+                 ORDER BY a.created_at, a.id""",  # noqa: S608 — module constant
+            (tenant_id, ids),
+        )
+        return {r["security_id"]: PriceFeedAck(**r) for r in cur.fetchall()}
 
 
 def active_acks(conn: psycopg.Connection) -> list[PriceFeedAck]:
@@ -356,5 +501,6 @@ def active_acks(conn: psycopg.Connection) -> list[PriceFeedAck]:
 
 def acknowledged_security_ids(conn: psycopg.Connection) -> set[UUID]:
     """The security ids carrying an ACTIVE acknowledgment — what the nightly pass marks quiet (Q8) and
-    whose vendor 404 it excuses (T3). Read-only."""
+    whose vendor 404 it excuses (T3). ``acknowledge`` rows ONLY: a ``limited_history`` mark is never here,
+    so it can never quiet a stale tape or excuse a 404 (0056). Read-only."""
     return {a.security_id for a in active_acks(conn)}

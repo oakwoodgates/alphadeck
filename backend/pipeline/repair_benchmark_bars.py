@@ -92,6 +92,13 @@ What changes for a pair, and what does not:
 
     python -m pipeline.repair_benchmark_bars --bars CBT:2026-07-09,SCE-PG:2026-08-27          # dry run
     python -m pipeline.repair_benchmark_bars --ticker SCE-PG --dates 2026-08-27,2026-10-13 --apply
+
+A KNOWN FEED LIMITATION (0056). A name the operator marked "limited history" in Admin (the vendor serves no
+history for its symbol — SCE-PG) can NEVER be repaired from the vendor: its ``no_vendor_bar`` is the
+expected answer, not news. The report says so on that bar's line and in the summary, and the provenance's
+skipped entry carries the mark's reason — the outcome itself is unchanged (still reported, never
+fabricated, nothing appended). The marks are read once, read-only (``price_feed_repo.limited_history_marks``);
+an UNMARKED name's ``no_vendor_bar`` reads exactly as before.
 """
 
 from __future__ import annotations
@@ -120,6 +127,7 @@ from ingest.prices.source import DEFAULT_RANGE as NIGHTLY_RANGE
 from ingest.prices.source import PriceSource, YahooPriceSource
 from pipeline.ingest_benchmarks import DEFAULT_RANGE
 from pipeline.run_lock import EXIT_ALREADY_RUNNING, PassAlreadyRunning, acquire_repair_lock
+from repositories.price_feed_repo import limited_history_marks
 from securities.benchmarks import BENCHMARKS, benchmark_ids
 
 _log = logging.getLogger("alphadeck.repair_benchmark_bars")
@@ -216,9 +224,16 @@ class RepairResult:
     mode: str = MODE_BENCHMARKS
     pairs: list[tuple[str, date]] = field(default_factory=list)
     range_: str = DEFAULT_RANGE
+    # 0056 — security_id -> the operator's KNOWN FEED LIMITATION note ("marked <date>: <reason>") for the
+    # targets marked "limited history": their no_vendor_bar is expected, and the report says so
+    limitations: dict[UUID, str] = field(default_factory=dict)
 
     def count(self, action: str) -> int:
         return sum(1 for b in self.bars if b.action == action)
+
+    def limited(self, b: BarRepair) -> str | None:
+        """The limitation note for ``b`` when it is a NO_VENDOR_BAR on a marked name, else None."""
+        return self.limitations.get(b.security_id) if b.action == NO_VENDOR_BAR else None
 
 
 # --- the scope guard (pure) ------------------------------------------------------------------------------
@@ -494,6 +509,14 @@ def _run(
     """Both modes' shared body: pull, plan (with the basis check), and with ``result.applied`` append."""
     apply = result.applied
     wanted = result.dates
+    # 0056 — the targets' known feed limitations, read once (read-only) before the pull
+    result.limitations = {
+        sid: f"marked {mark.created_at.date().isoformat()}: {mark.reason}"
+        for sid, mark in limited_history_marks(
+            conn, {t.security_id for t in targets}, tenant_id=tenant_id
+        ).items()
+    }
+    conn.rollback()  # no transaction stays open across the network pull
     vendor, result.fetch_errors = _pull(targets, source, range_=result.range_)
 
     try:
@@ -616,6 +639,7 @@ def build_payload(result: RepairResult) -> dict[str, Any]:
         "skipped": [
             {"ticker": b.ticker, "d": b.d.isoformat(), "reason": b.action}
             | ({"basis": b.basis} if b.basis else {})
+            | ({"feed_limitation": result.limited(b)} if result.limited(b) else {})
             for b in result.bars
             if b.action != APPEND
         ],
@@ -671,6 +695,14 @@ def report(result: RepairResult) -> None:
                 f"({b.basis}) — a split re-base? skipped, never appended (repair the basis first)"
             ),
         }[b.action]
+        note = result.limited(b)
+        if note:
+            # 0056 — expected, not news: the operator marked this feed "the vendor serves no history"
+            verb = (
+                "the vendor has NO bar for this date — a KNOWN FEED LIMITATION: the vendor serves no "
+                f"history for this symbol, so this bar can never be repaired from it ({note}) — skipped "
+                "(never fabricated)"
+            )
         print(f"  {b.ticker} {b.d}  {verb}")
         if b.stored is not None:
             print(
@@ -683,9 +715,12 @@ def report(result: RepairResult) -> None:
     n = result.appended if result.applied else result.count(APPEND)
     stamp = f" · recorded_at {result.recorded_at.isoformat()}" if result.recorded_at else ""
     basis = f" · basis differs {result.count(BASIS_DIFFERS)}" if result.count(BASIS_DIFFERS) else ""
+    known = sum(1 for b in result.bars if result.limited(b))
+    limited = f" ({known} a known feed limitation)" if known else ""
     print(
         f"SUMMARY: {verb} {n} · matches {result.count(MATCHES)} · no vendor bar "
-        f"{result.count(NO_VENDOR_BAR)} · no stored bar {result.count(NO_STORED_BAR)}{basis}{stamp}"
+        f"{result.count(NO_VENDOR_BAR)}{limited} · no stored bar {result.count(NO_STORED_BAR)}"
+        f"{basis}{stamp}"
     )
 
 

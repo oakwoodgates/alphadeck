@@ -8,10 +8,15 @@ is exercised WITH its inverse, and each inverse restores the prior state exactly
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 
 from app.routers import admin_price_feed
+from db.session import DEFAULT_TENANT_ID
+from domain.feed_kinds import StaleFeedLabel
+from ingest.prices.eod_loader import ingest_prices, parse_yahoo_chart
 from pipeline.cron_run_log import write_cron_run_log
 from pipeline.daily import ThesisRunResult
 from pipeline.ingest_thesis import NameResult
@@ -369,3 +374,182 @@ def test_the_status_read_still_WRITES_NOTHING_with_the_panel(client, db):
     for _ in range(2):
         assert client.get("/admin/status").status_code == 200
     assert {t: _count(db, t) for t in counts} == counts
+
+
+# --- 0056: the KNOWN FEED LIMITATIONS ("the vendor serves no history") ---------------------------------
+# SCE-PG, REAL (tests/fixtures/prices/settle_repair_2026_07.json, read-only from prod 2026-10-21): the
+# versions prod stored for 2026-08-24..08-31 with prod's own stamps, and the Yahoo chart the repair CLI
+# pulled that evening at the nightly range — ONE bar, the current day. The master values are prod's.
+
+_SETTLE = json.loads(
+    (
+        Path(__file__).resolve().parents[1] / "fixtures" / "prices" / "settle_repair_2026_07.json"
+    ).read_text(encoding="utf-8")
+)
+_SCE_PG_VENDOR = parse_yahoo_chart(_SETTLE["SCE-PG"]["vendor_chart"])
+_WHY = (
+    "Yahoo serves no history for SCE-PG: one bar (the current day) under every range; its tape builds "
+    "one bar per night and missed nights are permanent holes"
+)
+
+
+def _sce_pg(db) -> uuid.UUID:
+    sid = uuid.uuid4()
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO security_master (id, tenant_id, ticker, cik, name, valid_from) "
+            "VALUES (%s, %s, %s, %s, %s, %s)",
+            (
+                sid,
+                DEFAULT_TENANT_ID,
+                "SCE-PG",
+                "0000092103",
+                "SOUTHERN CALIFORNIA EDISON Co",
+                "2026-01-01",
+            ),
+        )
+    for r in _SETTLE["SCE-PG"]["stored_prod"]:
+        row = {**r, "d": date.fromisoformat(r["d"])}
+        ingest_prices(db, sid, [row], recorded_at=datetime.fromisoformat(r["recorded_at"]))
+    db.commit()
+    return sid
+
+
+def _vendor(monkeypatch, served: dict) -> _Source:
+    src = _Source(served)
+    monkeypatch.setattr(admin_price_feed, "_validation_source", lambda d: src)
+    return src
+
+
+def test_MARK_limited_history_with_ONE_vendor_fetch_then_UNDO_then_MARK_AGAIN(
+    client, db, monkeypatch
+):
+    """The operator marks SCE-PG: ONE live vendor pull of its nightly symbol (the REAL one-bar chart) is the
+    evidence, stored with the mark; the panel lists it under the known limitations — and NOTHING else on
+    the panel moves (WONDF stays a loud unpriceable row, nothing is acknowledged). A double-click is one
+    decision with no second fetch. Undo appends the inverse and the undone mark STAYS listed (inactive);
+    marking it again is a NEW row. Count the table every step."""
+    ids = _night(db)
+    sce = _sce_pg(db)
+    src = _vendor(monkeypatch, {"SCE-PG": _SCE_PG_VENDOR})
+
+    r = client.post(f"/admin/price-feed/{sce}/limited-history", json={"reason": _WHY})
+    assert r.status_code == 200, r.text
+    mark = r.json()
+    assert (mark["ticker"], mark["reason"], mark["basis"], mark["active"]) == (
+        "SCE-PG",
+        _WHY,
+        "operator:limited-history",
+        True,
+    )
+    assert (mark["vendor_symbol"], mark["vendor_range"], mark["vendor_bars"]) == ("SCE-PG", "2y", 1)
+    assert mark["vendor_last_bar"] == _SCE_PG_VENDOR[0]["d"].isoformat()
+    assert mark["tape_stopped"] is False and mark["revoked_at"] is None
+    assert src.calls == [("SCE-PG", True, True)]  # ONE live, force-refreshed fetch
+    assert _count(db, "price_feed_ack") == 1
+    p = _panel(client)
+    assert [(x["id"], x["active"]) for x in p["limitations"]] == [(mark["id"], True)]
+    assert p["acknowledged"] == [] and [u["ticker"] for u in p["unpriceable"]] == ["WONDF"]
+
+    again = client.post(f"/admin/price-feed/{sce}/limited-history", json={"reason": "again"})
+    assert again.status_code == 200 and again.json()["id"] == mark["id"]
+    assert len(src.calls) == 1 and _count(db, "price_feed_ack") == 1
+
+    u = client.post(f"/admin/price-feed/limitations/{mark['id']}/revoke")
+    assert u.status_code == 200, u.text
+    assert u.json()["id"] == mark["id"] and u.json()["active"] is False
+    assert u.json()["revoked_at"] is not None
+    assert _count(db, "price_feed_ack") == 2  # the mark AND its revoke — nothing deleted
+    assert [(x["id"], x["active"]) for x in _panel(client)["limitations"]] == [(mark["id"], False)]
+    assert client.post(f"/admin/price-feed/limitations/{mark['id']}/revoke").status_code == 404
+
+    re = client.post(f"/admin/price-feed/{sce}/limited-history", json={"reason": _WHY})
+    assert re.status_code == 200 and re.json()["id"] != mark["id"] and re.json()["active"] is True
+    assert _count(db, "price_feed_ack") == 3
+    assert [(x["id"], x["active"]) for x in _panel(client)["limitations"]] == [
+        (re.json()["id"], True)
+    ]
+    assert ids  # the measured night is on the page throughout
+
+
+def test_a_mark_is_REFUSED_without_a_reason_on_a_feed_WITH_history_and_on_a_404(
+    client, db, monkeypatch
+):
+    """The mark must not be a false label: a vendor that serves a real history (HLLK's successor SDCO —
+    real bars) or none at all (WONDF's real 404 — that is an unpriceable feed, Acknowledge's job) is refused
+    with 409; a blank reason is 422 with no fetch; an unknown security 404. Nothing is written."""
+    ids = _night(db)
+    src = _vendor(
+        monkeypatch,
+        {"SDCO": fx.probe_bars("HLLK", "SDCO"), "WONDF": fx.not_found("WONDF")},
+    )
+    with db.cursor() as cur:  # point HLLK's nightly symbol at SDCO, the feed WITH a history
+        cur.execute(
+            "UPDATE security_master SET price_symbol = 'SDCO' WHERE id = %s", (ids["hllk"],)
+        )
+    db.commit()
+
+    for body in ({"reason": "   "}, {"reason": ""}, {}):
+        r = client.post(f"/admin/price-feed/{ids['wondf']}/limited-history", json=body)
+        assert r.status_code == 422, (body, r.text)
+    assert src.calls == []
+
+    r = client.post(f"/admin/price-feed/{ids['hllk']}/limited-history", json={"reason": "x"})
+    assert r.status_code == 409 and "it has a history" in r.json()["detail"]
+    r = client.post(f"/admin/price-feed/{ids['wondf']}/limited-history", json={"reason": "x"})
+    assert r.status_code == 409 and "returned no bars" in r.json()["detail"]
+    r = client.post(f"/admin/price-feed/{uuid.uuid4()}/limited-history", json={"reason": "x"})
+    assert r.status_code == 404
+    assert _count(db, "price_feed_ack") == 0 and _panel(client)["limitations"] == []
+
+
+def test_a_mark_and_an_acknowledgment_never_revoke_as_each_other(client, db, monkeypatch):
+    ids = _night(db)
+    sce = _sce_pg(db)
+    _vendor(monkeypatch, {"SCE-PG": _SCE_PG_VENDOR})
+    mark = client.post(f"/admin/price-feed/{sce}/limited-history", json={"reason": _WHY}).json()
+    ack = client.post(f"/admin/price-feed/{ids['wondf']}/acknowledge").json()
+
+    assert client.post(f"/admin/price-feed/acks/{mark['id']}/revoke").status_code == 404
+    assert client.post(f"/admin/price-feed/limitations/{ack['id']}/revoke").status_code == 404
+    assert _count(db, "price_feed_ack") == 2
+
+
+def test_a_marked_name_whose_tape_STOPPED_stays_a_LOUD_stale_row(client, db, monkeypatch):
+    """The mark never hides a real problem: a later pass finds SCE-PG's tape STALE (its last stored bar,
+    2026-08-31, is weeks behind) — it is a plain stale row in the freshness inventory (not closed, not
+    acknowledged, in tonight's newly-stale list), and the limitation row itself says the tape stopped.
+    """
+    ids = _night(db)
+    sce = _sce_pg(db)
+    _vendor(monkeypatch, {"SCE-PG": _SCE_PG_VENDOR})
+    client.post(
+        f"/admin/price-feed/{sce}/limited-history", json={"reason": _WHY}
+    ).raise_for_status()
+    edge = date(2026, 8, 31)  # the newest bar in the real stored window
+    at = datetime(2026, 10, 20, 2, 30, tzinfo=timezone.utc)
+    write_cron_run_log(
+        [
+            ThesisRunResult(
+                thesis_id=ids["nb"],
+                name="Nuclear Buildout",
+                recorded=True,
+                tape_stale=(StaleTape("SCE-PG", sce, edge, edgar_tickers=()),),
+            )
+        ],
+        asof=date(2026, 10, 19),
+        allow_live=True,
+        started_at=at,
+        finished_at=at + timedelta(minutes=40),
+        tape_evaluated=True,
+        tape_stale_days=5,
+        tape_stale_new=(StaleFeedLabel(kind="price", label="SCE-PG"),),
+    )
+
+    status = client.get("/admin/status").json()
+    (row,) = [s for s in status["tape"]["stale"] if s["ticker"] == "SCE-PG"]
+    assert row["edge"] == "2026-08-31" and row["closed_at"] is None
+    assert row["acknowledged"] is False and row["unpriceable"] is False
+    assert "SCE-PG" in status["tape"]["newly_stale"]
+    (lim,) = status["price_repairs"]["limitations"]
+    assert lim["tape_stopped"] is True and lim["tape_edge"] == "2026-08-31"

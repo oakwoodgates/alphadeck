@@ -334,6 +334,9 @@ vi.mock("../../api/hooks", () => ({
   // T7 — the successor-CIK writes on the same panel
   useAdoptSuccessorCik: () => h.repair,
   useUndoCikChange: () => h.repair,
+  // 0056 — the known feed limitations on the same panel
+  useMarkLimitedHistory: () => h.repair,
+  useUndoLimitedHistory: () => h.repair,
   // R8-A — the Insider amendments panel (its own behavior is in InsiderAmendments.test.tsx): empty here
   useInsiderAmendments: () => ({
     data: { owed: [], auto: [], decided: [], historical: [], queued: [], inert: [], total: 0 },

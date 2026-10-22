@@ -299,6 +299,14 @@ export function NamePanel({ row, def, card, thesisId, position, display, asof, o
           ⚠ thin price history — history-window signals may be starved
         </div>
       )}
+      {/* 0056 — a KNOWN FEED LIMITATION the operator marked in Admin (the vendor serves no history for
+          the symbol; its tape builds one bar per night). A quiet note, only when marked; the reason rides
+          the hover. Display-only, never a call input. */}
+      {scored?.price_feed_limitation && (
+        <div className="np-feednote" title={scored.price_feed_limitation}>
+          price history limited: vendor serves no history
+        </div>
+      )}
 
       {member.thesis_fit && (
         <>
