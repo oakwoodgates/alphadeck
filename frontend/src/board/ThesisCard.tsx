@@ -1,4 +1,5 @@
-import type { CallCardResponse, ThesisSummary } from "../api/hooks";
+import type { CallCardResponse, MemberDataFlagsOut, ThesisSummary } from "../api/hooks";
+import { DataFlagMark } from "../cockpit/DataFlagMark";
 import { gradeClass, tickerLabel, verdictLabel } from "../util/format";
 
 // A board card. Its loudness comes from the enclosing column's state class (.col.armed .card, …).
@@ -6,10 +7,13 @@ export function ThesisCard({
   thesis,
   call,
   onSelect,
+  flags = null,
 }: {
   thesis: ThesisSummary;
   call: CallCardResponse;
   onSelect: (id: string) => void;
+  /** S3 — a single-name card's data flags (the quiet mark after its ticker); null for a theme or no flag. */
+  flags?: MemberDataFlagsOut | null;
 }) {
   const armed = call.state === "armed";
   const managing = call.state === "managing";
@@ -23,7 +27,10 @@ export function ThesisCard({
           CALL READY
         </span>
       )}
-      <div className="tk">{tickerLabel(thesis.ticker, thesis.basket_size)}</div>
+      <div className="tk">
+        {tickerLabel(thesis.ticker, thesis.basket_size)}
+        <DataFlagMark member={flags} />
+      </div>
       <div className="nm">{thesis.name}</div>
       <div className="desc">{thesis.narrative}</div>
       <div className="foot">

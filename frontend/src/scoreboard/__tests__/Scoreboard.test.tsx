@@ -30,6 +30,7 @@ vi.mock("../../api/hooks", () => ({
   // no-data so the ledger's strip degrades to "—" (and no ledger renders without a price window anyway)
   useWorkbenchScored: () => ({ data: undefined, isLoading: false, isError: false }),
   useDisplaySignals: () => ({ data: undefined, isLoading: false, isError: false }),
+  useThesisDataFlags: () => ({ data: undefined, isLoading: false, error: null }),
 }));
 
 const EP = {

@@ -1,11 +1,16 @@
 import { lazy, Suspense, useMemo, useState } from "react";
 
 import type { PriceBar, ScoreboardEpisodeOut } from "../api/hooks";
-import { useDisplaySignals, useEpisodePriceWindow, useWorkbenchScored } from "../api/hooks";
+import {
+  useDisplaySignals,
+  useEpisodePriceWindow,
+  useThesisDataFlags,
+  useWorkbenchScored,
+} from "../api/hooks";
 import { fmtDate, gradeClass } from "../util/format";
 import { EventLedger } from "./EventLedger";
 import { identityCells, signalHeadlines, transitionLines } from "./ledger";
-import { buildOverlayEvents, tapeSignals } from "./overlay";
+import { buildOverlayEvents, flagBands, tapeSignals } from "./overlay";
 import {
   closeReasonLine,
   episodeBadges,
@@ -96,6 +101,16 @@ export function EpisodeScorecard({
     useDisplaySignals(ep.thesis_id, asof ?? "").data?.members.find(
       (m) => m.security_id === ep.security_id,
     ) ?? null;
+  // S3: the name's data flags + split rows at the drawer's as-of (the same compute-on-read read the Cockpit
+  // uses): the splits become the chart's "split" chip family, the flags' affected bars its shaded bands.
+  const memberFlags =
+    useThesisDataFlags(ep.thesis_id, asof ?? "").data?.members?.find(
+      (m) => m.security_id === ep.security_id,
+    ) ?? null;
+  const bands = useMemo(
+    () => flagBands(memberFlags?.flags ?? [], windowQ.data?.bars ?? []),
+    [memberFlags, windowQ.data],
+  );
   // A3: the display-signal events join the numbered universe as the grayest family. Only the allow-listed
   // kinds contribute (`tapeSignals` — sma_position + relative_strength; `insider_flow_90d` is excluded by
   // construction, its buys/sells already ARE the insider family). The `asof` rides in because these are
@@ -114,9 +129,11 @@ export function EpisodeScorecard({
           sells: windowQ.data?.insider_sells ?? [],
           filings: windowQ.data?.corporate_events ?? [],
           stakes: windowQ.data?.activist_stakes ?? [],
+          // S3: the company's splits, each on its first day at the new price
+          splits: memberFlags?.splits ?? [],
         },
       ),
-    [ep, windowQ.data, memberSignals, asof],
+    [ep, windowQ.data, memberSignals, memberFlags, asof],
   );
   // The cross-highlight bridge: a chip hover (PriceSparkline) or a row hover (EventLedger) sets `activeN`;
   // the other child rings/tints the match. Held here so both children read one source of truth.
@@ -220,6 +237,7 @@ export function EpisodeScorecard({
               ep={ep}
               bars={bars}
               events={events}
+              bands={bands}
               activeN={activeN}
               onActivate={setActiveN}
               loading={windowQ.isLoading}

@@ -179,6 +179,9 @@ class SplitLabel:
     corrected_on: date | None = None
     corrected_note: str | None = None
     version_id: str | None = None
+    # how many bars the first bar at the new price sits before the view's newest bar (0 = the newest), so a
+    # bar-slotted series (the Cockpit sparkline) can place a tick; None when the view has no such bar
+    bars_ago: int | None = None
 
 
 @dataclass(frozen=True)

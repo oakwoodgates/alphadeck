@@ -4650,6 +4650,7 @@ export interface components {
          * @description One split on the list as the NamePanel and the chart label it: announced (``sec_filed``), confirmed
          *     (``confirmed_by``), took effect (``took_effect``), history corrected (``corrected_on`` — only when Alpha
          *     Deck re-scaled the vendor's bars before it). ``factor`` = prices before ``effective_date`` x factor.
+         *     ``bars_ago`` = how many bars the first bar at the new price sits before the view's newest bar.
          */
         DataFlagSplitOut: {
             /**
@@ -4698,6 +4699,8 @@ export interface components {
             corrected_on?: string | null;
             /** Corrected Note */
             corrected_note?: string | null;
+            /** Bars Ago */
+            bars_ago?: number | null;
         };
         /** DataFlagThesisRefOut */
         DataFlagThesisRefOut: {

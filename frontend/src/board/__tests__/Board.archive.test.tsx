@@ -11,6 +11,7 @@ const h = vi.hoisted(() => ({
 
 vi.mock("../../api/hooks", () => ({
   useTheses: () => ({ data: h.theses, isLoading: false, error: null }),
+  useDataFlags: () => ({ data: undefined }),
   useCalls: (subjects: { id: string }[]) =>
     subjects.map(({ id }) => ({
       data: {

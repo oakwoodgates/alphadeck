@@ -89,7 +89,7 @@ describe("groupMoving", () => {
       E: ret7(40), // the blowup
     });
     const stat = groupMoving(rows, trailFor);
-    expect(stat).toEqual({ n: 5, priced: 5, median: 2 });
+    expect(stat).toEqual({ n: 5, priced: 5, median: 2, leftOut: 0 });
     // the mean of the same set is +7.7 — hauled up by E's +40; the header must never read that
     const m = mean([-6, -1, 2, 3.5, 40]);
     expect(m).toBeCloseTo(7.7, 5);
@@ -109,7 +109,7 @@ describe("groupMoving", () => {
       E: trail([{ key: "ret_30d", value: 99 }]), // a 30d only — the 7d key is absent
       F: ret7(null), // thin history: the wire's honest null
     });
-    expect(groupMoving(rows, trailFor)).toEqual({ n: 6, priced: 3, median: 2 });
+    expect(groupMoving(rows, trailFor)).toEqual({ n: 6, priced: 3, median: 2, leftOut: 0 });
   });
 
   it("reads the 7d key ONLY — a group priced on 30d alone has no median (the one-window rule)", () => {
@@ -118,20 +118,20 @@ describe("groupMoving", () => {
       { key: "ret_1d", value: 1 },
     ]);
     const { rows, trailFor } = group({ A: only30, B: only30, C: only30, D: only30 });
-    expect(groupMoving(rows, trailFor)).toEqual({ n: 4, priced: 0, median: null });
+    expect(groupMoving(rows, trailFor)).toEqual({ n: 4, priced: 0, median: null, leftOut: 0 });
   });
 
   it("withholds the median under three priced rows — null, never a fabricated 0.0", () => {
     expect(AGG_MIN_PRICED).toBe(3);
     const none = group({ A: null, B: null });
-    expect(groupMoving(none.rows, none.trailFor)).toEqual({ n: 2, priced: 0, median: null });
+    expect(groupMoving(none.rows, none.trailFor)).toEqual({ n: 2, priced: 0, median: null, leftOut: 0 });
     const one = group({ A: ret7(5), B: null, C: null, D: null });
-    expect(groupMoving(one.rows, one.trailFor)).toEqual({ n: 4, priced: 1, median: null });
+    expect(groupMoving(one.rows, one.trailFor)).toEqual({ n: 4, priced: 1, median: null, leftOut: 0 });
     const two = group({ A: ret7(5), B: ret7(-5), C: null });
-    expect(groupMoving(two.rows, two.trailFor)).toEqual({ n: 3, priced: 2, median: null });
+    expect(groupMoving(two.rows, two.trailFor)).toEqual({ n: 3, priced: 2, median: null, leftOut: 0 });
     // exactly three priced is the floor — computed from here up
     const three = group({ A: ret7(5), B: ret7(-5), C: ret7(0.5), D: null });
-    expect(groupMoving(three.rows, three.trailFor)).toEqual({ n: 4, priced: 3, median: 0.5 });
+    expect(groupMoving(three.rows, three.trailFor)).toEqual({ n: 4, priced: 3, median: 0.5, leftOut: 0 });
   });
 
   it("is a read: the rows come back untouched, in their incoming order (no re-order, no drop)", () => {
@@ -143,6 +143,6 @@ describe("groupMoving", () => {
   });
 
   it("is empty-safe: zero rows reads n 0 / no median", () => {
-    expect(groupMoving([], () => null)).toEqual({ n: 0, priced: 0, median: null });
+    expect(groupMoving([], () => null)).toEqual({ n: 0, priced: 0, median: null, leftOut: 0 });
   });
 });

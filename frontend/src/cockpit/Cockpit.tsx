@@ -1,9 +1,17 @@
 import { Fragment, useState } from "react";
 import { flushSync } from "react-dom";
 
-import type { DisplaySignal } from "../api/hooks";
-import { useCall, useDisplaySignals, useThesis, useWorkbenchScored } from "../api/hooks";
+import type { DisplaySignal, MemberDataFlagsOut } from "../api/hooks";
+import {
+  useCall,
+  useDisplaySignals,
+  useThesis,
+  useThesisDataFlags,
+  useWorkbenchScored,
+} from "../api/hooks";
 import { CallCard } from "../components/CallCard";
+import { DataFlagMark, FlagWrap } from "./DataFlagMark";
+import { cellFlag, factorWords, flagsBySid } from "./dataFlags";
 import {
   GroupMovingLine,
   InsiderCell,
@@ -11,6 +19,7 @@ import {
   ReturnCells,
   RvolCell,
   SparklineCell,
+  type SparkTick,
 } from "./DisplaySignalsSection";
 import { groupMoving } from "./groupAggregate";
 import { CatalystEditor, KillCriteriaEditor } from "./SpineListEditors";
@@ -190,11 +199,30 @@ export function Cockpit({
     const sig = (m.signals ?? []).find((s) => s.kind === "price_path");
     if (sig) pathBySid.set(m.security_id, sig);
   }
+  // S3 — the shared "is this real?" data flags (compute-on-read, display-only): which cells on a row rest
+  // on data the platform cannot vouch for. Bridged by security_id like the display cells; a row with no
+  // entry has no flag (the common case). Only the cells a flag names change (in doubt: grayed + the reason
+  // on hover; known wrong: "—" + the reason), and the row's quiet mark rides after the ticker.
+  const flagsQ = useThesisDataFlags(thesisId, asof);
+  const flagBySid = flagsBySid(flagsQ.data);
+  const flagsFor = (sid: string | null | undefined): MemberDataFlagsOut | null =>
+    sid ? (flagBySid.get(sid) ?? null) : null;
+  // the company's splits inside the sparkline's window: a tick at most (plan section 11)
+  const splitTicks = (sid: string | null | undefined): SparkTick[] =>
+    (flagsFor(sid)?.splits ?? [])
+      .filter((s) => s.bars_ago != null && s.status !== "needs_review")
+      .map((s) => ({
+        barsAgo: s.bars_ago as number,
+        label: `${s.label} ${s.effective_date} (prices before it ${factorWords(s.factor)})`,
+      }));
   const thesis = thesisQ.data;
   const card = callQ.data;
-  // C2: any of the three as-of-keyed reads may still be showing the PREVIOUS date's values
+  // C2: any of the as-of-keyed reads may still be showing the PREVIOUS date's values
   const tableRecomputing =
-    callQ.isPlaceholderData || displayQ.isPlaceholderData || scoredQ.isPlaceholderData;
+    callQ.isPlaceholderData ||
+    displayQ.isPlaceholderData ||
+    scoredQ.isPlaceholderData ||
+    flagsQ.isPlaceholderData;
 
   const state = card?.state ?? "incubating";
   const sc = STATE_CLASS[state] ?? "incub";
@@ -319,6 +347,9 @@ export function Cockpit({
   // the SAME sid bridge as the cells and the sort — so the header's "priced" set is exactly the
   // rows whose 7d cell shows a number. Computed per group at render, in every lens.
   const trailFor = (r: BucketRow) => signalsFor(r).trail;
+  // S3: a row whose 7d cell a data flag reaches is left out of the group's median (and the header says so)
+  const sevenDayFlagged = (r: BucketRow) =>
+    cellFlag(flagsFor(r.member.security_id), "ret_7d") != null;
 
   // Collapsible buckets — open by default; a collapse is an explicit, reversible view filter (the
   // header keeps its count while closed, so nothing reads as dropped). Local view state only,
@@ -593,7 +624,9 @@ export function Cockpit({
                                       priced rows, off the SAME ret_7d the 7d cells show (client-side,
                                       zero wire); "—" below three priced. Muted, always-present context
                                       — never a badge, never a call input (#4/#7). Per group, per lens. */}
-                                  <GroupMovingLine stat={groupMoving(g.rows, trailFor)} />
+                                  <GroupMovingLine
+                                    stat={groupMoving(g.rows, trailFor, sevenDayFlagged)}
+                                  />
                                 </span>
                               </button>
                             </td>
@@ -632,6 +665,9 @@ export function Cockpit({
                                     ⚠
                                   </span>
                                 )}
+                                {/* S3 — the data-flag mark: only when a flag reaches a cell on this row
+                                    (WB#3); the hover names each flag and the cells it touches */}
+                                <DataFlagMark member={flagsFor(r.member.security_id)} />
                               </td>
                               <td className="co">
                                 {/* the hungriest column in the table — the longest company name in a
@@ -671,94 +707,113 @@ export function Cockpit({
                               <td className="met smac">
                                 {/* the tape posture at table grain: the panel headline's glyph + the
                                     distance vs the slow line; the literal statement rides the hover */}
-                                <PostureCell
-                                  sig={
-                                    r.member.security_id
-                                      ? (smaBySid.get(r.member.security_id) ?? null)
-                                      : null
-                                  }
-                                />
+                                <FlagWrap flag={cellFlag(flagsFor(r.member.security_id), "sma")}>
+                                  <PostureCell
+                                    sig={
+                                      r.member.security_id
+                                        ? (smaBySid.get(r.member.security_id) ?? null)
+                                        : null
+                                    }
+                                  />
+                                </FlagWrap>
                               </td>
                               {/* trailing returns (1d/7d/30d/90d/1Y) — five cells from the trailing_returns
                                   display member, bridged by security_id; green up / red down, "—" on a
-                                  thin-history gap. On the per-name row, so it renders in BOTH lenses. */}
+                                  thin-history gap. On the per-name row, so it renders in BOTH lenses.
+                                  S3: a window a data flag reaches grays (in doubt) or blanks (known wrong). */}
                               <ReturnCells
                                 sig={
                                   r.member.security_id
                                     ? (trailBySid.get(r.member.security_id) ?? null)
                                     : null
                                 }
+                                flagFor={(key) => cellFlag(flagsFor(r.member.security_id), key)}
                               />
                               <td className="met sparkc">
                                 {/* the close-path sparkline off the price_path member's fixed-slot
                                     series: a neutral hairline that BREAKS on a gap (a young name draws
                                     a shorter, right-aligned path), "—" below two closes. On the
-                                    per-name row, so it renders in BOTH lenses. */}
-                                <SparklineCell
-                                  sig={
-                                    r.member.security_id
-                                      ? (pathBySid.get(r.member.security_id) ?? null)
-                                      : null
-                                  }
-                                />
+                                    per-name row, so it renders in BOTH lenses. S3: a split inside the
+                                    window draws a tick at most. */}
+                                <FlagWrap flag={cellFlag(flagsFor(r.member.security_id), "path")}>
+                                  <SparklineCell
+                                    sig={
+                                      r.member.security_id
+                                        ? (pathBySid.get(r.member.security_id) ?? null)
+                                        : null
+                                    }
+                                    ticks={splitTicks(r.member.security_id)}
+                                  />
+                                </FlagWrap>
                               </td>
                               <td className="met rvolc">
                                 {/* RVOL 8D — the call-matched 8-bar read: a warm 'hot' accent on a
                                     volume-backed move (>= the wire's loud_mult), "—" on a
                                     volumeless/thin as-of bar. Renders in BOTH lenses (per-name row). */}
-                                <RvolCell
-                                  sig={
-                                    r.member.security_id
-                                      ? (rvolBySid.get(r.member.security_id) ?? null)
-                                      : null
-                                  }
-                                />
+                                <FlagWrap flag={cellFlag(flagsFor(r.member.security_id), "rvol8")}>
+                                  <RvolCell
+                                    sig={
+                                      r.member.security_id
+                                        ? (rvolBySid.get(r.member.security_id) ?? null)
+                                        : null
+                                    }
+                                  />
+                                </FlagWrap>
                               </td>
                               <td className="met rvolc">
                                 {/* RVOL 20D — the 20-bar trader-convention read (call-decoupled), off
                                     the SAME member's second metric, accenting from its OWN threshold
                                     (loud_mult_20); a name short of 20 base bars reads an honest "—". */}
-                                <RvolCell
-                                  sig={
-                                    r.member.security_id
-                                      ? (rvolBySid.get(r.member.security_id) ?? null)
-                                      : null
-                                  }
-                                  metricKey="rvol20"
-                                  loudKey="loud_mult_20"
-                                />
+                                <FlagWrap flag={cellFlag(flagsFor(r.member.security_id), "rvol20")}>
+                                  <RvolCell
+                                    sig={
+                                      r.member.security_id
+                                        ? (rvolBySid.get(r.member.security_id) ?? null)
+                                        : null
+                                    }
+                                    metricKey="rvol20"
+                                    loudKey="loud_mult_20"
+                                  />
+                                </FlagWrap>
                               </td>
                               {/* insider open-market buys — {buys}/{distinct buyers} off the
                                   insider_flow_90d member's 30d / 90d metrics, bridged by security_id.
                                   Renders in BOTH lenses (per-name row); a ≥2-buyer cluster accents. */}
                               <td className="met insc">
-                                <InsiderCell
-                                  sig={
-                                    r.member.security_id
-                                      ? (insiderBySid.get(r.member.security_id) ?? null)
-                                      : null
-                                  }
-                                  countKey="buy_count_30d"
-                                  buyersKey="distinct_buyers_30d"
-                                  window="30d"
-                                />
+                                <FlagWrap flag={cellFlag(flagsFor(r.member.security_id), "ins_30d")}>
+                                  <InsiderCell
+                                    sig={
+                                      r.member.security_id
+                                        ? (insiderBySid.get(r.member.security_id) ?? null)
+                                        : null
+                                    }
+                                    countKey="buy_count_30d"
+                                    buyersKey="distinct_buyers_30d"
+                                    window="30d"
+                                  />
+                                </FlagWrap>
                               </td>
                               <td className="met insc">
-                                <InsiderCell
-                                  sig={
-                                    r.member.security_id
-                                      ? (insiderBySid.get(r.member.security_id) ?? null)
-                                      : null
-                                  }
-                                  countKey="buy_count"
-                                  buyersKey="distinct_buyers"
-                                  window="90d"
-                                />
+                                <FlagWrap flag={cellFlag(flagsFor(r.member.security_id), "ins_90d")}>
+                                  <InsiderCell
+                                    sig={
+                                      r.member.security_id
+                                        ? (insiderBySid.get(r.member.security_id) ?? null)
+                                        : null
+                                    }
+                                    countKey="buy_count"
+                                    buyersKey="distinct_buyers"
+                                    window="90d"
+                                  />
+                                </FlagWrap>
                               </td>
                               <td className="met">
                                 {/* computed market cap (the scoring engine, re-derived on read),
-                                    bridged by security_id — "—" when un-scored / no price+shares facts */}
-                                {formatMarketCap(r.scored?.market_cap.value)}
+                                    bridged by security_id — "—" when un-scored / no price+shares facts.
+                                    S3: a cap on a pre-split or unreadable share count is flagged. */}
+                                <FlagWrap flag={cellFlag(flagsFor(r.member.security_id), "mktcap")}>
+                                  {formatMarketCap(r.scored?.market_cap.value)}
+                                </FlagWrap>
                               </td>
                               {/* Armed / Lapsing / Theme-armed only (ENTRY_WINDOW_BUCKETS, shared
                                   with the sort key): a Watch row carries arm_until on the wire too
@@ -879,6 +934,7 @@ export function Cockpit({
               (m) => m.security_id === selected.row.member.security_id,
             ) ?? null
           }
+          dataFlags={flagsFor(selected.row.member.security_id)}
           asof={asof}
           onClose={() => onSelectName(null)}
         />

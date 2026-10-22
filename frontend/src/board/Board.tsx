@@ -1,7 +1,9 @@
 import type { ReactNode } from "react";
 
 import type { CallCardResponse, ThesisSummary } from "../api/hooks";
-import { useCalls, useSetArchived, useTheses } from "../api/hooks";
+import { useCalls, useDataFlags, useSetArchived, useTheses } from "../api/hooks";
+import { DataFlagMark } from "../cockpit/DataFlagMark";
+import { flagsBySid } from "../cockpit/dataFlags";
 import {
   fmtDate,
   isPastAsof,
@@ -49,6 +51,13 @@ export function Board({ header, asof, onSelect }: Props) {
   // progressive PAINT only: under one backend worker this orders what lands first, it does not
   // shorten the total (see useCalls)
   const callResults = useCalls(theses, asof);
+  // S3 — the data flags across the active baskets (compute-on-read, display-only): a ticker the Board shows
+  // (the Decision Queue's headline name, a single-name card) carries the same quiet mark as its Cockpit row
+  // when a flag reaches a number on it. A separate read: the cards never wait on it.
+  const flagged = flagsBySid(useDataFlags(asof).data);
+  const flaggedByTicker = new Map(
+    [...flagged.values()].filter((m) => m.ticker).map((m) => [m.ticker as string, m]),
+  );
 
   // pair each thesis with its resolved call — a card appears once its call computes
   const rows: Row[] = theses
@@ -121,6 +130,9 @@ export function Board({ header, asof, onSelect }: Props) {
                   {/* a theme shows its single TOP-RANKED actionable name (anti-flooding), with a quiet
                       "+N" hint that a ranked menu sits behind it — never every member in the queue */}
                   <b>{headline?.ticker ?? tickerLabel(thesis.ticker, thesis.basket_size)}</b>
+                  {headline?.security_id && (
+                    <DataFlagMark member={flagged.get(headline.security_id)} />
+                  )}
                   {call.armed_members.length > 1 && (
                     <span className="dq-more">+{call.armed_members.length - 1}</span>
                   )}
@@ -157,7 +169,16 @@ export function Board({ header, asof, onSelect }: Props) {
                   // the archive control is a SIBLING of the card (the card is itself a <button> —
                   // nesting one inside would be the nested-button trap), hover-quiet
                   <div className={`card-wrap${stale ? " recomputing" : ""}`} key={thesis.id}>
-                    <ThesisCard thesis={thesis} call={call} onSelect={onSelect} />
+                    <ThesisCard
+                      thesis={thesis}
+                      call={call}
+                      onSelect={onSelect}
+                      flags={
+                        thesis.basket_size === 1 && thesis.ticker
+                          ? (flaggedByTicker.get(thesis.ticker) ?? null)
+                          : null
+                      }
+                    />
                     {/* C2 honest rendering: a kept previous-as-of card is dimmed AND says which
                         date it is for — the scrub keeps context instead of blanking the board, and
                         the card never passes itself off as the dial's answer. */}

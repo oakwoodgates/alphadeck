@@ -31,6 +31,9 @@ export interface GroupMoving {
   priced: number;
   /** The median 7d return (%) over the priced rows; null when fewer than `AGG_MIN_PRICED` are priced. */
   median: number | null;
+  /** S3 — priced rows LEFT OUT because a data flag reaches their 7d cell (in doubt or known wrong): a
+   *  number the platform cannot vouch for never moves the group's read, and the header says so. */
+  leftOut: number;
 }
 
 /** The median of a list: the middle value, or the mean of the two middles on an even count. Null on
@@ -51,15 +54,23 @@ export function median(values: readonly number[]): number | null {
 export function groupMoving<T extends { row: BucketRow }>(
   rows: readonly T[],
   trailFor: (row: BucketRow) => DisplaySignal | null,
+  flagged: (row: BucketRow) => boolean = () => false,
 ): GroupMoving {
   const values: number[] = [];
+  let leftOut = 0;
   for (const { row } of rows) {
     const v = metricValue(trailFor(row), AGG_RETURN_KEY);
-    if (v != null) values.push(v);
+    if (v == null) continue;
+    if (flagged(row)) {
+      leftOut += 1; // S3: a flagged 7d value is not a number the group read may rest on
+      continue;
+    }
+    values.push(v);
   }
   return {
     n: rows.length,
     priced: values.length,
     median: values.length >= AGG_MIN_PRICED ? median(values) : null,
+    leftOut,
   };
 }

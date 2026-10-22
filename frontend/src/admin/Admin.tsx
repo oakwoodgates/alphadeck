@@ -21,6 +21,7 @@ import { errText } from "../workbench/format";
 import { InsiderAmendments } from "./InsiderAmendments";
 import { Onboarding } from "./Onboarding";
 import { PriceFeedRepairs, repairHandledIds } from "./PriceFeedRepairs";
+import { DataFlagList } from "./DataFlagList";
 import { SplitList } from "./SplitList";
 
 interface Props {
@@ -537,6 +538,11 @@ export function Admin({ header }: Props) {
               by side, Confirm / Reject); the auto-confirmed, announced and set-aside ones quiet. Its own read;
               renders nothing when the list is empty. */}
           <SplitList />
+
+          {/* 1d' — DATA FLAGS (split plan S3): the full current list of the shared "is this real?" flags across
+              the active baskets — the names whose flags reach a Cockpit number first, the history-only ones in a
+              quiet collapsed list. Computed on read; read-only; renders nothing when nothing is flagged. */}
+          <DataFlagList />
 
           {/* 1e — ONBOARDING (X1): the staged cold-ingest queue — new names whose filing history loads in
               batches outside the nightly window. Quiet (a summary line + collapsed lists) while names wait or

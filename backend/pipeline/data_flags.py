@@ -686,17 +686,20 @@ def split_labels(
     *,
     asof: date,
     corrections: Mapping[tuple[str, date], Correction] | None = None,
+    bar_dates: Sequence[date] = (),
 ) -> list[SplitLabel]:
     """The company's split rows for the NamePanel and the chart, oldest first: every LIVE row (confirmed,
     announced, needs review) — a rejected / revoked row is not a split and is left to Admin's set-aside list.
     ``corrected_on`` only when Alpha Deck re-scaled the vendor's bars before it, and only once the view has
-    reached that day (no lookahead)."""
+    reached that day (no lookahead). ``bars_ago`` places the first bar at the new price on ``bar_dates``.
+    """
     corr = corrections or {}
     out: list[SplitLabel] = []
     for r in sorted(split_rows, key=lambda r: _day(r["effective_date"])):
         if r.get("status") not in (*LIVE_STATUSES, STATUS_NEEDS_REVIEW):
             continue
         s = listed_from_row(r)
+        first = next((i for i, d in enumerate(bar_dates) if d >= s.effective_date), None)
         c = corr.get((str(security_id), s.key_date)) or corr.get(
             (str(security_id), s.effective_date)
         )
@@ -736,6 +739,7 @@ def split_labels(
                 corrected_on=c.on if c else None,
                 corrected_note=note,
                 version_id=s.version_id,
+                bars_ago=None if first is None else len(bar_dates) - 1 - first,
             )
         )
     return out
@@ -838,7 +842,11 @@ def member_flags(
         security_id=security_id,
         ticker=ticker,
         flags=tuple(sort_flags(flags)),
-        splits=tuple(split_labels(security_id, split_rows, asof=asof, corrections=corrections)),
+        splits=tuple(
+            split_labels(
+                security_id, split_rows, asof=asof, corrections=corrections, bar_dates=bar_dates
+            )
+        ),
     )
 
 

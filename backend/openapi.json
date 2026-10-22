@@ -9080,6 +9080,17 @@
               }
             ],
             "title": "Corrected Note"
+          },
+          "bars_ago": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bars Ago"
           }
         },
         "type": "object",
@@ -9092,7 +9103,7 @@
           "status"
         ],
         "title": "DataFlagSplitOut",
-        "description": "One split on the list as the NamePanel and the chart label it: announced (``sec_filed``), confirmed\n(``confirmed_by``), took effect (``took_effect``), history corrected (``corrected_on`` \u2014 only when Alpha\nDeck re-scaled the vendor's bars before it). ``factor`` = prices before ``effective_date`` x factor."
+        "description": "One split on the list as the NamePanel and the chart label it: announced (``sec_filed``), confirmed\n(``confirmed_by``), took effect (``took_effect``), history corrected (``corrected_on`` \u2014 only when Alpha\nDeck re-scaled the vendor's bars before it). ``factor`` = prices before ``effective_date`` x factor.\n``bars_ago`` = how many bars the first bar at the new price sits before the view's newest bar."
       },
       "DataFlagThesisRefOut": {
         "properties": {

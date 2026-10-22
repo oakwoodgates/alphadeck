@@ -17,6 +17,7 @@ vi.mock("../../api/hooks", () => ({
   useTheses: () => ({ data: h.theses, isLoading: false, error: null }),
   // useCalls now takes the thesis SUMMARIES (it needs basket_size to order the paint) and returns
   // results ALIGNED to that input order — the Board pairs callResults[i] with theses[i].
+  useDataFlags: () => ({ data: undefined }),
   useCalls: (subjects: { id: string }[]) =>
     subjects.map((s) => h.calls[s.id] ?? { data: undefined, isLoading: false, isError: false }),
   useSetArchived: () => ({ mutate: h.setArchived, isPending: false }),

@@ -137,6 +137,8 @@ def test_btoc_split_row_names_its_sources_and_the_repair_that_corrected_its_hist
     )
     assert s.confirmed_by == "the SEC filing and Polygon agree" and s.took_effect
     assert s.sec_form == "8-K" and s.sec_filed == date(2026, 10, 9) and s.factor == 16.0
+    # 10-15 is the first bar at the new price; the newest bar (10-21) is four bars after it
+    assert s.bars_ago == 4
     assert s.corrected_on == date(2026, 10, 22)
     assert "had not adjusted" in (s.corrected_note or "")
     # a view of a day before the repair ran never shows it (no lookahead)

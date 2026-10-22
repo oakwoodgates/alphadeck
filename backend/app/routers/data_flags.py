@@ -64,6 +64,7 @@ class DataFlagSplitOut(BaseModel):
     """One split on the list as the NamePanel and the chart label it: announced (``sec_filed``), confirmed
     (``confirmed_by``), took effect (``took_effect``), history corrected (``corrected_on`` — only when Alpha
     Deck re-scaled the vendor's bars before it). ``factor`` = prices before ``effective_date`` x factor.
+    ``bars_ago`` = how many bars the first bar at the new price sits before the view's newest bar.
     """
 
     key_date: date
@@ -83,6 +84,7 @@ class DataFlagSplitOut(BaseModel):
     took_effect: bool = False
     corrected_on: date | None = None
     corrected_note: str | None = None
+    bars_ago: int | None = None
 
 
 class DataFlagThesisRefOut(BaseModel):
@@ -147,6 +149,7 @@ def _split_out(s: SplitLabel) -> DataFlagSplitOut:
         took_effect=s.took_effect,
         corrected_on=s.corrected_on,
         corrected_note=s.corrected_note,
+        bars_ago=s.bars_ago,
     )
 
 

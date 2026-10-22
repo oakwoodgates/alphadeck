@@ -12,6 +12,7 @@ const h = vi.hoisted(() => ({
 
 vi.mock("../../api/hooks", () => ({
   useTheses: () => ({ data: h.theses, isLoading: false, error: null }),
+  useDataFlags: () => ({ data: undefined }),
   useCalls: (subjects: { id: string }[]) =>
     subjects.map((s) => h.calls[s.id] ?? { data: undefined, isLoading: false, isError: false }),
   useSetArchived: () => ({ mutate: vi.fn(), isPending: false }),

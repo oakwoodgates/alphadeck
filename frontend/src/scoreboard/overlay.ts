@@ -1,6 +1,8 @@
 import type {
   ActivistStakeOut,
   CorporateEventOut,
+  DataFlagOut,
+  DataFlagSplitOut,
   DisplayEvent,
   DisplaySignal,
   EpisodeOperatorOut,
@@ -85,6 +87,44 @@ export function nearestBarDate(bars: { d: string }[], iso: string): string | nul
   return t - Date.parse(prev) <= Date.parse(next) - t ? prev : next; // <= → the earlier bar wins ties
 }
 
+/** S3: the FIRST loaded bar dated on or after `iso` — where a split's chip sits (its first day at the new
+ *  price). Null when no loaded bar is that late (the split has not printed on this tape). */
+export function firstBarOnOrAfter(bars: { d: string }[], iso: string): string | null {
+  for (const b of bars) if (b.d >= iso) return b.d;
+  return null;
+}
+
+/** S3: the chart's SHADED BANDS — each data flag's affected bar dates (`DataFlagOut.dates`) as runs of
+ *  consecutive LOADED bars, with the flag's level and reason. A date the window does not load is skipped
+ *  (no honest x), never clamped. Pure; the component positions them. */
+export interface FlagBand {
+  from: string;
+  to: string;
+  level: string;
+  reason: string;
+}
+export function flagBands(flags: readonly DataFlagOut[], bars: { d: string }[]): FlagBand[] {
+  const index = new Map(bars.map((b, i) => [b.d, i]));
+  const out: FlagBand[] = [];
+  for (const f of flags) {
+    const idx = [...new Set((f.dates ?? []).map((d) => index.get(d)))]
+      .filter((i): i is number => i != null)
+      .sort((a, b) => a - b);
+    let start: number | null = null;
+    let prev = -2;
+    for (const i of [...idx, Number.NaN]) {
+      if (start != null && !(i === prev + 1)) {
+        out.push({ from: bars[start].d, to: bars[prev].d, level: f.level, reason: f.reason });
+        start = null;
+      }
+      if (Number.isNaN(i)) break;
+      if (start == null) start = i;
+      prev = i;
+    }
+  }
+  return out;
+}
+
 /** The latest bar's DATE with `d <= iso` — the honest x for a bar-anchored marker (a weekend/holiday
  *  date maps to the prior trading day, exactly `closeOnDate`'s convention). Null when the date precedes
  *  the first loaded bar: no honest x → the marker is dropped, never clamped (the A1 trigger-chip rule). */
@@ -157,6 +197,7 @@ export type OverlayFamily =
   | "risk"
   | "activist"
   | "filing"
+  | "split"
   | "lifecycle"
   | "operator"
   | "signal";
@@ -254,6 +295,13 @@ export interface SignalChipEvent extends ChipBase {
   signalKind: string;
   asof: string;
 }
+/** S3: a split on the list (the data-flag read's split rows), at the FIRST BAR AT THE NEW PRICE. A recorded
+ *  fact (the list's newest version), so it is numbered like any other; a split that still needs review
+ *  renders grayed (`eventSetAside` — not applied), never hidden (WB #2). */
+export interface SplitChipEvent extends ChipBase {
+  family: "split";
+  split: DataFlagSplitOut;
+}
 export type OverlayEvent =
   | InsiderChipEvent
   | SellChipEvent
@@ -261,6 +309,7 @@ export type OverlayEvent =
   | RiskChipEvent
   | ActivistChipEvent
   | FilingChipEvent
+  | SplitChipEvent
   | LifecycleChipEvent
   | OperatorChipEvent
   | SignalChipEvent;
@@ -272,6 +321,7 @@ type RawEvent =
   | Omit<RiskChipEvent, "n">
   | Omit<ActivistChipEvent, "n">
   | Omit<FilingChipEvent, "n">
+  | Omit<SplitChipEvent, "n">
   | Omit<LifecycleChipEvent, "n">
   | Omit<OperatorChipEvent, "n">
   | Omit<SignalChipEvent, "n">;
@@ -298,7 +348,13 @@ export function buildOverlayEvents(
   insiderBuys: InsiderBuyOut[],
   bars: Bar[],
   tape?: { signals: DisplaySignal[]; asof: string },
-  wire?: { sells?: InsiderSellOut[]; filings?: CorporateEventOut[]; stakes?: ActivistStakeOut[] },
+  wire?: {
+    sells?: InsiderSellOut[];
+    filings?: CorporateEventOut[];
+    stakes?: ActivistStakeOut[];
+    /** S3: the company's splits (the data-flag read) — one chip each on its first bar at the new price. */
+    splits?: DataFlagSplitOut[];
+  },
 ): OverlayEvent[] {
   if (bars.length === 0) return [];
   const last = bars[bars.length - 1].d;
@@ -357,6 +413,13 @@ export function buildOverlayEvents(
     raw.push({ family: "filing", date: f.d, event: f, closeThatDay: closeAt(f.d) });
   for (const st of wire?.stakes ?? [])
     raw.push({ family: "activist", date: st.d, stake: st, closeThatDay: closeAt(st.d) });
+  // S3: a split sits on the FIRST BAR AT THE NEW PRICE (its first session, or the next loaded bar when that
+  // session has none); a split whose first session is past the last drawn bar has not printed — no chip.
+  for (const sp of wire?.splits ?? []) {
+    const at = firstBarOnOrAfter(bars, sp.effective_date);
+    if (at == null) continue;
+    raw.push({ family: "split", date: at, split: sp, closeThatDay: closeAt(at) });
+  }
   // A2: the operator's decision, at its decision_date. Same-day tie order (insertion): armed →
   // triggers → risks → buys → sells → filings → stakes → operator → dearmed. A decision dated past the last
   // bar loses its chip to the `date <= last` tape rule below — DELIBERATE (nothing sits past the
@@ -555,6 +618,7 @@ export function eventSetAside(e: OverlayEvent): boolean {
   if (e.family === "insider") return insiderSetAside(e.buy);
   if (e.family === "sell") return e.sell.character !== "kept";
   if (e.family === "activist") return !is13DFamily(e.stake.form);
+  if (e.family === "split") return e.split.status === "needs_review"; // listed, not applied
   return false;
 }
 
@@ -756,6 +820,36 @@ function signalTooltip(e: SignalChipEvent): TooltipContent {
   return { title: e.event.label, lines };
 }
 
+/** "×16" (a reverse split: prices before it are multiplied) / "÷2" (a 2-for-1 forward split). */
+function splitFactorWords(factor: number): string {
+  if (!Number.isFinite(factor) || factor <= 0) return "";
+  const r = (x: number) => (Number.isInteger(x) ? String(x) : String(Math.round(x * 1000) / 1000));
+  return factor >= 1 ? `×${r(factor)}` : `÷${r(1 / factor)}`;
+}
+
+/** S3 (plan section 11): "1-for-16 reverse split · SEC 8-K filed 2026-10-09 · prices before this day ×16",
+ *  plus how it was confirmed and — only when Alpha Deck fixed the vendor's bars — the correction. */
+function splitTooltip(e: SplitChipEvent): TooltipContent {
+  const s = e.split;
+  const lines: string[] = [];
+  lines.push(
+    e.date === s.effective_date
+      ? `first day at the new price ${s.effective_date}`
+      : `first session ${s.effective_date} · first loaded bar ${e.date}`,
+  );
+  if (s.sec_filed) lines.push(`SEC ${s.sec_form ?? "filing"} filed ${s.sec_filed}`);
+  else if (s.polygon) lines.push("listed by Polygon");
+  if (s.status === "needs_review") {
+    lines.push("needs review — not applied: prices before this day are as the vendor served them");
+  } else {
+    lines.push(`prices before this day ${splitFactorWords(s.factor)}`);
+    if (s.confirmed_by) lines.push(`confirmed: ${s.confirmed_by}`);
+  }
+  if (s.corrected_on)
+    lines.push(`history corrected ${s.corrected_on}${s.corrected_note ? ` — ${s.corrected_note}` : ""}`);
+  return { title: s.label, lines };
+}
+
 /** The hover card for a chip — a pure builder (jsdom can't test coordinates, so test THIS). Always
  *  available: the number is never a dead reference (#6). */
 export function overlayTooltip(e: OverlayEvent): TooltipContent {
@@ -767,6 +861,7 @@ export function overlayTooltip(e: OverlayEvent): TooltipContent {
   if (e.family === "risk") return riskTooltip(e);
   if (e.family === "operator") return operatorTooltip(e);
   if (e.family === "signal") return signalTooltip(e);
+  if (e.family === "split") return splitTooltip(e);
   return lifecycleTooltip(e);
 }
 
@@ -779,6 +874,9 @@ const FAMILY_META: Record<OverlayFamily, { label: string; cls: string }> = {
   risk: { label: "risk signal", cls: "ov-risk" },
   activist: { label: "activist stake", cls: "ov-activist" }, // Slice B — 13D at weight; 13G grays
   filing: { label: "8-K filing", cls: "ov-filing" }, // Slice B — gray, the common-tape family (#7)
+  // S3 — a split on the list, on its first day at the new price: a quiet outlined neutral (a corporate
+  // fact that explains a step in the line, never an alarm, #7); a needs-review one grays (set aside)
+  split: { label: "split", cls: "ov-split" },
   lifecycle: { label: "lifecycle", cls: "ov-lifecycle" },
   operator: { label: "operator", cls: "ov-operator" }, // A2 — muted --incub, the quiet family (#7)
   // A3 — the GRAYEST family on the board, quieter even than the operator's muted --incub: a computed
@@ -792,6 +890,7 @@ const FAMILY_ORDER: OverlayFamily[] = [
   "risk",
   "activist",
   "filing",
+  "split",
   "lifecycle",
   "operator",
   "signal",

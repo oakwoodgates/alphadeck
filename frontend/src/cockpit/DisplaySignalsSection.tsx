@@ -6,6 +6,8 @@ import type {
 } from "../api/hooks";
 import { fmtDate } from "../util/format";
 import { insiderNaLabel } from "../workbench/format";
+import { FlagWrap } from "./DataFlagMark";
+import type { CellFlag } from "./dataFlags";
 import { AGG_MIN_PRICED, AGG_RETURN_KEY, type GroupMoving } from "./groupAggregate";
 
 /** One metric chip's value, by wire unit. Handles every unit the payload can carry so a new
@@ -80,7 +82,14 @@ export function PostureCell({ sig }: { sig: DisplaySignal | null }) {
  *  1Y (`ret_1y`) is 252 trading bars — a young name (<~1y of tape) honestly blanks that cell. */
 export const RETURN_WINDOW_KEYS = ["ret_1d", "ret_7d", "ret_30d", "ret_90d", "ret_1y"] as const;
 
-export function ReturnCells({ sig }: { sig: DisplaySignal | null }) {
+export function ReturnCells({
+  sig,
+  flagFor,
+}: {
+  sig: DisplaySignal | null;
+  /** S3 — the data flag reaching a window's cell (keyed like the metric: `ret_7d`), or null. */
+  flagFor?: (key: string) => CellFlag | null;
+}) {
   const byKey = new Map((sig?.metrics ?? []).map((m) => [m.key, m]));
   return (
     <>
@@ -88,13 +97,15 @@ export function ReturnCells({ sig }: { sig: DisplaySignal | null }) {
         const m = byKey.get(key);
         return (
           <td className="met retc" key={key}>
-            {!m || m.value == null ? (
-              <span className="muted" title={m?.note ?? undefined}>
-                —
-              </span>
-            ) : (
-              <span className={`ret ${m.tone ?? ""}`}>{fmtMetricValue(m)}</span>
-            )}
+            <FlagWrap flag={flagFor?.(key)}>
+              {!m || m.value == null ? (
+                <span className="muted" title={m?.note ?? undefined}>
+                  —
+                </span>
+              ) : (
+                <span className={`ret ${m.tone ?? ""}`}>{fmtMetricValue(m)}</span>
+              )}
+            </FlagWrap>
           </td>
         );
       })}
@@ -111,11 +122,17 @@ export function ReturnCells({ sig }: { sig: DisplaySignal | null }) {
  *  title (show the work, #6). A display aggregate, never a call input (#4). */
 export function GroupMovingLine({ stat }: { stat: GroupMoving }) {
   const { n, priced, median } = stat;
+  const leftOut = stat.leftOut ?? 0;
   const names = n === 1 ? "name" : "names";
+  // S3: a 7d value a data flag reaches never moves the group read — it is left out, and the header says so
+  const outNote =
+    leftOut > 0
+      ? `; ${leftOut} flagged 7d ${leftOut === 1 ? "value" : "values"} left out (a data flag — hover the row's mark)`
+      : "";
   const title =
-    median == null
+    (median == null
       ? `no median below ${AGG_MIN_PRICED} priced names (${priced} of ${n} priced)`
-      : `median 7d return over the ${priced} priced of ${n} ${names}`;
+      : `median 7d return over the ${priced} priced of ${n} ${names}`) + outNote;
   const tone = median == null ? "na" : median > 0 ? "pos" : median < 0 ? "neg" : "";
   return (
     <span className="agg" title={title}>
@@ -125,6 +142,7 @@ export function GroupMovingLine({ stat }: { stat: GroupMoving }) {
           ? "—"
           : fmtMetricValue({ key: AGG_RETURN_KEY, label: "7d median", value: median, unit: "pct" })}
       </span>
+      {leftOut > 0 && <span className="agg-out"> · {leftOut} left out</span>}
     </span>
   );
 }
@@ -270,7 +288,37 @@ export function sparkGeometry(
  *  young name draws a shorter, right-aligned path; fewer than two real closes (or no series at all)
  *  reads a muted "—" with the why on hover (a point is not a path, #6/#9). Not sortable: a shape,
  *  never a number the sort or the call could read (#4). The exact tape rides the hover title. */
-export function SparklineCell({ sig }: { sig: DisplaySignal | null }) {
+/** S3 — a split's tick on the sparkline: `barsAgo` bars before the path's newest slot (the split row's
+ *  `bars_ago` — the first bar at the new price), and its label for the hover. */
+export interface SparkTick {
+  barsAgo: number;
+  label: string;
+}
+
+/** The x of each tick that falls inside an `n`-slot window (slot n−1 = the newest bar); a split older than
+ *  the window draws nothing. Pure — the same x mapping as `sparkGeometry`. */
+export function sparkTicks(
+  ticks: readonly SparkTick[],
+  n: number,
+  w = SPARK_W,
+): { x: number; label: string }[] {
+  const r1 = (v: number) => Math.round(v * 10) / 10;
+  return ticks
+    .filter((t) => t.barsAgo >= 0 && t.barsAgo < n)
+    .map((t) => {
+      const i = n - 1 - t.barsAgo;
+      return { x: r1(n > 1 ? (i / (n - 1)) * w : w / 2), label: t.label };
+    });
+}
+
+export function SparklineCell({
+  sig,
+  ticks = [],
+}: {
+  sig: DisplaySignal | null;
+  /** S3 — the company's splits inside the window: a tick mark at most (plan section 11). */
+  ticks?: readonly SparkTick[];
+}) {
   const series = (sig?.series ?? []).find((s) => s.key === SPARK_SERIES_KEY);
   const geo = series ? sparkGeometry(series.values) : null;
   if (!sig || !geo)
@@ -279,16 +327,21 @@ export function SparklineCell({ sig }: { sig: DisplaySignal | null }) {
         —
       </span>
     );
+  const marks = sparkTicks(ticks, series!.values.length);
+  const title = [basisLine(sig), ...marks.map((t) => t.label)].join(" · ");
   return (
-    <span className="spark" title={basisLine(sig)}>
+    <span className="spark" title={title}>
       <svg
         className="spark-svg"
         width={SPARK_W}
         height={SPARK_H}
         viewBox={`0 0 ${SPARK_W} ${SPARK_H}`}
         role="img"
-        aria-label={`price path, ${geo.bars} bars`}
+        aria-label={`price path, ${geo.bars} bars${marks.length ? `, ${marks.length} split(s)` : ""}`}
       >
+        {marks.map((t, i) => (
+          <line key={`t${i}`} className="spark-tick" x1={t.x} x2={t.x} y1={0} y2={SPARK_H} />
+        ))}
         {geo.paths.map((d, i) => (
           <path key={i} d={d} />
         ))}
