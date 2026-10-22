@@ -42,7 +42,7 @@ and the free proxy is demonstrably inadequate. Default to free + derive.
 - Declared **User-Agent** with contact (config/env, not hardcoded).
 - Respect the documented **rate limit** — and it is a GLOBAL limit (X2, 2026-10-21). SEC's fair-access
   ceiling is 10 requests/second per egress IP, so the budget is held ONCE for every process, in Postgres
-  (`ingest/sec_budget.py`, table `sec_request_budget`, migration 0057): every live SEC request (the nightly's
+  (`ingest/sec_budget.py`, table `sec_request_budget`, migration 0058): every live SEC request (the nightly's
   fetch-ahead workers, the Workbench discovery fan-out, an on-promote ingest, a CLI, the one-GET ticker
   universes) reserves its own slot with ONE atomic upsert (`next_slot := GREATEST(next_slot, now()) + 1/rate`)
   and sleeps until it. The row lock orders concurrent reservations, so **any two SEC requests are at least

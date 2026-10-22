@@ -7,7 +7,7 @@ CLI each ran a separate 8/s, so two of them at once could exceed 10/s. The night
 (``pipeline/fetch_ahead.py``), so the overlap is no longer hypothetical.
 
 THE MECHANISM — the simplest that GUARANTEES the cap: ONE Postgres row (``sec_request_budget``, migration
-0057) holding ``next_slot``, the earliest instant the next SEC request may start. Every live SEC request
+0058) holding ``next_slot``, the earliest instant the next SEC request may start. Every live SEC request
 reserves its own slot with ONE atomic upsert (``GREATEST(next_slot, now()) + 1/rate``, returning the slot),
 then sleeps until it, outside the database. The row lock orders concurrent reservations, so ANY two reserved
 slots are at least ``1/rate`` apart whichever processes took them: the cap holds by construction, with no

@@ -505,7 +505,7 @@ class Settings(BaseSettings):
     # --- X2 / X7 / the fetch-ahead (2026-10-21): the vendor budgets and the nightly's fetch concurrency ---
     # X2 — THE GLOBAL SEC BUDGET (``ingest/sec_budget.py``): ONE request budget across EVERY process that
     # talks to SEC (the cron's pass, the backend's Workbench / discovery / on-promote ingest, any CLI), held in
-    # Postgres (``sec_request_budget``, migration 0057) as reserved request slots spaced 1/rate apart. SEC's
+    # Postgres (``sec_request_budget``, migration 0058) as reserved request slots spaced 1/rate apart. SEC's
     # fair-access ceiling is 10 req/s per egress IP; 8.5 keeps headroom even at the window's edge (slot
     # spacing 0.118 s = at most 9 request starts in any closed one-second window). The per-client
     # ``edgar_rate_per_sec`` above stays as a second, process-local cap (one client never takes it all).
