@@ -36,6 +36,14 @@ function cashSymbol(currency: string | null | undefined): string {
   return CURRENCY_SYMBOL[currency] ?? currency;
 }
 
+/** The " — {detail}" suffix for an explain transport error: the server's own words when it sent a FastAPI
+ *  `{detail}` string, else nothing. Deliberately NOT the shared `errText`: its "the request was rejected"
+ *  fallback is wrong here — a network/proxy failure was never rejected, it simply never got an answer. */
+function explainErrSuffix(e: unknown): string {
+  const d = (e as { detail?: unknown } | null)?.detail;
+  return typeof d === "string" && d !== "" ? ` — ${d}` : "";
+}
+
 /** The facts panel (hybrid-2b) — extract the scoring facts from the latest filings and RATIFY them, closing
  *  the extract → ratify → re-score loop in the UI. The operator confirms each candidate (AUTO as-is, FLAG
  *  the composition, HUMAN purity authored); on confirm the fact is written and the meter re-derives. The
@@ -410,6 +418,15 @@ function RatifyRow({
           {explain.data && !explain.data.grounded && !explain.isFetching && (
             <div className="drafted muted">
               No plain-English read grounded in the passage — read the excerpt above.
+            </div>
+          )}
+          {/* a TRANSPORT failure (network, proxy, an nginx 5xx) — the endpoint itself fails open with
+              {grounded:false}, so an error here means the request never got an answer. Said plainly
+              (a silent re-enabled button reads as "nothing to say"), never as an explanation: no
+              `drafted` tag, no value. Hidden while a retry is in flight; the button stays the retry. */}
+          {explain.isError && !explain.isFetching && (
+            <div className="drafted muted">
+              Couldn't reach the explainer{explainErrSuffix(explain.error)}. Click Explain to try again.
             </div>
           )}
         </div>

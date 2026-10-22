@@ -10,7 +10,7 @@ const h = vi.hoisted(() => ({
   mutate: vi.fn(),
   ratify: { isPending: false, isError: false, isSuccess: false, error: null as unknown },
   explainRefetch: vi.fn(),
-  explain: { data: undefined as unknown, error: null as unknown, isFetching: false },
+  explain: { data: undefined as unknown, error: null as unknown, isError: false, isFetching: false },
 }));
 
 vi.mock("../../api/hooks", () => ({
@@ -82,7 +82,7 @@ beforeEach(() => {
   h.explainRefetch.mockReset();
   h.extract = { data: undefined, error: null, isFetching: false };
   h.ratify = { isPending: false, isError: false, isSuccess: false, error: null };
-  h.explain = { data: undefined, error: null, isFetching: false };
+  h.explain = { data: undefined, error: null, isError: false, isFetching: false };
 });
 
 describe("FactsPanel — extract → ratify", () => {
@@ -600,7 +600,7 @@ describe("FactsPanel — the FLAG-explanation drafter (the LLM seam)", () => {
   });
 
   it("fail-open: an explain error leaves the raw passage + manual ratify fully working", async () => {
-    h.explain = { data: undefined, error: new Error("LLM down"), isFetching: false };
+    h.explain = { data: undefined, error: new Error("LLM down"), isError: true, isFetching: false };
     h.extract.data = env([FLAG_BURN]);
     render(<FactsPanel securityId={SID} />);
     // no drafted block, but the located passage is still readable and the ratify still posts
@@ -608,6 +608,95 @@ describe("FactsPanel — the FLAG-explanation drafter (the LLM seam)", () => {
     expect(screen.getByText(/Partnership milestone payment of 264,195/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
     expect(h.mutate).toHaveBeenCalledTimes(1); // the panel works exactly as today
+  });
+});
+
+describe("FactsPanel — the explain TRANSPORT error is said, never silent", () => {
+  // The endpoint fails open ({grounded:false}) for LLM trouble, so the only error the panel can see is
+  // a transport one (network, proxy, an nginx 5xx). Before: the button re-enabled and nothing appeared —
+  // a silent failure that read as "nothing to say".
+  const COULDNT_REACH = /Couldn't reach the explainer/;
+
+  it("renders one quiet line naming the failure — no 'drafted' tag, the passage + ratify intact", () => {
+    h.explain = { data: undefined, error: new TypeError("Failed to fetch"), isError: true, isFetching: false };
+    h.extract.data = env([FLAG_BURN]);
+    render(<FactsPanel securityId={SID} />);
+    const line = screen.getByText(COULDNT_REACH);
+    expect(line).toHaveClass("drafted", "muted"); // the quiet muted line, never a drafted explanation
+    expect(line.querySelector(".wb-author")).toBeNull();
+    expect(screen.queryByText("drafted")).not.toBeInTheDocument();
+    // fail-open holds: the burn field still shows the RAW value, and the passage is still readable
+    expect((screen.getByLabelText("quarterly burn") as HTMLInputElement).value).toBe("314678000");
+    expect(screen.getByText(/Partnership milestone payment of 264,195/)).toBeInTheDocument();
+  });
+
+  it("a FastAPI {detail} string rides the line as the server's own words", () => {
+    h.explain = { data: undefined, error: { detail: "upstream timed out" }, isError: true, isFetching: false };
+    h.extract.data = env([FLAG_BURN]);
+    render(<FactsPanel securityId={SID} />);
+    expect(screen.getByText(COULDNT_REACH)).toHaveTextContent(
+      "Couldn't reach the explainer — upstream timed out. Click Explain to try again.",
+    );
+  });
+
+  it("a detail-less error gets NO suffix — never 'rejected' (it was never answered, not refused)", () => {
+    // the two detail-less shapes openapi-fetch 0.13 actually yields: a network failure re-throws fetch's
+    // TypeError, and a non-JSON error body (an nginx 502 HTML page) comes back as the raw string
+    const NO_SUFFIX = "Couldn't reach the explainer. Click Explain to try again.";
+    h.explain = { data: undefined, error: new TypeError("Failed to fetch"), isError: true, isFetching: false };
+    h.extract.data = env([FLAG_BURN]);
+    const { unmount } = render(<FactsPanel securityId={SID} />);
+    expect(screen.getByText(COULDNT_REACH).textContent).toBe(NO_SUFFIX);
+    expect(screen.getByText(COULDNT_REACH)).not.toHaveTextContent(/rejected/);
+    unmount();
+
+    h.explain = {
+      data: undefined,
+      error: "<html><body><h1>502 Bad Gateway</h1></body></html>",
+      isError: true,
+      isFetching: false,
+    };
+    render(<FactsPanel securityId={SID} />);
+    expect(screen.getByText(COULDNT_REACH).textContent).toBe(NO_SUFFIX);
+    expect(screen.getByText(COULDNT_REACH)).not.toHaveTextContent(/rejected/);
+  });
+
+  it("is hidden while a retry is in flight, even though the query still holds the error", () => {
+    // TanStack keeps status 'error' during a refetch of an errored query — isError AND isFetching
+    h.explain = { data: undefined, error: new TypeError("Failed to fetch"), isError: true, isFetching: true };
+    h.extract.data = env([FLAG_BURN]);
+    render(<FactsPanel securityId={SID} />);
+    expect(screen.queryByText(COULDNT_REACH)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Explain/ })).toHaveTextContent("Explaining…");
+  });
+
+  it("is not shown on a success — grounded or not grounded", () => {
+    h.explain = {
+      data: { explanation: "Recurring burn is lower.", grounded: true },
+      error: null,
+      isError: false,
+      isFetching: false,
+    };
+    h.extract.data = env([FLAG_BURN]);
+    const { unmount } = render(<FactsPanel securityId={SID} />);
+    expect(screen.getByText(/Recurring burn is lower/)).toBeInTheDocument();
+    expect(screen.queryByText(COULDNT_REACH)).not.toBeInTheDocument();
+    unmount();
+
+    h.explain = { data: { explanation: "", grounded: false }, error: null, isError: false, isFetching: false };
+    render(<FactsPanel securityId={SID} />);
+    expect(screen.getByText(/No plain-English read grounded in the passage/)).toBeInTheDocument();
+    expect(screen.queryByText(COULDNT_REACH)).not.toBeInTheDocument();
+  });
+
+  it("leaves the button enabled as the retry — a click refetches", async () => {
+    h.explain = { data: undefined, error: new TypeError("Failed to fetch"), isError: true, isFetching: false };
+    h.extract.data = env([FLAG_BURN]);
+    render(<FactsPanel securityId={SID} />);
+    const button = screen.getByRole("button", { name: /Explain/ });
+    expect(button).toBeEnabled();
+    await userEvent.click(button);
+    expect(h.explainRefetch).toHaveBeenCalledTimes(1);
   });
 });
 
