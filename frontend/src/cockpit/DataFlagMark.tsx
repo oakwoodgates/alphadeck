@@ -11,6 +11,9 @@ import {
   rowLevel,
 } from "./dataFlags";
 
+/** The row mark's glyph (a small flag; see `DataFlagMark`). */
+export const FLAG_GLYPH = "⚑";
+
 /** One flagged cell's content (split plan S3): IN DOUBT keeps the number, grayed, with the reason on hover;
  *  KNOWN WRONG replaces it with a muted "—" carrying the reason. No flag → the children, untouched. */
 export function FlagWrap({ flag, children }: { flag?: CellFlag | null; children: ReactNode }) {
@@ -30,7 +33,9 @@ export function FlagWrap({ flag, children }: { flag?: CellFlag | null; children:
 
 /** The quiet mark after a ticker: only when some flag reaches a cell on the row (WB#3 — a mark true of
  *  every row would be noise, and a flag no cell reads is the panel's and Admin's to tell). Hover lists
- *  each flag and the cells it touches. Never an alert (#7). */
+ *  each flag and the cells it touches. Never an alert (#7). The glyph is a small flag (⚑) — NOT the ◇,
+ *  which already means "a basket / no ticker" across the app (the Board's "◇ 90", the Scoreboard's
+ *  thesis-level rows), so a flagged ticker can never read as a basket marker. */
 export function DataFlagMark({ member }: { member: MemberDataFlagsOut | null | undefined }) {
   const level = rowLevel(member);
   if (!level) return null;
@@ -40,7 +45,7 @@ export function DataFlagMark({ member }: { member: MemberDataFlagsOut | null | u
       title={markTitle(member)}
       aria-label={`data flag: ${LEVEL_WORD[level]}`}
     >
-      ◇
+      {FLAG_GLYPH}
     </span>
   );
 }

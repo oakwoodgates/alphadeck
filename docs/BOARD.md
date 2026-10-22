@@ -155,9 +155,12 @@ count. `GET /theses/{id}/data-flags?asof=` computes these **on read** (never sto
 never a call input — `domain/data_flags.py` + `pipeline/data_flags.py`, on the view's clock) and names, per flag,
 the exact **cells** its dates reach (`cells_for`: a step a window straddles, a bar a window reads). Only those
 cells change: **in doubt** keeps the number, grayed and dotted, the reason on hover; **known wrong** replaces it
-with a muted "—" carrying the reason. The row gets a quiet hollow-diamond **mark after the ticker** only when some
-flag reaches a cell on it (WB#3 — a split two years back that no column reads marks nothing; the panel and Admin
-still list it). The header's 7d median **leaves flagged 7d values out** and says so ("· 2 left out", the why on
+with a muted "—" carrying the reason; every cell no flag names renders normally. The row gets a quiet small-flag
+(⚑ — never the ◇, which already means "a basket / no ticker") **mark after the ticker** only when some flag
+reaches a cell on it (WB#3 — a split two years back that no column reads marks nothing; the panel and Admin
+still list it, and a name's flags list the reaching ones first). Flags apply only once this view's display and
+scored reads have landed: the flag read is the faster one, and a mark beside a row of loading "—" (or another
+as-of's placeholder numbers) read as "the flag blanked the row". The header's 7d median **leaves flagged 7d values out** and says so ("· 2 left out", the why on
 hover). The sparkline gets a dashed **tick** at an applied split inside its window, nothing more. No alert,
 ever (#7). MEASURED on a read-only copy of prod (2026-10-22): 26 of 688 names carry a mark (3/90 AI Memory,
 1/34 Digital Asset, 4/190 Modern Defense, 2/79 Nuclear, 8/155 Rainbow Rush, 9/159 Everything Exchange), and

@@ -1,6 +1,6 @@
 import type { MemberDataFlagsOut } from "../api/hooks";
 import { useDataFlags } from "../api/hooks";
-import { CELL_LABEL, LEVEL_WORD } from "../cockpit/dataFlags";
+import { CELL_LABEL, LEVEL_WORD, rowLevel } from "../cockpit/dataFlags";
 import { todayISO } from "../util/format";
 import { errText } from "../workbench/format";
 
@@ -46,8 +46,9 @@ export function DataFlagList() {
   }
   const members = q.data?.members ?? [];
   if (members.length === 0) return null;
-  const marked = members.filter((m) => m.marked);
-  const quiet = members.filter((m) => !m.marked);
+  // the ONE row-mark rule the Cockpit and the Board use (a flag that reaches a cell), never a second flag
+  const marked = members.filter((m) => rowLevel(m) != null);
+  const quiet = members.filter((m) => rowLevel(m) == null);
   return (
     <section className="adm-card" data-testid="adm-flags">
       <div className="adm-h">Data flags</div>
