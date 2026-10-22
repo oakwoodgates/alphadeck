@@ -430,8 +430,8 @@ def test_one_shared_stamp_picks_and_dates_exactly_like_the_backdated_stamps(vers
 
 
 def test_a_recorded_at_tie_picks_the_greater_id_like_distinct_on():
-    """Two versions of the SAME filing recorded at the same instant (migration 0057's UNIQUE forbids that in
-    the table; the pure function still decides it deterministically): the greater id wins (``recorded_at
+    """Two versions of the SAME filing recorded at the same instant (the writer never stores that — a filing's
+    re-parse is a later pass's, migration 0060; the pure function still decides it deterministically): the greater id wins (``recorded_at
     DESC, id DESC``) whatever order the rows arrive in."""
     t = _stamp(date(2026, 4, 22))
     lo = _v(100, date(2026, 4, 22), t, accn="lo", vid="00000000-0000-0000-0000-000000000001")
@@ -443,22 +443,23 @@ def test_a_recorded_at_tie_picks_the_greater_id_like_distinct_on():
 
 def test_a_filing_counts_once_in_the_run_by_its_latest_version():
     """The revenue-label supersession's shape (the review's A3; real instances on the dev copy: 55 periods in
-    10 companies — MTRN's in ``tests/ingest/test_revenue_label.py``): an old tag's X and the current tag's Y
-    on the SAME two filings, Y one microsecond after X each time. Each filing takes part in the run by its
-    latest version only, so Y — public since F1 — dates at F1, not at the F2 comparative the superseded X
-    between them used to break the run at. The pick is unchanged."""
+    10 companies — MTRN's in ``tests/ingest/test_revenue_label.py``): an old tag's X on two filings, stored
+    with the pre-0057 stamps, and the current tag's Y re-parsing BOTH under one later honest stamp (one run).
+    Each filing takes part in the run by its latest version only, so Y — public since F1 — dates at F1, not
+    at the F2 comparative the superseded X between them used to break the run at. The pick is unchanged.
+    """
     f1, f2 = date(2024, 8, 5), date(2025, 8, 4)
-    us = timedelta(microseconds=1)
+    run = datetime(2026, 10, 22, 3, 0, tzinfo=timezone.utc)  # the re-ingest's one honest stamp
     rows = [
         _v(100, f1, _stamp(f1), accn="f1"),
-        _v(90, f1, _stamp(f1) + us, accn="f1"),
+        _v(90, f1, run, accn="f1"),
         _v(100, f2, _stamp(f2), accn="f2"),
-        _v(90, f2, _stamp(f2) + us, accn="f2"),
+        _v(90, f2, run, accn="f2"),
     ]
     (row,) = _pick(rows)
     assert row["value"] == 90 and row["valid_from"] == f2  # the pick: the latest version overall
     assert row[KNOWABLE_FROM] == f1 and row[KNOWABLE_SOURCE] == "f1"
     # a genuine change across filings is still new knowledge: Y on F1, then Z on F2 dates at F2
-    rows[3] = _v(80, f2, _stamp(f2) + us, accn="f2")
+    rows[3] = _v(80, f2, run, accn="f2")
     (row,) = _pick(rows)
     assert row["value"] == 80 and row[KNOWABLE_FROM] == f2

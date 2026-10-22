@@ -18,12 +18,12 @@ under the lock, counted.
 WHAT IT WRITES — exactly what the nightly's own parse would (``ingest.fundamentals.plan_versions``, the writer
 ``store_quarters`` uses), never anything else:
 
-- the current label's quarters not yet stored, each stamped ``valid_from = recorded_at = its filing date``
-  (R17, the stamp every one of the table's rows carries — never ``now()``; see "Why the filing stamp");
+- the current label's quarters not yet stored, each dated at its filing (``valid_from = filed``, R17) and
+  stamped with the honest database instant of the run (``recorded_at``, migration 0057 — see "The stamp");
 - where a stored old-label number sits on a filing the current label reports differently, the current
-  label's number as a version of that same filing, one microsecond later (it is what the read picks there)
-  — unless the stored number is one the current label itself reports for that period later (kept, so it
-  stays dated at the filing that first made it public);
+  label's number as a RE-PARSE of that same filing, naming the version it replaces (``supersedes``,
+  migration 0060; it is what the read picks there) — unless the stored number is one the current label
+  itself reports for that period later (kept, so it stays dated at the filing that first made it public);
 - any missing share-count version the same parse yields (normally none: the nightly keeps those current).
 
 Never a row the data-quality screen rejects (a fiscal-year total under a quarter context; a derived Q4 across
@@ -32,16 +32,13 @@ a restatement — ``ingest.fundamentals.ScreenedRow``): each is counted and PRIN
 Nothing is updated or deleted (the table is append-only). The trigger's rule is untouched; it reads the
 right numbers.
 
-WHY THE FILING STAMP, NOT ``now()``. The fundamentals table stamps both clocks at the filing date by design
-(migration 0036, R17), and the first-knowability read (D3a, ``db.bitemporal.version_knowable_date``) dates a
-version at ``max(valid_from, the market date of recorded_at)``. Stamped ``now()``, every re-ingested quarter
-— years of history — would read as first knowable TODAY, and ``revenue_acceleration`` would cite an
-inflection years old as fresh for 180 days. MEASURED on the dev copy (2026-10-20, the 647 active companies
-with cached companyfacts): with the filing stamp, 97 carry a live event today (71 before; 27 gained, 1 lost —
-KOPN's, a fake the subset guard removed); stamped ``now()``, 212 would (141 gained — 117 of them citing a
-quarter the filing stamp does not fire on today: phantoms). And the nightly
-writes these same rows with the filing stamp, so the CLI must stamp them identically or the store would
-depend on which ran first.
+THE STAMP. Every appended row carries the honest ``recorded_at`` of this run (``ingest.fundamentals
+.append_planned`` — the same writer, the same stamp as the nightly's), never a backdated one. History is judged
+on the PUBLIC clock: a fundamentals version counts from its filing (``valid_from``), and the read dates and
+picks it there (``db.bitemporal.first_knowable_versions`` — the latest FILING wins; ``knowable_from`` is the
+first filing of the run), so a re-stored number from an EXISTING filing is public at that filing's date. That
+is correct, and it is how a past (public-clock) view gets the right revenue. ``recorded_at`` is bookkeeping:
+it never dates a quarter, so years of re-ingested history never read as fresh.
 
 SAFETY (the ``repair_benchmark_bars`` / ``backfill`` shape):
 
@@ -53,9 +50,12 @@ SAFETY (the ``repair_benchmark_bars`` / ``backfill`` shape):
   (whatever its age — the nightly's Q17 gate keeps it current, and this CLI never refreshes it) and fetches
   only an uncached one, through the ordinary client (declared User-Agent, rate limit). A company with a cached
   404 marker is left to the nightly's gate. ``--no-live`` makes ``--apply`` cache-only too.
-- **One transaction, counted.** ``--apply`` holds the call-of-record lock (``pipeline/run_lock.py``) for the
-  whole run — exit 75 when a nightly pass or a backfill holds it — counts ``fact_fundamentals`` before and
-  after inside ONE transaction, and commits only when the difference equals the planned versions.
+- **One transaction, counted.** ``--apply`` holds the REPAIR lock for the whole run
+  (``pipeline/run_lock.acquire_repair_lock``, W1: the call-of-record lock, then the fact-writer gate
+  exclusively, so no Workbench / onboarding / CLI company writer interleaves with its read-compare-append) —
+  exit 75 when a nightly pass, a backfill or a draining company writer holds it — counts
+  ``fact_fundamentals`` before and after inside ONE transaction, and commits only when the difference equals
+  the planned versions.
 - **Idempotent.** A second run plans and appends zero (count the table).
 - **Provenance.** ``--apply`` writes one JSON under ``data/repairs/`` (fail-open).
 - Run ``--apply`` on prod only after a labeled backup, from the deployed image, outside 21:30-00:00 ET.
@@ -98,7 +98,7 @@ from ingest.fundamentals import (
     plan_versions,
     select_revenue,
 )
-from pipeline.run_lock import EXIT_ALREADY_RUNNING, PassAlreadyRunning, acquire_pass_lock
+from pipeline.run_lock import EXIT_ALREADY_RUNNING, PassAlreadyRunning, acquire_repair_lock
 from repositories import thesis_repo
 from securities import master
 
@@ -393,6 +393,7 @@ def build_payload(result: ReingestResult) -> dict[str, Any]:
                         "old": v.supersedes_value,
                         "new": v.point.value,
                         "accession": v.point.accession,
+                        "supersedes": str(v.supersedes) if v.supersedes else None,
                     }
                     for v in c.planned
                     if v.supersedes_value is not None
@@ -517,7 +518,7 @@ def main(argv: list[str] | None = None) -> None:
     docs = "cache first, fetch only uncached" if fetch else "cache only"
     print(f"reingest_fundamentals · {mode} · companyfacts: {docs}")
     try:
-        lock = acquire_pass_lock(holder="reingest") if args.apply else None
+        lock = acquire_repair_lock(holder="reingest_fundamentals") if args.apply else None
     except PassAlreadyRunning as exc:
         print(
             f"reingest: ALREADY RUNNING — {exc}. Nothing was written (exit {EXIT_ALREADY_RUNNING})"

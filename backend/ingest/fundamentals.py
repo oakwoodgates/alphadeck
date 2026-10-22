@@ -35,10 +35,12 @@ AMD's stopped at 2017-09-30), and ``revenue_acceleration`` could never fire on i
 
 A label switch can leave a stored old-label number on the SAME filing the current label reports differently
 (the store's key is the filing, not the label — MEASURED: 302 such filings in 40 companies). ``plan_versions``
-then appends the current label's number as a version of that filing, one microsecond after it
-(``valid_from`` unchanged, so its knowability is unchanged), and the read picks it: within one filing the
-series never mixes the two labels, and the number is dated at the filing that first reported it — not at a
-year-later comparative (the D3 phantom). The one exception: a held number the current label itself reports
+then appends the current label's number as a RE-PARSE of that filing — a new version naming the one it
+replaces (``supersedes``; migration 0060 admits exactly that link and still refuses any plain duplicate),
+stamped with the pass's honest ``recorded_at`` and so the filing's latest-recorded version (``valid_from``
+unchanged, so its knowability is unchanged) — and the read picks it: within one filing the series never mixes
+the two labels, and the number is dated at the filing that first reported it — not at a year-later comparative
+(the D3 phantom; D3a's run counts each filing once, ``db.bitemporal.first_knowable_versions``). The one exception: a held number the current label itself reports
 for that period on a LATER filing is kept (it IS the current definition's number, public since this filing;
 24 of the 302, so 278 are superseded). The stored history is kept, never rewritten. Only the revenue metric
 does this; the share series keep their skip-on-key behavior.
@@ -570,34 +572,38 @@ _LABEL_FOLLOWING_METRICS = frozenset({REVENUE_METRIC})
 
 @dataclass(frozen=True)
 class HeldFiling:
-    """What the store holds for one (metric_key, period_end, filed): how many versions, and the value the
-    as-of read picks on that filing (the latest-recorded one)."""
+    """What the store holds for one (metric_key, period_end, filed): how many versions, the value the as-of
+    read picks on that filing (the latest-recorded one), and that version's id — what a re-parse names in
+    ``supersedes`` (migration 0060; ``None`` only for a version planned but not yet stored)."""
 
     versions: int
     value: float
+    latest_id: UUID | None = None
 
 
 @dataclass(frozen=True)
 class PlannedVersion:
     """One version ``plan_versions`` would append: the point and — for a label-switch supersession — the
-    value the filing held before (``None`` for a plain new filing). No stamp: ``recorded_at`` is the
-    writer's honest transaction time (``append_planned``), never a property of the plan.
+    value the filing held before and the id of the version it replaces (``supersedes``, migration 0060;
+    both ``None`` for a plain new filing). No stamp: ``recorded_at`` is the writer's honest transaction time
+    (``append_planned``), never a property of the plan.
     """
 
     point: QuarterPoint
     supersedes_value: float | None = None
+    supersedes: UUID | None = None
 
 
 def held_versions(
     conn: psycopg.Connection, security_id: UUID, tenant_id: UUID = DEFAULT_TENANT_ID
 ) -> dict[tuple[str, date, date], HeldFiling]:
     """The (metric_key, period_end, filed=valid_from) filings already stored for this security, each with
-    its version count and the value the read picks there (``recorded_at, id`` order — the as-of pick). The
-    idempotency map: a re-ingest skips what is held, so the append-only table never silently grows
-    (count-the-table)."""
+    its version count, the value the read picks there and that version's id (``recorded_at, id`` order — the
+    as-of pick within one filing). The idempotency map: a re-ingest skips what is held, so the append-only
+    table never silently grows (count-the-table)."""
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT metric_key, period_end, valid_from, value FROM fact_fundamentals "
+            "SELECT id, metric_key, period_end, valid_from, value FROM fact_fundamentals "
             "WHERE tenant_id = %s AND security_id = %s ORDER BY recorded_at, id",
             (tenant_id, security_id),
         )
@@ -605,7 +611,7 @@ def held_versions(
         for r in cur.fetchall():
             key = (r["metric_key"], r["period_end"], r["valid_from"])
             prior = held.get(key)
-            held[key] = HeldFiling((prior.versions if prior else 0) + 1, float(r["value"]))
+            held[key] = HeldFiling((prior.versions if prior else 0) + 1, float(r["value"]), r["id"])
         return held
 
 
@@ -640,9 +646,11 @@ def plan_versions(
     - A filing not held -> append (``valid_from`` = its filing date, R17).
     - A filing held with the same number -> skip (the idempotency rule: a re-run appends ZERO).
     - A REVENUE filing held with a DIFFERENT number -> the label-switch case: append the current label's
-      number as a new version of that same filing. ``valid_from`` stays the filing date, so its knowable date
-      is the filing's (D3a); the writer's honest stamp is later than every version already held, so it is
-      the latest-recorded version of that filing and the read picks it.
+      number as a RE-PARSE of that same filing, naming the version it replaces (``supersedes`` = the held
+      pick's id — migration 0060's chain). ``valid_from`` stays the filing date, so its knowable date is the
+      filing's (D3a); the writer's honest stamp is later than every version already held, so it is the
+      latest-recorded version of that filing and the read picks it. A label that later switches BACK is one
+      more link of the chain (old -> new -> old), never refused.
     - ...EXCEPT when the held number is one ``quarters`` reports for that period on a LATER filing: then it
       is the current label's own number, first made public on THIS filing under the old tag, and
       superseding it would date it at the later filing instead (MEASURED on the dev copy: PSQH's Q2-2024,
@@ -675,7 +683,7 @@ def plan_versions(
                 1  # the held number IS the current label's, filed later under it — keep its date
             )
         else:
-            out.append(PlannedVersion(q, supersedes_value=prior.value))
+            out.append(PlannedVersion(q, supersedes_value=prior.value, supersedes=prior.latest_id))
             held[key] = HeldFiling(prior.versions + 1, q.value)
     return out, skipped
 
@@ -712,11 +720,10 @@ def append_planned(
     for v in planned:
         if stamp is None:  # read once, and only when something is new (a no-op re-run asks nothing)
             stamp = db_now(conn)
-        append_fact(
-            conn,
-            "fact_fundamentals",
-            {**fundamentals_row(security_id, v.point, tenant_id=tenant_id), "recorded_at": stamp},
-        )
+        row = {**fundamentals_row(security_id, v.point, tenant_id=tenant_id), "recorded_at": stamp}
+        if v.supersedes is not None:
+            row["supersedes"] = v.supersedes  # a re-parse names the version it replaces (0060)
+        append_fact(conn, "fact_fundamentals", row)
         n += 1
     return n
 

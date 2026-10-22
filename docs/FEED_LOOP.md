@@ -423,6 +423,12 @@ transaction (an onboarding pull carries the original quarter and its later compa
   function of the filing; under one honest stamp per batch it would REJECT a history whose period carries
   several filings, and it would no longer refuse a duplicate of the same filing. The new key is the ingest's own
   idempotency key (MEASURED: 0 prod groups violate it).
+- **Widened by 0060 (the revenue-label fix).** Where the old first-present revenue tag stored a different number on
+  a filing the CURRENT tag reports, the fix appends the current number as a RE-PARSE of that filing. The key gains
+  `supersedes` (NULLS NOT DISTINCT): one ORIGINAL per filing as before, plus one re-parse per version it replaces
+  (a linear chain); a trigger refuses a link that does not change the number or names another filing's version.
+  A re-parse carries the honest stamp of the pass that wrote it, so it is the filing's latest-recorded version and
+  the read picks it; D3a's run counts each filing once (`first_knowable_versions`).
 - **The read** (`db/bitemporal.first_knowable_versions`, shared by the DuckDB mirror) orders a period's versions
   by `valid_from, recorded_at, id` — the latest FILING wins — and dates the run by its first FILING
   (`knowable_from = valid_from`; the operator approved retiring D3a's `max(valid_from, market date of

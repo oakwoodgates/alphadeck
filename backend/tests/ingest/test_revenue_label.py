@@ -7,8 +7,13 @@ and most filers moved to a ``RevenueFromContractWithCustomer*`` tag around ASC 6
 more quarters, then the list order — never joined with another; two total-revenue tags appended to the list
 (utilities, banks); a data-quality screen that keeps rows no genuine quarter can be out of the series (a
 fiscal-year total under a quarter context; a derived Q4 across a restatement); and on a filing where a stored
-old-label number differs from the current label's, the current label's number is appended as a version of
-THAT filing (``plan_versions``).
+old-label number differs from the current label's, the current label's number is appended as a RE-PARSE of
+THAT filing, naming the version it replaces (``plan_versions``; the ``supersedes`` chain, migration 0060).
+
+Every new row carries the writer's honest ``recorded_at`` (migration 0057); the pre-fix rows are laid down
+exactly as prod holds them (``legacy_stamp``). Every past view here is a HISTORY read on the PUBLIC clock
+(INVARIANTS.md §4): a version counts from its filing, so a number re-stored today from an EXISTING filing is
+public at that filing's date.
 
 Every company here is a REAL companyfacts document trimmed to its revenue nodes
 (``tests/fundamentals_fixtures.py``). The ``plan_versions`` / tie contract tests at the bottom state the
@@ -19,11 +24,13 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import replace
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, timedelta
 
+import psycopg
 import pytest
 
-from db.bitemporal import KNOWABLE_FROM, KNOWABLE_SOURCE, version_knowable_date
+from db.bitemporal import KNOWABLE_FROM, KNOWABLE_SOURCE, append_fact, version_knowable_date
+from db.clock import db_now
 from db.session import DEFAULT_TENANT_ID
 from domain.config import DEFAULT_CONFIG
 from domain.market_time import known_at_for_asof
@@ -37,11 +44,13 @@ from ingest.fundamentals import (
     SCREEN_YEAR_IN_Q4,
     SHARES_OUT_METRIC,
     HeldFiling,
+    PlannedVersion,
     QuarterPoint,
     _label_series,
     _quarters_from_rows,
     _stampable_usd_duration_rows,
     extract_revenue_quarters,
+    fundamentals_row,
     held_versions,
     ingest_fundamentals_for_security,
     plan_versions,
@@ -51,7 +60,12 @@ from ingest.fundamentals import (
 from pipeline.ingest_fundamentals import ingest_fundamentals_for_securities
 from signals import revenue_acceleration as ra
 from signals.base import PointInTimeData
-from tests.fundamentals_fixtures import COMPANYFACTS_CIK, companyfacts_cache, companyfacts_revenue
+from tests.fundamentals_fixtures import (
+    COMPANYFACTS_CIK,
+    companyfacts_cache,
+    companyfacts_revenue,
+    legacy_stamp,
+)
 
 RFC_EX = "RevenueFromContractWithCustomerExcludingAssessedTax"
 RFC_IN = "RevenueFromContractWithCustomerIncludingAssessedTax"
@@ -405,11 +419,12 @@ def _pt(
     )
 
 
-def test_plan_stamps_a_new_filing_at_its_own_date():
+def test_plan_appends_a_new_filing_as_an_original():
+    """A filing not held is a plain ORIGINAL (no ``supersedes``). The plan carries no stamp: ``recorded_at`` is
+    the writer's honest transaction time (``append_planned``), never a property of the quarter."""
     planned, skipped = plan_versions({}, [_pt(1.0)])
-    assert skipped == 0 and len(planned) == 1
-    assert planned[0].recorded_at == datetime(2025, 8, 1, tzinfo=timezone.utc)
-    assert planned[0].supersedes_value is None
+    assert skipped == 0 and planned == [PlannedVersion(_pt(1.0))]
+    assert planned[0].supersedes is None and planned[0].supersedes_value is None
 
 
 def test_plan_skips_a_held_filing_with_the_same_number():
@@ -419,19 +434,32 @@ def test_plan_skips_a_held_filing_with_the_same_number():
 
 
 def test_plan_supersedes_a_revenue_filing_held_with_another_labels_number():
-    """The current label's number becomes the LATEST version of the same filing — one microsecond after the
-    versions already held — with ``valid_from`` (and so its knowable date) still the filing's."""
+    """The current label's number becomes a RE-PARSE of the same filing, naming the version it replaces (the
+    held pick's id — migration 0060's chain), with ``valid_from`` (and so its knowable date) still the
+    filing's."""
     key = (REVENUE_METRIC, date(2025, 6, 30), date(2025, 8, 1))
-    planned, skipped = plan_versions({key: HeldFiling(1, 141_046_000.0)}, [_pt(96_046_000.0)])
+    old_id = uuid.uuid4()
+    planned, skipped = plan_versions(
+        {key: HeldFiling(1, 141_046_000.0, old_id)}, [_pt(96_046_000.0)]
+    )
     assert skipped == 0 and len(planned) == 1
     v = planned[0]
-    assert v.supersedes_value == 141_046_000.0
-    assert v.recorded_at == datetime(2025, 8, 1, tzinfo=timezone.utc) + timedelta(microseconds=1)
-    row = {"valid_from": v.point.filed, "recorded_at": v.recorded_at}
-    assert version_knowable_date(row) == date(2025, 8, 1)
+    assert (v.supersedes_value, v.supersedes) == (141_046_000.0, old_id)
+    assert version_knowable_date({"valid_from": v.point.filed}) == date(2025, 8, 1)
     # re-planned over what that append leaves held: nothing more (idempotent)
-    again, skipped = plan_versions({key: HeldFiling(2, 96_046_000.0)}, [_pt(96_046_000.0)])
+    again, skipped = plan_versions(
+        {key: HeldFiling(2, 96_046_000.0, uuid.uuid4())}, [_pt(96_046_000.0)]
+    )
     assert again == [] and skipped == 1
+
+
+def test_plan_a_label_that_switches_back_is_one_more_link():
+    """A FLIP-BACK: the filing holds old 100 -> new 120 (the pick) and the rule returns to the old label (100).
+    The plan supersedes the CURRENT pick — never refused, never left on the stale number."""
+    key = (REVENUE_METRIC, date(2025, 6, 30), date(2025, 8, 1))
+    pick = uuid.uuid4()
+    planned, skipped = plan_versions({key: HeldFiling(2, 120.0, pick)}, [_pt(100.0)])
+    assert skipped == 0 and [(v.supersedes_value, v.supersedes) for v in planned] == [(120.0, pick)]
 
 
 def test_plan_keeps_a_held_number_the_current_label_reports_later():
@@ -511,15 +539,28 @@ def _count(db, sid) -> int:
 
 
 def _store_as_prod_held_it(db, sec: Security, ticker: str) -> int:
-    """The pre-fix store: the first-present label's unscreened quarters through the REAL writer (prod's
-    stamp)."""
-    n = store_quarters(db, sec.id, _old_rule_quarters(companyfacts_revenue(ticker))).appended
+    """The pre-fix store, exactly as prod holds it: the first-present label's unscreened quarters as the old
+    writer's rows (``fundamentals_row`` — no tag recorded), each with the pre-0057 stamp every prod row carries
+    (``legacy_stamp`` = filed 00:00 UTC)."""
+    quarters = _old_rule_quarters(companyfacts_revenue(ticker))
+    for q in quarters:
+        append_fact(
+            db,
+            "fact_fundamentals",
+            {**fundamentals_row(sec.id, q), "recorded_at": legacy_stamp(q.filed)},
+        )
     db.commit()
-    return n
+    return len(quarters)
+
+
+def _pit(db, asof: date) -> PointInTimeData:
+    """A HISTORY view at ``asof`` — the serve path's scrub-back, on the PUBLIC clock (each version counts from
+    its filing; INVARIANTS.md §4)."""
+    return PointInTimeData(db, asof=asof, known_at=known_at_for_asof(asof), clock="public")
 
 
 def _revenue(db, sid, asof: date) -> dict[date, dict]:
-    rows = PointInTimeData(db, asof=asof, known_at=known_at_for_asof(asof)).fundamentals_facts(sid)
+    rows = _pit(db, asof).fundamentals_facts(sid)
     return {r["period_end"]: r for r in rows if r["metric_key"] == "revenue"}
 
 
@@ -533,8 +574,9 @@ def _reingest(db, sec: Security, tmp_path, ticker: str):
 @pytest.mark.parametrize("ticker", ["AMD", "HON", "NEE", "XEL", "TTMI", "KULR", "LFMD"])
 def test_reingest_appends_the_current_label_once_count_the_table(db, tmp_path, ticker):
     """The pre-fix store, then the fixed ingest over the same document: it appends exactly the current
-    label's versions not held, each stamped at its own filing (R17 — never now()); a re-run appends ZERO,
-    counted on the table (the as-of read dedups, so a duplicate would hide behind a correct read).
+    label's versions not held, each dated at its own filing (``valid_from``, R17) under ONE honest stamp taken
+    during the run (0057, never backdated); a re-run appends ZERO, counted on the table (the as-of read dedups,
+    so a duplicate would hide behind a correct read).
     """
     sec = _security(db, ticker)
     held = _store_as_prod_held_it(db, sec, ticker)
@@ -548,7 +590,11 @@ def test_reingest_appends_the_current_label_once_count_the_table(db, tmp_path, t
     assert all(old[(p.period_end, p.filed)] == p.value for p in shared)
     expect = [p for p in current if (p.period_end, p.filed) not in old]
 
+    before = db_now(db)
+    db.commit()
     r1 = _reingest(db, sec, tmp_path, ticker)
+    after = db_now(db)
+    db.commit()
     assert r1.appended == len(expect) and r1.skipped == len(shared)
     assert r1.screened == tuple(select_revenue(cf).screened)  # carried on the receipt...
     assert _count(db, sec.id) == held + len(expect)
@@ -559,10 +605,12 @@ def test_reingest_appends_the_current_label_once_count_the_table(db, tmp_path, t
             (sec.id,),
         )
         rows = cur.fetchall()
-    assert all(
-        r["recorded_at"] == datetime.combine(r["valid_from"], datetime.min.time(), timezone.utc)
-        for r in rows
-    )  # every version: valid_from = recorded_at = its filing (no backdating, no now())
+    new = [r for r in rows if r["recorded_at"] != legacy_stamp(r["valid_from"])]
+    assert len(new) == len(expect)  # the pre-fix rows keep their stamp (no rewrite of history)...
+    assert (
+        len({r["recorded_at"] for r in new}) <= 1
+    )  # ...every new one carries the run's ONE honest stamp
+    assert all(before <= r["recorded_at"] <= after for r in new)
     stored = {(r["period_end"], r["valid_from"], float(r["value"])) for r in rows}
     for x in select_revenue(cf).screened:  # ...and never stored
         assert (x.period_end, x.filed, x.value) not in stored
@@ -633,18 +681,22 @@ def test_a_period_superseded_on_two_filings_dates_at_its_first(db, tmp_path):
     """MTRN's Q1-2018 is $303,467,000 under the contract tag on its 2018-04-26 10-Q and every later filing;
     the old store held the ``Revenues`` sub-line ($11,680,000) on the 2018-04-26 10-Q and on the 2019-05-02
     comparative. The re-ingest supersedes BOTH filings, so the versions interleave (11.68M, 303M, 303M, 11.68M,
-    303M, 303M). D3a's run counts each filing once, by its latest version, so the number dates at
-    2018-04-26 — not at the 2019-05-02 comparative the superseded row used to break it at."""
+    303M, 303M) in filing order, each re-parse naming the row it replaces. D3a's run counts each filing once,
+    by its latest version, so the number dates at 2018-04-26 — not at the 2019-05-02 comparative the
+    superseded row used to break it at."""
     sec = _security(db, "MTRN")
     _store_as_prod_held_it(db, sec, "MTRN")
     _reingest(db, sec, tmp_path, "MTRN")
     with db.cursor() as cur:
         cur.execute(
-            "SELECT valid_from, value FROM fact_fundamentals WHERE security_id = %s AND "
-            "period_end = '2018-03-30' ORDER BY recorded_at, id",
+            "SELECT id, supersedes, valid_from, value FROM fact_fundamentals WHERE security_id = %s AND "
+            "period_end = '2018-03-30' ORDER BY valid_from, recorded_at, id",
             (sec.id,),
         )
-        versions = [(r["valid_from"], float(r["value"])) for r in cur.fetchall()]
+        raw = cur.fetchall()
+    versions = [(r["valid_from"], float(r["value"])) for r in raw]
+    # each re-parse names the old-tag row of ITS filing; every other row is an original
+    assert [r["supersedes"] for r in raw] == [None, raw[0]["id"], None, None, raw[3]["id"], None]
     assert versions == [
         (date(2018, 4, 26), 11_680_000.0),
         (date(2018, 4, 26), 303_467_000.0),
@@ -681,8 +733,8 @@ def test_a_stored_revenue_row_names_its_tag(db, tmp_path):
     ["AMD", "HON", "NEE", "VICR", "LHX", "LFMD", "TTMI", "KULR", "XEL", "HAPN", "MTRN"],
 )
 def test_the_reingest_creates_no_phantom_past_event(db, tmp_path, ticker):
-    """Walk every week from 2024-01-01 to 2026-10-20 through the REAL point-in-time read (``known_at`` capped
-    at each as-of's market-day end, the serve path's scrub-back) and the REAL detector, after the re-ingest.
+    """Walk every week from 2024-01-01 to 2026-10-20 through the REAL point-in-time read (the serve path's
+    scrub-back on the PUBLIC clock, ``_pit``) and the REAL detector, after the re-ingest.
     Every revenue-acceleration event must be dated EXACTLY at the first filing that made its quarter's
     number public: never before (lookahead), never after (a stale number re-dated fresh — the D3 phantom).
     """
@@ -693,7 +745,7 @@ def test_the_reingest_creates_no_phantom_past_event(db, tmp_path, ticker):
     events = 0
     d = date(2024, 1, 1)
     while d <= date(2026, 10, 20):
-        pit = PointInTimeData(db, asof=d, known_at=known_at_for_asof(d))
+        pit = _pit(db, d)
         ev = ra.detect(pit, sec.id, d, DEFAULT_CONFIG)
         if ev is not None:
             events += 1
@@ -716,19 +768,24 @@ def test_a_same_filing_label_conflict_reads_the_current_labels_number(db, tmp_pa
     sec = _security(db, "VICR")
     _store_as_prod_held_it(db, sec, "VICR")
     key = (REVENUE_METRIC, date(2025, 6, 30), date(2025, 8, 1))
-    assert held_versions(db, sec.id)[key] == HeldFiling(1, 141_046_000.0)
+    old = held_versions(db, sec.id)[key]
+    assert (old.versions, old.value) == (1, 141_046_000.0)
 
     _reingest(db, sec, tmp_path, "VICR")
-    assert held_versions(db, sec.id)[key] == HeldFiling(2, 96_046_000.0)
+    new = held_versions(db, sec.id)[key]
+    assert (new.versions, new.value) == (2, 96_046_000.0)
     with db.cursor() as cur:
         cur.execute(
-            "SELECT value, recorded_at FROM fact_fundamentals WHERE security_id = %s AND "
+            "SELECT id, supersedes, value, recorded_at FROM fact_fundamentals WHERE security_id = %s AND "
             "period_end = '2025-06-30' AND valid_from = '2025-08-01' ORDER BY recorded_at",
             (sec.id,),
         )
-        rows = [(float(r["value"]), r["recorded_at"]) for r in cur.fetchall()]
-    stamp = datetime(2025, 8, 1, tzinfo=timezone.utc)
-    assert rows == [(141_046_000.0, stamp), (96_046_000.0, stamp + timedelta(microseconds=1))]
+        rows = cur.fetchall()
+    assert [float(r["value"]) for r in rows] == [141_046_000.0, 96_046_000.0]
+    assert rows[0]["recorded_at"] == legacy_stamp(date(2025, 8, 1))  # the old row, untouched
+    assert rows[1]["recorded_at"] > rows[0]["recorded_at"]  # the re-parse: the run's honest stamp
+    assert (rows[0]["supersedes"], rows[1]["supersedes"]) == (None, old.latest_id)
+    assert rows[1]["id"] == new.latest_id
     q = _revenue(db, sec.id, date(2025, 9, 1))[date(2025, 6, 30)]
     assert float(q["value"]) == 96_046_000 and q[KNOWABLE_FROM] == date(2025, 8, 1)
     assert _revenue(db, sec.id, date(2025, 7, 31)).get(date(2025, 6, 30)) is None  # not before it
@@ -751,3 +808,148 @@ def test_the_nightly_leg_stores_the_current_label_with_no_extra_step(db, tmp_pat
     assert min(rows) == date(
         2017, 4, 1
     )  # the contract tag's own history, nothing from the dead label
+
+
+# --------------------------------------------------------------------------------------------------------
+# the re-parse chain (migration 0060) — the table's own guard, and the label that switches back
+# --------------------------------------------------------------------------------------------------------
+
+
+def _row_ids(db, sid) -> list[dict]:
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT id, supersedes, value FROM fact_fundamentals WHERE security_id = %s "
+            "ORDER BY valid_from, recorded_at, id",
+            (sid,),
+        )
+        return cur.fetchall()
+
+
+def test_the_key_admits_only_a_linked_reparse_that_changes_the_number(db):
+    """0060's guard, counting the table: a second ORIGINAL of one filing is refused whatever its number (0057's
+    duplicate refusal, kept); a re-parse is admitted only once per version it replaces, only when it changes
+    the number, and only for a version of the SAME filing."""
+    sec = _security(db, "VICR")
+    q = _pt(141_046_000.0)
+    stamp = legacy_stamp(q.filed)
+    original = append_fact(
+        db, "fact_fundamentals", {**fundamentals_row(sec.id, q), "recorded_at": stamp}
+    )
+    db.commit()
+
+    def attempt(value: float, supersedes, err) -> None:
+        row = {**fundamentals_row(sec.id, _pt(value)), "recorded_at": db_now(db)}
+        if supersedes is not None:
+            row["supersedes"] = supersedes
+        with pytest.raises(err):
+            append_fact(db, "fact_fundamentals", row)
+        db.rollback()
+
+    attempt(96_046_000.0, None, psycopg.errors.UniqueViolation)  # a second plain row of the filing
+    attempt(141_046_000.0, original, psycopg.errors.CheckViolation)  # a no-op "re-parse"
+    reparse = append_fact(
+        db,
+        "fact_fundamentals",
+        {
+            **fundamentals_row(sec.id, _pt(96_046_000.0)),
+            "recorded_at": db_now(db),
+            "supersedes": original,
+        },
+    )
+    db.commit()
+    attempt(
+        95_000_000.0, original, psycopg.errors.UniqueViolation
+    )  # the old version replaced twice
+    other = append_fact(
+        db,
+        "fact_fundamentals",
+        {
+            **fundamentals_row(sec.id, _pt(1.0, filed=date(2025, 11, 1))),
+            "recorded_at": db_now(db),
+        },
+    )
+    db.commit()
+    attempt(2.0, other, psycopg.errors.CheckViolation)  # names ANOTHER filing's version
+    assert [(r["id"], r["supersedes"]) for r in _row_ids(db, sec.id)] == [
+        (original, None),
+        (reparse, original),
+        (other, None),
+    ]
+
+
+def _doc(rows_by_concept: dict[str, list[tuple[str, str, float, str, str]]]) -> dict:
+    """A hand-built companyfacts document: ``concept -> [(start, end, val, filed, accn)]`` (direct inputs)."""
+    return {
+        "facts": {
+            "us-gaap": {
+                c: {
+                    "units": {
+                        "USD": [
+                            {"start": a, "end": e, "val": v, "filed": f, "accn": n, "form": "10-Q"}
+                            for a, e, v, f, n in rows
+                        ]
+                    }
+                }
+                for c, rows in rows_by_concept.items()
+            }
+        }
+    }
+
+
+def test_a_label_that_switches_back_is_stored_and_read(db):
+    """The FLIP-BACK, through the real writer and the real read: the filing's number goes old tag (100) ->
+    current tag (120, a later quarter makes it current) -> old tag again (100, the old tag reports a later
+    quarter still). Each step is one link naming the version it replaces; the read follows the latest; a
+    rerun appends nothing (count the table). A key on the value would refuse the third link and leave the read
+    on 120."""
+    sec = _security(db, "VICR")
+    q2 = ("2025-04-01", "2025-06-30")
+    rev = [(*q2, 100.0, "2025-08-01", "A")]
+    rfc = [(*q2, 120.0, "2025-08-01", "A"), ("2025-07-01", "2025-09-30", 130.0, "2025-11-01", "B")]
+    later = ("2026-01-01", "2026-03-31", 140.0, "2026-05-01", "C")
+    docs = [
+        _doc({"Revenues": rev}),
+        _doc({"Revenues": rev, RFC_EX: rfc}),
+        _doc({"Revenues": rev + [later], RFC_EX: rfc}),
+    ]
+    assert [select_revenue(d).concept for d in docs] == ["Revenues", RFC_EX, "Revenues"]
+    counts = []
+    for d in docs:
+        store_quarters(db, sec.id, select_revenue(d).points)
+        db.commit()
+        counts.append(_count(db, sec.id))
+    assert counts == [1, 3, 5]
+    chain = [r for r in _row_ids(db, sec.id) if r["value"] in (100, 120)]
+    assert [float(r["value"]) for r in chain] == [100.0, 120.0, 100.0]
+    assert [r["supersedes"] for r in chain] == [None, chain[0]["id"], chain[1]["id"]]
+    q = _revenue(db, sec.id, date(2026, 10, 20))[date(2025, 6, 30)]
+    assert float(q["value"]) == 100.0 and q[KNOWABLE_FROM] == date(2025, 8, 1)
+    assert store_quarters(db, sec.id, select_revenue(docs[2]).points).appended == 0
+    db.commit()
+    assert _count(db, sec.id) == 5
+
+
+def test_a_refused_append_is_one_names_visible_error(db, tmp_path, monkeypatch):
+    """A write the table refuses is LOUD and PER NAME: the nightly's leg rolls that name back, records the
+    database's own error on it, and stores the next name — never a silent stale value, never the leg aborted.
+    (The refusal is forced by planning a second original of a filing; the database does the refusing.)
+    """
+    import ingest.fundamentals as F
+
+    bad, good = _security(db, "AMD"), _security(db, "HON")
+    real = F.append_planned
+
+    def duplicate_for_bad(conn, security_id, planned, *, tenant_id):
+        planned = list(planned)
+        extra = planned[:1] if security_id == bad.id else []
+        return real(conn, security_id, planned + extra, tenant_id=tenant_id)
+
+    monkeypatch.setattr(F, "append_planned", duplicate_for_bad)
+    client = EdgarClient(cache_dir=companyfacts_cache(tmp_path, "AMD", "HON"), allow_live=False)
+    res = ingest_fundamentals_for_securities(
+        db, [bad, good], client=client, tenant_id=DEFAULT_TENANT_ID
+    )
+    by = {r.security_id: r for r in res}
+    assert by[bad.id].error and "fact_fundamentals_filing_reparse_key" in by[bad.id].error
+    assert _count(db, bad.id) == 0  # rolled back whole: nothing half-written
+    assert by[good.id].error is None and by[good.id].appended == _count(db, good.id) > 0

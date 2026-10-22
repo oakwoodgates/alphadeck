@@ -260,7 +260,12 @@ replay stays honest.
   (`knowable_from`) and its pick are both stated on its public FILING (bullet above) — under one shared honest
   stamp a history reads exactly like the per-filing backdated stamps (MEASURED on prod: 0 of 12 cards differ at
   asof 2026-10-21; 0 of 661 securities' rows differ old reader vs new). The table's UNIQUE moved to `(…,
-  period_end, valid_from)`, the ingest's own idempotency key, so a duplicate filing is still refused.
+  period_end, valid_from)`, the ingest's own idempotency key, so a duplicate filing is still refused. Migration
+  0060 (the revenue-label fix) adds `supersedes` to that key, NULLS NOT DISTINCT: still ONE original per filing,
+  and a filing's re-parse under the current tag is admitted only as a link naming the version it replaces, once
+  per version, and only when it changes the number (a trigger refuses a no-op or cross-filing link) — so a
+  duplicate can never hide behind a correct read, and a tag that switches back is one more link
+  (`tests/ingest/test_revenue_label.py::test_the_key_admits_only_a_linked_reparse_that_changes_the_number`).
   *Enforced by:* `tests/ingest/test_fundamentals_honest_stamp.py` (a new row stamped inside the DB-clock window
   of its run; one honest stamp reads row-for-row and event-for-event like the backdated stamps on real
   histories; existing rows read exactly as the pre-0057 reader; a rerun appends zero and a duplicate filing is
