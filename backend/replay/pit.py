@@ -36,7 +36,14 @@ from db.session import DEFAULT_TENANT_ID
 from domain.insider_amendments import ResolutionInputs, group_inputs
 from domain.market_time import market_tz
 from domain.splits import on_view_scale
-from replay.export import AUX_PUBLIC_COL, AUX_TABLES, FACT_TABLES, SPLIT_TABLE, read_mirror_manifest
+from replay.export import (
+    AUX_PUBLIC_COL,
+    AUX_TABLES,
+    FACT_TABLES,
+    IDENTITY_TABLE,
+    SPLIT_TABLE,
+    read_mirror_manifest,
+)
 from signals.base import window_prices
 
 # the aux columns the export wrote as JSON strings (jsonb / text[]) — decoded back to the Postgres shape
@@ -171,9 +178,47 @@ def connect_mirror(parquet_dir: str | Path) -> duckdb.DuckDBPyConnection:
     if split_file.is_file():
         path = split_file.as_posix().replace("'", "''")
         con.execute(f"CREATE TABLE {SPLIT_TABLE} AS SELECT * FROM read_parquet('{path}')")
+    # the IDENTITY aux (``replay.export.IDENTITY_TABLE``) — only on a mirror exported with ``identity=True``
+    # (the Scoreboard editions); a manifest that records it makes the file REQUIRED, like the split file
+    ident_file = base / f"{IDENTITY_TABLE}.parquet"
+    if manifest is not None and manifest.identity_table and not ident_file.is_file():
+        raise FileNotFoundError(
+            f"mirror {base}: its manifest records {IDENTITY_TABLE}.parquet, which is missing"
+        )
+    if ident_file.is_file():
+        path = ident_file.as_posix().replace("'", "''")
+        con.execute(f"CREATE TABLE {IDENTITY_TABLE} AS SELECT * FROM read_parquet('{path}')")
     _aux_of(con)  # prime the per-connection aux cache now, so no view pays a query for it
     _splits_of(con)
+    _identity_of(con)
     return con
+
+
+# The IDENTITY aux per mirror connection: ``security_id (text) -> (name, cik)``, read ONCE. ``None`` = the
+# mirror carries none (every backtest mirror) and ``security_name`` / ``security_cik`` answer ``None`` as
+# they always have.
+_IDENTITY: weakref.WeakKeyDictionary[
+    duckdb.DuckDBPyConnection, dict[str, tuple[str | None, str | None]] | None
+] = weakref.WeakKeyDictionary()
+
+
+def _identity_of(con: duckdb.DuckDBPyConnection) -> dict[str, tuple[str | None, str | None]] | None:
+    if con in _IDENTITY:
+        return _IDENTITY[con]
+    found = con.execute(
+        "SELECT count(*) FROM information_schema.tables WHERE table_name = ?", [IDENTITY_TABLE]
+    ).fetchone()
+    if not (found and found[0]):
+        _IDENTITY[con] = None
+        return None
+    ident = {
+        str(sid): (name, cik)
+        for sid, name, cik in con.execute(
+            f"SELECT security_id, name, cik FROM {IDENTITY_TABLE}"  # noqa: S608 — a trusted constant
+        ).fetchall()
+    }
+    _IDENTITY[con] = ident
+    return ident
 
 
 # S2 — the split list per mirror connection, read ONCE (it is tiny and immutable for the connection's life),
@@ -554,20 +599,25 @@ class ReplayPointInTimeData:
         return self._newest_splits(security_id, None)
 
     def security_name(self, security_id: UUID) -> str | None:
-        """Satisfies the protocol; the replay mirror holds FACT tables only, not ``security_master``
-        (identity). Returns ``None`` — the insider-detector's issuer-self screen falls back here to the
+        """Satisfies the protocol. A backtest mirror holds FACT tables only, not ``security_master``
+        (identity), and returns ``None`` — the insider-detector's issuer-self screen falls back here to the
         CANONICAL CIK match (``rpt_owner_cik == issuer_cik``), which flows into the replay rows via the
         ``SELECT *`` insider-txn read, so a self-filing captured with CIKs is still excluded in replay.
         (A pre-capture row with no CIKs is not excluded in replay until the mirror is re-exported — a
-        documented, rebuildable-mirror limitation, never a silent live-path drop.)"""
-        return None
+        documented, rebuildable-mirror limitation, never a silent live-path drop.) A mirror exported with
+        the IDENTITY aux (the Scoreboard editions) answers exactly what the live PIT reads
+        (``security_master.name``)."""
+        ident = _identity_of(self.con)
+        return None if ident is None else ident.get(str(security_id), (None, None))[0]
 
     def security_cik(self, security_id: UUID) -> str | None:
-        """Satisfies the protocol; the replay mirror holds FACT tables only, not ``security_master``
+        """Satisfies the protocol. A backtest mirror holds FACT tables only, not ``security_master``
         (identity), so there is no subject CIK to resolve. Returns ``None`` — the activist-stake
         detector's self-filed screen (``filer_cik`` == the subject's CIK) simply keeps the row in replay
         (recall-safe, #9), exactly the ``security_name`` fallback shape. The sub-5% pct screen is pure
         (reads the fact row) so it still applies in replay; and the detector is OFF by default, forced on
         only by ``--activist-stake``. A documented, rebuildable-mirror limitation, never a live-path drop.
+        A mirror exported with the IDENTITY aux answers ``security_master.cik`` like the live PIT.
         """
-        return None
+        ident = _identity_of(self.con)
+        return None if ident is None else ident.get(str(security_id), (None, None))[1]

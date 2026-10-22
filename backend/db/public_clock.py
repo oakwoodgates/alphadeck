@@ -105,6 +105,7 @@ A split re-scaled bar puts every version at one instant (the settle), so its pic
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Literal
 
 from psycopg import sql
@@ -168,10 +169,37 @@ def partition_cols(table: str) -> list[str]:
     return ["tenant_id", scope] + [c for c in ident if c != scope]
 
 
-def public_params() -> dict[str, Any]:
+def public_params(known_by: datetime | None = None) -> dict[str, Any]:
     """The bound parameters every public-clock query needs: the market zone a DATE is anchored in (a trading
-    day is a domain fact — ``domain.market_time``) and the price settle time."""
-    return {"pc_tz": market_tz().key, "pc_settle": get_settings().price_settle_time}
+    day is a domain fact — ``domain.market_time``) and the price settle time — plus the FREEZE CEILING when a
+    caller freezes the store at a cut (``known_by``; see ``CEILING_PARAM``)."""
+    params: dict[str, Any] = {
+        "pc_tz": market_tz().key,
+        "pc_settle": get_settings().price_settle_time,
+    }
+    if known_by is not None:
+        params[CEILING_PARAM] = known_by
+    return params
+
+
+# --- the FREEZE CEILING (the Scoreboard editions' cut, ``editions/``) -------------------------------------
+#
+# NOT a history gate, and no history view passes it: on the public clock no version is hidden for having been
+# ingested late. The ceiling answers a different question — "the store AS IT STOOD at a cut" — so an edition
+# computed from a mirror cut at ``known_by`` can be recomputed later on exactly the rows it saw (the store is
+# append-only): every row recorded AFTER the cut is absent, and everything the public instant reads ACROSS
+# versions (a Form 4's NULL-filled acceptance, a bar's first version, the price tape's edge and the split list
+# that decides a bar's scale, a 4/A's acceptance) is read from the rows held at the cut — exactly what this
+# SQL would have computed had it run then. Every builder takes ``ceiling=False`` by default and is then
+# byte-identical to the SQL it was before the ceiling existed; ``ceiling=True`` binds ``%(pc_known_by)s``.
+CEILING_PARAM = "pc_known_by"
+
+
+def _ceil(col: sql.Composable, ceiling: bool) -> sql.Composable:
+    """`` AND {col} <= %(pc_known_by)s`` when ``ceiling``, else nothing."""
+    if not ceiling:
+        return sql.SQL("")
+    return sql.SQL(" AND {} <= {}").format(col, sql.Placeholder(CEILING_PARAM))
 
 
 def _start_of_day(col: sql.Composable) -> sql.Composable:
@@ -236,48 +264,66 @@ def split_public_sql(alias: str = "s") -> sql.Composable:
     )
 
 
-def split_versions_sql(*, where: sql.Composable) -> sql.Composable:
+def split_versions_sql(*, where: sql.Composable, ceiling: bool = False) -> sql.Composable:
     """``SELECT s.*, <public instant> AS _public FROM security_split s WHERE {where}`` — the NEWEST version of
     every logical split ``where`` admits, with the split's public instant. ``where`` must admit a split's
     versions together (tenant + security do). The ONE builder the history read (``split_repo``) and the
-    backtest's public mirror (``replay.export``) both run; neither gates on ``recorded_at``."""
+    backtest's public mirror (``replay.export``) both run; neither gates on ``recorded_at``. ``ceiling`` =
+    the list as it stood at a cut (the freeze ceiling above — an edition mirror's, never a history view's).
+    """
     return sql.SQL(
         "SELECT DISTINCT ON (s.tenant_id, s.security_id, s.key_date) s.*, {pub} AS {col} "
-        "FROM security_split s WHERE {where} "
+        "FROM security_split s WHERE {where}{ceil} "
         "WINDOW ps AS (PARTITION BY s.tenant_id, s.security_id, s.key_date) "
         "ORDER BY s.tenant_id, s.security_id, s.key_date, s.recorded_at DESC, s.id DESC"
-    ).format(pub=split_public_sql("s"), col=sql.Identifier(PUBLIC_COL), where=where)
+    ).format(
+        pub=split_public_sql("s"),
+        col=sql.Identifier(PUBLIC_COL),
+        where=where,
+        ceil=_ceil(sql.Identifier("s", "recorded_at"), ceiling),
+    )
 
 
-def live_splits_sql() -> sql.Composable:
+def live_splits_sql(*, ceiling: bool = False) -> sql.Composable:
     """The split list's CURRENT reading: the newest version of each logical split, live statuses only —
     ``(tenant_id, security_id, effective_date)``. What decides which price bars a listed split re-scales.
+    ``ceiling`` = the reading at a cut (the freeze ceiling above).
     """
     return sql.SQL(
         "SELECT tenant_id, security_id, effective_date FROM ("
         "SELECT DISTINCT ON (tenant_id, security_id, key_date) tenant_id, security_id, effective_date, "
-        "status FROM security_split "
+        "status FROM security_split{ceil} "
         "ORDER BY tenant_id, security_id, key_date, recorded_at DESC, id DESC"
         ") z WHERE status IN ({live})"
-    ).format(live=sql.SQL(", ").join(sql.Literal(s) for s in LIVE_SPLIT_STATUSES))
+    ).format(
+        live=sql.SQL(", ").join(sql.Literal(s) for s in LIVE_SPLIT_STATUSES),
+        ceil=(
+            sql.SQL(" WHERE recorded_at <= {}").format(sql.Placeholder(CEILING_PARAM))
+            if ceiling
+            else sql.SQL("")
+        ),
+    )
 
 
-def _price_versions_sql(*, where: sql.Composable, extra: sql.Composable | None) -> sql.Composable:
+def _price_versions_sql(
+    *, where: sql.Composable, extra: sql.Composable | None, ceiling: bool = False
+) -> sql.Composable:
     """``public_versions_sql`` for ``fact_price_eod``: the table's rule, except a bar a live listed split
     re-scales — one dated before a split whose first session is on or before the security's TAPE EDGE (its
     latest stored bar) — has every version public at the session settle; every row carries
     ``split_store_through`` = that edge (the module note). The edge is the store's, read whole (never bounded
     by ``where``'s as-of): the scale the stored values are on now. ``where`` bounds the bar scan only, and
-    admits a bar's versions together."""
+    admits a bar's versions together. ``ceiling`` (the freeze ceiling) reads the scan, the edge and the split
+    list as they stood at the cut — the scale the stored values were on THEN."""
     settle = sql.SQL("((t.d + %(pc_settle)s::time) AT TIME ZONE %(pc_tz)s)")
     window = sql.SQL(", ").join(sql.Identifier("t", c) for c in partition_cols("fact_price_eod"))
     return sql.SQL(
         "WITH _ps AS ("
         " SELECT DISTINCT tenant_id AS ps_tenant, security_id AS ps_security FROM fact_price_eod"
-        " WHERE {where}"
+        " WHERE {where}{ceil_ps}"
         "), _pe AS ("
         " SELECT ps_tenant, ps_security, (SELECT max(e.d) FROM fact_price_eod e"
-        " WHERE e.tenant_id = ps_tenant AND e.security_id = ps_security) AS ps_edge FROM _ps"
+        " WHERE e.tenant_id = ps_tenant AND e.security_id = ps_security{ceil_e}) AS ps_edge FROM _ps"
         "), _pl AS ("
         " SELECT pe.ps_tenant AS pl_tenant, pe.ps_security AS pl_security, pe.ps_edge AS pl_edge,"
         " max(ls.effective_date) AS pl_last"
@@ -289,10 +335,13 @@ def _price_versions_sql(*, where: sql.Composable, extra: sql.Composable | None) 
         "pl.pl_edge AS {through}{extra} "
         "FROM fact_price_eod t "
         "JOIN _pl pl ON pl.pl_tenant = t.tenant_id AND pl.pl_security = t.security_id "
-        "WHERE {where} WINDOW pc AS (PARTITION BY {window})"
+        "WHERE {where}{ceil_t} WINDOW pc AS (PARTITION BY {window})"
     ).format(
         where=where,
-        live=live_splits_sql(),
+        ceil_ps=_ceil(sql.Identifier("recorded_at"), ceiling),
+        ceil_e=_ceil(sql.Identifier("e", "recorded_at"), ceiling),
+        ceil_t=_ceil(sql.Identifier("t", "recorded_at"), ceiling),
+        live=live_splits_sql(ceiling=ceiling),
         settle=settle,
         rule=public_time_sql("fact_price_eod"),
         pub=sql.Identifier(PUBLIC_COL),
@@ -303,7 +352,12 @@ def _price_versions_sql(*, where: sql.Composable, extra: sql.Composable | None) 
 
 
 def public_versions_sql(
-    table: str, *, where: sql.Composable, serve: bool = True, extra: sql.Composable | None = None
+    table: str,
+    *,
+    where: sql.Composable,
+    serve: bool = True,
+    extra: sql.Composable | None = None,
+    ceiling: bool = False,
 ) -> sql.Composable:
     """``SELECT t.*, <public instant> AS _public [, extra] FROM {table} t WHERE {where}`` — every version of
     every fact ``where`` admits, each with its public instant. The ONE builder the history read
@@ -312,11 +366,12 @@ def public_versions_sql(
     ``where`` must admit or drop a fact's versions TOGETHER (scope, tenant, and ``valid_from`` bounds do — on
     the two tables whose instant reads across versions, price and insider, ``valid_from`` is part of the
     identity), so the cross-version window sees each fact whole. Never a ``recorded_at`` filter: on the public
-    clock no version is hidden for having been ingested late.
+    clock no version is hidden for having been ingested late. (``ceiling`` is not one either: it is the
+    freeze ceiling above — the store as it stood at a cut, for an edition mirror; no history view passes it.)
 
     ``fact_price_eod`` is built by ``_price_versions_sql`` (a bar a listed split re-scales, S2)."""
     if table == "fact_price_eod":
-        return _price_versions_sql(where=where, extra=extra)
+        return _price_versions_sql(where=where, extra=extra, ceiling=ceiling)
     expr = public_time_sql(table, serve=serve)
     window = (
         sql.SQL(" WINDOW pc AS (PARTITION BY {})").format(
@@ -326,13 +381,14 @@ def public_versions_sql(
         else sql.SQL("")
     )
     return sql.SQL(
-        "SELECT t.*, {expr} AS {pub}{extra} FROM {table} t WHERE {where}{window}"
+        "SELECT t.*, {expr} AS {pub}{extra} FROM {table} t WHERE {where}{ceil}{window}"
     ).format(
         expr=expr,
         pub=sql.Identifier(PUBLIC_COL),
         extra=sql.SQL(", ") + extra if extra is not None else sql.SQL(""),
         table=sql.Identifier(table),
         where=where,
+        ceil=_ceil(sql.Identifier("t", "recorded_at"), ceiling),
         window=window,
     )
 
@@ -362,19 +418,26 @@ def _amendment_public(alias: str) -> sql.Composable:
     )
 
 
-def _amendment_public_of(alias: str) -> sql.Composable:
+def _amendment_public_of(alias: str, ceiling: bool = False) -> sql.Composable:
     """The public instant of the amendment a link / decision row ``alias`` names — the earliest across the
-    stored versions of its 4/A record (they share the acceptance), NULL when no record is stored."""
+    stored versions of its 4/A record (they share the acceptance), NULL when no record is stored.
+    ``ceiling`` = the versions stored by the cut (the freeze ceiling)."""
     return sql.SQL(
         "(SELECT min({pub}) FROM insider_amendment a "
         "WHERE a.tenant_id = {al}.tenant_id AND a.security_id = {al}.security_id "
-        "AND a.accession = {al}.amendment_accession)"
-    ).format(pub=_amendment_public("a"), al=sql.Identifier(alias))
+        "AND a.accession = {al}.amendment_accession{ceil})"
+    ).format(
+        pub=_amendment_public("a"),
+        al=sql.Identifier(alias),
+        ceil=_ceil(sql.Identifier("a", "recorded_at"), ceiling),
+    )
 
 
-def aux_public_sql(table: str, alias: str = "x") -> sql.Composable:
+def aux_public_sql(table: str, alias: str = "x", *, ceiling: bool = False) -> sql.Composable:
     """The public instant of one row of a Form 4/A table (``insider_amendment`` / ``_link`` / ``_decision``)
-    over ``{table} AS {alias}``. Never NULL: each falls back to the row's own ``recorded_at``."""
+    over ``{table} AS {alias}``. Never NULL: each falls back to the row's own ``recorded_at``. ``ceiling``
+    reads the OTHER rows it consults (the 4/A record, the link) as stored by the cut (the freeze ceiling).
+    """
     al = sql.Identifier(alias)
     rec = sql.Identifier(alias, "recorded_at")
     if table == "insider_amendment":
@@ -382,21 +445,23 @@ def aux_public_sql(table: str, alias: str = "x") -> sql.Composable:
     if table == "insider_amendment_link":
         # the link's ``accepted`` IS the amendment's acceptance (stored for display)
         return sql.SQL("COALESCE({acc}, {amend}, {rec})").format(
-            acc=sql.Identifier(alias, "accepted"), amend=_amendment_public_of(alias), rec=rec
+            acc=sql.Identifier(alias, "accepted"),
+            amend=_amendment_public_of(alias, ceiling),
+            rec=rec,
         )
     if table == "insider_amendment_decision":
         link_acc = sql.SQL(
             "(SELECT min(l.accepted) FROM insider_amendment_link l "
             "WHERE l.tenant_id = {al}.tenant_id AND l.security_id = {al}.security_id "
-            "AND l.amendment_accession = {al}.amendment_accession)"
-        ).format(al=al)
+            "AND l.amendment_accession = {al}.amendment_accession{ceil})"
+        ).format(al=al, ceil=_ceil(sql.Identifier("l", "recorded_at"), ceiling))
         return sql.SQL(
             "CASE WHEN starts_with({basis}, {system}) THEN COALESCE({amend}, {link_acc}, {rec}) "
             "ELSE {rec} END"
         ).format(
             basis=sql.Identifier(alias, "basis"),
             system=sql.Literal(SYSTEM_BASIS_PREFIX),
-            amend=_amendment_public_of(alias),
+            amend=_amendment_public_of(alias, ceiling),
             link_acc=link_acc,
             rec=rec,
         )
