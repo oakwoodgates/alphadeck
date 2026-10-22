@@ -25,6 +25,7 @@ from pipeline.ingest_thesis import NameResult
 from pipeline.insider_amendment_scan import SweepOutcome
 from pipeline.rename_probe import RenameProbe
 from pipeline.split_basis import SplitScan
+from pipeline.split_jumps import JumpScan
 from pipeline.successor_cik import SuccessorScan
 from pipeline.tape_health import StaleTape
 
@@ -71,6 +72,9 @@ def prime_pass(monkeypatch) -> Pager:
     )
     monkeypatch.setattr(daily, "run_audit", lambda ctx, *a, **k: [])
     monkeypatch.setattr(daily, "run_split_scan", lambda **k: SplitScan())
+    monkeypatch.setattr(
+        daily, "run_jump_scan", lambda **k: JumpScan()
+    )  # S5 — proved in test_split_jumps.py
     monkeypatch.setattr(daily, "run_rename_probe", lambda **k: RenameProbe(evaluated=True))
     monkeypatch.setattr(daily, "run_successor_scan", lambda **k: SuccessorScan(evaluated=True))
     # R8-B — the Form 4/A sweep writes decisions: DB-free here (proved in test_insider_amendment_scan.py)

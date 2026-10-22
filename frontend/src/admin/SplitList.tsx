@@ -1,4 +1,4 @@
-import type { AdminSplitListEntryOut, AdminSplitListOut } from "../api/hooks";
+import type { AdminSplitJumpOut, AdminSplitListEntryOut, AdminSplitListOut } from "../api/hooks";
 import {
   useConfirmSplit,
   useRejectSplit,
@@ -91,13 +91,44 @@ function Sides({ s }: { s: Split }) {
   );
 }
 
+const md = (d: string) => d.slice(5); // "2026-08-24" -> "08-24"
+const px = (x: number | null | undefined) => (x == null ? "—" : String(Number(x.toPrecision(4))));
+const vol = (x: number | null | undefined) => (x == null ? "—" : Math.round(x).toLocaleString("en-US"));
+
+/** S5 — a split-shaped price jump the split-night hold released (three sessions on) that no source listed: the
+ *  step itself (the two bars, close and volume) and what the price did next. A question for the operator, no
+ *  action of its own (nothing to undo) and never a page. */
+function Jump({ j }: { j: AdminSplitJumpOut }) {
+  const who = j.ticker ?? j.security_id;
+  const what = j.label.startsWith(`${who} `) ? j.label.slice(who.length + 1) : j.label;
+  const after = j.after ?? [];
+  return (
+    <li data-testid="adm-split-jump-row">
+      <div>
+        <b>{who}</b> — {what} · {j.sessions_since} sessions ago
+      </div>
+      <div className="adm-sub adm-mono">
+        {md(j.prior_date)} close {px(j.prior_close)} · vol {vol(j.prior_volume)} → {md(j.step_date)} close{" "}
+        {px(j.close)} · vol {vol(j.volume)}
+      </div>
+      {after.length > 0 ? (
+        <div className="adm-sub adm-mono">
+          then {after.map((b) => `${md(b.d)} ${px(b.close)}`).join(" · ")}
+        </div>
+      ) : null}
+    </li>
+  );
+}
+
 /** The "Splits" panel (split plan S1): the split list the backfill filled from Polygon's split reference and
  *  each company's own SEC filing. LOUD only where one source cannot settle a split (Polygon alone, a
  *  disagreement, or an extractor abstain): there the SEC passage and Polygon's row sit side by side with
  *  Confirm (SEC values / Polygon values when they differ) and Reject. Auto-confirmed splits (two sources
  *  agreed), announced ones, and the rejected / revoked ones are QUIET collapsed lists — the set-aside ones
  *  grayed and still listed (WB#2). Every action has its inverse beside it: Confirm ⇄ Revoke, Reject /
- *  Revoke ⇄ Restore (WB#1). Nothing reads the list yet. Renders nothing when the list is empty. */
+ *  Revoke ⇄ Restore (WB#1). S5 adds the operator's other question: a split-shaped price jump the split-night
+ *  hold released with no split listed ("is this real?") — loud while it stands, an item to look at, never an
+ *  action. Renders nothing when the list and that question are both empty. */
 export function SplitList() {
   const q = useSplitList();
   const confirm = useConfirmSplit();
@@ -115,7 +146,9 @@ export function SplitList() {
       </section>
     );
   }
-  if (!q.data || !q.data.total) return null;
+  const jumps = q.data?.unlisted_jumps ?? [];
+  const jumpsError = q.data?.unlisted_jumps_error ?? null;
+  if (!q.data || (!q.data.total && !jumps.length && !jumpsError)) return null;
   const review = bucket(q.data, "needs_review");
   const announced = bucket(q.data, "announced");
   const confirmed = bucket(q.data, "confirmed");
@@ -125,6 +158,32 @@ export function SplitList() {
   return (
     <section className="adm-card" data-testid="adm-splits">
       <div className="adm-h">Splits</div>
+
+      {jumps.length > 0 && (
+        <div className="adm-stale" data-testid="adm-splits-jumps">
+          <div className="adm-line adm-loud">
+            <b>{jumps.length}</b> split-shaped jump(s) with no split listed — is this real?
+          </div>
+          <ul className="adm-repairs">
+            {jumps.map((j) => (
+              <Jump key={`${j.security_id}:${j.step_date}`} j={j} />
+            ))}
+          </ul>
+          <div className="adm-sub">
+            The price moved ×3 or more (or to a third or less) between two sessions with the volume moving the other
+            way, the shape of an unadjusted split. The split-night hold kept this name's price triggers on the bars
+            before the jump for three sessions and has released them. No SEC filing or Polygon row on the list sits
+            near the date: it is a real move (a crash on heavy volume looks like an unadjusted forward split) or a
+            split no source has listed yet. Polygon's adjusted bars are not shown (no Polygon price client exists).
+            Nothing here pages or changes a call.
+          </div>
+        </div>
+      )}
+      {jumpsError ? (
+        <div className="adm-err" data-testid="adm-splits-jumps-error">
+          The split-shaped jump check failed: {jumpsError}
+        </div>
+      ) : null}
 
       {review.length > 0 && (
         <div className="adm-stale" data-testid="adm-splits-review">
@@ -161,10 +220,10 @@ export function SplitList() {
             })}
           </ul>
           <div className="adm-sub">
-            A split is confirmed on its own only when the SEC filing and Polygon agree exactly on the ratio and the
-            first session. Nothing reads the list yet: a decision here changes no call, no price tape and no
-            Cockpit number until the price loader reads it. A confirmed split can be revoked and a rejected one
-            restored.
+            A split is confirmed on its own only when two independent sources agree on it (the SEC filing and
+            Polygon exactly, or either one with the price tape). Confirmed splits are read by the price loader, the
+            insider price screen and the market cap, and a confirmed split lifts the split-night hold on that
+            company's price triggers. A confirmed split can be revoked and a rejected one restored.
           </div>
         </div>
       )}

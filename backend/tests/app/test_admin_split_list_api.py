@@ -148,6 +148,46 @@ def test_an_empty_list_reads_empty(client, db):
         "confirmed": [],
         "set_aside": [],
         "total": 0,
+        "unlisted_jumps": [],  # S5 — no basket, no jump
+        "unlisted_jumps_error": None,
     }
     assert client.get("/admin/status").json()["splits_needs_review"] == 0
     assert split_repo.count_needs_review(db, tenant_id=DEFAULT_TENANT_ID) == 0
+
+
+# --- S5: split-shaped jumps with no split listed (the split-night hold's escalation) ----------------------
+
+
+def test_the_panel_lists_a_released_split_shaped_jump_no_source_listed(db):
+    """GAME's real 08-24 step (its 1-for-8 NOT on the list), three sessions on: the hold has released it and
+    the panel asks "is this real?" — with the step and the bars after it. Listed, it would not be here
+    (``tests/signals/test_split_hold.py``)."""
+    from app.routers.admin_splits import splits_out
+    from tests import split_s5_fixtures as s5
+
+    sid = s5.seed(db, "GAME", listed=False)
+    s5.seed_thesis(db, [("GAME", sid)])
+    out = splits_out(db, tenant_id=DEFAULT_TENANT_ID, asof=date(2026, 8, 28))
+    assert out.total == 0 and out.unlisted_jumps_error is None
+    (j,) = out.unlisted_jumps
+    assert (j.ticker, j.prior_date, j.step_date, j.sessions_since) == (
+        "GAME",
+        date(2026, 8, 21),
+        date(2026, 8, 24),
+        4,
+    )
+    assert j.label == "GAME stepped x7.5 on 08-24" and j.step > 3 and j.volume < j.prior_volume
+    assert (j.prior_close, j.prior_volume, j.close, j.volume) == (
+        0.421999990940094,
+        1486400.0,
+        3.16499996185303,
+        553700.0,
+    )
+    # what a history view on 08-28 read next (each bar's newest version public by then) — the frontend's
+    # SplitList test renders exactly these
+    assert [(b.d, b.close, b.volume) for b in j.after] == [
+        (date(2026, 8, 25), 3.65000009536743, 447300.0),
+        (date(2026, 8, 26), 3.4300000667572, 210800.0),
+        (date(2026, 8, 27), 3.22000002861023, 497773.0),
+        (date(2026, 8, 28), 3.0, 212900.0),
+    ]

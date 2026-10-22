@@ -188,4 +188,11 @@ def horizons(cfg: CallConfig) -> dict[str, int | None]:
     return {"fact_price_eod": cfg.breakout_lookback_days}
 
 
-DETECTOR = register_detector(Detector(name=DETECTOR_NAME, detect=detect, horizons=horizons))
+DETECTOR = register_detector(
+    Detector(
+        name=DETECTOR_NAME,
+        detect=detect,
+        horizons=horizons,
+        price_trigger="Breakout",  # S5 — a price-path trigger: held on split night
+    )
+)

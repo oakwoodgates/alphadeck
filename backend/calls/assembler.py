@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import date, timedelta
 from uuid import UUID
 
@@ -85,12 +85,20 @@ def assemble_call(
     asof: date,
     cfg: CallConfig,
     counter_case_fn: CounterCaseFn | None = None,
+    *,
+    held: Sequence[str] = (),
 ) -> CallCard:
-    """Pure, deterministic call-assembler: same (thesis, events, asof, cfg) -> same CallCard.
+    """Pure, deterministic call-assembler: same (thesis, events, asof, cfg, held) -> same CallCard.
 
     This is the read path — the API recomputes the CallCard live at the requested ``asof`` from the
     dated signal stream (re-derived from the bitemporal facts, not a persisted firing layer); the
     ``calls`` table only stores the result as an accountability record. See docs/CALL_LOGIC.md.
+
+    ``held`` (S5, CALL_LOGIC §2b) — the split-night hold's lines, one per member whose price-path triggers
+    were held tonight ("Breakout on BTOC held: possible unconfirmed 1-for-16 reverse split (...)"). The
+    held triggers are already out of ``events`` (``pipeline.core`` read them on the bars before the step);
+    here they only join ``missing[]``, after its own entries, so a hold is never silent (#6). Empty (the
+    default, every night without a hold) = the card is exactly what it was before S5.
     """
     fired_entry = [e for e in events if e.role == Role.ENTRY_TRIGGER and e.fired]
     active_risk = [e for e in events if e.role == Role.RISK_SIGNAL and e.fired]
@@ -211,7 +219,7 @@ def assemble_call(
     # loud: the weak key has to pull confidence down even when the other key is strong (§7).
     is_starter = state == State.ARMED and entry_grade == Grade.FLIP
 
-    missing = _missing(conviction_on, confirmation_on, blocking_risks)
+    missing = _missing(conviction_on, confirmation_on, blocking_risks, held)
 
     # Confidence is an ARMED-state metric (§7): the Armed card's bar. For a not-yet card
     # (Incubating/Warming) there is no entry to size, so it's None — never computed across the live
@@ -625,7 +633,10 @@ def _catalyst_surface(catalysts: list[Catalyst], exit_by: date | None) -> list[C
 
 
 def _missing(
-    conviction_on: bool, confirmation_on: bool, blocking_risks: list[SignalEvent]
+    conviction_on: bool,
+    confirmation_on: bool,
+    blocking_risks: list[SignalEvent],
+    held: Sequence[str] = (),
 ) -> list[str]:
     missing: list[str] = []
     if not conviction_on:
@@ -634,6 +645,8 @@ def _missing(
         missing.append("Volume-confirmed breakout (the confirmation key)")
     for r in blocking_risks:
         missing.append(f"Risk must clear before arming: {r.label}")
+    # S5 — the split-night hold's lines (CALL_LOGIC §2b): what a possible unconfirmed split is holding back
+    missing.extend(held)
     return missing
 
 

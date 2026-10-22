@@ -24,7 +24,7 @@ from collections.abc import Iterable, Mapping
 
 from db.bitemporal import _FACT_IDENTITY
 from domain.config import CallConfig
-from signals import laggard, registered_detectors, theme_conviction
+from signals import laggard, registered_detectors, split_hold, theme_conviction
 from signals.display import registered_display_members, relative_strength, theme_breadth
 
 # Slack ABOVE the max declared horizon. Why a margin exists at all: the dials are CALENDAR days counted
@@ -60,11 +60,13 @@ def derive_bounds(declarations: Iterable[Mapping[str, int | None]]) -> dict[str,
 
 def call_horizons(cfg: CallConfig) -> list[Mapping[str, int | None]]:
     """Every reader the CALL PIT serves: the registered detectors + the two thesis-level readers
-    (``laggard``, ``theme_conviction``), each evaluated against the cfg the assembler will run with.
+    (``laggard``, ``theme_conviction``) and the split-night hold's step read (``split_hold``, S5), each
+    evaluated against the cfg the assembler will run with.
     """
     return [d.horizons(cfg) for d in registered_detectors()] + [
         laggard.HORIZONS(cfg),
         theme_conviction.HORIZONS(cfg),
+        split_hold.HORIZONS(cfg),
     ]
 
 

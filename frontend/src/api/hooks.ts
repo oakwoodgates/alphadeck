@@ -1504,6 +1504,9 @@ export function useRevokeAmendmentDecision() {
 // refreshes this read and the status (its "N splits need review" count).
 export type AdminSplitListOut = components["schemas"]["AdminSplitListOut"];
 export type AdminSplitListEntryOut = components["schemas"]["AdminSplitListEntryOut"];
+// S5 — a split-shaped price jump the split-night hold released that no source listed (the operator's
+// "is this real?"); read with the list, no write of its own
+export type AdminSplitJumpOut = components["schemas"]["AdminSplitJumpOut"];
 
 export function useSplitList() {
   return useQuery({

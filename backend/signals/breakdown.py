@@ -267,9 +267,20 @@ def horizons_flip(cfg: CallConfig) -> dict[str, int | None]:
     return {"fact_price_eod": cfg.breakout_lookback_days}
 
 
+# S5 — both are price-path triggers, held on split night (an unadjusted forward split reads as a crash)
 DETECTOR_CORE = register_detector(
-    Detector(name=DETECTOR_CORE_NAME, detect=detect_core, horizons=horizons_core)
+    Detector(
+        name=DETECTOR_CORE_NAME,
+        detect=detect_core,
+        horizons=horizons_core,
+        price_trigger="Structural breakdown",
+    )
 )
 DETECTOR_FLIP = register_detector(
-    Detector(name=DETECTOR_FLIP_NAME, detect=detect_flip, horizons=horizons_flip)
+    Detector(
+        name=DETECTOR_FLIP_NAME,
+        detect=detect_flip,
+        horizons=horizons_flip,
+        price_trigger="Fast breakdown",
+    )
 )

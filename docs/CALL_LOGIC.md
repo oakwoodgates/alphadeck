@@ -175,6 +175,101 @@ The lifecycle is a **loop**, not a ratchet: `Incubating → Warming → Armed �
 > 5 theses / 0 arm-withholdings — real dilution, e.g. UEC +13.4% QoQ), so the `[PROPOSED]` dials held and the
 > operator flipped the switch.
 
+## 2b. The split-night hold  `[BUILT — split plan S5, operator-approved 2026-10-22]`
+
+**Why.** A vendor's first post-split bar can arrive on the new price scale while the stored history is still on
+the old one (or a session early, or a night late). Read across that step, a 1-for-16 reverse split is a
++1,500% "breakout" and an unadjusted forward split is a crash. MEASURED (Q10, 2026-10-18): 17 honest armed rows
+rested on such fake breakouts (GAME 10, NXL 5, MDCX 1, VRME 1); the T4 tape monitor can judge a lone cliff
+only from bar 3. The split list (S1, S4) and the price leg (S2) put a LISTED split's history on one scale; the
+hold covers the nights before a split is listed.
+
+**When it holds** (`domain/split_hold.py`, pure). A member's tape carries a **split-shaped step** — two
+consecutive stored bars whose close moves **x3 or more up, or to 1/3 or less down**, with the volume moving
+the **other way** (`beta = -ln(volume ratio) / ln(price step)` in `(0, 3]`; both closes at or above T4's
+two-cent tick floor) — whose first new-scale bar falls in the **last three sessions through the asof** (the
+step day is session 1), and **no split in force on the asof** (confirmed, or announced once its first session
+arrived — `domain.splits.is_applicable`) has its first session between the two bars or within two sessions
+of the step bar. **Both directions** (operator-approved): an unadjusted forward split reads as a crash on
+rising volume. A genuine big move comes on a volume surge in the SAME direction (JAGX 2026-09-22: x12.9 on
+x383 volume) and is never held. The volume is read bar to bar, not as T4's flank-median level: a single bar's
+volume is too noisy for T4's `BETA_MIN` (S4 MEASURED CMND's real 1-for-8 day at beta 0.041). Three sessions,
+not "the newest bar": the vendor serves the re-scaled bar late (MDCX's 10-08 close arrived re-scaled on the
+10-09 night) or early (NXL's 08-28 bar arrived on the 1-for-30 scale a session before the 08-31 split, so its
+09-01 card read the step on the third-newest bar); sessions, not bar positions, so a missing bar or a stopped
+feed never stretches a hold.
+
+**What it holds.** That night, the member's **price-path triggers** — every detector that declares
+`Detector.price_trigger` (the 8-day breakout, the 52-week breakout, the structural and fast breakdowns; a
+registry guard fails a price reader that declares none) and the laggard rotation — read **only the bars
+before the step** (`signals/split_hold.HeldPriceView`, applied in `pipeline.core.assemble_from_pit`). A
+trigger that reads across the step cannot fire, so it cannot warm, arm or de-arm; a trigger wholly before the
+step stands on its own clock (a breakout three sessions before the split keeps arming); a breakdown the
+step's jump would have "cleared" stays (the last one-scale reading). The theme broadcast and the laggard read
+the held stream, so a held breakout cues no co-member. The insider detectors are not held: they read the
+tape only to screen a Form 4's price against its day low, and they fire on the filing.
+
+**Held is never silent (#6).** Every open hold adds ONE line to the card's existing `missing[]` (no new card
+field), after its own entries — so the counter-case lists it too — every night it holds:
+
+| Case | Line (verbatim shape) |
+|---|---|
+| a list row one source stands on | "Breakout on BTOC held: possible unconfirmed 1-for-16 reverse split (SEC 8-K filed 10-09; waiting for a second source)" — or "(listed by Polygon; …)", or "(SEC 8-K filed 10-09 and Polygon disagree; waiting for your review)" |
+| an announced split, the price early | "… held: the 1-for-30 reverse split is announced for 08-31, but the price stepped x29 on 08-28, before its first session" |
+| nothing listed | "Breakout on GAME held: possible unconfirmed split (the price stepped x7.5 on 08-24 against the volume; no split filing found yet)" |
+| a listed split set aside | "… (the price stepped …; the 1-for-10 reverse split listed for 07-30 was rejected)" |
+| no trigger withheld | "Price triggers on AXG held: …" |
+| co-members cued by a held price | "Laggard confirmation on ARM held: it reads the price of SMTK, held for a possible unconfirmed split" |
+
+The line names a trigger only when one was WITHHELD (its identity — role, kind, grade, de-arm grade, fire
+date — is not what the held view reads); a trigger re-read on the bars before the step (another close in its
+label) is the reading held, not a trigger withheld. A co-member appears only when its laggard confirmation was
+withheld (the leader cue was a held breakout, or the basket median moved it across the threshold); a laggard
+merely re-labeled by the median adds no line. A hold changes the card, so `record_if_changed` records it when
+it opens and when it clears (and when its line's words change — a list row arriving, a withheld trigger
+appearing, or the vendor re-scaling a bar so the step moves a session).
+
+**How it clears.**
+- **Listed.** Once a split covering the step is in force on the list (S4 detects it nightly; the operator can
+  confirm a needs-review row), S2 puts the history on one scale: no step, nothing held, and the triggers read
+  corrected prices — a real move fires (one night late), a split-only jump fires nothing. **A legitimate split
+  listed in time is never held** (GAME's, NXL's and VRME's filings came before their split days, and on the
+  public clock a split counts from its own filing or first session).
+- **Released.** After three sessions the hold lifts on its own. A step that NO list row of any status sits near
+  then goes to the operator: the Admin Splits panel lists it as a "split-shaped jump with no split listed — is
+  this real?" (the step's two bars and the bars after it; `pipeline.split_jumps`, the hold's own read on the
+  public clock, last 30 days) and the nightly report prints ONE quiet line. **Never a page (#7).** Polygon's
+  adjusted bars are not shown (no Polygon price client exists). **Named residual:** an unlisted real split,
+  once released, reads across the step again until it is listed (T4 flags an up-step as a cliff from bar 3).
+
+**Invariants.** #1 — computed from the view's own bars and split list (`price_history` / `split_events`): a
+history view on the PUBLIC clock sees a split from its own publication, the live view what the list holds
+now; no record-clock replay. #3 — deterministic, no model. #4 — timing only: it withholds the go-signal for a
+few nights and never judges the thesis. #6 — on the card. **One implementation**: the nightly, the serve
+path, `pipeline.backfill`, D3b and the replay mirror all assemble through `assemble_from_pit`
+(`tests/signals/test_split_hold.py` pins the mirror's parity on a held night).
+
+**Golden on real nights** (`tests/signals/test_split_hold.py`, every stored version of the real bars from a
+read-only copy of prod; the split row is the only variable): GAME 08-25, NXL 09-01, MDCX 10-09 and VRME 10-01
+are held with the split unlisted (and fire the +several-hundred-percent breakout without the hold) and not held
+with it confirmed; PTIX 2025-05-19 and JAGX 09-22 / 09-23 are never held; ZCSH's real 3-for-1 forward split
+(Polygon only, needs review) holds its fast breakdown and names Polygon's row once it is public; GAME's step is
+on the operator's list three sessions on, and is not once listed.
+
+**MEASURED on prod (a read-only copy, 2026-10-22; each card assembled with and without the hold over one
+view).** Live (asof today, the record clock): **0 holds, 0 cards changed** across the 12 active theses.
+History (the public clock): 180 cards (15 Fridays 07-10..10-16 x 12 theses) — **5 changed, each a card with a
+hold open**; the split nights (13 nights x 12 theses) — the four golden nights are NOT held on today's list
+(each split is listed and public by its night: one scale), 7 cards carry a hold elsewhere. Every change is the
+hold's line; one moved an arm: AI Memory & Storage 08-21 drops ARM, whose laggard arm was cued by SMTK's fake
++3,288% breakout (SMTK's 1-for-50, one source on the list then); state and verdict changed nowhere. The holds:
+real splits not yet in force (OFAL 1-for-10 and SMTK 1-for-50 — fake breakouts withheld; ZCSH's 3-for-1 forward
+split — a fake fast breakdown withheld) and down-steps on heavy volume with no split listed (YYAI, WNRS, KXIN,
+BTAI, AXG — most likely genuine crashes; WNRS's structural breakdown and YYAI's fast breakdown were held for up
+to three sessions): the operator-approved cost of holding both directions. The released, unlisted list held 1
+to 5 items on each of those Fridays, all but WNRS's 07-13 up-step being down-steps; today it holds 1 (AXG's
+09-25 fall to 1/6.5).
+
 ## 3. Grade decision  `[built — insider]` · `[approved — catalyst]`
 
 Each fired entry trigger carries a `grade ∈ {flip, core}`; the **call's** grade = the highest-grade fired

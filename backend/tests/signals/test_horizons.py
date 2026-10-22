@@ -19,7 +19,7 @@ from domain.config import DEFAULT_CONFIG
 from domain.enums import Grade, Kind, Role
 from pipeline.seed import NUCLEAR_THESIS_ID, SMR_ID
 from repositories import thesis_repo
-from signals import laggard, registered_detectors, theme_conviction
+from signals import laggard, registered_detectors, split_hold, theme_conviction
 from signals.base import Detector, PointInTimeData
 from signals.common import fired_signal, source_provenance
 from signals.display import (
@@ -75,6 +75,7 @@ def _thesis_level_declarations() -> dict[str, Mapping[str, int | None]]:
     return {
         "laggard": laggard.HORIZONS(DEFAULT_CONFIG),
         "theme_conviction": theme_conviction.HORIZONS(DEFAULT_CONFIG),
+        "split_hold": split_hold.HORIZONS(DEFAULT_CONFIG),
         "theme_breadth": theme_breadth.HORIZONS,
         "sector_rs": relative_strength.SECTOR_RS_HORIZONS,
         "workbench.scoring": scoring.HORIZONS,
@@ -289,6 +290,11 @@ def test_every_reader_touches_only_the_tables_it_declared(db):
     rec = fresh()
     theme_conviction.detect_fact(rec, NUCLEAR_THESIS_ID, asof, ALL_ON)
     _check("theme_conviction", theme_conviction.HORIZONS(ALL_ON), rec.touched)
+    touched_by_call |= {t for t, _ in rec.touched}
+
+    rec = fresh()
+    split_hold.find_holds(rec, thesis, asof)  # S5 — the split-night hold's step read
+    _check("split_hold", split_hold.HORIZONS(ALL_ON), rec.touched)
     # the call-side guard covers both bounded tables (not vacuous)
     assert BOUNDED_TABLES <= touched_by_call
 

@@ -20,11 +20,12 @@ the unadjusted basis from one pull to the next, the stored latest-version tape i
 WHAT THIS MODULE IS, AND IS NOT (the ``tape_health`` discipline):
 
 - **A MONITOR, not a signal and not a repair.** It imports nothing from ``calls/`` or ``signals/`` and
-  neither imports it; nothing it finds reaches a detector, a CallCard or a stored bar. Whether a price
-  detector should ABSTAIN on a flagged name is an open call-policy question (plan Q10, "flag first,
-  measure, then decide") — this module is the "flag first". Its output rides the run artifact, the cron's
-  printed report, the R4 health page and ``/admin/status`` — evidence for the operator (#3/#6), never a
-  call input (#4).
+  neither imports it; nothing it finds reaches a detector, a CallCard or a stored bar. Plan Q10 (should a
+  price detector ABSTAIN on a flagged name) closed as superseded: the split list repairs the stored bars
+  (S2), and a split's first nights before it is listed are the split-night hold's (S5,
+  ``domain/split_hold.py`` — its own bar-to-bar step test, never this monitor's flag). Its output rides
+  the run artifact, the cron's printed report, the R4 health page and ``/admin/status`` — evidence for the
+  operator (#3/#6), never a call input (#4).
 - **Deterministic and pure at the core.** ``tape_findings`` / ``flap_findings`` are pure functions of the
   bars (no I/O, no clock — the window bound is a parameter). ``scan_split_defects`` is the one READ: two
   windowed queries over the active basket union, then the pure detectors.
