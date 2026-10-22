@@ -7,6 +7,7 @@ import {
   episodeMarkers,
   eventSetAside,
   familyCls,
+  type FlagBand,
   legendEntries,
   nearestBarDate,
   type OverlayEvent,
@@ -63,6 +64,7 @@ const CHIP_H = 15; // chip height (for the guide-line origin)
 const CHIP_HALF = 11; // half chip width (for the edge clamp)
 const CHIP_STEP = 18; // vertical stack pitch
 const TOP_PAD = 6; // the chip band starts here, below the top edge
+const BAND_MIN_W = 6; // S3: the narrowest a data-flag band draws (one bar zoomed out is ~1-3px)
 
 interface Chip {
   event: OverlayEvent;
@@ -79,11 +81,20 @@ interface Hover {
   y: number;
   priceY: number | null; // the y of the close on the event's date — the guide-line's foot
 }
+interface BandRect {
+  left: number;
+  width: number;
+  level: string;
+  reason: string;
+}
+
+const NO_BANDS: FlagBand[] = [];
 
 export function PriceSparkline({
   ep,
   bars,
   events,
+  bands = NO_BANDS,
   activeN,
   onActivate,
   loading = false,
@@ -94,6 +105,9 @@ export function PriceSparkline({
   bars: PriceBar[];
   /** The unified numbered events, built ONCE in the parent so this chart and the ledger share the array. */
   events: OverlayEvent[];
+  /** S3: the data flags' affected bars as runs (`flagBands`) — a faint shaded band each, the reason on
+   *  hover. Referentially stable per fetch (the parent memoizes it). */
+  bands?: FlagBand[];
   /** The currently cross-highlighted event number (from a ledger-row hover), or null. */
   activeN: number | null;
   /** Report a chip hover up so the paired ledger row highlights (and clear on leave). */
@@ -108,6 +122,7 @@ export function PriceSparkline({
   const plotWRef = useRef(320); // the plot width, for clamping chips + the tooltip inside the chart
   const [chips, setChips] = useState<Chip[]>([]);
   const [overflow, setOverflow] = useState<OverflowBadge[]>([]);
+  const [bandRects, setBandRects] = useState<BandRect[]>([]);
   const [hover, setHover] = useState<Hover | null>(null);
   // Legend reflects every family PRESENT in the loaded universe (not just the placed chips): a family
   // entirely off the visible range or in the "+N" overflow must still name itself (honest loudness #7).
@@ -257,6 +272,34 @@ export function PriceSparkline({
         else clustered.push({ x: cx, ns: [it.n] });
       }
       setOverflow(clustered);
+      // S3: the shaded bands — each run's first..last bar, padded half a bar each side; a run partly off
+      // view is cut at the edge, one wholly off view is not drawn
+      const rects: BandRect[] = [];
+      const vis = bands.length > 0 ? chart.timeScale().getVisibleRange() : null;
+      const half = bands.length > 0 ? (chart.timeScale().options().barSpacing ?? 6) / 2 : 0;
+      for (const b of bands) {
+        const x1 = chart.timeScale().timeToCoordinate(b.from as Time);
+        const x2 = chart.timeScale().timeToCoordinate(b.to as Time);
+        let left: number | null = x1 == null ? null : x1 - half;
+        let right: number | null = x2 == null ? null : x2 + half;
+        if (left == null && right == null) {
+          const spans = vis != null && b.from < String(vis.from) && b.to > String(vis.to);
+          if (!spans) continue;
+          left = 0;
+          right = w;
+        }
+        left = Math.max(0, left ?? 0);
+        right = Math.min(w, right ?? w);
+        // a one-bar band is a bar's width — at least BAND_MIN_W, so a zoomed-out single day stays findable
+        if (right > left)
+          rects.push({
+            left,
+            width: Math.min(Math.max(right - left, BAND_MIN_W), w - left),
+            level: b.level,
+            reason: b.reason,
+          });
+      }
+      setBandRects(rects);
     };
     reposition();
     // R4: the chip layer tracks pan/zoom — reposition on every visible-range change.
@@ -285,11 +328,12 @@ export function PriceSparkline({
       seriesRef.current = null;
       setChips([]);
       setOverflow([]);
+      setBandRects([]);
     };
-    // `bars` + `events` are referentially stable per fetch (parent memoizes them off react-query's stable
-    // q.data). ep is stable per drawer-open. `activeN` is DELIBERATELY absent — it drives only the chip-class
-    // render below, never a canvas rebuild (the anti-storm invariant).
-  }, [bars, events, ep]);
+    // `bars` + `events` + `bands` are referentially stable per fetch (parent memoizes them off
+    // react-query's stable q.data). ep is stable per drawer-open. `activeN` is DELIBERATELY absent — it
+    // drives only the chip-class render below, never a canvas rebuild (the anti-storm invariant).
+  }, [bars, events, bands, ep]);
 
   if (error) return <div className="sc-spark sc-spark-empty">price path unavailable</div>;
   if (!hasPath)
@@ -323,6 +367,16 @@ export function PriceSparkline({
       <div className="sc-spark-plot">
         <div ref={boxRef} className="sc-spark-chart" aria-label="episode price path" />
         <div className="ov-layer">
+          {/* S3: a faint band over each data flag's affected bars (behind the chips), the reason on hover */}
+          {bandRects.map((b, i) => (
+            <div
+              key={`band-${i}`}
+              className={`ov-band ${b.level}`}
+              style={{ left: b.left, width: b.width }}
+              title={b.reason}
+              data-testid="ov-band"
+            />
+          ))}
           {/* R3: a thin guide-line from the hovered chip to its point on the price line */}
           {hover && hover.priceY != null && (
             <div

@@ -1,13 +1,16 @@
-import { useEffect } from "react";
+import { type ReactNode, useEffect } from "react";
 
 import type {
   CallCardResponse,
+  MemberDataFlagsOut,
   MemberDisplaySignalsOut,
   ThesisDetail,
   TriggerRefOut,
 } from "../api/hooks";
 import { useDecisions } from "../api/hooks";
 import { TriggerRow } from "../components/CallCard";
+import { DataFlagsSection, FlagWrap } from "./DataFlagMark";
+import { cellFlag } from "./dataFlags";
 import { DisplayHeadlineRow, DisplaySignalsSection } from "./DisplaySignalsSection";
 import { Meter } from "../workbench/Meter";
 import { formatMarketCap, meterValueLabel, originWithFiler } from "../workbench/format";
@@ -35,6 +38,9 @@ interface Props {
   /** This name's read-only indicators (joined by security_id off the Cockpit-level query); null =
    *  nothing for this name (unresolved, or the query hasn't landed) — the section degrades quietly. */
   display: MemberDisplaySignalsOut | null;
+  /** S3 — this name's data flags + split rows (joined by security_id off the Cockpit-level query); null =
+   *  nothing to say (the common case) — the section renders nothing. */
+  dataFlags?: MemberDataFlagsOut | null;
   asof: string;
   onClose: () => void;
 }
@@ -61,7 +67,17 @@ const AUTHOR_TAG: Record<string, string> = {
  *  switching names is one click on the next row; the table itself never unmounts). READ-ONLY by
  *  design: every value is a wire field this page already fetched — sizing, facts, and re-tag
  *  decisions live in the Workbench. Esc / ✕ / re-clicking the row closes it. */
-export function NamePanel({ row, def, card, thesisId, position, display, asof, onClose }: Props) {
+export function NamePanel({
+  row,
+  def,
+  card,
+  thesisId,
+  position,
+  display,
+  dataFlags = null,
+  asof,
+  onClose,
+}: Props) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -124,7 +140,7 @@ export function NamePanel({ row, def, card, thesisId, position, display, asof, o
           (scored.royalty ? " · royalty/streaming" : "") +
           (scored.business_type_override ? " · your tag" : "")
         : "—";
-  const cells: [string, string][] = [
+  const cells: [string, ReactNode][] = [
     ["Type", btype],
     ["Segment", member.segment ?? "—"],
     ["Sector", scored?.sector ?? "—"],
@@ -135,7 +151,13 @@ export function NamePanel({ row, def, card, thesisId, position, display, asof, o
     // §16-exempt foreign filer reads "Canada · 40-F · no Form 4" (the who-and-why in one cell). "—" when
     // unknown — never a guess.
     ["Origin", originWithFiler(scored?.origin, scored?.foreign_filer_form) ?? "—"],
-    ["Mkt cap", formatMarketCap(scored?.market_cap.value)],
+    // S3: the same data-flag treatment as the row's Mkt cap cell (grayed in doubt, "—" known wrong)
+    [
+      "Mkt cap",
+      <FlagWrap key="mktcap" flag={cellFlag(dataFlags, "mktcap")}>
+        {formatMarketCap(scored?.market_cap.value)}
+      </FlagWrap>,
+    ],
     ["Size weight (yours)", weight],
     ["Role", member.role || "—"],
   ];
@@ -307,6 +329,11 @@ export function NamePanel({ row, def, card, thesisId, position, display, asof, o
           price history limited: vendor serves no history
         </div>
       )}
+
+      {/* S3 — the full data-flag reasons (with evidence, since when, what clears them) and the company's
+          split rows (announced · confirmed · took effect · history corrected). Nothing renders for a name
+          with neither — the common case. */}
+      <DataFlagsSection member={dataFlags} />
 
       {member.thesis_fit && (
         <>

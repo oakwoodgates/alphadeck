@@ -245,6 +245,48 @@ export function useDisplaySignals(thesisId: string, asof: string) {
   });
 }
 
+// --- the shared "is this real?" DATA FLAGS (split plan S3) — compute-on-read, display-only ---
+// Which numbers on a row rest on data the platform knows is wrong or cannot vouch for, why, and what clears
+// it, plus each name's split rows. Never a call input, never stored, never a push alert (#7).
+export type DataFlagsResponse = components["schemas"]["DataFlagsResponse"];
+export type MemberDataFlagsOut = components["schemas"]["MemberDataFlagsOut"];
+export type DataFlagOut = components["schemas"]["DataFlagOut"];
+export type DataFlagSplitOut = components["schemas"]["DataFlagSplitOut"];
+
+/** One thesis's flags at `asof` (the Cockpit table, the NamePanel, the Scoreboard drawer chart). The same
+ *  policy as the display read: cached for the window, keep the previous marks up through a scrub. */
+export function useThesisDataFlags(thesisId: string, asof: string) {
+  return useQuery({
+    queryKey: ["data-flags", thesisId, asof] as const,
+    enabled: Boolean(thesisId) && Boolean(asof),
+    staleTime: MONITOR_STALE_MS,
+    retry: 1,
+    placeholderData: keepPreviousData,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/theses/{thesis_id}/data-flags", {
+        params: { path: { thesis_id: thesisId }, query: { asof } },
+      });
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+/** Every flagged name across the active baskets at `asof` (the Admin list, the Board's ticker marks). */
+export function useDataFlags(asof: string) {
+  return useQuery({
+    queryKey: ["data-flags", "all", asof] as const,
+    enabled: Boolean(asof),
+    staleTime: MONITOR_STALE_MS,
+    retry: 1,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/data-flags", { params: { query: { asof } } });
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
 // --- the Scoreboard (SCORE): the forward record scored — the calls log + the decision log ---
 export type ScoreboardResponse = components["schemas"]["ScoreboardResponse"];
 export type ScoreboardSummaryOut = components["schemas"]["ScoreboardSummaryOut"];
@@ -1561,6 +1603,8 @@ function useSplitAction<TVars, TData>(fn: (vars: TVars) => Promise<TData>) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-splits"] });
       qc.invalidateQueries({ queryKey: ["admin-status"] });
+      // S3 — a confirm / reject settles a "split needs review" flag: the marks re-read
+      qc.invalidateQueries({ queryKey: ["data-flags"] });
     },
   });
 }

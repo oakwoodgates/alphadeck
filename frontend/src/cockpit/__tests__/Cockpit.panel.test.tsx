@@ -147,6 +147,7 @@ vi.mock("../../api/hooks", () => ({
   useCall: () => ({ data: fx.call, isLoading: false, error: null }),
   useWorkbenchScored: () => ({ data: fx.scored, isLoading: false, error: null }),
   useDisplaySignals: () => ({ data: fx.display, isLoading: false, error: null }),
+  useThesisDataFlags: () => ({ data: undefined, isLoading: false, error: null }),
   usePutCatalysts: () => ({ mutate: () => {}, isPending: false, isError: false, error: null }),
   usePutKillCriteria: () => ({ mutate: () => {}, isPending: false, isError: false, error: null }),
   useDecisions: () => ({ data: fx.decisions, isLoading: false, error: null }),

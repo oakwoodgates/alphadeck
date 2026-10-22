@@ -307,6 +307,30 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .np-feednote { margin-top: 9px; font-size: 10.5px; color: var(--txt-3); cursor: help; }
 /* the board-table thin marker — a quiet amber caret beside the ticker, only on a starved row */
 .thin-mark { color: var(--warn, #b8860b); font-size: 10px; margin-left: 5px; cursor: help; }
+/* S3 — the shared "is this real?" data flag. The ROW mark: a small hollow diamond after the ticker, only
+   when a flag reaches a cell on the row (WB#3); muted, never a badge (#7) — amber-ish for in doubt, a
+   muted negative for known wrong. The CELLS: in doubt keeps the number, grayed and dotted-underlined with
+   the reason on hover; known wrong is a muted "—" carrying the reason. */
+.flag-mark { font-size: 9.5px; margin-left: 5px; cursor: help; }
+.flag-mark.doubt { color: color-mix(in srgb, var(--warn, #b8860b) 70%, var(--txt-3)); }
+.flag-mark.wrong { color: color-mix(in srgb, var(--neg) 60%, var(--txt-3)); }
+.flag-doubt { opacity: 0.45; cursor: help; border-bottom: 1px dotted var(--txt-4); }
+.flag-doubt .ret.pos, .flag-doubt .ret.neg { color: var(--txt-2); }
+.flag-wrong { cursor: help; }
+.grp-h .agg .agg-out { color: var(--txt-4); }
+/* the NamePanel's "Data · this name" — the full reason, quiet (a reading aid, not an alarm) */
+.np-flag { border-left: 2px solid var(--line-2); padding: 2px 0 2px 10px; margin: 6px 0 10px; font-size: 11px; }
+.np-flag.doubt { border-left-color: color-mix(in srgb, var(--warn, #b8860b) 55%, var(--line-2)); }
+.np-flag.wrong { border-left-color: color-mix(in srgb, var(--neg) 50%, var(--line-2)); }
+.np-flag-h { display: flex; align-items: baseline; gap: 7px; color: var(--txt-2); }
+.np-flag-lvl { font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--txt-3); border: 1px solid var(--line-2); border-radius: 4px; padding: 0 4px; }
+.np-flag-since { color: var(--txt-4); font-size: 10px; }
+.np-flag-reason { color: var(--txt-2); line-height: 1.45; margin-top: 3px; }
+.np-flag-meta { color: var(--txt-3); font-size: 10.5px; margin-top: 2px; }
+.np-flag-ev { color: var(--txt-2); margin-right: 9px; }
+.np-split { margin: 6px 0 8px; font-size: 11px; color: var(--txt-2); }
+.np-split.pending { color: var(--txt-3); }
+.np-split-ev { color: var(--txt-3); font-size: 10.5px; padding-left: 10px; }
 .np-fit { font-style: italic; color: var(--txt-2); font-size: 12px; line-height: 1.55; border-left: 2px solid var(--line-2); padding-left: 11px; }
 .np-fit .tag { display: inline-block; margin-left: 7px; font-style: normal; font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--txt-4); border: 1px solid var(--line-2); border-radius: 4px; padding: 1px 5px; }
 .np-meters { border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; background: var(--panel); }
@@ -360,6 +384,8 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .spark-svg { display: block; overflow: visible; }
 .spark-svg path { fill: none; stroke: var(--txt-3); stroke-width: 1; stroke-linejoin: round; stroke-linecap: round; }
 .spark-svg circle { fill: var(--txt-3); }
+/* S3 — a split inside the sparkline's window: a hairline tick at most, behind the path */
+.spark-svg .spark-tick { stroke: var(--line-2); stroke-width: 1; stroke-dasharray: 2 2; }
 .np-ind-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .np-ind-chip { display: inline-flex; align-items: baseline; gap: 5px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); padding: 3px 8px; }
 .np-ind-chip .k { font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--txt-4); white-space: nowrap; }
@@ -1651,6 +1677,13 @@ tr.sb-row .tk { font-family: var(--mono); font-weight: 700; letter-spacing: 0.04
    row). Deliberately NOT the set-aside gray below either: that gray means "excluded", this means
    "context", and the two must not blur mid-scan. */
 .ov-chip.ov-signal { background: var(--line-2); color: var(--txt-2); }
+/* S3 — a split on the list: a quiet OUTLINED neutral (it explains a step in the line; never an alarm, #7) */
+.ov-chip.ov-split { background: var(--bg-2); border-color: var(--txt-3); color: var(--txt-2); }
+/* S3 — the shaded band over a data flag's affected bars: a faint wash behind the chips (in doubt amber,
+   known wrong a muted negative); the reason rides its hover */
+.ov-band { position: absolute; top: 0; bottom: 0; pointer-events: auto; cursor: help; z-index: 0; }
+.ov-band.in_doubt { background: color-mix(in srgb, var(--warn, #b8860b) 16%, transparent); }
+.ov-band.known_wrong { background: color-mix(in srgb, var(--neg) 14%, transparent); }
 .ov-more {
   position: absolute; transform: translate(-50%, 0); pointer-events: auto;
   font: 700 9px var(--mono); line-height: 1; height: 15px; padding: 0 4px; border-radius: 8px;
@@ -1686,6 +1719,7 @@ tr.sb-row .tk { font-family: var(--mono); font-weight: 700; letter-spacing: 0.04
 .ov-dot.ov-lifecycle { background: var(--txt-2); }
 .ov-dot.ov-operator { background: var(--incub); }
 .ov-dot.ov-signal { background: var(--line-2); }
+.ov-dot.ov-split { background: var(--bg-2); border: 1px solid var(--txt-3); }
 .sc-cmp { display: flex; flex-direction: column; gap: 4px; margin-top: 7px; font-family: var(--mono); font-size: 11.5px; color: var(--txt-3); }
 .sc-setup { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-top: 8px; font-size: 10.5px; color: var(--txt-3); text-transform: uppercase; letter-spacing: 0.06em; }
 
@@ -1720,6 +1754,7 @@ td.evled-n.ov-operator { color: var(--incub); }
 /* A3: the tape row's number, quieter than every recorded family's (#7) — --txt-3, one step under the
    lifecycle's --txt-2 and deliberately NOT the set-aside --txt-4 below (that gray means "excluded"). */
 td.evled-n.ov-signal { color: var(--txt-3); }
+td.evled-n.ov-split { color: var(--txt-2); }
 /* A set-aside row (screened buy/sell, passive 13G) is muted end-to-end (the number included) —
    visible, never removed (WB #2; `eventSetAside` decides, same as the chip) */
 .evled-tbl tbody tr.evled-setaside td { color: var(--txt-4); }
@@ -1819,6 +1854,13 @@ tr.adm-row-bad td { background: color-mix(in srgb, var(--warm) 5%, transparent);
 .adm-link { font-size: 11px; color: var(--leader); }
 .adm-quietlist summary { cursor: pointer; list-style-position: inside; }
 .adm-quietrows { color: var(--txt-3); }
+/* split plan S3 — the Data flags panel: one name per row, each flag in full (quiet; never an alarm, #7) */
+.adm-flags { margin: 4px 0 0; padding-left: 18px; font-size: 11.5px; color: var(--txt-2); }
+.adm-flags > li { margin: 6px 0; }
+.adm-flag { margin: 3px 0 0 2px; }
+.adm-flag-lvl { font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.08em; text-transform: uppercase; border: 1px solid var(--line-2); border-radius: 4px; padding: 0 4px; color: var(--txt-3); }
+.adm-flag-lvl.known_wrong { color: color-mix(in srgb, var(--neg) 60%, var(--txt-3)); }
+.adm-flag-lvl.in_doubt { color: color-mix(in srgb, var(--warn, #b8860b) 70%, var(--txt-3)); }
 /* split plan S1 — the Splits panel: the SEC passage and Polygon's row side by side (stacked on a phone);
    a rejected / revoked split stays listed, grayed (WB#2) */
 .adm-split-sides { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; margin: 6px 0 4px; }

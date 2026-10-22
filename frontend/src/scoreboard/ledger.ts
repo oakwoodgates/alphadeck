@@ -128,6 +128,12 @@ export function ledgerRow(e: OverlayEvent): LedgerRow {
     // action word leads them by construction — "took @ $X (logged fill) · running +8.0% · <reason>"
     return { ...base, type: "operator", detail: overlayTooltip(e).lines.join(" · ") };
   }
+  if (e.family === "split") {
+    // S3: the split row — the type cell says "split"; the detail is the chart label (ratio · SEC filing ·
+    // the factor the prices before it carry · how it was confirmed / corrected), verbatim.
+    const tip = overlayTooltip(e);
+    return { ...base, type: "split", detail: [tip.title, ...tip.lines].join(" · ") };
+  }
   if (e.family === "signal") {
     // A3: the tape read. The type cell names the family ("tape signal"), so the detail leads with the
     // event's own LABEL ("golden cross: 50d crossed above 200d") and carries the epistemics lines

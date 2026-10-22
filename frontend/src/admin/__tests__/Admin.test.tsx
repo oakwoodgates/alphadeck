@@ -349,6 +349,7 @@ vi.mock("../../api/hooks", () => ({
   useLinkAmendment: () => h.repair,
   useRevokeAmendmentDecision: () => h.repair,
   // split plan S1 — the Splits panel (its own behavior is in SplitList.test.tsx): empty here
+  useDataFlags: () => ({ data: undefined, isError: false }),
   useSplitList: () => ({
     data: { needs_review: [], announced: [], confirmed: [], set_aside: [], total: 0 },
     isError: false,

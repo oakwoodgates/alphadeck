@@ -1,0 +1,120 @@
+{
+ "_provenance": "data/repairs/20261022T094736Z-split-basis.json (prod) trimmed to BTOC + ARTL, 3 bars each; data/cron_runs/20261022T023001Z.json (prod) SKYT tape_stale row; data/cron_runs/20261020T023002Z.json (prod, the 2026-10-19 pass) HLLK tape_stale row",
+ "repair": {
+  "kind": "repair_split_basis",
+  "rule": "split-basis-repair@cef8887717d80bfbfb2cac2aafb9c83b4c1430a1",
+  "recorded_at": "2026-10-22T09:47:34.212546+00:00",
+  "companies": [
+   {
+    "ticker": "ARTL",
+    "security_id": "40d75d6c-21c1-452f-97a0-1e83bfe0a62b",
+    "splits": [
+     {
+      "key_date": "2025-06-13",
+      "effective_date": "2025-06-13",
+      "ratio": "6->1",
+      "factor": "6",
+      "label": "1-for-6 reverse split",
+      "status": "confirmed",
+      "sec_accession": "0001640334-25-001046",
+      "version_id": "e93f4cab-6736-4301-a30e-357e92312470"
+     },
+     {
+      "key_date": "2026-03-10",
+      "effective_date": "2026-03-10",
+      "ratio": "3->1",
+      "factor": "3",
+      "label": "1-for-3 reverse split",
+      "status": "confirmed",
+      "sec_accession": "0001640334-26-000395",
+      "version_id": "d08b66b2-ff2e-4e5b-8a10-54dceda42a5f"
+     },
+     {
+      "key_date": "2026-08-31",
+      "effective_date": "2026-08-31",
+      "ratio": "9->1",
+      "factor": "9",
+      "label": "1-for-9 reverse split",
+      "status": "confirmed",
+      "sec_accession": "0001640334-26-001421",
+      "version_id": "6089af02-6c6d-480d-95a3-931925d2f8bc"
+     }
+    ],
+    "bars": [
+     {
+      "d": "2024-09-04",
+      "label": "raw",
+      "factor": "x9"
+     }
+    ],
+    "bars_total": 1
+   },
+   {
+    "ticker": "BTOC",
+    "security_id": "c46f08ee-0ba3-47b9-9bb2-b195ea734b2c",
+    "splits": [
+     {
+      "key_date": "2026-10-15",
+      "effective_date": "2026-10-15",
+      "ratio": "16->1",
+      "factor": "16",
+      "label": "1-for-16 reverse split",
+      "status": "confirmed",
+      "sec_accession": "0001213900-26-108468",
+      "version_id": "7f49b1ce-9d52-4de3-9fc0-59ef631055e2"
+     }
+    ],
+    "bars": [
+     {
+      "d": "2024-09-04",
+      "label": "raw",
+      "factor": "x16"
+     },
+     {
+      "d": "2024-09-05",
+      "label": "raw",
+      "factor": "x16"
+     },
+     {
+      "d": "2024-09-06",
+      "label": "raw",
+      "factor": "x16"
+     }
+    ],
+    "bars_total": 527
+   }
+  ]
+ },
+ "skyt_stale": {
+  "asof": "2026-10-21",
+  "thesis": "Modern Defense",
+  "row": {
+   "security_id": "531613b9-fe18-4850-a795-d256e12fbef4",
+   "ticker": "SKYT",
+   "edge": "2026-08-07",
+   "kind": "price",
+   "closed_at": "2026-08-10",
+   "renamed": false,
+   "edgar_tickers": [],
+   "unpriceable": false,
+   "acknowledged": false
+  }
+ },
+ "hllk_stale": {
+  "asof": "2026-10-19",
+  "thesis": "Modern Defense",
+  "row": {
+   "security_id": "1ab2376c-df06-4928-9d6a-868a49eb936b",
+   "ticker": "HLLK",
+   "edge": "2026-09-24",
+   "kind": "price",
+   "closed_at": null,
+   "renamed": true,
+   "edgar_tickers": [
+    "SDCO"
+   ],
+   "unpriceable": false,
+   "acknowledged": false
+  }
+ }
+}
