@@ -91,6 +91,7 @@ from pipeline.cron_run_log import (
     write_cron_run_log,
     write_run_start,
 )
+from pipeline.detect_splits import SplitDetection, SplitDetector
 from pipeline.edgar_coverage import EdgarCoverage, company_sets, coverage_of
 from pipeline.ingest_fundamentals import NameResult as FundamentalsResult
 from pipeline.ingest_fundamentals import PassMemo
@@ -486,6 +487,7 @@ def run_daily(
     run_kind: str = "manual",
     catch_up: bool = False,
     known_skips: Collection[str] | None = None,
+    split_detector: SplitDetector | None = None,
 ) -> list[ThesisRunResult]:
     """Run the daily pass over every thesis. ``asof`` defaults to today, ``known_at`` to now (a live read).
     Returns one ``ThesisRunResult`` per thesis. Never raises for a single thesis — failures are captured.
@@ -604,6 +606,8 @@ def run_daily(
                 # X1 — the not-yet-warm names, windowed (passed only when there are any: the common night
                 # calls the unit exactly as before X1)
                 **({"onboarding": onboarding_windows} if onboarding_windows else {}),
+                # S4 — the pass's split detector (each company checked once, before its price leg)
+                **({"split_detector": split_detector} if split_detector is not None else {}),
             )
         except Exception as e:  # noqa: BLE001 — one thesis's ingest never aborts the cron
             conn.rollback()
@@ -1028,6 +1032,9 @@ class DailyPassOutcome:
     # pass's artifact exists): the printed report announces a divide-back only when it changed (N2). Not an
     # artifact field — the artifact carries THIS pass's reads (``split_reads``).
     split_reads_prev: dict | None = None
+    # S4 — the nightly split detection (``pipeline/detect_splits.py``): the new split-list rows, the filings it
+    # could not place, the Polygon source's status — computed in the pass, so the artifact and the poll agree
+    split_detect: SplitDetection = field(default_factory=SplitDetection)
 
     def payload_kwargs(self) -> dict:
         """Every run-level field ``cron_run_log.build_run_payload`` / ``write_cron_run_log`` take, from this
@@ -1060,6 +1067,7 @@ class DailyPassOutcome:
             "timings": self.timings,
             "amendments": self.amendments,
             "edgar_coverage": self.edgar_coverage,
+            "split_detect": self.split_detect,
         }
 
 
@@ -1347,6 +1355,12 @@ def _run_daily_pass_locked(
     )
     if amendment_sweep.error:
         print(f"WARNING: Form 4/A sweep failed: {amendment_sweep.error}")
+    # S4 — THE SPLIT DETECTION (`pipeline/detect_splits.py`): the pass's ONE Polygon split-reference request
+    # here (fail-open: off / failed / uncached is a status on the outcome), then each company is checked inside
+    # its ingest, after its 8-K leg and before its price leg. Its outcome rides the artifact + one report line.
+    split_detector = timed("split_detect_start")(SplitDetector.start)(
+        asof=asof, allow_live=allow_live
+    )
     conn = _pass_connect()
     try:
         results = run_daily(
@@ -1357,6 +1371,7 @@ def _run_daily_pass_locked(
             run_kind=run_kind,
             catch_up=catch_up,
             known_skips=known_keys(prior_skips),
+            split_detector=split_detector,
         )
     finally:
         conn.close()
@@ -1558,6 +1573,7 @@ def _run_daily_pass_locked(
         amendments=amendments,
         edgar_coverage=edgar_coverage,
         split_reads_prev=prior_split_reads,
+        split_detect=split_detector.result,
     )
     # R3 — the cron's run-of-record, so the next freeze is noticed by the platform, not by eye. Written
     # AFTER the run from the collected results (write-only, no DB); fail-open, so it never fails the cron.
@@ -2130,6 +2146,8 @@ def main(argv: list[str] | None = None) -> None:
         amendments=outcome.amendments,
         split_reads_prev=outcome.split_reads_prev,
     )  # the per-thesis summary + the errored count, printed either way
+    for line in outcome.split_detect.report_lines():  # S4 — one quiet line (+ Polygon off / faults)
+        print(line)
     # X5 — ONE timings line: the total, the three slowest legs, the slowest thesis, the peak RSS
     timings_line = pass_timings.summary_line(outcome.timings)
     if timings_line:

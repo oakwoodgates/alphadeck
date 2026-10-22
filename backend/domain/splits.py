@@ -30,8 +30,9 @@ disagreeing values.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from decimal import Decimal
 from fractions import Fraction
@@ -105,7 +106,8 @@ class SecEvidence:
 
 @dataclass(frozen=True)
 class SplitDecision:
-    """The matcher's verdict for one Polygon row: the values the list carries, its status, and the evidence."""
+    """The matcher's verdict for one Polygon row (or, S4, one SEC-only candidate — ``polygon`` is then
+    ``None``): the values the list carries, its status, and the evidence."""
 
     key_date: date
     effective_date: date
@@ -115,7 +117,7 @@ class SplitDecision:
     confirmed_via: str | None
     value_source: str
     valid_from: date
-    polygon: PolygonEvidence
+    polygon: PolygonEvidence | None
     sec: SecEvidence | None
     note: str
 
@@ -476,4 +478,206 @@ def decide(
         polygon=polygon,
         sec=chosen,
         note=note + tail,
+    )
+
+
+# --- S4 (split plan, 2026-10-22): the SEC-only candidate and the TAPE as a confirming source -------------------
+#
+# The nightly detector (``pipeline/detect_splits.py``) finds splits the S1 rule above cannot settle alone: a
+# split an SEC filing states before (or without) a Polygon row, and a split one documentary source states that
+# the stored price tape can confirm. ``decide`` above stays THE rule for a Polygon row; nothing below changes it.
+
+VIA_SEC_TAPE = "auto:sec+tape"
+VIA_POLYGON_TAPE = "auto:polygon+tape"
+AUTO_VIAS = (VIA_AUTO, VIA_SEC_TAPE, VIA_POLYGON_TAPE)
+
+# THE TAPE TOLERANCE — MEASURED 2026-10-22 on a read-only copy of prod (``security_split`` + ``fact_price_eod``),
+# the step read on each bar's FIRST-SERVED version (what the vendor served the night it was stored):
+# - REAL SPLIT DAYS: the 18 listed reverse splits whose first-served step lands near k on the listed date
+#   (12 with the prior bar served before the split, 6 from a history load the vendor never adjusted) stepped
+#   by ln(step / k) in [-0.464, +0.187] (SMX 2025-11-18 1-for-8: x5.03, the day's real move -37%; MI 1-for-80:
+#   x96.4) — the split-day moves section 16 of the plan measured on Polygon's closes (+26% .. -37%). The volume
+#   fell on every one (beta = -ln(volume ratio) / ln(step) in [0.041 (CMND), 2.19 (DUKR)]); a single bar's
+#   volume is too noisy for T4's flank-median BETA_MIN of 0.5 (CMND's real 1-for-8 day would fail it).
+# - NON-SPLIT DAYS (the null): 331,022 consecutive first-served bar pairs on the basket union, more than 10
+#   days from any listed split. Share that would pass at TAPE_TOLERANCE = 0.5 with the volume falling, by k:
+#   k=1.8 0.448% · 2 0.071% · 3 0.0063% · 4 0.0018% · 5 0.0015% · 8..50 <= 0.0006% · 100 0. (An upper bound:
+#   the few k >= 8 passes look like unlisted splits themselves — LIVG 2026-03-18 x8.5, NEXR 2024-11-20 x14.6,
+#   QUCY 2024-12-03 x34.8.) The tape is only ever read on the ONE session a documentary source names.
+# Hence: within x e^0.5 (x1.65) of k either way, volume down (beta in (0, 3]), reverse splits of k >= 1.8 only —
+# below that a real day moves as much as the split, and a FORWARD split on an unadjusted tape is a fall on
+# rising volume, which a real crash looks exactly like (T4's documented blind spot): the tape never confirms one.
+TAPE_TOLERANCE = 0.5
+TAPE_K_MIN = 1.8
+TAPE_BETA_MAX = 3.0
+
+
+@dataclass(frozen=True)
+class TapeEvidence:
+    """The stored price tape at a candidate first session: the bar on ``session`` and the stored bar before it
+    (``prior``), each as the vendor FIRST served it — the as-traded print, before any later re-basing (the
+    vendor's, or the split list's own once a split is applied). ``prior_served_before`` = the prior bar's first
+    version was served before ``session`` (so it cannot already carry this split's adjustment)."""
+
+    session: date
+    prior: date
+    prior_close: float
+    close: float
+    prior_volume: float | None
+    volume: float | None
+    prior_served_before: bool
+
+    @property
+    def step(self) -> float:
+        return self.close / self.prior_close
+
+    @property
+    def volume_ratio(self) -> float | None:
+        if not self.prior_volume or not self.volume or self.prior_volume <= 0 or self.volume <= 0:
+            return None
+        return self.volume / self.prior_volume
+
+    def describe(self) -> str:
+        vr = self.volume_ratio
+        vol = (
+            f", volume {self.prior_volume:,.0f} -> {self.volume:,.0f} (x{vr:.3g})"
+            if vr is not None
+            else ", no volume on one of the bars"
+        )
+        served = "" if self.prior_served_before else " (the prior bar was first served after it)"
+        return (
+            f"Tape as first served: {self.prior.isoformat()} close {self.prior_close:.4g} -> "
+            f"{self.session.isoformat()} {self.close:.4g} (x{self.step:.3g}){vol}{served}"
+        )
+
+
+def tape_agreement(
+    tape: TapeEvidence | None, ratio_from: Decimal, ratio_to: Decimal, first_session: date
+) -> tuple[bool, str]:
+    """Does the tape confirm a split of ``ratio_from`` -> ``ratio_to`` first trading on ``first_session``?
+    ``(agree, why)`` — the rule and its MEASURED tolerance are in the constants above. Exact on the date: the
+    step must land ON ``first_session`` (a vendor that pre-adjusts a session early does not confirm it).
+    """
+    if tape is None or tape.session != first_session:
+        return False, f"no stored bar on {first_session.isoformat()} to read"
+    k = float(price_factor(ratio_from, ratio_to))
+    if k < TAPE_K_MIN:
+        return False, (
+            f"a {ratio_label(ratio_from, ratio_to)} moves the price by less than x{TAPE_K_MIN} up, which the "
+            "tape cannot tell from a real day's move"
+        )
+    step = tape.step
+    if step <= 0 or abs(math.log(step / k)) > TAPE_TOLERANCE:
+        return False, f"the tape steps x{step:.3g} on {first_session.isoformat()}, not about x{k:g}"
+    vr = tape.volume_ratio
+    if vr is None:
+        return False, "the tape has no volume on one of the two bars"
+    beta = -math.log(vr) / math.log(step)
+    if not 0 < beta <= TAPE_BETA_MAX:
+        return False, f"the volume moved x{vr:.3g}, not the other way to the price"
+    return True, ""
+
+
+def with_tape(d: SplitDecision, tape: TapeEvidence | None) -> SplitDecision:
+    """A needs-review decision that ONE documentary source settles alone — Polygon's row with no SEC filing
+    disagreeing, or an SEC filing that states the first TRADING session (a legal date leaves the first session
+    open by a session or two, and the tape is never asked to pick it) — upgraded to ``confirmed`` when the tape
+    agrees on its first session (``tape_agreement``). Any other needs-review decision comes back with the tape
+    reading on its first session added to the note (the evidence, either way); an announced or confirmed one
+    comes back unchanged (two sources already settled it — the S1 content stays S1's). Two sources that
+    DISAGREE are never arbitrated by the tape."""
+    if tape is None or tape.session != d.effective_date or d.status != STATUS_NEEDS_REVIEW:
+        return d
+    note = f"{d.note} {tape.describe()}."
+    via: str | None = None
+    if (
+        d.value_source == SOURCE_POLYGON
+        and d.polygon is not None
+        and (d.sec is None or not d.sec.has_ratio)
+    ):
+        via = VIA_POLYGON_TAPE
+    elif (
+        d.value_source == SOURCE_SEC
+        and d.polygon is None
+        and d.sec is not None
+        and d.sec.date_kind == "trading"
+    ):
+        via = VIA_SEC_TAPE
+    if via is None:
+        return replace(d, note=note)
+    agree, why = tape_agreement(tape, d.ratio_from, d.ratio_to, d.effective_date)
+    if not agree:
+        return replace(d, note=f"{note} The tape does not confirm it: {why}.")
+    src = "Polygon's" if via == VIA_POLYGON_TAPE else "the SEC filing's"
+    return replace(
+        d,
+        status=STATUS_CONFIRMED,
+        confirmed_via=via,
+        note=f"{note} The tape confirms {src} first session and ratio.",
+    )
+
+
+def related(s: SecEvidence, polygon: PolygonEvidence) -> bool:
+    """Is a read SEC filing about the same split as a Polygon row — the same ratio, or a date that agrees
+    (``decide``'s own test for the filing it shows beside a disagreeing row)?"""
+    if not s.has_ratio:
+        return False
+    return same_ratio(s.ratio_from, s.ratio_to, polygon.split_from, polygon.split_to) or (  # type: ignore[arg-type]
+        s.effective_date is not None and date_agreement(s, polygon)[0]
+    )
+
+
+def cluster_sec(filings: Sequence[SecEvidence]) -> list[list[SecEvidence]]:
+    """SEC filings that state a ratio AND a date, grouped into one candidate split each: the same exact ratio
+    and dates within ``SESSION_TOLERANCE`` sessions of the group's first (an 8-K announcing it and another
+    restating it). Ordered by first filing."""
+    groups: list[list[SecEvidence]] = []
+    for s in sorted(
+        (s for s in filings if s.has_ratio and s.effective_date is not None),
+        key=lambda s: (s.filed, s.accession),
+    ):
+        for g in groups:
+            g0 = g[0]
+            if same_ratio(s.ratio_from, s.ratio_to, g0.ratio_from, g0.ratio_to) and (  # type: ignore[arg-type]
+                abs(session_distance(g0.effective_date, s.effective_date)) <= SESSION_TOLERANCE  # type: ignore[arg-type]
+            ):
+                g.append(s)
+                break
+        else:
+            groups.append([s])
+    return groups
+
+
+def decide_sec_only(group: Sequence[SecEvidence], *, asof: date) -> SplitDecision:
+    """The verdict for one SEC-only candidate (``cluster_sec``): ``needs_review`` — one source never confirms
+    a split (S1's rule) — carrying the SEC values: the first TRADING session one of the filings states, else
+    the earliest filing's legal date. ``with_tape`` may then confirm it. ``valid_from`` = the earliest filing.
+    """
+    trading = [s for s in group if s.date_kind == "trading"]
+    pool = trading or list(group)
+    chosen = min(pool, key=lambda s: (s.filed, s.accession))
+    first = min(group, key=lambda s: (s.filed, s.accession))
+    dates = sorted({s.effective_date for s in pool if s.effective_date is not None})
+    note = f"SEC only: {_sec_said(chosen)}; no Polygon row lists this split (tonight's pull)."
+    if len(group) > 1:
+        note += f" {len(group)} SEC filings state it."
+    if len(dates) > 1:
+        note += " They state different dates: " + ", ".join(d.isoformat() for d in dates) + "."
+    if chosen.date_kind != "trading":
+        note += " A legal effective date: the first session may be a session later."
+    eff: date = chosen.effective_date  # type: ignore[assignment]
+    if eff > asof:
+        note += f" Takes effect {eff.isoformat()}."
+    return SplitDecision(
+        key_date=eff,
+        effective_date=eff,
+        ratio_from=chosen.ratio_from,  # type: ignore[arg-type]
+        ratio_to=chosen.ratio_to,  # type: ignore[arg-type]
+        status=STATUS_NEEDS_REVIEW,
+        confirmed_via=None,
+        value_source=SOURCE_SEC,
+        valid_from=min(first.filed, eff),
+        polygon=None,
+        sec=chosen,
+        note=note,
     )

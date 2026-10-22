@@ -43,6 +43,7 @@ import xml.etree.ElementTree as ET
 from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 import psycopg
@@ -96,6 +97,9 @@ from ingest.skips import (
 )
 from pipeline.fetch_ahead import FetchAhead, Handoff, fetch_workers, thread_completed
 from pipeline.pass_timings import timed
+
+if TYPE_CHECKING:  # the nightly passes one in (S4); the unit itself never builds or imports it
+    from pipeline.detect_splits import SplitDetector
 from repositories import thesis_repo
 from securities import master
 
@@ -472,6 +476,7 @@ def ingest_thesis(
     known_skips: Collection[str] | None = None,
     lock_wait_s: float | None = None,
     onboarding: Mapping[UUID, OnboardingWindow] | None = None,
+    split_detector: SplitDetector | None = None,
 ) -> list[NameResult]:
     """Ingest insider + price facts — and, for an ETF sleeve, a fund shares-outstanding sample — for
     each RESOLVED basket member of ``thesis_id``.
@@ -570,6 +575,7 @@ def ingest_thesis(
             now=n,
             known_skips=known_skips,
             filed_since=window.filed_since if window else None,
+            split_detector=split_detector,
         )
         r.edgar_completed = thread_completed(client) - before
         if handoff is not None:
@@ -820,6 +826,7 @@ def _ingest_one(
     now: datetime | None,
     known_skips: Collection[str] | None,
     filed_since: date | None = None,
+    split_detector: SplitDetector | None = None,
 ) -> NameResult:
     """ONE member's legs — run by ``ingest_thesis`` while it holds the company's write lock (W1). Resolves the
     id to the master row, then the Form 4, 8-K, 13D/G, price and fund-shares legs, EACH in its own try,
@@ -874,6 +881,17 @@ def _ingest_one(
         conn.rollback()
         errs.append(f"schedule13: {e}")
         leg_errs.append(("schedule13", str(e)))
+    # S4 — THE SPLIT DETECTION (``pipeline/detect_splits.py``, the nightly only): after the 8-K leg stored
+    # today's filings and BEFORE the price leg, so a split filed today with a second source is on the split
+    # list before this company's price leg and tonight's call. Its own transaction; a fault is the
+    # detector's to record (run artifact + report) — never a name error, never a stale ingest.
+    if split_detector is not None:
+        try:
+            timed("split_detect")(split_detector.check)(conn, client, sec, tenant_id=tenant_id)
+            conn.commit()
+        except Exception as e:  # noqa: BLE001 — a detection fault never costs the name its ingest
+            conn.rollback()
+            split_detector.fault(sec, e)
     px_appended, px_reversioned, px_withheld, px_held = 0, 0, 0, 0
     px_split: dict[str, int] = {}
     px_first_night: tuple[str, ...] = ()

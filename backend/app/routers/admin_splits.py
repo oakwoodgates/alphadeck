@@ -41,6 +41,8 @@ from domain.splits import (
     STATUS_CONFIRMED,
     STATUS_NEEDS_REVIEW,
     VIA_AUTO,
+    VIA_POLYGON_TAPE,
+    VIA_SEC_TAPE,
     direction,
     ratio_label,
 )
@@ -154,18 +156,30 @@ def _md(ts: datetime) -> str:
     return ts.astimezone(market_tz()).strftime("%m-%d")
 
 
+# the two-source pairings a split can be auto-confirmed by (S1's SEC + Polygon; S4's tape pairings)
+_AUTO_LABELS = {
+    VIA_AUTO: "auto: SEC + Polygon",
+    VIA_SEC_TAPE: "auto: SEC + tape",
+    VIA_POLYGON_TAPE: "auto: Polygon + tape",
+}
+
+
 def _decided_by(v: SplitVersion) -> str:
-    """The source label: "auto: SEC + Polygon" for the two-source rule, "you, 10-20" for the operator."""
-    auto = v.confirmed_via == VIA_AUTO
+    """The source label: "auto: SEC + Polygon" (or "auto: SEC + tape" / "auto: Polygon + tape") for the
+    two-source rule, "you, 10-20" for the operator, else who listed it (the backfill / the nightly).
+    """
+    auto = _AUTO_LABELS.get(v.confirmed_via or "")
     if v.author != split_repo.AUTHOR_OPERATOR:
-        return "auto: SEC + Polygon" if auto else "the backfill"
+        if auto:
+            return auto
+        return "the nightly" if v.author == split_repo.AUTHOR_DETECT else "the backfill"
     verb = {
         "confirm": "you",
         "reject": "rejected by you",
         "revoke": "revoked by you",
         "restore": "restored by you",
     }.get(v.action, "you")
-    return f"{'auto: SEC + Polygon · ' if auto else ''}{verb}, {_md(v.recorded_at)}"
+    return f"{auto + ' · ' if auto else ''}{verb}, {_md(v.recorded_at)}"
 
 
 def split_out(v: SplitVersion, *, restore_to: str | None = None) -> AdminSplitListEntryOut:

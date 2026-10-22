@@ -43,12 +43,16 @@ SAFETY (the ``pipeline/repair_benchmark_bars.py`` conventions):
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import logging
 import sys
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
+from decimal import Decimal
+from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -68,9 +72,10 @@ from domain.splits import (
     same_ratio,
 )
 from ingest import CacheMiss
+from ingest.edgar import split_filing
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.form8k import filing_index_url
-from ingest.edgar.split_filing import extract_split, submission_documents
+from ingest.edgar.split_filing import SplitExtraction, extract_split, submission_documents
 from ingest.edgar.submissions import fetch_submissions, parse_item_codes
 from ingest.polygon_splits import PolygonSplitsError, PolygonSplitSource, default_split_source
 from pipeline.run_lock import EXIT_ALREADY_RUNNING, PassAlreadyRunning, acquire_pass_lock
@@ -289,12 +294,75 @@ def _filing_url(cik: str, accession: str) -> str:
     return f"{get_settings().sec_archives_base}/{int(cik)}/{nodash}/{accession}.txt"
 
 
-def read_filing(client: EdgarClient, cik: str, ref: FilingRef) -> SecEvidence:
-    """Fetch one filing's full submission through the EDGAR client and extract its split statement."""
-    raw = client.get_text(
-        _filing_url(cik, ref.accession), f"forms/{ref.accession}/{ref.accession}.txt"
+# The extractor's identity for the extraction MEMO (``read_filing(memo_dir=...)``): a hash of its source, so any
+# change to the patterns re-reads every filing instead of serving a stale reading.
+EXTRACTOR_VERSION = hashlib.sha1(Path(split_filing.__file__).read_bytes()).hexdigest()[:12]
+
+
+def _memo_load(path: Path) -> SplitExtraction | None:
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+    def dec(v: Any) -> Decimal | None:
+        return None if v is None else Decimal(v)
+
+    return SplitExtraction(
+        ratio_from=dec(raw["ratio_from"]),
+        ratio_to=dec(raw["ratio_to"]),
+        effective_date=date.fromisoformat(raw["effective_date"]) if raw["effective_date"] else None,
+        date_kind=raw["date_kind"],
+        passage=raw["passage"],
+        document=raw["document"],
+        abstain_reason=raw["abstain_reason"],
+        date_note=raw["date_note"],
+        mentions=tuple(raw["mentions"]),
     )
-    x = extract_split(submission_documents(raw))
+
+
+def _memo_save(path: Path, x: SplitExtraction) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(
+            json.dumps(
+                {
+                    "ratio_from": None if x.ratio_from is None else str(x.ratio_from),
+                    "ratio_to": None if x.ratio_to is None else str(x.ratio_to),
+                    "effective_date": x.effective_date.isoformat() if x.effective_date else None,
+                    "date_kind": x.date_kind,
+                    "passage": x.passage,
+                    "document": x.document,
+                    "abstain_reason": x.abstain_reason,
+                    "date_note": x.date_note,
+                    "mentions": list(x.mentions),
+                }
+            ),
+            encoding="utf-8",
+        )
+        tmp.replace(path)
+    except OSError:  # a memo that cannot be written only costs the next read its speed
+        _log.warning("split extraction memo not written: %s", path)
+
+
+def read_filing(
+    client: EdgarClient, cik: str, ref: FilingRef, *, memo_dir: Path | None = None
+) -> SecEvidence:
+    """Fetch one filing's full submission through the EDGAR client and extract its split statement.
+
+    ``memo_dir`` (the nightly, S4): the extraction of an immutable filing by this exact extractor
+    (``EXTRACTOR_VERSION``) is kept as a small JSON there and served instead of re-reading the document —
+    MEASURED 2026-10-22: re-reading 953 cached filings took ~150 s of a pass."""
+    memo = memo_dir / f"{ref.accession}.{EXTRACTOR_VERSION}.json" if memo_dir else None
+    x = _memo_load(memo) if memo is not None and memo.exists() else None
+    if x is None:
+        raw = client.get_text(
+            _filing_url(cik, ref.accession), f"forms/{ref.accession}/{ref.accession}.txt"
+        )
+        x = extract_split(submission_documents(raw))
+        if memo is not None:
+            _memo_save(memo, x)
     return SecEvidence(
         accession=ref.accession,
         form=ref.form,
@@ -310,6 +378,140 @@ def read_filing(client: EdgarClient, cik: str, ref: FilingRef) -> SecEvidence:
         date_note=x.date_note,
         about_a_split=x.about_a_split,
     )
+
+
+class SecReader:
+    """The SEC side of one run (the backfill, or one nightly pass — S4): each company's submissions index read
+    once, each filing read once (``evidence`` = accession -> what the extractor read, ``None`` = unread), every
+    read through the run's EDGAR client (its rate limit, User-Agent and cache). A failure that is one filing's
+    or one index's own (``_tolerable``) is skipped and counted; anything else raises."""
+
+    def __init__(self, edgar: EdgarClient, *, memo_dir: Path | None = None) -> None:
+        self.edgar = edgar
+        self.memo_dir = memo_dir
+        self.submissions: dict[str, dict[str, Any] | None] = {}
+        self.submissions_failed: dict[str, str] = {}
+        self.evidence: dict[str, SecEvidence | None] = {}
+        # the accessions THIS reader was asked for (``evidence`` may be a memo shared across companies)
+        self.read_here: set[str] = set()
+
+    def index(self, m: Member) -> dict[str, Any] | None:
+        """The company's submissions index (``None`` when it has no CIK or the read failed)."""
+        if not m.cik:
+            return None
+        if m.cik not in self.submissions:
+            try:
+                self.submissions[m.cik] = fetch_submissions(self.edgar, m.cik)
+            except Exception as e:
+                if not _tolerable(e):
+                    raise
+                self.submissions[m.cik] = None
+                self.submissions_failed[m.ticker or str(m.security_id)] = (
+                    f"{type(e).__name__}: {e}"[:200]
+                )
+        return self.submissions[m.cik]
+
+    def refs(self, conn: psycopg.Connection, m: Member, lo: date, hi: date) -> dict[str, FilingRef]:
+        """The filings in ``[lo, hi]`` that can announce a split: the stored 3.03 / 5.03 8-Ks, then the
+        index's (``SEC_FORMS``)."""
+        refs: dict[str, FilingRef] = {}
+        if not m.cik:
+            return refs
+        for r in _corporate_events(conn, m, lo, hi):
+            refs[r.accession] = r
+        subs = self.index(m)
+        if subs is not None:
+            for r in _submission_filings(subs, lo, hi):
+                refs.setdefault(r.accession, r)
+        return refs
+
+    def read(self, m: Member, refs: dict[str, FilingRef]) -> tuple[list[SecEvidence], int]:
+        """``(read, unread)`` over ``refs`` in accession order."""
+        read: list[SecEvidence] = []
+        unread = 0
+        for acc in sorted(refs):
+            self.read_here.add(acc)
+            if acc not in self.evidence:
+                try:
+                    self.evidence[acc] = read_filing(
+                        self.edgar, m.cik, refs[acc], memo_dir=self.memo_dir  # type: ignore[arg-type]
+                    )
+                except Exception as e:
+                    if not _tolerable(e):
+                        raise
+                    _log.warning("split filing: %s %s unread (%s)", m.ticker, acc, type(e).__name__)
+                    self.evidence[acc] = None
+            ev = self.evidence[acc]
+            if ev is None:
+                unread += 1
+            else:
+                read.append(ev)
+        return read, unread
+
+
+def decide_polygon_group(
+    conn: psycopg.Connection,
+    reader: SecReader,
+    m: Member,
+    group: list[PolygonEvidence],
+    *,
+    asof: date,
+) -> tuple[SplitDecision, list[SecEvidence], int]:
+    """S1's verdict for one member's Polygon rows on one date: every SEC filing in the row's window read,
+    ``domain.splits.decide``, and the notes for a missing index / CIK and for Polygon listing different ratios
+    on the date. ``(decision, filings read, unread count)``."""
+    poly = group[0]
+    lo, hi = _window(poly.execution_date)
+    read, unread = reader.read(m, reader.refs(conn, m, lo, hi))
+    d = decide(poly, read, asof=asof, unread=unread)
+    if m.cik and reader.submissions.get(m.cik) is None:
+        d = replace(d, note=d.note + " The company's SEC filing index could not be read.")
+    if not m.cik:
+        d = replace(d, note=d.note + " No CIK on the security master — no SEC side.")
+    if len(group) > 1 and _conflicting(group):
+        listed = "; ".join(f"{r.id}: {ratio_label(r.split_from, r.split_to)}" for r in group)
+        d = replace(
+            d,
+            status=STATUS_NEEDS_REVIEW,
+            confirmed_via=None,
+            value_source=SOURCE_POLYGON,
+            note=d.note + f" Polygon lists {len(group)} different ratios on this date ({listed}).",
+        )
+    return d, read, unread
+
+
+# how far apart (calendar days) two listings of the same ratio on one security are still ONE split
+MATCH_WINDOW_DAYS = 45
+
+
+def match_stored(d: SplitDecision, stored: Iterable[SplitVersion]) -> SplitVersion | None:
+    """The stored split (newest versions of ONE security) a decision is about, or ``None`` for a new split:
+    the same key date; else the same Polygon row; else the same exact ratio within ``MATCH_WINDOW_DAYS``
+    (nearest first) — a split first listed under an SEC filing's date and later under Polygon's, or one whose
+    sources state dates a few sessions apart, stays ONE logical split; else the same SEC filing."""
+    vs = list(stored)
+    for v in vs:
+        if v.key_date == d.key_date:
+            return v
+    if d.polygon is not None:
+        for v in vs:
+            if v.polygon_id and v.polygon_id == d.polygon.id:
+                return v
+    near = [
+        v
+        for v in vs
+        if same_ratio(v.ratio_from, v.ratio_to, d.ratio_from, d.ratio_to)
+        and abs((v.effective_date - d.effective_date).days) <= MATCH_WINDOW_DAYS
+    ]
+    if near:
+        return min(
+            near, key=lambda v: (abs((v.effective_date - d.effective_date).days), v.key_date)
+        )
+    if d.sec is not None:
+        for v in vs:
+            if v.sec_accession and v.sec_accession == d.sec.accession:
+                return v
+    return None
 
 
 # --- the run -------------------------------------------------------------------------------------------------
@@ -357,66 +559,13 @@ def backfill_splits(
     result.polygon_matched = sum(len(v) for v in matched.values())
 
     fetches_before = edgar.live_fetches
-    submissions: dict[str, dict[str, Any] | None] = {}
-    evidence: dict[str, SecEvidence | None] = {}  # accession -> read (None = unread)
+    reader = SecReader(edgar)
     planned: list[PlannedSplit] = []
     for m in sorted(matched, key=lambda m: ((m.ticker or ""), str(m.security_id))):
-        if m.cik and m.cik not in submissions:
-            try:
-                submissions[m.cik] = fetch_submissions(edgar, m.cik)
-            except Exception as e:
-                if not _tolerable(e):
-                    raise
-                submissions[m.cik] = None
-                result.submissions_failed[m.ticker or str(m.security_id)] = (
-                    f"{type(e).__name__}: {e}"[:200]
-                )
+        if m.cik:
+            reader.index(m)
         for group in _group(matched[m]):
-            poly = group[0]
-            lo, hi = _window(poly.execution_date)
-            refs: dict[str, FilingRef] = {}
-            if m.cik:
-                for r in _corporate_events(conn, m, lo, hi):
-                    refs[r.accession] = r
-                subs = submissions.get(m.cik)
-                if subs is not None:
-                    for r in _submission_filings(subs, lo, hi):
-                        refs.setdefault(r.accession, r)
-            read: list[SecEvidence] = []
-            unread = 0
-            for acc in sorted(refs):
-                if acc not in evidence:
-                    try:
-                        evidence[acc] = read_filing(edgar, m.cik, refs[acc])  # type: ignore[arg-type]
-                    except Exception as e:
-                        if not _tolerable(e):
-                            raise
-                        _log.warning(
-                            "split backfill: %s %s unread (%s)", m.ticker, acc, type(e).__name__
-                        )
-                        evidence[acc] = None
-                ev = evidence[acc]
-                if ev is None:
-                    unread += 1
-                else:
-                    read.append(ev)
-            d = decide(poly, read, asof=asof, unread=unread)
-            if m.cik and submissions.get(m.cik) is None:
-                d = replace(d, note=d.note + " The company's SEC filing index could not be read.")
-            if not m.cik:
-                d = replace(d, note=d.note + " No CIK on the security master — no SEC side.")
-            if len(group) > 1 and _conflicting(group):
-                listed = "; ".join(
-                    f"{r.id}: {ratio_label(r.split_from, r.split_to)}" for r in group
-                )
-                d = replace(
-                    d,
-                    status=STATUS_NEEDS_REVIEW,
-                    confirmed_via=None,
-                    value_source=SOURCE_POLYGON,
-                    note=d.note
-                    + f" Polygon lists {len(group)} different ratios on this date ({listed}).",
-                )
+            d, read, unread = decide_polygon_group(conn, reader, m, group, asof=asof)
             planned.append(
                 PlannedSplit(
                     member=m,
@@ -427,20 +576,24 @@ def backfill_splits(
                     filings_unread=unread,
                 )
             )
+    result.submissions_failed = dict(reader.submissions_failed)
     result.sec_live_fetches = edgar.live_fetches - fetches_before
 
-    # plan against the stored list (the newest version of each split, per tenant)
-    stored: dict[tuple[UUID, date], SplitVersion] = {}
+    # plan against the stored list (the newest version of each split, per tenant). A split is found by
+    # ``match_stored`` — its key date, else the same Polygon row / SEC filing / ratio within days — so a split
+    # the nightly detector (S4) listed first under the SEC filing's date is never listed a second time here.
+    stored_by_sec: dict[UUID, list[SplitVersion]] = defaultdict(list)
     for tenant in {m.tenant_id for m in members}:
         for v in split_repo.latest_versions(conn, tenant_id=tenant):
-            stored[(v.security_id, v.key_date)] = v
+            stored_by_sec[v.security_id].append(v)
     member_ids = {m.security_id for m in members}
     seen: set[tuple[UUID, date]] = set()
     for p in planned:
-        key = (p.member.security_id, p.decision.key_date)
-        seen.add(key)
-        v = stored.get(key)
+        v = match_stored(p.decision, stored_by_sec.get(p.member.security_id, []))
         p.stored = v
+        if v is not None:
+            seen.add((v.security_id, v.key_date))
+            p.decision = replace(p.decision, key_date=v.key_date)
         if v is None:
             p.action = APPEND
         elif v.author != AUTHOR_BACKFILL:
@@ -457,6 +610,7 @@ def backfill_splits(
                     for c, a, b in zip(split_repo.CONTENT_COLUMNS, new, old, strict=True)
                     if a != b
                 )
+    stored = {(v.security_id, v.key_date): v for vs in stored_by_sec.values() for v in vs}
     result.stored_not_seen = sum(
         1 for k in stored if k not in seen and (tickers is None or k[0] in member_ids)
     )
@@ -520,7 +674,10 @@ def report(result: BackfillResult, *, out: Any = None) -> None:
         verb = {
             APPEND: "APPEND" + (f" (changed: {', '.join(p.changed)})" if p.changed else " (new)"),
             UNCHANGED: "unchanged — nothing to append",
-            OPERATOR_KEPT: f"operator decision stands ({p.stored.status if p.stored else '?'}) — untouched",
+            OPERATOR_KEPT: (
+                f"{'operator decision' if p.stored and p.stored.author == split_repo.AUTHOR_OPERATOR else 'the nightly detector'}"
+                f" stands ({p.stored.status if p.stored else '?'}) — untouched"
+            ),
         }[p.action]
         w(
             f"  {p.member.ticker or p.member.security_id}  {ratio_label(d.ratio_from, d.ratio_to)}  first "
