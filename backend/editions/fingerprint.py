@@ -4,7 +4,8 @@
 LOGIC changed. The fingerprint is the ``CallConfig`` hash plus a hash of the SOURCE of every module the
 editions engine's output depends on: the call path (``signals/``, ``calls/``, ``domain/``,
 ``pipeline/core.py``), the readers and the public-clock definition (``db/bitemporal.py``,
-``db/public_clock.py``, ``db/insider_resolution.py``, the repositories it loads through) and the engine itself
+``db/public_clock.py``, ``db/set_aside.py``, ``db/insider_resolution.py``, the repositories it loads through) and
+the engine itself
 (``replay/``, ``editions/``). Content-addressed and sorted by path, so it is identical across processes and
 machines for identical source. The automatic cut (S7) compares it; S3 stamps it on every edition.
 """
@@ -28,6 +29,7 @@ ENGINE_SOURCES: tuple[str, ...] = (
     "pipeline/core.py",
     "db/bitemporal.py",
     "db/public_clock.py",
+    "db/set_aside.py",
     "db/insider_resolution.py",
     "repositories/thesis_repo.py",
     "repositories/decisions_repo.py",

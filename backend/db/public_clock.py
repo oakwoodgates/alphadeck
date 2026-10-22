@@ -110,6 +110,7 @@ from typing import Any, Literal
 
 from psycopg import sql
 
+from db.set_aside import exclusion_sql, has_set_aside
 from domain.market_time import market_tz
 from domain.settings import get_settings
 from domain.splits import LIVE_STATUSES
@@ -369,9 +370,19 @@ def public_versions_sql(
     clock no version is hidden for having been ingested late. (``ceiling`` is not one either: it is the
     freeze ceiling above — the store as it stood at a cut, for an edition mirror; no history view passes it.)
 
-    ``fact_price_eod`` is built by ``_price_versions_sql`` (a bar a listed split re-scales, S2)."""
+    ``fact_price_eod`` is built by ``_price_versions_sql`` (a bar a listed split re-scales, S2).
+
+    A SET-ASIDE version (migration 0062, ``db.set_aside`` — a stored fundamentals row the data-quality screen
+    would have refused) is left out HERE, in the one builder, so the history read and the public mirror skip it
+    alike; the version it superseded is then the one each (identity, public instant) keeps. Every other table's
+    SQL is byte-for-byte unchanged. Under the freeze ceiling the set-asides are judged AS THEY STOOD AT THE
+    CUT (``db.set_aside.active_ids``): a set-aside or a revoke recorded after the cut changes nothing in that
+    edition's mirror. With no ceiling the exclusion is exactly 0062's."""
     if table == "fact_price_eod":
         return _price_versions_sql(where=where, extra=extra, ceiling=ceiling)
+    if has_set_aside(table):
+        at = sql.Placeholder(CEILING_PARAM) if ceiling else None
+        where = sql.SQL("({}){}").format(where, exclusion_sql(table, alias="t", at=at))
     expr = public_time_sql(table, serve=serve)
     window = (
         sql.SQL(" WINDOW pc AS (PARTITION BY {})").format(

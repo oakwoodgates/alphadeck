@@ -27,6 +27,7 @@ from db.public_clock import (
     to_public_row,
 )
 from db.session import DEFAULT_TENANT_ID
+from db.set_aside import active_ids, exclusion_sql, has_set_aside
 
 # The bitemporal fact tables, taken from the as-of read's own whitelist (single source of truth — the
 # mirror can never drift from the set of tables the live reader knows).
@@ -115,12 +116,16 @@ def _read_table(
     conn: psycopg.Connection, table: str, tenant_id: UUID, *, known_by: datetime | None = None
 ) -> tuple[pa.Schema, list[dict]]:
     """Read ALL columns + ALL rows of one fact table for the tenant, plus an explicit Arrow schema derived
-    from the Postgres column types (table name from the trusted ``_FACT_IDENTITY`` whitelist). ``known_by``
-    = only the rows recorded by that cut (the freeze ceiling)."""
+    from the Postgres column types (table name from the trusted ``_FACT_IDENTITY`` whitelist) — except a
+    SET-ASIDE version (migration 0062, ``db.set_aside``), which the live read skips too, so the two engines
+    read the same versions (the parity gate); every other table is read whole, exactly as before. ``known_by``
+    = only the rows recorded by that cut (the freeze ceiling), the set-asides judged as they stood at it.
+    """
+    at = sql.Placeholder(CEILING_PARAM) if known_by is not None else None
     with conn.cursor() as cur:
         cur.execute(
-            sql.SQL("SELECT * FROM {} WHERE tenant_id = %(tenant_id)s{}").format(
-                sql.Identifier(table), _ceiling_sql(known_by)
+            sql.SQL("SELECT * FROM {} WHERE tenant_id = %(tenant_id)s{}{}").format(
+                sql.Identifier(table), exclusion_sql(table, at=at), _ceiling_sql(known_by)
             ),
             {"tenant_id": tenant_id, CEILING_PARAM: known_by},
         )
@@ -129,6 +134,22 @@ def _read_table(
             [(d.name, _OID_ARROW.get(d.type_code, pa.string())) for d in cur.description]
         )
     return schema, rows
+
+
+def _count_set_aside(
+    conn: psycopg.Connection, table: str, tenant_id: UUID, *, known_by: datetime | None = None
+) -> int:
+    """How many of the tenant's stored versions of ``table`` are ACTIVELY set aside (migration 0062) — the
+    versions both export modes leave out (``exclusion_sql`` here, ``public_versions_sql`` on the public path).
+    ``known_by`` (the freeze ceiling) counts what the cut left out: versions stored by the cut whose set-aside
+    was active at the cut."""
+    at = sql.Placeholder(CEILING_PARAM) if known_by is not None else None
+    query = sql.SQL(
+        "SELECT count(*) AS n FROM {} WHERE tenant_id = %(tenant_id)s AND id IN ({}){}"
+    ).format(sql.Identifier(table), active_ids(table, at=at), _ceiling_sql(known_by))
+    with conn.cursor() as cur:
+        cur.execute(query, {"tenant_id": tenant_id, CEILING_PARAM: known_by})
+        return cur.fetchone()["n"]
 
 
 def _read_table_public(
@@ -491,6 +512,10 @@ def export_snapshot(
             schema, rows, counts = _read_table_public(conn, table, tenant_id, known_by=known_by)
         else:
             schema, rows = _read_table(conn, table, tenant_id, known_by=known_by)
+        if has_set_aside(table):
+            # the versions left out as SET ASIDE (0062) — named, so the mirror says what it does not hold
+            # (under the freeze ceiling: what the CUT left out, the set-asides as they stood at it)
+            counts["rows_set_aside"] = _count_set_aside(conn, table, tenant_id, known_by=known_by)
         coerced = [{k: _coerce(v) for k, v in row.items()} for row in rows]
         pq.write_table(pa.Table.from_pylist(coerced, schema=schema), out / f"{table}.parquet")
         max_rec = max((r["recorded_at"] for r in rows), default=None)

@@ -446,6 +446,15 @@ export function Admin({ header }: Props) {
                 <b>{status.splits_needs_review}</b> split(s) need your review — see Splits below
               </div>
             )}
+            {/* migration 0062 — stored revenue rows the data-quality screen would have refused, set aside
+                (every read skips them; the rows are kept and a revoke restores them). QUIET — informational,
+                nothing to act on — and rendered only when there is one; an older backend omits the field */}
+            {(status.fundamentals_set_aside ?? 0) > 0 && (
+              <div className="adm-line adm-quiet" data-testid="adm-fundamentals-set-aside">
+                {status.fundamentals_set_aside} stored revenue row(s) set aside by the data-quality screen
+                (pipeline.set_aside_fundamentals)
+              </div>
+            )}
             <div className="adm-sub">
               {status.record.reason} · today {status.record.today} · last expected as-of{" "}
               {status.record.expected_asof}

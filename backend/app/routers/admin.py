@@ -53,6 +53,7 @@ from app.schemas_api import (
     BackupOut,
     BackupsOut,
 )
+from db.session import current_tenant_id
 from domain.feed_kinds import PRICE, StaleFeedLabel, feed_kind, stale_feed_bits
 from domain.insider_amendments import page_text
 from domain.market_time import market_now, market_tz
@@ -86,7 +87,7 @@ from pipeline.schedule import (
 )
 from pipeline.split_basis import new_labels_of as split_new_labels
 from pipeline.successor_cik import new_labels_of as successor_new_labels
-from repositories import calls_repo
+from repositories import calls_repo, fundamentals_set_aside_repo
 from scoreboard.late import late_only_nights
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -1051,6 +1052,17 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
     except Exception:  # noqa: BLE001 — the count is a passenger on the status read
         _log.exception("split list count failed (fail-open — the status read is unaffected)")
 
+    # migration 0062 — how many stored fundamentals versions the data-quality set-aside skips (one QUIET line:
+    # informational, never a cron verdict). A SELECT in a SAVEPOINT, fail-open like the split count.
+    fundamentals_set_aside = None
+    try:
+        with conn.transaction():
+            fundamentals_set_aside = fundamentals_set_aside_repo.count_active(
+                conn, tenant_id=current_tenant_id()
+            )
+    except Exception:  # noqa: BLE001 — the count is a passenger on the status read
+        _log.exception("set-aside count failed (fail-open — the status read is unaffected)")
+
     return AdminStatusOut(
         record=AdminRecordOut(
             edge=edge,
@@ -1104,6 +1116,7 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
         split_defects=split_defects,
         price_repairs=price_repairs,
         splits_needs_review=splits_needs_review,
+        fundamentals_set_aside=fundamentals_set_aside,
     )
 
 

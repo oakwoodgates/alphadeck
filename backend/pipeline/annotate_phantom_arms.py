@@ -43,6 +43,13 @@ THE CLASSIFICATION (``classify``):
 The armed-member set is part of "reproduces" (a deliberate tightening of the state + verdict test): an arm
 can only be blamed on D3a when the D3a-off re-assembly arms the SAME names the row armed.
 
+RULE (c) (``revenue_accel_max_quarter_age_days``, operator sign-off 2026-10-22) is code drift in exactly this
+sense: it keeps a quarter that ended more than 135 days before its knowability from being the cited one, so it
+also blocks a comparative re-dated to its year-later filing — the D3 phantom. On today's default config the D3a-off
+re-assembly therefore no longer reproduces such a recorded arm, and the night reads as ``drift`` (never
+annotated). The annotations already applied are never re-judged, so they stand; a re-run reports them as now
+classifying as drift.
+
 WHAT THE BASKET IS. ``basket_member`` is full-replace; ``load_call_inputs`` reads the roster through
 ``thesis_repo.get_asof(known_at)`` — the latest ``basket_snapshot`` taken by the end of the row's as-of day (an
 operator decision counts from when it was made), else the LIVE roster (an as-of before migration 0043 seeded the

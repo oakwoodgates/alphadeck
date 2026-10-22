@@ -78,13 +78,16 @@ class TableCounts(BaseModel):
     ``rows_dropped_null_clock`` counts RAW rows the public clock could not date; ``identities_lost`` counts
     whole FACTS that therefore vanished. A 47% raw-row drop with 0.67% identities lost is a healthy export
     (the dropped rows were superseded versions); a small row drop with a large identity loss is a hole in
-    the tape. ``versions_collapsed`` is how many re-versions the export resolved before writing."""
+    the tape. ``versions_collapsed`` is how many re-versions the export resolved before writing.
+    ``rows_set_aside`` is how many stored versions the export left out as SET ASIDE (migration 0062 — the
+    fundamentals rows the data-quality screen would have refused; the live read skips them too)."""
 
     rows_in: int
     rows_out: int
     rows_dropped_null_clock: int = 0
     versions_collapsed: int = 0
     identities_lost: int = 0
+    rows_set_aside: int = 0
 
 
 class SplitTableInfo(BaseModel):

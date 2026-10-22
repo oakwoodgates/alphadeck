@@ -100,7 +100,9 @@ def _table_counts(tables: dict[str, Any]) -> dict[str, mf.TableCounts]:
         if "rows_in" in c:
             out[table] = mf.TableCounts.model_validate(c)
         elif isinstance(c.get("rows"), int):
-            out[table] = mf.TableCounts(rows_in=c["rows"], rows_out=c["rows"])
+            out[table] = mf.TableCounts(
+                rows_in=c["rows"], rows_out=c["rows"], rows_set_aside=c.get("rows_set_aside", 0)
+            )
     return out
 
 
