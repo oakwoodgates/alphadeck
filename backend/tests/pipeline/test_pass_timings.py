@@ -343,6 +343,7 @@ def test_polite_get_counts_every_ATTEMPT_by_host_and_its_retries_and_backoff(mon
     assert snap["counts"]["price"] == {
         "backoff_s": 1.0,
         "http:query1.finance.yahoo.com": 2,
+        "http_429:query1.finance.yahoo.com": 1,  # X7 — the vendor's refusals, counted by status
         "http_retry:query1.finance.yahoo.com": 1,
     }
 

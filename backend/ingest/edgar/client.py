@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 import time
 from datetime import date, datetime, timedelta, timezone
 from datetime import time as clock_time
@@ -11,9 +12,10 @@ from typing import Any
 
 from domain.market_time import market_tz
 from domain.settings import get_settings
-from ingest import CacheMiss
+from ingest import CacheMiss, write_atomic
 from ingest.http import RateLimiter, polite_get
 from ingest.instrument import note, timed
+from ingest.sec_budget import LANE_INTERACTIVE, LANE_RECURRING, SecBudget, sec_budget
 
 # Runtime cache lives under the repo's gitignored data/; tests pass a fixtures dir instead.
 _DEFAULT_CACHE = Path(__file__).resolve().parents[3] / "data" / "edgar_cache"
@@ -133,10 +135,20 @@ class EdgarClient:
         user_agent: str | None = None,
         max_per_sec: float | None = None,
         cache_ttl_s: float = _DEFAULT_CACHE_TTL_S,
+        budget: SecBudget | None = None,
     ) -> None:
         self.cache_dir = cache_dir or _DEFAULT_CACHE
         self.allow_live = allow_live
         self.cache_ttl_s = cache_ttl_s
+        # X2 — THE GLOBAL SEC BUDGET (``ingest/sec_budget.py``): every live request reserves a slot in the ONE
+        # Postgres-held budget every process shares, AFTER this client's own per-client cap (``_rate``). The
+        # lane follows the dial — a recurring client is the nightly's, anything else is interactive — so the
+        # fair share needs no second knob. Resolved lazily (``_sec_budget``): a client that never goes live
+        # never opens the budget's connection. Injectable for tests.
+        self._budget = budget
+        # The fetch-ahead (``pipeline/fetch_ahead.py``) drives ONE client from several threads: the two
+        # counters below are incremented under this lock so no attempt or completion is lost to a race.
+        self._counts_lock = threading.Lock()
         # How many times this client DECIDED to go to the network (a cache miss OR a stale-mutable refresh):
         # ATTEMPTS, incremented at the network-decision point in `get_text` BEFORE `_fetch` runs, so it rises
         # even when that fetch then errors. Reported as the artifact's `edgar_fetches` ("times we reached
@@ -151,9 +163,34 @@ class EdgarClient:
         # 404 is not a completion: no data arrived (the X8 negative cache records it; it was never counted
         # as one). A cache hit is neither an attempt nor a completion.
         self.live_completed = 0
+        # ...and the same completions counted PER THREAD (``thread_completed``): with the fetch-ahead the
+        # client is shared by the writer and the workers, so "completions while THIS company's reads ran"
+        # (the freeze floor's per-company fact, ``NameResult.edgar_completed``) is a per-thread delta — a
+        # global one would count other companies' concurrent fetches.
+        self._thread_counts = threading.local()
         s = get_settings()
         self.user_agent = user_agent or s.user_agent
         self._rate = RateLimiter(max_per_sec if max_per_sec is not None else s.edgar_rate_per_sec)
+
+    def thread_completed(self) -> int:
+        """The completed fetches (``live_completed``) made by the CALLING thread so far."""
+        return getattr(self._thread_counts, "completed", 0)
+
+    def _sec_budget(self) -> SecBudget:
+        if self._budget is None:
+            self._budget = sec_budget(LANE_RECURRING if self.recurring else LANE_INTERACTIVE)
+        return self._budget
+
+    def _acquire(self) -> None:
+        """Before EVERY live attempt (``polite_get``'s ``pre``, retries included): the per-client cap, then
+        this request's slot in the global budget."""
+        self._rate.acquire()
+        self._sec_budget().acquire()
+
+    def _throttled(self, seconds: float) -> None:
+        """SEC answered 429 / 503 (``polite_get``'s ``on_throttle``): pause this client AND every process."""
+        self._rate.penalize(seconds)
+        self._sec_budget().penalize(seconds)
 
     @property
     def recurring(self) -> bool:
@@ -238,7 +275,8 @@ class EdgarClient:
                 note("sec_cached_404")  # X5 — answered from the negative cache (no network)
                 raise CachedNotFound(cache_key, datetime.fromtimestamp(observed, timezone.utc))
         # decided to hit the network (a cache miss or a stale-mutable refresh) — the freeze detector
-        self.live_fetches += 1
+        with self._counts_lock:
+            self.live_fetches += 1
         # X5 — the same decision, counted on the pass leg that made it (`pipeline/pass_timings.py`)
         note("sec_live")
         try:
@@ -249,9 +287,14 @@ class EdgarClient:
                 marker.parent.mkdir(parents=True, exist_ok=True)
                 marker.write_text(url, encoding="utf-8")  # (re)write refreshes the mtime
             raise
-        self.live_completed += 1  # O5 — a 2xx body arrived: EDGAR data actually reached this pass
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")  # overwrite refreshes the mtime → fresh again
+        # O5 — a 2xx body arrived: EDGAR data actually reached this pass
+        with self._counts_lock:
+            self.live_completed += 1
+        self._thread_counts.completed = (
+            self.thread_completed() + 1
+        )  # this thread's own (thread-local)
+        # overwrite refreshes the mtime → fresh again; atomic, so a reader never sees it half-written
+        write_atomic(path, text)
         if cache_key.startswith(_FILING_GATED_PREFIXES):
             marker.unlink(missing_ok=True)  # the company has companyfacts now — any 404 is history
         return text
@@ -271,12 +314,15 @@ class EdgarClient:
             raise RuntimeError(
                 "set ALPHADECK_USER_AGENT (SEC requires a declared User-Agent with contact)"
             )
-        # The token bucket throttles BEFORE each attempt (pre=acquire); polite_get adds 429/5xx backoff
-        # on top, so a rate-limit response is retried politely instead of aborting the run.
+        # The per-client cap + the GLOBAL budget throttle BEFORE each attempt (pre=_acquire); polite_get adds
+        # jittered 429/5xx backoff on top (X7), and a 429 / 503 pushes the global next slot out for EVERY
+        # process (on_throttle), so a rate-limit response is retried politely instead of aborting the run.
         resp = polite_get(
             url,
             headers={"User-Agent": self.user_agent},
             timeout=get_settings().http_timeout_s,
-            pre=self._rate.acquire,
+            pre=self._acquire,
+            jitter=True,
+            on_throttle=self._throttled,
         )
         return resp.text

@@ -502,6 +502,38 @@ class Settings(BaseSettings):
     http_timeout_s: float = 30.0  # EdgarClient + Stooq fetch + sec_tickers + FIGI
     usaspending_timeout_s: float = 60.0
 
+    # --- X2 / X7 / the fetch-ahead (2026-10-21): the vendor budgets and the nightly's fetch concurrency ---
+    # X2 — THE GLOBAL SEC BUDGET (``ingest/sec_budget.py``): ONE request budget across EVERY process that
+    # talks to SEC (the cron's pass, the backend's Workbench / discovery / on-promote ingest, any CLI), held in
+    # Postgres (``sec_request_budget``, migration 0057) as reserved request slots spaced 1/rate apart. SEC's
+    # fair-access ceiling is 10 req/s per egress IP; 8.5 keeps headroom even at the window's edge (slot
+    # spacing 0.118 s = at most 9 request starts in any closed one-second window). The per-client
+    # ``edgar_rate_per_sec`` above stays as a second, process-local cap (one client never takes it all).
+    # ALPHADECK_SEC_GLOBAL_RATE_PER_SEC.
+    sec_global_rate_per_sec: float = 8.5
+    # The FAIR SHARE: a lane (``recurring`` = the nightly pass / radar; ``interactive`` = the Workbench,
+    # discovery, a CLI) that reserved a slot within this many seconds is ACTIVE, and each active lane is held
+    # to an equal share of the budget — so a 10-thread discovery fan-out cannot starve the nightly, nor the
+    # nightly's fetch-ahead a discovery. A lane alone gets the whole budget. ALPHADECK_SEC_BUDGET_ACTIVE_WINDOW_S.
+    sec_budget_active_window_s: float = 2.0
+    # X7 — THE YAHOO GATE (``ingest.http.yahoo_limiter``): a process-wide token bucket in front of every Yahoo
+    # chart / search request. Yahoo publishes no limit, so the default is set off what was MEASURED clean:
+    # the serial price leg ran 740 requests a night at up to 3.3 req/s sustained (Modern Defense, 2026-10-20;
+    # 196 pulls in 58.7 s) with ZERO 429s on every X5-instrumented pass. 4.0 is a modest step above that,
+    # paired with a jittered 429 backoff that pauses the whole pool, and the 429s are counted in the run
+    # artifact (``http_429:<host>``) so the dial moves on evidence, not guesswork. ALPHADECK_YAHOO_RATE_PER_SEC.
+    yahoo_rate_per_sec: float = 4.0
+    # THE FETCH-AHEAD (``pipeline/fetch_ahead.py``): how many of a thesis's companies have their vendor reads
+    # (submissions index, new Form 4 / 4-A documents, the price pull) IN FLIGHT at once, ahead of the serial
+    # writer. The pass was latency-bound (MEASURED 2026-10-20: 1,001 SEC requests at ~0.29 s each and 740
+    # Yahoo requests, all serial — ~3.4 SEC req/s against a 10/s ceiling); the vendor budgets above, not this
+    # pool, are the throttle. Sized so the pool can keep the SEC budget full at a slow round trip: MEASURED
+    # 2026-10-21 from the dev host, a submissions fetch took ~1.0 s at p50 (8.5/s x 1.0 s = ~9 in flight);
+    # the prod container measured ~0.29 s, where 8 is ample. WRITES stay serialized on the one writer
+    # connection under the W1 company lock. 1 = the serial walk exactly as before (the kill switch).
+    # ALPHADECK_INGEST_FETCH_CONCURRENCY.
+    ingest_fetch_concurrency: int = 8
+
     # --- Secrets / deploy values: DECLARED here as the typed inventory; READ LATE at the edge (D5) ---
     # These three are toggled by the test suite AFTER import (the `db` fixture sets DATABASE_URL +
     # ALPHADECK_TENANT_ID; an LLM test delenv's ANTHROPIC_API_KEY), so their RUNTIME read stays a fresh,

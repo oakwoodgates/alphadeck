@@ -6,6 +6,7 @@ from pathlib import Path
 
 from domain.settings import get_settings
 from ingest import CacheMiss
+from ingest.sec_budget import LANE_INTERACTIVE, sec_budget
 
 # Runtime cache lives under the repo's gitignored data/; tests pass a fixtures dir instead.
 _DEFAULT_CACHE = Path(__file__).resolve().parents[2] / "data" / "sec_cache"
@@ -182,6 +183,8 @@ def _fetch_live(user_agent: str | None) -> dict:
         raise RuntimeError(
             "set ALPHADECK_USER_AGENT (SEC requires a declared User-Agent with contact)"
         )
+    # X2 — the one-GET universe pull draws from the GLOBAL SEC budget like every other SEC request
+    sec_budget(LANE_INTERACTIVE).acquire()
     resp = httpx.get(
         s.sec_company_tickers_url, headers={"User-Agent": ua}, timeout=s.http_timeout_s
     )

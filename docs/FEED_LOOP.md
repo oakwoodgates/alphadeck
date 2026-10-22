@@ -81,10 +81,35 @@ ingests insider + price facts — and, for an ETF sleeve member, a fund shares-o
 - **No-lookahead (#1).** Both ingest fns leave `recorded_at` to the DB default **`now()`** — **never
   backdated**. A fact ingested today gets `recorded_at = now`, so an as-of read pinned at an earlier
   transaction time (`known_at` in the past) cannot see it; the replay guarantee holds.
-- **Politeness.** EDGAR has a proactive token-bucket throttle (≤8 req/s, SEC etiquette). On top of it, the
-  shared `ingest/http.py:polite_get` adds **reactive** backoff: it retries **429 / transient 5xx** with capped
-  exponential backoff, honoring a numeric `Retry-After`, before raising (so a leg fails visibly rather than
-  hammering). Tenant comes from the thesis (one thesis = one tenant).
+- **Politeness.** Every SEC request draws from the ONE global SEC budget every process shares (X2 — 8.5
+  req/s, held in Postgres, fair-shared between the nightly and the Workbench: `docs/DATA_SOURCES.md`
+  §EDGAR etiquette), behind the client's own 8/s; every Yahoo request from the process-wide Yahoo gate (X7 —
+  4/s). On top of them the shared `ingest/http.py:polite_get` adds **reactive** backoff: it retries **429 /
+  transient 5xx** with capped, jittered exponential backoff, honoring a numeric `Retry-After`, and a 429 / 503
+  pauses the whole pool, before raising (so a leg fails visibly rather than hammering). Tenant comes from the
+  thesis (one thesis = one tenant).
+- **Concurrent fetch, serialized write — the fetch-ahead** (`pipeline/fetch_ahead.py`, 2026-10-21). The walk
+  was latency-bound: MEASURED on prod 2026-10-20, 1,001 SEC requests at ~0.29 s each and 740 Yahoo pulls,
+  all strictly serial (~3.4 SEC req/s against SEC's 10/s), were 536 s of a 686 s pass. So on a live walk a
+  pool of `Settings.ingest_fetch_concurrency` workers (default 8) makes each upcoming company's VENDOR reads
+  ahead of the writer — its submissions index, its new Form 4 / 4-A documents (each its own task, so a
+  document-heavy company uses the whole pool) and its price pull — at most `2 x workers` companies ahead. The
+  writer still walks the basket in order on its ONE connection, takes each company's W1 lock and runs every
+  leg exactly as before; no worker ever touches the database. **The contract:** a fetched read IS the
+  writer's first read of the same key, performed early — its outcome (the document, or the exception) is
+  handed to the legs in place of their own first network read (`ReplayingEdgar` / `ReplayingPrices`), so the
+  legs see byte-identical inputs and write the same facts and versions; an exception is raised exactly where
+  the serial read would have raised it (per-name, per-leg, visible — #9). **Serial semantics wherever a
+  handoff could be ambiguous:** a company's second basket row, a CIK or price symbol an earlier row already
+  fetched, a company the W1 lock deferred (it re-reads after the wait), a `--no-live` walk, and the kill
+  switch `ingest_fetch_concurrency = 1` (no pool: the serial loop verbatim). **The settle guard (D2)** judges
+  a handed-over price pull at the instant the worker STARTED it (when the caller passed no `now`) —
+  conservative, never a loss. **Proved** (`tests/pipeline/test_fetch_ahead.py`): serial vs concurrent on the
+  same fixtures (real client, real legs, real ATCH/FLS 4/As; only the HTTP layer stubbed, completions
+  scrambled) write identical rows in EVERY table (counted), identical `NameResult`s, identical printed lines,
+  the identical multiset of requests, identical freeze counters and an identical call card; the test fails
+  under each of three mutations of the handoff. Cache files are written atomically (`ingest.write_atomic`),
+  so a reader never sees a document a worker is still writing.
 
 ## The price-source seam — `ingest/prices/source.py`  `[BUILT #72]`
 
@@ -872,11 +897,26 @@ suite): `per_thesis(...)` wraps the loop's iterable (each thesis is a scope), `t
   request: a fetch, a disk-cache answer, a negative-cache answer; `sec_live` is the same decision
   `edgar_fetches` counts), `http:<host>` (every attempt of the polite GET, retries included — the Yahoo price
   pulls are `http:query1.finance.yahoo.com` / `query2`), `http_retry:<host>`, `backoff_s` (seconds slept
-  before a retry), `rate_wait_s` (seconds a proactive rate limiter slept). No new network call is made.
+  before a retry), `rate_wait_s` (seconds a proactive rate limiter or the SEC budget slept),
+  `http_<status>:<host>` (X7 — every non-2xx answer by status: `http_429:…` is the vendor's rate-limit
+  rate, `http_404:…` the expected misses), `sec_budget_fallback` (an SEC request paced by the local fallback
+  because the global budget's database was unreachable — absent on a healthy pass). No new network call is
+  made. The printed timings line ends with `HTTP 429s: <host> <n>` on a pass that received any.
 
 **Exclusive time.** A leg's seconds are its SELF time: a leg timed inside another (`submissions` inside
 `form4`) is subtracted from the outer one, so a thesis's legs sum to its `total_s` and the pass's legs sum
 to the pass `total_s`. Legs only: one clock pair per leg per name, never per row or per filing.
+
+**Concurrent fetches (v2, 2026-10-21).** The fetch-ahead's workers never touch the pass meter: each task
+runs under its own CHILD meter, which the writer ABSORBS when it takes the task's result. The child's COUNTS
+merge into the thesis under the same legs the serial walk counts them on (a worker's index fetch is
+`submissions: sec_live`, its Form 4 documents `form4: sec_live`, its price pull `price: http:query1…`), so
+every request is still counted once, on its usual leg — MEASURED identical to the serial walk in the suite.
+The child's SECONDS go to `concurrent_s` (per thesis, summed per pass): worker-seconds by leg, which overlap
+each other and the writer, so they are kept OUT of the exclusive `legs`. The writer's own wait for a fetch
+is the leg `fetch_wait`. So on a concurrent pass `submissions` / `price` in `legs` are only the writer's
+cache reads and writes, `fetch_wait` is what the vendors still cost the walk, and `concurrent_s` divided by
+the thesis's `total_s` is the concurrency actually achieved.
 
 **Memory.** `peak_rss_kb` is `getrusage(RUSAGE_SELF).ru_maxrss` (KB on Linux) for the pass process. The
 sidecar runs every pass as its own `python -m pipeline.daily`, and the Admin "Run daily now" runs it in a
@@ -890,18 +930,20 @@ the suite runs: those fields are `null` there.
 
 ```json
 "timings": {
-  "v": 1,
+  "v": 2,
   "total_s": 912.4,
-  "legs": {"submissions": 301.2, "form4": 190.7, "price": 160.3, "call": 88.1, "other": 41.0, "...": 0},
+  "legs": {"fetch_wait": 301.2, "form4": 190.7, "price": 60.3, "call": 88.1, "other": 41.0, "...": 0},
   "counts": {
     "submissions": {"sec_live": 731, "sec_cached": 2193, "rate_wait_s": 61.3},
     "form4": {"sec_live": 12, "http:www.sec.gov": 12},
-    "price": {"http:query1.finance.yahoo.com": 740}
+    "price": {"http:query1.finance.yahoo.com": 740, "http_429:query1.finance.yahoo.com": 2}
   },
+  "concurrent_s": {"submissions": 700.4, "price": 420.9, "form4": 30.2},
   "theses": [
     {"id": "…", "name": "Example thesis", "total_s": 108.3,
-     "legs": {"submissions": 40.1, "price": 30.2, "form4": 20.0, "other": 9.8, "...": 0},
+     "legs": {"fetch_wait": 40.1, "price": 10.2, "form4": 20.0, "other": 9.8, "...": 0},
      "counts": {"submissions": {"sec_live": 196, "sec_cached": 588}},
+     "concurrent_s": {"submissions": 180.2, "price": 95.0},
      "rss_kb": 301244, "peak_rss_kb": 355120}
   ],
   "peak_rss_kb": 412300, "peak_rss_children_kb": 0, "rss_kb": 390112,

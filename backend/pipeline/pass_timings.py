@@ -40,6 +40,19 @@ work runs exactly as it would have. Instrumentation never fails a pass or a thes
 NEAR-ZERO OVERHEAD. Legs only — one ``perf_counter`` pair per leg per name, never per row or per filing; a
 counter is a dict increment.
 
+CONCURRENT FETCHES (v2, 2026-10-21). The fetch-ahead (``pipeline/fetch_ahead.py``) runs a thesis's vendor
+reads on WORKER threads while the writer thread ingests. A worker never touches this meter: each fetch job
+runs under its own CHILD meter (``in_worker``), and the writer thread ``absorb``s the child when it takes
+the job's result — so the meter itself is only ever used by one thread. What a child carries lands two ways:
+
+- its COUNTS merge into the thesis's counts under the SAME legs the serial walk noted them on (a worker's
+  submissions fetch is ``submissions: sec_live``, its Form 4 documents ``form4: sec_live``, its price pull
+  ``price: http:query1.finance.yahoo.com``) — so every request is counted exactly once, on its usual leg;
+- its SECONDS go to ``concurrent_s`` (per thesis and summed per pass): worker-seconds by leg, which overlap
+  each other and the writer, so they are NOT part of ``legs`` (the exclusive-time sum stays exact). The
+  writer's own wait for a fetch is the ``fetch_wait`` leg. ``concurrent_s`` divided by the thesis's wall time
+  is the concurrency actually achieved.
+
 MEMORY. ``peak_rss_kb`` = ``getrusage(RUSAGE_SELF).ru_maxrss`` (KB on Linux) — the PASS process's peak: the
 sidecar runs each pass as its own ``python -m pipeline.daily``, and the Admin "Run daily now" runs it in a
 spawned child (``pipeline/bounded_pass.py``), so in both cases the process measured IS the pass.
@@ -51,6 +64,7 @@ growth across the loop is visible. ``resource`` and ``/proc`` do not exist on Wi
 
 from __future__ import annotations
 
+import contextvars
 import logging
 import os
 import sys
@@ -66,10 +80,12 @@ __all__ = [
     "OTHER",
     "SCHEMA_VERSION",
     "PassTimer",
+    "absorb",
     "activate",
     "current",
     "current_rss_kb",
     "deactivate",
+    "in_worker",
     "note",
     "peak_rss_kb",
     "per_thesis",
@@ -83,7 +99,8 @@ _log = logging.getLogger("alphadeck.cron")
 
 T = TypeVar("T")
 
-SCHEMA_VERSION = 1
+# v2 (2026-10-21): the fetch-ahead's worker time — the `fetch_wait` leg and the `concurrent_s` blocks.
+SCHEMA_VERSION = 2
 OTHER = "other"  # time (and counts) no named leg claimed
 _MAX_ERRORS = 20
 
@@ -128,6 +145,7 @@ class _Thesis:
     name: str
     legs: dict[str, float] = field(default_factory=dict)
     counts: dict[str, dict[str, float]] = field(default_factory=dict)
+    concurrent: dict[str, float] = field(default_factory=dict)  # worker-seconds by leg (v2)
     total_s: float | None = None
     rss_kb: int | None = None
     peak_rss_kb: int | None = None
@@ -161,6 +179,11 @@ def _merge_counts(into: dict[str, dict[str, float]], src: dict[str, dict[str, fl
             bucket[k] = bucket.get(k, 0) + v
 
 
+def _merge_seconds(into: dict[str, float], src: dict[str, float]) -> None:
+    for leg, s in src.items():
+        into[leg] = into.get(leg, 0.0) + s
+
+
 class PassTimer:
     """One pass's meter. Its methods without the ``safe_`` prefix may raise; everything the pass calls goes
     through a fail-open wrapper (``safe_enter`` / ``safe_exit`` / ``safe_note`` here, the module functions
@@ -171,6 +194,7 @@ class PassTimer:
         self._stack: list[_Frame] = []
         self._legs: dict[str, float] = {}  # self time of legs run outside any thesis
         self._counts: dict[str, dict[str, float]] = {}
+        self._concurrent: dict[str, float] = {}  # worker-seconds absorbed outside any thesis (v2)
         self._theses: list[_Thesis] = []
         self._thesis: _Thesis | None = None
         self.errors: list[str] = []
@@ -246,6 +270,26 @@ class PassTimer:
             bucket = self._counts.setdefault(frame.leg, {})
         bucket[kind] = bucket.get(kind, 0) + n
 
+    def absorb(self, child: PassTimer) -> None:
+        """Fold a WORKER job's child meter (``in_worker``) into the scope open now — the current thesis, else
+        the pass: its counts merge under their own legs (each request counted once, on its usual leg), its
+        seconds into ``concurrent_s`` (overlapping worker time, outside the exclusive ``legs``). Called by the
+        writer thread only, after the job finished — the child is no longer written by anyone."""
+        frame = self._stack[-1] if self._stack else None
+        row = frame.thesis if frame is not None else self._thesis
+        child_counts: dict[str, dict[str, float]] = {}
+        _merge_counts(child_counts, child._counts)
+        for t in child._theses:  # a worker opens no thesis scope; folded defensively all the same
+            _merge_counts(child_counts, t.counts)
+        seconds = dict(child._legs)
+        if row is not None:
+            _merge_counts(row.counts, child_counts)
+            _merge_seconds(row.concurrent, seconds)
+        else:
+            _merge_counts(self._counts, child_counts)
+            _merge_seconds(self._concurrent, seconds)
+        self.errors.extend(child.errors[: max(0, _MAX_ERRORS - len(self.errors))])
+
     def snapshot(self) -> dict:
         """The ``timings`` block as of NOW (see the module docstring for every field)."""
         total: float | None = None
@@ -256,11 +300,13 @@ class PassTimer:
                 self.fault("snapshot clock", e)
         legs: dict[str, float] = dict(self._legs)
         counts: dict[str, dict[str, float]] = {}
+        concurrent: dict[str, float] = dict(self._concurrent)
         _merge_counts(counts, self._counts)
         for row in self._theses:
             for leg, s in row.legs.items():
                 legs[leg] = legs.get(leg, 0.0) + s
             _merge_counts(counts, row.counts)
+            _merge_seconds(concurrent, row.concurrent)
         if total is not None:
             legs[OTHER] = legs.get(OTHER, 0.0) + max(total - sum(legs.values()), 0.0)
         return {
@@ -268,6 +314,7 @@ class PassTimer:
             "total_s": _r(total),
             "legs": _legs_out(legs),
             "counts": _counts_out(counts),
+            "concurrent_s": _legs_out(concurrent),
             "theses": [
                 {
                     "id": row.id,
@@ -275,6 +322,7 @@ class PassTimer:
                     "total_s": _r(row.total_s),
                     "legs": _legs_out(row.legs),
                     "counts": _counts_out(row.counts),
+                    "concurrent_s": _legs_out(row.concurrent),
                     "rss_kb": row.rss_kb,
                     "peak_rss_kb": row.peak_rss_kb,
                 }
@@ -306,6 +354,12 @@ class PassTimer:
             self.note(kind, n)
         except Exception as e:  # noqa: BLE001 — fail-open: one count lost
             self.fault(f"note {kind}", e)
+
+    def safe_absorb(self, child: PassTimer) -> None:
+        try:
+            self.absorb(child)
+        except Exception as e:  # noqa: BLE001 — fail-open: one job's counts lost, the work stands
+            self.fault("absorb", e)
 
 
 # --- the module surface the pass calls (all fail-open) ------------------------------------------------
@@ -346,6 +400,41 @@ def deactivate(token: Token | None) -> None:
             ACTIVE.set(None)
         except Exception:  # noqa: BLE001
             pass
+
+
+def in_worker(fn: Callable[..., T]) -> Callable[..., tuple[T, PassTimer | None]]:
+    """Wrap ``fn`` for a WORKER thread (the fetch-ahead's pool). Decided in the SUBMITTING thread: with a pass
+    meter active there, each call runs inside a fresh ``contextvars.Context`` whose active meter is a new
+    CHILD meter, and returns ``(result, child)`` for the submitter to ``absorb``; with none, ``(result,
+    None)``. The worker never sees the pass meter (it is not thread-safe, and need not be). Exceptions from
+    ``fn`` pass through unchanged (the child's counts are then lost — fail-open, never a failed fetch).
+    """
+    metered = ACTIVE.get() is not None
+
+    def run(*args: Any, **kwargs: Any) -> tuple[T, PassTimer | None]:
+        if not metered:
+            return contextvars.Context().run(fn, *args, **kwargs), None
+        child = start()
+
+        def body() -> T:
+            if child is not None:
+                ACTIVE.set(
+                    child
+                )  # only inside this job's own context — never the thread's, never the pass's
+            return fn(*args, **kwargs)
+
+        return contextvars.Context().run(body), child
+
+    return run
+
+
+def absorb(child: PassTimer | None) -> None:
+    """Fold a finished worker job's child meter into the meter active HERE (the writer thread's) — see
+    ``PassTimer.absorb``. A no-op without either. Never raises."""
+    timer = ACTIVE.get()
+    if timer is None or child is None:
+        return
+    timer.safe_absorb(child)
 
 
 def per_thesis(theses: Iterable[T]) -> Iterator[T]:
@@ -394,6 +483,7 @@ def snapshot(timer: PassTimer | None = None) -> dict | None:
             "total_s": None,
             "legs": {},
             "counts": {},
+            "concurrent_s": {},
             "theses": [],
             "peak_rss_kb": None,
             "peak_rss_children_kb": None,
@@ -404,6 +494,25 @@ def snapshot(timer: PassTimer | None = None) -> dict | None:
 
 def _fmt_s(v: Any) -> str:
     return f"{v:.1f} s" if isinstance(v, (int, float)) else "n/a"
+
+
+def _throttled_by_host(counts: Any) -> dict[str, float]:
+    """X7 — the pass's HTTP 429 answers by host, summed over every leg (``http_429:<host>`` counts)."""
+    out: dict[str, float] = {}
+    if not isinstance(counts, dict):
+        return out
+    for kinds in counts.values():
+        if not isinstance(kinds, dict):
+            continue
+        for kind, n in kinds.items():
+            if (
+                isinstance(kind, str)
+                and kind.startswith("http_429:")
+                and isinstance(n, (int, float))
+            ):
+                host = kind.split(":", 1)[1]
+                out[host] = out.get(host, 0) + n
+    return dict(sorted(out.items()))
 
 
 def summary_line(timings: Any) -> str | None:
@@ -435,6 +544,12 @@ def summary_line(timings: Any) -> str | None:
             ),
             f"peak RSS {peak / 1024:.0f} MB" if isinstance(peak, (int, float)) else "peak RSS n/a",
         ]
+        throttled = _throttled_by_host(timings.get("counts"))
+        # X7 — only when a vendor actually said "too many" (loudness marks the exception)
+        if throttled:
+            parts.append(
+                "HTTP 429s: " + ", ".join(f"{host} {int(n)}" for host, n in throttled.items())
+            )
         errors = timings.get("errors")
         if isinstance(errors, list) and errors:
             parts.append(f"{len(errors)} timing error(s) — see the run artifact")

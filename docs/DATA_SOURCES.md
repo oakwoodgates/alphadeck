@@ -40,7 +40,35 @@ and the free proxy is demonstrably inadequate. Default to free + derive.
 ## EDGAR etiquette (a correctness requirement, not a courtesy)
 
 - Declared **User-Agent** with contact (config/env, not hardcoded).
-- Respect the documented **rate limit** (token-bucket gate in the client).
+- Respect the documented **rate limit** — and it is a GLOBAL limit (X2, 2026-10-21). SEC's fair-access
+  ceiling is 10 requests/second per egress IP, so the budget is held ONCE for every process, in Postgres
+  (`ingest/sec_budget.py`, table `sec_request_budget`, migration 0057): every live SEC request (the nightly's
+  fetch-ahead workers, the Workbench discovery fan-out, an on-promote ingest, a CLI, the one-GET ticker
+  universes) reserves its own slot with ONE atomic upsert (`next_slot := GREATEST(next_slot, now()) + 1/rate`)
+  and sleeps until it. The row lock orders concurrent reservations, so **any two SEC requests are at least
+  `1/rate` apart whichever process sent them** — the cap holds by construction. `sec_global_rate_per_sec` =
+  **8.5** (at most 9 request starts in any closed one-second window: headroom under 10). Before X2 each
+  `EdgarClient` ran its own in-process 8/s, so the cron and a Workbench discovery together could exceed 10/s;
+  the per-client 8/s (`edgar_rate_per_sec`) stays as a second, local cap.
+  - **Why Postgres, not a static split:** a split (cron 5/s + backend 4/s) guarantees nothing once a third
+    process talks to SEC (a CLI, the Admin "Run daily now" child, a second web worker) and idles half the budget
+    at 22:30; a file lock on `/data` does not reach a host-side CLI. Postgres is where every writer already
+    meets (W1's company locks live there too). Cost: one ~1 ms round trip per SEC request, on a dedicated
+    per-process session (`alphadeck-sec-budget`), never a writer's connection.
+  - **The fair share:** each process LANE — `recurring` (a recurring-dial client: the nightly, the radar, the
+    shell sweep, the successor scan) or `interactive` (everything else) — may hold at most 2 reservations that
+    are not yet due. With both lanes busy they alternate, so each gets half the budget whatever its thread
+    count (MEASURED in the suite: an 8-thread lane vs a 2-thread lane split 0.50 / 0.50; without the depth
+    cap the 2-thread lane got 0.20–0.22); a lane alone gets all of it; a newcomer waits at most ~0.24 s.
+  - **A 429 / 503 pauses everyone:** `polite_get`'s `on_throttle` pushes the global `next_slot` out by the
+    (jittered) backoff, so every process backs off together.
+  - **Fail-safe toward politeness:** if Postgres cannot be reached, the request is still sent, behind a
+    process-local limiter at HALF the rate, logged once per outage and counted (`sec_budget_fallback` on the
+    pass meter); the database is re-tried after 30 s.
+  - **Residual (accepted):** the budget is per DATABASE. Dev (`alphadeck_dev`) and prod share this host's IP
+    but not a database, so a dev discovery during the prod nightly can still push the IP past 10/s — keep live
+    SEC work on dev out of the 22:20–23:00 window until the VPS move (X10) gives prod its own IP. Forks never
+    go live to SEC.
 - **Cache-first** on disk (`data/edgar_cache/`); the test transport raises on cache miss so tests never hit the network.
 - Live pulls are explicit opt-in (env flag) and write only to the cache.
 - **Cache freshness is KEY-CLASSED, not permanent.** The cache is heterogeneous: a **filing document**
@@ -275,7 +303,20 @@ The EOD price source feeds `volume_breakout` (Key 2) and the Workbench market-ca
   cache MISS always fetches, so a new thesis's first ingest is fresh regardless. The pull itself is a fixed
   **two-year window** (`YahooPriceSource(range_=DEFAULT_RANGE)`, `DEFAULT_RANGE = "2y"`): the refresh makes a
   pass see the CURRENT window, never a wider one, so an outage longer than the window leaves a permanent hole
-  (§Long-outage data bounds, above).
+  (§Long-outage data bounds, above). The cache file is written atomically (temp file + rename,
+  `ingest.write_atomic`), so a concurrent reader never sees a half-written series.
+- **The Yahoo gate (X7, 2026-10-21).** Every Yahoo request — the chart pulls (`fetch_eod`: the price leg, the
+  benchmark leg, the rename probe) and the symbol search — passes ONE process-wide token bucket
+  (`ingest.http.yahoo_limiter`, `Settings.yahoo_rate_per_sec`, default **4.0/s**). Yahoo publishes no limit,
+  so the default is set off what was MEASURED clean: the serial price leg pulled 740 series a night at up to
+  3.3/s sustained (Modern Defense, 2026-10-20: 196 pulls in 58.7 s) with ZERO 429s on every X5-instrumented
+  pass; 4.0 is a modest step above that. A 429 / 503 is retried after a JITTERED exponential backoff (1–1.5x
+  the plain one: never shorter, spread so the pool does not retry in lock-step; a numeric `Retry-After` is
+  honored exactly) and PUSHES THE GATE BACK, so every puller pauses, not only the one that was told. Every
+  refusal is counted per host on the pass meter (`http_429:query1.finance.yahoo.com`, …) and the printed
+  timings line names the 429s when there are any — move the dial on that evidence. Process-local (unlike the
+  SEC budget): Yahoo is not a fair-access correctness requirement, and the nightly is the one process that
+  pulls hundreds of series.
 - **The `PriceSource` seam** (`ingest/prices/source.py`). The source sits behind a `get_bars(ticker, *,
   allow_live, force_refresh) -> [normalized EOD bars]` interface; `YahooPriceSource` and `StooqPriceSource`
   are adapters; the ingest path depends on the interface, so swapping the source is changing an **adapter**,
