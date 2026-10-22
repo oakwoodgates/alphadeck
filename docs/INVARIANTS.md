@@ -272,6 +272,16 @@ replay stays honest.
   refused, counting the table) and `tests/replay/test_pit_first_knowability.py` (a public-clock mirror reads
   honest and backdated rows identically at every pin). See `FEED_LOOP.md` §Honest stamps — the fundamentals
   write path.
+- *Also honored by (migration 0062, 2026-10-22 — the SET-ASIDE fundamentals versions):* a stored revenue row
+  #417's data-quality screen would have refused (written by the old ingest before the screen existed) is named
+  in the append-only `fundamentals_set_aside` table (`pipeline.set_aside_fundamentals`), and every read skips it
+  at every asof — both clocks, the basket prefetch, and the replay mirror (`db.set_aside`, applied in the one
+  public builder and the record reads). That is not lookahead: the screen judges a row only against filings on or
+  before the row's OWN filing (the A2 rule), so skipping it is what the ingest screen would have done the day it
+  was filed; the version it superseded is read instead. Reversible (a `revoke` row), the fact rows never touched,
+  and a number another revenue label keeps as genuine is never set aside (recall, #9). *Enforced by:*
+  `tests/pipeline/test_set_aside_fundamentals.py` (a later filing never decides; count the table on a re-apply;
+  the fallback and the revoke on both clocks and the prefetch; record + public mirror parity).
 - *Also honored by (the BACKTEST's public clock — the SAME definition as the history views):* a research
   run asks "when could ANYONE have known this?" instead of "when did THIS system record it?" — since
   2026-10-21 the question every history view asks too, so the per-table definition lives ONCE in

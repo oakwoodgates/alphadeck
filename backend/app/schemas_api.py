@@ -2467,6 +2467,10 @@ class AdminStatusOut(BaseModel):
     ``splits_needs_review`` (split plan S1) is how many splits on the split list one source could not settle
     (one source only, a disagreement, an extractor abstain) — the "Splits" panel (``GET /admin/splits``) holds
     them. ``null`` when the count could not be read; never a cron verdict.
+
+    ``fundamentals_set_aside`` (migration 0062) is how many stored fundamentals versions are set aside — the
+    revenue rows the data-quality screen would have refused, stored before it existed, which every read skips
+    (``python -m pipeline.set_aside_fundamentals``). A quiet line; ``null`` when the count could not be read.
     """
 
     record: AdminRecordOut
@@ -2480,6 +2484,7 @@ class AdminStatusOut(BaseModel):
     split_defects: AdminSplitOut | None = None
     price_repairs: AdminPriceRepairsOut | None = None
     splits_needs_review: int | None = None
+    fundamentals_set_aside: int | None = None
 
 
 class AdminRunsOut(BaseModel):

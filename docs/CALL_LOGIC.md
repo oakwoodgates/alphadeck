@@ -504,6 +504,18 @@ only *coincide* for insider buys, which is exactly why the two conviction source
   filed under a quarter context (LHX, VICR) and a derived Q4 across a restatement (LFMD). The rule above is
   unchanged — it reads the right numbers. Re-ingest: `python -m pipeline.reingest_fundamentals`. Each revenue row
   now records its tag (`source = companyfacts:<concept>`), since two tags can share one accession (#6).
+  **The rows the OLD ingest stored before the screen existed are SET ASIDE on read (A8, operator-approved
+  2026-10-22; migration 0062).** `python -m pipeline.set_aside_fundamentals` runs the same screen over each
+  company's cached companyfacts, under every revenue label, and names each stored version it rejects in the
+  append-only `fundamentals_set_aside` table (MEASURED on the dev copy of prod with prod's cache, 2026-10-22: 79
+  versions in 38 companies; a 1-row conflict, RDNW, that another label keeps as genuine, is left in the read).
+  Every read skips an active set-aside — both clocks, the basket prefetch and the replay mirror — so the read
+  falls back to the version it superseded, at every asof: the screen judges a row only against filings on or
+  before its own, so this is exactly what the ingest screen would have refused the day the row was filed (no
+  lookahead). Reversible: a `revoke` row restores it; the fact rows are never touched. Where the bad version was
+  a period's only one, the period is simply absent (the detector declines across it, as the ingest screen would
+  have left it). MEASURED: the read changes for 36 of the 38 companies (KOPN's and UUUU's rows were already
+  outranked by a same-filing re-parse), and no card of the 12 theses changes at asof 10-21 or 10-22.
   **Hindsight caveat (a definition chosen today).** The tag is chosen from TODAY's companyfacts document, and
   under R17 the re-ingested versions — the same-filing supersessions included — are dated at their own filings.
   So every past as-of read on the public clock (the slider and scrub-back, `pipeline.backfill`, a D3b re-run,

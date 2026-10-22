@@ -56,7 +56,9 @@ restated onto a basis its 9-month YTD never reached (``_same_basis`` — LFMD's 
 quarters; HON's Solstice recast). Every judgment uses only rows filed on or before the judged row's own
 filing — a later filing never decides whether a public quarter exists. The nightly counts the rejections on
 its summary line and records each on the run artifact (``pipeline.daily`` / ``pipeline.cron_run_log``). Rows
-ALREADY stored by the old ingest are not touched by the screen (append-only) and remain in the store.
+ALREADY stored by the old ingest are not touched by the screen (append-only) and remain in the store; the ones
+the screen rejects are SET ASIDE on read (``pipeline.set_aside_fundamentals`` runs this same screen over them;
+migration 0062, ``db.set_aside``), so every read skips them — reversibly, the rows kept.
 
 The quarterly series is:
   * every NATIVE ~3-month duration fact (Q1/Q2/Q3 arrive natively, each with its own ``filed``/``accn`` —

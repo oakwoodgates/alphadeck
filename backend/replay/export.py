@@ -25,6 +25,7 @@ from db.public_clock import (
     to_public_row,
 )
 from db.session import DEFAULT_TENANT_ID
+from db.set_aside import active_ids_sql, exclusion_sql, has_set_aside
 
 # The bitemporal fact tables, taken from the as-of read's own whitelist (single source of truth — the
 # mirror can never drift from the set of tables the live reader knows).
@@ -103,11 +104,13 @@ def _read_table(
     conn: psycopg.Connection, table: str, tenant_id: UUID
 ) -> tuple[pa.Schema, list[dict]]:
     """Read ALL columns + ALL rows of one fact table for the tenant, plus an explicit Arrow schema derived
-    from the Postgres column types (table name from the trusted ``_FACT_IDENTITY`` whitelist)."""
+    from the Postgres column types (table name from the trusted ``_FACT_IDENTITY`` whitelist) — except a
+    SET-ASIDE version (migration 0062, ``db.set_aside``), which the live read skips too, so the two engines
+    read the same versions (the parity gate); every other table is read whole, exactly as before."""
     with conn.cursor() as cur:
         cur.execute(
-            sql.SQL("SELECT * FROM {} WHERE tenant_id = %(tenant_id)s").format(
-                sql.Identifier(table)
+            sql.SQL("SELECT * FROM {} WHERE tenant_id = %(tenant_id)s{}").format(
+                sql.Identifier(table), exclusion_sql(table)
             ),
             {"tenant_id": tenant_id},
         )
@@ -116,6 +119,19 @@ def _read_table(
             [(d.name, _OID_ARROW.get(d.type_code, pa.string())) for d in cur.description]
         )
     return schema, rows
+
+
+def _count_set_aside(conn: psycopg.Connection, table: str, tenant_id: UUID) -> int:
+    """How many of the tenant's stored versions of ``table`` are ACTIVELY set aside (migration 0062) — the
+    versions both export modes leave out (``exclusion_sql`` here, ``public_versions_sql`` on the public path).
+    """
+    ids = sql.SQL(active_ids_sql(table))  # noqa: S608 — a module constant, never caller input
+    query = sql.SQL(
+        "SELECT count(*) AS n FROM {} WHERE tenant_id = %(tenant_id)s AND id IN ({})"
+    ).format(sql.Identifier(table), ids)
+    with conn.cursor() as cur:
+        cur.execute(query, {"tenant_id": tenant_id})
+        return cur.fetchone()["n"]
 
 
 def _read_table_public(
@@ -420,6 +436,9 @@ def export_snapshot(
             schema, rows, counts = _read_table_public(conn, table, tenant_id)
         else:
             schema, rows = _read_table(conn, table, tenant_id)
+        if has_set_aside(table):
+            # the versions left out as SET ASIDE (0062) — named, so the mirror says what it does not hold
+            counts["rows_set_aside"] = _count_set_aside(conn, table, tenant_id)
         coerced = [{k: _coerce(v) for k, v in row.items()} for row in rows]
         pq.write_table(pa.Table.from_pylist(coerced, schema=schema), out / f"{table}.parquet")
         max_rec = max((r["recorded_at"] for r in rows), default=None)
