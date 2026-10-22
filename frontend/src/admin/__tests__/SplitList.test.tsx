@@ -171,6 +171,28 @@ const DISAGREE = {
   actions: ["confirm:sec", "confirm:polygon", "reject"],
 };
 
+// S5 — GAME's real 08-24 step as GET /admin/splits returns it for 08-28 with GAME's 1-for-8 NOT on the list
+// (backend/tests/app/test_admin_split_list_api.py, on the stored versions in backend/tests/fixtures/splits/s5)
+const GAME_JUMP = {
+  security_id: "0b5cccc4-8b48-4dd1-b05c-334994db1283",
+  ticker: "GAME",
+  prior_date: "2026-08-21",
+  step_date: "2026-08-24",
+  prior_close: 0.421999990940094,
+  close: 3.16499996185303,
+  prior_volume: 1486400,
+  volume: 553700,
+  step: 7.5,
+  label: "GAME stepped x7.5 on 08-24",
+  sessions_since: 4,
+  after: [
+    { d: "2026-08-25", close: 3.65000009536743, volume: 447300 },
+    { d: "2026-08-26", close: 3.4300000667572, volume: 210800 },
+    { d: "2026-08-27", close: 3.22000002861023, volume: 497773 },
+    { d: "2026-08-28", close: 3.0, volume: 212900 },
+  ],
+};
+
 const h = vi.hoisted(() => ({
   q: {} as Record<string, unknown>,
   confirm: {} as Record<string, unknown>,
@@ -268,6 +290,25 @@ describe("SplitList", () => {
     expect(restore).toHaveAttribute("title", "back to needs review");
     await userEvent.click(restore);
     expect(fn(h.restore)).toHaveBeenCalledWith({ versionId: LRHC_REJECTED.version_id });
+  });
+
+  it("asks 'is this real?' about a released split-shaped jump no source listed — loud, no action", () => {
+    serve({ needs_review: [], announced: [], confirmed: [], set_aside: [], total: 0, unlisted_jumps: [GAME_JUMP] });
+    render(<SplitList />);
+    const box = screen.getByTestId("adm-splits-jumps");
+    expect(box.querySelector(".adm-loud")).toHaveTextContent("1 split-shaped jump(s) with no split listed — is this real?");
+    const row = within(box).getByTestId("adm-split-jump-row");
+    expect(row).toHaveTextContent("GAME — stepped x7.5 on 08-24 · 4 sessions ago");
+    expect(row).toHaveTextContent("08-21 close 0.422 · vol 1,486,400 → 08-24 close 3.165 · vol 553,700");
+    expect(row).toHaveTextContent("then 08-25 3.65 · 08-26 3.43 · 08-27 3.22 · 08-28 3");
+    expect(within(box).queryByRole("button")).toBeNull(); // a question, never an action (nothing to undo)
+    for (const mm of [h.confirm, h.reject, h.revoke, h.restore]) expect(fn(mm)).not.toHaveBeenCalled();
+  });
+
+  it("shows a failed jump check instead of hiding it", () => {
+    serve({ needs_review: [], announced: [], confirmed: [], set_aside: [], total: 0, unlisted_jumps_error: "OperationalError: x" });
+    render(<SplitList />);
+    expect(screen.getByTestId("adm-splits-jumps-error")).toHaveTextContent("The split-shaped jump check failed: OperationalError: x");
   });
 
   it("shows a failed read and a refused action", () => {

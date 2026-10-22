@@ -3049,7 +3049,7 @@
           "admin"
         ],
         "summary": "List Splits",
-        "description": "Every split on the list (its newest version) with both sources' evidence, bucketed for the panel:\nneeds review (loud), announced / confirmed / rejected-or-revoked (quiet). Read-only.",
+        "description": "Every split on the list (its newest version) with both sources' evidence, bucketed for the panel:\nneeds review (loud), announced / confirmed / rejected-or-revoked (quiet) \u2014 and the split-shaped price jumps\non basket names that no source listed, after the split-night hold released them (the operator's \"is this\nreal?\"). Read-only.",
         "operationId": "list_splits_admin_splits_get",
         "responses": {
           "200": {
@@ -5945,6 +5945,123 @@
         "title": "AdminSplitDefectOut",
         "description": "One flagged split-basis defect (T4, ``pipeline/split_basis.py``): a basket name whose STORED price\ntape mixes two split bases, as the pass's scan found it. ``kind``:\n\n- ``island`` \u2014 a run of bars on another basis than both neighbors (a factor-``k`` step and the inverse\n  step back, the volume moving the other way): the half-adjusted shape (VWAV 2026-09-15..16);\n- ``cliff`` \u2014 a lone UP step whose price stays up and volume stays down by about the same factor: a\n  reverse split the vendor never applied to the history before it;\n- ``flap`` \u2014 a stored bar whose versions changed basis in BOTH directions (the vendor flipped it and\n  flipped it back).\n\n``dates`` are the affected bars (at most the 12 most recent; ``events`` is the full count), ``factor``\nthe step size (>= 1, e.g. 20 for a 1-for-20 split). Evidence for the operator only: nothing here\nchanges a call (whether a price detector should abstain on a flagged name is an open decision)."
       },
+      "AdminSplitJumpBarOut": {
+        "properties": {
+          "d": {
+            "type": "string",
+            "format": "date",
+            "title": "D"
+          },
+          "close": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close"
+          },
+          "volume": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Volume"
+          }
+        },
+        "type": "object",
+        "required": [
+          "d"
+        ],
+        "title": "AdminSplitJumpBarOut",
+        "description": "One stored bar after a split-shaped jump (what the price did next)."
+      },
+      "AdminSplitJumpOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "prior_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Prior Date"
+          },
+          "step_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Step Date"
+          },
+          "prior_close": {
+            "type": "number",
+            "title": "Prior Close"
+          },
+          "close": {
+            "type": "number",
+            "title": "Close"
+          },
+          "prior_volume": {
+            "type": "number",
+            "title": "Prior Volume"
+          },
+          "volume": {
+            "type": "number",
+            "title": "Volume"
+          },
+          "step": {
+            "type": "number",
+            "title": "Step"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "sessions_since": {
+            "type": "integer",
+            "title": "Sessions Since"
+          },
+          "after": {
+            "items": {
+              "$ref": "#/components/schemas/AdminSplitJumpBarOut"
+            },
+            "type": "array",
+            "title": "After"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "prior_date",
+          "step_date",
+          "prior_close",
+          "close",
+          "prior_volume",
+          "volume",
+          "step",
+          "label",
+          "sessions_since"
+        ],
+        "title": "AdminSplitJumpOut",
+        "description": "A split-shaped price jump with NO split listed (split plan S5): the close moved x3 or more (or to a third\nor less) between two stored bars with the volume moving the other way, the split-night hold has released it\n(three sessions on), and no SEC filing or Polygon row on the list sits near it. A real move or a split no\nsource has listed yet \u2014 the operator's question (\"is this real?\"). ``step`` = close / prior close."
+      },
       "AdminSplitListConfirmIn": {
         "properties": {
           "source": {
@@ -6220,11 +6337,29 @@
             "type": "integer",
             "title": "Total",
             "default": 0
+          },
+          "unlisted_jumps": {
+            "items": {
+              "$ref": "#/components/schemas/AdminSplitJumpOut"
+            },
+            "type": "array",
+            "title": "Unlisted Jumps"
+          },
+          "unlisted_jumps_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unlisted Jumps Error"
           }
         },
         "type": "object",
         "title": "AdminSplitListOut",
-        "description": "The \"Splits\" panel. ``needs_review`` is the one LOUD list (one source could not settle it);\n``announced`` (both sources agree, the first session is still ahead), ``confirmed`` and ``set_aside``\n(rejected / revoked \u2014 kept, grayed) are QUIET lists. ``total`` = every split on the list. Read live."
+        "description": "The \"Splits\" panel. ``needs_review`` is the one LOUD list (one source could not settle it);\n``announced`` (both sources agree, the first session is still ahead), ``confirmed`` and ``set_aside``\n(rejected / revoked \u2014 kept, grayed) are QUIET lists. ``total`` = every split on the list. Read live.\n``unlisted_jumps`` (S5) \u2014 split-shaped jumps on basket names that the split-night hold has released and no\nsource ever listed, the last 30 days; ``unlisted_jumps_error`` when that read failed (shown, never hidden)."
       },
       "AdminSplitListPolygonOut": {
         "properties": {

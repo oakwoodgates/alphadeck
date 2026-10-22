@@ -15,8 +15,14 @@ What the operator can do, and its inverse:
 
 Rejected and revoked splits stay listed, grayed (WB#2). Every action appends one version naming the operator
 (``repositories/split_repo.py``) and names the version it acts on, so a stale card is refused (409), never
-applied over a newer decision. No push notification is ever sent from here. Nothing reads the list yet: a
-decision changes no call, no tape and no Cockpit number until a later slice reads it. Auth stays deferred.
+applied over a newer decision. No push notification is ever sent from here. What reads the list: the nightly
+price leg and the repair tool keep the stored tape on its scale (S2), the insider screen and the market cap read
+its factors (S2), and the split-night hold (S5) holds a company's price triggers across a split-shaped step no
+confirmed split covers — so a confirm here lifts that hold the next night. Auth stays deferred.
+
+**Split-shaped jumps with no split listed (S5)** — the panel also lists the price jumps the split-night hold
+has released (three sessions on) that no source ever listed (``pipeline.split_jumps``): the operator's "is this
+real?". A list, never an action and never a page (#7).
 """
 
 from __future__ import annotations
@@ -46,6 +52,7 @@ from domain.splits import (
     direction,
     ratio_label,
 )
+from pipeline.split_jumps import UnlistedJump, scan_unlisted_jumps
 from repositories import split_repo
 from repositories.split_repo import SplitConflict, SplitVersion
 
@@ -133,10 +140,41 @@ class AdminSplitListEntryOut(BaseModel):
     restore_to: str | None = None
 
 
+class AdminSplitJumpBarOut(BaseModel):
+    """One stored bar after a split-shaped jump (what the price did next)."""
+
+    d: date
+    close: float | None = None
+    volume: float | None = None
+
+
+class AdminSplitJumpOut(BaseModel):
+    """A split-shaped price jump with NO split listed (split plan S5): the close moved x3 or more (or to a third
+    or less) between two stored bars with the volume moving the other way, the split-night hold has released it
+    (three sessions on), and no SEC filing or Polygon row on the list sits near it. A real move or a split no
+    source has listed yet — the operator's question ("is this real?"). ``step`` = close / prior close.
+    """
+
+    security_id: UUID
+    ticker: str | None = None
+    prior_date: date
+    step_date: date
+    prior_close: float
+    close: float
+    prior_volume: float
+    volume: float
+    step: float
+    label: str
+    sessions_since: int
+    after: list[AdminSplitJumpBarOut] = Field(default_factory=list)
+
+
 class AdminSplitListOut(BaseModel):
     """The "Splits" panel. ``needs_review`` is the one LOUD list (one source could not settle it);
     ``announced`` (both sources agree, the first session is still ahead), ``confirmed`` and ``set_aside``
     (rejected / revoked — kept, grayed) are QUIET lists. ``total`` = every split on the list. Read live.
+    ``unlisted_jumps`` (S5) — split-shaped jumps on basket names that the split-night hold has released and no
+    source ever listed, the last 30 days; ``unlisted_jumps_error`` when that read failed (shown, never hidden).
     """
 
     needs_review: list[AdminSplitListEntryOut] = Field(default_factory=list)
@@ -144,6 +182,8 @@ class AdminSplitListOut(BaseModel):
     confirmed: list[AdminSplitListEntryOut] = Field(default_factory=list)
     set_aside: list[AdminSplitListEntryOut] = Field(default_factory=list)
     total: int = 0
+    unlisted_jumps: list[AdminSplitJumpOut] = Field(default_factory=list)
+    unlisted_jumps_error: str | None = None
 
 
 class AdminSplitListConfirmIn(BaseModel):
@@ -263,10 +303,39 @@ def split_out(v: SplitVersion, *, restore_to: str | None = None) -> AdminSplitLi
     )
 
 
-def splits_out(conn: psycopg.Connection, *, tenant_id: UUID) -> AdminSplitListOut:
-    """The panel, read live from the list's newest versions. SELECTs only."""
+def jump_out(j: UnlistedJump) -> AdminSplitJumpOut:
+    s = j.step
+    return AdminSplitJumpOut(
+        security_id=j.security_id,
+        ticker=j.ticker,
+        prior_date=s.prior_d,
+        step_date=s.d,
+        prior_close=s.prior_close,
+        close=s.close,
+        prior_volume=s.prior_volume,
+        volume=s.volume,
+        step=s.step,
+        label=j.label,
+        sessions_since=j.sessions_since,
+        after=[AdminSplitJumpBarOut(d=d, close=c, volume=v) for d, c, v in j.after],
+    )
+
+
+def splits_out(
+    conn: psycopg.Connection, *, tenant_id: UUID, asof: date | None = None
+) -> AdminSplitListOut:
+    """The panel, read live from the list's newest versions — plus the released, unlisted split-shaped jumps
+    as of ``asof`` (default: today's market day; ``pipeline.split_jumps``). SELECTs only."""
     versions = split_repo.latest_versions(conn, tenant_id=tenant_id)
     out = AdminSplitListOut(total=len(versions))
+    try:
+        jumps = scan_unlisted_jumps(conn, asof=asof or market_today(), tenant_id=tenant_id)
+        out.unlisted_jumps = [jump_out(j) for j in jumps]
+    except (
+        Exception
+    ) as e:  # noqa: BLE001 — a failed jump read is shown on the panel, never a failed panel
+        conn.rollback()
+        out.unlisted_jumps_error = f"{type(e).__name__}: {' '.join(str(e).split())[:200]}"
     for v in versions:
         o = split_out(
             v,
@@ -331,7 +400,9 @@ def list_splits(
     tenant_id: UUID = Depends(get_current_tenant),
 ) -> AdminSplitListOut:
     """Every split on the list (its newest version) with both sources' evidence, bucketed for the panel:
-    needs review (loud), announced / confirmed / rejected-or-revoked (quiet). Read-only."""
+    needs review (loud), announced / confirmed / rejected-or-revoked (quiet) — and the split-shaped price jumps
+    on basket names that no source listed, after the split-night hold released them (the operator's "is this
+    real?"). Read-only."""
     try:
         return splits_out(conn, tenant_id=tenant_id)
     finally:

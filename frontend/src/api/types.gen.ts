@@ -1604,7 +1604,9 @@ export interface paths {
         /**
          * List Splits
          * @description Every split on the list (its newest version) with both sources' evidence, bucketed for the panel:
-         *     needs review (loud), announced / confirmed / rejected-or-revoked (quiet). Read-only.
+         *     needs review (loud), announced / confirmed / rejected-or-revoked (quiet) — and the split-shaped price jumps
+         *     on basket names that no source listed, after the split-night hold released them (the operator's "is this
+         *     real?"). Read-only.
          */
         get: operations["list_splits_admin_splits_get"];
         put?: never;
@@ -3166,6 +3168,63 @@ export interface components {
             events: number;
         };
         /**
+         * AdminSplitJumpBarOut
+         * @description One stored bar after a split-shaped jump (what the price did next).
+         */
+        AdminSplitJumpBarOut: {
+            /**
+             * D
+             * Format: date
+             */
+            d: string;
+            /** Close */
+            close?: number | null;
+            /** Volume */
+            volume?: number | null;
+        };
+        /**
+         * AdminSplitJumpOut
+         * @description A split-shaped price jump with NO split listed (split plan S5): the close moved x3 or more (or to a third
+         *     or less) between two stored bars with the volume moving the other way, the split-night hold has released it
+         *     (three sessions on), and no SEC filing or Polygon row on the list sits near it. A real move or a split no
+         *     source has listed yet — the operator's question ("is this real?"). ``step`` = close / prior close.
+         */
+        AdminSplitJumpOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker?: string | null;
+            /**
+             * Prior Date
+             * Format: date
+             */
+            prior_date: string;
+            /**
+             * Step Date
+             * Format: date
+             */
+            step_date: string;
+            /** Prior Close */
+            prior_close: number;
+            /** Close */
+            close: number;
+            /** Prior Volume */
+            prior_volume: number;
+            /** Volume */
+            volume: number;
+            /** Step */
+            step: number;
+            /** Label */
+            label: string;
+            /** Sessions Since */
+            sessions_since: number;
+            /** After */
+            after?: components["schemas"]["AdminSplitJumpBarOut"][];
+        };
+        /**
          * AdminSplitListConfirmIn
          * @description Whose values to confirm: the SEC filing's or Polygon's.
          */
@@ -3278,6 +3337,8 @@ export interface components {
          * @description The "Splits" panel. ``needs_review`` is the one LOUD list (one source could not settle it);
          *     ``announced`` (both sources agree, the first session is still ahead), ``confirmed`` and ``set_aside``
          *     (rejected / revoked — kept, grayed) are QUIET lists. ``total`` = every split on the list. Read live.
+         *     ``unlisted_jumps`` (S5) — split-shaped jumps on basket names that the split-night hold has released and no
+         *     source ever listed, the last 30 days; ``unlisted_jumps_error`` when that read failed (shown, never hidden).
          */
         AdminSplitListOut: {
             /** Needs Review */
@@ -3293,6 +3354,10 @@ export interface components {
              * @default 0
              */
             total: number;
+            /** Unlisted Jumps */
+            unlisted_jumps?: components["schemas"]["AdminSplitJumpOut"][];
+            /** Unlisted Jumps Error */
+            unlisted_jumps_error?: string | null;
         };
         /**
          * AdminSplitListPolygonOut
