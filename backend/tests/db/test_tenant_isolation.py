@@ -855,3 +855,25 @@ def test_split_list_read_isolation_live_and_replay(db, tmp_path):
         other = PROD_TENANT_ID if tenant == DEFAULT_TENANT_ID else DEFAULT_TENANT_ID
         cross = ReplayPointInTimeData(con, asof=asof, known_at=_KNOWN, tenant_id=other)
         assert cross.split_events(shared) == []
+    # the PUBLIC clock (a history view, S2): the current reading, its gated read, the public PIT (which also
+    # converts the price bars with the list) and the public mirror — each tenant only its own row
+    for tenant, want in ((DEFAULT_TENANT_ID, [demo_day]), (PROD_TENANT_ID, [poison_day])):
+        cur = split_repo.current_rows(db, tenant_id=tenant, security_ids=[shared])
+        assert days(cur[shared]) == want
+        pub = split_repo.as_of_rows(
+            db, tenant_id=tenant, security_ids=[shared], known_at=_KNOWN, clock="public"
+        )
+        assert days(pub[shared]) == want
+        for basket in (None, [shared]):
+            pit = PointInTimeData(
+                db, asof=asof, known_at=_KNOWN, tenant_id=tenant, basket=basket, clock="public"
+            )
+            assert days(pit.split_events(shared)) == want
+        out = tmp_path / f"public-{tenant}"
+        export_snapshot(db, out, tenant_id=tenant, clock="public")
+        con = connect_mirror(out)
+        own = ReplayPointInTimeData(con, asof=asof, known_at=_KNOWN, tenant_id=tenant)
+        assert days(own.split_events(shared)) == want
+        other = PROD_TENANT_ID if tenant == DEFAULT_TENANT_ID else DEFAULT_TENANT_ID
+        cross = ReplayPointInTimeData(con, asof=asof, known_at=_KNOWN, tenant_id=other)
+        assert cross.split_events(shared) == []

@@ -27,10 +27,13 @@ leg's own rules (``split_normalize`` -> ``plan_overlap`` -> T5) with the list an
 
 ``--apply`` (needs ``--ticker``; every named company must pass, or nothing is written):
 
-- holds the call-of-record lock (``pipeline.run_lock``; exit 75 when another pass holds it), ONE transaction;
+- holds the REPAIR lock (``pipeline.run_lock.acquire_repair_lock``: the call-of-record lock, then W1's
+  fact-writer gate exclusively — no pass and no company writer runs beside it; exit 75 when either is held),
+  ONE transaction;
 - appends the corrected versions through the price writer (``eod_loader.ingest_prices``) stamped with ONE
-  database instant — never an UPDATE, never a DELETE on the fact table; a read pinned before the stamp still
-  sees the old bars (transaction-time honesty);
+  database instant — never an UPDATE, never a DELETE on the fact table. A HISTORY view reads them from the
+  bar's settle on (a split re-scale is not new market information — ``db.public_clock``) and puts them on its
+  own day's scale (``domain.splits.on_view_scale``), so a view before a split reads the pre-split scale;
 - clears each repaired company's T5 hold through ``ingest_security.save_hold`` (operational state);
 - counts the stamped rows against the plan before committing (a mismatch rolls back);
 - writes a provenance JSON under ``data/repairs/`` (``/data/repairs`` in the container): per bar old -> new,
@@ -78,7 +81,7 @@ from ingest.prices.restatement import decide as t5_decide
 from ingest.prices.source import YahooPriceSource
 from ingest.prices.split_normalize import normalize
 from pipeline import split_repair as sr
-from pipeline.run_lock import EXIT_ALREADY_RUNNING, PassAlreadyRunning, acquire_pass_lock
+from pipeline.run_lock import EXIT_ALREADY_RUNNING, PassAlreadyRunning, acquire_repair_lock
 from repositories import split_repo
 from signals.display import range52w, rvol, sma, trailing_returns
 
@@ -463,7 +466,7 @@ def apply_plans(
     conn: psycopg.Connection, plans: Sequence[CompanyPlan], *, tenant_id: UUID = DEFAULT_TENANT_ID
 ) -> ApplyResult:
     """Append every planned change in ONE transaction, one stamp; clear the T5 holds; count the table.
-    The caller holds the call-of-record lock and owns the connection (commit happens here)."""
+    The caller holds the repair lock and owns the connection (commit happens here)."""
     todo = [p for p in plans if p.status == REPAIR and p.changes]
     result = ApplyResult()
     if not todo:
@@ -875,7 +878,7 @@ def _do_revoke(conn: psycopg.Connection, prov: Mapping[str, Any]) -> None:
 
 def _with_lock(fn) -> None:
     try:
-        lock = acquire_pass_lock(holder="repair")
+        lock = acquire_repair_lock(holder="repair_split_basis")
     except PassAlreadyRunning as exc:
         print(f"repair: ALREADY RUNNING — {exc}. Nothing was written (exit {EXIT_ALREADY_RUNNING})")
         raise SystemExit(EXIT_ALREADY_RUNNING) from None

@@ -34,6 +34,8 @@ from db.bitemporal import (
 from db.insider_resolution import RESOLVED_TABLE
 from db.session import DEFAULT_TENANT_ID
 from domain.insider_amendments import ResolutionInputs, group_inputs
+from domain.market_time import market_tz
+from domain.splits import on_view_scale
 from replay.export import AUX_PUBLIC_COL, AUX_TABLES, FACT_TABLES, SPLIT_TABLE, read_mirror_manifest
 from signals.base import window_prices
 
@@ -282,6 +284,7 @@ class ReplayPointInTimeData:
         self._sid_by_text: dict[str, UUID] = {str(s): s for s in self._basket}
         self._bounds: dict[str, int | None] = dict(bounds or {})
         self._memo: dict[tuple[str, UUID], list[dict[str, Any]]] = {}
+        self._scaled: dict[UUID, list[dict[str, Any]]] = {}  # S2 — price rows on the view's scale
         self._prefetched: set[str] = set()
 
     # --- the memo + prefetch seam (every fact accessor below goes through here) ---------------------
@@ -479,7 +482,18 @@ class ReplayPointInTimeData:
         self, security_id: UUID, lookback_days: int | None = None
     ) -> list[dict[str, Any]]:
         rows = self._as_of("fact_price_eod", "security_id", security_id)
-        return window_prices(rows, self.asof, lookback_days)  # the SAME sort/trim as the live PIT
+        # S2 — a PUBLIC mirror's bars on the view's scale: the SAME pure function the live PIT runs
+        # (``domain.splits.on_view_scale``); a record mirror's rows carry no ``split_store_through`` and an
+        # older mirror has no split file, so both read exactly as stored
+        if security_id not in self._scaled:
+            self._scaled[security_id] = on_view_scale(
+                rows,
+                self._current_splits(security_id),
+                through=self.known_at.astimezone(market_tz()).date(),
+            )
+        return window_prices(
+            self._scaled[security_id], self.asof, lookback_days
+        )  # the SAME sort/trim as the live PIT
 
     def dilution_facts(self, security_id: UUID) -> list[dict[str, Any]]:
         return self._as_of("fact_dilution", "security_id", security_id)
@@ -511,12 +525,7 @@ class ReplayPointInTimeData:
     def theme_conviction_facts(self, thesis_id: UUID) -> list[dict[str, Any]]:
         return self._as_of("fact_theme_conviction", "thesis_id", thesis_id)
 
-    def split_events(self, security_id: UUID) -> list[dict[str, Any]]:
-        """The mirror twin of ``PointInTimeData.split_events`` (S2): the newest version of each logical split
-        (``security_id, key_date``) recorded by ``known_at`` — the SAME pick as ``split_repo.as_of_rows``
-        (``recorded_at DESC, id DESC``), in key-date order. A mirror exported before the split list existed
-        has no table and returns ``[]`` (``_splits_of``) — what the system knew when it was written.
-        """
+    def _newest_splits(self, security_id: UUID, known_at: datetime | None) -> list[dict[str, Any]]:
         grouped = _splits_of(self.con)
         if not grouped:
             return []
@@ -525,9 +534,24 @@ class ReplayPointInTimeData:
         for r in sorted(
             grouped.get(str(security_id), ()), key=lambda r: (r["recorded_at"], str(r["id"]))
         ):
-            if str(r["tenant_id"]) == tenant and r["recorded_at"] <= self.known_at:
+            if str(r["tenant_id"]) == tenant and (known_at is None or r["recorded_at"] <= known_at):
                 newest[r["key_date"]] = r
         return [newest[k] for k in sorted(newest)]
+
+    def split_events(self, security_id: UUID) -> list[dict[str, Any]]:
+        """The mirror twin of ``PointInTimeData.split_events`` (S2): the newest version of each logical split
+        (``security_id, key_date``) with ``recorded_at <= known_at`` — the record pick of
+        ``split_repo.as_of_rows`` on a record mirror (``recorded_at DESC, id DESC``); on a PUBLIC mirror each
+        split's rows carry its public instant as ``recorded_at`` (one row per split, the export's newest), so
+        the same gate is the public read. In key-date order. A mirror exported before the split list existed
+        has no table and returns ``[]`` (``_splits_of``) — what the system knew when it was written.
+        """
+        return self._newest_splits(security_id, self.known_at)
+
+    def _current_splits(self, security_id: UUID) -> list[dict[str, Any]]:
+        """The split list's reading AT EXPORT, ungated — what ``on_view_scale`` converts a public mirror's bars
+        with (the live twin: ``split_repo.current_rows``)."""
+        return self._newest_splits(security_id, None)
 
     def security_name(self, security_id: UUID) -> str | None:
         """Satisfies the protocol; the replay mirror holds FACT tables only, not ``security_master``

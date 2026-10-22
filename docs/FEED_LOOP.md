@@ -1273,16 +1273,37 @@ in force RAW / ADJUSTED / OVER-ADJUSTED / MIS-FACTORED by continuity with the ba
 split, a few sessions off one, or at its own two-year window edge); the last two labels only from independent
 raw prints (`--spot-file pipeline/split_evidence/polygon_raw_2026-10.json`). One unlabeled bar refuses the
 company. Gates: T4 clean, no split-sized step left, raw prints within 1% (3% reported as vendor noise).
-`--apply` holds the call-of-record lock, appends corrected versions under one stamp (never an UPDATE / DELETE),
-clears the T5 hold, counts the table, writes `data/repairs/<utc>-split-basis.json`; `--revoke STAMP` appends
-the old values back.
+`--apply` holds the REPAIR lock (`pipeline.run_lock.acquire_repair_lock`: the call-of-record lock, then W1's
+fact-writer gate exclusively), appends corrected versions under one stamp (never an UPDATE / DELETE), clears
+the T5 hold, counts the table, writes `data/repairs/<utc>-split-basis.json`; `--revoke STAMP` appends the old
+values back. Run it on EVERY company its dry run plans (not only the 15 the diagnosis named): MEASURED on the
+dev copy 2026-10-22, 7 more (ARTL, GAME, MPU, MYPS, NXL, REAX, YYAI) carry 52 stale-tail bars older than Yahoo's
+two-year window, and a history view reaches them.
+
+**History views — the public clock (2026-10-22, the operator's rule of 2026-10-21).** A split counts from its
+OWN publication (its first SEC filing, else its first session — `db.public_clock.split_versions_sql`), never
+from the day we listed it, and a view reads its newest version. A price bar before a live listed split whose
+first session is on or before the security's tape edge has every version public at the session settle (a
+split re-scale is not market information — MEASURED: 22,654 of 29,057 such bars were first stored AFTER their
+split, already adjusted, so the old rule read them on the post-split scale before the split happened); the
+newest is read and the VIEW puts it on its own day's scale (`domain.splits.on_view_scale`, both engines):
+x the splits in force by the view's day, / the splits the store carries (the store is on the list's scale
+through its edge — the price leg's job, the repair's, the `splits_applied` audit's). MEASURED on the dev copy
+after the repair: 3,360 of 3,360 independent raw prints (Polygon, unadjusted) read raw x the splits in force by
+the view across 120 history views of 20 companies (main's rule: 2,047 of 3,360), and T4 finds no island or
+cliff on any of them. Named residuals: a non-split vendor correction to such a bar counts from the settle; a
+store that does not carry a listed split (the audit names it RAW) reads wrong in history until repaired; the 5
+companies the repair refuses (CMND, CYCN, DCX, JAGX, KITT — 68 stale-tail bars, 2024-09/10) read their tail
+off-scale in views before their latest split.
 
 **The readers.** The insider price screens (`insider_conviction`, `insider_sell`, the display flow, the
-Scoreboard ledger) put a Form 4's as-traded price on the tape's scale (`domain.splits.tape_scale`: the splits
-recorded by the view's `known_at` with a first session after the trade and on or before `known_at`'s market
-day); the Workbench market cap divides a share count dated before a split by its factor. The replay mirror
-exports `security_split.parquet`; a mirror from before S2 opens unchanged and reads no splits, while one whose
-manifest records the file but lacks it refuses to open. The self-audit `splits_applied` check pages a recent
+Scoreboard ledger) put a Form 4's as-traded price on the scale of the tape the view reads
+(`domain.splits.tape_scale`: the splits in force by the view's market day — the as-of day on a history view,
+today on the live read — with a first session after the trade); the Workbench market cap divides a share count
+dated before a split by its factor. The replay mirror exports `security_split.parquet` (on the public clock:
+each split's newest version at its public instant); a mirror from before S2 opens unchanged and reads no
+splits, while one whose manifest — the exporter's, or a run's `MirrorInfo.split_table` — records the file but
+lacks it refuses to open. The self-audit `splits_applied` check pages a recent
 split still showing its step, names the older backlog quietly, and names as NOT VERIFIED (never "applied") a
 split the tape cannot read and an announced split not yet confirmed (a flat tape is equally a postponed one).
 

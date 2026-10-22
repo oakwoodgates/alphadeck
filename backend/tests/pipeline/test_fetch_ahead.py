@@ -428,6 +428,133 @@ def test_CONCURRENT_fetch_writes_exactly_what_the_SERIAL_walk_writes(
     assert json.loads(card1)["state"] != "incubating"  # a real, opinionated card was compared
 
 
+# --- S2: the split list's normalization runs in the WRITER's price leg, on the handed-over bars ------------
+
+
+class _SplitVendor:
+    """The price vendor for the split case: a fixed REAL series per symbol, re-served on every call, after a
+    random few-ms pause (so the concurrent run's pulls complete out of order)."""
+
+    def __init__(self, series: dict[str, list[dict]], seed: int) -> None:
+        self._series = series
+        self._rand = random.Random(seed)
+        self._lock = threading.Lock()
+        self.calls: list[tuple[str, bool, bool]] = []
+
+    def get_bars(self, ticker, *, allow_live=False, force_refresh=False):
+        with self._lock:
+            self.calls.append((ticker, allow_live, force_refresh))
+            pause = self._rand.uniform(0, 0.012)
+        time.sleep(pause)
+        return [dict(b) for b in self._series[ticker]]
+
+
+def _split_securities(db) -> tuple[uuid.UUID, dict[str, uuid.UUID]]:
+    """BTOC and KITT under their real ids, in a two-name thesis (seeded once)."""
+    from tests import split_s2_fixtures as fx
+
+    ids = {tk: fx.seed_security(db, tk) for tk in ("BTOC", "KITT")}
+    db.commit()
+    return _thesis(db, [(tk, ids[tk]) for tk in ("BTOC", "KITT")]), ids
+
+
+def _split_tapes(db, ids: dict[str, uuid.UUID]) -> None:
+    """Two listed splits on REAL tapes (``tests/split_s2_fixtures``): BTOC's stored tape with S2's repair
+    applied (the store on the list's scale; Yahoo's real 2026-10-20 pull still serves the raw history) and
+    KITT's tape with its run before the 2026-09-25 1-for-6 put back raw — the S2 B1 contract case (one stated
+    edit; the vendor serves KITT's real re-based tape, so the re-base lands)."""
+    from ingest.prices.eod_loader import ingest_prices
+    from pipeline import repair_split_basis as tool
+    from tests import split_s2_fixtures as fx
+
+    fx.seed_splits(db, ids["BTOC"], "BTOC")
+    ingest_prices(db, ids["BTOC"], fx.rows("BTOC"), tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+    assert tool.apply_plans(db, tool.plan_all(db, tickers=["BTOC"], today=fx.TODAY)).appended > 400
+    eff, k = date(2026, 9, 25), 6
+    fx.seed_splits(db, ids["KITT"], "KITT")
+    raw = []
+    for r in fx.rows("KITT"):
+        if r["d"] < eff:
+            r = {
+                **r,
+                **{f: r[f] / k for f in ("open", "high", "low", "close") if r[f] is not None},
+                "volume": None if r["volume"] is None else r["volume"] * k,
+            }
+        raw.append(r)
+    ingest_prices(db, ids["KITT"], raw, tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+
+
+def _split_series() -> dict[str, list[dict]]:
+    from tests import split_s2_fixtures as fx
+
+    kitt = [
+        {k: (float(v) if k != "d" and v is not None else v) for k, v in r.items()}
+        for r in fx.rows("KITT")
+        if r["d"] >= fx.TODAY - timedelta(days=730)
+    ]
+    return {"BTOC": fx.yahoo("BTOC"), "KITT": kitt}
+
+
+def test_CONCURRENT_fetch_normalizes_a_listed_split_exactly_like_the_SERIAL_walk(
+    db, tmp_path, capsys, concurrency
+):
+    """S2 x #432: the split list's read of the vendor's bars (``ingest.prices.split_normalize``) runs in the
+    WRITER's price leg on the bars the fetch-ahead handed over — the same semantics as the serial walk. On
+    real tapes: BTOC's raw vendor history is read onto the repaired store's scale (nothing written) and KITT's
+    vendor re-base lands on its raw store (every pre-split bar re-versioned). Serial and concurrent write the
+    same table, row for row, and report the same split reads per name."""
+
+    def walk(seed: int, cache: str):
+        vendor = _SplitVendor(_split_series(), seed)
+        client = EdgarClient(
+            cache_dir=tmp_path / cache,
+            allow_live=True,
+            user_agent="fixture ua",
+            cache_ttl_s=RECURRING_CACHE_TTL_S,
+            budget=_NoBudget(),
+        )
+        client._fetch = _Sec(seed)  # type: ignore[method-assign]  # no CIK here: never called
+        capsys.readouterr()
+        res = IT.ingest_thesis(
+            db, tid, allow_live=True, force_refresh=True, edgar_client=client, price_source=vendor
+        )
+        return res, capsys.readouterr().out.splitlines(), vendor
+
+    tid, ids = _split_securities(db)
+    named = _snapshot(db)
+    _split_tapes(db, ids)
+    baseline = _snapshot(db)
+    concurrency(1)
+    r1, out1, v1 = walk(7, "serial")
+    snap1 = _snapshot(db)
+    written = _changed(named, snap1)  # the split list, the tapes, the repair, the walk
+    assert all(not named.get(t) for t in written)  # ...each started empty
+    _reset(db, written)
+    assert _snapshot(db) == named
+    _split_tapes(db, ids)  # the same real rows, the same repair
+    assert _snapshot(db) == baseline
+
+    concurrency(6)
+    r2, out2, v2 = walk(11, "concurrent")
+    snap2 = _snapshot(db)
+
+    by = {r.ticker: r for r in r1}
+    # NOT VACUOUS: the split path really ran, both ways, on the writer's price leg
+    assert by["BTOC"].price_bars_split_normalized.get("vendor_raw", 0) > 400
+    assert (by["BTOC"].price_bars_appended, by["BTOC"].price_bars_reversioned) == (0, 0)
+    assert by["KITT"].price_bars_reversioned > 400
+    assert collections.Counter(v2.calls) == collections.Counter(v1.calls)
+    # COUNT + COMPARE EVERY TABLE, then every name's result (its split reads included) and the printed lines
+    assert {t: len(rows) for t, rows in snap2.items()} == {
+        t: len(rows) for t, rows in snap1.items()
+    }
+    assert snap2 == snap1
+    assert _comparable(r2) == _comparable(r1)
+    assert out2 == out1
+
+
 def test_concurrency_ONE_is_the_serial_walk_no_pool_no_fetch_ahead(
     db, tmp_path, capsys, concurrency, monkeypatch
 ):

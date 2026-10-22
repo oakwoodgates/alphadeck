@@ -403,6 +403,8 @@ def check_no_unsettled_bars(ctx: AuditContext) -> AuditResult:
         f"{dates}; {labels}{more} (a close the store claims was known before its session settled — a writer "
         "bypassed ingest/prices/settle.py, or backdated its stamp)",
     )
+
+
 # S2 — how recent a split's first session must be for an unapplied one to FAIL the audit: the loader applies a
 # split in force on its first night (``ingest.prices.split_normalize``), so one still showing its step a few
 # sessions later is the prevention not working. Older unapplied splits are the repair tool's backlog — reported,

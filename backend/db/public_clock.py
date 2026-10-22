@@ -28,6 +28,8 @@ fact_price_eod                 settle     the FIRST version: the bar's session s
                                           A RE-version (a vendor correction, a refetch): its own
                                           ``recorded_at`` (never before the settle) — it carries no
                                           publication time of its own, so we cannot know it earlier.
+                                          EXCEPT a bar a LISTED SPLIT re-scales (split plan S2, below):
+                                          every version at the session settle, the newest read.
 fact_insider_txn               instant    SEC ACCEPTANCE (``accepted``), filled from the fact's other
                                           versions when one lacks it (a re-parse of one filing shares its
                                           acceptance). A fact with no acceptance on ANY version: the serve
@@ -52,6 +54,35 @@ fact_fund_shares               recorded   ``recorded_at`` — a scraped issuer p
                                           publication time; we cannot know it earlier than we read it
 ============================  =========  ==================================================================
 
+THE SPLIT LIST (``security_split``, split plan S2 — not a fact table; ``split_versions_sql``): every version
+of one logical split counts from the split's OWN publication — the start of the market day of the earliest
+``valid_from`` (its first SEC filing, else its first session: S1 dates it so) or ``effective_date`` any of its
+versions carries — never from when we added the row. A view reads the NEWEST version (today's reading: the
+backfill's and the operator's confirm / revoke are readings of one public corporate act, so they count from
+it). This deliberately differs from the 4/A rule below (an operator decision from when it was made): a split
+gated on the day the operator confirmed it would leave every view between the split and the confirm reading
+the repaired bars on one scale and the list on another — the mixed-scale history S2 exists to remove.
+
+THE PRICE TAPE'S SCALE (S2). A vendor re-version of a bar BEFORE a listed split is overwhelmingly the split
+itself, not market information (MEASURED on the dev copy of prod 2026-10-22: of 29,057 bars before an in-force
+split, 22,654 were first stored AFTER it — an onboarding pull, already split-adjusted — so their FIRST version,
+public at the settle, carried a split that had not happened yet, and a view before the split read it). So for
+a bar ``d`` before a live listed split (``live_splits_sql``: confirmed / announced, the newest version of each)
+whose first session is on or before the security's TAPE EDGE (its latest stored bar), every version is public
+at the session settle and the newest is read. Every price row carries ``split_store_through`` = that edge —
+the scale the stored values are on: the store keeps the whole tape on the list's scale as of its edge (the S2
+price leg rescales the history in the same leg that stores a split's first post-split bar; the repair tool
+restores it; the ``splits_applied`` audit names a split it does not hold — a per-security invariant the
+system checks nightly, chosen over "a version carries the splits in force when it was written", which a
+vendor that adjusts a night EARLY breaks invisibly: MEASURED, BTOC's 2024-10-15/16 bars re-based at 22:49 ET
+the evening before its 2026-10-15 split). The VIEW then puts each bar on ITS scale
+(``domain.splits.on_view_scale``, shared by both engines): x the splits in force by the view's day, / the
+splits the store carries — so a view before a split reads the pre-split scale, a view after it one consistent
+scale, and nothing a view reads carries a split that was not in force by its day. What this gives up, NAMED: a
+non-split vendor correction to such a bar counts from the settle, not from its own publication (MEASURED: 34
+version-to-version changes beyond 3% and 740 between 0.5% and 3% — most of them a vendor's own split-factor
+rounding, SMX / ATRO — across those 29,057 bars).
+
 The Form 4/A tables (``db.insider_resolution``): an amendment and the system's link count from the 4/A's SEC
 acceptance (else its filing date); a SYSTEM decision about it (``basis`` ``system:*`` — the system's reading
 of a public filing under today's rules) counts from that same publication; an OPERATOR decision counts from
@@ -67,6 +98,8 @@ reader of ``recorded_at`` (D3a's knowable date) reads the public clock too.
 **Monotone, so the live read is unchanged by construction.** Within one fact, a version's public instant never
 decreases as ``recorded_at`` increases (a re-version's is ``max(settle, recorded_at)``; every other kind is
 constant per fact or IS ``recorded_at``), so with every version visible the public pick IS the record pick.
+A split re-scaled bar puts every version at one instant (the settle), so its pick is the newest by
+``recorded_at`` — the record pick again.
 """
 
 from __future__ import annotations
@@ -78,6 +111,8 @@ from psycopg import sql
 
 from domain.market_time import market_tz
 from domain.settings import get_settings
+from domain.splits import LIVE_STATUSES
+from domain.splits import STORE_THROUGH_COL as _STORE_THROUGH
 
 # Which axis a history read is judged on. ``record`` = the LIVE read (``recorded_at <= known_at``, today's
 # behavior byte-for-byte); ``public`` = a history view (the public instant below ``<= known_at``).
@@ -178,6 +213,95 @@ def needs_window(table: str) -> bool:
     return PUBLIC_TIME[table].kind in ("settle", "instant")
 
 
+# --- the split list (split plan S2) ------------------------------------------------------------------------
+
+SPLIT_TABLE = "security_split"
+# the statuses a reader applies (``domain.splits.is_applicable``): a split the operator has not settled
+# (needs_review) or has set aside (rejected / revoked) re-scales nothing
+LIVE_SPLIT_STATUSES = LIVE_STATUSES
+# the column every public-clock price row carries: the market date of the bar's newest stored version — the
+# scale its stored value is on (the module note); the view converts from it (``domain.splits.on_view_scale``)
+STORE_THROUGH_COL = _STORE_THROUGH
+
+
+def split_public_sql(alias: str = "s") -> sql.Composable:
+    """The PUBLIC instant of a ``security_split`` version over ``security_split AS {alias}`` inside a window
+    ``ps`` partitioned by the logical split (``split_versions_sql`` defines it): the start of the market day of
+    the earliest ``valid_from`` / ``effective_date`` any version of the split carries (the module note).
+    """
+    return _start_of_day(
+        sql.SQL("min(LEAST({vf}, {eff})) OVER ps").format(
+            vf=sql.Identifier(alias, "valid_from"), eff=sql.Identifier(alias, "effective_date")
+        )
+    )
+
+
+def split_versions_sql(*, where: sql.Composable) -> sql.Composable:
+    """``SELECT s.*, <public instant> AS _public FROM security_split s WHERE {where}`` — the NEWEST version of
+    every logical split ``where`` admits, with the split's public instant. ``where`` must admit a split's
+    versions together (tenant + security do). The ONE builder the history read (``split_repo``) and the
+    backtest's public mirror (``replay.export``) both run; neither gates on ``recorded_at``."""
+    return sql.SQL(
+        "SELECT DISTINCT ON (s.tenant_id, s.security_id, s.key_date) s.*, {pub} AS {col} "
+        "FROM security_split s WHERE {where} "
+        "WINDOW ps AS (PARTITION BY s.tenant_id, s.security_id, s.key_date) "
+        "ORDER BY s.tenant_id, s.security_id, s.key_date, s.recorded_at DESC, s.id DESC"
+    ).format(pub=split_public_sql("s"), col=sql.Identifier(PUBLIC_COL), where=where)
+
+
+def live_splits_sql() -> sql.Composable:
+    """The split list's CURRENT reading: the newest version of each logical split, live statuses only —
+    ``(tenant_id, security_id, effective_date)``. What decides which price bars a listed split re-scales.
+    """
+    return sql.SQL(
+        "SELECT tenant_id, security_id, effective_date FROM ("
+        "SELECT DISTINCT ON (tenant_id, security_id, key_date) tenant_id, security_id, effective_date, "
+        "status FROM security_split "
+        "ORDER BY tenant_id, security_id, key_date, recorded_at DESC, id DESC"
+        ") z WHERE status IN ({live})"
+    ).format(live=sql.SQL(", ").join(sql.Literal(s) for s in LIVE_SPLIT_STATUSES))
+
+
+def _price_versions_sql(*, where: sql.Composable, extra: sql.Composable | None) -> sql.Composable:
+    """``public_versions_sql`` for ``fact_price_eod``: the table's rule, except a bar a live listed split
+    re-scales — one dated before a split whose first session is on or before the security's TAPE EDGE (its
+    latest stored bar) — has every version public at the session settle; every row carries
+    ``split_store_through`` = that edge (the module note). The edge is the store's, read whole (never bounded
+    by ``where``'s as-of): the scale the stored values are on now. ``where`` bounds the bar scan only, and
+    admits a bar's versions together."""
+    settle = sql.SQL("((t.d + %(pc_settle)s::time) AT TIME ZONE %(pc_tz)s)")
+    window = sql.SQL(", ").join(sql.Identifier("t", c) for c in partition_cols("fact_price_eod"))
+    return sql.SQL(
+        "WITH _ps AS ("
+        " SELECT DISTINCT tenant_id AS ps_tenant, security_id AS ps_security FROM fact_price_eod"
+        " WHERE {where}"
+        "), _pe AS ("
+        " SELECT ps_tenant, ps_security, (SELECT max(e.d) FROM fact_price_eod e"
+        " WHERE e.tenant_id = ps_tenant AND e.security_id = ps_security) AS ps_edge FROM _ps"
+        "), _pl AS ("
+        " SELECT pe.ps_tenant AS pl_tenant, pe.ps_security AS pl_security, pe.ps_edge AS pl_edge,"
+        " max(ls.effective_date) AS pl_last"
+        " FROM _pe pe LEFT JOIN ({live}) ls ON ls.tenant_id = pe.ps_tenant"
+        " AND ls.security_id = pe.ps_security AND ls.effective_date <= pe.ps_edge"
+        " GROUP BY pe.ps_tenant, pe.ps_security, pe.ps_edge"
+        ") "
+        "SELECT t.*, CASE WHEN t.d < pl.pl_last THEN {settle} ELSE {rule} END AS {pub}, "
+        "pl.pl_edge AS {through}{extra} "
+        "FROM fact_price_eod t "
+        "JOIN _pl pl ON pl.pl_tenant = t.tenant_id AND pl.pl_security = t.security_id "
+        "WHERE {where} WINDOW pc AS (PARTITION BY {window})"
+    ).format(
+        where=where,
+        live=live_splits_sql(),
+        settle=settle,
+        rule=public_time_sql("fact_price_eod"),
+        pub=sql.Identifier(PUBLIC_COL),
+        through=sql.Identifier(STORE_THROUGH_COL),
+        extra=sql.SQL(", ") + extra if extra is not None else sql.SQL(""),
+        window=window,
+    )
+
+
 def public_versions_sql(
     table: str, *, where: sql.Composable, serve: bool = True, extra: sql.Composable | None = None
 ) -> sql.Composable:
@@ -188,7 +312,11 @@ def public_versions_sql(
     ``where`` must admit or drop a fact's versions TOGETHER (scope, tenant, and ``valid_from`` bounds do — on
     the two tables whose instant reads across versions, price and insider, ``valid_from`` is part of the
     identity), so the cross-version window sees each fact whole. Never a ``recorded_at`` filter: on the public
-    clock no version is hidden for having been ingested late."""
+    clock no version is hidden for having been ingested late.
+
+    ``fact_price_eod`` is built by ``_price_versions_sql`` (a bar a listed split re-scales, S2)."""
+    if table == "fact_price_eod":
+        return _price_versions_sql(where=where, extra=extra)
     expr = public_time_sql(table, serve=serve)
     window = (
         sql.SQL(" WINDOW pc AS (PARTITION BY {})").format(

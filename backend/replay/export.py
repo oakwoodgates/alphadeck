@@ -21,6 +21,8 @@ from db.public_clock import (
     partition_cols,
     public_params,
     public_versions_sql,
+    split_versions_sql,
+    to_public_row,
 )
 from db.session import DEFAULT_TENANT_ID
 
@@ -318,26 +320,35 @@ def _read_splits(
     conn: psycopg.Connection, tenant_id: UUID, clock: str
 ) -> tuple[pa.Schema, list[dict]]:
     """The split list for the mirror. ``record`` — every version, untouched (the parity mode). ``public`` —
-    the version standing at export for each logical split, stamped at its ``valid_from`` (when the split
-    became public): right on the data axis, hindsight on the decision axis (an operator's later confirm or
-    revoke is applied from the split's public date) — the insider-decision caveat ``_read_aux`` names.
+    the newest version of each logical split, ``recorded_at`` = the split's PUBLIC instant and the honest
+    stamp as ``ingested_at`` (``db.public_clock.split_versions_sql``: the SAME builder the live history read
+    runs, ``split_repo.current_rows``) — a split counts from its own publication, and the reader's gate and
+    pick are unchanged (one row per split).
     """
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT * FROM security_split WHERE tenant_id = %(t)s ORDER BY recorded_at, id",
-            {"t": tenant_id},
-        )
-        rows = cur.fetchall()
-        schema = pa.schema(
-            [(d.name, _OID_ARROW.get(d.type_code, pa.string())) for d in cur.description]
-        )
     if clock != "public":
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT * FROM security_split WHERE tenant_id = %(t)s ORDER BY recorded_at, id",
+                {"t": tenant_id},
+            )
+            rows = cur.fetchall()
+            schema = pa.schema(
+                [(d.name, _OID_ARROW.get(d.type_code, pa.string())) for d in cur.description]
+            )
         return schema, rows
-    newest: dict[tuple[Any, Any], dict] = {}
-    for r in rows:  # ascending (recorded_at, id): the last version per logical split wins
-        newest[(r["security_id"], r["key_date"])] = r
-    kept = [{**r, "recorded_at": _as_utc(r["valid_from"])} for r in newest.values()]
-    return schema, kept
+    query = split_versions_sql(where=sql.SQL("s.tenant_id = %(tenant_id)s"))
+    with conn.cursor() as cur:
+        cur.execute(query, {"tenant_id": tenant_id, **public_params()})
+        raw = cur.fetchall()
+        schema = pa.schema(
+            [
+                (d.name, _OID_ARROW.get(d.type_code, pa.string()))
+                for d in cur.description
+                if not d.name.startswith("_")
+            ]
+            + [(INGESTED_COL, pa.timestamp("us", tz="UTC"))]
+        )
+    return schema, [to_public_row(dict(r)) for r in raw]
 
 
 def blind_detectors(excluded: list[str]) -> list[str]:
@@ -456,8 +467,10 @@ class MirrorManifest:
     blind_detectors: list[str] = field(default_factory=list)
     # S2 — the exporter wrote ``security_split.parquet`` (it always does since S2, and says so). True makes the
     # file REQUIRED at open: a lost file must fail loudly, never replay as "no splits listed" (the B5 review
-    # fix). A run manifest does not carry it (``MirrorInfo`` predates it), so a run directory reads False.
+    # fix). A run manifest carries it too (``backtest.manifest.MirrorInfo.split_table``), so a run directory
+    # re-opened as a mirror is held to the same rule; a run from before S2 reads False.
     split_table: bool = False
+    split_rows: int | None = None
 
 
 def read_mirror_manifest(mirror_dir: str | Path) -> MirrorManifest | None:
@@ -493,7 +506,9 @@ def read_mirror_manifest(mirror_dir: str | Path) -> MirrorManifest | None:
         tables=inner.get("tables") or {},
         excluded_tables=list(inner.get("excluded_tables") or []),
         blind_detectors=list(inner.get("blind_detectors") or []),
-        split_table="split_table" in inner,
+        # present and not null in either shape (an exporter's ``{"rows": N}``, a run's ``MirrorInfo``)
+        split_table=isinstance(inner.get("split_table"), dict),
+        split_rows=(inner.get("split_table") or {}).get("rows"),
     )
 
 

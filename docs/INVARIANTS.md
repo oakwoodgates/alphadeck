@@ -347,23 +347,29 @@ replay stays honest.
   filing counts from that filing's publication, so a past view reads today's best reading of what was public
   (`tests/db/test_public_clock.py::test_a_reparse_shares_its_filings_public_instant_so_the_best_parse_is_read`).
   New builds add no record-clock replay proofs (the rule block above).
-- *Also honored by (S2 — the split list on the call path):* a split changes what a reader computes only from
-  the moment THIS system recorded it. `PointInTimeData.split_events` (and its DuckDB twin) returns the newest
-  version of each listed split with `recorded_at <= known_at`; the insider price screens and the market cap
-  apply only splits IN FORCE (confirmed, or announced with the first session arrived) with a first session
-  after the trade / count date and on or before the MARKET DAY OF `known_at` — not of `asof`, deliberately:
-  the bars the same view reads are the versions recorded by `known_at`, which carry every split the system
-  had applied by then (a pin-mode backtest or a later read of a past `asof` reads the repaired tape), so the
-  factor must carry the same ones; on every live path and every serve-path scrub-back the two days coincide.
-  The repair (`pipeline.repair_split_basis`) and the loader write NEW versions stamped now — a replay pinned
-  before the stamp reads the old scale. A mirror exported before S2 carries no `security_split.parquet` and
-  reads no splits; one whose manifest records the file but lost it refuses to open (never a silent pre-S2
-  replay). *Known residual (the review's B3):* the factor assumes the tape carries the split — on a tape still
-  raw at a split (unrepaired, or a first night that did not take) a pre-split Form 4 price is lifted by k;
-  the repair closes it, and the self-audit names every split it cannot verify. *Enforced by:*
-  `tests/signals/test_insider_split_scale.py` (a split recorded after `known_at` is not applied; Postgres vs
-  mirror parity at two pins; the pre-S2 mirror; the lost file), `tests/pipeline/test_repair_split_basis.py`
-  (the as-of read before / after the stamp; count-the-table on apply and re-run).
+- *Also honored by (S2 — the split list and the tape's scale, on the PUBLIC clock, 2026-10-22):* a split counts
+  from its OWN publication — the earliest `valid_from` (its first SEC filing, else its first session) or
+  `effective_date` across its versions — never from the day we listed it; a history view reads the split's
+  newest version (`db/public_clock.split_versions_sql`, the one builder the serve path's `split_repo` and the
+  public mirror run). A price bar before a live listed split whose first session is on or before the security's
+  tape edge has every version public at the session settle and is read from its newest version, then put on the
+  VIEW's scale (`domain.splits.on_view_scale`, the one function both engines run): x the splits in force by the
+  view's day, / the ones the store carries. So no view reads a split that was not in force by its day — the old
+  rule did (MEASURED: 22,654 of 29,057 pre-split bars were first stored after their split, already adjusted,
+  and their first version, public at the settle, carried it) — and repaired bars clean every past view, not just
+  today's. The insider price screens and the market cap apply the splits in force by the view's market day
+  (`tape_scale`), the scale the view's bars are on. The live read (record clock) is unchanged. This differs from
+  the 4/A rule on purpose: an operator's split confirm counts from the split's publication, because a split
+  gated on the confirm would leave every view between the two on two scales. Named residuals: a non-split vendor
+  correction to such a bar counts from the settle (MEASURED: 34 changes > 3% across the 29,057 bars); a store
+  that does not carry a listed split (the `splits_applied` audit names it) reads wrong in history until repaired.
+  A mirror exported before S2 carries no `security_split.parquet` and reads no splits; one whose manifest (or
+  run `MirrorInfo.split_table`) records the file but lacks it refuses to open. *Enforced by:*
+  `tests/pipeline/test_repair_split_basis.py::test_after_the_repair_every_history_view_reads_its_own_days_scale`
+  (BTOC's real tape vs Polygon's independent raw prints, T4-clean, four views), `tests/signals/test_insider_split_scale.py`
+  (the split from its publication; the CEO's buys kept before and after the split on history views; the public
+  mirror row-for-row with Postgres), `tests/db/test_public_clock.py` (public pick == record pick, every version
+  visible), `tests/pipeline/test_fetch_ahead.py` (the normalization identical under the concurrent fetch-ahead).
 
 ## 5. Tenant isolation; production is a fresh tenant, never a destructive wipe
 

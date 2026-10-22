@@ -21,7 +21,7 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta, timezone
 
 from db.bitemporal import _FACT_IDENTITY, append_fact, as_of, as_of_many
-from db.public_clock import INGESTED_COL, PUBLIC_TIME, SCOPE_COL
+from db.public_clock import INGESTED_COL, PUBLIC_TIME, SCOPE_COL, STORE_THROUGH_COL
 from db.session import DEFAULT_TENANT_ID
 from domain.market_time import known_at_for_asof, market_tz
 from signals.base import PointInTimeData
@@ -318,8 +318,12 @@ def _mixed_history(db, sid) -> None:
 
 
 def _strip(rows):
-    """Everything but the transaction axis (which the two clocks name differently by design)."""
-    return [{k: v for k, v in r.items() if k not in ("recorded_at", INGESTED_COL)} for r in rows]
+    """Everything but the transaction axis (which the two clocks name differently by design) — and the
+    public read's ``split_store_through`` annotation (the scale a bar's stored value is on, S2)."""
+    return [
+        {k: v for k, v in r.items() if k not in ("recorded_at", INGESTED_COL, STORE_THROUGH_COL)}
+        for r in rows
+    ]
 
 
 def test_with_every_version_visible_the_public_pick_IS_the_record_pick(db, security_id):

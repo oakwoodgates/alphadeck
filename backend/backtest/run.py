@@ -404,6 +404,11 @@ def execute(
                 tables=_table_counts(mirror_manifest.tables if mirror_manifest else {}),
                 excluded_tables=list(mirror_manifest.excluded_tables) if mirror_manifest else [],
                 blind_detectors=list(mirror_manifest.blind_detectors) if mirror_manifest else [],
+                split_table=(
+                    mf.SplitTableInfo(rows=mirror_manifest.split_rows or 0)
+                    if mirror_manifest and mirror_manifest.split_table
+                    else None
+                ),
             ),
             null_draws=null_draws,
             null_seed=seed,

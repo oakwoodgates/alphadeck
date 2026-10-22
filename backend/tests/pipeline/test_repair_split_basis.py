@@ -1,12 +1,13 @@
 """``pipeline.repair_split_basis`` (S2), DB-backed on the REAL stored tapes: the dry run is read-only, ``--apply``
-appends exactly the plan under one stamp and a second run appends nothing, the as-of read sees the old bars
-before the stamp and the repaired ones after, the T5 hold is cleared, the lock / refusals write nothing, and
-``--revoke`` appends the old values back. COUNT THE TABLE throughout."""
+appends exactly the plan under one stamp and a second run appends nothing, every HISTORY view after it reads
+the tape on its own day's scale (checked against independent raw prints, and T4-clean), the T5 hold is cleared,
+the lock / refusals write nothing, and ``--revoke`` appends the old values back. COUNT THE TABLE throughout.
+"""
 
 from __future__ import annotations
 
 import json
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -88,26 +89,46 @@ def test_apply_appends_exactly_the_plan_under_one_stamp_and_a_rerun_appends_noth
     assert set(ids)  # both seeded
 
 
-def test_as_of_reads_before_and_after_the_stamp(db):
-    ids = _seed(db, "BTOC")
-    sid = ids["BTOC"]
-    res = tool.apply_plans(db, tool.plan_all(db, tickers=["BTOC"], today=T))
-    d = date(2026, 10, 13)
+@pytest.mark.parametrize(
+    "asof", [date(2025, 9, 30), date(2026, 7, 31), date(2026, 10, 14), date(2026, 10, 16)]
+)
+def test_after_the_repair_every_history_view_reads_its_own_days_scale(db, asof):
+    """The public clock (#1): the repair's versions are stamped NOW, yet a history view at any past day reads
+    them — a split re-scale is not new market information (``db.public_clock``) — put on THAT day's scale
+    (``domain.splits.on_view_scale``). Checked against Polygon's independent UNADJUSTED prints (the committed
+    repair evidence): every print dated on or before the view reads print x the splits in force by the view —
+    x1 before BTOC's 1-for-16 (first session 2026-10-15), x16 from it — within 1% or one tick (the repair
+    gate's own tolerance); and T4 finds no island or cliff on the view's tape. Under the record-clock rule a
+    view before 10-15 would have read the mixed vendor versions instead (a x13 cliff at 10-14)."""
+    from domain.market_time import serve_view
+    from pipeline.split_basis import TapeBar, tape_findings
+    from signals.base import PointInTimeData
 
-    def close_at(known_at):
-        rows = as_of(
-            db,
-            "fact_price_eod",
-            security_id=sid,
-            asof=T,
-            known_at=known_at,
-            tenant_id=DEFAULT_TENANT_ID,
+    sid = _seed(db, "BTOC")["BTOC"]
+    assert tool.apply_plans(db, tool.plan_all(db, tickers=["BTOC"], today=T)).appended > 400
+    known_at, clock = serve_view(asof)
+    pit = PointInTimeData(db, asof=asof, known_at=known_at, clock=clock)
+    bars = pit.price_history(sid)
+    by_d = {b["d"]: float(b["close"]) for b in bars if b["close"] is not None}
+    k = 16 if asof >= date(2026, 10, 15) else 1
+    checked = 0
+    for d, raw in fx.spots("BTOC").items():
+        if d > asof or d not in by_d:
+            continue
+        want = raw * (k if d < date(2026, 10, 15) else 1)
+        assert abs(by_d[d] / want - 1) <= 0.01 or abs(by_d[d] - want) <= 0.01 * k, (
+            d,
+            by_d[d],
+            want,
         )
-        return next(float(r["close"]) for r in rows if r["d"] == d)
-
-    old = close_at(res.recorded_at - timedelta(microseconds=1))
-    new = close_at(res.recorded_at)
-    assert new == pytest.approx(old * 16, rel=1e-12)
+        checked += 1
+    assert checked >= 9  # not vacuous: the view saw real prints
+    tape = [
+        TapeBar(b["d"], float(b["close"]), None if b["volume"] is None else float(b["volume"]))
+        for b in bars
+        if b["close"] is not None
+    ]
+    assert tape_findings(tape) == []
 
 
 def test_apply_clears_the_t5_hold_through_its_own_api(db):
