@@ -254,8 +254,10 @@ def test_NOT_APPLICABLE_without_a_settle_time_or_a_window_never_a_pass():
     assert check_no_unsettled_bars(_ctx(since=_utc(2026, 10, 20), settle_at=None)).ok is None
 
 
-def test_the_settle_check_is_registered_LAST():
-    assert DEFAULT_CHECKS[-1] is check_no_unsettled_bars
+def test_the_settle_check_is_registered():
+    # registered once; the ORDER carries no meaning (each check is isolated — see self_audit's docstring),
+    # so later phases may append after it (S2's splits_applied)
+    assert DEFAULT_CHECKS.count(check_no_unsettled_bars) == 1
 
 
 # --- the window: pre-guard history never pages; each bar is judged by one pass ---------------------------
