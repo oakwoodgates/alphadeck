@@ -40,6 +40,18 @@ implementation means the invariants can't fork:
   daytime boot catch-up, or a Workbench pull mid-session therefore stores yesterday's close and nothing of
   today; the next settled pass appends today's bar as an ordinary tail bar (withholding never loses one).
   ``BarsResult.withheld`` carries the count so the pass can say so ONCE, quietly.
+- **The split list (S2, 2026-10-20)** — after the settle guard and BEFORE the tail / overlap split, every fresh
+  bar dated before a split IN FORCE (``domain.splits.applicable``: confirmed, or announced once its first
+  session has arrived) is put on the store's scale (``split_normalize.normalize``): a vendor still / again
+  serving the unadjusted basis is scaled by the listed factor and then equals the stored bar, so nothing is
+  written; a vendor that applied a split twice, or a consistent different factor, is divided back; a genuine
+  correction passes unchanged into T6/T5. Without it a REPAIRED tape was undone in two nights (the T5 guard
+  holds a flip back once, then re-applies it). Bars on or after the last split are untouched. Nothing is
+  rescaled on a read alone: only a run the tape PROVES (the store flat where the vendor steps; a "twice" read
+  only where the store positively carries the split), so a vendor's genuine re-base of a raw store, or of an
+  unlisted later split, always lands (the B1 review fix). ``BarsResult.split_normalized`` counts the bars read
+  that way per reason (most write nothing), into the run artifact and the pass summary; the summary names a
+  divide-back (and logs it at WARNING) only when it changes from the last pass, and every first night.
 
 Price bars are FEED data (like Form 4s), not operator-ratified facts — the recommend→confirm seam does
 not apply to them; what they feed (the market cap) stays display until the operator acts.
@@ -50,7 +62,7 @@ from __future__ import annotations
 import json
 import logging
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from uuid import UUID
 
@@ -58,6 +70,7 @@ import psycopg
 
 from domain.market_time import market_tz
 from domain.security import Security
+from domain.splits import ListedSplit, applicable, listed_from_row
 from ingest.prices.eod_loader import bar_versions, ingest_prices, latest_bar_date, stored_bars
 from ingest.prices.restatement import (
     HeldRevert,
@@ -68,6 +81,8 @@ from ingest.prices.restatement import (
 )
 from ingest.prices.settle import withhold_unsettled
 from ingest.prices.source import PriceSource, YahooPriceSource
+from ingest.prices.split_normalize import REASON_HOLE_AS_SERVED, normalize
+from repositories import split_repo
 
 _log = logging.getLogger(__name__)
 
@@ -87,10 +102,21 @@ class BarsResult:
     reversioned: int
     withheld: int = 0
     held: int = 0
+    # S2 — fresh bars put onto the split list's scale before the compare (``split_normalize``), PER REASON
+    # (vendor_raw / vendor_doubled / mis_factored / first_night): a vendor flip back to an unadjusted basis it
+    # absorbs writes nothing, so these count bars READ differently, not written. Carried into the run artifact
+    # and the pass summary (``pipeline.ingest_thesis.print_split_lines``) — never silent (the B1 review fix).
+    split_normalized: dict[str, int] = field(default_factory=dict)
+    # the splits applied to the stored history for the FIRST time this pass (``Normalized.first_night``)
+    split_first_night: tuple[str, ...] = ()
 
     @property
     def total(self) -> int:
         return self.appended + self.reversioned
+
+    @property
+    def normalized(self) -> int:
+        return sum(self.split_normalized.values())
 
 
 def _num(x: object) -> float | None:
@@ -246,6 +272,29 @@ def ingest_bars_for_security(
         src.get_bars(price_symbol, allow_live=allow_live, force_refresh=force_refresh), now=now
     )
     last = latest_bar_date(conn, sec.id, tenant_id=tenant_id)
+    stored = stored_bars(conn, sec.id, tenant_id=tenant_id) if last is not None else {}
+
+    # S2 — the split list: every fresh bar before a split in force is put on the store's (the list's) scale
+    # BEFORE the tail / overlap split, so the restatement compare below sees the vendor's flip back to an
+    # unadjusted basis as no change at all (``split_normalize``)
+    split_normalized: dict[str, int] = {}
+    split_first_night: tuple[str, ...] = ()
+    in_force = splits_in_force(
+        conn, sec.id, tenant_id=tenant_id, on=now.astimezone(market_tz()).date()
+    )
+    if in_force:
+        norm = normalize(fresh, stored, in_force)
+        fresh, split_normalized, split_first_night = (
+            norm.bars,
+            dict(norm.scaled),
+            tuple(norm.first_night),
+        )
+        if norm.as_served:
+            split_normalized[REASON_HOLE_AS_SERVED] = norm.as_served
+        # no log line here: a divide-back that stands night after night (ATRO's mis-factor, PBM's double
+        # adjustment, once repaired) is a standing condition, not news. The pass summary names a name — and
+        # logs it at WARNING — only when its divide-back CHANGES from the last pass, or on a first night
+        # (``pipeline.ingest_thesis.print_split_lines``, the re-review's N2)
 
     appended = ingest_prices(
         conn,
@@ -258,7 +307,7 @@ def ingest_bars_for_security(
     # re-click returns the very series already ingested → zero diffs → a no-op)
     reversioned = held = 0
     if last is not None and any(r["d"] <= last for r in fresh):
-        plan = plan_overlap(fresh, stored_bars(conn, sec.id, tenant_id=tenant_id), last=last)
+        plan = plan_overlap(fresh, stored, last=last)
         refreshed = force_refresh and allow_live
         old: list[dict] = []
         if plan.old or refreshed:
@@ -269,7 +318,24 @@ def ingest_bars_for_security(
             conn, sec.id, plan.holes + plan.recent + old, tenant_id=tenant_id
         )
 
-    return BarsResult(appended, reversioned, withheld, held)
+    return BarsResult(
+        appended,
+        reversioned,
+        withheld,
+        held,
+        split_normalized=split_normalized,
+        split_first_night=split_first_night,
+    )
+
+
+def splits_in_force(
+    conn: psycopg.Connection, security_id: UUID, *, tenant_id: UUID, on: date
+) -> list[ListedSplit]:
+    """The split list's splits IN FORCE for one security on market day ``on`` — the newest version of each
+    (``split_repo.latest_versions``, as of the database clock now) that is confirmed, or announced with its
+    first session arrived (``domain.splits.applicable``)."""
+    rows = split_repo.latest_versions(conn, tenant_id=tenant_id, security_ids=[security_id])
+    return applicable([listed_from_row(v.model_dump()) for v in rows], on=on)
 
 
 def _resolve_older(

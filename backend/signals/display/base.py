@@ -45,6 +45,8 @@ class DisplayPointInTimeData(Protocol):
 
     def fund_shares(self, security_id: UUID) -> list[dict[str, Any]]: ...
 
+    def split_events(self, security_id: UUID) -> list[dict[str, Any]]: ...
+
 
 class DisplayMetric(DomainModel):
     """One labeled reading. ``value=None`` is an HONEST gap — the ``note`` says why ("n/a: 140/200

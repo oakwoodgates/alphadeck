@@ -87,6 +87,12 @@ class TableCounts(BaseModel):
     identities_lost: int = 0
 
 
+class SplitTableInfo(BaseModel):
+    """The mirror's split list file (S2): the exporter wrote ``security_split.parquet`` with this many rows."""
+
+    rows: int
+
+
 class MirrorInfo(BaseModel):
     """The frozen Parquet mirror this run swept, and what it does NOT contain.
 
@@ -99,6 +105,10 @@ class MirrorInfo(BaseModel):
     tables: dict[str, TableCounts] = Field(default_factory=dict)
     excluded_tables: list[str] = Field(default_factory=list)
     blind_detectors: list[str] = Field(default_factory=list)
+    #: S2 — the split list file the exporter wrote (``security_split.parquet``), carried so a run directory
+    #: re-opened as a mirror can tell a LOST file (refused, loudly) from a mirror that predates the list
+    #: (``None``: no file, no splits — what the system knew then). ``None`` on every run before S2.
+    split_table: SplitTableInfo | None = None
 
 
 class ThesisEntry(BaseModel):

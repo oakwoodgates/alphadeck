@@ -5590,6 +5590,7 @@ export interface components {
             excluded_tables?: string[];
             /** Blind Detectors */
             blind_detectors?: string[];
+            split_table?: components["schemas"]["SplitTableInfo"] | null;
         };
         /**
          * OnboardingNameOut
@@ -7158,6 +7159,14 @@ export interface components {
              * @default false
              */
             truncated: boolean;
+        };
+        /**
+         * SplitTableInfo
+         * @description The mirror's split list file (S2): the exporter wrote ``security_split.parquet`` with this many rows.
+         */
+        SplitTableInfo: {
+            /** Rows */
+            rows: number;
         };
         /**
          * Stat

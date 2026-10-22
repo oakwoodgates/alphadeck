@@ -10833,6 +10833,16 @@
             },
             "type": "array",
             "title": "Blind Detectors"
+          },
+          "split_table": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SplitTableInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -14311,6 +14321,20 @@
         ],
         "title": "SpacMatchOut",
         "description": "One thesis's term-set hits against one radar filing (SPAC Radar, slice 2) \u2014 a RECOMMENDATION\n(INVARIANTS #10): display-only provenance, it changes nothing until the operator clicks an\naction. The matched term STRINGS by tier (the ``matched_terms`` idiom); ``truncated`` = the\ndocument was capped before matching (no silent caps \u2014 a cap must never read as \"no match\")."
+      },
+      "SplitTableInfo": {
+        "properties": {
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "rows"
+        ],
+        "title": "SplitTableInfo",
+        "description": "The mirror's split list file (S2): the exporter wrote ``security_split.parquet`` with this many rows."
       },
       "Stat": {
         "properties": {

@@ -321,8 +321,9 @@ The EOD price source feeds `volume_breakout` (Key 2) and the Workbench market-ca
   allow_live, force_refresh) -> [normalized EOD bars]` interface; `YahooPriceSource` and `StooqPriceSource`
   are adapters; the ingest path depends on the interface, so swapping the source is changing an **adapter**,
   not a rewrite. The contract is "a source of EOD bars", not "Yahoo's adjusted bars" — a future raw-prices +
-  corporate-actions adapter isn't boxed out. (Deliberately no `get_splits` yet — that extends the interface
-  if/when we adopt an own-the-adjustment source.)
+  corporate-actions adapter isn't boxed out. (Still no `get_splits` on the seam: since S2 the price leg owns
+  the adjustment for every split on Alpha Deck's own list and puts each vendor bar on its scale —
+  `FEED_LOOP.md` §The split list.)
 
 > **RESOLVED — the re-version pass `[BUILT]` (was: mixed-basis bars across a FUTURE split).** Because the
 > adjustment happens *outside* our bitemporal store (in a source that re-bases on a split) and our ingest is

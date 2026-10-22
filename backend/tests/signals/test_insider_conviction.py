@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -217,6 +217,7 @@ class _FakePit:
 
     def __init__(self, txns, bars, asof):
         self._txns, self._bars, self.asof = txns, bars, asof
+        self.known_at = datetime(asof.year, asof.month, asof.day, 23, tzinfo=timezone.utc)
 
     def insider_txns(self, security_id):
         return self._txns
@@ -227,6 +228,9 @@ class _FakePit:
     def security_name(self, security_id):
         # this fake exercises the PRICE screen (PBLS day-lows); no issuer-self identity here -> None
         return None
+
+    def split_events(self, security_id):
+        return []  # no split listed for this name (S2)
 
 
 def test_detect_builds_day_lows_from_price_history_and_filters():

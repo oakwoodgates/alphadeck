@@ -132,6 +132,9 @@ class _ProbePIT:
     def security_cik(self, security_id):
         return "1000"
 
+    def split_events(self, security_id):
+        return []  # no split listed (S2)
+
 
 def test_every_insider_reader_declares_its_codes_and_the_set_is_derived_from_them():
     readers = [d for d in registered_detectors() if INSIDER_TABLE in d.horizons(DEFAULT_CONFIG)]

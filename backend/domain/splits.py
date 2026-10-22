@@ -30,11 +30,12 @@ disagreeing values.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal
 from fractions import Fraction
+from typing import Any
 
 STATUS_ANNOUNCED = "announced"
 STATUS_CONFIRMED = "confirmed"
@@ -123,6 +124,187 @@ def price_factor(ratio_from: Decimal | int, ratio_to: Decimal | int) -> Fraction
     """k = old / new: prices before the split are multiplied by k (16 for a 1-for-16 reverse split, 1/2 for a
     2-for-1), volumes divided by it. Exact."""
     return Fraction(Decimal(ratio_from)) / Fraction(Decimal(ratio_to))
+
+
+# --- READING the list (split plan S2): which splits are IN FORCE, and the tape's scale ----------------------
+#
+# The list is read by the price loader (one scale for the stored tape), the repair tool, the insider price
+# screen and the market cap. They share ONE rule for which listed splits count, and ONE product for the scale.
+
+
+@dataclass(frozen=True)
+class ListedSplit:
+    """One split as a reader of the list sees it: the newest version of one logical split (as-of whatever
+    ``known_at`` the read used). ``factor`` = k = old / new (``price_factor``), exact."""
+
+    key_date: date
+    effective_date: date
+    ratio_from: Decimal
+    ratio_to: Decimal
+    status: str
+    sec_accession: str | None = None
+    version_id: str | None = None
+
+    @property
+    def factor(self) -> Fraction:
+        return price_factor(self.ratio_from, self.ratio_to)
+
+    @property
+    def label(self) -> str:
+        return ratio_label(self.ratio_from, self.ratio_to)
+
+
+def listed_from_row(row: Mapping[str, Any]) -> ListedSplit:
+    """A ``security_split`` row (a DB dict, a replay-mirror dict, or a ``SplitVersion`` dump) as a
+    ``ListedSplit``. Numerics arrive as Decimal (Postgres) or float (the Parquet mirror); a float goes through
+    ``repr`` so 6.25 stays 6.25 and the factor stays exact."""
+
+    def dec(v: Any) -> Decimal:
+        return v if isinstance(v, Decimal) else Decimal(repr(v) if isinstance(v, float) else str(v))
+
+    def day(v: Any) -> date:
+        return v if isinstance(v, date) else date.fromisoformat(str(v)[:10])
+
+    vid = row.get("id")
+    return ListedSplit(
+        key_date=day(row["key_date"]),
+        effective_date=day(row["effective_date"]),
+        ratio_from=dec(row["ratio_from"]),
+        ratio_to=dec(row["ratio_to"]),
+        status=str(row["status"]),
+        sec_accession=row.get("sec_accession"),
+        version_id=None if vid is None else str(vid),
+    )
+
+
+def is_applicable(status: str, effective_date: date, *, on: date) -> bool:
+    """Is a listed split IN FORCE on market day ``on``? ``confirmed``, or ``announced`` once its first session
+    has arrived (an announced split already had two sources agree — S1's rule — so a split filed in advance is
+    in force on its own first night). Never before its first session, whatever the status. ``needs_review`` /
+    ``rejected`` / ``revoked`` never are: a split the operator has not settled is not applied to anything.
+    """
+    if effective_date > on:
+        return False
+    return status in (STATUS_CONFIRMED, STATUS_ANNOUNCED)
+
+
+def applicable(splits: Sequence[ListedSplit], *, on: date) -> list[ListedSplit]:
+    """The splits in force on ``on``, oldest first."""
+    return sorted(
+        (s for s in splits if is_applicable(s.status, s.effective_date, on=on)),
+        key=lambda s: (s.effective_date, s.key_date),
+    )
+
+
+def pending(splits: Sequence[ListedSplit], *, on: date) -> list[ListedSplit]:
+    """The LIVE splits that are not in force on ``on`` — ``needs_review``, or ``announced`` with a first
+    session still ahead. A reader leaves their dates alone (it neither applies nor undoes them) and says it is
+    waiting for them; rejected / revoked splits are not splits and are not returned."""
+    return sorted(
+        (
+            s
+            for s in splits
+            if s.status in (STATUS_NEEDS_REVIEW, STATUS_ANNOUNCED)
+            and not is_applicable(s.status, s.effective_date, on=on)
+        ),
+        key=lambda s: (s.effective_date, s.key_date),
+    )
+
+
+def tape_scale(rows: Sequence[Mapping[str, Any]], *, through: date) -> Callable[[date], float]:
+    """``f(trade_date) -> factor``: puts a price AS TRADED on ``trade_date`` onto the scale of the tape the
+    view reads — the product of k over the listed splits in force on ``through`` with a first session after
+    the trade date and on or before ``through`` (``scale_after``). ``rows`` are the split list as the view
+    knows it (``PointInTimeData.split_events``); ``through`` is the market day of the view's ``known_at``:
+    on a HISTORY view (the public clock) that is the as-of day, and the bars are on that day's scale
+    (``on_view_scale``); on the live read it is today, and the stored tape is on today's scale. So a split in
+    force by the view's day is applied and none after it (#1). 1.0 when nothing applies. Dollar amounts
+    (shares x price) are split-invariant: only a PER-SHARE value is scaled.
+    """
+    splits = applicable([listed_from_row(r) for r in rows], on=through)
+    if not splits:
+        return lambda d: 1.0
+    memo: dict[date, float] = {}
+
+    def factor(d: date) -> float:
+        if d not in memo:
+            memo[d] = float(scale_after(splits, d, through=through))
+        return memo[d]
+
+    return factor
+
+
+def scale_after(splits: Sequence[ListedSplit], d: date, *, through: date) -> Fraction:
+    """The cumulative price factor that puts a value AS TRADED on ``d`` onto the scale of ``through``: the
+    product of k over the splits in force on ``through`` whose first session is after ``d`` and on or before
+    ``through`` (chained splits multiply). 1 when none. Prices are multiplied by it, share counts and share
+    volumes divided."""
+    k = Fraction(1)
+    for s in applicable(splits, on=through):
+        if d < s.effective_date <= through:
+            k *= s.factor
+    return k
+
+
+# --- the VIEW's scale (S2, the public clock) ----------------------------------------------------------------
+#
+# A history view at day D reads each price bar on D's scale: the splits in force by D applied, none after. The
+# stored value is on the scale of the bar's newest version (``db.public_clock``: every public-clock price row
+# carries ``split_store_through`` = that version's market date), so the view multiplies by the splits in force
+# by D and divides by the ones the store carries. ONE pure function, both engines (the live PIT and the replay
+# mirror), so a history view and a public-clock backtest read the same numbers.
+
+# the column a public-clock price row carries (``db.public_clock.STORE_THROUGH_COL`` is this name)
+STORE_THROUGH_COL = "split_store_through"
+# the statuses a reader applies (``is_applicable``) — also what decides which bars a listed split re-scales
+LIVE_STATUSES = (STATUS_CONFIRMED, STATUS_ANNOUNCED)
+_PRICE_COLS = ("open", "high", "low", "close")
+
+
+def _as_day(v: Any) -> date:
+    return v if isinstance(v, date) else date.fromisoformat(str(v)[:10])
+
+
+def on_view_scale(
+    rows: Sequence[Mapping[str, Any]],
+    split_rows: Sequence[Mapping[str, Any]],
+    *,
+    through: date,
+) -> list[Mapping[str, Any]]:
+    """Put a security's public-clock price rows on the VIEW's scale — the splits in force on ``through`` (the
+    view's market day) and none after.
+
+    ``split_rows`` is the split list's CURRENT reading for the security (the newest version of every logical
+    split — ``split_repo.current_rows`` / the mirror's split file): the factor between two days is the list's,
+    whichever day a split became public, because a split in force by ``through`` was public by it and one
+    that was not yet public is not in force. Per row with ``split_store_through`` = S (the scale the stored
+    value is on): prices x ``scale_after(d, through) / scale_after(d, S)``, volume divided by it. A row
+    without the column (a record-clock read, an older mirror) or whose factor is 1 is returned AS IS (the same
+    object); a converted row is a new dict with float prices (both engines then hold the same numbers). Pure.
+    """
+    live = [s for s in (listed_from_row(r) for r in split_rows) if s.status in LIVE_STATUSES]
+    if not live or not rows:
+        return list(rows)
+    out: list[Mapping[str, Any]] = []
+    for r in rows:
+        store = r.get(STORE_THROUGH_COL)
+        if store is None:
+            out.append(r)
+            continue
+        d = _as_day(r["d"])
+        k = scale_after(live, d, through=through) / scale_after(live, d, through=_as_day(store))
+        if k == 1:
+            out.append(r)
+            continue
+        c = dict(r)
+        f = float(k)
+        for col in _PRICE_COLS:
+            if c.get(col) is not None:
+                c[col] = float(c[col]) * f
+        if c.get("volume") is not None:
+            c["volume"] = float(c["volume"]) / f
+        out.append(c)
+    return out
 
 
 def same_ratio(a_from: Decimal, a_to: Decimal, b_from: Decimal, b_to: Decimal) -> bool:

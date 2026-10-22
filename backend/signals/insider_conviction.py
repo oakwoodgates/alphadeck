@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date, timedelta
 from typing import Any, NamedTuple
 from uuid import UUID
@@ -8,7 +9,9 @@ from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.enums import Grade, Kind, Role
 from domain.insider_internal_transfers import is_internal_transfer, screened_label
 from domain.insider_joint_reports import joint_accessions, joint_labels, roles_of
+from domain.market_time import market_tz
 from domain.signal import SignalEvent
+from domain.splits import tape_scale
 from signals.base import Detector, SignalPointInTimeData
 from signals.common import entry_signal_is_live, fired_signal, source_provenance
 from signals.registry import register_detector
@@ -35,7 +38,12 @@ def _score(n_distinct: int, total_usd: float, senior: bool, cfg: CallConfig) -> 
     return round(min(s, 0.95), 4)
 
 
-def _is_open_market_buy(txn: dict[str, Any], day_lows: dict[date, float], cfg: CallConfig) -> bool:
+def _is_open_market_buy(
+    txn: dict[str, Any],
+    day_lows: dict[date, float],
+    cfg: CallConfig,
+    price_scale: Callable[[date], float] | None = None,
+) -> bool:
     """Does this code-P purchase belong in the OPEN-MARKET conviction total?
 
     SEC transaction code 'P' is "open market OR PRIVATE purchase" — not a synonym for open-market. A
@@ -50,16 +58,20 @@ def _is_open_market_buy(txn: dict[str, Any], day_lows: dict[date, float], cfg: C
       (bad source data: a $100,000/share price → a $2T buy) the price check misses.
 
     Recall-safe (#9): no day low → KEEP (never silently drop); a genuine open-market print is within
-    [low, high], so the below-low rule cannot exclude one save a name that REVERSE-split between the buy and
-    asof (documented limitation). Excluded rows STAY in ``fact_insider_txn`` + the display tape — only the
-    CALL skips them.
+    [low, high]. **Splits (S2):** the Form 4 states the price AS TRADED while the stored tape is on the split
+    list's scale (every bar before a listed split is adjusted), so ``price_scale(trade_date)`` (``domain.splits
+    .tape_scale``) puts the price on the tape's scale before the compare — without it a genuine buy before a
+    1-for-16 split ($0.30) read as far below its adjusted day low ($4.80) and was dropped. Only the per-share
+    price is scaled; the $ total (shares x price) is split-invariant. Excluded rows STAY in
+    ``fact_insider_txn`` + the display tape — only the CALL skips them.
     """
     if float(txn.get("usd") or 0.0) > cfg.insider_max_plausible_txn_usd:
         return False
     price = txn.get("price")
     low = day_lows.get(txn.get("valid_from"))
     if price is not None and low is not None:
-        if float(price) < low * (1.0 - cfg.insider_offmarket_below_low_frac):
+        scale = price_scale(txn["valid_from"]) if price_scale is not None else 1.0
+        if float(price) * scale < low * (1.0 - cfg.insider_offmarket_below_low_frac):
             return False
     return True
 
@@ -213,6 +225,7 @@ def score(
     cfg: CallConfig = DEFAULT_CONFIG,
     day_lows: dict[date, float] | None = None,
     issuer_name: str | None = None,
+    price_scale: Callable[[date], float] | None = None,
 ) -> SignalEvent | None:
     """Pure: score an open-market insider cluster into a Key-1 SignalEvent (or None).
 
@@ -222,7 +235,8 @@ def score(
 
     - ``day_lows`` maps a trade date to the security's EOD low that day → screens out primary-market
       subscriptions (IPO/PIPE offer-price buys that file as code P but transact below the public tape) and
-      physically-impossible rows (see ``_is_open_market_buy``).
+      physically-impossible rows (see ``_is_open_market_buy``); ``price_scale`` puts each as-traded price
+      on that tape's split scale first (S2; absent = 1.0).
     - ``issuer_name`` is the security's name → screens out a SELF-FILING (the issuer filing a Form 4 on its
       own stock — a buyback/treasury/ADR mechanic, priced AT market so the price screen keeps it), see
       ``_is_issuer_self``.
@@ -280,7 +294,7 @@ def score(
         and t.get("valid_from") is not None
         and t["valid_from"] <= asof
         and not is_internal_transfer(t)
-        and _is_open_market_buy(t, lows, cfg)
+        and _is_open_market_buy(t, lows, cfg, price_scale)
         and not _is_issuer_self(t, issuer_name)
         and not _is_foreign_ordinary(
             t
@@ -366,6 +380,9 @@ def detect(
         cfg,
         day_lows=day_lows,
         issuer_name=pit.security_name(security_id),
+        price_scale=tape_scale(
+            pit.split_events(security_id), through=pit.known_at.astimezone(market_tz()).date()
+        ),
     )
 
 

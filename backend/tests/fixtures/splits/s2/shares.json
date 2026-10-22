@@ -1,0 +1,25 @@
+{
+ "_provenance": "10-Q cover share counts (fact_shares_outstanding) read-only from DEV, 2026-10-20.",
+ "rows": [
+  {
+   "ticker": "BTOC",
+   "valid_from": "2026-05-12",
+   "shares": "45443079",
+   "source": "10-q-cover",
+   "source_ref": "https://www.sec.gov/Archives/edgar/data/1972529/000121390026056782/ea0290228-10q_armlogi.htm",
+   "ads_ratio": null,
+   "ads_ratio_status": null,
+   "note": "Cover-page shares outstanding as of 2026-05-12 (single class)."
+  },
+  {
+   "ticker": "OPTT",
+   "valid_from": "2026-08-18",
+   "shares": "270138823",
+   "source": "10-q-cover",
+   "source_ref": "https://www.sec.gov/Archives/edgar/data/1378140/000149315226010556/form10-q.htm",
+   "ads_ratio": null,
+   "ads_ratio_status": null,
+   "note": "Cover-page shares outstanding as of 2026-08-18 (single class)."
+  }
+ ]
+}

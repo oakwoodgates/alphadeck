@@ -16,6 +16,7 @@ from typing import Any
 from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.enums import Grade
 from domain.signal import Provenance
+from domain.splits import applicable, listed_from_row, scale_after
 from domain.thesis import BasketMember, Thesis
 from domain.workbench import ScoredFigure, ScoredMember
 from signals import catalyst_conviction, dilution_clock
@@ -230,8 +231,35 @@ def _market_cap(pit: PointInTimeData, sid) -> ScoredFigure:
             pips=None, value=None, provenance=[_shares_prov(sh), price_prov, withheld]
         )
     divisor = float(ratio) if status == "known" else 1  # NULL/NULL -> not applicable -> 1:1
-    cap = float(sh["shares"]) / divisor * float(latest["close"])
-    return ScoredFigure(pips=None, value=round(cap), provenance=[_shares_prov(sh), price_prov])
+    provenance = [_shares_prov(sh), price_prov]
+    # S2 — a split between the share count and the close: the count is as of the cover date, the close is
+    # on the post-split scale, so the count is put on the close's scale (a 1-for-16 split: shares / 16). Only
+    # splits in force with a first session AFTER the count's date and on or before the price's — a count
+    # dated on or after the split is already post-split. Recorded by the view's ``known_at`` (#1).
+    listed = [listed_from_row(r) for r in pit.split_events(sid)]
+    k = scale_after(listed, sh["valid_from"], through=latest["d"])  # exact (a Fraction)
+    if k != 1:
+        splits = [
+            s
+            for s in applicable(listed, on=latest["d"])
+            if sh["valid_from"] < s.effective_date <= latest["d"]
+        ]
+        provenance.append(
+            Provenance(
+                source="computed",
+                ref="market-cap:split-adjusted-shares",
+                detail={
+                    "share_factor": float(1 / k),
+                    "note": f"The share count is from {sh['valid_from'].isoformat()}, before the "
+                    + "; ".join(
+                        f"{s.label} (first session {s.effective_date.isoformat()})" for s in splits
+                    )
+                    + f" — counted x{float(1 / k):.6g} to match the post-split close.",
+                },
+            )
+        )
+    cap = float(sh["shares"]) / divisor / float(k) * float(latest["close"])
+    return ScoredFigure(pips=None, value=round(cap), provenance=provenance)
 
 
 def _fit(purity_pips: int | None, runway_pips: int | None, dilution_pips: int | None) -> str:

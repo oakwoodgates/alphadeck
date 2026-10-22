@@ -1,9 +1,11 @@
 """T4 — the SPLIT-BASIS defect monitor: "does a stored price tape mix two split bases?"
 
-THE DEFECT (MEASURED 2026-10-16, read-only on prod). The price leg has no corporate-action handling of its
-own (``ingest/prices/source.py`` — no ``get_splits``): it trusts the vendor to re-base the whole history on
-every split, and its re-version pass (``ingest/prices/ingest_security.py``) mirrors whatever the vendor
-serves, bar for bar. When the vendor serves a HALF-adjusted tape, or flips a bar between the adjusted and
+THE DEFECT (MEASURED 2026-10-16, read-only on prod). The price leg had no corporate-action handling of its
+own (``ingest/prices/source.py`` — no ``get_splits``): it trusted the vendor to re-base the whole history on
+every split, and its re-version pass (``ingest/prices/ingest_security.py``) mirrored whatever the vendor
+served, bar for bar. (Since S2, 2026-10-20, the leg reads the split LIST and keeps the stored tape on its
+scale — ``ingest/prices/split_normalize.py`` — and ``pipeline.repair_split_basis`` repairs the history; this
+monitor stays the backstop for a split that is not on the list.) When the vendor serves a HALF-adjusted tape, or flips a bar between the adjusted and
 the unadjusted basis from one pull to the next, the stored latest-version tape inherits it:
 
 - VWAV did a 1-for-20 reverse split around 2026-09-17. The tape carries 09-15 = 0.532 on 4.5M shares and

@@ -13,7 +13,10 @@ from db.clock import db_now
 from db.public_clock import Clock
 from db.session import DEFAULT_TENANT_ID
 from domain.config import CallConfig
+from domain.market_time import market_tz
 from domain.signal import SignalEvent
+from domain.splits import on_view_scale
+from repositories import split_repo
 
 
 def window_prices(
@@ -100,6 +103,11 @@ class PointInTimeData:
         self._identity: dict[UUID, tuple[str | None, str | None]] = {}  # sid -> (name, cik)
         self._identity_prefetched = False
         self._bench_ids: dict[str, UUID | None] = {}
+        # sid -> the split list this view reads from: recorded by known_at (record), or the list's current
+        # reading with each split's PUBLIC instant as recorded_at (public — gated per read, S2)
+        self._splits: dict[UUID, list[dict[str, Any]]] = {}
+        # the VIEW's market day — the scale a history view's bars are put on (``domain.splits``, S2)
+        self._view_day = self.known_at.astimezone(market_tz()).date()
 
     # --- the memo + prefetch seam (every fact accessor below goes through here) ---------------------
 
@@ -125,8 +133,8 @@ class PointInTimeData:
                     clock=self.clock,
                 )
                 for sid, rows in batch.items():
-                    self._memo[(table, sid)] = (
-                        rows  # an empty list too: "nothing on file", memoized
+                    self._memo[(table, sid)] = self._on_view_scale(
+                        table, sid, rows  # an empty list too: "nothing on file", memoized
                     )
                 self._prefetched.add(table)
             if key not in self._memo:  # outside the basket (a benchmark), or no basket at all
@@ -142,10 +150,20 @@ class PointInTimeData:
                 lower = self._lower(table)
                 if lower is not None:  # the memo rule: hold only the bounded window, on every path
                     rows = [r for r in rows if r["valid_from"] >= lower]
-                self._memo[key] = rows
+                self._memo[key] = self._on_view_scale(table, security_id, rows)
         return list(
             self._memo[key]
         )  # a fresh list per call; the memo's container is never handed out
+
+    def _on_view_scale(
+        self, table: str, security_id: UUID, rows: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """S2 — a HISTORY view's price bars on the VIEW's scale (``domain.splits.on_view_scale``, the SAME pure
+        function the replay mirror runs): the splits in force by the view's day applied, none after it. The
+        live read (the record clock) is returned as stored."""
+        if table != "fact_price_eod" or self.clock != "public" or not rows:
+            return rows
+        return on_view_scale(rows, self._split_rows(security_id), through=self._view_day)
 
     def _thesis_rows(self, table: str, thesis_id: UUID) -> list[dict[str, Any]]:
         key = (table, thesis_id)
@@ -315,6 +333,45 @@ class PointInTimeData:
         """Thesis-scoped (not co-located): the operator-ratified theme convictions for a thesis (M5b)."""
         return self._thesis_rows("fact_theme_conviction", thesis_id)
 
+    def _split_rows(self, security_id: UUID) -> list[dict[str, Any]]:
+        """The split list this view reads from (memoized; the basket's lists load in ONE query on the first
+        touch): on the record clock the newest version of each logical split recorded by ``known_at``; on the
+        public clock the list's current reading, each row's ``recorded_at`` = the split's PUBLIC instant
+        (``split_repo.current_rows``)."""
+        if security_id not in self._splits:
+            ids = list(self._basket) if security_id in self._basket else [security_id]
+            if self.clock == "public":
+                self._splits.update(
+                    split_repo.current_rows(self.conn, tenant_id=self.tenant_id, security_ids=ids)
+                )
+            else:
+                self._splits.update(
+                    split_repo.as_of_rows(
+                        self.conn,
+                        tenant_id=self.tenant_id,
+                        security_ids=ids,
+                        known_at=self.known_at,
+                    )
+                )
+        return self._splits.get(security_id, [])
+
+    def split_events(self, security_id: UUID) -> list[dict[str, Any]]:
+        """The SPLIT LIST for this security as this view knows it (split plan S2): the newest version of each
+        logical split — every status; a reader applies ``domain.splits`` (``applicable`` / ``scale_after``) to
+        decide which are in force by the view's day.
+
+        Why a reader needs it: a Form 4 states the price AS TRADED, the bars a view reads are on the view's
+        scale (the stored tape is on the list's scale, ``ingest.prices.split_normalize``; a history view puts
+        it on its own day's, ``domain.splits.on_view_scale``). Comparing the two needs the factor between
+        them. No lookahead (#1): on the LIVE read (the record clock) a split recorded after ``known_at`` is
+        invisible, exactly like a fact; on a HISTORY view (the public clock) a split counts from its OWN
+        publication — its SEC filing, else its first session (``db.public_clock``), never the day we added
+        the row — and the view reads the split's newest version (today's reading)."""
+        rows = self._split_rows(security_id)
+        if self.clock == "public":
+            rows = [r for r in rows if r["recorded_at"] <= self.known_at]
+        return list(rows)
+
     def security_name(self, security_id: UUID) -> str | None:
         """The security's display name from ``security_master`` — an IDENTITY read, NOT a bitemporal fact.
 
@@ -365,6 +422,8 @@ class SignalPointInTimeData(Protocol):
     def activist_stake_facts(self, security_id: UUID) -> list[dict[str, Any]]: ...
 
     def theme_conviction_facts(self, thesis_id: UUID) -> list[dict[str, Any]]: ...
+
+    def split_events(self, security_id: UUID) -> list[dict[str, Any]]: ...
 
     def security_name(self, security_id: UUID) -> str | None: ...
 

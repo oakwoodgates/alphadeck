@@ -1,6 +1,9 @@
 """The split list (migration 0052, split plan S1) — every version of every split, its as-of read, and the
 operator's four verbs, each with a visible inverse (WB#1).
 
+**The history read (S2, the public clock).** ``current_rows`` / ``as_of_rows(clock="public")``: a split counts
+from its OWN publication (``db.public_clock.split_versions_sql``), and a view reads its newest version.
+
 **The read.** ``latest_versions`` is the list's as-of read: the newest version of each logical split
 (``security_id, key_date``) with ``recorded_at <= known_at`` — and, given an ``asof``, ``valid_from <= asof``
 (publicly known by then) — the same latest-version pick as every bitemporal fact (``DISTINCT ON`` the natural
@@ -31,8 +34,10 @@ from typing import Any
 from uuid import UUID
 
 import psycopg
+from psycopg import sql as pgsql
 from pydantic import BaseModel
 
+from db.public_clock import Clock, public_params, split_versions_sql, to_public_row
 from domain.splits import (
     SET_ASIDE,
     SOURCE_POLYGON,
@@ -224,6 +229,68 @@ def latest_versions(
             {"tenant_id": tenant_id, "known_at": known_at, "asof": asof, "ids": security_ids},
         )
         return [SplitVersion(**r) for r in cur.fetchall()]
+
+
+def current_rows(
+    conn: psycopg.Connection, *, tenant_id: UUID, security_ids: list[UUID]
+) -> dict[UUID, list[dict[str, Any]]]:
+    """The split list's CURRENT reading on the PUBLIC clock (split plan S2): per security, the newest version
+    of each logical split, its ``recorded_at`` rewritten to the split's PUBLIC instant and the honest stamp
+    kept as ``ingested_at`` — exactly the rows the backtest's public mirror stores (``db.public_clock.
+    split_versions_sql``, the one builder both run). Ungated: a history view reads its own day's list from it
+    (``as_of_rows(clock="public")``) and converts its price bars with it (``domain.splits.on_view_scale``,
+    which needs the splits the STORE carries too, public or not by the view's day). An entry for EVERY
+    requested id (``[]`` when none)."""
+    out: dict[UUID, list[dict[str, Any]]] = {sid: [] for sid in security_ids}
+    if not security_ids:
+        return out
+    query = split_versions_sql(
+        where=pgsql.SQL("s.tenant_id = %(tenant_id)s AND s.security_id = ANY(%(ids)s)")
+    )
+    with conn.cursor() as cur:
+        cur.execute(query, {"tenant_id": tenant_id, "ids": list(security_ids), **public_params()})
+        for r in cur.fetchall():
+            out.setdefault(r["security_id"], []).append(to_public_row(dict(r)))
+    return out
+
+
+def as_of_rows(
+    conn: psycopg.Connection,
+    *,
+    tenant_id: UUID,
+    security_ids: list[UUID],
+    known_at: datetime,
+    clock: Clock = "record",
+) -> dict[UUID, list[dict[str, Any]]]:
+    """The split list as the CALL path reads it (split plan S2): per security, the newest version of each
+    logical split as the view knows it — the table's own columns only (no master join), every status, so
+    the replay mirror's twin (``replay.pit.ReplayPointInTimeData.split_events``) returns the same rows. An
+    entry for EVERY requested id (``[]`` when none), so "nothing listed" is memoized.
+
+    - ``clock="record"`` (the LIVE read): the newest version recorded by ``known_at`` (``DISTINCT ON`` the
+      natural key, ``recorded_at DESC, id DESC`` — the ``latest_versions`` pick).
+    - ``clock="public"`` (a HISTORY view): the newest version of each split PUBLIC by ``known_at`` — the
+      split's own publication (``db.public_clock``), never the day we added the row (``current_rows``,
+      gated). No valid-time gate on either clock: a reader decides by first session (``domain.splits``).
+    """
+    if clock == "public":
+        current = current_rows(conn, tenant_id=tenant_id, security_ids=security_ids)
+        return {
+            sid: [r for r in rows if r["recorded_at"] <= known_at] for sid, rows in current.items()
+        }
+    out: dict[UUID, list[dict[str, Any]]] = {sid: [] for sid in security_ids}
+    if not security_ids:
+        return out
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT DISTINCT ON (security_id, key_date) * FROM security_split "
+            "WHERE tenant_id = %s AND security_id = ANY(%s) AND recorded_at <= %s "
+            "ORDER BY security_id, key_date, recorded_at DESC, id DESC",
+            (tenant_id, list(security_ids), known_at),
+        )
+        for r in cur.fetchall():
+            out.setdefault(r["security_id"], []).append(dict(r))
+    return out
 
 
 def history(

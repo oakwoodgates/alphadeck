@@ -21,6 +21,8 @@ from db.public_clock import (
     partition_cols,
     public_params,
     public_versions_sql,
+    split_versions_sql,
+    to_public_row,
 )
 from db.session import DEFAULT_TENANT_ID
 
@@ -305,6 +307,50 @@ def _read_aux(
     return schema, rows, 0
 
 
+# S2 — the SPLIT LIST (migration 0052) beside the fact tables: what the insider price screen reads
+# (``PointInTimeData.split_events``) to put a Form 4's as-traded price on the tape's scale. Not a fact table
+# (``db.bitemporal._FACT_IDENTITY`` stays the fact set, so ``connect_mirror``'s every-file rule is untouched):
+# it rides as ONE optional file, written by every export since S2. A mirror from before has no file and reads
+# as "no splits listed" — exactly what the system knew then, so a frozen backtest mirror still opens and
+# replays as it always did.
+SPLIT_TABLE = "security_split"
+
+
+def _read_splits(
+    conn: psycopg.Connection, tenant_id: UUID, clock: str
+) -> tuple[pa.Schema, list[dict]]:
+    """The split list for the mirror. ``record`` — every version, untouched (the parity mode). ``public`` —
+    the newest version of each logical split, ``recorded_at`` = the split's PUBLIC instant and the honest
+    stamp as ``ingested_at`` (``db.public_clock.split_versions_sql``: the SAME builder the live history read
+    runs, ``split_repo.current_rows``) — a split counts from its own publication, and the reader's gate and
+    pick are unchanged (one row per split).
+    """
+    if clock != "public":
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT * FROM security_split WHERE tenant_id = %(t)s ORDER BY recorded_at, id",
+                {"t": tenant_id},
+            )
+            rows = cur.fetchall()
+            schema = pa.schema(
+                [(d.name, _OID_ARROW.get(d.type_code, pa.string())) for d in cur.description]
+            )
+        return schema, rows
+    query = split_versions_sql(where=sql.SQL("s.tenant_id = %(tenant_id)s"))
+    with conn.cursor() as cur:
+        cur.execute(query, {"tenant_id": tenant_id, **public_params()})
+        raw = cur.fetchall()
+        schema = pa.schema(
+            [
+                (d.name, _OID_ARROW.get(d.type_code, pa.string()))
+                for d in cur.description
+                if not d.name.startswith("_")
+            ]
+            + [(INGESTED_COL, pa.timestamp("us", tz="UTC"))]
+        )
+    return schema, [to_public_row(dict(r)) for r in raw]
+
+
 def blind_detectors(excluded: list[str]) -> list[str]:
     """Which registered detectors read ONLY excluded tables — i.e. which ones cannot fire in this mirror.
 
@@ -390,6 +436,11 @@ def export_snapshot(
         coerced = [{k: _coerce(v) for k, v in row.items()} for row in rows]
         pq.write_table(pa.Table.from_pylist(coerced, schema=schema), out / f"{table}.parquet")
         manifest["aux_tables"][table] = {"rows": len(rows), "rows_dropped_null_clock": dropped}
+    # S2 — the split list, ALWAYS written (empty or not), so a mirror either has it or is from before it
+    schema, rows = _read_splits(conn, tenant_id, clock)
+    coerced = [{k: _coerce(v) for k, v in row.items()} for row in rows]
+    pq.write_table(pa.Table.from_pylist(coerced, schema=schema), out / f"{SPLIT_TABLE}.parquet")
+    manifest["split_table"] = {"rows": len(rows)}
     (out / MANIFEST_NAME).write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n"
     )
@@ -414,6 +465,12 @@ class MirrorManifest:
     tables: dict[str, dict[str, Any]] = field(default_factory=dict)
     excluded_tables: list[str] = field(default_factory=list)
     blind_detectors: list[str] = field(default_factory=list)
+    # S2 — the exporter wrote ``security_split.parquet`` (it always does since S2, and says so). True makes the
+    # file REQUIRED at open: a lost file must fail loudly, never replay as "no splits listed" (the B5 review
+    # fix). A run manifest carries it too (``backtest.manifest.MirrorInfo.split_table``), so a run directory
+    # re-opened as a mirror is held to the same rule; a run from before S2 reads False.
+    split_table: bool = False
+    split_rows: int | None = None
 
 
 def read_mirror_manifest(mirror_dir: str | Path) -> MirrorManifest | None:
@@ -449,6 +506,9 @@ def read_mirror_manifest(mirror_dir: str | Path) -> MirrorManifest | None:
         tables=inner.get("tables") or {},
         excluded_tables=list(inner.get("excluded_tables") or []),
         blind_detectors=list(inner.get("blind_detectors") or []),
+        # present and not null in either shape (an exporter's ``{"rows": N}``, a run's ``MirrorInfo``)
+        split_table=isinstance(inner.get("split_table"), dict),
+        split_rows=(inner.get("split_table") or {}).get("rows"),
     )
 
 

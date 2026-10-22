@@ -86,6 +86,7 @@ from pipeline.cron_run_log import (
     previous_name_errors,
     previous_settle_audit_end,
     previous_split_defects,
+    previous_split_reads,
     previous_stale_tapes,
     write_cron_run_log,
     write_run_start,
@@ -99,6 +100,7 @@ from pipeline.ingest_thesis import (
     OnboardingWindow,
     ingest_thesis,
     print_held_lines,
+    print_split_lines,
     print_withheld_line,
 )
 from pipeline.insider_amendment_scan import (
@@ -1022,6 +1024,10 @@ class DailyPassOutcome:
     # and the floor it was judged under, computed ONCE so the artifact, the Admin poll payload and the page
     # agree. None = not measured (the pass processed no thesis).
     edgar_coverage: EdgarCoverage | None = None
+    # S2 — the LAST live pass's per-name split reads (``cron_run_log.previous_split_reads``, read BEFORE this
+    # pass's artifact exists): the printed report announces a divide-back only when it changed (N2). Not an
+    # artifact field — the artifact carries THIS pass's reads (``split_reads``).
+    split_reads_prev: dict | None = None
 
     def payload_kwargs(self) -> dict:
         """Every run-level field ``cron_run_log.build_run_payload`` / ``write_cron_run_log`` take, from this
@@ -1327,6 +1333,9 @@ def _run_daily_pass_locked(
     # The read is fail-open by construction (`previous_ingest_skips` skips a bad artifact) and changes
     # only what is PRINTED — what is stored, skipped or raised is identical.
     prior_skips = timed("baselines")(previous_ingest_skips)()
+    # S2 — the split reads' baseline, read for the same reason (before this pass's artifact exists): fail-open
+    # by construction, and it changes only what is PRINTED
+    prior_split_reads = previous_split_reads()
     # R8-B — THE FORM 4/A SWEEP (`pipeline/insider_amendment_scan.run_amendment_sweep`): apply every Form 4/A
     # resolved to a definite original that a pre-R8-B ingest left without a decision (one SYSTEM `apply` each,
     # `recorded_at = now` — a replay pinned before tonight still reads the pending state it held). BEFORE the
@@ -1548,6 +1557,7 @@ def _run_daily_pass_locked(
         timings=pass_timings.snapshot(),
         amendments=amendments,
         edgar_coverage=edgar_coverage,
+        split_reads_prev=prior_split_reads,
     )
     # R3 — the cron's run-of-record, so the next freeze is noticed by the platform, not by eye. Written
     # AFTER the run from the collected results (write-only, no DB); fail-open, so it never fails the cron.
@@ -1716,6 +1726,7 @@ def _report(
     successor: SuccessorScan | None = None,
     skips: SkipDiff | None = None,
     amendments: AmendmentScan | None = None,
+    split_reads_prev: dict | None = None,
 ) -> int:
     """Print a per-thesis summary; return the number of theses that ERRORED.
 
@@ -1903,6 +1914,9 @@ def _report(
     # Q11 / T5 — names whose older restated bars were held (a vendor revert awaiting a second pull): one
     # quiet line each, deduped across theses
     print_held_lines(x for r in results for x in r.ingested)
+    # S2 — the split list's reads (one quiet totals line; a line per divide-back that CHANGED since the last
+    # live pass, and per first night), deduped
+    print_split_lines((x for r in results for x in r.ingested), previous=split_reads_prev)
     if skipped:
         # M2 — one quiet line (lowercase, the known-errors convention): the catch-up left these alone
         print(
@@ -2114,6 +2128,7 @@ def main(argv: list[str] | None = None) -> None:
         successor=outcome.successor,
         skips=outcome.skips,
         amendments=outcome.amendments,
+        split_reads_prev=outcome.split_reads_prev,
     )  # the per-thesis summary + the errored count, printed either way
     # X5 — ONE timings line: the total, the three slowest legs, the slowest thesis, the peak RSS
     timings_line = pass_timings.summary_line(outcome.timings)
