@@ -117,6 +117,27 @@ work). No black-box outputs; if you can't show the source, don't surface the res
 
 ## 4. No lookahead — every read is as-of a timestamp  (CLAUDE.md invariant #1)
 
+> **RULE CHANGE — the PUBLIC clock judges history (operator decision 2026-10-21).** The platform is still
+> being proved, so the question history must answer is "how would the platform have judged this with what was
+> PUBLIC at the time?" — not "what did our database happen to contain at that moment?". The second question
+> only replays our own build history (the July freeze, laptop sleeps, the order companies were onboarded, the
+> day Form 4/A reading started). So:
+> - **No lookahead stays non-negotiable**, judged on the public clock: a fact version counts only from when it
+>   became public — its filing / acceptance time, its settled session; a correction (4/A, restatement, vendor
+>   re-version) from its OWN publication, never the original's.
+> - **`recorded_at` is honest bookkeeping, not the history gate.** New rows are stamped `now` (never
+>   backdated) because it is cheap and lets us measure "were we late?" — but nothing is built to REPLAY it.
+>   Builds no longer add record-clock parity tests, "a replay pinned at an earlier store time still reads the
+>   old state" proofs, or counterfactuals at a call's own `(asof, recorded_at)`; call effects are measured on
+>   the public clock.
+> - **History views move to the public clock** (the Board/Cockpit scrub-back, missed-night backfills, history
+>   re-runs). The Scoreboard editions re-run already uses it.
+> - **The immutable calls log is the record** of what the system actually said each night — unaffected.
+> - The live nightly is unchanged: at `asof = today` the two clocks coincide.
+>
+> The record-clock material below (the serve-path cap, `known_at` pins, the D3a held-date term) is the
+> HISTORY of how this was built; where it conflicts with this block, this block wins.
+
 The store is bitemporal (`valid_from` = event time, `recorded_at` = when we learned it). Detectors read
 **only** through the as-of accessor; a fact dated after the query `asof`, or a correction recorded after
 `known_at`, is invisible. Facts are **append-only** — a correction is a new row, never an in-place `UPDATE`.
