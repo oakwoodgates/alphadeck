@@ -52,6 +52,7 @@ from typing import TYPE_CHECKING
 
 from domain.feed_kinds import StaleFeedLabel, feed_kind
 from ingest.skips import dedup_skips
+from pipeline.edgar_coverage import EdgarCoverage, pass_fresh
 from pipeline.ingest_skips import SkipDiff
 from pipeline.insider_amendment_scan import AmendmentScan
 from pipeline.name_errors import NameIngestError, name_errors_of
@@ -282,6 +283,7 @@ def build_run_payload(
     skips: SkipDiff | None = None,
     timings: dict | None = None,
     amendments: AmendmentScan | None = None,
+    edgar_coverage: EdgarCoverage | None = None,
 ) -> dict:
     """The run-of-record payload — PURE (no I/O), extracted from the artifact writer so the admin
     "run now" job can shape its poll result IDENTICALLY to a parsed artifact (one schema, two readers).
@@ -301,6 +303,16 @@ def build_run_payload(
       hundreds. Without this the module built to fix "unfalsifiable — indistinguishable from we stopped
       looking" would have reproduced that very blindness.
     - a **total-ingest failure** (`names_errored == names_ingested`, the Source-C shape R2 gates on).
+
+    THE FREEZE PAGE's RATIO FLOOR (`pipeline/edgar_coverage.py`) — run-level `edgar_companies` (the distinct
+    EDGAR-eligible companies, by CIK, the processed theses ingested), `edgar_companies_fresh` (how many of
+    them got >= 1 completed EDGAR fetch anywhere in the pass) and `freeze_completed_floor` (the floor the pass
+    was judged under): FROZEN when fresh < floor x eligible. The Admin history re-judges the floor from these
+    three keys, so a later change of the setting never recolors a past night; an artifact without them (written
+    before the floor) keeps the rule it was paged under. Per thesis, `edgar_companies` / `edgar_companies_fresh`
+    are the same two counts over THAT thesis's companies — fresh meaning fresh anywhere in the pass, because a
+    company another thesis fetched minutes earlier is a cache hit in this one (diagnostic only; the verdict
+    reads the deduplicated run-level pair). `null` on a thesis a catch-up skipped.
 
     `catch_up` marks a `--catch-up` pass (the sidecar's boot / late-wake catch-up). Since O5 a catch-up's
     freeze verdict judges the theses it processed like any pass (its M2-skipped theses are left out); the
@@ -420,6 +432,8 @@ def build_run_payload(
     edgar_fetches_completed = sum(
         r.edgar_fetches_completed for r in results if r.edgar_fetches_completed is not None
     )
+    # the ratio floor's per-thesis diagnostic: a thesis's company is fresh if ANY thesis fetched it this pass
+    fresh_anywhere = pass_fresh(results)
     return {
         "status": RUN_STATUS_FINISHED,
         "started_at": started_at.isoformat(),
@@ -461,6 +475,17 @@ def build_run_payload(
         # Its PRESENCE on the per-thesis entries marks the O5 rule: the Admin history re-derives an artifact
         # without it by the pre-O5 rule (attempts; a catch-up exempt wholesale) — the verdict it paged.
         "edgar_fetches_completed": edgar_fetches_completed,
+        # THE RATIO FLOOR — the per-company freshness the freeze verdict reads beside the zero rule, and the
+        # floor THIS pass was judged under (the Admin history re-judges with it). Null = not measured.
+        **(
+            edgar_coverage.payload()
+            if edgar_coverage is not None
+            else {
+                "edgar_companies": None,
+                "edgar_companies_fresh": None,
+                "freeze_completed_floor": None,
+            }
+        ),
         # G4 — the shared-input refresh leg (SPY/IWM, feeding benchmark_rs): individual pulls that failed,
         # and whether the leg itself died before producing any result. Run-LEVEL, like edgar_fetches: the
         # leg runs once per pass on its own connection, outside the per-thesis loop.
@@ -506,6 +531,12 @@ def build_run_payload(
                 "edgar_fetches": r.edgar_fetches,  # per-thesis ATTEMPTS
                 # O5 — per-thesis COMPLETED fetches (the freeze detector); null = a skipped thesis
                 "edgar_fetches_completed": r.edgar_fetches_completed,
+                # the RATIO FLOOR, per thesis (diagnostic): its distinct EDGAR-eligible companies, and how
+                # many got fresh SEC data ANYWHERE in the pass; null = a skipped thesis (not measured)
+                "edgar_companies": len(r.edgar_ciks) if r.edgar_ciks is not None else None,
+                "edgar_companies_fresh": (
+                    len(r.edgar_ciks & fresh_anywhere) if r.edgar_ciks is not None else None
+                ),
                 "names_ingested": len(r.ingested),
                 "names_errored": sum(1 for x in r.ingested if x.error),
                 # O1 — WHY each errored name errored, one row per failed leg (the count above kept only
@@ -622,6 +653,7 @@ def write_cron_run_log(
     skips: SkipDiff | None = None,
     timings: dict | None = None,
     amendments: AmendmentScan | None = None,
+    edgar_coverage: EdgarCoverage | None = None,
 ) -> Path | None:
     """Dump one cron pass (``build_run_payload``, above — the payload's meaning lives there) to
     ``<base>/<utc-timestamp>.json``; return the path (or ``None`` fail-open). The whole write — payload
@@ -659,6 +691,7 @@ def write_cron_run_log(
             skips=skips,
             timings=timings,
             amendments=amendments,
+            edgar_coverage=edgar_coverage,
         )
         run_dir = base_dir or _DEFAULT_CRON_RUNS
         run_dir.mkdir(parents=True, exist_ok=True)

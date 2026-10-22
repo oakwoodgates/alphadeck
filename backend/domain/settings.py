@@ -178,6 +178,22 @@ class Settings(BaseSettings):
     # the night it skipped. 10 = two trading weeks, enough to see a laptop's suspend drift pattern without
     # dragging in old history; 0 disables the scan. Read via the env_prefix (ALPHADECK_ADMIN_MISSED_WINDOW).
     admin_missed_window: int = 10
+    # THE FREEZE PAGE's RATIO FLOOR (operator decision 2026-10-21; ``pipeline/edgar_coverage.py``): a LIVE pass
+    # pages FROZEN when FEWER than this fraction of the EDGAR-eligible companies it ingested (distinct CIKs whose
+    # EDGAR legs ran, across the theses it processed) got >= 1 COMPLETED SEC fetch anywhere in the pass — beside
+    # O5's zero rule, which missed the July shape: a stale cache served, nothing errored, almost nothing fetched.
+    # MEASURED separation, on prod's 81 stored artifacts (read-only, 2026-10-21; no artifact yet carries
+    # per-company completions, so the history is read through the proxy those artifacts hold — EDGAR fetch
+    # ATTEMPTS over basket ROWS): every live pass since G1 (25 of them, from 2026-09-14) sat at >= 95.9%; the
+    # starved passes sat at 0.2-1.6% (eleven, July-August) and 10.7% (2026-07-31 22:30 ET) — all twelve pre-G1,
+    # on the 12h TTL. Per company (the rule as built), the 2026-10-20 22:30 ET pass re-pulled 686 of its 687
+    # companies' indexes DURING the pass (the 687th was re-fetched since, so unknown), MEASURED from the cache's
+    # file times — a healthy pass sits near 100%, so 50% leaves wide margin on both sides.
+    # Exactly at the floor does not page. 0 disables the floor (the zero rule still pages); a value outside
+    # [0, 1] is clamped. Recorded on each run artifact, so changing it never recolors a past night. Read via
+    # the env_prefix (ALPHADECK_FREEZE_COMPLETED_FLOOR); NOT injected by docker-compose. Pinned equal to
+    # ``edgar_coverage.DEFAULT_FREEZE_COMPLETED_FLOOR`` by a test.
+    freeze_completed_floor: float = 0.5
     # G5a — the PRICE-TAPE RECENCY threshold: how many CALENDAR days a name's latest stored EOD bar may be
     # behind the run's as-of before the nightly pass calls that tape STALE (pipeline/tape_health.py). A tape
     # that silently ENDED — the vendor prices the name under a new symbol after a rename, or it delisted —

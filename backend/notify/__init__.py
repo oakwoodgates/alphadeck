@@ -241,7 +241,8 @@ class HealthEvent:
     """The cron's RUN-LEVEL health, emitted once per run — but ONLY when something is notable (R4). A silent
     daily job is a daily job you don't have: the R1 freeze went 11+ days undetected because the operator was
     the monitoring system. This is the page. It fires on a FREEZE (a live run in which no EDGAR fetch
-    COMPLETED across the theses it processed — the cache never refreshed, or every pull failed; O5), on
+    COMPLETED across the theses it processed — the cache never refreshed, or every pull failed; O5 — or in
+    which fewer than the floor of its EDGAR-eligible companies got fresh SEC data: the ratio floor), on
     WITHHELD calls, or on thesis ERRORS; a healthy run emits nothing (``assess_health`` returns None) —
     loudness marks the exception.
 
@@ -265,7 +266,8 @@ class HealthEvent:
     )
     errored: int
     edgar_fetches: int  # EDGAR pulls ATTEMPTED across the roster (the artifact's `edgar_fetches`)
-    frozen: bool  # live + processed theses + ZERO completed EDGAR fetches = the freeze, pageable
+    # live + processed theses + ZERO completed EDGAR fetches, or too few companies fresh (the ratio floor)
+    frozen: bool
     # G4: benchmark-refresh faults — real alarms (the calls that night read a stale shared input)
     benchmark_errors: int = 0
     benchmark_leg_failed: bool = False
@@ -275,6 +277,13 @@ class HealthEvent:
     # an artifact written before O5.
     edgar_fetches_completed: int | None = None
     freeze_theses: int | None = None
+    # THE RATIO FLOOR (``pipeline/edgar_coverage.py``) — what the floor READ: the distinct EDGAR-eligible
+    # companies the processed theses ingested, how many got fresh SEC data (>= 1 completed fetch) anywhere in
+    # the pass, and the floor the pass was judged under (0.5 = page below 50%). None = the floor was not judged
+    # (a crash page; an Admin re-derivation of an artifact written before the floor existed).
+    edgar_companies: int | None = None
+    edgar_companies_fresh: int | None = None
+    freeze_completed_floor: float | None = None
     # G5a/F1: names whose monitored FEED went stale since the previous evaluated pass — each entry a
     # (kind, label) pair, so the page can group by feed and give each its own repair advice (a price tape's
     # fix is not a fund-shares tape's). NEWLY stale only — a known-dead feed must not re-page nightly. It
@@ -326,8 +335,23 @@ class HealthEvent:
         (``app/routers/admin.py::_problems``). O5 — when the verdict read COMPLETED fetches and pulls were
         ATTEMPTED, it says so: "0 of 255 completed" is an EDGAR feed that delivered nothing (a blocked
         User-Agent, an outage), not a cache that never reached out, and the two are repaired differently.
+
+        THE RATIO FLOOR — when some EDGAR data DID arrive (completed > 0) the freeze can only be the floor's
+        (too few companies got fresh data), so the line says that in plain words, with the counts it read.
         """
         n = self.freeze_theses if self.freeze_theses is not None else self.theses
+        if (
+            self.edgar_fetches_completed
+            and self.edgar_companies
+            and self.edgar_companies_fresh is not None
+            and self.freeze_completed_floor is not None
+        ):
+            fresh, eligible = self.edgar_companies_fresh, self.edgar_companies
+            return (
+                f"FROZEN — the SEC feed looks starved: only {fresh} of {eligible} companies "
+                f"({fresh / eligible:.1%}) got fresh SEC data this pass — below the "
+                f"{self.freeze_completed_floor:.0%} floor"
+            )
         if self.edgar_fetches_completed is not None and self.edgar_fetches:
             return (
                 f"FROZEN — 0 of {self.edgar_fetches} EDGAR fetches COMPLETED across {n} theses "

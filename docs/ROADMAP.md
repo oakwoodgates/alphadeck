@@ -223,10 +223,12 @@ insider `Ins 30d`/`Ins 90d`, three lenses (call-state · business-type · value-
    successes** gap is **CLOSED (O5, 2026-10-21)**: the freeze verdict reads COMPLETED fetches
    (`edgar_fetches_completed`; observed 2026-07-22, an empty `ALPHADECK_USER_AGENT` failed all 255 pulls and
    the run logged `255 EDGAR fetches`), and the `--catch-up` exemption is narrowed to the theses a catch-up
-   SKIPPED (G1's five-minute TTL removed the reason it was wholesale). Still open: the **R4 0-fetch
+   SKIPPED (G1's five-minute TTL removed the reason it was wholesale). The zero threshold itself is
+   **CLOSED by the ratio floor (2026-10-21)**: a live pass also pages FROZEN when fewer than 50% of its
+   EDGAR-eligible companies got fresh SEC data (`Settings.freeze_completed_floor`; `FEED_LOOP.md` "Known
+   gaps" — measured: it flags twelve stored passes, all pre-G1, none since). Still open: the **R4 0-fetch
    false-positive** for a second pass within five minutes of another (page on 0 only when the cache was
-   outside its TTL), and the zero threshold itself — a pass that completes a handful of fetches across
-   hundreds of names is not paged (`FEED_LOOP.md` "Known gaps"; a ratio floor is PROPOSED there). And an
+   outside its TTL). And an
    **external dead-man's-switch** heartbeat (a run that never happens produces no page — the
    sidecar can't alert about its own absence; the only thing that catches a host that is OFF at `RUN_AT` and
    stays off past the next boot's last-expected window); and the **`RUN_AT` choice** (an earlier fire while

@@ -204,6 +204,13 @@ class NameResult:
     # facts) are still read, and the name is still reported (#9). ``pipeline.daily`` puts both on the artifact.
     lock_waited_s: float = 0.0
     lock_busy: str | None = None
+    # THE FREEZE FLOOR's per-company facts (``pipeline/edgar_coverage.py``). ``edgar_cik``: the CIK this unit's
+    # EDGAR legs (Form 4 / 8-K / 13D/G) ran against — None when none ran (no CIK, not in the tenant master, or
+    # ``lock_busy``), which keeps the name out of the floor's denominator. ``edgar_completed``: how many EDGAR
+    # fetches COMPLETED (a 2xx body — ``EdgarClient.live_completed``) while this name's legs ran; 0 on a cache
+    # hit. Facts only — the pass judges them across every thesis (``pipeline.daily.assess_health``).
+    edgar_cik: str | None = None
+    edgar_completed: int = 0
 
 
 def _tolerable_filing_error(e: Exception) -> bool:
@@ -479,7 +486,10 @@ def ingest_thesis(
     ]
 
     def one(m: BasketMember) -> NameResult:
-        return _ingest_one(
+        # the freeze floor's per-company fact: the EDGAR fetches that COMPLETED while THIS name's legs ran
+        # (the client is shared across the walk, so the delta is this name's own)
+        before = getattr(client, "live_completed", 0)
+        r = _ingest_one(
             conn,
             client,
             source,
@@ -491,6 +501,8 @@ def ingest_thesis(
             now=now,
             known_skips=known_skips,
         )
+        r.edgar_completed = getattr(client, "live_completed", 0) - before
+        return r
 
     # W1 — THE PER-COMPANY WRITE LOCK (``db/write_lock.py``): a company's legs run only while this
     # connection holds its lock, so a concurrent writer (the nightly vs a Workbench ingest vs a CLI run) can
@@ -810,6 +822,8 @@ def _ingest_one(
         former_names=stop.formers,
         name_change_filings=stop.renames,
         ingest_skips=tuple(skips),
+        # the EDGAR legs above ran against this CIK (each is gated on it) — the freeze floor's denominator
+        edgar_cik=sec.cik or None,
     )
 
 
