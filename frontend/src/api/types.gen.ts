@@ -3583,6 +3583,10 @@ export interface components {
          *     ``splits_needs_review`` (split plan S1) is how many splits on the split list one source could not settle
          *     (one source only, a disagreement, an extractor abstain) — the "Splits" panel (``GET /admin/splits``) holds
          *     them. ``null`` when the count could not be read; never a cron verdict.
+         *
+         *     ``fundamentals_set_aside`` (migration 0062) is how many stored fundamentals versions are set aside — the
+         *     revenue rows the data-quality screen would have refused, stored before it existed, which every read skips
+         *     (``python -m pipeline.set_aside_fundamentals``). A quiet line; ``null`` when the count could not be read.
          */
         AdminStatusOut: {
             record: components["schemas"]["AdminRecordOut"];
@@ -3599,6 +3603,8 @@ export interface components {
             price_repairs?: components["schemas"]["AdminPriceRepairsOut"] | null;
             /** Splits Needs Review */
             splits_needs_review?: number | null;
+            /** Fundamentals Set Aside */
+            fundamentals_set_aside?: number | null;
         };
         /**
          * AdminSuccessorCandidateOut
@@ -7467,6 +7473,8 @@ export interface components {
          *     whole FACTS that therefore vanished. A 47% raw-row drop with 0.67% identities lost is a healthy export
          *     (the dropped rows were superseded versions); a small row drop with a large identity loss is a hole in
          *     the tape. ``versions_collapsed`` is how many re-versions the export resolved before writing.
+         *     ``rows_set_aside`` is how many stored versions the export left out as SET ASIDE (migration 0062 — the
+         *     fundamentals rows the data-quality screen would have refused; the live read skips them too).
          */
         TableCounts: {
             /** Rows In */
@@ -7488,6 +7496,11 @@ export interface components {
              * @default 0
              */
             identities_lost: number;
+            /**
+             * Rows Set Aside
+             * @default 0
+             */
+            rows_set_aside: number;
         };
         /**
          * TermEdit

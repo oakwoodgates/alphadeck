@@ -1126,3 +1126,22 @@ describe("Admin — the split list's review count (split plan S1)", () => {
     expect(screen.queryByTestId("adm-splits-count")).toBeNull();
   });
 });
+
+describe("Admin — the fundamentals set-aside count (migration 0062)", () => {
+  it("is a quiet line only when a stored row is set aside", () => {
+    h.status = { ...h.status, data: { ...STATUS_CURRENT, fundamentals_set_aside: 79 } };
+    renderAdmin();
+    const line = screen.getByTestId("adm-fundamentals-set-aside");
+    expect(line.textContent).toContain("79 stored revenue row(s) set aside");
+    expect(line.className).toContain("adm-quiet");
+  });
+
+  it("renders nothing at zero, or from an older backend without the field", () => {
+    h.status = { ...h.status, data: { ...STATUS_CURRENT, fundamentals_set_aside: 0 } };
+    renderAdmin();
+    expect(screen.queryByTestId("adm-fundamentals-set-aside")).toBeNull();
+    h.status = { ...h.status, data: { ...STATUS_CURRENT } };
+    renderAdmin();
+    expect(screen.queryByTestId("adm-fundamentals-set-aside")).toBeNull();
+  });
+});

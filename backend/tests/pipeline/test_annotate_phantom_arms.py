@@ -45,6 +45,27 @@ _BACKEND = Path(__file__).resolve().parents[2]
 _CSV = _BACKEND / "tests" / "fixtures" / "prices" / "CEG_2025-07_2026-10.csv"
 _ARM_NIGHTS = (date(2026, 10, 14), date(2026, 10, 15))  # the two real phantom nights
 
+# RULE (c) (operator sign-off 2026-10-22) keeps a quarter that ended more than 135 days before its knowability
+# from being the cited one — so it ALSO removes the CEG phantom (Q1-2025 dated at its 2026-05-11 comparative,
+# 406 days). The nights were recorded before rule (c) existed, and D3b's subject is D3a ALONE: these tests
+# record and classify with rule (c) held OFF (``None`` = no cap, the code those nights ran), so they keep
+# proving what D3a changes. What a run with today's default does instead — the row reads as DRIFT, never
+# annotated, by D3b's own isolation rule — is pinned by ``test_with_rule_c_on_the_phantom_reads_as_drift``.
+_PRE_RULE_C = DEFAULT_CONFIG.model_copy(update={"revenue_accel_max_quarter_age_days": None})
+
+
+@pytest.fixture(autouse=True)
+def _classify_without_rule_c(monkeypatch):
+    """Every classification in this module (direct and through ``main``) runs on the pre-rule-(c) config."""
+    real = apa.classify_rows
+
+    def classify_rows(conn, **kw):
+        kw.setdefault("cfg", _PRE_RULE_C)
+        return real(conn, **kw)
+
+    monkeypatch.setattr(apa, "classify_rows", classify_rows)
+    return real
+
 
 # --- the fixture: real CEG facts + the row the pre-D3a cron wrote ---------------------------------------
 
@@ -100,7 +121,7 @@ def _thesis(db, sid: uuid.UUID) -> Thesis:
     return thesis
 
 
-def _record_pre_d3a(db, thesis: Thesis, asof: date, cfg: CallConfig = DEFAULT_CONFIG) -> None:
+def _record_pre_d3a(db, thesis: Thesis, asof: date, cfg: CallConfig = _PRE_RULE_C) -> None:
     """One nightly-shaped row exactly as the pre-D3a cron wrote it (assemble, then record_if_changed)."""
     basket = {m.security_id for m in thesis.basket}
     pit = _Pre390PointInTimeData(
@@ -165,8 +186,10 @@ def test_the_d3a_off_view_restates_the_pre_d3a_reading_and_nothing_else(db, phan
     )  # the shared memo row is untouched (the view copies)
     assert view.asof == pit.asof and view.price_history(sid) == pit.price_history(sid)  # delegation
     # the revenue detector fires off the stale date through the view, and not through D3a's read
-    assert ra.detect(view, sid, date(2026, 10, 14)) is not None
-    assert ra.detect(pit, sid, date(2026, 10, 14)) is None
+    assert ra.detect(view, sid, date(2026, 10, 14), _PRE_RULE_C) is not None
+    assert ra.detect(pit, sid, date(2026, 10, 14), _PRE_RULE_C) is None
+    # rule (c) blocks the stale-dated quarter even through the view (406 days past its period end)
+    assert ra.detect(view, sid, date(2026, 10, 14)) is None
 
 
 # --- the CLI: dry run, apply, re-apply — counting the table ---------------------------------------------
@@ -250,6 +273,20 @@ def test_a_revoke_sticks_across_a_rerun(db, phantom, tmp_path):
         apa._DEFAULT_LOG_DIR = _BACKEND.parent / "data" / "annotations"
 
 
+def test_with_rule_c_on_the_phantom_reads_as_drift(db, phantom, _classify_without_rule_c):
+    """Today's DEFAULT config (rule (c) on) removes the stale-dated quarter from the D3a-OFF re-assembly too, so
+    it no longer reproduces the pre-D3a record: by D3b's isolation rule (code drift is never blamed on D3a) the
+    night reads as DRIFT and is never annotated. Applied annotations are never re-judged, so those already on
+    the record stand; a re-run only reports that they now classify as drift."""
+    thesis, _ = phantom
+    results = _classify_without_rule_c(db, thesis_id=thesis.id, cfg=DEFAULT_CONFIG)
+    assert [(r.asof, r.classification) for r in results] == [(n, "drift") for n in _ARM_NIGHTS]
+    assert all(r.pre is not None and r.pre.state != "armed" for r in results)
+    apa.apply_annotations(db, results, rule="d3a-first-knowability@test")
+    db.commit()
+    assert _count(db, "call_annotation") == 0
+
+
 def test_a_drift_row_is_never_annotated(db):
     """A row recorded under a DIFFERENT policy (here: the pre-D3a read with the breakout's return thrust
     raised out of reach — no confirmation, so it recorded WARMING) is not reproduced by today's D3a-off
@@ -257,7 +294,7 @@ def test_a_drift_row_is_never_annotated(db):
     annotated — even though D3a changes today's reading of that night."""
     sid = _ceg(db)
     thesis = _thesis(db, sid)
-    other_policy = DEFAULT_CONFIG.model_copy(update={"breakout_min_return": 0.5})
+    other_policy = _PRE_RULE_C.model_copy(update={"breakout_min_return": 0.5})
     _record_pre_d3a(db, thesis, _ARM_NIGHTS[0], cfg=other_policy)
     assert calls_repo.list_for_thesis(db, thesis.id)[0].state is not State.ARMED
 

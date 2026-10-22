@@ -21,6 +21,7 @@ from db.public_clock import (
     public_versions_sql,
     to_public_row,
 )
+from db.set_aside import exclusion_sql
 
 # Whitelist of bitemporal fact tables -> the natural-key columns that identify one logical fact
 # (so an as-of read keeps the latest *version* of each, by recorded_at). Whitelisting also keeps
@@ -353,12 +354,12 @@ def _as_of(
         # every visible version (the run walk needs the history), pre-sorted in the Python pick's own order
         "SELECT * FROM {table} "
         "WHERE tenant_id = %(tenant_id)s AND {scope} = %(scope_id)s "
-        "AND valid_from <= %(asof)s AND {knowability} <= %(known_at)s "
+        "AND valid_from <= %(asof)s AND {knowability} <= %(known_at)s{set_aside} "
         "ORDER BY {ident}, {version_order}"
         if first_knowable
         else "SELECT DISTINCT ON ({ident}) * FROM {table} "
         "WHERE tenant_id = %(tenant_id)s AND {scope} = %(scope_id)s "
-        "AND valid_from <= %(asof)s AND {knowability} <= %(known_at)s "
+        "AND valid_from <= %(asof)s AND {knowability} <= %(known_at)s{set_aside} "
         "ORDER BY {ident}, recorded_at DESC, id DESC"
     )
     parts: dict[str, sql.Composable] = {
@@ -366,6 +367,9 @@ def _as_of(
         "table": sql.Identifier(table),
         "scope": sql.Identifier(scope_col),
         "knowability": knowability,
+        # a set-aside version (migration 0062, ``db.set_aside``) is skipped BEFORE the pick and the D3a walk,
+        # so the read falls back to the version it superseded; the empty SQL for every other table
+        "set_aside": exclusion_sql(table),
     }
     if first_knowable:  # a trusted literal from the whitelist, never caller input
         parts["version_order"] = sql.SQL(first_knowable_order(table))  # noqa: S608
@@ -579,12 +583,13 @@ def as_of_many(
         query = sql.SQL(
             "SELECT * FROM {table} "
             "WHERE tenant_id = %(tenant_id)s AND security_id = ANY(%(ids)s) "
-            "AND valid_from <= %(asof)s AND {knowability} <= %(known_at)s "
+            "AND valid_from <= %(asof)s AND {knowability} <= %(known_at)s{set_aside} "
             "ORDER BY {ident}, {version_order}"
         ).format(
             ident=ident,
             table=sql.Identifier(table),
             knowability=knowability,
+            set_aside=exclusion_sql(table),  # migration 0062 — skipped before the pick
             version_order=sql.SQL(first_knowable_order(table)),  # noqa: S608 — trusted literal
         )
         for row in _first_knowable_read(conn, table, query, params, partition):
@@ -595,9 +600,15 @@ def as_of_many(
     query = sql.SQL(
         "SELECT DISTINCT ON ({ident}) * FROM {table} "
         "WHERE tenant_id = %(tenant_id)s AND security_id = ANY(%(ids)s) "
-        "AND valid_from <= %(asof)s AND {knowability} <= %(known_at)s{lower} "
+        "AND valid_from <= %(asof)s AND {knowability} <= %(known_at)s{lower}{set_aside} "
         "ORDER BY {ident}, recorded_at DESC, id DESC"
-    ).format(ident=ident, table=sql.Identifier(table), knowability=knowability, lower=lower)
+    ).format(
+        ident=ident,
+        table=sql.Identifier(table),
+        knowability=knowability,
+        lower=lower,
+        set_aside=exclusion_sql(table),
+    )
     with conn.cursor() as cur:
         cur.execute(query, params)
         for row in cur.fetchall():

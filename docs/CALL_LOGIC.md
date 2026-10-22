@@ -504,6 +504,18 @@ only *coincide* for insider buys, which is exactly why the two conviction source
   filed under a quarter context (LHX, VICR) and a derived Q4 across a restatement (LFMD). The rule above is
   unchanged — it reads the right numbers. Re-ingest: `python -m pipeline.reingest_fundamentals`. Each revenue row
   now records its tag (`source = companyfacts:<concept>`), since two tags can share one accession (#6).
+  **The rows the OLD ingest stored before the screen existed are SET ASIDE on read (A8, operator-approved
+  2026-10-22; migration 0062).** `python -m pipeline.set_aside_fundamentals` runs the same screen over each
+  company's cached companyfacts, under every revenue label, and names each stored version it rejects in the
+  append-only `fundamentals_set_aside` table (MEASURED on the dev copy of prod with prod's cache, 2026-10-22: 79
+  versions in 38 companies; a 1-row conflict, RDNW, that another label keeps as genuine, is left in the read).
+  Every read skips an active set-aside — both clocks, the basket prefetch and the replay mirror — so the read
+  falls back to the version it superseded, at every asof: the screen judges a row only against filings on or
+  before its own, so this is exactly what the ingest screen would have refused the day the row was filed (no
+  lookahead). Reversible: a `revoke` row restores it; the fact rows are never touched. Where the bad version was
+  a period's only one, the period is simply absent (the detector declines across it, as the ingest screen would
+  have left it). MEASURED: the read changes for 36 of the 38 companies (KOPN's and UUUU's rows were already
+  outranked by a same-filing re-parse), and no card of the 12 theses changes at asof 10-21 or 10-22.
   **Hindsight caveat (a definition chosen today).** The tag is chosen from TODAY's companyfacts document, and
   under R17 the re-ingested versions — the same-filing supersessions included — are dated at their own filings.
   So every past as-of read on the public clock (the slider and scrub-back, `pipeline.backfill`, a D3b re-run,
@@ -521,8 +533,8 @@ only *coincide* for insider buys, which is exactly why the two conviction source
   ingest now stamps `recorded_at` honestly, as bookkeeping. The earlier `max(valid_from, market date of
   recorded_at)` would then have dated a name's whole history at the night it joined a basket — re-firing year-old
   inflections as fresh — and was identical to this rule on every row stored before 0057.) Equality is exact on
-  the stored number, so a genuine restatement (a changed value) is new knowledge at its own filing and still fires from there;
-  firing only on a filing's own newest quarter (rule (c)) is a separate, deferred policy call. When several live
+  the stored number, so a genuine restatement (a changed value) is new knowledge at its own filing and still fires from there
+  — unless the quarter is stale, rule (c) below. When several live
   inflections share one knowability date, the NEWEST period is cited (tie-break (d)). Example — GEV: Q1-2025 revenue
   of $8,032M was first filed 2025-04-23 and re-reported unchanged in the 2026-04-22 10-Q; the 2026-10-01 Nuclear
   Buildout card cited "Q1 ending 2025-03-31" dated 2026-04-22. Now Q1-2025 dates at 2025-04-23 (long lapsed), and
@@ -532,6 +544,24 @@ only *coincide* for insider buys, which is exactly why the two conviction source
   named residual of exact equality); AI Memory & Storage (DELL/HPE/NLST) and Nuclear Buildout (CEG) leave Armed,
   and Rainbow Rush / The Everything Exchange each lose one armed member (ENSC / CME). Replay applies the identical
   rule (one shared pure function, parity-gated).
+  **Rule (c) — the cited quarter must be FRESH at knowability (operator sign-off 2026-10-22).** Revenue
+  acceleration may NOT fire on a cited quarter whose period ended more than **135 days** before the date its number
+  first became knowable (`knowable_from`; dial `revenue_accel_max_quarter_age_days` = 135 — `> 135` disqualifies,
+  exactly 135 fires; `None` lifts the cap for a backtest overlay). Why: under rule (a) a RESTATED year-old
+  comparative is new knowledge at the later filing (a changed number), and it fired as if it were a fresh quarter —
+  MEASURED in the editions preview (2026-10-22), 10 Edition-1 triggers on 9 companies cited such a quarter: RKT
+  Q2-2025 restated 2026-08-07 (403 d), Freedom Holding Q1-2024 knowable 2026-06-01 (792 d), SEGG Q1-2026 filed
+  2026-10-08 (191 d — a late filer: the rule also holds a late filing's own quarter), LRHC's 2026-06-04 10-K (its
+  restated 2024-Q2 / 2025-Q1 and its late 2025-Q4, 155 d). The old quarter stays STORED and SHOWN and remains a
+  comparison base (another quarter's year-prior / prior); it just cannot be the quarter the trigger fires on. One
+  pure check inside the shared detector (`signals/revenue_acceleration._fresh_at_knowability`), so the live call and
+  the replay apply it identically. It also closes the D3 phantom independently of D3a: a comparative re-dated to
+  its year-later filing is always past 135 days (`pipeline.annotate_phantom_arms` therefore reads such a recorded
+  night as drift on today's code — never annotated; the annotations already applied stand). MEASURED live effect
+  (dev copy of prod, 2026-10-22, all 12 theses at asof 10-21 and 10-22): 7 revenue triggers per night cited such a
+  quarter and are gone — ASST (Digital Asset Treasury; its card's `exit_by` 2027-02-06 → 2026-11-07), DOMH and VREOD
+  (Rainbow Rush), FRHC, LRHC, RKT and SEGG (The Everything Exchange); DOMH and RKT re-cite their genuine Q1-2026
+  inflection instead. No state, verdict or armed name changes.
 - **`volume_breakout` `[built]` — the CONFIRMATION grade (Key 2).** VOLUME grades it: volume-backed
   (vol ≥ `breakout_volume_mult` × base avg) = `core`; a momentum thrust on weak volume arms but `flip`.
   **Grade-down** (ratified 2026-08-15, `breakout_weak_close_grade_down`): a volume-backed breakout that

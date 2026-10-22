@@ -7,7 +7,7 @@ FILED date. The negatives pin the guards (still-decelerating, below-floor, a mis
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -254,7 +254,61 @@ def test_tie_break_cites_the_newest_period_when_inflections_share_a_filing_date(
         }
         for pe, v, d in gev
     ]
-    ev = ra.score(rows, _SID, date(2026, 10, 1), DEFAULT_CONFIG)
-    assert ev is not None and ev.asof == date(2026, 4, 22)
-    assert "ending 2026-03-31" in ev.label
-    assert ev.provenance[0].detail["period_end"] == "2026-03-31"
+    # the tie-break itself, stated with rule (c) held off (``None``) — under rule (c) the stale Q1-2025 (387
+    # days past its period end) is never a candidate, so the tie no longer arises and the answer is the same
+    no_cap = DEFAULT_CONFIG.model_copy(update={"revenue_accel_max_quarter_age_days": None})
+    for cfg in (no_cap, DEFAULT_CONFIG):
+        ev = ra.score(rows, _SID, date(2026, 10, 1), cfg)
+        assert ev is not None and ev.asof == date(2026, 4, 22)
+        assert "ending 2026-03-31" in ev.label
+        assert ev.provenance[0].detail["period_end"] == "2026-03-31"
+
+
+# --- rule (c): the cited quarter must be fresh at knowability (operator sign-off 2026-10-22) ------------
+
+
+def _restated(rows: list[dict], period_end: date, knowable: date, accn: str) -> list[dict]:
+    """The rows with ONE quarter first knowable at ``knowable`` (a later filing that restated it)."""
+    out = [dict(r) for r in rows]
+    q = next(r for r in out if r["period_end"] == period_end)
+    q.update(valid_from=knowable, accession=accn, knowable_from=knowable, knowable_accession=accn)
+    return out
+
+
+def test_rule_c_boundary_at_135_days():
+    """Contract (direct inputs): the fire quarter (2023-12-31) first knowable exactly 135 days after its period
+    end still fires; at 136 days it may not be the cited quarter. ``None`` lifts the cap (the rule before).
+    """
+    assert DEFAULT_CONFIG.revenue_accel_max_quarter_age_days == 135
+    fire = date(2023, 12, 31)
+    at = _restated(_series(), fire, fire + timedelta(days=135), "acc-135")
+    ev = ra.score(at, _SID, date(2024, 6, 1), DEFAULT_CONFIG)
+    assert ev is not None and ev.asof == fire + timedelta(days=135)
+    assert ev.provenance[0].ref == "acc-135"
+
+    past = _restated(_series(), fire, fire + timedelta(days=136), "acc-136")
+    assert ra.score(past, _SID, date(2024, 6, 1), DEFAULT_CONFIG) is None
+    no_cap = DEFAULT_CONFIG.model_copy(update={"revenue_accel_max_quarter_age_days": None})
+    assert ra.score(past, _SID, date(2024, 6, 1), no_cap) is not None
+
+
+def test_rule_c_a_restated_year_old_quarter_never_fires_but_stays_a_comparison_base():
+    """Contract (direct inputs), the RKT shape: a filing restating last year's quarter makes its number new
+    knowledge at the later filing (D3a rule (a)), but a quarter that ended a year before cannot be the one the
+    trigger fires on. Stale quarters still serve as a fresh quarter's year-prior and prior bases."""
+    # every quarter but the fire quarter re-dated to the fire quarter's 10-K (restated in it): all stale
+    rows = _series()
+    for pe in _REV:
+        if pe != date(2023, 12, 31):
+            rows = _restated(rows, pe, _FIRE_FILED, f"acc-restated-{pe.isoformat()}")
+    ev = ra.score(rows, _SID, date(2024, 3, 1), DEFAULT_CONFIG)
+    assert (
+        ev is not None and ev.asof == _FIRE_FILED
+    )  # the fresh quarter (46 d) fires on those bases
+    assert ev.provenance[0].detail["period_end"] == "2023-12-31"
+
+    # the fire quarter itself restated a year later (403 days — RKT's Q2-2025 -> 2026-08-07 shape): never cited
+    stale = _restated(_series(), date(2023, 12, 31), date(2025, 2, 6), "acc-comparative-restated")
+    assert ra.score(stale, _SID, date(2025, 3, 1), DEFAULT_CONFIG) is None
+    no_cap = DEFAULT_CONFIG.model_copy(update={"revenue_accel_max_quarter_age_days": None})
+    assert ra.score(stale, _SID, date(2025, 3, 1), no_cap) is not None  # what fired before rule (c)
