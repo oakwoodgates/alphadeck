@@ -511,11 +511,8 @@ class Settings(BaseSettings):
     # ``edgar_rate_per_sec`` above stays as a second, process-local cap (one client never takes it all).
     # ALPHADECK_SEC_GLOBAL_RATE_PER_SEC.
     sec_global_rate_per_sec: float = 8.5
-    # The FAIR SHARE: a lane (``recurring`` = the nightly pass / radar; ``interactive`` = the Workbench,
-    # discovery, a CLI) that reserved a slot within this many seconds is ACTIVE, and each active lane is held
-    # to an equal share of the budget — so a 10-thread discovery fan-out cannot starve the nightly, nor the
-    # nightly's fetch-ahead a discovery. A lane alone gets the whole budget. ALPHADECK_SEC_BUDGET_ACTIVE_WINDOW_S.
-    sec_budget_active_window_s: float = 2.0
+    # (The budget's FAIR SHARE between the nightly and the Workbench is not a dial: each (process, lane) may hold
+    # at most ``ingest.sec_budget.LANE_DEPTH`` not-yet-due reservations, so busy lanes alternate.)
     # X7 — THE YAHOO GATE (``ingest.http.yahoo_limiter``): a process-wide token bucket in front of every Yahoo
     # chart / search request. Yahoo publishes no limit, so the default is set off what was MEASURED clean:
     # the serial price leg ran 740 requests a night at up to 3.3 req/s sustained (Modern Defense, 2026-10-20;
