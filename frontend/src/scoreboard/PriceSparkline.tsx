@@ -64,6 +64,7 @@ const CHIP_H = 15; // chip height (for the guide-line origin)
 const CHIP_HALF = 11; // half chip width (for the edge clamp)
 const CHIP_STEP = 18; // vertical stack pitch
 const TOP_PAD = 6; // the chip band starts here, below the top edge
+const BAND_MIN_W = 6; // S3: the narrowest a data-flag band draws (one bar zoomed out is ~1-3px)
 
 interface Chip {
   event: OverlayEvent;
@@ -289,7 +290,14 @@ export function PriceSparkline({
         }
         left = Math.max(0, left ?? 0);
         right = Math.min(w, right ?? w);
-        if (right > left) rects.push({ left, width: right - left, level: b.level, reason: b.reason });
+        // a one-bar band is a bar's width — at least BAND_MIN_W, so a zoomed-out single day stays findable
+        if (right > left)
+          rects.push({
+            left,
+            width: Math.min(Math.max(right - left, BAND_MIN_W), w - left),
+            level: b.level,
+            reason: b.reason,
+          });
       }
       setBandRects(rects);
     };

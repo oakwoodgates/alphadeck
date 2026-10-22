@@ -1682,8 +1682,8 @@ tr.sb-row .tk { font-family: var(--mono); font-weight: 700; letter-spacing: 0.04
 /* S3 — the shaded band over a data flag's affected bars: a faint wash behind the chips (in doubt amber,
    known wrong a muted negative); the reason rides its hover */
 .ov-band { position: absolute; top: 0; bottom: 0; pointer-events: auto; cursor: help; z-index: 0; }
-.ov-band.in_doubt { background: color-mix(in srgb, var(--warn, #b8860b) 10%, transparent); }
-.ov-band.known_wrong { background: color-mix(in srgb, var(--neg) 9%, transparent); }
+.ov-band.in_doubt { background: color-mix(in srgb, var(--warn, #b8860b) 16%, transparent); }
+.ov-band.known_wrong { background: color-mix(in srgb, var(--neg) 14%, transparent); }
 .ov-more {
   position: absolute; transform: translate(-50%, 0); pointer-events: auto;
   font: 700 9px var(--mono); line-height: 1; height: 15px; padding: 0 4px; border-radius: 8px;

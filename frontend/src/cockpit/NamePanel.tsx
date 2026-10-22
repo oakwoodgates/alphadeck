@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { type ReactNode, useEffect } from "react";
 
 import type {
   CallCardResponse,
@@ -9,7 +9,8 @@ import type {
 } from "../api/hooks";
 import { useDecisions } from "../api/hooks";
 import { TriggerRow } from "../components/CallCard";
-import { DataFlagsSection } from "./DataFlagMark";
+import { DataFlagsSection, FlagWrap } from "./DataFlagMark";
+import { cellFlag } from "./dataFlags";
 import { DisplayHeadlineRow, DisplaySignalsSection } from "./DisplaySignalsSection";
 import { Meter } from "../workbench/Meter";
 import { formatMarketCap, meterValueLabel, originWithFiler } from "../workbench/format";
@@ -139,7 +140,7 @@ export function NamePanel({
           (scored.royalty ? " · royalty/streaming" : "") +
           (scored.business_type_override ? " · your tag" : "")
         : "—";
-  const cells: [string, string][] = [
+  const cells: [string, ReactNode][] = [
     ["Type", btype],
     ["Segment", member.segment ?? "—"],
     ["Sector", scored?.sector ?? "—"],
@@ -150,7 +151,13 @@ export function NamePanel({
     // §16-exempt foreign filer reads "Canada · 40-F · no Form 4" (the who-and-why in one cell). "—" when
     // unknown — never a guess.
     ["Origin", originWithFiler(scored?.origin, scored?.foreign_filer_form) ?? "—"],
-    ["Mkt cap", formatMarketCap(scored?.market_cap.value)],
+    // S3: the same data-flag treatment as the row's Mkt cap cell (grayed in doubt, "—" known wrong)
+    [
+      "Mkt cap",
+      <FlagWrap key="mktcap" flag={cellFlag(dataFlags, "mktcap")}>
+        {formatMarketCap(scored?.market_cap.value)}
+      </FlagWrap>,
+    ],
     ["Size weight (yours)", weight],
     ["Role", member.role || "—"],
   ];
