@@ -13,7 +13,7 @@ ONLY thing a golden varies is whether the company's split row is on the list:
   is no step, and nothing is held.
 - **Never held** — PTIX 2025-05-19 (x3.7 on x1,239 volume) and JAGX 2026-09-22 / 09-23 (x12.9 on x383 volume,
   then a fall on falling volume): genuine big moves, the volume moving WITH the price.
-- **A forward split** — ZCSH's real 1-for-3 (Polygon lists it, still needs review): the tape steps down to a
+- **A forward split** — ZCSH's real 3-for-1 (Polygon lists it, still needs review): the tape steps down to a
   third on rising volume and the hold names Polygon's row.
 - **The escalation** — three sessions on, the hold has released GAME's step; with no split listed it is on the
   operator's "is this real?" list, and with the split listed it is not.
@@ -135,7 +135,7 @@ def test_never_held_on_a_genuine_big_move(db, night, tk, listed):
 
 
 def test_a_real_forward_split_is_held_and_names_polygons_row_once_it_is_public(db):
-    """ZCSH's 1-for-3 (Polygon: first session 09-30; the vendor stepped on 09-29) — still needs review, so never
+    """ZCSH's 3-for-1 (Polygon: first session 09-30; the vendor stepped on 09-29) — still needs review, so never
     in force: the step down to a third on rising volume holds both nights. On 09-29 the list's row is not yet
     PUBLIC (its first source is Polygon's 09-30 first session — the public clock, #1), so the card says no
     filing was found; on 09-30 it names Polygon's row."""

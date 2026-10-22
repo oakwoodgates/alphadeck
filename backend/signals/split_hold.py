@@ -36,7 +36,7 @@ HOLD_LOOKBACK_DAYS = 30
 
 # the laggard rotation's name on the card when its reading is held (a thesis-level reader, not a Detector)
 LAGGARD_TRIGGER = "Laggard confirmation"
-# the line's subject when the hold withheld nothing but kept a pre-step reading the step would have changed
+# the line's subject when the hold withheld no trigger (every open hold still has its line)
 PRICE_TRIGGERS = "Price triggers"
 
 # The registered detectors that read ``fact_price_eod`` WITHOUT being price-path triggers: the two insider

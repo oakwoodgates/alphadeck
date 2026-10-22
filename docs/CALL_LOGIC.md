@@ -252,7 +252,7 @@ path, `pipeline.backfill`, D3b and the replay mirror all assemble through `assem
 **Golden on real nights** (`tests/signals/test_split_hold.py`, every stored version of the real bars from a
 read-only copy of prod; the split row is the only variable): GAME 08-25, NXL 09-01, MDCX 10-09 and VRME 10-01
 are held with the split unlisted (and fire the +several-hundred-percent breakout without the hold) and not held
-with it confirmed; PTIX 2025-05-19 and JAGX 09-22 / 09-23 are never held; ZCSH's real 1-for-3 forward split
+with it confirmed; PTIX 2025-05-19 and JAGX 09-22 / 09-23 are never held; ZCSH's real 3-for-1 forward split
 (Polygon only, needs review) holds its fast breakdown and names Polygon's row once it is public; GAME's step is
 on the operator's list three sessions on, and is not once listed.
 
