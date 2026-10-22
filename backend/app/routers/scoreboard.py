@@ -26,7 +26,7 @@ from app.schemas_api import (
 )
 from db.clock import db_now
 from db.session import DEFAULT_TENANT_ID
-from domain.market_time import known_at_for_asof, market_now
+from domain.market_time import known_at_for_asof, market_now, serve_view
 from domain.settings import get_settings
 from domain.thesis import Thesis
 from pipeline.schedule import expected_runs_behind, last_expected_asof, parse_run_at
@@ -360,7 +360,11 @@ def get_price_window(
     # ``now`` from the DATABASE clock (``db.clock``): for a PAST asof the market-day cap dominates and
     # the host clock never binds, but for asof == TODAY ``min(now, asof-EOD)`` IS ``now`` — and that
     # bound is compared against database-stamped ``recorded_at`` values. One clock, per db/clock.py.
+    # WHICH axis it bounds (operator decision 2026-10-21): a PAST asof is a history view, judged on the
+    # PUBLIC clock — an event counts from when it became public (``db.public_clock``), not from when we
+    # ingested it; a live asof stays on the record clock (where the two coincide) — ``serve_view``'s rule.
     known_at = known_at_for_asof(asof, now=db_now(conn))
+    _, clock = serve_view(asof)
     buys = episode_insider_buys(
         conn,
         tenant_id=tenant,
@@ -369,6 +373,7 @@ def get_price_window(
         end=end,
         asof=asof,
         known_at=known_at,
+        clock=clock,
         day_lows=day_lows,
     )
     sells = episode_insider_sells(
@@ -379,6 +384,7 @@ def get_price_window(
         end=end,
         asof=asof,
         known_at=known_at,
+        clock=clock,
         day_lows=day_lows,  # the below-day-low secondary screen reads the SAME asof-capped lows
     )
     corp_events = episode_corporate_events(
@@ -389,6 +395,7 @@ def get_price_window(
         end=end,
         asof=asof,
         known_at=known_at,
+        clock=clock,
     )
     stakes = episode_activist_stakes(
         conn,
@@ -398,6 +405,7 @@ def get_price_window(
         end=end,
         asof=asof,
         known_at=known_at,
+        clock=clock,
     )
     return ScoreboardPriceWindowOut(
         thesis_id=thesis.id,

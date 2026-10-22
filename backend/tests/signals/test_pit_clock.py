@@ -90,8 +90,9 @@ def test_the_default_bound_still_caps_a_later_write(db, security_id):
 
 
 def test_an_explicit_known_at_is_still_honored(db, security_id):
-    """The scrub-back (``serve_known_at``), the cron's pin, ``pipeline.backfill``'s pinned run and every
-    replay pin supply their own bound. The database default must apply ONLY when none was given."""
+    """The history views (the scrub-back and ``pipeline.backfill``, both at the ``serve_view`` cap), the
+    cron's pin and every replay pin supply their own bound. The database default must apply ONLY when none was given.
+    """
     early = datetime(2026, 6, 5, tzinfo=timezone.utc)
     late = datetime(2026, 6, 20, tzinfo=timezone.utc)
     append_fact(

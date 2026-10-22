@@ -388,56 +388,66 @@ def test_call_response_is_unchanged_by_the_display_feature(client, db, security_
     assert not [k for k in r.json() if "display" in k or "indicator" in k]
 
 
-# --- invariant #1 on the SERVE path: the tape beside a past card is the tape as knowable THEN ---
+# --- invariant #1 on the SERVE path: the tape beside a past card is the tape as PUBLIC then ---
 #
-# The measured leak (docs/temp/serve-path-lookahead-audit-2026-09-09.md) was on /call, but this route
-# builds the SAME PointInTimeData with the SAME default pin (known_at = now), so a Cockpit scrub-back
-# showed an SMA posture computed from bars ingested after the as-of. Same cap, same seam, own test.
+# This route builds the SAME PointInTimeData the call does, so it threads the SAME history clock: a past
+# asof reads every bar from its settled session (the PUBLIC clock — operator decision 2026-10-21), never
+# from when our database ingested it; a correction counts from its own publication.
 
 
-def test_display_scrub_back_hides_bars_recorded_after_the_asof(client, db, security_id):
-    """THE LEAK, on the measured shape (TPCS: bars dated August, ingested 09-01): 220 bars ending _ASOF,
-    every one stamped at the thaw. A _ASOF read — the Cockpit scrub-back — sees NONE of them: the member
-    still shows, with ``signals: []`` (the honest empty), never a posture computed with hindsight. The
-    same bars ARE knowable to a LIVE read (the thaw is in the past relative to today), so asof = today
-    holds them — hidden by the as-of's clock, not gone. Before the fix the _ASOF read computed the full
-    ``sma_position`` … ``price_path`` list from bars that were not on file that night."""
+def test_display_scrub_back_reads_bars_public_then_even_if_ingested_late(client, db, security_id):
+    """The measured shape (TPCS: bars dated August, ingested at the 09-01 thaw): 220 bars ending _ASOF, every
+    one stamped at the thaw. Each was PUBLIC at its own session's settle, so the _ASOF read — the Cockpit
+    scrub-back — computes the posture from them, exactly as a live read of the same tape does (the record
+    clock this replaced showed an empty tape, which only replayed our outage)."""
     _seed_bars(db, security_id, 220, recorded_at=_THAW)
     tid = _seed_thesis(db, [_member(security_id)])
     past = client.get(f"/theses/{tid}/display-signals", params={"asof": _ASOF.isoformat()}).json()
     (m,) = past["members"]
-    assert (
-        m["ticker"] == "DEVCO" and m["signals"] == []
-    )  # the row stays; its tape wasn't on file yet
-    # the thesis-level breadth reads the member as THIN (no knowable bars), so its headline is the honest
-    # "n/a" — never a fabricated 0% and never the ascending fixture's 100% computed with hindsight
-    breadth = past["breadth"]
-    assert breadth["headline"]["key"] == "unknown"
-    by_key = {mt["key"]: mt["value"] for mt in breadth["metrics"]}
-    assert by_key["members_thin"] == 1.0 and by_key["members_counted"] == 0.0
+    kinds = [s["kind"] for s in m["signals"]]
+    assert m["ticker"] == "DEVCO" and "sma_position" in kinds
+    assert m["signals"][0]["basis"]["window_end"] == _ASOF.isoformat()  # the tape's last bar
     live = client.get(
         f"/theses/{tid}/display-signals", params={"asof": market_today().isoformat()}
     ).json()
     (lm,) = live["members"]
-    kinds = [s["kind"] for s in lm["signals"]]
-    assert "sma_position" in kinds  # the live read holds the (now stale-but-knowable) tape
-    assert lm["signals"][0]["basis"]["window_end"] == _ASOF.isoformat()  # the tape's last bar
+    assert "sma_position" in [s["kind"] for s in lm["signals"]]
 
 
-def test_display_threads_the_asof_cap_for_a_past_view_and_None_for_the_live_one(
+def test_display_scrub_back_hides_a_correction_published_after_the_asof(client, db, security_id):
+    """A vendor re-version of the as-of's own bar, published (ingested) after the as-of: it counts from its
+    own publication, so the _ASOF read still draws the ORIGINAL close — the posture's basis never carries a
+    number nobody could have seen that night — while a later read draws the correction."""
+    _seed_bars(db, security_id, 220, recorded_at=_THAW)
+    tid = _seed_thesis(db, [_member(security_id)])
+    original = client.get(
+        f"/theses/{tid}/display-signals", params={"asof": _ASOF.isoformat()}
+    ).json()
+    # the as-of bar (close 31.9), re-versioned a week after the thaw at double the close
+    _price(db, security_id, _ASOF, 63.8, volume=1000.0, recorded_at=_THAW + timedelta(days=7))
+    db.commit()
+    again = client.get(f"/theses/{tid}/display-signals", params={"asof": _ASOF.isoformat()}).json()
+    assert again["members"] == original["members"]  # the correction is not public at _ASOF
+    later = client.get(
+        f"/theses/{tid}/display-signals", params={"asof": market_today().isoformat()}
+    ).json()
+    assert later["members"] != original["members"]  # ...and it is for a read after its publication
+
+
+def test_display_threads_the_public_clock_for_a_past_view_and_the_live_read_for_today(
     client, db, security_id, monkeypatch
 ):
-    """The per-site TEMPLATE (a future serve site that forgets ``known_at`` fails a copy of this): the
-    display PIT is built with ``known_at = known_at_for_asof(asof)`` — the end of that MARKET day — for a
-    past asof and ``None`` for a live one (the unchanged live read; None, not a host-clock now — the
-    one-clock rule in ``decisions_repo``). The same seam the call and the scored view thread."""
+    """The per-site TEMPLATE (a future serve site that forgets the clock fails a copy of this): the display
+    PIT is built with ``known_at = known_at_for_asof(asof)`` on the PUBLIC clock for a past asof and
+    ``(None, "record")`` for a live one (the unchanged live read; None, not a host-clock now — the one-clock
+    rule in ``decisions_repo``). The same seam the call and the scored view thread."""
     _seed_bars(db, security_id, 60)
     tid = _seed_thesis(db, [_member(security_id)])
-    seen: list[datetime | None] = []
+    seen: list[tuple[datetime | None, str]] = []
 
     class SpyPIT(PointInTimeData):
         def __init__(self, conn, **kw):
-            seen.append(kw.get("known_at"))
+            seen.append((kw.get("known_at"), kw.get("clock", "record")))
             super().__init__(conn, **kw)
 
     monkeypatch.setattr(theses_router, "PointInTimeData", SpyPIT)
@@ -446,8 +456,8 @@ def test_display_threads_the_asof_cap_for_a_past_view_and_None_for_the_live_one(
     today = market_today()
     r = client.get(f"/theses/{tid}/display-signals", params={"asof": today.isoformat()})
     assert r.status_code == 200
-    assert seen == [known_at_for_asof(_ASOF), None]
-    assert seen[0] == datetime(
+    assert seen == [(known_at_for_asof(_ASOF), "public"), (None, "record")]
+    assert seen[0][0] == datetime(
         2026, 6, 2, 3, 59, 59, 999999, tzinfo=timezone.utc
     )  # 06-01 23:59 EDT
 

@@ -163,26 +163,44 @@ replay stays honest.
   night over the table (2026-10-21): the self-audit's `no_unsettled_bars` check fails — and pages — on any
   `fact_price_eod` row recorded before its bar's settle instant, written since the last judging pass by any
   writer (`tests/pipeline/test_settle_audit.py`). See `FEED_LOOP.md` §Settled closes.
-- *Also honored by (the SERVE path — the scrub-back cap):* the gate COLUMN being right is not enough; the
-  PIN must move. `GET /theses/{id}/call`, `/display-signals`, and `/workbench/…/scored` recompute through
-  a `PointInTimeData` whose `known_at` defaults to `now`, so for a past `asof` the `recorded_at` half of the
-  gate never bit and a Board/Cockpit scrub-back read TODAY's knowledge of that date (MEASURED 2026-09-09: one
-  thesis at a late-August as-of recomputed ARMED on a member's bars ingested a week AFTER that as-of — 63 bars
-  visible to the serve gate, 0 to an honest one — while the record said watching; the gitignored working note
-  `docs/temp/serve-path-lookahead-audit-2026-09-09.md`). The three routes now thread
-  `domain.market_time.serve_known_at(asof)`: `None` for a live `asof` (the unchanged live read — the PIT's
-  own UTC `now` for facts, the DATABASE clock for the decisions log, `decisions_repo`'s one-clock rule) and
-  `known_at_for_asof(asof)` = the end of that **market** day for a past one (the cron's own convention —
-  `RUN_AT` 22:30 ET with `asof = market_today()` — so the recompute's data view is a superset of the
-  record's by at most the hours to midnight ET, never a subset; a UTC day-end would have sat before the
-  cron and read one bar short). What this does NOT make identical to the record: the recompute runs
-  today's CODE and today's BASKET (`basket_member` is full-replace on promote, not bitemporal — the platform-wide
-  gap under *Known gaps* below) over then-knowable facts — PIT-honest on data, a labeled counterfactual on
-  membership, never a replay of the row. *Enforced by:* the per-site leak +
-  template tests in `tests/app/test_theses_api.py`, `test_display_signals_api.py`,
-  `test_workbench_api.py` (a fact dated before but recorded after the as-of is invisible; a live `asof`
-  threads `None`), and `tests/domain/test_market_time.py` (the market-day cap, the post-20:00-ET live
-  identity, the configured zone).
+- *Also honored by (the HISTORY views — judged on the PUBLIC clock since 2026-10-21):* every past-asof read
+  — `GET /theses/{id}/call`, `/display-signals`, `/workbench/…/scored`, the Scoreboard drawer's dated overlays,
+  `pipeline.backfill`'s missed-night reconstruction, `pipeline.run` for a past asof, and D3b's re-assembly —
+  threads `domain.market_time.serve_view(asof)` = `(known_at_for_asof(asof), "public")`: each fact VERSION
+  counts from its PUBLIC instant (`db/public_clock.py`, the ONE definition, shared with the backtest's
+  `clock=public` mirror) up to the end of that **market** day. Per table: a Form 4 from its SEC acceptance
+  (filled across a fact's re-parses; none on any version → from the first time we held it, an upper bound —
+  never early, never dropped, #9); a bar's FIRST version from its session settle (`d` at
+  `Settings.price_settle_time`), a vendor RE-version from its own `recorded_at` (it carries no publication time
+  of its own — we cannot know it earlier); an 8-K / 13D from its `filed` date; fundamentals from `valid_from`
+  (= `filed`; a restatement from its own filing); catalyst / dilution / theme conviction from `valid_from` (the
+  backtest's operator decision); the operator-RATIFIED Workbench facts (revenue mix, shares, cash burn) and the
+  fund-shares samples from `recorded_at` (their `valid_from` is a period / as-of date, not a publication date).
+  The 4/A tables: the amendment and the system's link from the 4/A's acceptance, a SYSTEM decision from that
+  same publication, an OPERATOR decision from when the operator made it. The version a past view reads is the
+  NEWEST public by then (`public DESC, recorded_at DESC, id DESC` — a re-parse resolves to our best parse); a
+  public-read row carries `recorded_at` = its public instant and our honest ingest instant as `ingested_at`
+  (the drawer's "ingested" line). The roster and the position stay as of the same instant on the record axis
+  — they ARE operator decisions. A live `asof` threads `(None, "record")`: the unchanged live read (the PIT's
+  own `now` for facts, the DATABASE clock for the decisions log — `decisions_repo`'s one-clock rule), where
+  the two clocks coincide (a version's public instant never decreases as its `recorded_at` increases, so with
+  every version visible the public pick IS the record pick — MEASURED 2026-10-21 on prod: 12/12 live cards
+  identical on both clocks). What this does NOT make identical to the record: the recompute runs TODAY's
+  code and rules over what was public then — never a replay of the row; the immutable calls log is the
+  record. *Superseded (record-clock history):* from 2026-09-09 (#336) to 2026-10-21 these routes capped
+  `recorded_at` at the end of the as-of day — honest about what our database held (MEASURED 2026-09-09: one
+  thesis at a late-August as-of had recomputed ARMED on a member's bars ingested a week after it), but it
+  replayed our outages and onboarding order (MEASURED 2026-10-21 on prod: on the 15 Fridays 07-10..10-16, 116
+  of 180 thesis-cards differ between the two clocks — the 13D / 8-K / insider / price backfills of
+  August–September were all public long before). *Enforced by:* `tests/db/test_public_clock.py` (late-ingested
+  but public → visible; a correction published after the as-of → invisible; acceptance, settle and the
+  first-held fallback; the best-parse pick; public pick == record pick with every version visible; the basket
+  read == the scoped read; D3a on the public clock), the per-site template + public tests in
+  `tests/app/test_theses_api.py`, `test_display_signals_api.py`, `test_workbench_api.py`,
+  `test_scoreboard_price_window_api.py`, `tests/pipeline/test_backfill.py`, the parity gate
+  `tests/replay/test_public_clock.py::test_the_public_mirror_is_row_for_row_the_live_public_read` (+ the 4/A
+  twin in `test_pit_insider_amendments.py`), and `tests/domain/test_market_time.py` (`serve_view`, the
+  market-day cap, the post-20:00-ET live identity, the configured zone).
 - *Also honored by (Board/Cockpit perf PR-1b — the PIT memo rule + the horizon registry):* one
   `PointInTimeData` per request / per cron assemble **memoizes** each `(table, security_id)` as-of result
   and **prefetches** a whole basket per table in ONE `db.bitemporal.as_of_many` query — the SAME
@@ -217,7 +235,10 @@ replay stays honest.
   *(Until migration 0057 the per-version date read `max(valid_from, market date of recorded_at)` — D3a's
   held-date term, retired with the operator's approval 2026-10-21 — and the pick was `recorded_at DESC, id
   DESC`; on every row stored before 0057 — `recorded_at = valid_from 00:00 UTC`, all 120,876 on prod — both are
-  identical to today's rule. See the next bullet for why the honest stamp retired them.)*
+  identical to today's rule. See the next bullet for why the honest stamp retired them.)* On a HISTORY
+  (public-clock) read the visible versions also carry their PUBLIC instant as `recorded_at` (the start of their
+  filing day), collapsed to one per filing, so the same filing-based pick and date come out
+  (`tests/db/test_public_clock.py::test_first_knowability_reads_the_public_clock`).
   *Enforced by:* `tests/db/test_first_knowability.py` (fixed `known_at` pins between and after the filings, a
   restatement, a reverted value, the shared-filing tie-break, and a sweep proving nothing recorded after `known_at`
   moves the pick or the annotation — all on real prod version histories) and `tests/replay/test_pit_first_knowability.py`
@@ -238,12 +259,21 @@ replay stays honest.
   refused, counting the table) and `tests/replay/test_pit_first_knowability.py` (a public-clock mirror reads
   honest and backdated rows identically at every pin). See `FEED_LOOP.md` §Honest stamps — the fundamentals
   write path.
-- *Also honored by (the BACKTEST's public clock — a MIRROR-side axis swap, never a gate change):* a research
-  run may ask "when could ANYONE have known this?" instead of "when did THIS system record it?". That is a
-  third clock (public time: `accepted` / `filed` / the bar date) and it is applied where it cannot touch the
-  live path — `replay/export.py::export_snapshot(clock="public")` rewrites the exported `recorded_at` to the
-  disclosure instant, so **the reader, the gate and `knowability_expr` are byte-identical in both modes** and
-  `db/bitemporal.py` is not opened. Three rules make the swap honest rather than merely different. A table
+- *Also honored by (the BACKTEST's public clock — the SAME definition as the history views):* a research
+  run asks "when could ANYONE have known this?" instead of "when did THIS system record it?" — since
+  2026-10-21 the question every history view asks too, so the per-table definition lives ONCE in
+  `db/public_clock.py` and `replay/export.py::export_snapshot(clock="public")` materializes the SAME SQL the
+  live history read runs (`public_versions_sql`): the exported `recorded_at` is each version's public instant
+  (the honest ingest instant beside it as `ingested_at`), and the mirror's reader and gate are unchanged, so a
+  public mirror read is row-for-row the live `clock="public"` read (the parity gate below). What the shared
+  definition changed in the mirror (2026-10-21): a bar's re-version counts from its own publication (it used
+  to collapse onto the bar's date — a correction back-dated), its first version from the session settle; the
+  Workbench-ratified tables and the fund samples are no longer excluded (they count from their ratification /
+  sampling); the 4/A tables carry every row with its honest `recorded_at` plus `public_at` (an operator
+  decision from when it was made — the old "standing decisions stamped at the acceptance" hindsight is gone).
+  The ONE named asymmetry: a Form 4 with no acceptance on any version is excluded + COUNTED by the export (its
+  contract) and shown by the history read from the first time we held it. Three rules make the swap honest
+  rather than merely different. A table
   with **no declared clock is excluded WHOLE** and named in the manifest with the detectors it blinds; a ROW
   whose clock column is NULL is excluded and **COUNTED** (both counts ride the artifact and the surface, so
   the size of the hole is part of the result). And versions are resolved AT EXPORT partitioned by
@@ -253,8 +283,9 @@ replay stays honest.
   to be decided by a random UUID. After the partition every surviving row for an identity carries a distinct
   derived `recorded_at` and no tie is left to break. The scoring pass is unaffected: it reads FORWARD by
   design (the no-lookahead rule binds the decision, not the measurement of it). Full detail, the registry
-  table and the NULL rates: `docs/BACKTEST.md`. *Enforced by:* `tests/replay/` (the parity gate runs on
-  `clock="record"` and stays byte-identical; the public-clock exclusion + NULL-count tests).
+  table and the NULL rates: `docs/BACKTEST.md`. *Enforced by:* `tests/replay/` (the record-mode parity gate
+  stays byte-identical; `test_public_clock.py::test_the_public_mirror_is_row_for_row_the_live_public_read`, the
+  exclusion + NULL-count tests).
 - *Also honored by (R8-A — Form 4/A amendments):* an amendment changes what the insider read returns only from
   the moment THIS system held it. The 4/A, its link and every operator decision carry their own `recorded_at`,
   and the resolver (`domain/insider_amendments.resolve_insider_rows`, shared verbatim by the Postgres read and
@@ -262,19 +293,23 @@ replay stays honest.
   amendments of one original and is displayed, never a gate. So a replay pinned before tonight's link reads the
   original exactly as stored, and one pinned before a ratification reads the pending state; the backfill of the
   existing 4/As (stamped `recorded_at = now`) moves no past replay. An amended row is dated by its OWN
-  transaction date (`valid_from <= asof`, and the registry floor, apply to it too). The public-clock mirror
-  stamps a 4/A and its link at its acceptance, and carries only the operator's STANDING decisions, stamped the
-  same — the ratified-table hindsight caveat, named. *Enforced by:* `tests/db/test_insider_amendments.py`
+  transaction date (`valid_from <= asof`, and the registry floor, apply to it too). ON THE PUBLIC CLOCK (every
+  history view, 2026-10-21) each input is gated on its PUBLIC instant instead (`db/public_clock.aux_public_sql`,
+  read by `db/insider_resolution.load_inputs(clock="public")` and carried by the mirror as `public_at`): the 4/A
+  and its link from the amendment's SEC acceptance, a SYSTEM decision from that same publication, an OPERATOR
+  decision from when the operator made it — while the order the resolver reads (newest link, newest standing
+  verdict) stays the honest `recorded_at`. *Enforced by:* `tests/db/test_insider_amendments.py`
   (a read pinned before the link / before a decision), `tests/replay/test_pit_insider_amendments.py` (row-for-row
-  parity at four pins, both read shapes; the public-clock acceptance).
+  parity at four pins, both read shapes; the public-clock acceptance; the public-clock parity gate and
+  `test_public_clock_counts_an_operator_decision_from_when_it_was_made`).
 - *Also honored by (R8-B — the system resolves the filer's own correction):* the system's resolution (an
   `apply`, or a `keep` of a void its words do not retract) is an append-only decision like the operator's,
   carrying its own `recorded_at` — in the link's transaction at ingest (so a new 4/A is never seen pending), or
   `now` when the nightly sweep resolves the pre-R8-B backlog. So a replay pinned before the sweep reads the
   state the system actually held (pending: a void suppressing, a partial with no effect) — the backlog is
-  resolved forward, never back-dated. The public-clock mirror carries
-  the standing system decisions like any standing decision (stamped at the acceptance — the same named
-  hindsight caveat). The row match a system (or operator) `apply` carries is computed when it is written
+  resolved forward, never back-dated. On the public clock a system decision counts from the 4/A's acceptance
+  (the system's reading of a public filing under today's rules), on the live public read and the mirror alike.
+  The row match a system (or operator) `apply` carries is computed when it is written
   and stored on it (`replaced_rows`), so a windowed read never recomputes it, and both engines read it.
   *Enforced by:* `tests/db/test_insider_amendments.py::
   test_a_replay_pinned_before_the_sweep_reads_the_pending_state_it_held`,
@@ -306,6 +341,12 @@ replay stays honest.
   `tests/pipeline/test_repair_insider_filer_text.py::test_a_pre_repair_replay_still_reads_what_the_system_held`,
   `tests/replay/test_pit_internal_transfers.py` (row-for-row parity, both read shapes; an old mirror links nothing
   by name).
+- *The record-clock proofs above* ("a read pinned before the repair / sweep / re-link reads what the system
+  held") are the HISTORY of how those repairs were built and stay true of the record clock. Since 2026-10-21 no
+  history view reads that clock: on the public clock a repair, re-parse, re-link or re-derivation of a PUBLIC
+  filing counts from that filing's publication, so a past view reads today's best reading of what was public
+  (`tests/db/test_public_clock.py::test_a_reparse_shares_its_filings_public_instant_so_the_best_parse_is_read`).
+  New builds add no record-clock replay proofs (the rule block above).
 
 ## 5. Tenant isolation; production is a fresh tenant, never a destructive wipe
 

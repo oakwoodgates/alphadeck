@@ -34,7 +34,7 @@ from db.bitemporal import (
 from db.insider_resolution import RESOLVED_TABLE
 from db.session import DEFAULT_TENANT_ID
 from domain.insider_amendments import ResolutionInputs, group_inputs
-from replay.export import AUX_TABLES, FACT_TABLES, read_mirror_manifest
+from replay.export import AUX_PUBLIC_COL, AUX_TABLES, FACT_TABLES, read_mirror_manifest
 from signals.base import window_prices
 
 # the aux columns the export wrote as JSON strings (jsonb / text[]) — decoded back to the Postgres shape
@@ -328,19 +328,28 @@ class ReplayPointInTimeData:
         """Every 4/A record, link and decision of these securities recorded at/before ``known_at``, plus their
         CIK sets — the gate ``db.insider_resolution.load_inputs`` applies on Postgres (``tenant_id`` +
         ``recorded_at <= known_at``), fed to the SAME pure resolver (replay parity by construction). Read from
-        the per-mirror aux cache (``_aux_of``): no query per view."""
+        the per-mirror aux cache (``_aux_of``): no query per view.
+
+        A PUBLIC mirror's aux rows carry ``public_at`` (``replay.export.AUX_PUBLIC_COL`` — the row's public
+        instant from the SAME ``db.public_clock.aux_public_sql`` the live public read gates on): the gate reads
+        it instead, while the order the resolver reads stays the honest ``recorded_at`` — the live public
+        read's rule exactly. A record mirror has no such column and gates on ``recorded_at`` as always.
+        """
         aux = _aux_of(self.con)
         sids = [str(s) for s in dict.fromkeys(security_ids)]
         if aux is None or not sids:
             return ResolutionInputs()
         tenant, known_at = str(self.tenant_id), self.known_at
 
+        def gate(r: dict[str, Any]) -> Any:
+            return r[AUX_PUBLIC_COL] if AUX_PUBLIC_COL in r else r["recorded_at"]
+
         def visible(rows_by_sid: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
             return [
                 r
                 for s in sids
                 for r in rows_by_sid.get(s, ())
-                if str(r["tenant_id"]) == tenant and r["recorded_at"] <= known_at
+                if str(r["tenant_id"]) == tenant and gate(r) <= known_at
             ]
 
         return group_inputs(

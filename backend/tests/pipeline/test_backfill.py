@@ -1,10 +1,11 @@
-"""``pipeline.backfill`` — the faithful reconstruction of a MISSED night's call-of-record with a PINNED
-``known_at``. The DB is real (the ``db`` fixture); facts are seeded directly with explicit ``recorded_at``
-stamps on BOTH sides of the pin, so the headline test proves the one thing the module exists for: the pin
-EXCLUDES knowledge that arrived after it (the naive ``known_at = now`` backfill would have included it).
-Idempotency and the dry run COUNT THE TABLE (the log dedups on read, so a duplicate append hides behind a
-correct read while the table silently grows). The resolver is pure over artifact-shaped payloads; the
-import guard pins structurally that the module is a recompute-and-record and nothing else.
+"""``pipeline.backfill`` — the reconstruction of a MISSED night's call-of-record on the PUBLIC clock (operator
+decision 2026-10-21): every fact counts from when it became public, up to the end of the night's market day.
+The DB is real (the ``db`` fixture); facts are seeded directly with explicit ``accepted`` / ``recorded_at``
+stamps on BOTH sides of the night, so the headline tests prove the two things the module exists for: a fact
+PUBLISHED after the night never leaks in, and a fact public before it is in the row however LATE our database
+ingested it (the retired record-clock pin hid it, which only replayed our own outage). Idempotency and the dry
+run COUNT THE TABLE (the log dedups on read, so a duplicate append hides behind a correct read while the table
+silently grows). The import guard pins structurally that the module is a recompute-and-record and nothing else.
 """
 
 from __future__ import annotations
@@ -21,21 +22,20 @@ import pytest
 from db.session import DEFAULT_TENANT_ID
 from domain.config import DEFAULT_CONFIG, config_hash
 from domain.enums import State
-from domain.market_time import market_today
+from domain.market_time import known_at_for_asof, market_today
 from ingest.edgar.form4 import ingest_form4
 from ingest.prices.eod_loader import ingest_prices_backfill, parse_yahoo_chart
 from pipeline import backfill
 from pipeline.backfill import (
+    PUBLIC_CLOCK_POLICY,
     BackfillResult,
-    parse_known_at,
-    resolve_next_run_known_at,
+    reconstruction_known_at,
     run_backfill,
     run_backfill_pass,
     thesis_existed_on,
 )
 from pipeline.backfill_log import write_backfill_log
 from pipeline.call_for_thesis import call_for_thesis
-from pipeline.cron_run_log import build_run_payload
 from repositories import calls_repo
 from tests.form4a_fixtures import as_issuer
 
@@ -51,15 +51,15 @@ _HIMS_BARS = parse_yahoo_chart(
 )
 _TZ = ZoneInfo("America/New_York")
 
-# The missed night, and the clocks around it. The night is 2026-06-03; the pin is the finish of the FIRST
-# cron run after it (2026-06-04 22:41 ET = 06-05 02:41Z). The bars are backfill-stamped (recorded_at = the
-# bar date, all BEFORE the pin); the Wells Form 4 is recorded 06-20 — a fact dated in May (valid_from <=
-# asof) that the platform only LEARNED after the pin. A naive known_at=now backfill sees it; the pinned one
-# must not.
+# The missed night, and the clocks around it. The night is 2026-06-03; the reconstruction is judged at the END
+# of that market day (06-04 03:59:59Z). The bars are backfill-stamped (recorded_at = the bar date). The Wells
+# Form 4 is INGESTED 06-20 — long after the night — and its ACCEPTANCE is the variable: 05-28 (public before
+# the night: the row must see it) or 06-10 (published after the night: the row must not).
 _ASOF = date(2026, 6, 3)
-_PIN = datetime(2026, 6, 5, 2, 41, 0, tzinfo=timezone.utc)
+_CAP = datetime(2026, 6, 4, 3, 59, 59, 999999, tzinfo=timezone.utc)  # 06-03 23:59:59.999999 EDT
 _LATE = datetime(2026, 6, 20, 14, 0, 0, tzinfo=timezone.utc)
-_SEES_ALL = datetime(2027, 1, 1, tzinfo=timezone.utc)
+_PUBLIC_BEFORE = datetime(2026, 5, 28, 12, 0, 0, tzinfo=timezone.utc)
+_PUBLIC_AFTER = datetime(2026, 6, 10, 21, 0, 0, tzinfo=timezone.utc)
 
 
 # Every fixture thesis is BORN before the missed night unless a test says otherwise: the existence gate
@@ -89,16 +89,18 @@ def _thesis(db, name, *, members=(), created_at=_BORN):
     return tid
 
 
-def _seed_split_clock_thesis(db, security_id):
-    """The load-bearing fixture: bars knowable on their own night (before the pin) + the Wells buy the
-    platform recorded only AFTER the pin. Real detectors over real facts — no fixture fakes a shape.
-    """
-    tid = _thesis(db, "Split clock", members=[("DEVCO", security_id)])
+def _seed_hims(db, security_id, *, accepted: datetime | None):
+    """The load-bearing fixture: bars on their own nights + the Wells buy INGESTED long after the night,
+    accepted at ``accepted`` (None = no Form 4 at all yet). Real detectors over real facts."""
+    tid = _thesis(db, "Public clock", members=[("DEVCO", security_id)])
     as_issuer(
         db, security_id, "0001773751"
     )  # R8-A: the security IS the Wells Form 4's issuer (HIMS)
-    ingest_prices_backfill(db, security_id, _HIMS_BARS)  # recorded_at = bar date (before the pin)
-    ingest_form4(db, security_id, _WELLS_XML, _WELLS_ACCESSION, recorded_at=_LATE)  # after the pin
+    ingest_prices_backfill(db, security_id, _HIMS_BARS)  # recorded_at = bar date
+    if accepted is not None:
+        ingest_form4(
+            db, security_id, _WELLS_XML, _WELLS_ACCESSION, recorded_at=_LATE, accepted=accepted
+        )
     db.commit()
     return tid
 
@@ -139,36 +141,33 @@ def _reconstructed_flags(db, thesis_id):
         return [r["reconstructed"] for r in cur.fetchall()]
 
 
-# --- 1. THE load-bearing one: the pin excludes later knowledge ---------------------------------------------
+# --- 1. THE load-bearing ones: the reconstruction is judged on the PUBLIC clock -----------------------------
 
 
-def test_the_pin_EXCLUDES_knowledge_recorded_after_it(db, security_id):
-    tid = _seed_split_clock_thesis(db, security_id)
+def test_the_cap_is_the_end_of_the_nights_market_day():
+    assert reconstruction_known_at(_ASOF) == _CAP == known_at_for_asof(_ASOF)
 
-    # the two clocks, straight from the assembler: pinned (what the cron WOULD have logged) vs now
-    pinned_view = call_for_thesis(db, tid, _ASOF, known_at=_PIN, record=False)
-    now_view = call_for_thesis(db, tid, _ASOF, known_at=None, record=False)
-    # at the pin only the tape was on file: the 06-01 breakout is live (confirmation) but no conviction
-    assert pinned_view.state is State.WARMING
-    assert pinned_view.key_confirmation.turned and not pinned_view.key_conviction.turned
-    # today's knowledge includes the Wells buy recorded 06-20 → both keys → ARMED. That is exactly the
-    # wrong row for a missed night (the MEASURED Modern Defense shape: ARMED between quieter neighbors).
-    assert now_view.state is State.ARMED
-    assert now_view.key_conviction.turned
 
-    results = run_backfill(db, asof=_ASOF, known_at=_PIN)
+def test_a_fact_public_before_the_night_is_in_the_row_however_late_we_ingested_it(db, security_id):
+    """The Wells buy was ACCEPTED 05-28 — public days before the night — but our database ingested it 06-20.
+    The night's reconstruction SEES it (both keys → ARMED): the public clock, not our ingest history.
+    """
+    tid = _seed_hims(db, security_id, accepted=_PUBLIC_BEFORE)
+    public = call_for_thesis(db, tid, _ASOF, known_at=_CAP, clock="public", record=False)
+    assert public.state is State.ARMED and public.key_conviction.turned
+
+    results = run_backfill(db, asof=_ASOF)
     assert [(r.state, r.verdict, r.recorded, r.error) for r in results] == [
-        (pinned_view.state.value, pinned_view.verdict.value, True, None)
+        (public.state.value, public.verdict.value, True, None)
     ]
     assert results[0].prior_state is None  # the night truly had no row
 
     logged = calls_repo.latest_for_thesis(db, tid)
     assert len(logged) == 1 and logged[0].asof == _ASOF
-    # EXACTLY the pinned assembly — the CLI adds nothing (a field-level equality through the jsonb round
-    # trip), and record_if_changed's own canonical compare agrees: the direct call is not a change
-    assert logged[0].model_dump(mode="json") == pinned_view.model_dump(mode="json")
-    assert calls_repo.record_if_changed(db, pinned_view, DEFAULT_TENANT_ID) is False
-    assert logged[0].state is State.WARMING and logged[0].state is not now_view.state
+    # EXACTLY the public-clock assembly — the CLI adds nothing (a field-level equality through the jsonb
+    # round trip), and record_if_changed's own canonical compare agrees: the direct call is not a change
+    assert logged[0].model_dump(mode="json") == public.model_dump(mode="json")
+    assert calls_repo.record_if_changed(db, public, DEFAULT_TENANT_ID) is False
     # the NULL ingest stamp: a reconstructed row carries no ingest health (there was no ingest)
     assert _ingest_stamp(db, tid) == [(None, None)]
     # the explicit marker (0042): the ONE thing the Scoreboard's record path filters on
@@ -179,20 +178,41 @@ def test_the_pin_EXCLUDES_knowledge_recorded_after_it(db, security_id):
     assert _run_identity(db, tid) == [(config_hash(DEFAULT_CONFIG), None, "backfill")]
 
 
+def test_a_filing_published_after_the_night_never_leaks_in(db, security_id):
+    """The SAME buy, accepted 06-10 — a week after the night. However it is stamped, the night cannot see
+    it: the tape alone (the 06-01 breakout — confirmation only) → WARMING, while today's live knowledge
+    arms. That live view is exactly the wrong row for a missed night (the MEASURED Modern Defense shape:
+    ARMED between quieter neighbors)."""
+    tid = _seed_hims(db, security_id, accepted=_PUBLIC_AFTER)
+    now_view = call_for_thesis(db, tid, _ASOF, known_at=None, record=False)
+    assert now_view.state is State.ARMED
+
+    (res,) = run_backfill(db, asof=_ASOF)
+    assert res.state == "warming" and res.recorded is True
+    (logged,) = calls_repo.latest_for_thesis(db, tid)
+    assert logged.state is State.WARMING
+    assert logged.key_confirmation.turned and not logged.key_conviction.turned
+
+
 # --- 2. idempotent, count the table ---------------------------------------------------------------------
 
 
-def test_rerun_with_the_same_pin_appends_ZERO_rows_count_the_table(db, security_id):
-    tid = _seed_split_clock_thesis(db, security_id)
+def test_rerun_appends_ZERO_rows_and_a_late_public_fact_appends_one(db, security_id):
+    tid = _seed_hims(db, security_id, accepted=None)  # the tape only
 
-    assert [r.recorded for r in run_backfill(db, asof=_ASOF, known_at=_PIN)] == [True]
+    assert [r.recorded for r in run_backfill(db, asof=_ASOF)] == [True]
     assert _count(db, tid) == 1
-    assert [r.recorded for r in run_backfill(db, asof=_ASOF, known_at=_PIN)] == [False]
+    assert [r.recorded for r in run_backfill(db, asof=_ASOF)] == [False]
     assert _count(db, tid) == 1  # STILL one row, not two
-    assert run_backfill(db, asof=_ASOF, known_at=_PIN)[0].prior_state == "warming"
+    assert run_backfill(db, asof=_ASOF)[0].prior_state == "warming"
 
-    # a DIFFERENT pin that sees the later-recorded fact is a GENUINE change: exactly one more row
-    assert [r.recorded for r in run_backfill(db, asof=_ASOF, known_at=_SEES_ALL)] == [True]
+    # the Wells Form 4 arrives LATE — but it was public before the night (accepted 05-28): a GENUINE change
+    # to what the night's public record holds, so exactly one more row
+    ingest_form4(
+        db, security_id, _WELLS_XML, _WELLS_ACCESSION, recorded_at=_LATE, accepted=_PUBLIC_BEFORE
+    )
+    db.commit()
+    assert [r.recorded for r in run_backfill(db, asof=_ASOF)] == [True]
     assert _count(db, tid) == 2
     assert calls_repo.latest_for_thesis(db, tid)[0].state is State.ARMED
     assert _reconstructed_flags(db, tid) == [True, True]  # every backfill row carries the marker
@@ -208,9 +228,9 @@ def test_rerun_with_the_same_pin_appends_ZERO_rows_count_the_table(db, security_
 
 
 def test_dry_run_writes_no_row_and_no_artifact(db, security_id, monkeypatch, tmp_path):
-    tid = _seed_split_clock_thesis(db, security_id)
+    tid = _seed_hims(db, security_id, accepted=_PUBLIC_AFTER)
 
-    results = run_backfill(db, asof=_ASOF, known_at=_PIN, dry_run=True)
+    results = run_backfill(db, asof=_ASOF, dry_run=True)
     assert results[0].state == "warming" and results[0].recorded is None  # assembled, not written
     assert _count(db, tid) == 0  # COUNT the table: nothing landed
 
@@ -223,21 +243,18 @@ def test_dry_run_writes_no_row_and_no_artifact(db, security_id, monkeypatch, tmp
             pass
 
     monkeypatch.setattr(backfill, "connect", lambda: _NoClose())
-    out = run_backfill_pass(
-        asof=_ASOF, known_at=_PIN, known_at_policy="explicit", dry_run=True, log_dir=tmp_path
-    )
+    out = run_backfill_pass(asof=_ASOF, dry_run=True, log_dir=tmp_path)
     assert out.log_path is None and list(tmp_path.glob("*.json")) == []  # no provenance either
     assert _count(db, tid) == 0
 
     # ...and the real pass writes BOTH: one row, one artifact in the backfill's OWN directory
-    out = run_backfill_pass(
-        asof=_ASOF, known_at=_PIN, known_at_policy="next-run", dry_run=False, log_dir=tmp_path
-    )
+    out = run_backfill_pass(asof=_ASOF, dry_run=False, log_dir=tmp_path)
     assert _count(db, tid) == 1
     assert out.log_path is not None and out.log_path.parent == tmp_path
     doc = json.loads(out.log_path.read_text(encoding="utf-8"))
-    assert doc["asof"] == "2026-06-03" and doc["known_at"] == "2026-06-05T02:41:00+00:00"
-    assert doc["known_at_policy"] == "next-run" and doc["dry_run"] is False
+    assert doc["asof"] == "2026-06-03" and doc["known_at"] == "2026-06-04T03:59:59.999999+00:00"
+    assert doc["known_at_policy"] == PUBLIC_CLOCK_POLICY == "public-clock"
+    assert doc["dry_run"] is False
     assert doc["summary"] == {
         "theses": 1,
         "appended": 1,
@@ -258,8 +275,8 @@ def test_backfill_log_is_FAIL_OPEN(tmp_path):
         write_backfill_log(
             [BackfillResult(thesis_id=uuid.uuid4(), name="T", recorded=True)],
             asof=date(2026, 9, 8),
-            known_at=_PIN,
-            known_at_policy="explicit",
+            known_at=_CAP,
+            known_at_policy=PUBLIC_CLOCK_POLICY,
             dry_run=False,
             started_at=now,
             finished_at=now,
@@ -286,124 +303,21 @@ def test_refuses_an_asof_that_is_not_in_the_past(monkeypatch, capsys, offset_day
     _no_connect(monkeypatch)
     asof = market_today() + timedelta(days=offset_days)
     with pytest.raises(SystemExit) as exc:
-        backfill.main(["--asof", asof.isoformat(), "--known-at", "2027-01-01T00:00:00Z"])
+        backfill.main(["--asof", asof.isoformat()])
     assert exc.value.code == 2
     assert "not in the past" in capsys.readouterr().err
 
 
-def test_refuses_a_NAIVE_known_at(monkeypatch, capsys):
+@pytest.mark.parametrize("pin", ["next-run", "2026-09-09T13:22:07Z"])
+def test_the_retired_known_at_pin_is_refused_with_the_reason(monkeypatch, capsys, pin):
+    """The record-clock pin ("what our database held at the next live run") is retired: passing it is a
+    loud refusal that names the public clock — never silently ignored, never honored."""
     _no_connect(monkeypatch)
     with pytest.raises(SystemExit) as exc:
-        backfill.main(["--asof", "2026-09-08", "--known-at", "2026-09-09T13:22:07"])
+        backfill.main(["--asof", "2026-09-08", "--known-at", pin])
     assert exc.value.code == 2
-    assert "no timezone" in capsys.readouterr().err
-
-
-def test_refuses_a_known_at_BEFORE_the_asof_day(monkeypatch, capsys):
-    _no_connect(monkeypatch)
-    # 2026-09-08 00:00 ET is 04:00Z; 03:59Z is still 09-07 in market time → refused
-    with pytest.raises(SystemExit) as exc:
-        backfill.main(["--asof", "2026-09-08", "--known-at", "2026-09-08T03:59:00Z"])
-    assert exc.value.code == 2
-    assert "BEFORE the as-of day" in capsys.readouterr().err
-
-
-def test_refuses_next_run_when_no_live_run_follows_the_night(monkeypatch, capsys):
-    _no_connect(monkeypatch)
-    monkeypatch.setattr(backfill, "list_run_logs", lambda: [])
-    with pytest.raises(SystemExit) as exc:
-        backfill.main(["--asof", "2026-09-08", "--known-at", "next-run"])
-    assert exc.value.code == 2
-    assert "no live run after 2026-09-08" in capsys.readouterr().err
-
-
-def test_parse_known_at_accepts_Z_and_offsets_normalized_to_UTC():
-    assert parse_known_at("2026-09-09T13:22:07Z") == datetime(
-        2026, 9, 9, 13, 22, 7, tzinfo=timezone.utc
-    )
-    assert parse_known_at("2026-09-09T09:22:07-04:00") == datetime(
-        2026, 9, 9, 13, 22, 7, tzinfo=timezone.utc
-    )
-    with pytest.raises(ValueError, match="no timezone"):
-        parse_known_at("2026-09-09T13:22:07")
-    with pytest.raises(ValueError, match="not an ISO-8601"):
-        parse_known_at("yesterday")
-
-
-# --- 5. resolve_next_run_known_at — pure over artifact-shaped payloads ----------------------------------
-
-
-def _run(
-    started: datetime, *, minutes: int = 11, live: bool = True, asof: date | None = None
-) -> dict:
-    """A run-of-record payload in the REAL artifact shape (build_run_payload, zero results)."""
-    return build_run_payload(
-        [],
-        asof=asof or started.astimezone(_TZ).date(),
-        allow_live=live,
-        started_at=started,
-        finished_at=started + timedelta(minutes=minutes),
-    )
-
-
-def _et(y, m, d, hh, mm) -> datetime:
-    return datetime(y, m, d, hh, mm, tzinfo=_TZ)
-
-
-def test_resolver_picks_the_EARLIEST_live_run_after_the_night():
-    asof = date(2026, 9, 8)  # Tuesday
-    payloads = [  # newest-first, as list_run_logs returns them
-        _run(_et(2026, 9, 10, 22, 30)),  # Thu night — later, not the first
-        _run(_et(2026, 9, 9, 22, 31), minutes=9),  # Wed night — THE first live run after the night
-        _run(
-            _et(2026, 9, 9, 8, 0), live=False
-        ),  # a --no-live dev run Wed morning: refreshed nothing
-        _run(_et(2026, 9, 8, 22, 30)),  # Tue 22:30 — ON the as-of day, not after it
-        _run(_et(2026, 9, 7, 22, 30)),  # Mon — before
-    ]
-    got = resolve_next_run_known_at(payloads, asof, _TZ)
-    assert got == _et(2026, 9, 9, 22, 40).astimezone(timezone.utc)
-    assert got.tzinfo is timezone.utc  # always a UTC instant
-
-
-def test_resolver_a_no_live_run_does_NOT_count():
-    asof = date(2026, 9, 8)
-    assert resolve_next_run_known_at([_run(_et(2026, 9, 9, 22, 30), live=False)], asof, _TZ) is None
-
-
-def test_resolver_ignores_runs_started_ON_the_asof_day():
-    asof = date(2026, 9, 8)
-    # a same-day manual run (09:00) and the night's own 22:30 fire are not "after the night"; and a run
-    # at 23:59:59 market time is still on the day
-    payloads = [
-        _run(_et(2026, 9, 8, 9, 0)),
-        _run(_et(2026, 9, 8, 22, 30)),
-        _run(datetime(2026, 9, 8, 23, 59, 59, tzinfo=_TZ)),
-    ]
-    assert resolve_next_run_known_at(payloads, asof, _TZ) is None
-    # ...while 00:00:00 the next day is after it
-    assert resolve_next_run_known_at(
-        [_run(datetime(2026, 9, 9, 0, 0, 0, tzinfo=_TZ))], asof, _TZ
-    ) == datetime(2026, 9, 9, 0, 11, 0, tzinfo=_TZ).astimezone(timezone.utc)
-
-
-def test_resolver_returns_None_when_there_is_no_run_after():
-    assert resolve_next_run_known_at([], date(2026, 9, 8), _TZ) is None
-    assert resolve_next_run_known_at([_run(_et(2026, 9, 7, 22, 30))], date(2026, 9, 8), _TZ) is None
-
-
-def test_resolver_skips_an_unreadable_payload_FAIL_OPEN():
-    asof = date(2026, 9, 8)
-    good = _run(_et(2026, 9, 9, 22, 30))
-    junk = [
-        "not a dict",
-        {"mode": "live"},  # no stamps
-        {"mode": "live", "started_at": "garbage", "finished_at": "garbage"},
-        {"mode": "live", "started_at": "2026-09-09T22:30:00", "finished_at": "2026-09-09T22:41:00"},
-    ]
-    assert resolve_next_run_known_at(junk + [good], asof, _TZ) == datetime.fromisoformat(
-        good["finished_at"]
-    ).astimezone(timezone.utc)
+    err = capsys.readouterr().err
+    assert "--known-at is retired" in err and "PUBLIC clock" in err
 
 
 # --- the CLI → pass wiring (the pass is stubbed; this pins what main threads) ----------------------------
@@ -418,8 +332,8 @@ def _stub_pass(monkeypatch):
         return backfill.BackfillPassOutcome(
             results=[],
             asof=kw["asof"],
-            known_at=kw["known_at"],
-            known_at_policy=kw["known_at_policy"],
+            known_at=reconstruction_known_at(kw["asof"]),
+            known_at_policy=PUBLIC_CLOCK_POLICY,
             dry_run=kw["dry_run"],
             started_at=now,
             finished_at=now,
@@ -430,40 +344,21 @@ def _stub_pass(monkeypatch):
     return seen
 
 
-def test_main_threads_an_EXPLICIT_pin_and_prints_it_in_both_clocks(monkeypatch, capsys):
+def test_main_threads_the_night_and_prints_the_public_cap_in_both_clocks(monkeypatch, capsys):
     seen = _stub_pass(monkeypatch)
     tid = uuid.uuid4()
-    backfill.main(
-        [
-            "--asof",
-            "2026-09-08",
-            "--known-at",
-            "2026-09-09T13:22:07Z",
-            "--thesis",
-            str(tid),
-            "--dry-run",
-        ]
-    )
-    assert seen["asof"] == date(2026, 9, 8)
-    assert seen["known_at"] == datetime(2026, 9, 9, 13, 22, 7, tzinfo=timezone.utc)
-    assert seen["known_at_policy"] == "explicit" and seen["dry_run"] is True
-    assert seen["thesis_id"] == tid
+    backfill.main(["--asof", "2026-09-08", "--thesis", str(tid), "--dry-run"])
+    assert seen == {"asof": date(2026, 9, 8), "thesis_id": tid, "dry_run": True}
     out = capsys.readouterr().out
-    assert "known_at=2026-09-09T13:22:07+00:00 (UTC)" in out  # the instant, in UTC...
-    assert "2026-09-09T09:22:07-04:00 (market)" in out  # ...and in market time (EDT)
+    assert "public clock, capped at 2026-09-09T03:59:59.999999+00:00 (UTC)" in out  # the instant...
+    assert "2026-09-08T23:59:59.999999-04:00 (market)" in out  # ...and in market time (EDT)
     assert "DRY-RUN" in out
 
 
-def test_main_resolves_next_run_from_the_run_log(monkeypatch, capsys):
+def test_main_defaults_to_every_live_thesis(monkeypatch, capsys):
     seen = _stub_pass(monkeypatch)
-    monkeypatch.setattr(
-        backfill, "list_run_logs", lambda: [_run(_et(2026, 9, 9, 22, 31), minutes=9)]
-    )
-    backfill.main(["--asof", "2026-09-08", "--known-at", "next-run"])
-    assert seen["known_at"] == _et(2026, 9, 9, 22, 40).astimezone(timezone.utc)
-    assert seen["known_at_policy"] == "next-run" and seen["dry_run"] is False
-    assert seen["thesis_id"] is None  # every live thesis
-    assert "policy=next-run" in capsys.readouterr().out
+    backfill.main(["--asof", "2026-09-08"])
+    assert seen["thesis_id"] is None and seen["dry_run"] is False
 
 
 def test_main_exits_1_when_a_thesis_errored(monkeypatch, capsys):
@@ -484,8 +379,8 @@ def test_main_exits_1_when_a_thesis_errored(monkeypatch, capsys):
         lambda **kw: backfill.BackfillPassOutcome(
             results=results,
             asof=kw["asof"],
-            known_at=kw["known_at"],
-            known_at_policy=kw["known_at_policy"],
+            known_at=reconstruction_known_at(kw["asof"]),
+            known_at_policy=PUBLIC_CLOCK_POLICY,
             dry_run=False,
             started_at=now,
             finished_at=now,
@@ -493,7 +388,7 @@ def test_main_exits_1_when_a_thesis_errored(monkeypatch, capsys):
         ),
     )
     with pytest.raises(SystemExit) as exc:
-        backfill.main(["--asof", "2026-09-08", "--known-at", "2026-09-09T13:22:07Z"])
+        backfill.main(["--asof", "2026-09-08"])
     assert exc.value.code == 1
     out = capsys.readouterr().out
     assert "GOOD: incubating / no_call · 0 armed · no row for this as-of yet · APPENDED" in out
@@ -520,7 +415,7 @@ def test_one_thesis_failure_does_not_abort_the_rest(db, monkeypatch):
 
     monkeypatch.setattr(backfill, "call_for_thesis", flaky)
 
-    by = {r.thesis_id: r for r in run_backfill(db, asof=_ASOF, known_at=_PIN)}
+    by = {r.thesis_id: r for r in run_backfill(db, asof=_ASOF)}
     assert by[good].recorded is True and by[good].error is None
     assert by[bad].recorded is None and by[bad].error and "boom" in by[bad].error
     assert _count(db, good) == 1  # the good thesis still got its reconstructed row
@@ -530,16 +425,11 @@ def test_one_thesis_failure_does_not_abort_the_rest(db, monkeypatch):
 def test_thesis_scoped_run_touches_only_that_thesis_and_unknown_is_LOUD(db):
     a = _thesis(db, "A")
     b = _thesis(db, "B")
-    res = run_backfill(db, asof=_ASOF, known_at=_PIN, thesis_id=a)
+    res = run_backfill(db, asof=_ASOF, thesis_id=a)
     assert [r.thesis_id for r in res] == [a]
     assert _count(db, a) == 1 and _count(db, b) == 0
     with pytest.raises(LookupError):
-        run_backfill(db, asof=_ASOF, known_at=_PIN, thesis_id=uuid.uuid4())
-
-
-def test_run_backfill_refuses_a_naive_pin(db):
-    with pytest.raises(ValueError, match="timezone-aware"):
-        run_backfill(db, asof=_ASOF, known_at=datetime(2026, 6, 5, 2, 41))
+        run_backfill(db, asof=_ASOF, thesis_id=uuid.uuid4())
 
 
 # --- 6b. the existence gate: a thesis created AFTER the night gets NO row, loudly -------------------------
@@ -576,7 +466,7 @@ def test_skips_a_thesis_created_after_the_night_and_reports_it_LOUDLY(
     edge = _thesis(db, "B born on the night", created_at=_BORN_ON_THE_NIGHT)
     later = _thesis(db, "C born after", created_at=_BORN_AFTER)
 
-    results = run_backfill(db, asof=_ASOF, known_at=_PIN)
+    results = run_backfill(db, asof=_ASOF)
     by = {r.thesis_id: r for r in results}
     assert by[existed].recorded is True and by[existed].skipped is None
     assert by[edge].recorded is True and by[edge].skipped is None  # in that night's cron: a row
@@ -597,7 +487,7 @@ def test_skips_a_thesis_created_after_the_night_and_reports_it_LOUDLY(
     )
 
     # --dry-run reports the skip too: it is a fact about the night, not about writing
-    dry = {r.thesis_id: r for r in run_backfill(db, asof=_ASOF, known_at=_PIN, dry_run=True)}
+    dry = {r.thesis_id: r for r in run_backfill(db, asof=_ASOF, dry_run=True)}
     assert dry[later].skipped == _SKIP_REASON and dry[existed].skipped is None
     assert _count(db, later) == 0
 
@@ -610,9 +500,7 @@ def test_skips_a_thesis_created_after_the_night_and_reports_it_LOUDLY(
             pass
 
     monkeypatch.setattr(backfill, "connect", lambda: _NoClose())
-    outcome = run_backfill_pass(
-        asof=_ASOF, known_at=_PIN, known_at_policy="explicit", log_dir=tmp_path
-    )
+    outcome = run_backfill_pass(asof=_ASOF, log_dir=tmp_path)
     doc = json.loads(outcome.log_path.read_text(encoding="utf-8"))
     assert doc["summary"] == {
         "theses": 3,
@@ -633,8 +521,8 @@ def test_a_cron_row_stays_false_while_the_backfill_row_reads_true(db, security_i
     """The marker is the backfill's alone: the cron's writer — ``record_if_changed`` with the R2b
     stamp and no ``reconstructed`` kwarg, exactly ``pipeline.daily``'s call shape — leaves the column
     at its default; the backfill's row is true. Same thesis, two nights, both rows counted."""
-    tid = _seed_split_clock_thesis(db, security_id)
-    assert [r.recorded for r in run_backfill(db, asof=_ASOF, known_at=_PIN)] == [True]
+    tid = _seed_hims(db, security_id, accepted=_PUBLIC_AFTER)
+    assert [r.recorded for r in run_backfill(db, asof=_ASOF)] == [True]
     nightly = call_for_thesis(db, tid, _ASOF + timedelta(days=1), known_at=None, record=False)
     assert (
         calls_repo.record_if_changed(

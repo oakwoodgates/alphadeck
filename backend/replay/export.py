@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from datetime import datetime, time, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Literal
@@ -14,8 +13,16 @@ import pyarrow.parquet as pq
 from psycopg import sql
 
 from db.bitemporal import _FACT_IDENTITY
+from db.public_clock import (
+    INGESTED_COL,
+    PUBLIC_COL,
+    PUBLIC_TIME,
+    aux_public_sql,
+    partition_cols,
+    public_params,
+    public_versions_sql,
+)
 from db.session import DEFAULT_TENANT_ID
-from domain.market_time import market_tz
 
 # The bitemporal fact tables, taken from the as-of read's own whitelist (single source of truth — the
 # mirror can never drift from the set of tables the live reader knows).
@@ -23,61 +30,34 @@ FACT_TABLES: tuple[str, ...] = tuple(_FACT_IDENTITY)
 
 MANIFEST_NAME = "manifest.json"
 
-# --- THE PUBLIC-CLOCK REGISTRY (backtest only) ---------------------------------------------------------
+# --- THE PUBLIC CLOCK — one definition, shared with every history view ---------------------------------
 # "When could ANYONE have known this?", per table. The platform has three clocks — event time
-# (``valid_from``: when it happened), public time (below: when it was disclosed), system time
-# (``recorded_at``: when THIS system ingested it). The Scoreboard gates on system time and must keep
-# doing so: it answers "what did we hold", and new features and new doc processing mean the record can
-# only speak to what the system had. The BACKTEST asks a different question — "what would the algorithm
-# have called on the information available?" — and for that the system clock is the wrong axis and, for
-# any window before 2026-06, an unusable one (the filing tables' ``recorded_at`` does not reach back).
+# (``valid_from``: when it happened), public time (when it was disclosed), system time (``recorded_at``: when
+# THIS system ingested it). Since the operator's 2026-10-21 rule (INVARIANTS §4) HISTORY is judged on the public
+# clock everywhere — the backtest AND the product's history views (the past-asof Board/Cockpit/Workbench
+# recompute, the missed-night backfill, the Scoreboard drawer). So the registry no longer lives here: it is
+# ``db.public_clock.PUBLIC_TIME``, and this exporter runs the SAME SQL (``public_versions_sql``) the live
+# history read runs, materialized once into the mirror — a public mirror read is row-for-row the Postgres
+# public read (``tests/replay/test_public_clock.py``'s parity test). The LIVE read (asof = today) stays on the
+# record clock, where the two coincide; ``clock="record"`` here stays the parity gate's mode, byte-for-byte.
 #
-# THE REGISTRY LIVES HERE, in the exporter, and NEVER beside the live gate. ``db.bitemporal
-# .knowability_expr`` stays the single definition of knowability for every serve path; this is a property
-# of a research MIRROR, materialized once at export, so the replay reader and the as-of gate are untouched
-# and cannot drift into the product.
+# A table absent from the registry is EXCLUDED WHOLE from a ``clock=public`` mirror and named in the export
+# manifest together with the detectors thereby blind (today every fact table has a public clock). A ROW whose
+# clock cannot be determined (a Form 4 with no acceptance on any version) is EXCLUDED and COUNTED here —
+# the backtest's contract — while the serve path counts it from the first time we held it (an upper bound,
+# never early). Nothing is modeled or estimated from a neighbouring column (#6).
 #
-# A table absent from this map is EXCLUDED WHOLE from a ``clock=public`` mirror and named in the export
-# manifest together with the detectors thereby blind. A ROW whose clock cannot be determined is EXCLUDED
-# and COUNTED. Nothing is modeled, estimated or back-filled from a neighbouring column: an unknown
-# disclosure date is a row we decline to replay, not a guess (#6).
-_PUBLIC_CLOCK: dict[str, str] = {
-    "fact_price_eod": "d",  # the bar's own date — a close is public at the close
-    # XBRL fundamentals: there is NO ``filed`` column; ``valid_from`` IS the filing date here (R17). Every row
-    # written before migration 0057 was ALSO stamped ``recorded_at = filed 00:00 UTC`` (MEASURED on prod: all
-    # 120,876), so for those rows ``clock=public`` is a NO-OP — worth knowing before reading a fundamentals
-    # result as something the clock change revealed. Rows written since carry the honest ingest instant as
-    # ``recorded_at``; the public mirror still clocks them at their filing, so a public-clock run reads every
-    # fundamentals row exactly as before (one row per (identity, filing) — the key migration 0057 enforces).
-    "fact_fundamentals": "valid_from",
-    "fact_corporate_event": "filed",  # the 8-K's filing date
-    "fact_activist_stake": "filed",  # the 13D/G's filing date
-    # Form 4: EDGAR's ACCEPTANCE instant, the closest proxy for dissemination. NULL on 0.67% of facts
-    # (2,128 of 316,374 on the latest-version grain) — those are excluded and counted, never modeled: the
-    # measured disclosure lag has a long tail (p50/p90/p99 = 2/5/83 days on open-market buys), so a flat
-    # offset would be wrong in exactly the cases that matter.
-    "fact_insider_txn": "accepted",
-    # The three operator-RATIFIED tables carry no disclosure column, so ``valid_from`` — the announcement
-    # date by construction (``ingest/catalyst.py`` writes ``valid_from = event_date``). Operator decision.
-    # THE HONEST CAVEAT, which no column can fix: the operator ratified these in 2026, and this models them
-    # as public on an announcement date that can predate the ratification by years. It is the right call on
-    # the DATA axis and hindsight on the DECISION axis; eight rows in total, and the run's labels say so.
-    "fact_catalyst": "valid_from",
-    "fact_dilution": "valid_from",
-    "fact_theme_conviction": "valid_from",
-}
-
-# The SCOPE column each fact is partitioned within — the same prefix ``db.bitemporal.as_of_many`` applies
-# (``bitemporal.py:190``), because a table's ``_FACT_IDENTITY`` is unique only WITHIN one scope:
-# ``fact_insider_txn``'s is ``(accession, insider_name, valid_from, txn_seq)``, which two securities can
-# share (the 0037 lesson — the uniqueness constraint had to be widened with ``security_id``).
-_SCOPE_COL: dict[str, str] = {
-    t: "thesis_id" if t == "fact_theme_conviction" else "security_id" for t in _FACT_IDENTITY
-}
+# Fundamentals: there is NO ``filed`` column; ``valid_from`` IS the filing date (R17), and the public instant
+# is the start of that day. Rows written before migration 0057 were ALSO stamped ``recorded_at = filed 00:00
+# UTC`` (MEASURED on prod: all 120,876), rows since carry the honest ingest instant; either way the public
+# mirror clocks every version at its filing (one row per (identity, filing) — the key 0057 enforces), so the
+# clock change reveals nothing for fundamentals on its own.
+_PUBLIC_CLOCK = PUBLIC_TIME  # the name this module's callers and tests have always read
 
 
 class AmbiguousPublicClock(RuntimeError):
-    """An identity whose public clock cannot be determined from its own versions — see ``_public_sql``."""
+    """An identity whose public clock cannot be determined from its own versions — see
+    ``_read_table_public``."""
 
 
 # Postgres type OID -> Arrow type, so the Parquet schema is EXPLICIT (correct even for an empty table — a
@@ -117,14 +97,6 @@ def _coerce(v: Any) -> Any:
     return v
 
 
-def _partition_cols(table: str) -> list[str]:
-    """``tenant_id, <scope>, <identity minus scope>`` — one logical fact, scoped, exactly as the as-of
-    reads partition it."""
-    ident = _FACT_IDENTITY[table]
-    scope = _SCOPE_COL[table]
-    return ["tenant_id", scope] + [c for c in ident if c != scope]
-
-
 def _read_table(
     conn: psycopg.Connection, table: str, tenant_id: UUID
 ) -> tuple[pa.Schema, list[dict]]:
@@ -147,18 +119,19 @@ def _read_table(
 def _read_table_public(
     conn: psycopg.Connection, table: str, tenant_id: UUID
 ) -> tuple[pa.Schema, list[dict], dict[str, int]]:
-    """Read one fact table onto the PUBLIC clock: ``recorded_at`` becomes the disclosure instant, and the
-    version pile-up that creates is resolved HERE rather than left to the reader.
+    """Read one fact table onto the PUBLIC clock: ``recorded_at`` becomes each version's public instant
+    (``db.public_clock`` — the SAME ``public_versions_sql`` the live history read runs), the honest ingest
+    instant rides beside it as ``ingested_at`` (exactly the live public read's row shape), and the version
+    pile-up that creates is resolved HERE rather than left to the reader.
 
     **Why the resolution cannot be left to the reader.** Both as-of reads pick a version with
     ``ORDER BY recorded_at DESC, id DESC``. On the system clock the versions of one fact have DISTINCT
     ``recorded_at`` values, so the ``id`` tiebreak almost never fires. Rewriting ``recorded_at`` to the
-    public clock collapses them onto ONE value, and then ``id`` decides — and ``id`` is
-    ``uuid DEFAULT gen_random_uuid()`` on all fourteen fact tables, so "the tiebreak picks the latest
-    content" is false: it picks a RANDOM one. MEASURED on the dev copy: that would fire on 44,982 insider
-    version-groups and 17,373 price version-groups, and **8,947 of the price groups hold different closes**
-    — a coin flip between a corrected and an uncorrected bar, in a tool whose entire premise is that a run
-    is reproducible and that a config delta is attributable to the config.
+    public clock can collapse them onto ONE value (a re-parse of one filing shares its acceptance), and then
+    ``id`` decides — and ``id`` is ``uuid DEFAULT gen_random_uuid()`` on all fourteen fact tables, so "the
+    tiebreak picks the latest content" is false: it picks a RANDOM one. MEASURED on the dev copy: that would
+    have fired on 44,982 insider version-groups and 17,373 price version-groups (8,947 holding different
+    closes) under the pre-2026-10-21 price clock, which put every version of a bar at its date.
 
     It would also silently corrupt the SCORING reader, which nobody would think to check:
     ``replay.scoring.RealizedPrices`` reads this same mirror with the same tiebreak and is deliberately
@@ -166,47 +139,49 @@ def _read_table_public(
 
     **The resolution.** Per identity:
 
-    1. Determine the identity's clock. A row's own clock when it has one; otherwise the unique non-NULL
-       clock among its OTHER versions. That NULL-fill is what keeps our BEST PARSE: an insider fact whose
-       latest version predates the ``accepted`` backfill would otherwise have to fall back to an older,
-       less-repaired version (MEASURED: 6 identities on the dev copy are in exactly that state). The clock
-       is a property of the ACCESSION, identical across an identity's versions — MEASURED: 0 identities on
-       any table have more than one distinct non-NULL clock together with a NULL one.
-    2. That "unique" is ASSERTED, not assumed: an identity carrying a NULL clock AND two different non-NULL
-       ones cannot be attributed, and raises rather than picking one.
-    3. Partition by ``(identity, clock)`` — NOT by identity alone. Including the clock is what preserves a
-       genuine re-disclosure: a restated XBRL quarter has its own ``filed`` date and must stay visible at
-       that date, while a pure re-parse (same clock, later ``recorded_at``) collapses to our best one.
-       MEASURED: 20,801 ``fact_fundamentals`` identities carry more than one ``filed``; every one survives.
+    1. Each version's public instant (``public_time_sql``): a Form 4's acceptance, NULL-filled from the
+       fact's other versions (a re-parse of one accession shares it — MEASURED on prod 2026-10-21: 0 facts
+       carry two different acceptances); a bar's settle for its FIRST version and its own ``recorded_at``
+       for a re-version (a vendor correction counts from when it was published to us); a filing date for
+       the filing tables; the ratification / sampling instant for the operator-ratified Workbench tables and
+       the fund shares samples.
+    2. The NULL-fill is ASSERTED, not assumed: an identity carrying a NULL acceptance AND two different
+       non-NULL ones cannot be attributed, and raises rather than picking one.
+    3. Partition by ``(identity, public instant)`` — NOT by identity alone. Including the instant is what
+       preserves a genuine re-disclosure (a restated quarter at its own ``filed``; a corrected bar at its own
+       publication), while a pure re-parse (the same instant, a later ``recorded_at``) collapses to our best.
     4. Keep the latest by the HONEST ``recorded_at`` within each group, then overwrite ``recorded_at`` with
-       the clock. After this no identity has two rows sharing a ``recorded_at``, so the random tiebreak has
-       nothing left to decide.
+       the public instant (``ingested_at`` := the honest one). After this no identity has two rows sharing
+       a ``recorded_at``, so the random tiebreak has nothing left to decide — and the live public read's
+       ``ORDER BY public DESC, recorded_at DESC, id DESC`` pick is exactly the mirror reader's.
 
     Returns the schema, the rows, and the four counts the run manifest reports — separate numbers because
     they answer separate questions: a 47% raw-row drop with 0.67% identities lost is a healthy export (the
     dropped rows were superseded versions), while a small row drop with a large identity loss is a hole.
     """
-    clock = _PUBLIC_CLOCK[table]
-    part = sql.SQL(", ").join(sql.Identifier(c) for c in _partition_cols(table))
-    clock_id = sql.Identifier(clock)
+    spec = PUBLIC_TIME[table]
+    part_cols = partition_cols(table)
+    part = sql.SQL(", ").join(sql.Identifier(c) for c in part_cols)
+    guard = None
+    if spec.kind == "instant":  # the NULL-fill's attribution check (step 2)
+        col = sql.Identifier("t", spec.column)
+        guard = sql.SQL(
+            "min({c}) OVER pc AS _cmin, max({c}) OVER pc AS _cmax, "
+            "count(*) OVER pc - count({c}) OVER pc AS _nulls"
+        ).format(c=col)
+    versions = public_versions_sql(
+        table, where=sql.SQL("tenant_id = %(tenant_id)s"), serve=False, extra=guard
+    )
+    pub = sql.Identifier(PUBLIC_COL)
     query = sql.SQL(
-        "WITH scoped AS ("
-        "  SELECT *, "
-        "         min({clock}) OVER p AS _cmin, "
-        "         max({clock}) OVER p AS _cmax, "
-        "         count(*) OVER p - count({clock}) OVER p AS _nulls "
-        "  FROM {table} WHERE tenant_id = %(tenant_id)s "
-        "  WINDOW p AS (PARTITION BY {part})"
-        "), resolved AS ("
-        "  SELECT *, COALESCE({clock}, _cmax) AS _clock FROM scoped"
-        ") "
+        "WITH v AS ({versions}) "
         "SELECT *, ROW_NUMBER() OVER ("
-        "    PARTITION BY {part}, _clock ORDER BY recorded_at DESC, id DESC) AS _rn "
-        "FROM resolved ORDER BY {part}, _clock"
-    ).format(clock=clock_id, table=sql.Identifier(table), part=part)
+        "    PARTITION BY {part}, {pub} ORDER BY recorded_at DESC, id DESC) AS _rn "
+        "FROM v ORDER BY {part}, {pub}"
+    ).format(versions=versions, part=part, pub=pub)
 
     with conn.cursor() as cur:
-        cur.execute(query, {"tenant_id": tenant_id})
+        cur.execute(query, {"tenant_id": tenant_id, **public_params()})
         raw = cur.fetchall()
         schema = pa.schema(
             [
@@ -214,32 +189,35 @@ def _read_table_public(
                 for d in cur.description
                 if not d.name.startswith("_")
             ]
+            + [(INGESTED_COL, pa.timestamp("us", tz="UTC"))]
         )
 
-    ambiguous = [r for r in raw if r["_nulls"] > 0 and r["_cmin"] != r["_cmax"]]
+    ambiguous = [r for r in raw if r.get("_nulls", 0) > 0 and r.get("_cmin") != r.get("_cmax")]
     if ambiguous:
         r = ambiguous[0]
         raise AmbiguousPublicClock(
             f"{table}: {len(ambiguous)} row(s) belong to a fact whose versions disagree on "
-            f"{clock!r} while some carry none — the disclosure instant cannot be attributed. "
-            f"First: {{{', '.join(f'{c}={r[c]!r}' for c in _partition_cols(table))}}} "
+            f"{spec.column!r} while some carry none — the disclosure instant cannot be attributed. "
+            f"First: {{{', '.join(f'{c}={r[c]!r}' for c in part_cols)}}} "
             f"spans {r['_cmin']!r}..{r['_cmax']!r}. This is a FLAG, not a row to guess at."
         )
 
-    identities_total = len({tuple(r[c] for c in _partition_cols(table)) for r in raw})
+    identities_total = len({tuple(r[c] for c in part_cols) for r in raw})
     kept, dropped_null_clock = [], 0
     survivors: set[tuple] = set()
     for r in raw:
-        if r["_clock"] is None:  # no version of this fact carries a disclosure instant
+        if r[PUBLIC_COL] is None:  # no version of this fact carries a disclosure instant
             dropped_null_clock += 1
             continue
-        survivors.add(tuple(r[c] for c in _partition_cols(table)))
+        survivors.add(tuple(r[c] for c in part_cols))
         if r["_rn"] != 1:
             continue
         row = {k: v for k, v in r.items() if not k.startswith("_")}
         # THE REWRITE: the mirror's transaction axis becomes the public one. The reader and the gate are
-        # untouched — they still read ``recorded_at``; it now means "when this became public".
-        row["recorded_at"] = _as_utc(r["_clock"])
+        # untouched — they still read ``recorded_at``; it now means "when this became public". The honest
+        # ingest instant rides as ``ingested_at`` (the live public read's shape — bookkeeping, never a gate).
+        row[INGESTED_COL] = row["recorded_at"]
+        row["recorded_at"] = r[PUBLIC_COL]
         kept.append(row)
 
     counts = {
@@ -250,21 +228,6 @@ def _read_table_public(
         "identities_lost": identities_total - len(survivors),
     }
     return schema, kept, counts
-
-
-def _as_utc(clock: Any) -> datetime:
-    """The clock value as a UTC instant.
-
-    A ``timestamptz`` (``accepted``) passes through — it already IS an instant. A DATE becomes the START of
-    that day in MARKET time, not UTC: this repo's rule is that a trading day is a domain fact rather than
-    an environment one (``domain.market_time``), and anchoring in market time is what keeps the stamp from
-    sliding into the previous day across a DST boundary. The choice is inert on visibility either way,
-    because every date-clocked table here has ``clock == valid_from``, so the event-time half of the gate
-    (``valid_from <= asof``) already decides those rows — but a later reader will want to know that it was
-    a decision and not an accident."""
-    if isinstance(clock, datetime):
-        return clock
-    return datetime.combine(clock, time.min, tzinfo=market_tz()).astimezone(timezone.utc)
 
 
 # --- R8-A — the insider-amendment AUX tables ------------------------------------------------------------
@@ -279,11 +242,12 @@ AUX_TABLES: tuple[str, ...] = (
     "insider_amendment_decision",
     "security_cik",
 )
-# the per-amendment key of each versioned aux table (the public mode keeps its newest version)
-_AUX_KEY: dict[str, str] = {
-    "insider_amendment": "accession",
-    "insider_amendment_link": "amendment_accession",
-}
+# The column a PUBLIC mirror adds to the three Form 4/A tables: each row's public instant
+# (``db.public_clock.aux_public_sql`` — the 4/A and its link at the amendment's acceptance, a SYSTEM decision
+# at that same publication, an OPERATOR decision when the operator made it). The mirror reader gates on it
+# when present (``replay.pit``), while the ORDER the resolver reads stays the honest ``recorded_at`` — exactly
+# the live public read (``db.insider_resolution``).
+AUX_PUBLIC_COL = "public_at"
 
 _SECURITY_CIK_SQL = (
     "SELECT id::text AS security_id, ltrim(cik, '0') AS cik FROM security_master "
@@ -303,16 +267,30 @@ def _read_aux(
 
     ``record`` — every row, every version, untouched (the parity gate's mode, like the fact tables).
 
-    ``public`` — the amendment and its link take the 4/A's SEC ACCEPTANCE as their ``recorded_at`` (the
-    newest version per amendment; a 4/A with no acceptance is dropped and COUNTED, never modeled — the
-    insider table's own rule). The operator's decisions have no public clock at all: the mirror carries only
-    the decisions STANDING at export (revoked ones and the revokes themselves dropped; one per amendment and
-    kind), stamped with the amendment's acceptance — the operator's reading of a public filing applied from
-    when that filing was public. Right on the DATA axis, hindsight on the DECISION axis: the ratified-table
-    caveat ``_PUBLIC_CLOCK`` already names, and it applies to every void the operator ratified."""
+    ``public`` — every row, every version, its honest ``recorded_at`` kept (the order the resolver reads: the
+    newest link, the newest standing decision — so a re-link or a re-derivation resolves to today's reading
+    and an operator verdict still overrules a system one), plus ``public_at``: the row's public instant from
+    the SAME ``aux_public_sql`` the live public read gates on. The amendment and its link count from the 4/A's
+    SEC acceptance (else its filing date); a SYSTEM decision from that same publication (the system's reading
+    of a public filing under today's rules); an OPERATOR decision from when the operator made it — so a run
+    replays the operator's pending window honestly instead of applying a later ratification from the filing
+    date (the pre-2026-10-21 mirror's named hindsight). ``public_at`` is never NULL (each falls back to the
+    row's own ``recorded_at``), so nothing is dropped."""
     with conn.cursor() as cur:
         if table == "security_cik":
             cur.execute(_SECURITY_CIK_SQL, {"t": tenant_id})
+        elif clock == "public":
+            cur.execute(
+                sql.SQL(
+                    "SELECT x.*, {pub} AS {col} FROM {table} x WHERE x.tenant_id = %(t)s "
+                    "ORDER BY x.recorded_at, x.id"
+                ).format(
+                    pub=aux_public_sql(table, alias="x"),
+                    col=sql.Identifier(AUX_PUBLIC_COL),
+                    table=sql.Identifier(table),
+                ),
+                {"t": tenant_id, **public_params()},
+            )
         else:
             cur.execute(
                 sql.SQL("SELECT * FROM {} WHERE tenant_id = %(t)s ORDER BY recorded_at, id").format(
@@ -324,45 +302,7 @@ def _read_aux(
         schema = pa.schema(
             [(d.name, _OID_ARROW.get(d.type_code, pa.string())) for d in cur.description]
         )
-    if clock != "public" or table == "security_cik":
-        return schema, rows, 0
-    if table in _AUX_KEY:
-        key = _AUX_KEY[table]
-        newest: dict[tuple[Any, Any], dict] = {}
-        for r in rows:  # ascending (recorded_at, id): the last one per amendment wins
-            newest[(r["security_id"], r[key])] = r
-        kept = [r for r in newest.values() if r.get("accepted") is not None]
-        for r in kept:
-            r["recorded_at"] = _as_utc(r["accepted"])
-        return schema, kept, len(newest) - len(kept)
-    # decisions: the standing ones, clocked at their amendment's acceptance
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT DISTINCT ON (security_id, amendment_accession) security_id, amendment_accession, accepted "
-            "FROM insider_amendment_link WHERE tenant_id = %(t)s "
-            "ORDER BY security_id, amendment_accession, recorded_at DESC, id DESC",
-            {"t": tenant_id},
-        )
-        clocks = {
-            (r["security_id"], r["amendment_accession"]): r["accepted"] for r in cur.fetchall()
-        }
-    revoked = {r["revokes"] for r in rows if r["action"] == "revoke"}
-    standing: dict[tuple[Any, Any, str], dict] = {}
-    for r in rows:
-        if r["action"] == "revoke" or r["id"] in revoked:
-            continue
-        kind = "link" if r["action"] == "link" else "verdict"
-        standing[(r["security_id"], r["amendment_accession"], kind)] = r
-    kept, dropped = [], 0
-    for (sid, acc, _), r in sorted(
-        standing.items(), key=lambda kv: (str(kv[0][0]), kv[0][1], kv[0][2])
-    ):
-        accepted = clocks.get((sid, acc))
-        if accepted is None:
-            dropped += 1
-            continue
-        kept.append({**r, "recorded_at": _as_utc(accepted)})
-    return schema, kept, dropped
+    return schema, rows, 0
 
 
 def blind_detectors(excluded: list[str]) -> list[str]:
@@ -409,15 +349,16 @@ def export_snapshot(
     system clock, byte-for-byte what this exporter always wrote: every row, every version, ``recorded_at``
     untouched. Nothing about that path changes.
 
-    ``"public"`` rewrites it to the disclosure instant from ``_PUBLIC_CLOCK`` and resolves the version
-    pile-up that creates (see ``_read_table_public`` — this is where the random-``id`` tiebreak is closed).
-    A table with no declared clock is excluded WHOLE and named in the manifest with the detectors it
-    blinds. The reader, the gate and ``knowability_expr`` are untouched in both modes: the axis is chosen
-    once, when the mirror is materialized.
+    ``"public"`` rewrites it to each version's public instant from ``db.public_clock`` (the definition the
+    live history views share) and resolves the version pile-up that creates (see ``_read_table_public`` —
+    this is where the random-``id`` tiebreak is closed); the Form 4/A tables carry ``public_at``. A table with
+    no declared clock is excluded WHOLE and named in the manifest with the detectors it blinds. The fact
+    reader and its gate are untouched in both modes: the axis is chosen once, when the mirror is
+    materialized.
     """
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    excluded = [t for t in FACT_TABLES if clock == "public" and t not in _PUBLIC_CLOCK]
+    excluded = [t for t in FACT_TABLES if clock == "public" and t not in PUBLIC_TIME]
     manifest: dict[str, Any] = {
         "tenant_id": str(tenant_id),
         "clock": clock,

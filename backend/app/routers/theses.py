@@ -20,7 +20,7 @@ from app.schemas_api import (
     ThesisDetail,
     ThesisSummary,
 )
-from domain.market_time import market_today, serve_known_at
+from domain.market_time import market_today, serve_view
 from domain.thesis import Catalyst, ExcludedName, KillCriterion, Thesis
 from pipeline.call_for_thesis import call_for_thesis
 from repositories import calls_repo, decisions_repo, thesis_repo
@@ -105,11 +105,15 @@ def get_call(
     """
     # The thesis (loaded by get_thesis_or_404) carries its own tenant — call_for_thesis re-loads it and
     # threads that tenant into every fact read; we reuse thesis.tenant_id for the ticker/CIK resolution below.
-    # ``known_at`` (invariant #1, BOTH axes): a scrubbed-back ``asof`` is capped at the end of that market
-    # day, so a fact RECORDED after the as-of (the 2026-09-01 thaw's August bars) is as invisible as a fact
-    # DATED after it — the recompute shows what was knowable then, not today's knowledge of that date. A
-    # live ``asof`` threads ``None`` (the unchanged live read). See ``domain.market_time.serve_known_at``.
-    card = call_for_thesis(conn, thesis.id, asof, known_at=serve_known_at(asof), record=False)
+    # ``known_at`` + ``clock`` (invariant #1, judged on the PUBLIC clock — operator decision 2026-10-21): a
+    # scrubbed-back ``asof`` is a HISTORY view — each fact counts from when it became PUBLIC (its filing /
+    # acceptance, its settled session; a correction from its own publication) up to the end of that market
+    # day, so the recompute shows how today's rules judge what was public then — a filing published after the
+    # as-of is as invisible as a fact DATED after it, and a fact we happened to ingest late (an outage, a
+    # name onboarded later) is not hidden for it. A live ``asof`` threads ``(None, "record")`` (the unchanged
+    # live read). See ``domain.market_time.serve_view`` / ``db.public_clock``.
+    known_at, clock = serve_view(asof)
+    card = call_for_thesis(conn, thesis.id, asof, known_at=known_at, clock=clock, record=False)
     sec_ids = (
         {t.security_id for t in card.triggers_fired}
         | {r.security_id for r in card.risk_signals}
@@ -144,16 +148,18 @@ def get_display_signals(
             sids.append(m.security_id)
     # the resolved basket = the PIT's prefetch scope; ``display_bounds()`` = the registry-derived read
     # bounds over every display member + the two thesis-level readers (signals/horizons.py).
-    # ``known_at`` (#1, both axes): a scrubbed-back ``asof`` caps the transaction axis at that market
-    # day's end, exactly like the call above — the tape context beside a past card is the tape as it was
-    # knowable then; a live ``asof`` threads ``None`` (the unchanged live read).
+    # ``known_at`` + ``clock`` (#1, the PUBLIC clock): a scrubbed-back ``asof`` reads each fact as it was
+    # public by that market day's end, exactly like the call above — the tape context beside a past card is
+    # the tape as it was public then; a live ``asof`` threads ``(None, "record")`` (the unchanged live read).
+    known_at, clock = serve_view(asof)
     pit = PointInTimeData(
         conn,
         asof=asof,
-        known_at=serve_known_at(asof),
+        known_at=known_at,
         tenant_id=thesis.tenant_id,
         basket=sids,
         bounds=display_bounds(),
+        clock=clock,
     )
     ticker_for = master.tickers_for(conn, set(sids), tenant_id=thesis.tenant_id)
     members = [

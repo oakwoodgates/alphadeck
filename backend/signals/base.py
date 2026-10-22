@@ -10,6 +10,7 @@ import psycopg
 
 from db.bitemporal import as_of, as_of_many, as_of_thesis
 from db.clock import db_now
+from db.public_clock import Clock
 from db.session import DEFAULT_TENANT_ID
 from domain.config import CallConfig
 from domain.signal import SignalEvent
@@ -34,6 +35,13 @@ class PointInTimeData:
     A detector physically cannot see post-asof events or post-known_at knowledge, because every
     read goes through ``db.bitemporal.as_of`` / ``as_of_many``. ``known_at`` defaults to now (UTC) for
     live reads; the replay harness (M5) sets it to a simulated past transaction time.
+
+    **The clock (operator decision 2026-10-21, ``docs/INVARIANTS.md`` §4).** ``clock="record"`` (the default)
+    is the LIVE read: ``recorded_at <= known_at``. ``clock="public"`` is a HISTORY view — a past-asof
+    recompute (serve, backfill): every fact read is judged on each version's PUBLIC instant
+    (``db.public_clock`` — its filing / acceptance / settled session; a correction from its own publication)
+    ``<= known_at``, so the view shows what was PUBLIC then, not what our database happened to hold. Fixed
+    at construction like ``asof`` / ``known_at``, so a memo can never cross a clock.
 
     **The per-request memo + per-basket prefetch (Board/Cockpit perf PR-1b).** One PIT is built per
     request / per cron assemble, and every detector + display member reads the same few tables for the
@@ -70,6 +78,7 @@ class PointInTimeData:
         tenant_id: UUID = DEFAULT_TENANT_ID,
         basket: Iterable[UUID] | None = None,
         bounds: Mapping[str, int | None] | None = None,
+        clock: Clock = "record",
     ) -> None:
         self.conn = conn
         self.asof = asof
@@ -79,6 +88,8 @@ class PointInTimeData:
         # call. Pinned ONCE here, so every accessor of this view answers against one bound.
         self.known_at = known_at or db_now(conn)
         self.tenant_id = tenant_id
+        # which axis ``known_at`` bounds (the record clock live, the public clock for a history view)
+        self.clock: Clock = clock
         # the resolved basket (prefetch scope); empty == no basket == per-security reads, memoized
         self._basket: frozenset[UUID] = frozenset(basket or ())
         # registry-derived read bounds, DAYS before asof per table (None / absent = unbounded)
@@ -111,6 +122,7 @@ class PointInTimeData:
                     known_at=self.known_at,
                     tenant_id=self.tenant_id,
                     valid_from_lower=self._lower(table),
+                    clock=self.clock,
                 )
                 for sid, rows in batch.items():
                     self._memo[(table, sid)] = (
@@ -125,6 +137,7 @@ class PointInTimeData:
                     asof=self.asof,
                     known_at=self.known_at,
                     tenant_id=self.tenant_id,
+                    clock=self.clock,
                 )
                 lower = self._lower(table)
                 if lower is not None:  # the memo rule: hold only the bounded window, on every path
@@ -144,6 +157,7 @@ class PointInTimeData:
                 asof=self.asof,
                 known_at=self.known_at,
                 tenant_id=self.tenant_id,
+                clock=self.clock,
             )
         return list(self._thesis_memo[key])
 

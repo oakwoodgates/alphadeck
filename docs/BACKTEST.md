@@ -88,37 +88,59 @@ without its multiple-comparisons context, so the count sits on the manifest card
 ## The public clock
 
 Three clocks exist: **event time** (`valid_from`), **public time** (when anyone could have known —
-`accepted` / `filed` / the bar date), **system time** (`recorded_at`, when THIS system learned it). The live
-gate keys on `recorded_at` and is never touched (INVARIANTS §4; `db/bitemporal.knowability_expr` is not
-opened by any of this).
+`accepted` / `filed` / the settled session), **system time** (`recorded_at`, when THIS system learned it).
+Since the operator's 2026-10-21 rule (`INVARIANTS.md` §4) the public clock judges ALL history, not just the
+backtest: the past-asof Board / Cockpit / Workbench recompute, the Scoreboard drawer, the missed-night
+backfill. So the per-table definition lives ONCE in `db/public_clock.py` (`PUBLIC_TIME`) and
+`clock=public` in `replay/export.py` runs the SAME SQL the live history read runs (`public_versions_sql`):
+the exported `recorded_at` is each version's public instant (the honest ingest instant beside it as
+`ingested_at`), the mirror's reader and gate are unchanged, and a public mirror read is row-for-row the live
+`PointInTimeData(clock="public")` read (`tests/replay/test_public_clock.py`). The live nightly stays on the
+record clock, where the two coincide.
 
-`clock=public` is a MIRROR-side rewrite in `replay/export.py`: the exported `recorded_at` is replaced by the
-disclosure instant, so the reader, the gate and `knowability_expr` stay byte-identical in both modes. The
-registry, VERIFIED on `alphadeck_dev`:
+The registry (since 2026-10-21; the NULL rates below were MEASURED on `alphadeck_dev` under the earlier
+registry and still describe the columns):
 
-| PIT accessor | fact table | public-clock column | type | NULLs (raw rows) | NULLs (latest-version grain) |
-|---|---|---|---|---|---|
-| `price_history` | `fact_price_eod` | `d` | date | 0 / 369,039 | 0 |
-| `fundamentals_facts` | `fact_fundamentals` | `valid_from` (there is no `filed`) | date | 0 / 120,626 | 0 |
-| `corporate_event_facts` | `fact_corporate_event` | `filed` | date | 0 / 62,046 | 0 |
-| `activist_stake_facts` | `fact_activist_stake` | `filed` | date | 0 / 24,090 | 0 |
-| `insider_txns` | `fact_insider_txn` | `accepted` | timestamptz | **280,578 / 595,376 = 47.13 %** | **2,128 / 316,374 = 0.67 %** |
-| `catalyst_facts` | `fact_catalyst` | `valid_from` | date | 0 / 6 | 0 |
-| `dilution_facts` | `fact_dilution` | `valid_from` | date | 0 / 1 | 0 |
-| `theme_conviction_facts` | `fact_theme_conviction` | `valid_from` | date | 0 / 1 | 0 |
+| PIT accessor | fact table | a version's public instant | NULLs (raw rows) | NULLs (latest-version grain) |
+|---|---|---|---|---|
+| `price_history` | `fact_price_eod` | FIRST version: the session settle (`d` at `Settings.price_settle_time`, market tz); a RE-version: its own `recorded_at` (never before the settle) | 0 / 369,039 | 0 |
+| `fundamentals_facts` | `fact_fundamentals` | `valid_from` (= the 10-Q/10-K `filed` date), start of that market day | 0 / 120,626 | 0 |
+| `corporate_event_facts` | `fact_corporate_event` | `filed`, start of that market day | 0 / 62,046 | 0 |
+| `activist_stake_facts` | `fact_activist_stake` | `filed`, start of that market day | 0 / 24,090 | 0 |
+| `insider_txns` | `fact_insider_txn` | `accepted`, filled from the fact's other versions | **280,578 / 595,376 = 47.13 %** | **2,128 / 316,374 = 0.67 %** (prod 2026-10-21: 2,120 / 320,080 facts) |
+| `catalyst_facts` | `fact_catalyst` | `valid_from` (the announcement date — operator decision) | 0 / 6 | 0 |
+| `dilution_facts` | `fact_dilution` | `valid_from` | 0 / 1 | 0 |
+| `theme_conviction_facts` | `fact_theme_conviction` | `valid_from` | 0 / 1 | 0 |
+| `revenue_mix_facts` / `shares_outstanding_facts` / `cash_burn_facts` | the Workbench-ratified tables | `recorded_at` — the ratification (their `valid_from` is a period / cover date, before the filing was public) | — | — |
+| `fund_shares` | `fact_fund_shares` | `recorded_at` — a scraped page states an as-of `d`, no publication time | — | — |
+
+The Form 4/A aux tables carry every row with its honest `recorded_at` (the order the resolver reads) plus
+`public_at`: the 4/A and its link at the amendment's SEC acceptance (else its filing date), a SYSTEM decision
+at that same publication, an OPERATOR decision when the operator made it.
+
+**What 2026-10-21 changed in a public mirror** (re-export rather than compare across that line — a mirror's
+manifest does not record which registry built it): (1) a bar's re-version used to collapse onto the bar's date —
+a vendor correction back-dated to the day; it now counts from its own publication, and the first version from
+the settle; (2) the four Workbench / fund tables were excluded WHOLE and are now in; (3) the 4/A tables used to
+carry only the decisions STANDING at export, all stamped at the acceptance (the named hindsight on the decision
+axis); they now carry every row, an operator decision at its own time. (4) A Form 4 with no acceptance on any
+version is still excluded + COUNTED here — the ONE named asymmetry with the live history read, which shows it
+from the first time we held it (an upper bound on its publication: never early, never dropped).
 
 A table with no declared clock is **excluded WHOLE** and named in the manifest together with the detectors it
 thereby blinds. A ROW whose clock column is NULL is excluded and COUNTED. Both counts ride the manifest and
 the surface renders them under "what this run could not see" — the size of the hole is part of the result.
 
-Supporting measurements worth keeping: `accepted` never precedes `recorded_at` (0 of 314,798 non-null rows);
+Supporting measurements worth keeping: `accepted` never precedes `recorded_at` (0 of 314,798 non-null rows;
+prod 2026-10-21: 0, and 0 facts carry two different acceptances);
 insider disclosure lag on the latest grain since 2024 is p50 **2 d**, p90 **5 d**, p99 **83 d**, max 474 d;
 `recorded_at::date > d` for 98.6 % of price rows, so the public clock does real work on the price axis; and
 `clock=public` is a **no-op for fundamentals** (`recorded_at == valid_from == filed` on all 120,626 rows),
 which matters because H1 is a fundamentals screen.
 
-**The version pile-up, and the random tiebreak it used to hide (FLAG-A/B).** For insider and price, EVERY
-re-version of a fact carries the SAME public clock (our own repairs and refetches, not new filings):
+**The version pile-up, and the random tiebreak it used to hide (FLAG-A/B).** Under the pre-2026-10-21 registry,
+for insider and price EVERY re-version of a fact carried the SAME public clock (our own repairs and refetches,
+not new filings — for insider it still does; a price re-version now counts from its own publication):
 `fact_insider_txn` 44,982 identity-groups tie on `(identity, clock)`, `fact_price_eod` 17,373 — and 8,947 of
 the price ties **differ on `close`**. Under a naive public-clock rewrite the reader's
 `ORDER BY recorded_at DESC, id DESC` would have been decided by a random UUID. The export therefore resolves

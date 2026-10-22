@@ -27,6 +27,7 @@ import pytest
 from db.session import DEFAULT_TENANT_ID
 from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.enums import State
+from domain.market_time import known_at_for_asof
 from domain.thesis import BasketMember, Thesis
 from ingest.prices.eod_loader import ingest_prices_backfill, parse_stooq_csv
 from pipeline import annotate_phantom_arms as apa
@@ -184,7 +185,11 @@ def test_dry_run_writes_nothing_apply_writes_exactly_the_candidates_and_a_rerun_
     for r in results:
         assert r.pre == r.recorded and r.recorded.state == "armed"
         assert r.post is not None and r.post.state == "warming" and r.post.armed == frozenset()
-        assert r.roster.startswith("snapshot taken")  # the roster as known at recorded_at
+        # re-assembled on the PUBLIC clock at the night's end: the fixture thesis (and its first snapshot)
+        # was created today, after the nights, so the roster by the as-of falls back to the live one — the
+        # same single name — and the result says so
+        assert r.roster.startswith("LIVE roster")
+        assert r.known_at == known_at_for_asof(r.asof)
         (stale,) = r.stale
         assert stale["detector"] == "revenue_acceleration" and stale["d3a"] is None
         assert stale["pre_d3a"]["cited_filing"] == "0001868275-26-000067"

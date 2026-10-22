@@ -15,11 +15,12 @@ annotations (``--revoke`` / ``--revoke-all``), and the record scores exactly as 
 
 THE ISOLATION REQUIREMENT — annotate ONLY what D3a changes. Code and config have drifted since most rows
 were recorded; that drift must never be blamed on D3a. So every honest (``NOT reconstructed``) row is
-re-assembled TWICE with the CURRENT code, point-in-time at the row's own transaction instant (``asof =
-row.asof``, ``known_at = row.recorded_at`` — what the system held when it wrote the row. The cron assembles
-and records in ONE transaction: ``recorded_at`` defaults to that transaction's ``now()``, its start, and the
-PIT pins ``clock_timestamp()`` milliseconds later inside it — so only a fact committed by ANOTHER session in
-that window could differ, and nothing else writes facts during the nightly pass):
+re-assembled TWICE with the CURRENT code at the row's own as-of, on the PUBLIC clock (``asof = row.asof``,
+``clock="public"``, ``known_at`` = the end of that market day — every fact counted from when it became public;
+operator decision 2026-10-21, ``docs/INVARIANTS.md`` §4: call effects are measured on the public clock, never by
+replaying what our database held at the row's ``recorded_at``. The applied annotations of 2026-10-17 were judged
+on that record-clock replay; a (call, action) already judged is never judged again, so a re-run judges only the
+rows not yet annotated, on the public clock):
 
   (i)  D3a OFF — the fundamentals rows re-dated to the pre-D3a reading (``knowable_from := valid_from``,
        ``knowable_accession := accession`` of the picked version — exactly what the detectors read before
@@ -43,10 +44,10 @@ The armed-member set is part of "reproduces" (a deliberate tightening of the sta
 can only be blamed on D3a when the D3a-off re-assembly arms the SAME names the row armed.
 
 WHAT THE BASKET IS. ``basket_member`` is full-replace; ``load_call_inputs`` reads the roster through
-``thesis_repo.get_asof(known_at)`` — the latest ``basket_snapshot`` taken at/before ``recorded_at``, else the
-LIVE roster (a row recorded before migration 0043 seeded the snapshots on 2026-09-15). Each result says which
-(``roster``), and a live-fallback reproduction is only as good as that roster — which is exactly what the
-reproduction test checks.
+``thesis_repo.get_asof(known_at)`` — the latest ``basket_snapshot`` taken by the end of the row's as-of day (an
+operator decision counts from when it was made), else the LIVE roster (an as-of before migration 0043 seeded the
+snapshots on 2026-09-15). Each result says which (``roster``), and a live-fallback reproduction is only as good
+as that roster — which is exactly what the reproduction test checks.
 
 SAFETY (the ``pipeline.backfill`` / ``repair_reconstructed_precreation`` shape):
 - **Dry-run is the DEFAULT**: it classifies, prints every candidate (and every drift row), and writes NOTHING —
@@ -87,6 +88,7 @@ from db.session import connect
 from domain.call import CallCard
 from domain.config import DEFAULT_CONFIG, CallConfig, config_hash
 from domain.enums import State
+from domain.market_time import known_at_for_asof
 from domain.settings import get_settings
 from domain.signal import SignalEvent
 from pipeline.call_for_thesis import load_call_inputs
@@ -316,6 +318,8 @@ class RowResult:
     config_matches: bool | None
     recorded: CallShape
     roster: str = ""
+    # the public-clock cap the row was re-assembled at (the end of its as-of's market day)
+    known_at: datetime | None = None
     pre: CallShape | None = None
     post: CallShape | None = None
     classification: str = "error"
@@ -337,7 +341,8 @@ class RowResult:
             "run_kind": self.run_kind,
             "code_sha": self.code_sha,
             "config_matches_current": self.config_matches,
-            "known_at": self.recorded_at.isoformat(),
+            "clock": "public",
+            "known_at": self.known_at.isoformat() if self.known_at else None,
             "roster": self.roster,
             "recorded": self.recorded.as_json(tickers),
             "d3a_off": self.pre.as_json(tickers) if self.pre else None,
@@ -389,7 +394,7 @@ def _tickers(conn: psycopg.Connection, sids: set[str]) -> dict[str, str]:
 def classify_row(
     conn: psycopg.Connection, row: dict[str, Any], *, cfg: CallConfig, current_hash: str
 ) -> RowResult:
-    """Re-assemble one row twice (D3a off, D3a on) at its own ``(asof, recorded_at)`` and classify it.
+    """Re-assemble one row twice (D3a off, D3a on) at its own as-of ON THE PUBLIC CLOCK and classify it.
     Never raises: a failure is captured on the result (``classification='error'``) — and is never an
     annotation. Ends its read transaction either way."""
     recorded = CallShape(
@@ -411,14 +416,16 @@ def classify_row(
         recorded=recorded,
     )
     try:
-        known_at = row["recorded_at"]
-        thesis, pit = load_call_inputs(conn, res.thesis_id, res.asof, known_at=known_at, cfg=cfg)
+        known_at = res.known_at = known_at_for_asof(res.asof)
+        thesis, pit = load_call_inputs(
+            conn, res.thesis_id, res.asof, known_at=known_at, cfg=cfg, clock="public"
+        )
         taken = thesis_repo.snapshot_taken_at_asof(conn, res.thesis_id, known_at)
         n_members = sum(1 for m in thesis.basket if m.security_id is not None)
         res.roster = (
             f"snapshot taken {taken.astimezone(timezone.utc).isoformat()} ({n_members} resolved names)"
             if taken is not None
-            else f"LIVE roster — no snapshot at/before recorded_at ({n_members} resolved names)"
+            else f"LIVE roster — no snapshot by the as-of ({n_members} resolved names)"
         )
         view = PreD3aDatingView(pit)
         res.post = CallShape.of_card(assemble_from_pit(pit, thesis, res.asof, cfg))
@@ -695,7 +702,7 @@ def report(results: list[RowResult], tickers: dict[str, str]) -> None:
     print(
         f"\nTOTAL: {len(results)} honest rows · {tot['exclude']} exclude · {tot['note']} note · "
         f"{tot['drift']} drift · {tot['unchanged']} unchanged · {tot['error']} error · "
-        f"{live} re-assembled on the LIVE roster (no snapshot at recorded_at)"
+        f"{live} re-assembled on the LIVE roster (no snapshot by the as-of)"
     )
 
 

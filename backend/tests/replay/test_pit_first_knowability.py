@@ -236,7 +236,9 @@ def test_a_backtest_reads_honest_rows_exactly_like_backdated_ones(db, honest, tm
             pit = ReplayPointInTimeData(con, asof=asof, known_at=known_at)
             for name in _FIXTURES:
                 a, b = pit.fundamentals_facts(legacy[name]), pit.fundamentals_facts(live[name])
-                strip = ("id", "security_id", "recorded_at")
+                # the bookkeeping stamps differ by construction: ``recorded_at`` on a record mirror, and on a
+                # public mirror the honest ingest instant it carries as ``ingested_at`` (``db.public_clock``)
+                strip = ("id", "security_id", "recorded_at", "ingested_at")
                 assert [{k: v for k, v in r.items() if k not in strip} for r in a] == [
                     {k: v for k, v in r.items() if k not in strip} for r in b
                 ], (clock, name, asof)

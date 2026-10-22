@@ -35,12 +35,15 @@ naming the counterparties, never hidden (WB #2); and a buy the filer's own footn
 carries its located passage (``domain.insider_private_purchases`` — display only, the buy still counts).
 
 The transaction axis is the load-bearing bit: every event is positioned by ``valid_from`` (the
-transaction / filed date) and GATED by ``recorded_at <= known_at`` — we only surface what we'd have
-KNOWN by ``known_at``. ``domain.market_time.known_at_for_asof`` (the router threads it in) caps that at
-the request's as-of — the end of that MARKET day — so a scrubbed-back Scoreboard hides not just later
-bars but later-RECORDED events (the IBM "ingested 166d after its event date" case), exactly the honesty a
-forward reader owes. It lives in ``domain/`` because the serve-path recomputes (``/call``,
-``/display-signals``, ``/scored``) now share the same cap via ``serve_known_at``.
+transaction / filed date) and GATED by ``known_at``. ``domain.market_time.known_at_for_asof`` (the router
+threads it in) caps that at the request's as-of — the end of that MARKET day. For a PAST as-of the gate is
+the PUBLIC clock (``clock="public"``, operator decision 2026-10-21 — ``db.public_clock``): an event counts
+from when it became public (a Form 4 from its SEC acceptance, an 8-K / 13D from its filing date), so a
+scrubbed-back Scoreboard hides a buy disclosed after the as-of (the IBM 166-day disclosure-lag case) but
+not one that was public and merely ingested late. A live as-of stays on the record clock (``recorded_at
+<= now``, where the two coincide). The serve-path recomputes (``/call``, ``/display-signals``,
+``/scored``) share the same cap and clock via ``serve_view``. Each event's "ingested" line stays our
+honest ingest date (``ingested_at`` on a public read) — bookkeeping, never the gate.
 """
 
 from __future__ import annotations
@@ -52,6 +55,7 @@ from uuid import UUID
 import psycopg
 
 from db.bitemporal import as_of
+from db.public_clock import INGESTED_COL, Clock
 from domain.config import DEFAULT_CONFIG
 from domain.insider_internal_transfers import transfer_with
 from domain.insider_joint_reports import display_name
@@ -71,6 +75,13 @@ SMA_WINDOWS: tuple[int, ...] = (50, 200)
 # events are genuinely PRE-THESIS. The floor is ``max(created_at − 365d, first_bar)`` — a year of run-up
 # before the thesis was created, never earlier than the first bar we hold.
 UNIVERSE_LOOKBACK_DAYS = 365
+
+
+def _ingested(row: dict[str, Any]) -> date:
+    """Our INGEST date for a row — the "ingested" line (bookkeeping: were we late?). On a public-clock read
+    ``recorded_at`` carries the row's PUBLIC instant and the honest ingest instant rides as ``ingested_at``
+    (``db.public_clock``); on the live (record-clock) read ``recorded_at`` IS the ingest instant."""
+    return (row.get(INGESTED_COL) or row["recorded_at"]).date()
 
 
 def _f(x: Any) -> float | None:
@@ -144,6 +155,7 @@ def episode_insider_buys(
     asof: date,
     known_at: datetime,
     day_lows: dict[date, float],
+    clock: Clock = "record",
 ) -> list[dict[str, Any]]:
     """The window's code-P insider buys, as-of-capped on both axes, each carrying its ``character``.
 
@@ -178,6 +190,7 @@ def episode_insider_buys(
         asof=asof,
         known_at=known_at,
         tenant_id=tenant_id,
+        clock=clock,
     )
     buys: list[dict[str, Any]] = []
     for r in rows:
@@ -200,7 +213,7 @@ def episode_insider_buys(
                 # two honest clocks: disclosed = the real SEC acceptance date (accepted), None when
                 # unresolved (#9 fallback -> the FE's "ingested" line); ingested = our recorded_at
                 "disclosed": r["accepted"].date() if r.get("accepted") else None,
-                "ingested": r["recorded_at"].date(),
+                "ingested": _ingested(r),
                 # the buy's server-classified character (deterministic field predicates, #3);
                 # set-asides ride grayed-and-labeled instead of hidden (option (a) — WB #2)
                 "character": _screen(r, day_lows, issuer_name),
@@ -239,6 +252,7 @@ def episode_insider_sells(
     asof: date,
     known_at: datetime,
     day_lows: dict[date, float],
+    clock: Clock = "record",
 ) -> list[dict[str, Any]]:
     """The window's code-S insider sales, as-of-capped on both axes, each carrying its ``character``
     (Slice B — the sell mirror of ``episode_insider_buys``).
@@ -266,6 +280,7 @@ def episode_insider_sells(
         asof=asof,
         known_at=known_at,
         tenant_id=tenant_id,
+        clock=clock,
     )
     sells: list[dict[str, Any]] = []
     for r in rows:
@@ -284,7 +299,7 @@ def episode_insider_sells(
                 "usd": _f(r.get("usd")),
                 "aff_10b5_1": r.get("aff_10b5_1"),
                 "disclosed": r["accepted"].date() if r.get("accepted") else None,
-                "ingested": r["recorded_at"].date(),
+                "ingested": _ingested(r),
                 # the CALL-side screen bucket (deterministic field predicates, #3), wire-mapped;
                 # screened rows ride grayed-and-labeled instead of hidden (WB #2)
                 "character": sell_character_wire(
@@ -307,6 +322,7 @@ def episode_corporate_events(
     end: date,
     asof: date,
     known_at: datetime,
+    clock: Clock = "record",
 ) -> list[dict[str, Any]]:
     """The window's stored 8-K filings (Slice B) — EVERY one, as-of-capped on both axes, no item cut.
 
@@ -326,6 +342,7 @@ def episode_corporate_events(
         asof=asof,
         known_at=known_at,
         tenant_id=tenant_id,
+        clock=clock,
     )
     events: list[dict[str, Any]] = []
     for r in rows:
@@ -340,7 +357,7 @@ def episode_corporate_events(
                 # None = not-yet-resolved — shipped as null, rendered honestly, never dropped (#9)
                 "items": list(items) if items is not None else None,
                 "url": r["source_ref"],
-                "ingested": r["recorded_at"].date(),
+                "ingested": _ingested(r),
             }
         )
     events.sort(key=lambda e: (e["d"], e["ingested"]))
@@ -356,6 +373,7 @@ def episode_activist_stakes(
     end: date,
     asof: date,
     known_at: datetime,
+    clock: Clock = "record",
 ) -> list[dict[str, Any]]:
     """The window's stored 13D/G-family filings (Slice B) — both naming eras, as-of-capped on both axes.
 
@@ -375,6 +393,7 @@ def episode_activist_stakes(
         asof=asof,
         known_at=known_at,
         tenant_id=tenant_id,
+        clock=clock,
     )
     stakes: list[dict[str, Any]] = []
     for r in rows:
@@ -389,7 +408,7 @@ def episode_activist_stakes(
                 "filer_cik": r.get("filer_cik"),
                 "pct_owned": _f(r.get("pct_owned")),  # structured-era only; None = unparsed
                 "url": r["source_ref"],
-                "ingested": r["recorded_at"].date(),
+                "ingested": _ingested(r),
             }
         )
     stakes.sort(key=lambda s: (s["d"], s["ingested"]))

@@ -202,9 +202,7 @@ def test_the_boundaries_FRIDAY_runs_to_MONDAY_06_00_and_a_reconstructed_only_nig
     _row(db, saturday, _FRI, _et(10, 10, 12, 0))
     _row(db, edge, _FRI, _et(10, 12, 5, 59, 59))
     _row(db, late, _FRI, _et(10, 12, 6, 0))
-    run_backfill(
-        db, asof=_FRI, known_at=_et(10, 12, 9, 0).astimezone(timezone.utc), thesis_id=backfilled
-    )
+    run_backfill(db, asof=_FRI, thesis_id=backfilled)
     _finished(_FRI, _et(10, 9, 22, 30), 4)
     monkeypatch.setattr(admin, "_now", lambda: _et(10, 12, 12, 0))  # Monday noon: expected = Friday
 

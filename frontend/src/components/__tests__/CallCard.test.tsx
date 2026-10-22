@@ -148,11 +148,13 @@ describe("CallCard — foreign-filer conviction annotation (single-name)", () =>
 describe("CallCard — F11 past-asof recompute line", () => {
   it("renders the quiet line when card.asof is a PAST date", () => {
     const { container } = render(<CallCard card={{ ...card, asof: "2026-06-01" }} />);
-    expect(screen.getByText("Recomputed as of Jun 1 — not the recorded call")).toBeInTheDocument();
-    // basis-agnostic tooltip — never claims the roster/facts are period-accurate, only that this
-    // is a recompute, not the record
+    expect(
+      screen.getByText("Recomputed as of Jun 1 — today's rules on what was public then, not the recorded call"),
+    ).toBeInTheDocument();
+    // the tooltip says what a past view IS: today's rules over what was PUBLIC by that date (the
+    // public clock), never a claim that the roster is period-accurate — and not the record
     expect(container.querySelector(".cc-recompute")?.getAttribute("title")).toMatch(
-      /Re-derived from data known as of this date/,
+      /Re-derived with today's rules from what was public by the end of this date/,
     );
   });
 

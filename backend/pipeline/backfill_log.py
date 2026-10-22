@@ -2,8 +2,9 @@
 
 A reconstructed call-of-record row is indistinguishable from a nightly one by its ``asof`` alone, and the
 ``calls`` log is immutable (``recorded_at`` is always now, the row carries no ``known_at``). So the ONE place
-that says "this night's row was reconstructed on <date> with ``known_at`` pinned at <instant>, resolved
-by <policy>" is this artifact. It mirrors ``cron_run_log.py`` exactly and inherits its bounds:
+that says "this night's row was reconstructed on <date>, judged at <instant> under <policy>" is this
+artifact (since 2026-10-21 the policy is ``public-clock``: every fact public by the end of the night's market
+day; older artifacts carry the retired record-clock pins ``explicit`` / ``next-run``). It mirrors ``cron_run_log.py`` exactly and inherits its bounds:
 
 - **Write-only, no DB.** It writes a file and opens no connection; it is called by the pass AFTER the run
   completes, from the already-collected results.
@@ -49,8 +50,8 @@ def build_backfill_payload(
     finished_at: datetime,
 ) -> dict:
     """The provenance payload — PURE (no I/O). ``known_at`` is normalized to UTC ISO so the artifact reads
-    the same from any zone; ``known_at_policy`` is ``"explicit"`` (the operator typed the instant) or
-    ``"next-run"`` (resolved from the cron run log — the first live run after the night). ``dry_run`` is
+    the same from any zone; ``known_at_policy`` is ``"public-clock"`` (the night judged on the PUBLIC clock at
+    the end of its market day — the retired record-clock pins were ``"explicit"`` / ``"next-run"``). ``dry_run`` is
     carried for honesty, but the pass never WRITES a dry run's artifact (a dry run touches neither the DB
     nor the disk), so a written artifact always reads ``false`` here."""
     return {

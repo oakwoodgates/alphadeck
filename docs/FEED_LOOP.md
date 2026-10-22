@@ -278,13 +278,14 @@ re-version pass either, the two market-hours bars it froze (SPY 2026-08-25 765.2
   are never re-versioned by a pass** — that is the operator's Q3 repair.
 
 *The visibility contract, checked against every reader:* the bar for D, ingested ~22:35 ET on D, is inside
-the night's own call (`known_at = db_now`, later), the serve-path scrub-back (`serve_known_at` →
-`known_at_for_asof(D)`, the end of D's MARKET day) and a backfilled night's `--known-at next-run`, and
-outside every read with `asof < D` (`valid_from = D`) and any read pinned before 22:35 (the old stamp leaked
-there). The **replay/backtest** read no benchmark bar at all (`ReplayPointInTimeData` has no
+the night's own call (`known_at = db_now`, later), and every history view of D — the serve-path
+scrub-back and a backfilled night, both on the PUBLIC clock at `known_at_for_asof(D)`, the end of D's MARKET
+day, where a bar's first version counts from its session settle (`d` at `Settings.price_settle_time`) and a
+re-version from its own `recorded_at` (`db/public_clock.py`) — and outside every read with `asof < D`
+(`valid_from = D`). The **replay/backtest** read no benchmark bar at all (`ReplayPointInTimeData` has no
 `benchmark_prices` — RS is a display signal), and even the mirror's clocks would not care: a record-clock
 run pins one `known_at` after every nightly ingest; a public-clock mirror rewrites `fact_price_eod`'s
-`recorded_at` to the bar date. Already-stored nightly bars keep their backdated stamps (no rewrite).
+`recorded_at` to the bar's settle (a re-version to its own publication). Already-stored nightly bars keep their backdated stamps (no rewrite).
 
 **Q3 — the one-off repair of the frozen bars (`pipeline/repair_benchmark_bars.py`, 2026-10-16).** The
 operator approved re-versioning exactly the two frozen days, SPY + IWM 2026-08-25 and 2026-08-27 (4 bars);
@@ -533,8 +534,8 @@ per-thesis; **archived theses are skipped by the list's default**, the archive s
   page; a HARD kill (the VM, the C2 timeout's `SIGKILL`) leaves `running`. An artifact written before M1 has
   no `status` and reads finished. **The guard trap:** `already_ran_live` counts ONLY a finished (or legacy)
   artifact — a `running` or `crashed` one never credits the night, or a killed night would block its own
-  recovery. The stale-tape / name-error baselines and the backfill's `next-run` pin read finished passes
-  only, too. A failed FINAL write leaves the start file `running`: the catch-up then re-runs the night
+  recovery. The stale-tape / name-error baselines read finished passes only, too (so did the backfill's
+  record-clock `next-run` pin, retired 2026-10-21). A failed FINAL write leaves the start file `running`: the catch-up then re-runs the night
   (safe — and since M2 it re-records nothing that already has an on-time row) and Admin reads "did not
   finish" after the run timeout.
 - **A catch-up never re-records an on-time thesis (M2, operator Q4 = "never", 2026-10-16).** MEASURED on
@@ -1949,8 +1950,9 @@ The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
 ### Backfilling a missed night — `pipeline.backfill`  `[BUILT]`
 
 When a night has no call-of-record (`/admin/status` says `gappy`; `schedule.missed_asofs` lists it),
-`python -m pipeline.backfill --asof <night> --known-at <pin>` reconstructs it: the SAME `call_for_thesis`
-assembly the cron runs, with the transaction clock PINNED, then `record_if_changed`. `--dry-run` first.
+`python -m pipeline.backfill --asof <night>` reconstructs it: the SAME `call_for_thesis` assembly the cron
+runs, judged on the PUBLIC clock at the end of that night's market day, then `record_if_changed`. `--dry-run`
+first.
 
 - **`pipeline.daily --asof <past>` is REFUSED (C3, 2026-10-16).** It used to be only a warning in these
   docs: a hand-typed `python -m pipeline.daily --asof <a night older than the last expected one>` assembled
@@ -1960,40 +1962,41 @@ assembly the cron runs, with the transaction clock PINNED, then `record_if_chang
   for an overshot sleep) or `--no-live` (records nothing). Today's as-of and the last expected night itself
   stay allowed (a daytime manual pass for today; the scheduled run's own target), and so does the Admin
   "Run daily now", which takes no as-of (it always runs today's).
-- **Why a pin, not `pipeline.daily --asof <past>`.** The `calls` log is immutable and bitemporal — a row's
-  `recorded_at` is always now — and the as-of gate is two-axis (`valid_from <= asof` AND `recorded_at <=
-  known_at`, `INVARIANTS.md` #4). A naive re-run computes the past night with `known_at = now`: TODAY's
-  knowledge, "what the platform says now about that night", not what it would have logged. MEASURED on dev:
-  one thesis backfilled as ARMED on four missed nights while the real nightly runs around those nights recorded
-  INCUBATING, because that thesis's facts arrived after them. The pinned backfill records what the cron WOULD
-  have logged as far as the FACTS go — faithful to its PIN, not guaranteed identical to its recorded neighbors.
-  Two things make a neighbor differ honestly: `asof` is a LIVENESS parameter, so a drifted nightly row (a
-  wrong-day fire — the prior night's bars under the wake day's label) can count a filing dated on its label
-  day that the intended night cannot; and a neighbor computed under the 2026-07 frozen cache understates.
-  The reconstruction is the right row; the neighbors are the ones carrying label drift — read a difference
-  against them with that in mind, never as a hidden transition. The two axes a pin cannot fix are below.
-- **The pin — `--known-at next-run`** resolves to the `finished_at` of the FIRST live run after the night
-  (`resolve_next_run_known_at`, pure over the R3 run artifacts; `no-live` runs and runs started ON the as-of
-  day do not count, a `--catch-up` pass does). That run ingested the night's own EOD bar and its filings and
-  nothing that arrived later — a pin at 22:30 THAT night would MISS the night's bar, because the next
-  morning's run is what ingested it. An explicit ISO instant WITH an offset or `Z` is accepted instead; a
-  naive one is refused (a wrong zone shifts real answers invisibly), as is a pin before the as-of day begins
-  and an `--asof` that is not in the past (tonight is the cron's job). The resolved pin prints in UTC and
-  market time before anything runs.
+- **Why the public clock, not `pipeline.daily --asof <past>`.** The `calls` log is immutable — a row's
+  `recorded_at` is always now. A naive re-run computes the past night with `known_at = now` on the record
+  clock: TODAY's knowledge, including filings published after the night (MEASURED on dev: one thesis
+  backfilled as ARMED on four missed nights while the real nightly runs around them recorded INCUBATING).
+  The backfill instead reads every fact on the PUBLIC clock (operator decision 2026-10-21, `INVARIANTS.md`
+  #4; `db/public_clock.py`): a Form 4 from its SEC acceptance, a bar from its session settle (a vendor
+  correction from its own publication), an 8-K / 13D from its filing date — up to the END of the night's
+  market day (`reconstruction_known_at` = `known_at_for_asof`; EDGAR accepts until 22:00 ET, before the 22:30
+  run). So the row is how TODAY's rules judge what was PUBLIC that night: nothing published later leaks in,
+  and a fact our database ingested late (an outage, a name onboarded afterwards) is not hidden for it. The
+  roster and the logged position are operator decisions, read as of the same instant. Two things make a
+  recorded neighbor differ honestly: `asof` is a LIVENESS parameter, so a drifted nightly row (a wrong-day
+  fire) can count a filing dated on its label day that the intended night cannot; and a neighbor was computed
+  on what our database held (the 2026-07 frozen cache, a late onboarding). The reconstruction is the right
+  row; read a difference against a neighbor with that in mind, never as a hidden transition.
+- **The retired pin.** Until 2026-10-21 the backfill took `--known-at <pin>` (`next-run` = the `finished_at`
+  of the first live run after the night) and read on the RECORD clock — "what our database held then". That
+  replayed our own ingest history, not the market's, and is retired: `--known-at` is now a loud refusal
+  (exit 2) that names the public clock. An `--asof` that is not in the past is refused too (tonight is the
+  cron's job). The cap prints in UTC and market time before anything runs.
 - **It never ingests or notifies.** No refresh legs, no SPAC legs, no `EdgarClient` / `PriceSource`, no
   `TransitionEvent` (a reconstructed row is a RECORD, never a nag — a Slack "ARMED" for a night two weeks ago
   is exactly the wrong loudness, #7). A pure recompute-and-record over facts already in the store, pinned
   structurally by an import-guard test. Per-thesis isolation is `run_daily`'s (own try, commit / rollback).
-- **The three axes of a reconstruction — only one is faithful.** (1) *The clock* — pinned, faithful. (2)
+- **The three axes of a reconstruction — only one is faithful.** (1) *The facts* — the public clock,
+  faithful. (2)
   *Thesis existence* — ENFORCED: a thesis created after the night was not in that night's cron, so it
   gets NO row. `run_backfill` skips it (`thesis_existed_on`: `thesis.created_at` in market time vs the
   as-of day — a thesis created during the day of `asof` WAS in that night's run) and reports the skip
   loudly: its own line + count in the summary, in `--dry-run`, and in the provenance artifact (`skipped`
   per thesis + a summary count). MEASURED before the gate existed (dev copy of the 2026-09-09 backfill):
   37 of the 144 reconstructed rows predate their thesis, 20 of them warming/armed, two of them arm
-  episodes for a thesis that did not exist. (3) *Basket composition* — NOT reconstructable:
-  `basket_member` is full-replace with no timestamps, so every reconstruction ran on TODAY's roster. A
-  reconstructed row therefore can never be shown honest, and the Scoreboard scores none of them
+  episodes for a thesis that did not exist. (3) *Basket composition* — read as of the night from its
+  `basket_snapshot` since 2026-09-15; before that `basket_member` is full-replace with no timestamps, so a
+  reconstruction runs on TODAY's roster. A reconstructed row therefore can never be shown to be the record, and the Scoreboard scores none of them
   (`docs/SCOREBOARD.md` §"The one rule" — a reconstructed row never defines an episode boundary; the
   ledger names, once, the nights it has nothing honest for). Until baskets are point-in-time, that holds for every row this
   tool writes.
@@ -2019,11 +2022,12 @@ assembly the cron runs, with the transaction clock PINNED, then `record_if_chang
   deliberate — freshness asks whether the log advanced, not whether a row is scoreable; the Scoreboard's
   record path is the ONE reader that filters (`docs/ADMIN.md`, `docs/SCOREBOARD.md`).
 - **Provenance + idempotency.** One write-only, fail-open JSON per invocation under
-  `data/backfills/<utc-ts>.json` (`pipeline/backfill_log.py`: `asof`, `known_at`, `known_at_policy`
-  `explicit` | `next-run`, per-thesis state / verdict / recorded / error). NOT a cron run artifact —
-  `already_ran_live` stays False for the night. A `--dry-run` writes NOTHING (no row, no artifact). A
-  re-run with the same `asof` + `known_at` appends zero rows (count the table); a different pin that sees
-  different facts is a genuine change and appends one versioned row.
+  `data/backfills/<utc-ts>.json` (`pipeline/backfill_log.py`: `asof`, `known_at` = the public-clock cap,
+  `known_at_policy` = `public-clock` — artifacts before 2026-10-21 carry the retired `explicit` | `next-run`
+  — per-thesis state / verdict / recorded / error). NOT a cron run artifact — `already_ran_live` stays False
+  for the night. A `--dry-run` writes NOTHING (no row, no artifact). A re-run over the same facts appends
+  zero rows (count the table); a fact ingested since that was public before the night is a genuine change and
+  appends one versioned row.
 
 ### Annotating phantom arms — `pipeline.annotate_phantom_arms`  `[BUILT — D3b]`
 
@@ -2034,9 +2038,11 @@ nights"). The first judgment is D3a's: before #390 the fundamentals read dated a
 quarter at its later filing, so some nightly arms rested only on a year-old revenue inflection.
 
 - **Annotate ONLY what D3a changes.** Every honest (`NOT reconstructed`) row is re-assembled TWICE with the
-  current code at `asof = row.asof`, `known_at = row.recorded_at` (the cron assembles and records in one
-  transaction, so `recorded_at` — the transaction's start — is the instant its read began; the PIT's
-  `db_now` pin is milliseconds later in that same transaction): (i) D3a OFF — `PreD3aDatingView`, a
+  current code at `asof = row.asof` ON THE PUBLIC CLOCK (`clock="public"`, `known_at` = the end of that market
+  day — since 2026-10-21, `INVARIANTS.md` #4: call effects are measured on the public clock, never by replaying
+  what our database held at the row's `recorded_at`, which is how the 2026-10-17 apply judged its 9 exclude +
+  107 note rows; a (call, action) already judged is never re-judged, so a re-run judges only the rows not yet
+  annotated, on the public clock): (i) D3a OFF — `PreD3aDatingView`, a
   diagnostic view living only in the CLI, hands the detectors the fundamentals rows with `knowable_from` /
   `knowable_accession` replaced by the picked version's `valid_from` / `accession` (exactly the pre-#390
   read; D3a's tie-break, which only moves a same-date citation, is not reverted); (ii) D3a ON — the code as
@@ -2047,9 +2053,9 @@ quarter at its later filing, so some nightly arms rested only on a year-old reve
 - **The classification.** `drift` — (i) does not reproduce the recorded state, verdict, AND armed-member set
   (other code/config/roster drift; reported, never annotated). `exclude` — reproduced, armed, and (ii) is not
   armed (a phantom arm). `note` — reproduced, and (ii) differs in state, verdict, headline or armed set.
-  `unchanged` otherwise. Each result names the roster it ran on: the latest `basket_snapshot` at/before
-  `recorded_at`, else the LIVE roster (every row before the 0043 seed on 2026-09-15) — the reproduction test
-  is what keeps a live-roster row from being blamed on D3a.
+  `unchanged` otherwise. Each result names the roster it ran on: the latest `basket_snapshot` by the end of
+  the row's as-of day, else the LIVE roster (every as-of before the 0043 seed on 2026-09-15) — the reproduction
+  test is what keeps a live-roster row from being blamed on D3a.
 - **Safety — the backfill's shape.** Dry-run is the DEFAULT, on a READ-ONLY connection (it physically cannot
   write), prints every exclude / note / drift row with its stale-trigger evidence (security, detector, the
   period, the date + filing the pre-D3a read cited, and the period's FIRST filing) and a per-thesis summary;

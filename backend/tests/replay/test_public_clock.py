@@ -5,9 +5,11 @@ from datetime import date, datetime, timezone
 
 import pytest
 
-from db.bitemporal import append_fact
+from db.bitemporal import _FACT_IDENTITY, append_fact
+from db.public_clock import PUBLIC_TIME
 from db.session import DEFAULT_TENANT_ID
-from domain.market_time import known_at_for_asof
+from domain.market_time import known_at_for_asof, market_tz
+from replay import export as export_mod
 from replay.export import (
     _PUBLIC_CLOCK,
     AmbiguousPublicClock,
@@ -15,11 +17,14 @@ from replay.export import (
 )
 from replay.pit import ReplayPointInTimeData, connect_mirror
 from replay.scoring import RealizedPrices
+from signals.base import PointInTimeData
 
 # B2 — the PUBLIC clock. The backtest asks "what would the algorithm have called on the information
-# available?", which is a different question from the Scoreboard's "what did we hold", and the system
-# clock cannot answer it: the filing tables' recorded_at begins 2026-06, so a 2025 backrun either sees
-# nothing or (under a future pin) sees every Form 4 on its TRANSACTION date, months before it was public.
+# available?", and the system clock cannot answer it: the filing tables' recorded_at begins 2026-06, so a
+# 2025 backrun either sees nothing or (under a future pin) sees every Form 4 on its TRANSACTION date, months
+# before it was public. Since 2026-10-21 the product's history views ask the same question (INVARIANTS §4),
+# so the definition is ONE (``db.public_clock``) and the mirror is row-for-row the live public read
+# (``test_the_public_mirror_is_row_for_row_the_live_public_read``).
 #
 # Two properties carry this slice. The mirror must show a fact exactly when it became public -- on BOTH
 # bitemporal axes -- and the rewrite must not corrupt which VERSION of a fact wins, because collapsing
@@ -397,18 +402,27 @@ def test_clock_record_is_unchanged(db, security_id, tmp_path):
         con.close()
 
 
-def test_the_excluded_tables_are_named_and_so_are_their_blind_detectors(db, tmp_path):
-    """A table left out is only half an answer; without naming what stopped firing, a result reads as
-    "that detector is inert on this tape" when the truth is "that detector had no tape"."""
+def test_every_fact_table_has_a_clock_so_nothing_is_excluded(db, tmp_path):
+    """Since the 2026-10-21 rule every fact table carries a public clock (``db.public_clock`` — the operator-
+    ratified Workbench tables and the fund samples at their ratification / sampling instant), so a public mirror
+    excludes nothing and blinds nothing."""
     m = export_snapshot(db, tmp_path, clock="public")
-    assert set(m["excluded_tables"]) == {
-        "fact_revenue_mix",
-        "fact_shares_outstanding",
-        "fact_cash_burn",
-        "fact_fund_shares",
-    }
-    # ...and none of them is read by a call detector, so nothing is blinded (operator decision Q5)
-    assert m["blind_detectors"] == []
+    assert m["excluded_tables"] == [] and m["blind_detectors"] == []
+    assert set(m["tables"]) == set(_FACT_IDENTITY)
+
+
+def test_a_table_without_a_clock_is_excluded_whole_and_named(db, tmp_path, monkeypatch):
+    """The exclusion mechanism, for the next table someone adds without a public clock: excluded WHOLE and
+    named — and so are the detectors it blinds (a table left out is only half an answer; without naming what
+    stopped firing, a result reads as "that detector is inert on this tape" when the truth is "that detector
+    had no tape")."""
+    missing = {"fact_revenue_mix", "fact_activist_stake"}
+    monkeypatch.setattr(
+        export_mod, "PUBLIC_TIME", {t: v for t, v in PUBLIC_TIME.items() if t not in missing}
+    )
+    m = export_snapshot(db, tmp_path, clock="public")
+    assert set(m["excluded_tables"]) == missing
+    assert m["blind_detectors"] == ["activist_stake"]  # the one detector that reads only that tape
     for t in m["excluded_tables"]:
         assert t not in m["tables"]
         assert not (tmp_path / f"{t}.parquet").exists()
@@ -507,24 +521,70 @@ def test_the_harness_threads_the_known_at_mode(db, tmp_path):
 
 
 def test_a_date_clock_lands_at_the_start_of_the_market_day(db, security_id, tmp_path):
-    """A DATE clock becomes an instant in MARKET time, not UTC — this repo's rule that a trading day is a
-    domain fact. Inert on visibility (``valid_from <= asof`` already decides these rows), pinned so the
-    next reader knows it was a decision."""
+    """A DATE clock (an 8-K's ``filed``) becomes an instant in MARKET time, not UTC — this repo's rule that a
+    trading day is a domain fact. Inert on visibility (``valid_from <= asof`` already decides these rows),
+    pinned so the next reader knows it was a decision."""
+    d = date(2026, 6, 1)
+    append_fact(
+        db,
+        "fact_corporate_event",
+        {
+            "tenant_id": DEFAULT_TENANT_ID,
+            "security_id": security_id,
+            "form": "8-K",
+            "items": ["8.01"],
+            "accession": "8k-1",
+            "filed": d,
+            "source_ref": "https://www.sec.gov/x",
+            "valid_from": d,
+            "recorded_at": datetime(2026, 9, 1, tzinfo=timezone.utc),
+        },
+    )
+    db.commit()
+    export_snapshot(db, tmp_path, clock="public")
+    con = connect_mirror(tmp_path)
+    try:
+        (row,) = ReplayPointInTimeData(con, asof=d, known_at=_PIN).corporate_event_facts(
+            security_id
+        )
+        assert row["recorded_at"] == datetime(2026, 6, 1, tzinfo=market_tz())  # 00:00 ET
+        assert row["ingested_at"] == datetime(2026, 9, 1, tzinfo=timezone.utc)  # the honest ingest
+    finally:
+        con.close()
+
+
+def test_a_bar_lands_at_its_settle_and_a_correction_at_its_own_publication(
+    db, security_id, tmp_path
+):
+    """A bar's FIRST version is public at its session's settle (``d`` 18:00 ET — when a close is final),
+    however late we ingested it; a vendor RE-version carries no publication time of its own, so it counts
+    from its own ``recorded_at`` — never back-dated to the bar's day. The scoring reader (not as-of capped)
+    still reads the corrected close."""
     d = date(2026, 6, 1)
     append_fact(
         db,
         "fact_price_eod",
         _bar(security_id, d=d, close=100.0, recorded_at=datetime(2026, 9, 1, tzinfo=timezone.utc)),
     )
+    fix = datetime(2026, 9, 10, 2, 30, tzinfo=timezone.utc)
+    append_fact(db, "fact_price_eod", _bar(security_id, d=d, close=105.0, recorded_at=fix))
     db.commit()
-    export_snapshot(db, tmp_path, clock="public")
+    m = export_snapshot(db, tmp_path, clock="public")
+    assert m["tables"]["fact_price_eod"]["versions_collapsed"] == 0  # both publications survive
     con = connect_mirror(tmp_path)
     try:
-        rows = ReplayPointInTimeData(con, asof=d, known_at=_PIN).price_history(security_id)
-        stamped = rows[0]["recorded_at"]
-        assert stamped.astimezone(timezone.utc) < datetime(2026, 6, 1, 12, tzinfo=timezone.utc)
-        assert stamped.astimezone(timezone.utc) >= datetime(2026, 6, 1, tzinfo=timezone.utc)
-        assert stamped <= known_at_for_asof(d, _PIN)  # visible on its own day
+
+        def close_at(asof):
+            rows = ReplayPointInTimeData(
+                con, asof=asof, known_at=known_at_for_asof(asof, _PIN)
+            ).price_history(security_id)
+            return [(r["close"], r["recorded_at"]) for r in rows]
+
+        settle = datetime(2026, 6, 1, 18, 0, tzinfo=market_tz())
+        assert close_at(d) == [(100.0, settle)]
+        assert close_at(date(2026, 9, 8)) == [(100.0, settle)]  # the fix is not public yet
+        assert close_at(date(2026, 9, 9)) == [(105.0, fix)]  # 09-09 22:30 ET: public that night
+        assert RealizedPrices(con).closes_between(security_id, d, d) == [(d, 105.0)]
     finally:
         con.close()
 
@@ -561,3 +621,165 @@ def test_ids_are_random_uuids_so_the_tiebreak_could_never_have_been_trusted(db, 
     assert len(set(inserted)) == 25
     # insertion order and id order disagree — with 25 rows, agreeing by chance is ~1 in 25!
     assert inserted != sorted(inserted, key=lambda u: uuid.UUID(str(u)).int)
+
+
+# --- ONE definition: the public mirror is the live public read, row for row ---------------------------------
+
+
+def _seed_public_parity(db) -> list:
+    """Real seed theses + every public-clock shape: Form 4s with acceptances (one ingested a year late, one
+    re-parsed with the same acceptance), a corrected bar, a restated + re-reported fundamentals quarter, an 8-K
+    resolved later, a 13D resolved later — reusing the record-clock parity gate's own seeders."""
+    from pipeline.seed import (
+        HIMS_SECURITY_ID,
+        LEU_ID,
+        NNE_ID,
+        OKLO_ID,
+        SMR_ID,
+        UNH_SECURITY_ID,
+        seed_hims,
+        seed_leu_catalyst,
+        seed_nuclear,
+        seed_nuclear_catalyst,
+        seed_nuclear_theme_conviction,
+        seed_unh,
+    )
+    from tests.replay.test_pit_parity import (
+        _seed_activist_stakes,
+        _seed_corporate_events,
+        _seed_fundamentals,
+    )
+
+    seed_hims(db)
+    seed_unh(db)
+    seed_nuclear(db)
+    seed_nuclear_catalyst(db)
+    seed_leu_catalyst(db)
+    seed_nuclear_theme_conviction(db)
+    _seed_fundamentals(db)
+    _seed_corporate_events(db)
+    _seed_activist_stakes(db)
+    sid = HIMS_SECURITY_ID
+    late = datetime(2026, 7, 1, tzinfo=timezone.utc)
+    append_fact(
+        db,
+        "fact_insider_txn",
+        _insider(
+            sid,
+            accession="pp-late",
+            valid_from=date(2025, 8, 1),
+            usd=1_000_000,
+            recorded_at=late,  # ingested ~11 months after it was public
+            accepted=datetime(2025, 8, 4, 18, 30, tzinfo=timezone.utc),
+        ),
+    )
+    for rec, role in [(datetime(2025, 8, 6, tzinfo=timezone.utc), "OLD"), (late, "REPARSED")]:
+        append_fact(
+            db,
+            "fact_insider_txn",
+            _insider(
+                sid,
+                accession="pp-reparse",
+                valid_from=date(2025, 8, 5),
+                usd=2_000_000,
+                recorded_at=rec,
+                accepted=datetime(2025, 8, 5, 20, 0, tzinfo=timezone.utc),
+                role=role,
+            ),
+        )
+    d = date(2025, 8, 1)
+    with db.cursor() as cur:
+        cur.execute("SELECT close FROM fact_price_eod WHERE security_id = %s AND d = %s", (sid, d))
+        row = cur.fetchone()
+    if row is not None:  # a vendor correction of a real seed bar, published a month later
+        fixed = _bar(
+            sid,
+            d=d,
+            close=float(row["close"]) + 1.0,
+            recorded_at=datetime(2025, 9, 2, tzinfo=timezone.utc),
+        )
+        append_fact(db, "fact_price_eod", fixed)
+    db.commit()
+    return [HIMS_SECURITY_ID, UNH_SECURITY_ID, SMR_ID, OKLO_ID, NNE_ID, LEU_ID]
+
+
+@pytest.mark.parametrize("basket", [True, False], ids=["prefetch", "scoped"])
+def test_the_public_mirror_is_row_for_row_the_live_public_read(db, tmp_path, basket):
+    """THE PARITY GATE for the public clock: across every accessor, every seeded scope and a sweep of as-ofs
+    at the lockstep cap (the end of each market day — exactly what the history views and a public backtest
+    read), ``PointInTimeData(clock="public")`` over Postgres equals ``ReplayPointInTimeData`` over a
+    ``clock="public"`` mirror, row for row — including ``recorded_at`` (the public instant) and
+    ``ingested_at`` (the honest one). The two engines run ONE definition (``db.public_clock``)."""
+    from pipeline.seed import HIMS_THESIS_ID, NUCLEAR_THESIS_ID, UNH_THESIS_ID
+    from tests.replay.test_pit_parity import _match
+
+    secs = _seed_public_parity(db)
+    export_snapshot(db, tmp_path, clock="public")
+    con = connect_mirror(tmp_path)
+    accessors = (
+        ("insider_txns", "fact_insider_txn"),
+        ("price_history", "fact_price_eod"),
+        ("dilution_facts", "fact_dilution"),
+        ("catalyst_facts", "fact_catalyst"),
+        ("fundamentals_facts", "fact_fundamentals"),
+        ("corporate_event_facts", "fact_corporate_event"),
+        ("activist_stake_facts", "fact_activist_stake"),
+    )
+    checked = 0
+    try:
+        for asof in (
+            date(2025, 8, 4),
+            date(2025, 8, 15),
+            date(2025, 9, 3),
+            date(2026, 4, 1),
+            date(2026, 6, 5),
+        ):
+            k = known_at_for_asof(asof, _PIN)
+            live = PointInTimeData(
+                db, asof=asof, known_at=k, basket=secs if basket else None, clock="public"
+            )
+            rep = ReplayPointInTimeData(con, asof=asof, known_at=k, basket=secs if basket else None)
+            for sid in secs:
+                for accessor, table in accessors:
+                    lr, rr = getattr(live, accessor)(sid), getattr(rep, accessor)(sid)
+                    _match(lr, rr, _FACT_IDENTITY[table])
+                    assert len(lr) == len(rr)
+                    checked += len(lr)
+            for tid in (HIMS_THESIS_ID, UNH_THESIS_ID, NUCLEAR_THESIS_ID):
+                _match(
+                    live.theme_conviction_facts(tid),
+                    rep.theme_conviction_facts(tid),
+                    _FACT_IDENTITY["fact_theme_conviction"],
+                )
+    finally:
+        con.close()
+    assert checked > 1000  # not vacuous: the seeded tapes really were compared
+
+
+def test_an_undatable_form4_is_shown_by_the_history_read_and_counted_out_by_the_export(
+    db, security_id, tmp_path
+):
+    """The ONE named asymmetry between the two consumers of the shared definition: a Form 4 with no
+    acceptance on any version. The history read counts it from the first time we held it (an upper bound on
+    its publication — never early, never dropped: #9); the backtest export keeps its contract of excluding
+    and COUNTING it (``rows_dropped_null_clock``)."""
+    first = datetime(2026, 6, 2, 2, 30, tzinfo=timezone.utc)
+    append_fact(
+        db,
+        "fact_insider_txn",
+        _insider(
+            security_id,
+            accession="undatable",
+            valid_from=date(2026, 6, 1),
+            usd=1,
+            recorded_at=first,
+        ),
+    )
+    db.commit()
+    asof = date(2026, 6, 1)
+    (row,) = PointInTimeData(
+        db, asof=asof, known_at=known_at_for_asof(asof, _PIN), clock="public"
+    ).insider_txns(security_id)
+    assert row["recorded_at"] == first
+    m = export_snapshot(db, tmp_path, clock="public")
+    assert m["tables"]["fact_insider_txn"]["rows_dropped_null_clock"] == 1
