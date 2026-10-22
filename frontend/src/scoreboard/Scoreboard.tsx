@@ -1,10 +1,16 @@
 import { Fragment, useState, type ReactNode } from "react";
 
-import type { OperatorSpanOut, ScoreboardEpisodeOut, ScoreboardThesisOut } from "../api/hooks";
-import { useScoreboard } from "../api/hooks";
+import type {
+  OperatorSpanOut,
+  ScoreboardEditionOut,
+  ScoreboardEpisodeOut,
+  ScoreboardThesisOut,
+} from "../api/hooks";
+import { useScoreboard, useScoreboardEditions } from "../api/hooks";
 import { Drawer } from "../components/Drawer";
 import { fmtDate } from "../util/format";
 import { annotatedNightsLine, annotatedNightsTitle, nextAnnotatedOverride } from "./annotated";
+import { editionLabel, editionNote, editionTitle, isRerun } from "./editions";
 import { lateNightsLine, lateNightsTitle, nextLateOverride } from "./late";
 import { EpisodeRow } from "./EpisodeRow";
 import { EpisodeScorecard } from "./EpisodeScorecard";
@@ -48,7 +54,62 @@ type Props = {
   asof: string;
   /** nameKey (when the row has a name) deep-links that member's panel in the Cockpit (?name=). */
   onSelect: (thesisId: string, nameKey?: string) => void;
+  /** The EDITION asked for (?edition=, editions S4): null = the server's default; 0 = the original record. */
+  edition?: number | null;
+  /** Picks an edition — the route writes it to ?edition= (a view dial: it REPLACES history). */
+  onEditionChange?: (edition: number) => void;
 };
+
+// Beyond this many editions the segmented control would crowd the header — a plain list picker takes over.
+const SEGMENTED_MAX = 5;
+
+/** The header's quiet edition label + switcher (S4). Renders only when there is something to switch
+ *  between (a one-option control does not discriminate, #7): with nothing published the page looks exactly
+ *  as it did before editions. The SERVED edition is the selected one, so a default-edition read marks the
+ *  right button with no ?edition= in the URL. */
+function EditionSwitcher({
+  editions,
+  served,
+  onPick,
+}: {
+  editions: readonly ScoreboardEditionOut[];
+  served: number;
+  onPick?: (edition: number) => void;
+}) {
+  if (editions.length < 2) return null;
+  if (editions.length > SEGMENTED_MAX) {
+    return (
+      <select
+        className="sb-editionpick"
+        aria-label="edition"
+        value={served}
+        onChange={(e) => onPick?.(Number(e.target.value))}
+      >
+        {editions.map((e) => (
+          <option key={e.number} value={e.number} title={editionTitle(e)}>
+            {editionLabel(e)}
+          </option>
+        ))}
+      </select>
+    );
+  }
+  return (
+    <div className="sb-viewtoggle sb-editions" role="group" aria-label="edition">
+      {editions.map((e) => (
+        <button
+          key={e.number}
+          type="button"
+          className={e.number === served ? "on" : ""}
+          aria-pressed={e.number === served}
+          title={editionTitle(e)}
+          onClick={() => onPick?.(e.number)}
+        >
+          {editionLabel(e)}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 function SpanRow({
   t,
@@ -174,7 +235,7 @@ function SpanRow({
   );
 }
 
-export function Scoreboard({ header, asof, onSelect }: Props) {
+export function Scoreboard({ header, asof, onSelect, edition = null, onEditionChange }: Props) {
   // D3b — the annotated-night READING for this view: null = the server's policy (the default), a bool =
   // the operator flipped it (include / set aside the phantom-arm nights). Local state like `view`/`sort`
   // below — no URL param, no browser storage — and one click back to the default (`annotated.ts`).
@@ -182,7 +243,21 @@ export function Scoreboard({ header, asof, onSelect }: Props) {
   // L1 — the late-night READING, the same tri-state (`late.ts`): rows recorded after their night's next
   // EDGAR open are set aside by default; one click scores them again for this view.
   const [lateOverride, setLateOverride] = useState<boolean | null>(null);
-  const { data, isLoading, error } = useScoreboard(asof, true, annotatedOverride, lateOverride);
+  const { data, isLoading, error } = useScoreboard(
+    asof,
+    true,
+    annotatedOverride,
+    lateOverride,
+    edition,
+  );
+  // Editions S4 — the list for the switcher, and the edition this response actually SERVED (the server's
+  // default when the URL names none). A re-run edition has no reconstructed / annotated / late rows and no
+  // ingest history, so those lines, their toggles and the INGEST badge are hidden for it.
+  const editionsQ = useScoreboardEditions();
+  const servedEdition = data?.edition ?? null;
+  const served = servedEdition?.number ?? 0;
+  const rerun = isRerun(served);
+  const editionLine = editionNote(servedEdition);
   // the episode-scorecard drawer's open episode — local state only (no URL param this slice); a
   // click opens it, the drawer's ✕/backdrop/Esc close it, and the ledger underneath never rerenders.
   const [openEp, setOpenEp] = useState<ScoreboardEpisodeOut | null>(null);
@@ -231,6 +306,20 @@ export function Scoreboard({ header, asof, onSelect }: Props) {
 
       {data && summary && (
         <div className="sb-body">
+          {/* the edition label + switcher (S4) — quiet, and absent until a second edition exists */}
+          <EditionSwitcher
+            editions={editionsQ.data?.editions ?? []}
+            served={served}
+            onPick={onEditionChange}
+          />
+          {editionLine && (
+            <div
+              className="sb-freshline sb-fresh sb-editionline"
+              title={servedEdition ? editionTitle(servedEdition) : undefined}
+            >
+              {editionLine}
+            </div>
+          )}
           <div className="sb-banner">{summary.banner}</div>
           {/* the record-freshness marker (2a) — is the call-of-record current NOW? Shown ONLY on the
               live view (asof >= today): staleness answers "current now", not "as of a past date", so a
@@ -254,7 +343,7 @@ export function Scoreboard({ header, asof, onSelect }: Props) {
               are named ONCE, quietly, here; never as a per-row chip (with the filter in place a
               reconstructed row produces no ledger row). Asof-capped by the backend, so a scrubbed
               view names only nights it can see. Rendered only when non-empty (honest loudness). */}
-          {summary.reconstructed_nights.length > 0 && (
+          {!rerun && summary.reconstructed_nights.length > 0 && (
             <div
               className="sb-freshline sb-fresh"
               title={`reconstructed by a backfill with the clock pinned, on today's basket — not scored: ${summary.reconstructed_nights.join(", ")}`}
@@ -270,7 +359,7 @@ export function Scoreboard({ header, asof, onSelect }: Props) {
               annotated (a control that does not discriminate does not render), with the reading toggle:
               one click scores them again for this view, the next click returns to the default. Nothing is
               deleted either way — the line says which reading the numbers below came from. */}
-          {annotatedNightsLine(summary) && (
+          {!rerun && annotatedNightsLine(summary) && (
             <div className="sb-freshline sb-fresh sb-annotline" title={annotatedNightsTitle(summary)}>
               {annotatedNightsLine(summary)}{" "}
               <button
@@ -290,7 +379,7 @@ export function Scoreboard({ header, asof, onSelect }: Props) {
               lines above, so an on-time row for the night wins and a night with none reads like a cron gap.
               Rendered only when some night was recorded late, with the same reading toggle; nothing is
               deleted either way. */}
-          {lateNightsLine(summary) && (
+          {!rerun && lateNightsLine(summary) && (
             <div className="sb-freshline sb-fresh sb-annotline" title={lateNightsTitle(summary)}>
               {lateNightsLine(summary)}{" "}
               <button
@@ -308,7 +397,7 @@ export function Scoreboard({ header, asof, onSelect }: Props) {
             <span>{summary.n_open} open</span>
             <span>{summary.n_matured} matured</span>
             <span>{summary.n_censored} censored</span>
-            {summary.n_ingest_flagged > 0 && (
+            {!rerun && summary.n_ingest_flagged > 0 && (
               <span>{summary.n_ingest_flagged} ingest-flagged</span>
             )}
             <span className="sb-sep">·</span>
@@ -400,10 +489,13 @@ export function Scoreboard({ header, asof, onSelect }: Props) {
 
           {summary.n_episodes === 0 && summary.n_takes === 0 && (
             <div className="sb-empty">
-              No arm episodes on the record yet
-              {summary.record_began
-                ? ` — it began ${fmtDate(summary.record_began)} and accrues forward (no backfill).`
-                : " — the record starts with the first daily call-of-record."}
+              {rerun
+                ? "No arm episodes in this edition."
+                : `No arm episodes on the record yet${
+                    summary.record_began
+                      ? ` — it began ${fmtDate(summary.record_began)} and accrues forward (no backfill).`
+                      : " — the record starts with the first daily call-of-record."
+                  }`}
             </div>
           )}
 
@@ -412,7 +504,12 @@ export function Scoreboard({ header, asof, onSelect }: Props) {
               the page keeps the vertical scroll. See .sb-scroll. */}
           <div className="sb-scroll">
           <table className="basket sb-ledger">
-            <LedgerHead view={view} returnHeader="Record return" sort={sort} onSort={onSort} />
+            <LedgerHead
+              view={view}
+              returnHeader={rerun ? "Edition return" : "Record return"}
+              sort={sort}
+              onSort={onSort}
+            />
             <tbody>
               {data.theses.map((t) => {
                 // filter FIRST, then sort — two separable steps, so `sortEpisodes`/`sortSpans` keep
@@ -476,6 +573,7 @@ export function Scoreboard({ header, asof, onSelect }: Props) {
                           onSelect={onSelect}
                           onOpenScorecard={setOpenEp}
                           view={view}
+                          rerun={rerun}
                         />
                       ))}
                     {isOpen(t) && (
@@ -534,6 +632,7 @@ export function Scoreboard({ header, asof, onSelect }: Props) {
             ep={openEp}
             thesisName={data?.theses.find((t) => t.thesis_id === openEp.thesis_id)?.name}
             asof={asof}
+            edition={served}
           />
         )}
       </Drawer>

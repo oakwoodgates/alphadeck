@@ -8,6 +8,7 @@ import {
   useWorkbenchScored,
 } from "../api/hooks";
 import { fmtDate, gradeClass } from "../util/format";
+import { isRerun } from "./editions";
 import { EventLedger } from "./EventLedger";
 import { identityCells, signalHeadlines, transitionLines } from "./ledger";
 import { buildOverlayEvents, flagBands, tapeSignals } from "./overlay";
@@ -49,13 +50,18 @@ export function EpisodeScorecard({
   ep,
   thesisName,
   asof,
+  edition = null,
 }: {
   ep: ScoreboardEpisodeOut;
   thesisName?: string;
   /** The page-level scoreboard as-of. Present → the price sparkline mounts (on-demand, drawer-open
    *  only) and its series is capped here. Absent → no chart (the pure-render tests pass no asof). */
   asof?: string;
+  /** The EDITION this episode belongs to (S4) — the number the Scoreboard served. Rides the drawer's price
+   *  window read; an edition >= 1 has no ingest history, so the INGEST badge/line never render for it. */
+  edition?: number | null;
 }) {
+  const rerun = isRerun(edition);
   // A just-armed episode (no forward bar yet) carries degenerate 0.0% forward/peak/arm_until
   // returns; mirror the ledger row and never render those as a flat move (fix: false-flat 0.0%).
   const noBar = noForwardBar(ep);
@@ -65,8 +71,9 @@ export function EpisodeScorecard({
   const edge = edgeLens(ep);
   const armUntil = fmtReturn(ep.arm_until_return);
   const strength = setupStrengthPct(ep);
-  const badges = episodeBadges(ep);
-  const ingestLine = ingestProvenanceLine(ep); // null on a healthy arm → nothing renders
+  const badges = episodeBadges(ep, rerun);
+  // null on a healthy arm → nothing renders; a re-run edition has no ingest history at all
+  const ingestLine = rerun ? null : ingestProvenanceLine(ep);
   // the arm_until_return row is a forward-return too — degenerate before the first bar; the grades
   // and setup strength are arm-date facts, so they stay.
   const showArmUntil = !noBar && (ep.arm_until != null || ep.arm_until_return != null);
@@ -84,7 +91,14 @@ export function EpisodeScorecard({
   // The server owns the effective floor + asof cap (invariant #1).
   const end = ep.exit_by ?? asof ?? "";
   const windowQ = useEpisodePriceWindow(
-    { thesisId: ep.thesis_id, securityId: ep.security_id, start: ep.arm_date, end, asof: asof ?? "" },
+    {
+      thesisId: ep.thesis_id,
+      securityId: ep.security_id,
+      start: ep.arm_date,
+      end,
+      asof: asof ?? "",
+      edition,
+    },
     Boolean(asof),
   );
   const bars = windowQ.data?.bars ?? NO_BARS;
@@ -197,6 +211,16 @@ export function EpisodeScorecard({
           a phantom-arm night scored only because this view includes annotated nights. Server-composed,
           rendered verbatim (the run-identity precedent); a clean episode carries no line at all. */}
       {ep.annotation_note && <div className="sc-annot">{ep.annotation_note}</div>}
+
+      {/* The join-date note (editions S4) — QUIET, server-composed, and present only on a re-run edition's
+          episode whose company's join date is an ESTIMATE (the record has no join dates; an exact join is
+          not an exception). When the arm fell on that estimated night it also says why the episode is
+          censored. Rendered verbatim, the run-identity precedent. */}
+      {ep.edition_join?.note && (
+        <div className="sc-annot sc-join" title={`join rule: ${ep.edition_join.method}`}>
+          {ep.edition_join.note}
+        </div>
+      )}
 
       {/* Lens 1 — The move (provenance: closes the "show the prices" gap). */}
       <section className="sc-lens">

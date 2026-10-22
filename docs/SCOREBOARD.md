@@ -27,9 +27,42 @@ event overlay (SMA context + insider/trigger/lifecycle chips, relevance-floored 
 Slice A), and the event ledger sharing the chart's numbering + a Cockpit strip (Slice B). See
 §"The episode drill-down".
 
+## Editions — Edition 0 is the record; an edition >= 1 is a frozen re-run (editions S3/S4)
+
+The Scoreboard shows one EDITION at a time (`GET /scoreboard?edition=N`, the header's quiet switcher, the
+URL's `?edition=`). Everything below this section is **Edition 0, the original record**: the `calls` log, read
+exactly as before editions existed (a golden taken before the change pins it byte for byte,
+`tests/app/test_scoreboard_edition0_golden.py`). Edition 0 is never stored as an edition.
+
+**Edition N >= 1** is a re-run of TODAY's rules from the night each company joined its basket, judged on the
+PUBLIC clock (`docs/INVARIANTS.md` §4), frozen at its CUT and stored in its own append-only tables (migration
+`0063`: `edition`, `edition_event`, `edition_entry` = the join dates it was cut with, `edition_call` = one
+page per thesis-night). It is published by `python -m editions.run publish` (dry-run by default; `--apply`
+writes; a second publish of the same edition is refused and appends nothing) and **never writes `calls`**.
+The read is the same code with a different timeline source (`scoreboard/record.py`: `RecordSource` vs
+`EditionSource`): an edition reads its pages only, so a `calls` row appended later never moves it. What differs
+for an edition, and only this:
+
+- **No reconstructed, annotated or late rows** — every page is computed the same way, on the public clock — so
+  those lists come back empty, both read policies say `n/a`, and the page hides their lines and toggles.
+- **No ingest provenance** — the INGEST badge describes what *we* had fetched; a public-clock re-run has none,
+  so it never renders.
+- **Censoring is G12's:** an arm on the company's own ESTIMATED join night has an unknowable true arm date,
+  so the episode is `censored_start` (out of arm-anchored metrics). An arm on an exact join night is real.
+  The drawer says "join date estimated" (`edition_join.note`) for every estimated join.
+- **The drawer's provenance caption names the edition and its engine fingerprint** (the `run_identity_note`
+  slot), and its chart overlays read on the public clock (the same reads #433 gave a past as-of).
+- **Scores are computed on read** against today's realized prices (the ink of S5 is not built yet).
+
+The default edition is `Settings.scoreboard_default_edition` (`ALPHADECK_SCOREBOARD_DEFAULT_EDITION`), shipped
+as 0 so the record stays the default view until the operator says otherwise; a default naming an unpublished
+edition falls back to 0, while an explicit request for one is a 404. Plan and open slices: the editions build
+plan (S5 nightly pages + ink, S6 "what changed", S7 the automatic cut, S8 retiring the replay panel).
+
 ## The one rule everything hangs on
 
-**The record is the scoring source — never a recompute.** The Scoreboard reads the immutable `calls`
+**The record is the scoring source — never a recompute** (Edition 0; editions are the section above). The
+Scoreboard reads the immutable `calls`
 log (what the platform actually said, when it said it) via `calls_repo.latest_for_thesis` (the
 final card per as-of), and scores those cards. Re-deriving past calls with today's code/dials is
 replay's job (`docs/REPLAY.md` — the historical twin); attribution's source is the record

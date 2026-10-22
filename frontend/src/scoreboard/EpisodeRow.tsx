@@ -33,6 +33,7 @@ export function EpisodeRow({
   onOpenScorecard,
   historical = false,
   view = "summary",
+  rerun = false,
 }: {
   ep: ScoreboardEpisodeOut;
   thesisId: string;
@@ -46,6 +47,8 @@ export function EpisodeRow({
   onOpenScorecard?: (ep: ScoreboardEpisodeOut) => void;
   historical?: boolean;
   view?: LedgerView;
+  /** The row belongs to a stored re-run EDITION (S4): no INGEST badge, CENSORED reads as G12's rule. */
+  rerun?: boolean;
 }) {
   const ret = fmtReturn(ep.forward_return);
   // a single-bar arm carries forward_return 0.0 (only the arm-day bar) — show "—", not a false flat
@@ -75,7 +78,7 @@ export function EpisodeRow({
   const reason = closeReasonBadge(ep);
   const statusCell = (
     <td className="sb-status">
-      {[...episodeBadges(ep), ...(reason ? [reason] : [])].map((b) => (
+      {[...episodeBadges(ep, rerun), ...(reason ? [reason] : [])].map((b) => (
         <span key={b.label} className={`sb-badge ${b.cls}`} title={b.title}>
           {b.label}
         </span>

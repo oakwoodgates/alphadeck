@@ -1360,6 +1360,11 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
    the toggle borrows the filter-clear button, and reads "on" while the view INCLUDES annotated nights.
    L1's late-recorded nights line reuses both classes (the same reading toggle, the same quiet voice). */
 .sb-annotline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* the EDITION switcher (editions S4) — the view toggle's segmented control, in sentence case (an edition's
+   label is a name, not a mode) and no louder than it; a plain list picker past five editions. Quiet by
+   design (#7): which edition you read is context, never an alarm. */
+.sb-editions button { text-transform: none; letter-spacing: 0.03em; }
+.sb-editionpick { align-self: flex-start; font-family: var(--mono); font-size: 10.5px; color: var(--txt-2); background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 3px 8px; }
 .sb-annottoggle { padding: 2px 8px; }
 .sb-annottoggle[aria-pressed="true"] { color: var(--txt); background: var(--panel-2); }
 .sb-metrics { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }

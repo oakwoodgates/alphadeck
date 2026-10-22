@@ -415,7 +415,10 @@ catch it. (RLS is the auth-era defense-in-depth; see `docs/PRODUCTION_TENANT.md`
 
 `assemble_call(thesis, events, asof, cfg)` is a pure function: same inputs → byte-identical CallCard. No
 DB/network/clock inside it; `asof` is always a parameter (no implicit "now"). The `calls` table is an
-**accountability record**, never the read path (the API recomputes live).
+**accountability record**, never the read path (the API recomputes live). The Scoreboard's Edition 0 scores
+it AS the record; a Scoreboard edition >= 1 (editions S3/S4, migration `0063`) reads only its own frozen
+`edition_call` pages — a re-run published beside the log, which never writes `calls` and is never moved by a
+later `calls` row (`docs/SCOREBOARD.md` §Editions).
 
 **And the record now names the policy it ran under (F1, migration `0044`).** Purity makes the card a function
 of `(thesis, events, asof, cfg)` — but until now the row recorded only the card, so `cfg` (and the code) were
