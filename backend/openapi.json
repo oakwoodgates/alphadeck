@@ -3317,6 +3317,108 @@
         }
       }
     },
+    "/theses/{thesis_id}/data-flags": {
+      "get": {
+        "tags": [
+          "data-flags"
+        ],
+        "summary": "Get Thesis Data Flags",
+        "description": "The data flags on one thesis's resolved basket at ``asof`` \u2014 which numbers on each row rest on data the\nplatform knows is wrong or cannot vouch for, why, and what clears it \u2014 plus each name's split rows. Only\nnames with a flag or a split row are listed. Computed on read, never stored; display-only.",
+        "operationId": "get_thesis_data_flags_theses__thesis_id__data_flags_get",
+        "parameters": [
+          {
+            "name": "thesis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thesis Id"
+            }
+          },
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; the flags use no data public after it",
+              "title": "Asof"
+            },
+            "description": "as-of date; the flags use no data public after it"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataFlagsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/data-flags": {
+      "get": {
+        "tags": [
+          "data-flags"
+        ],
+        "summary": "Get Data Flags",
+        "description": "Every flagged name across the active basket union at ``asof``, each with the theses holding it \u2014 the\nAdmin list and the Board's marks. Computed on read, never stored; display-only.",
+        "operationId": "get_data_flags_data_flags_get",
+        "parameters": [
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; the flags use no data public after it",
+              "title": "Asof"
+            },
+            "description": "as-of date; the flags use no data public after it"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataFlagsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/radar/spac": {
       "get": {
         "tags": [
@@ -8731,6 +8833,325 @@
         "title": "CorporateEventOut",
         "description": "One stored 8-K filing inside an episode's window (Slice B) \u2014 an overlay chip / ledger row.\n\n``d`` = ``valid_from`` = ``filed`` (an 8-K is knowable exactly when EDGAR disseminates it, so the\none event clock plus ``ingested`` suffices \u2014 no separate ``disclosed``). ``items`` is the SEC's\nown item-code list; ``None`` = not-yet-resolved, rendered honestly as \"items unresolved\", never\ndropped (#9). ``url`` is the EDGAR filing-index URL (#6). EVERY stored 8-K in the window rides \u2014\nthere is NO server-side item cut (loudness is a display concern; a cut would be a silent filter).\nBoth time axes are asof-capped (no-lookahead #1)."
       },
+      "DataFlagEvidenceOut": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "label"
+        ],
+        "title": "DataFlagEvidenceOut",
+        "description": "One piece of evidence behind a flag: a label, and a link when the source has one (an SEC filing)."
+      },
+      "DataFlagOut": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "in_doubt",
+              "known_wrong"
+            ],
+            "title": "Level"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "clears": {
+            "type": "string",
+            "title": "Clears"
+          },
+          "since": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since"
+          },
+          "affects": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Affects"
+          },
+          "columns": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Columns"
+          },
+          "dates": {
+            "items": {
+              "type": "string",
+              "format": "date"
+            },
+            "type": "array",
+            "title": "Dates"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/DataFlagEvidenceOut"
+            },
+            "type": "array",
+            "title": "Evidence"
+          },
+          "call_affected": {
+            "type": "boolean",
+            "title": "Call Affected",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "label",
+          "level",
+          "reason",
+          "clears"
+        ],
+        "title": "DataFlagOut",
+        "description": "One data issue on one name, as of the view's day (``domain/data_flags.py``). ``level``: ``in_doubt``\n(the number is shown grayed, the reason on hover) or ``known_wrong`` (the number is not shown: \"\u2014\" with\nthe reason). ``columns`` = the Cockpit cells it reaches (empty = no number on the row is touched: shown in\nthe panel and Admin only). ``dates`` = the bars the Scoreboard chart shades. ``call_affected`` = the\nsplit-night hold is holding this name's price triggers on the call card."
+      },
+      "DataFlagSplitOut": {
+        "properties": {
+          "key_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Key Date"
+          },
+          "effective_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Effective Date"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "factor": {
+            "type": "number",
+            "title": "Factor"
+          },
+          "direction": {
+            "type": "string",
+            "title": "Direction"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "confirmed_via": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmed Via"
+          },
+          "confirmed_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmed By"
+          },
+          "value_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value Source"
+          },
+          "sec_form": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sec Form"
+          },
+          "sec_filed": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sec Filed"
+          },
+          "sec_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sec Url"
+          },
+          "polygon": {
+            "type": "boolean",
+            "title": "Polygon",
+            "default": false
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "took_effect": {
+            "type": "boolean",
+            "title": "Took Effect",
+            "default": false
+          },
+          "corrected_on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Corrected On"
+          },
+          "corrected_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Corrected Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key_date",
+          "effective_date",
+          "label",
+          "factor",
+          "direction",
+          "status"
+        ],
+        "title": "DataFlagSplitOut",
+        "description": "One split on the list as the NamePanel and the chart label it: announced (``sec_filed``), confirmed\n(``confirmed_by``), took effect (``took_effect``), history corrected (``corrected_on`` \u2014 only when Alpha\nDeck re-scaled the vendor's bars before it). ``factor`` = prices before ``effective_date`` x factor."
+      },
+      "DataFlagThesisRefOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "DataFlagThesisRefOut"
+      },
+      "DataFlagsResponse": {
+        "properties": {
+          "thesis_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thesis Id"
+          },
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "names": {
+            "type": "integer",
+            "title": "Names",
+            "default": 0
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/MemberDataFlagsOut"
+            },
+            "type": "array",
+            "title": "Members"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof"
+        ],
+        "title": "DataFlagsResponse",
+        "description": "The data flags as of ``asof`` (computed on read, never stored). ``thesis_id`` is set on the per-thesis\nread (members with a flag or a split row) and null on the union read (flagged members only). ``names`` =\nhow many names were judged."
+      },
       "DecisionIn": {
         "properties": {
           "action": {
@@ -10859,6 +11280,58 @@
         ],
         "title": "MemberCallOut",
         "description": "One basket member's call in the per-member ranked menu (M5 Part A). `armed_members` is ranked\n(the headline is [0]); `watch_members` are confirmation-only (\"moving, no conviction yet\")."
+      },
+      "MemberDataFlagsOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "marked": {
+            "type": "boolean",
+            "title": "Marked",
+            "default": false
+          },
+          "flags": {
+            "items": {
+              "$ref": "#/components/schemas/DataFlagOut"
+            },
+            "type": "array",
+            "title": "Flags"
+          },
+          "splits": {
+            "items": {
+              "$ref": "#/components/schemas/DataFlagSplitOut"
+            },
+            "type": "array",
+            "title": "Splits"
+          },
+          "theses": {
+            "items": {
+              "$ref": "#/components/schemas/DataFlagThesisRefOut"
+            },
+            "type": "array",
+            "title": "Theses"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id"
+        ],
+        "title": "MemberDataFlagsOut",
+        "description": "One name's flags and split rows. ``marked`` = some flag reaches a cell on its row (the row mark)."
       },
       "MemberDisplaySignalsOut": {
         "properties": {

@@ -1751,6 +1751,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/theses/{thesis_id}/data-flags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Thesis Data Flags
+         * @description The data flags on one thesis's resolved basket at ``asof`` — which numbers on each row rest on data the
+         *     platform knows is wrong or cannot vouch for, why, and what clears it — plus each name's split rows. Only
+         *     names with a flag or a split row are listed. Computed on read, never stored; display-only.
+         */
+        get: operations["get_thesis_data_flags_theses__thesis_id__data_flags_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/data-flags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Data Flags
+         * @description Every flagged name across the active basket union at ``asof``, each with the theses holding it — the
+         *     Admin list and the Board's marks. Computed on read, never stored; display-only.
+         */
+        get: operations["get_data_flags_data_flags_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/radar/spac": {
         parameters: {
             query?: never;
@@ -4555,6 +4598,140 @@ export interface components {
             ingested: string;
         };
         /**
+         * DataFlagEvidenceOut
+         * @description One piece of evidence behind a flag: a label, and a link when the source has one (an SEC filing).
+         */
+        DataFlagEvidenceOut: {
+            /** Label */
+            label: string;
+            /** Url */
+            url?: string | null;
+        };
+        /**
+         * DataFlagOut
+         * @description One data issue on one name, as of the view's day (``domain/data_flags.py``). ``level``: ``in_doubt``
+         *     (the number is shown grayed, the reason on hover) or ``known_wrong`` (the number is not shown: "—" with
+         *     the reason). ``columns`` = the Cockpit cells it reaches (empty = no number on the row is touched: shown in
+         *     the panel and Admin only). ``dates`` = the bars the Scoreboard chart shades. ``call_affected`` = the
+         *     split-night hold is holding this name's price triggers on the call card.
+         */
+        DataFlagOut: {
+            /** Kind */
+            kind: string;
+            /** Label */
+            label: string;
+            /**
+             * Level
+             * @enum {string}
+             */
+            level: "in_doubt" | "known_wrong";
+            /** Reason */
+            reason: string;
+            /** Clears */
+            clears: string;
+            /** Since */
+            since?: string | null;
+            /** Affects */
+            affects?: string[];
+            /** Columns */
+            columns?: string[];
+            /** Dates */
+            dates?: string[];
+            /** Evidence */
+            evidence?: components["schemas"]["DataFlagEvidenceOut"][];
+            /**
+             * Call Affected
+             * @default false
+             */
+            call_affected: boolean;
+        };
+        /**
+         * DataFlagSplitOut
+         * @description One split on the list as the NamePanel and the chart label it: announced (``sec_filed``), confirmed
+         *     (``confirmed_by``), took effect (``took_effect``), history corrected (``corrected_on`` — only when Alpha
+         *     Deck re-scaled the vendor's bars before it). ``factor`` = prices before ``effective_date`` x factor.
+         */
+        DataFlagSplitOut: {
+            /**
+             * Key Date
+             * Format: date
+             */
+            key_date: string;
+            /**
+             * Effective Date
+             * Format: date
+             */
+            effective_date: string;
+            /** Label */
+            label: string;
+            /** Factor */
+            factor: number;
+            /** Direction */
+            direction: string;
+            /** Status */
+            status: string;
+            /** Confirmed Via */
+            confirmed_via?: string | null;
+            /** Confirmed By */
+            confirmed_by?: string | null;
+            /** Value Source */
+            value_source?: string | null;
+            /** Sec Form */
+            sec_form?: string | null;
+            /** Sec Filed */
+            sec_filed?: string | null;
+            /** Sec Url */
+            sec_url?: string | null;
+            /**
+             * Polygon
+             * @default false
+             */
+            polygon: boolean;
+            /** Note */
+            note?: string | null;
+            /**
+             * Took Effect
+             * @default false
+             */
+            took_effect: boolean;
+            /** Corrected On */
+            corrected_on?: string | null;
+            /** Corrected Note */
+            corrected_note?: string | null;
+        };
+        /** DataFlagThesisRefOut */
+        DataFlagThesisRefOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+        };
+        /**
+         * DataFlagsResponse
+         * @description The data flags as of ``asof`` (computed on read, never stored). ``thesis_id`` is set on the per-thesis
+         *     read (members with a flag or a split row) and null on the union read (flagged members only). ``names`` =
+         *     how many names were judged.
+         */
+        DataFlagsResponse: {
+            /** Thesis Id */
+            thesis_id?: string | null;
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Names
+             * @default 0
+             */
+            names: number;
+            /** Members */
+            members?: components["schemas"]["MemberDataFlagsOut"][];
+        };
+        /**
          * DecisionIn
          * @description One operator decision to APPEND (gate-1 ratified 2026-07-10). Advisory only (#5): this LOGS a
          *     fill/pass the operator made elsewhere — nothing routes, nothing blocks. ``take`` opens the thesis's
@@ -5585,6 +5762,30 @@ export interface components {
              * @default []
              */
             triggers: components["schemas"]["TriggerRefOut"][];
+        };
+        /**
+         * MemberDataFlagsOut
+         * @description One name's flags and split rows. ``marked`` = some flag reaches a cell on its row (the row mark).
+         */
+        MemberDataFlagsOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker?: string | null;
+            /**
+             * Marked
+             * @default false
+             */
+            marked: boolean;
+            /** Flags */
+            flags?: components["schemas"]["DataFlagOut"][];
+            /** Splits */
+            splits?: components["schemas"]["DataFlagSplitOut"][];
+            /** Theses */
+            theses?: components["schemas"]["DataFlagThesisRefOut"][];
         };
         /**
          * MemberDisplaySignalsOut
@@ -9686,6 +9887,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OnboardingReadoutOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_thesis_data_flags_theses__thesis_id__data_flags_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; the flags use no data public after it */
+                asof: string;
+            };
+            header?: never;
+            path: {
+                thesis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DataFlagsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_data_flags_data_flags_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; the flags use no data public after it */
+                asof: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DataFlagsResponse"];
                 };
             };
             /** @description Validation Error */
