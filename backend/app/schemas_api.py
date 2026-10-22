@@ -563,12 +563,81 @@ class PromoteIngestRef(BaseModel):
     new_members: int
 
 
+class PromoteOnboardingRef(BaseModel):
+    """X1 — the promote added COLD names (no other live basket holds them) that were QUEUED for the staged
+    onboarding job instead of ingested at once: more of them than the fast lane takes
+    (``Settings.onboard_fast_lane_max``), or the promote landed inside the nightly window. ``queued`` = this
+    promote's cold names now waiting (including any already queued), ``new_members`` = its newly-added count,
+    ``reason`` = why they were queued. The FE polls ``GET .../onboarding`` for their progress."""
+
+    queued: int
+    new_members: int
+    reason: str
+
+
 class PromoteOut(ThesisDetail):
     """The promote response: the saved ``ThesisDetail`` (the FE re-snapshot — unchanged) + the ADDITIVE
-    ``ingest`` ref when this promote kicked a new-member ingest job. Optional/defaulted, so every
-    pre-existing consumer of the promote response keeps its exact shape."""
+    ``ingest`` ref when this promote kicked a new-member ingest job (the fast lane), or the ADDITIVE
+    ``onboarding`` ref when its cold names were queued for the staged onboarding job (X1). At most one of the
+    two is set. Optional/defaulted, so every pre-existing consumer of the promote response keeps its exact
+    shape."""
 
     ingest: PromoteIngestRef | None = None
+    onboarding: PromoteOnboardingRef | None = None
+
+
+class OnboardingNameOut(BaseModel):
+    """X1 — one name in the staged onboarding queue (``security_onboarding``). ``legs_done`` is its checkpoint;
+    ``in_live_basket`` false = PARKED (no live basket holds it any more, so the job leaves it — re-adding the
+    name resumes it). ``last_error`` is the latest leg failure (on a ``done`` row: a tail leg's note).
+    """
+
+    security_id: UUID
+    ticker: str | None = None
+    name: str | None = None
+    status: Literal["queued", "in_progress", "done", "failed"]
+    legs_done: list[str]
+    attempts: int
+    last_error: str | None = None
+    source: str
+    in_live_basket: bool
+    enqueued_at: datetime
+    last_attempt_at: datetime | None = None
+    finished_at: datetime | None = None
+
+
+class OnboardingRunOut(BaseModel):
+    """X1 — the latest run of the onboarding job (its artifact, ``data/onboard_runs``): ``stopped`` = why it
+    ended (``done`` / ``window`` / ``pass_running`` / ``budget_names`` / ``budget_time`` / ``daily_cap``),
+    ``counts`` = names per outcome (``done`` / ``requeued`` / ``failed`` / ``yielded`` / ``busy`` / ...).
+    """
+
+    started_at: datetime
+    finished_at: datetime | None = None
+    status: str
+    run_kind: str | None = None
+    stopped: str | None = None
+    detail: str | None = None
+    counts: dict[str, int] = Field(default_factory=dict)
+
+
+class OnboardingReadoutOut(BaseModel):
+    """X1 — the staged onboarding queue as the operator reads it (``pipeline/onboarding.readout``): ``counts``
+    per status (+ ``parked``), the PENDING names (failed first), the latest done ones, the latest run, the
+    nightly window the job yields to, and ``stalled`` (names waiting with no finished run for
+    ``Settings.onboard_stalled_after_h`` — LOUD). Quiet unless a name failed or the queue stalled (WB#3).
+    """
+
+    counts: dict[str, int]
+    pending: list[OnboardingNameOut]
+    recent_done: list[OnboardingNameOut]
+    last_run: OnboardingRunOut | None = None
+    window: str
+    stalled: str | None = None
+    # quiet: the daily cap (``Settings.onboard_daily_max_names``) is reached and loading resumes after
+    # midnight — the job is idle on purpose, so a capped queue never reads as STALLED
+    paused: str | None = None
+    history_legs: list[str]
 
 
 class IngestJobResultOut(BaseModel):

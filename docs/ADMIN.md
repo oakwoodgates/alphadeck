@@ -403,6 +403,38 @@ home of the Mon-Fri + `RUN_AT` contract alongside the shell's sleep-loop. `marke
 them — it answers "what day is it in market time" and does no trading-calendar logic; the remaining work is
 shrinking the shell to a dumb trigger. See `ROADMAP.md` "what's next".)*
 
+### Onboarding — "are the new names' histories loaded?"  `[BUILT, X1 2026-10-21]`
+
+A name new to every live basket is COLD: its first ingest walks its whole filing history (MEASURED 300–600 s, median
+396 s, against ~3.5 s warm). That load runs in the staged onboarding job OUTSIDE the nightly window
+(`FEED_LOOP.md` §onboarding new names; `pipeline/onboarding.py`), and until a name is loaded the nightly reads
+only its recent filings and stamps its thesis `ingest_fresh=false`. The **Onboarding** panel reads the queue
+(`GET /admin/onboarding` — the `security_onboarding` table + the job's latest `data/onboard_runs` artifact; a
+read of its own, like the Splits panel):
+
+- **The summary line** (quiet): `N queued · N loading · N loaded · N failed · N parked`, the nightly window
+  the job yields to (`21:30-23:30 EDT` at the default RUN_AT), and the latest job run (when, cron / manual,
+  names per outcome, why it stopped — the queue ran out, the window, a running pass, the run's name / time
+  budget, the daily cap). **Parked** = queued for a name no live basket holds any more: the job leaves it
+  (the cost thread) and resumes it if the name is re-added.
+- **Failed names** (LOUD, with **Retry**): a name whose history legs (Form 4 + 4/A, 8-K, 13D/G) failed
+  `ALPHADECK_ONBOARD_MAX_ATTEMPTS` (3) runs, with its checkpoint (which history legs did load), its attempts
+  and its last error. Retry puts it back to `queued` (attempts reset, checkpoint kept — the legs it loaded are
+  not re-run); its inverse is the job itself, which loads it or fails it again, visibly. Meanwhile the nightly
+  still reads its recent filings.
+- **Stalled** (LOUD): names waiting and NO job run finished for `ALPHADECK_ONBOARD_STALLED_AFTER_H` (6 h) —
+  the sidecar's onboard loop is not running (check `docker logs alphadeck-cron-1 | grep onboard-cron`). A day
+  whose cap (`ALPHADECK_ONBOARD_DAILY_MAX_NAMES`, 200) is reached reads as quiet **paused** ("loading resumes
+  after midnight") instead — the job is idle on purpose, and its refusals write no artifact.
+- **Waiting / loading** and **latest loaded** (quiet, collapsed): each name with its checkpoint (`2 of 3
+  history legs loaded (Form 4, 8-K)`), a parked one grayed; a done name carries any tail-leg note (a price or
+  fundamentals leg that failed — the nightly re-runs those and monitors them itself).
+- **Renders nothing** when the queue has never held a name (WB#3).
+
+Nothing here writes a fact or a call. The Workbench shows the same queue scoped to one thesis
+(`GET /workbench/theses/{id}/onboarding`) as a quiet note after a promote whose cold names were queued.
+`python -m pipeline.onboarding --status` prints it from the CLI.
+
 ## Cron health — "did last night's run work?"
 
 The one-word `cron.status` verdict, plus the last run's counts and any problems:
@@ -669,6 +701,8 @@ the freeze it is adjacent to: `POSTMORTEM_CRON_FREEZE_2026-07.md`.
 | `POST /admin/insider-amendments/{security_id}/{accession}/add` | `{reason?}` → the amendment | **Add to the original** — every original row stands, the amendment's rows are added (stored as an `apply` with `replaced_rows = []`); partial / consolidation / addition / restatement / field change only; 409 a zero-row or correction amendment / an operator verdict stands |
 | `POST /admin/insider-amendments/{security_id}/{accession}/link` | `{target_accession, reason?}` → the amendment | an ambiguous amendment's candidate only; 409 otherwise / already linked |
 | `POST /admin/insider-amendments/decisions/{decision_id}/revoke` | → the amendment | Undo; 404 unknown / already undone, 409 a verdict stands under the link |
+| `GET /admin/onboarding` | the staged onboarding queue (X1): `counts` (queued / in_progress / done / failed / parked), `pending` (failed first), `recent_done`, `last_run`, `window`, `stalled`, `paused`, `history_legs` | read-only (the table + the newest `data/onboard_runs` artifact) |
+| `POST /admin/onboarding/{security_id}/retry` | → the refreshed queue | a FAILED name back to queued (attempts reset, checkpoint kept); 409 not failed, 404 not queued |
 | `GET /admin/runs?limit=` | the run-of-record history, newest first | read-only file parse; skip-unreadable |
 | `POST /admin/run-daily` | **202** + `job_id` | the cron's exact unit, in a child process bounded by the run timeout; 409 when any process runs a pass (C1 lock) or the slot is busy; 503 DB unreachable |
 | `GET /admin/run-daily/jobs/{job_id}` | job status → run-history row | 404 → "lost from view", never a spinner |

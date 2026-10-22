@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import argparse
 import xml.etree.ElementTree as ET
-from collections.abc import Collection, Iterable
+from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
 from uuid import UUID
@@ -49,12 +49,13 @@ from psycopg.pq import TransactionStatus
 
 from db.session import connect, name_session
 from db.write_lock import CompanyLockBusy, acquire_company_lock
+from domain.onboarding import OnboardingWindow
 from domain.security import Security
 from domain.settings import get_settings
 from domain.thesis import BasketMember
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.form4 import existing_accessions, ingest_form4, other_issuer_cik
-from ingest.edgar.form4a import ingest_amendments
+from ingest.edgar.form4a import form4_leg_filings, ingest_amendments
 from ingest.edgar.form8k import ingest_form8k
 from ingest.edgar.schedule13 import ingest_schedule13
 from ingest.edgar.submissions import (
@@ -65,8 +66,8 @@ from ingest.edgar.submissions import (
     edgar_tickers,
     entity_name,
     fetch_submissions,
+    filed_on_or_after,
     form4_doc_url,
-    form4_filings,
     form8k_filings,
     former_names,
     name_change_filings,
@@ -217,6 +218,19 @@ class NameResult:
     # hit. Facts only — the pass judges them across every thesis (``pipeline.daily.assess_health``).
     edgar_cik: str | None = None
     edgar_completed: int = 0
+    # X1 — THE STAGED COLD-INGEST (``pipeline/onboarding.py``). ``filed_since``: this unit read the per-filing
+    # legs (Form 4, 13D/G) ONLY for filings filed on/after this date, and skipped the 4/A leg — the name's
+    # history is still loading in the onboarding job, outside the nightly window. ``onboarding``: that job's
+    # state for the name (``queued`` / ``in_progress`` / ``failed``). Both None for every other name (byte-
+    # identical to before X1). NOT an error: ``pipeline.daily`` stamps the thesis's row ``ingest_fresh=false``
+    # and lists the name as onboarding — visible, never dropped (#9).
+    filed_since: date | None = None
+    onboarding: str | None = None
+    # ...and ``onboarding_deferred``: the pass had already given its nightly cap of onboarding names
+    # (``Settings.onboard_nightly_max_names``) the windowed walk, so THIS one was not ingested at all tonight —
+    # no leg ran, no fetch was made (the job loads it outside the window). Still listed, never dropped (#9);
+    # the nightly leaves it out of the feed-recency judgment (no price leg ran, so its edge is not news).
+    onboarding_deferred: bool = False
 
 
 def _tolerable_filing_error(e: Exception) -> bool:
@@ -257,10 +271,16 @@ def _form4_leg(
     *,
     tenant_id: UUID,
     known_skips: Collection[str] | None = None,
+    filed_since: date | None = None,
 ) -> tuple[int, int, int, tuple[IngestSkip, ...]]:
     """Ingest only Form 4 accessions not already stored for this security (incremental). Returns
     ``(appended, skipped, txn_rejected, skips)``. Needs the issuer CIK; a name without one contributes no
     insider facts.
+
+    X1 — ``filed_since`` (the nightly's treatment of a name still ONBOARDING, ``pipeline/onboarding.py``): only
+    the Form 4s filed on/after that date are read, and the 4/A leg does NOT run — a 4/A links to the original
+    it amends, which may be older than the window and so not stored yet; the onboarding job's full walk stores
+    the originals first and then the 4/As, in order. ``None`` (every other caller) is the full walk, unchanged.
 
     PER-FILING tolerance: a filing whose fetch or parse fails (``_tolerable_filing_error``) is skipped
     with a printed warning and counted — never aborting the leg, so one bad old filing can't blank the
@@ -286,7 +306,11 @@ def _form4_leg(
     txn_rejected = 0
     skips: list[IngestSkip] = []
     subs = fetch_submissions(client, sec.cik)
-    for f in form4_filings(subs):
+    # THE ONE RULE for which documents this leg reads (``form4_leg_filings`` — the fetch-ahead plans its
+    # pre-fetch with the very same call): every Form 4 + every 4/A, or for a name still onboarding (X1) only
+    # the Form 4s filed since ``filed_since`` and no 4/A
+    originals, amendments = form4_leg_filings(subs, filed_since=filed_since)
+    for f in originals:
         if f["accession"] in seen:
             continue  # already have this filing's txns — skip (no duplicate append)
         url = form4_doc_url(sec.cik, f["accession"], f["primary_doc"])
@@ -332,6 +356,10 @@ def _form4_leg(
                     f"  warn: {sec.ticker or sec.id} form4 {f['accession']} ({f['filed']}) "
                     f"skipped: {e}"
                 )
+    if not amendments:
+        # no 4/A to read: none filed (``ingest_amendments`` would return at once), or X1's windowed
+        # (onboarding) read, which stores no 4/A — its original may not be stored yet (``form4_leg_filings``)
+        return appended, skipped, txn_rejected, tuple(skips)
     # R8-A — the Form 4/A leg (``ingest.edgar.form4a``): AFTER tonight's originals, from the SAME cached
     # submissions document; stored as filed + linked, never written into fact_insider_txn
     amend, amend_skips = ingest_amendments(
@@ -384,10 +412,12 @@ def _schedule13_leg(
     *,
     tenant_id: UUID,
     known_skips: Collection[str] | None = None,
+    filed_since: date | None = None,
 ) -> tuple[int, int, int, tuple[IngestSkip, ...]]:
     """Ingest the security's 13D/G activist-stake tape (Band 03 S5) from its OWN submissions JSON —
     the S5-verified subject-indexing path. Returns ``(appended, reversioned, identity_skipped, skips)``.
-    Needs the issuer CIK; a name without one contributes no stakes.
+    Needs the issuer CIK; a name without one contributes no stakes. X1 — ``filed_since`` reads only the
+    schedules filed on/after that date (a name still onboarding; ``None`` = the full walk, unchanged).
 
     Enumeration reads the SAME submissions document the Form 4 / 8-K legs fetch (cache-free second
     read); the activist's identity costs one bounded, immutable-cached document fetch per filing
@@ -399,7 +429,7 @@ def _schedule13_leg(
     lines of the ones that skipped the same way last pass (``ingest_schedule13``)."""
     if not sec.cik:
         return 0, 0, 0, ()
-    filings = schedule13_filings(fetch_submissions(client, sec.cik))
+    filings = filed_on_or_after(schedule13_filings(fetch_submissions(client, sec.cik)), filed_since)
     res = ingest_schedule13(
         conn, sec.id, sec.cik, filings, client, tenant_id=tenant_id, known_skips=known_skips
     )
@@ -431,6 +461,7 @@ def ingest_thesis(
     now: datetime | None = None,
     known_skips: Collection[str] | None = None,
     lock_wait_s: float | None = None,
+    onboarding: Mapping[UUID, OnboardingWindow] | None = None,
 ) -> list[NameResult]:
     """Ingest insider + price facts — and, for an ETF sleeve, a fund shares-outstanding sample — for
     each RESOLVED basket member of ``thesis_id``.
@@ -475,6 +506,15 @@ def ingest_thesis(
     (``ingest.skips.skip_key``), which only the daily cron passes: a filing that skipped the same way last
     pass is recorded on ``NameResult.ingest_skips`` but its line is not printed again. ``None`` prints every
     skip, as before. It changes LOGGING only — never what is stored, skipped, counted or raised.
+
+    ``onboarding`` (X1, only the daily cron passes it) maps the members whose HISTORY is still loading in the
+    staged onboarding job (``pipeline/onboarding.py``) to their window: such a member is walked like any other
+    (its lock, its 8-K / price / fund-shares legs, its monitor facts), but its per-filing legs read only the
+    filings filed on/after ``filed_since`` and its 4/A leg waits for the full load — so a cold name costs the
+    pass about what a warm one does, never its 300-600 s history walk (MEASURED). Its result carries ``filed_since`` and
+    ``onboarding``. A member whose window says ``defer`` (past the pass's onboarding cap) is not walked at all —
+    no lock, no fetch, no write — and comes back as a listed ``onboarding_deferred`` result. ``None`` / an absent
+    member = the full walk, byte-identical to before X1.
     """
     thesis = thesis_repo.get(conn, thesis_id)
     if thesis is None:
@@ -505,6 +545,9 @@ def ingest_thesis(
         # ones its legs made on this (the writer's) thread, plus the ones its fetch-ahead tasks made on the
         # workers (per-thread counts: the client is shared, and other companies' fetches complete meanwhile)
         before = thread_completed(client)
+        # X1 — a name still onboarding: its per-filing legs read only the window (the fetch-ahead planned
+        # exactly the same documents — ``ingest.edgar.form4a.form4_leg_filings``, the one rule both use)
+        window = onboarding.get(m.security_id) if onboarding and m.security_id else None
         r = _ingest_one(
             conn,
             c,
@@ -516,10 +559,13 @@ def ingest_thesis(
             fund_source=fund_source,
             now=n,
             known_skips=known_skips,
+            filed_since=window.filed_since if window else None,
         )
         r.edgar_completed = thread_completed(client) - before
         if handoff is not None:
             r.edgar_completed += handoff.completed
+        if window is not None:  # X1 — the onboarding treatment, stamped (visible, never an error)
+            r.filed_since, r.onboarding = window.filed_since, window.status
         return r
 
     # THE FETCH-AHEAD (X2/X7 + the measured concurrency lever, 2026-10-21): on a live walk with
@@ -539,6 +585,8 @@ def ingest_thesis(
             force_refresh=force_refresh,
             workers=workers,
             fetch_submissions=fetch_submissions,
+            # X1 — a deferred name gets no fetch job; a windowed one fetches only its window
+            onboarding=onboarding,
         )
         if workers > 1
         else None
@@ -555,6 +603,19 @@ def ingest_thesis(
     deferred_completed: dict[int, int] = {}
     try:
         for i, m in enumerate(members):
+            window = onboarding.get(m.security_id) if onboarding and m.security_id else None
+            if window is not None and window.defer:
+                # X1 — past the pass's onboarding cap: listed, not walked (no lock, no fetch, no write —
+                # the fetch-ahead planned no job for it either)
+                results[i] = NameResult(
+                    m.ticker,
+                    m.security_id,
+                    0,
+                    0,
+                    onboarding=window.status,
+                    onboarding_deferred=True,
+                )
+                continue
             handoff = None
             if ahead is not None:
                 # a clean (never an aborted) transaction for the planning reads
@@ -591,7 +652,12 @@ def ingest_thesis(
             except CompanyLockBusy as exc:
                 busy[sid] = exc
         if sid in busy:
-            results[i] = _held_result(conn, client, m, busy[sid], tenant_id=thesis.tenant_id)
+            held = _held_result(conn, client, m, busy[sid], tenant_id=thesis.tenant_id)
+            window = onboarding.get(sid) if onboarding else None
+            # X1 — still listed as onboarding, even when another writer held it
+            if window is not None:
+                held.onboarding = window.status
+            results[i] = held
             continue
         with lock:
             r = one(m)
@@ -743,10 +809,12 @@ def _ingest_one(
     fund_source: FundSharesSource | None,
     now: datetime | None,
     known_skips: Collection[str] | None,
+    filed_since: date | None = None,
 ) -> NameResult:
     """ONE member's legs — run by ``ingest_thesis`` while it holds the company's write lock (W1). Resolves the
     id to the master row, then the Form 4, 8-K, 13D/G, price and fund-shares legs, EACH in its own try,
-    committing on success and rolling back on failure (see ``ingest_thesis``)."""
+    committing on success and rolling back on failure (see ``ingest_thesis``). ``filed_since`` (X1) windows
+    the per-filing legs for a name still onboarding; ``None`` is the full walk."""
     assert m.security_id is not None
     sec = master.get(conn, m.security_id, tenant_id=tenant_id)
     if sec is None:
@@ -769,7 +837,7 @@ def _ingest_one(
     skips: list[IngestSkip] = []
     try:
         f4, f4_skipped, f4_txn_rejected, f4_skips = _form4_leg(
-            conn, client, sec, tenant_id=tenant_id, known_skips=known_skips
+            conn, client, sec, tenant_id=tenant_id, known_skips=known_skips, filed_since=filed_since
         )
         skips.extend(f4_skips)
         conn.commit()
@@ -788,7 +856,7 @@ def _ingest_one(
     s13_appended, s13_reversioned, s13_skipped = 0, 0, 0
     try:
         s13_appended, s13_reversioned, s13_skipped, s13_skips = _schedule13_leg(
-            conn, client, sec, tenant_id=tenant_id, known_skips=known_skips
+            conn, client, sec, tenant_id=tenant_id, known_skips=known_skips, filed_since=filed_since
         )
         skips.extend(s13_skips)
         conn.commit()
@@ -942,9 +1010,15 @@ def _report(results: list[NameResult]) -> int:
             lk = f" (waited {r.lock_waited_s:.0f}s for another writer)"
         else:
             lk = ""
+        # X1 — a name whose history is still loading in the onboarding job: quiet, but said
+        ob = (
+            f" (onboarding {r.onboarding}: filings since {r.filed_since} only)"
+            if r.onboarding and r.filed_since
+            else ""
+        )
         print(
             f"  {r.ticker or r.security_id}: +{r.form4_appended} form4, "
-            f"+{r.price_bars_appended} bars{backfill}{f8k}{s13}{fund}{skips}{rejects}{tail}{lk}"
+            f"+{r.price_bars_appended} bars{backfill}{f8k}{s13}{fund}{skips}{rejects}{tail}{lk}{ob}"
         )
     busy = {r.security_id for r in results if r.lock_busy}
     sk = f", {total_sk} form4 skipped" if total_sk else ""

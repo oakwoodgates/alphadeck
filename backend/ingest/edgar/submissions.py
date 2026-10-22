@@ -145,6 +145,25 @@ def form4_filings(submissions: dict[str, Any]) -> list[dict[str, str]]:
     return filings_of(submissions, "4")
 
 
+def filed_on_or_after(filings: list[dict[str, Any]], since: date | None) -> list[dict[str, Any]]:
+    """X1 — the windowed read for a name whose history is still ONBOARDING (``pipeline/onboarding.py``): keep
+    the filings FILED on/after ``since`` (``None`` = every filing, the normal walk). A filing whose ``filed``
+    date cannot be read is KEPT — the window may cost a fetch, never a filing (#9). Pure; the nightly's
+    per-filing legs and the fetch-ahead apply it through the same callers, so they cannot drift."""
+    if since is None:
+        return filings
+    out = []
+    for f in filings:
+        try:
+            filed = date.fromisoformat(str(f.get("filed") or "")[:10])
+        except ValueError:
+            out.append(f)
+            continue
+        if filed >= since:
+            out.append(f)
+    return out
+
+
 # The SEC DELISTING forms — the deterministic EVIDENCE a stopped tape may be a close (#3, never an LLM,
 # never a guess). Form 25 / 25-NSE = notification of REMOVAL FROM LISTING (the exchange or issuer files it
 # around the delisting); Form 15-12B (exchange-listed) / 15-12G (OTC/other) = DEREGISTRATION / suspension of

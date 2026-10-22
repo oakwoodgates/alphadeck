@@ -70,6 +70,19 @@ def cron_runs_dir(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def onboard_runs_dir(tmp_path, monkeypatch):
+    """X1 — redirect the onboarding job's run artifacts (``pipeline/onboarding``) to a per-test tmp dir for
+    EVERY app test: the Admin / Workbench onboarding reads list them, so a dev machine's real
+    ``data/onboard_runs`` must never leak into an assertion. Request it by name to seed artifacts.
+    """
+    from pipeline import onboarding
+
+    d = tmp_path / "onboard_runs"
+    monkeypatch.setattr(onboarding, "_DEFAULT_RUNS_DIR", d)
+    return d
+
+
+@pytest.fixture(autouse=True)
 def backups_dir(tmp_path, monkeypatch):
     """Redirect the DB-snapshot home (``pipeline/backup``) to a per-test tmp dir for EVERY app test — the
     admin surface READS it (``/admin/status`` last_backup, ``/admin/backups``) and the create job WRITES

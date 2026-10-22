@@ -129,6 +129,12 @@
 # - LOGS LAND AS THEY HAPPEN (O3, 2026-10-16). The image sets PYTHONUNBUFFERED=1 and compose caps the
 #   json-file log (50 MB x 5). MEASURED before: the passes' output arrived in 60-75-line bursts ~12 min late
 #   and the tail was lost when the 10-12 run was killed; the log had no cap.
+# - RUNS A SECOND SCHEDULE: THE STAGED COLD-INGEST JOB (X1, 2026-10-21). A cold name's first ingest costs 300-600 s
+#   (MEASURED 2026-10-21: median 396 s, n=10; prod's X5 average was ~110 s) and a big onboarding inside the 22:30 pass would run the night past RUN_TIMEOUT_S, so the
+#   history load is its own job (`python -m pipeline.onboarding`), fired by `onboard_loop` in the background of
+#   this sidecar every ONBOARD_EVERY_S (default 1800 s) after the previous run ends. The job itself refuses inside
+#   the nightly window and yields to any running pass (see `onboard_loop`); the nightly gives a name still
+#   onboarding a bounded, windowed ingest and stamps its thesis `ingest_fresh=false` (docs/FEED_LOOP.md).
 # - The as-of dates come from this shell's `date` in the container TZ, which compose pins to the market TZ
 #   (the same "today" `market_today()` derives) — keep those two in step.
 # - Inherits the container env directly (DATABASE_URL / ALPHADECK_USER_AGENT / TZ), so unlike a cron daemon
@@ -177,6 +183,16 @@ BACKUP_MAX_AGE_H="${BACKUP_MAX_AGE_H:-20}"
 # line), which is the state until the operator creates the heartbeat account.
 HEARTBEAT_URL="${HEARTBEAT_URL:-}"
 HEARTBEAT_BACKUP_URL="${HEARTBEAT_BACKUP_URL:-}"
+# X1 — the STAGED COLD-INGEST job's schedule (the second schedule in this sidecar; see `onboard_loop`): how
+# long to wait after one onboarding run ends before firing the next (seconds; 0 turns the loop OFF), and the
+# hard `timeout` around one run. The job's own wall budget (Settings.onboard_batch_budget_s, 1500 s) is checked
+# between LEGS, so a run can overshoot it by one leg — MEASURED up to ~10 min for a heavy filer's whole Form 4
+# history (CAT, 596 s for the name) — hence 2700 s: this only stops a HUNG run. Same non-numeric guard as
+# SLICE_S; a negative cadence reads as the default.
+ONBOARD_EVERY_S="${ONBOARD_EVERY_S:-1800}"
+[ "${ONBOARD_EVERY_S}" -ge 0 ] 2>/dev/null || ONBOARD_EVERY_S=1800
+ONBOARD_TIMEOUT_S="${ONBOARD_TIMEOUT_S:-2700}"
+[ "${ONBOARD_TIMEOUT_S}" -ge 1 ] 2>/dev/null || ONBOARD_TIMEOUT_S=2700
 
 # --- schedule math (pure over their arguments; GNU date) ------------------------------------------------
 
@@ -382,6 +398,35 @@ snapshot() {
   fi
 }
 
+# onboard_loop -> X1, THE SECOND SCHEDULE: the staged cold-ingest job (`python -m pipeline.onboarding`), fired
+# every ONBOARD_EVERY_S after the previous run ENDS (so two runs never overlap), forever, in the background of
+# this one sidecar. The loop is deliberately dumb — every rule lives in the job and is checked there:
+#   - it REFUSES inside the nightly window (Settings.onboard_window_before_min / _after_min around RUN_AT,
+#     21:30-23:30 ET by default) and STOPS between names / legs when it enters it, or when it sees a pass
+#     holding the call-of-record lock (the nightly, its retry, a catch-up, an Admin "Run daily now") — it reads
+#     pg_locks, never takes that lock, so it can never make a pass exit 75;
+#   - one batch is bounded by names, wall time and a daily cap (Settings.onboard_*), and resumable: a run
+#     killed here (the timeout, a deploy, the VM) leaves each name's per-leg checkpoint, which the next run
+#     resumes;
+#   - an idle run (nothing queued) or a refusal prints one `onboarding:` line and writes nothing.
+# Its OWN run kind (`--run-kind cron`, pass_kind "onboard"), its OWN artifacts (data/onboard_runs, never the
+# nightly's cron_runs) and no heartbeat (Admin reads a stalled queue from the table + the artifacts). Each run
+# is bounded by `timeout` like a pass (C2), so a hang cannot freeze the loop. Fail-open: a run that fails is one
+# log line, never the end of the loop, and the nightly loop below never waits for it.
+onboard_loop() {
+  echo "onboard-cron: every ${ONBOARD_EVERY_S}s after the previous run ends, outside the nightly window — each run bounded at ${ONBOARD_TIMEOUT_S}s"
+  while :; do
+    timeout -k 60 "${ONBOARD_TIMEOUT_S}" python -m pipeline.onboarding --run-kind cron
+    _ob_rc=$?
+    case "${_ob_rc}" in
+      0) ;;
+      124) echo "onboard-cron: run TIMED OUT after ${ONBOARD_TIMEOUT_S}s and was stopped (its names resume next run)" ;;
+      *) echo "onboard-cron: run FAILED (exit ${_ob_rc}) (continuing; its names resume next run)" ;;
+    esac
+    wait_until "$(( $(date +%s) + ONBOARD_EVERY_S ))"
+  done
+}
+
 # --- the trigger ------------------------------------------------------------------------------------------
 
 echo "daily-cron: scheduled for ${RUN_AT} (${TZ:-UTC}), Mon-Fri — the daily CLI is idempotent + force-refreshes"
@@ -448,6 +493,14 @@ if [ "${CRON_EXIT_AFTER_BOOT:-}" = 1 ]; then
   # the test seam (header): stop before the infinite loop so the boot block can be exercised on its own
   echo "daily-cron: CRON_EXIT_AFTER_BOOT=1 — exiting before the schedule loop"
   exit 0
+fi
+
+# X1 — THE SECOND SCHEDULE, started AFTER the boot block (so a boot catch-up never shares the box with an
+# onboarding batch) and in the BACKGROUND (so the nightly loop below never waits for it). ONBOARD_EVERY_S=0 = off.
+if [ "${ONBOARD_EVERY_S}" -gt 0 ]; then
+  onboard_loop &
+else
+  echo "onboard-cron: ONBOARD_EVERY_S=0 — the staged onboarding job is OFF in this sidecar"
 fi
 
 while :; do

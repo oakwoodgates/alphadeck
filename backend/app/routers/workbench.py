@@ -22,6 +22,7 @@ from app.deps import (
     get_thesis_or_404,
     get_tier_rec_client,
 )
+from app.routers.admin_onboarding import readout_out
 from app.schemas_api import (
     AutoConfirmOut,
     AutoConfirmRequest,
@@ -37,9 +38,11 @@ from app.schemas_api import (
     EtfHoldingsOut,
     FlagExplanationOut,
     IngestJobStatusOut,
+    OnboardingReadoutOut,
     PriceIngestOut,
     ProduceTermsRequest,
     PromoteIngestRef,
+    PromoteOnboardingRef,
     PromoteOut,
     PromoteThesisRequest,
     RatifiedFactOut,
@@ -85,6 +88,7 @@ from llm.flag_explanation import explain_flag
 from llm.purity_estimate import propose_purity
 from llm.tier_recommendation import recommend_tiers
 from pipeline import ingest_thesis as ingest_thesis_mod
+from pipeline import onboarding
 from repositories import price_feed_repo, thesis_repo
 from securities import coherence, figi, fund_tickers, master
 from securities.business_type import resolve_business_type
@@ -608,7 +612,12 @@ def explain_flag_candidate(
     return FlagExplanationOut(explanation=explanation, grounded=grounded)
 
 
-def _run_member_ingest(thesis_id: UUID, ids: frozenset[UUID]) -> dict[str, int]:
+def _run_member_ingest(
+    thesis_id: UUID,
+    ids: frozenset[UUID],
+    *,
+    tenant_id: UUID | None = None,
+) -> dict[str, int]:
     """The on-promote ingest job body: run the SAME per-thesis ingest unit the cron uses
     (``pipeline.ingest_thesis``), scoped to the given newly-added members, on the job's OWN connection
     (the job outlives the request — the request conn is closed once the promote returns). FACTS ONLY:
@@ -616,6 +625,15 @@ def _run_member_ingest(thesis_id: UUID, ids: frozenset[UUID]) -> dict[str, int]:
     record is written — ``record_if_changed`` stays the daily cron's. Cache-first (``force_refresh``
     defaults False): a brand-new name's cache MISSES and fetches live; recurring freshness stays the
     cron's job (the #72 split).
+
+    X1 — THE FAST LANE's bookkeeping: every walked name that is queued for the staged onboarding job (a cold
+    name — this promote queued it, or an earlier one did) is marked from this run's results
+    (``pipeline.onboarding.mark_from_results``): a name whose history legs all landed is ``done``, so the
+    nightly treats it as warm; one that failed (or another writer held) stays queued and the staged job
+    resumes it outside the nightly window. A warm name has no queue row and is untouched. Keyed on the walked
+    ids, not the kick's, so a promote whose ids MERGED into a queued follow-up job is marked too. Fail-open: a
+    bookkeeping fault is logged and the rows stay queued (the job re-walks them incrementally — a wasted
+    minute, never a lost name). ``tenant_id`` None (a pre-X1 caller) skips it.
 
     Returns the summary the poll serves. Raises ``IngestJobError`` (→ a VISIBLE failed job) when any
     name's legs errored — the per-name isolation inside ``ingest_thesis`` means what succeeded is
@@ -627,6 +645,17 @@ def _run_member_ingest(thesis_id: UUID, ids: frozenset[UUID]) -> dict[str, int]:
     name_session(own, "alphadeck-writer:workbench-ingest")
     try:
         results = ingest_thesis_mod.ingest_thesis(own, thesis_id, only_security_ids=ids)
+        if tenant_id is not None:
+            try:
+                onboarding.mark_from_results(own, results, tenant_id=tenant_id, security_ids=ids)
+            except Exception:  # noqa: BLE001 — bookkeeping never fails the fetch it records
+                own.rollback()
+                _log.warning(
+                    "promote: could not mark the fast lane's onboarding rows for thesis %s — the staged "
+                    "job will resume them",
+                    thesis_id,
+                    exc_info=True,
+                )
     finally:
         own.close()
     summary = {
@@ -664,14 +693,22 @@ def _run_member_ingest(thesis_id: UUID, ids: frozenset[UUID]) -> dict[str, int]:
     return summary
 
 
-def _kick_member_ingest(thesis_id: UUID, new_ids: set[UUID]) -> ingest_jobs.IngestJob | None:
+def _kick_member_ingest(
+    thesis_id: UUID,
+    new_ids: set[UUID],
+    *,
+    tenant_id: UUID | None = None,
+) -> ingest_jobs.IngestJob | None:
     """Kick (or queue — see ``ingest_jobs.start_ingest_job``) the background ingest for a promote's
     newly-added members. The kick must NEVER fail the promote — the spine write is already committed —
     so a (should-never-happen) registry/thread fault is logged LOUD and swallowed; the nightly cron
-    remains the backstop that ingests everything regardless."""
+    remains the backstop that ingests everything regardless (since X1, a cold name's history through the
+    staged onboarding job it was queued for)."""
     try:
         return ingest_jobs.start_ingest_job(
-            thesis_id, new_ids, lambda ids: _run_member_ingest(thesis_id, ids)
+            thesis_id,
+            new_ids,
+            lambda ids: _run_member_ingest(thesis_id, ids, tenant_id=tenant_id),
         )
     except Exception:  # noqa: BLE001 — fail the kick, never the committed promote
         _log.exception(
@@ -860,13 +897,62 @@ def promote(
     # spine rows) — background, never blocking or failing the promote. No new members → no job at all
     # (the cost thread: a plain Save/triage promote pays nothing).
     ingest_ref: PromoteIngestRef | None = None
+    onboarding_ref: PromoteOnboardingRef | None = None
     if new_ids:
-        job = _kick_member_ingest(thesis.id, new_ids)
-        if job is not None:
-            ingest_ref = PromoteIngestRef(job_id=job.job_id, new_members=len(new_ids))
+        # X1 — THE LANE: the new names no other live basket holds are COLD (their history was never loaded) and
+        # are queued for the staged onboarding job; at most `Settings.onboard_fast_lane_max` of them, outside
+        # the nightly window, still ingest at once in the background (the fast lane — a 3-name promote stays
+        # instant). Fail-open toward the pre-X1 kick: a queue fault never costs the promote or its names.
+        plan = _plan_lane(conn, thesis.id, tenant_id, new_ids)
+        if plan.fast:
+            job = _kick_member_ingest(thesis.id, new_ids, tenant_id=tenant_id)
+            if job is not None:
+                ingest_ref = PromoteIngestRef(job_id=job.job_id, new_members=len(new_ids))
+        else:
+            onboarding_ref = PromoteOnboardingRef(
+                queued=len(plan.cold), new_members=len(new_ids), reason=plan.reason or ""
+            )
     out = PromoteOut.from_thesis(thesis)
     out.ingest = ingest_ref
+    out.onboarding = onboarding_ref
     return out
+
+
+def _plan_lane(
+    conn: psycopg.Connection, thesis_id: UUID, tenant_id: UUID, new_ids: set[UUID]
+) -> onboarding.PromotePlan:
+    """X1 — ``pipeline.onboarding.plan_promote``, committed; FAIL-OPEN toward the fast lane (the pre-X1 kick of
+    every new name): the spine is already committed and a promote never fails over its data fetch.
+    """
+    try:
+        plan = onboarding.plan_promote(conn, new_ids, tenant_id=tenant_id, thesis_id=thesis_id)
+        conn.commit()
+        return plan
+    except Exception:  # noqa: BLE001 — the queue is bookkeeping; the promote stands
+        conn.rollback()
+        _log.exception(
+            "promote: the onboarding queue could not be written for thesis %s — kicking the pre-X1 "
+            "on-promote ingest for all %d new names",
+            thesis_id,
+            len(new_ids),
+        )
+        return onboarding.PromotePlan(frozenset(), True)
+
+
+@router.get("/theses/{thesis_id}/onboarding", response_model=OnboardingReadoutOut)
+def get_thesis_onboarding(
+    conn: psycopg.Connection = Depends(get_conn),
+    thesis: Thesis = Depends(get_thesis_or_404),
+) -> OnboardingReadoutOut:
+    """X1 — the staged onboarding queue SCOPED to this thesis's members: what the Workbench polls after a
+    promote whose cold names were queued (``PromoteOut.onboarding``) — counts per status, the pending names,
+    the latest done ones, the nightly window the job yields to. Read-only. A member with no queue row (its
+    history was already loaded), or one loaded long ago for ANOTHER thesis, is absent — the counts describe
+    the names this thesis is still waiting on and the ones its own promotes queued."""
+    ids = {m.security_id for m in thesis.basket if m.security_id}
+    return readout_out(
+        onboarding.readout(conn, tenant_id=thesis.tenant_id, security_ids=ids, thesis_id=thesis.id)
+    )
 
 
 @router.get("/theses/{thesis_id}/ingest/jobs/{job_id}", response_model=IngestJobStatusOut)

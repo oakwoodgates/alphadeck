@@ -9,6 +9,7 @@ from app.health import HealthResponse, compute_health, enforce_boot_visibility
 from app.routers import (
     admin,
     admin_insider_amendments,
+    admin_onboarding,
     admin_price_feed,
     admin_splits,
     backtest,
@@ -50,6 +51,7 @@ app.include_router(admin.router)
 app.include_router(admin_price_feed.router)
 app.include_router(admin_insider_amendments.router)  # R8-A
 app.include_router(admin_splits.router)  # split plan S1 — the split list's review panel
+app.include_router(admin_onboarding.router)  # X1 — the staged cold-ingest queue
 app.include_router(radar.router)
 # /backtest is ARTIFACT-served and dev/sig-only BY DATA AVAILABILITY -- it is registered
 # unconditionally and reports `available: false` where no store exists (prod), so there is no

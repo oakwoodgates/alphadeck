@@ -866,6 +866,160 @@ changed**: what is stored, skipped, counted (`form4_skipped` on each thesis line
 CLI or on-promote ingest (no baseline) prints everything, and no raising path became a swallow-and-count.
 The P1 `REJECT insider txn` lines (impossible transaction dates) are untouched and stay loud.
 
+### Onboarding new names OUTSIDE the nightly window — the staged cold-ingest job (X1, 2026-10-21)  `[BUILT]`
+
+**Why.** A COLD name — one whose facts were never loaded — pays its whole history on its first ingest: one
+document fetch per Form 4 in its submissions index, one identity fetch per 13D/G, its 4/As, a 2-year price
+pull, its companyfacts. MEASURED (2026-10-21, below): **300–600 s** a cold name (median 396 s, n = 10; prod's X5 average was ~110 s)
+against **~3.5 s** a warm one; the
+2026-09-01 pass that onboarded many names took **21,632 s**, and the bounded pass now stops at 5,400 s — so a
+big onboarding inside the 22:30 pass would time the night out (more than ~360 new names cross the market
+open). Before X1 a cold name got its history from the Workbench's on-promote job (#308) or, failing that, from
+the nightly itself, inside the window.
+
+**The shape** (`pipeline/onboarding.py`, one table — `security_onboarding`, migration 0059):
+
+- **The queue.** One row per (tenant, security) — onboarding is about a company's facts, shared by every
+  thesis that holds it. `status` = `queued` / `in_progress` / `done` / `failed`; `legs_done` = the per-name
+  CHECKPOINT. A name is enqueued only when it is **cold**: no row yet AND no other LIVE (non-archived) basket
+  holds it — the nightly walks every live basket member every night, so such a name is already loaded (the
+  legacy names, and a name re-arranged between theses, never get a row). Enqueue is `INSERT … ON CONFLICT DO
+  NOTHING`: a re-enqueue never duplicates and never resets a `done` row. A security with NO row is "legacy" and
+  the nightly treats it exactly as before X1. Operational state, updated in place (the
+  `price_restatement_hold` precedent) — the FACTS it leads to stay append-only.
+- **The Workbench promote's lane** (`plan_promote`). The promote enqueues its new cold names, then takes the
+  **fast lane** when there are at most `Settings.onboard_fast_lane_max` (**5**) of them and it is outside the
+  nightly window: the pre-X1 on-promote job ingests them at once in the background, and marks each from its
+  results (`mark_from_results` — every history leg landed → `done`; a failed or lock-busy name stays queued
+  for the job). More than 5, or a promote inside the window, **queues** them instead: the response carries
+  `onboarding: {queued, new_members, reason}` in place of the `ingest` job ref, and the Workbench polls
+  `GET /workbench/theses/{id}/onboarding` for progress (quiet while loading, loud only for a failed name).
+  Why 5: the worst MEASURED cold name below took ~600 s (a heavy filer's whole Form 4 history), so 5 is the
+  most whose worst case (5 × ~600 s ≈ 50 min) stays inside the on-promote job's 3,600 s reaper TTL and the
+  window's 60-min lead; at the prod-measured ~110 s average it is ~9 min, and a 3-name promote stays exactly
+  as instant as before. A queue fault never fails the promote: it falls back to the pre-X1 kick of every new
+  name.
+- **The job** (`python -m pipeline.onboarding`, fired by the cron sidecar every `ONBOARD_EVERY_S`, below).
+  It walks the `queued` / `in_progress` rows whose security a live basket holds — a resumed `in_progress`
+  row first, then the oldest enqueue; a row no live basket holds is **parked** (never loaded for nothing — the
+  cost thread; re-adding the name resumes it). Per name, under that company's W1 lock (TRIED once — a held
+  company is skipped this run, never waited for), it re-reads the row (the fast lane may have finished it),
+  then runs the legs NOT yet checkpointed — the SAME leg functions the nightly runs (`ingest_thesis._form4_leg`
+  incl. 4/A, `_form8k_leg`, `_schedule13_leg`, `ingest_bars_for_security`, `ingest_fund_shares_for_security`,
+  `ingest_fundamentals_for_securities`), in full — committing each leg and THEN its checkpoint. So a crash
+  mid-batch resumes at the next leg and appends nothing twice (the legs are incremental / append-if-changed;
+  the tests COUNT THE TABLES). The **history legs** (Form 4 + 4/A, 8-K, 13D/G) decide `done`; the **tail
+  legs** (price, fund shares, fundamentals) run for completeness and never block it — they cost the same cold
+  or warm and the nightly runs them every night, with its own monitors. A history-leg failure re-queues the
+  name (`attempts` + 1); `Settings.onboard_max_attempts` (3) failures mark it `failed` — loud on Admin, where
+  **Retry** re-queues it (attempts reset, checkpoint kept).
+- **The window and the yield.** The job REFUSES to start inside the nightly window
+  (`onboard_window_before_min` / `_after_min` = 60 / 60 around `RUN_AT` in market time — 21:30–23:30 ET, every
+  day) and STOPS between names and between legs when it enters it, when a pass holds the call-of-record lock
+  (the nightly, its retry, a catch-up, an Admin "Run daily now", a backfill, a repair — it READS `pg_locks`
+  (`run_lock.describe_holder`) and never takes that lock, so it can never make a pass exit 75), when its batch
+  budget is spent (`onboard_batch_max_names` 50, `onboard_batch_budget_s` 1,500 s) or the daily cap
+  (`onboard_daily_max_names` 200, names attempted per market day). A yield is not a failure: the name stays
+  `in_progress` with its checkpoint and the next run resumes it.
+- **Locks.** An onboarding-job lock (`(0x41444B "ADK", 3)`, session-level, TRIED — one batch at a time), then
+  per name gate(shared) + company exactly like every company writer. The job never waits for the
+  call-of-record lock or the gate in exclusive mode, so the W1 order (call-of-record → gate → company) holds
+  and nothing can deadlock against the nightly.
+- **The SEC budget (X2).** Every EDGAR read the job makes goes through ONE client, `onboarding._edgar_client()`,
+  built on the recurring dial — which is what puts it in the global SEC budget's **`recurring` lane**
+  (`EdgarClient` picks the lane from that dial): the job is a bulk background consumer, so a Workbench
+  discovery run (the `interactive` lane) keeps its fair half of the budget against it, and the job never runs
+  beside the nightly (the window), the other recurring consumer. **Serial on purpose:** the job runs its own
+  legs one at a time — not through `ingest_thesis`, so #432's fetch-ahead and its `ingest_fetch_concurrency`
+  workers do not apply; a background load has no deadline to buy down. (The FAST LANE is `ingest_thesis`, so it
+  DOES get the fetch-ahead — up to 8 workers on its ≤5 cold names, inside the backend's interactive lane.)
+
+**The nightly's treatment of a not-yet-warm name.** `run_daily` reads the pending rows ONCE
+(`onboarding.pending_status`; FAIL-OPEN toward the full walk — a read that fails prints a WARNING and every
+member is walked as before X1). A member still `queued` / `in_progress` / `failed` is walked like any other —
+its lock, its 8-K tape, its price leg (one request, full history), its fundamentals refresh, its monitor facts
+— but its **per-filing legs read only the filings FILED within `Settings.onboard_nightly_window_days` (30) of
+the as-of** (`domain.onboarding.OnboardingWindow`; 30 = the insider cluster window, which also covers a flip
+buy's 18-day liveness), and its **4/A leg waits** for the full load (a 4/A links to the original it amends,
+which may be older than the window and not stored yet; the job stores the originals first, then the 4/As, in
+order). So a cold name costs the pass about what a warm one does. **The fetch-ahead (#432) honors it:** which
+Form 4 / 4/A documents the leg reads is ONE function, `ingest.edgar.form4a.form4_leg_filings`, called by both
+the Form 4 leg and `FetchAhead._filings` — so a windowed name's job pre-fetches its index, its price and only
+its in-window Form 4s (no 4/A), and a deferred name gets no fetch-ahead job at all (no planning read, no
+request). Pinned by `tests/pipeline/test_onboarding_fetch_ahead.py`, which counts every request at the stubbed
+HTTP layer and keeps #432's serial == concurrent equality with the onboarding treatment on. The name is NEVER dropped (#9): its
+`NameResult` carries `onboarding` + `filed_since`, the thesis records with **`ingest_fresh=false`** (R2b's
+meaning — the call rests on a name this pass did not fully load; never an error, never a withheld call), the
+artifact's thesis entry lists it under `onboarding` (`security_id`, `ticker`, `status`, `filed_since`), and the
+report prints ONE quiet line naming the names (a failed onboarding marked). Once the job finishes a name, the
+next nightly walks it in full and records fresh. **The pass's bound:** at most `onboard_nightly_max_names`
+(**300**) DISTINCT not-yet-warm names get the windowed walk in one pass, in thesis-then-basket order (a name met
+again in another thesis keeps its first treatment); every later one is **deferred** — listed as onboarding
+(`onboarding_deferred`, `deferred: true` on the artifact, "(deferred)" in the report line) but not walked at
+all tonight: no lock, no fetch, no write, no fundamentals refresh, and left out of the feed-recency judgment
+(no price leg ran, so its empty edge is not a stopped tape). So however many names a promote queued, the pass
+pays at most 300 first-night windowed walks (MEASURED cost below). Chosen over skipping the name outright (the other option the
+X1 plan named) because the windowed walk is still bounded — MEASURED below — and keeps the call honest about
+the RECENT filings, which are the ones that arm (a skipped name contributes nothing until the job reaches it,
+which for the back of a 1,000-name queue is days).
+
+**History is unaffected — the public clock judges it (invariant #1, #430).** The staged load changes only the
+ORDER in which a cold name's facts reach our store, never their public times: every Form 4 the job stores
+later still carries its own filing date, so a history read, a re-run or the Scoreboard sees the name's whole
+history on the public clock exactly as if it had been loaded at once. What the onboarding period does change is
+the immutable call-of-record those nights actually wrote, which is why those rows say `ingest_fresh=false`.
+
+**Measured** (live SEC + Yahoo, a scratch database and scratch caches — never prod, never dev; 10 names never
+in any basket — 5 large caps KO / CAT / VRT / SBUX / TT, 5 smaller HNRG / BHB / ULCC / NCMI / NBR; one thesis
+per name so the X5 per-thesis scope is the per-name cost; 2026-10-21 19:55–21:30 ET, on a loaded box — other
+test suites shared the Postgres server, so read the seconds as an upper bound; measured on the SERIAL fetch
+before #432 — the job stays serial, so its numbers stand, while the nightly's windowed walk and the fast lane
+now overlap their round trips through the fetch-ahead and can only be faster):
+
+| per name (n = 10) | median | range | SEC requests |
+|---|---|---|---|
+| the job — the whole history, every leg (= today's cold walk) | **396 s** | 295–596 s (CAT) | 325–650 |
+| the nightly, night 1, windowed (cold caches) | **4.9 s** | 3.0–10.2 s | 2–13 |
+| the nightly once warm (after the job) | **3.5 s** | 2.1–6.4 s | 0–1 |
+
+The cold cost is the per-filing walk: 300–650 Form 4s per name in the submissions index (the form4 leg was
+3,773 s of the job's 3,987 s), of which only 0–11 fell inside the 30-day window. These names are older and
+busier filers than the operator's typical basket (prod's X5 average is ~110 s a cold name), so 396 s is the
+heavy end. **Today's behavior, measured directly** (a nightly over two of the same names with no queue rows —
+the cold walk inside the pass): BHB 427 s, VRT 269 s — the job's 443 s / 307 s for the same work — against
+9.6 s / 10.2 s for X1's first-night windowed walk. **The window's own cost:** at 0 days (only tonight's
+filings) the first-night walk is a median 3.4 s (max 5.3 s) against 4.9 s (max 10.2 s) at 30 days — ~1.5 s a
+name buys the last month's Form 4s, the ones that arm, which is why the default is 30 and not 0 (or a skip).
+The batch of 10 cold names took 3,987 s through the job — about 3–4 such names per 1,500 s run.
+
+What that means for a pass (DERIVED from the medians above, not measured end to end): K names onboarding on
+night 1 used to cost K × ~110–400 s inside the pass (K = 50 → 5,500–20,000 s: over the 5,400 s bound); with X1
+they cost K × ~4.9 s, capped at 300 names per pass (≤ ~1,500 s at the median, ≤ ~3,060 s at the worst
+measured 10.2 s), and every night after that ~3.5 s each, like any warm name.
+
+**The run record.** A run that did work writes `data/onboard_runs/<started>.json` — `pass_kind: "onboard"`,
+`run_kind` cron / manual, `status` running → finished / crashed, `stopped` (why it ended), `counts` per
+outcome, one row per name (legs run, legs failed, seconds, rows appended) and the X5 `timings` with a scope
+per name. A SEPARATE directory from the nightly's `cron_runs`, so no nightly reader (the catch-up guard, the
+baselines, the Admin run history) can mistake it for a pass; the nightly's own artifacts now carry
+`pass_kind: "nightly"` too. A refusal (the window, a running pass, another batch, the daily cap) or an idle run
+(nothing queued) writes nothing — one printed `onboarding:` line. The Admin **Onboarding** panel
+(`docs/ADMIN.md`) reads the table + the latest artifact; the CLI's `--status` prints the same queue.
+
+```
+python -m pipeline.onboarding                        # one batch now (refuses inside the nightly window)
+python -m pipeline.onboarding --status               # the queue, read-only
+python -m pipeline.onboarding --enqueue-thesis <id>  # queue a thesis's COLD members (pipeline.seed / a CLI path)
+python -m pipeline.onboarding --retry-failed         # re-queue every failed name
+```
+
+**Not covered (named).** A name added WITHOUT the promote path (`pipeline.seed`, a test, a hand SQL) gets no
+row and so the pre-X1 treatment (a cold walk inside the pass) — `--enqueue-thesis` queues such a thesis's cold
+members by hand. The "cold" heuristic counts membership of another live basket as proof of a loaded history:
+true for every name the nightly has walked, and a name another basket's promote queued has a row anyway (so it
+counts as cold) — the narrow exception is a name that entered that other basket by a non-promote path moments
+before, which `--enqueue-thesis` covers.
+
 ### Where a pass spends its time — the `timings` block (X5, 2026-10-17)  `[BUILT]`
 
 **Measurement only.** Before the cron grows (more names, more theses) and moves off the laptop, two questions
@@ -1766,6 +1920,17 @@ written):
 ## The scheduling sidecar — the `cron` service + `scripts/daily_cron.sh`  `[BUILT #73]`
 
 The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
+
+- **A second schedule: the staged cold-ingest job (X1, 2026-10-21)** `[BUILT]`. After the boot block, the
+  sidecar starts `onboard_loop` in the BACKGROUND: `timeout -k 60 ONBOARD_TIMEOUT_S python -m
+  pipeline.onboarding --run-kind cron`, then a sliced `wait_until` of `ONBOARD_EVERY_S` (compose
+  `ALPHADECK_ONBOARD_EVERY_S`, default **1800 s**; **0 = off**) after the run ENDS, forever. Dumb on purpose:
+  the job refuses inside the nightly window, yields to a running pass and bounds itself (the section above),
+  so the shell never knows the schedule's rules. The nightly loop never waits for it; a run that fails or
+  times out is one `onboard-cron:` log line, and its names resume next run. Its own `pass_kind` (`onboard`),
+  its own artifacts (`data/onboard_runs`), no heartbeat (Admin reads a stalled queue from the table and the
+  artifacts instead). Started after the `CRON_EXIT_AFTER_BOOT` seam, so the boot block can still be exercised
+  alone.
 
 - **On by default.** The `cron` service comes up with the normal `docker compose up` (no profile flag), so the
   deployed stack notifies itself with no extra command to remember. Skip it for one run with

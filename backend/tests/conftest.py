@@ -25,6 +25,11 @@ def pytest_configure(config):
 
     url = test_db_url()  # resolves + HARD GUARD; a bad name raises HERE, before os.environ
     os.environ["DATABASE_URL"] = url  # both the db fixture and the app-under-test read this late
+    # X1 — the staged onboarding job's NIGHTLY WINDOW (21:30-23:30 ET by default) is a wall-clock rule: a
+    # promote inside it queues instead of taking the fast lane. Off for the suite by default, so no test's
+    # outcome depends on the hour it happens to run; the window's own tests set it (and a clock) explicitly.
+    os.environ.setdefault("ALPHADECK_ONBOARD_WINDOW_BEFORE_MIN", "0")
+    os.environ.setdefault("ALPHADECK_ONBOARD_WINDOW_AFTER_MIN", "0")
     try:
         ensure_test_db(url)  # create the per-worktree DB if absent (idempotent, race-tolerant)
     except psycopg.OperationalError:

@@ -57,7 +57,7 @@ import logging
 import os
 from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field
-from datetime import date, datetime, time, timezone, tzinfo
+from datetime import date, datetime, time, timedelta, timezone, tzinfo
 from functools import partial
 from pathlib import Path
 from time import perf_counter
@@ -74,7 +74,7 @@ from domain.thesis import Thesis
 from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
 from ingest.edgar.form25 import delisted_class_is_other
 from notify import DigestThesis, HealthEvent, Notifier, TransitionEvent, get_notifier
-from pipeline import pass_timings, push_policy
+from pipeline import onboarding, pass_timings, push_policy
 from pipeline.call_for_thesis import call_for_thesis
 from pipeline.cron_run_log import (
     RUN_STATUS_RUNNING,
@@ -95,6 +95,7 @@ from pipeline.ingest_fundamentals import PassMemo
 from pipeline.ingest_skips import SkipDiff, diff_skips, known_keys
 from pipeline.ingest_thesis import (
     NameResult,
+    OnboardingWindow,
     ingest_thesis,
     print_held_lines,
     print_withheld_line,
@@ -305,9 +306,10 @@ def _refresh_fundamentals(
     for n in names:
         if n.security_id in memo.securities:
             continue
-        if getattr(n, "lock_busy", None):
+        if getattr(n, "lock_busy", None) or getattr(n, "onboarding_deferred", False):
             # W1 — the ingest did not walk it (another writer held the company past the wait): it is not
-            # refreshed here either, rather than waiting out the same holder a second time
+            # refreshed here either, rather than waiting out the same holder a second time. X1 — nor is a name
+            # the pass DEFERRED past its onboarding cap (the job loads its fundamentals with its history)
             continue
         sec = master.get(conn, n.security_id, tenant_id=thesis.tenant_id)
         if sec is not None:
@@ -350,6 +352,63 @@ def _acknowledged_ids(conn: psycopg.Connection) -> set[UUID]:
             "stays LOUD this pass and its price 404 counts as an error"
         )
         return set()
+
+
+def _pending_onboarding(conn: psycopg.Connection) -> dict[tuple[UUID, UUID], str]:
+    """X1 — ``(tenant_id, security_id) -> status`` for every name whose history is still loading in the staged
+    onboarding job (``pipeline/onboarding.py``), read ONCE before the loop. FAIL-OPEN TOWARD THE FULL WALK: a
+    read that fails returns ``{}`` with one warning line, and every member is walked exactly as before X1 —
+    a slower pass at worst, never a name left un-ingested on a guess. In a SAVEPOINT, like
+    ``_acknowledged_ids``, so a fault never poisons the caller's transaction."""
+    try:
+        with conn.transaction():
+            return onboarding.pending_status(conn)
+    except Exception as e:  # noqa: BLE001 — never the reason a pass does not run
+        print(
+            f"WARNING: could not read the onboarding queue ({e}) — every member gets the full ingest "
+            "this pass (a name still onboarding pays its cold history walk inside the pass)"
+        )
+        return {}
+
+
+@dataclass
+class _OnboardingPlan:
+    """X1 — the pass's treatment of the names still onboarding: the first ``cap`` DISTINCT ones it meets (in
+    thesis-then-basket order) get the windowed walk (filings since ``since``); every later one is DEFERRED —
+    listed, not walked tonight — so the pass stays bounded however many names a promote queued. A name met
+    again in another thesis keeps the treatment it got first (one company, one answer per pass)."""
+
+    pending: Mapping[tuple[UUID, UUID], str]
+    since: date
+    cap: int  # 0 = no cap
+    walked: set[UUID] = field(default_factory=set)
+    deferred: set[UUID] = field(default_factory=set)
+
+    @classmethod
+    def for_pass(cls, pending: Mapping[tuple[UUID, UUID], str], asof: date) -> _OnboardingPlan:
+        if not pending:  # the common night: no setting is read at all
+            return cls(pending, asof, 0)
+        s = get_settings()
+        return cls(
+            pending,
+            asof - timedelta(days=max(0, s.onboard_nightly_window_days)),
+            max(0, s.onboard_nightly_max_names),
+        )
+
+    def windows(self, thesis: Thesis) -> dict[UUID, OnboardingWindow]:
+        out: dict[UUID, OnboardingWindow] = {}
+        for m in thesis.basket:
+            sid = m.security_id
+            status = self.pending.get((thesis.tenant_id, sid)) if sid is not None else None
+            if sid is None or status is None or sid in out:
+                continue
+            if sid not in self.walked and sid not in self.deferred:
+                if self.cap and len(self.walked) >= self.cap:
+                    self.deferred.add(sid)
+                else:
+                    self.walked.add(sid)
+            out[sid] = OnboardingWindow(status, self.since, defer=sid in self.deferred)
+        return out
 
 
 def _catch_up_skip_set(conn: psycopg.Connection, asof: date) -> dict[UUID, datetime]:
@@ -450,6 +509,10 @@ def run_daily(
     acknowledged = _acknowledged_ids(conn) if allow_live else set()
     # Q17 — the fundamentals refresh's pass memory: one companyfacts pull per company per pass
     fund_memo = PassMemo()
+    # X1 — the names whose HISTORY is still loading in the staged onboarding job, read ONCE: each thesis walks
+    # them with the per-filing legs windowed (never their 300-600 s cold walk) and records ingest_fresh=false
+    pending_onboarding = _pending_onboarding(conn)
+    onboarding_plan = _OnboardingPlan.for_pass(pending_onboarding, asof)
     # O4 (Q13) — this pass's newly-armed-names digest, one line per already-armed thesis
     digest: list[DigestThesis] = []
     out: list[ThesisRunResult] = []
@@ -498,6 +561,7 @@ def run_daily(
         edgar_client = EdgarClient(
             allow_live=allow_live, user_agent=user_agent, cache_ttl_s=RECURRING_CACHE_TTL_S
         )
+        onboarding_windows = onboarding_plan.windows(thesis)
         try:
             res.ingested = ingest_thesis(
                 conn,
@@ -507,6 +571,9 @@ def run_daily(
                 user_agent=user_agent,
                 edgar_client=edgar_client,
                 known_skips=known_skips,  # Q18 — mutes the lines of filings known to skip
+                # X1 — the not-yet-warm names, windowed (passed only when there are any: the common night
+                # calls the unit exactly as before X1)
+                **({"onboarding": onboarding_windows} if onboarding_windows else {}),
             )
         except Exception as e:  # noqa: BLE001 — one thesis's ingest never aborts the cron
             conn.rollback()
@@ -550,9 +617,12 @@ def run_daily(
         if allow_live:
             s = get_settings()
             rows: tuple[StaleTape, ...] = ()
+            # X1 — a name DEFERRED past the pass's onboarding cap ran no leg tonight: its (likely empty) edge
+            # is not news and must not page as a stopped / never-priced tape. It stays listed as onboarding.
+            judged = [x for x in res.ingested if not getattr(x, "onboarding_deferred", False)]
             if s.tape_stale_days > 0:
                 rows += stale_tapes(
-                    res.ingested,
+                    judged,
                     asof=asof,
                     stale_days=s.tape_stale_days,
                     closed_before_days=s.tape_closed_before_days,
@@ -562,9 +632,7 @@ def run_daily(
                     removes_other_class=partial(delisted_class_is_other, edgar_client),
                 )
             if s.fund_shares_stale_days > 0:
-                rows += stale_fund_shares(
-                    res.ingested, asof=asof, stale_days=s.fund_shares_stale_days
-                )
+                rows += stale_fund_shares(judged, asof=asof, stale_days=s.fund_shares_stale_days)
             # Q8 — an UNPRICEABLE row the operator acknowledged goes quiet (no newly-stale page, a quiet
             # count on Admin) but stays in the inventory (#9). Only an unpriceable row can be marked.
             rows = mark_acknowledged(rows, acknowledged)
@@ -594,6 +662,10 @@ def run_daily(
         # so a Workbench ingest can never withhold (or fail) a night — but the call does rest on a name this
         # pass did not refresh, so the row is stamped `ingest_fresh=false` (R2b's meaning, exactly).
         lock_busy = sum(1 for x in res.ingested if getattr(x, "lock_busy", None))
+        # X1 — names whose history is still loading in the onboarding job: walked with the per-filing legs
+        # windowed, so the call rests on a name this pass did not fully load — `ingest_fresh=false` (R2b's
+        # meaning, exactly), never an error and never a withheld call
+        onboarding_names = sum(1 for x in res.ingested if getattr(x, "onboarding", None))
         if res.error:
             res.withheld_reason = "total ingest failure"  # Source C (the ingest raised)
         elif not allow_live:
@@ -656,7 +728,7 @@ def run_daily(
                 conn,
                 card,
                 thesis.tenant_id,
-                ingest_fresh=(ingest_errors == 0 and lock_busy == 0),
+                ingest_fresh=(ingest_errors == 0 and lock_busy == 0 and onboarding_names == 0),
                 ingest_errors=ingest_errors,
                 # 0044 — the RUN IDENTITY, stamped beside the ingest health and outside `_canonical`'s
                 # compare, so a deploy or a dial edit alone never re-records an unchanged card.
@@ -1570,6 +1642,41 @@ def print_lock_waits(results: list[ThesisRunResult]) -> None:
         )
 
 
+def print_onboarding(results: list[ThesisRunResult], *, show: int = 30) -> None:
+    """X1 — ONE quiet line naming the names whose history is still loading in the staged onboarding job
+    (deduped per security across theses; the first ``show`` named, the rest counted — Admin lists every one);
+    nothing at all on a night with none. Quiet (lowercase) on purpose: onboarding is an expected state the job
+    resolves outside the window, not news (#7) — a FAILED onboarding is loud on the Admin page instead.
+    """
+    names: dict[UUID, tuple[str, str, bool]] = {}
+    since: date | None = None
+    for r in results:
+        for x in r.ingested:
+            status = getattr(x, "onboarding", None)
+            if status:
+                deferred = bool(getattr(x, "onboarding_deferred", False))
+                names.setdefault(x.security_id, (x.ticker or str(x.security_id), status, deferred))
+                since = getattr(x, "filed_since", None) or since
+    if not names:
+        return
+    shown = [
+        f"{label}{' (onboarding FAILED)' if st == 'failed' else ''}{' (deferred)' if dfr else ''}"
+        for label, st, dfr in names.values()
+    ]
+    deferred_n = sum(1 for _, _, dfr in names.values() if dfr)
+    more = f" … and {len(shown) - show} more (Admin → Onboarding)" if len(shown) > show else ""
+    window = f"tonight read their filings since {since} only" if since else "not ingested tonight"
+    cap = (
+        f" ({deferred_n} past tonight's onboarding cap were not ingested at all — the job loads them)"
+        if deferred_n
+        else ""
+    )
+    print(
+        f"{len(names)} name(s) still onboarding — their history loads outside the nightly window; {window}"
+        f"{cap}; their theses recorded with ingest_fresh=false: {', '.join(shown[:show])}{more}"
+    )
+
+
 def _report(
     results: list[ThesisRunResult],
     *,
@@ -1654,6 +1761,8 @@ def _report(
             print(f"  {t}")
     # W1 — the per-company write lock (`db/write_lock.py`), deduped ACROSS theses per security
     print_lock_waits(results)
+    # X1 — the names whose history is still loading in the staged onboarding job (one quiet line)
+    print_onboarding(results)
     # G5a/F1 — the stale-feed inventory, deduped ACROSS theses per (kind, security) — one dead feed, not one
     # per holder — and printed only when there is one (loudness marks the exception). ONE BLOCK PER FEED
     # KIND, each headed with that feed's own noun and repair advice from `domain/feed_kinds`, because the
