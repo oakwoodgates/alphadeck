@@ -163,3 +163,170 @@ def test_rate_limiter_is_the_shared_throttle_under_threads():
     # n requests took >= (n-1)*interval -> the global rate never exceeded max_per_sec (concurrency didn't
     # collapse the slots). 0.8 leaves margin for sleep granularity; it can only run LONGER, never shorter.
     assert elapsed >= (n - 1) * interval * 0.8
+
+
+# --- X7: jitter, the pool-wide pause on a 429, and the refusals counted by status ---
+
+
+def test_jittered_backoff_is_never_SHORTER_than_the_plain_backoff_and_is_spread(monkeypatch):
+    _seq(monkeypatch, [_FakeResp(429), _FakeResp(503), _FakeResp(429), _FakeResp(200)])
+    draws = iter([0.0, 1.0, 0.5])  # random.random() -> the jitter factor 1 + 0.5 * draw
+    monkeypatch.setattr(http_mod.random, "random", lambda: next(draws))
+    slept: list[float] = []
+    polite_get("http://x", jitter=True, sleep=slept.append)
+    assert slept == [1.0, 3.0, 5.0]  # 1x1.0, 2x1.5, 4x1.25 — each within [base, 1.5 * base]
+
+
+def test_jitter_samples_stay_inside_their_band():
+    samples = [http_mod._jittered(2.0) for _ in range(200)]
+    assert all(2.0 <= s <= 3.0 for s in samples)
+    assert len({round(s, 6) for s in samples}) > 1  # actually spread, not a constant
+
+
+def test_a_numeric_retry_after_is_honored_EXACTLY_even_with_jitter(monkeypatch):
+    _seq(monkeypatch, [_FakeResp(429, {"Retry-After": "7"}), _FakeResp(200)])
+    slept: list[float] = []
+    polite_get("http://x", jitter=True, sleep=slept.append)
+    assert slept == [7.0]  # the server named the instant; jitter applies to OUR guesses only
+
+
+def test_on_throttle_fires_for_429_and_503_but_not_for_500(monkeypatch):
+    _seq(monkeypatch, [_FakeResp(429), _FakeResp(500), _FakeResp(503), _FakeResp(200)])
+    throttled: list[float] = []
+    polite_get("http://x", max_retries=3, sleep=lambda s: None, on_throttle=throttled.append)
+    assert throttled == [
+        1.0,
+        4.0,
+    ]  # the 429 (attempt 0) and the 503 (attempt 2); the 500 is a fault
+
+
+def test_penalize_makes_EVERY_waiter_back_off(monkeypatch):
+    """One thread is told 429; the shared limiter pushes its next slot out, so the NEXT caller — any thread —
+    waits out the pause too (deterministic clock, no real time)."""
+    clock = [100.0]
+    sleeps: list[float] = []
+
+    def fake_sleep(s: float) -> None:
+        sleeps.append(s)
+        clock[0] += s
+
+    monkeypatch.setattr(http_mod.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(http_mod.time, "sleep", fake_sleep)
+    rl = RateLimiter(max_per_sec=10)
+    rl.acquire()  # slot at 100.0
+    rl.penalize(5.0)  # told "too many" at 100.0
+    rl.acquire()
+    assert sleeps == pytest.approx([5.0])
+    rl.penalize(0.0)  # a zero / negative pause never shortens anything
+    rl.acquire()
+    assert sleeps == pytest.approx([5.0, 0.1])
+
+
+def test_the_yahoo_gate_is_one_process_wide_limiter_read_from_settings(monkeypatch):
+    from domain.settings import get_settings
+
+    monkeypatch.setenv("ALPHADECK_YAHOO_RATE_PER_SEC", "2.5")
+    get_settings.cache_clear()
+    http_mod.reset_yahoo_limiter()
+    try:
+        gate = http_mod.yahoo_limiter()
+        assert gate is http_mod.yahoo_limiter()  # one gate for every puller in the process
+        assert gate.max_per_sec == pytest.approx(2.5)
+    finally:
+        http_mod.reset_yahoo_limiter()
+        get_settings.cache_clear()
+
+
+def test_the_yahoo_default_is_the_conservative_four_per_second():
+    from domain.settings import Settings
+
+    assert Settings().yahoo_rate_per_sec == 4.0
+
+
+def test_a_YAHOO_429_backs_off_with_jitter_pauses_the_pool_and_is_COUNTED(monkeypatch, tmp_path):
+    """The price fetch end to end with only the HTTP layer stubbed: two 429s then the series. The pull is
+    retried after a jittered backoff, the shared Yahoo gate is pushed back by each pause (every other
+    puller waits it out too), each refusal is counted on the pass meter, and the series lands in the cache
+    in one piece."""
+    import functools
+    import json
+
+    from ingest.instrument import ACTIVE
+    from ingest.prices import eod_loader
+    from pipeline import pass_timings
+
+    payload = {
+        "chart": {
+            "result": [
+                {
+                    "timestamp": [1759363200],
+                    "indicators": {
+                        "quote": [
+                            {
+                                "open": [1.0],
+                                "high": [1.0],
+                                "low": [1.0],
+                                "close": [1.0],
+                                "volume": [9],
+                            }
+                        ]
+                    },
+                }
+            ]
+        }
+    }
+
+    body = json.dumps(payload)
+
+    class _Resp(_FakeResp):
+        text = body
+
+        def json(self):
+            return payload
+
+    calls = _seq(monkeypatch, [_Resp(429), _Resp(429), _Resp(200)])
+    slept: list[float] = []
+    monkeypatch.setattr(eod_loader, "polite_get", functools.partial(polite_get, sleep=slept.append))
+    http_mod.reset_yahoo_limiter()
+    timer = pass_timings.start()
+    token = ACTIVE.set(timer)
+    try:
+        gate = http_mod.yahoo_limiter()
+        before = time.monotonic()
+        bars = pass_timings.timed("price")(eod_loader.fetch_eod)(
+            "ABC", cache_dir=tmp_path, allow_live=True, force_refresh=True
+        )
+        snap = timer.snapshot()
+    finally:
+        ACTIVE.reset(token)
+        http_mod.reset_yahoo_limiter()
+
+    assert len(calls) == 3 and len(bars) == 1
+    assert 1.0 <= slept[0] <= 1.5 and 2.0 <= slept[1] <= 3.0  # jittered exponential backoff
+    assert gate._next >= before + slept[1]  # the gate was pushed back: the whole pool pauses
+    counts = snap["counts"]["price"]
+    assert counts["http_429:query1.finance.yahoo.com"] == 2  # the 429 rate, on the artifact
+    assert counts["http:query1.finance.yahoo.com"] == 3
+    assert json.loads((tmp_path / "ABC.yahoo.json").read_text(encoding="utf-8")) == payload
+    assert pass_timings.summary_line(snap).endswith("HTTP 429s: query1.finance.yahoo.com 2")
+
+
+def test_every_refusal_is_counted_by_status_and_host(monkeypatch):
+    from ingest.instrument import ACTIVE
+    from pipeline import pass_timings
+
+    _seq(monkeypatch, [_FakeResp(404)])
+    timer = pass_timings.start()
+    token = ACTIVE.set(timer)
+    try:
+        with pytest.raises(RuntimeError):
+            polite_get(
+                "https://query1.finance.yahoo.com/v8/finance/chart/GONE", sleep=lambda s: None
+            )
+        snap = timer.snapshot()
+    finally:
+        ACTIVE.reset(token)
+    assert snap["counts"]["other"] == {
+        "http:query1.finance.yahoo.com": 1,
+        "http_404:query1.finance.yahoo.com": 1,
+    }

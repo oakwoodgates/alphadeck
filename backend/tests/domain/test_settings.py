@@ -158,6 +158,37 @@ def test_compose_hit_cap_fallbacks_agree_with_the_settings_defaults(monkeypatch)
         ), f"{var}: compose fallback {m.group(1)} != Settings {default}"
 
 
+def test_compose_injects_the_fetch_and_budget_dials_into_BOTH_services_at_the_settings_defaults(
+    monkeypatch,
+):
+    """X2 / X7 / the fetch-ahead: compose passes an explicit ``environment:`` list (no ``env_file``), so a dial
+    reaches a container only if it is listed there — the kill switch ``ALPHADECK_INGEST_FETCH_CONCURRENCY=1``
+    would otherwise be dead on prod. Each must be injected into the backend AND the cron sidecar, and every
+    fallback must equal the Settings default (compose always injects, so a drifted fallback silently wins).
+    """
+    import re
+    from pathlib import Path
+
+    compose = (Path(__file__).resolve().parents[3] / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+    for var in (
+        "ALPHADECK_INGEST_FETCH_CONCURRENCY",
+        "ALPHADECK_SEC_GLOBAL_RATE_PER_SEC",
+        "ALPHADECK_YAHOO_RATE_PER_SEC",
+    ):
+        monkeypatch.delenv(var, raising=False)
+    s = Settings()
+    for var, default in (
+        ("ALPHADECK_INGEST_FETCH_CONCURRENCY", s.ingest_fetch_concurrency),
+        ("ALPHADECK_SEC_GLOBAL_RATE_PER_SEC", s.sec_global_rate_per_sec),
+        ("ALPHADECK_YAHOO_RATE_PER_SEC", s.yahoo_rate_per_sec),
+    ):
+        found = re.findall(rf"{var}: \$\{{{var}:-([0-9.]+)\}}", compose)
+        assert len(found) == 2, f"{var} must be injected into backend AND cron, found {len(found)}"
+        assert all(float(v) == default for v in found), f"{var}: {found} != Settings {default}"
+
+
 # --- the late-read rule (D5): the 3 env-toggled vars, monkeypatched AFTER import ---
 
 

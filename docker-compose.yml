@@ -71,6 +71,15 @@ services:
       # override the code default.
       ALPHADECK_DISCOVERY_HIT_CAP: ${ALPHADECK_DISCOVERY_HIT_CAP:-5000}
       ALPHADECK_DISCOVERY_BROAD_HIT_CAP: ${ALPHADECK_DISCOVERY_BROAD_HIT_CAP:-1000}
+      # X2 / X7 / the fetch-ahead dials — the SAME three on the cron sidecar below (this container runs the
+      # Workbench on-promote ingest and the Admin "Run daily now" child pass). Numeric fallbacks that MUST EQUAL
+      # the Settings defaults (same trap as the caps above; tests/domain/test_settings.py pins them).
+      # ALPHADECK_INGEST_FETCH_CONCURRENCY=1 is the KILL SWITCH: the serial walk exactly as before the
+      # fetch-ahead. ALPHADECK_SEC_GLOBAL_RATE_PER_SEC is the ONE SEC budget's rate (every process must agree);
+      # ALPHADECK_YAHOO_RATE_PER_SEC the Yahoo gate's.
+      ALPHADECK_INGEST_FETCH_CONCURRENCY: ${ALPHADECK_INGEST_FETCH_CONCURRENCY:-8}
+      ALPHADECK_SEC_GLOBAL_RATE_PER_SEC: ${ALPHADECK_SEC_GLOBAL_RATE_PER_SEC:-8.5}
+      ALPHADECK_YAHOO_RATE_PER_SEC: ${ALPHADECK_YAHOO_RATE_PER_SEC:-4.0}
       # The run-loader off-switch (a dev/test cost-saver: load a saved draft run instead of paying for a fresh
       # one). Unset -> False (the Settings default; the feature + its /runs endpoints are absent). Set
       # ALPHADECK_RUN_LOADER_ENABLED=true in `.env` to turn it on for the operator; the FE picker follows.
@@ -166,6 +175,12 @@ services:
     environment:
       DATABASE_URL: postgresql://alphadeck:alphadeck@postgres:5432/alphadeck
       ALPHADECK_USER_AGENT: ${ALPHADECK_USER_AGENT:-} # the daily run does LIVE EDGAR/Yahoo pulls
+      # The X2 / X7 / fetch-ahead dials, the SAME three as the backend's (see there): a `.env` change reaches the
+      # nightly through `scripts/deploy.sh --env-only cron`. ALPHADECK_INGEST_FETCH_CONCURRENCY=1 = the serial
+      # walk (the kill switch). Numeric fallbacks equal to the Settings defaults (pinned by test).
+      ALPHADECK_INGEST_FETCH_CONCURRENCY: ${ALPHADECK_INGEST_FETCH_CONCURRENCY:-8}
+      ALPHADECK_SEC_GLOBAL_RATE_PER_SEC: ${ALPHADECK_SEC_GLOBAL_RATE_PER_SEC:-8.5}
+      ALPHADECK_YAHOO_RATE_PER_SEC: ${ALPHADECK_YAHOO_RATE_PER_SEC:-4.0}
       # The nightly fund-shares sample rides this ingest — the cron needs the SAME Polygon key as the
       # backend (a deterministic DATA api, #3 — not an LLM seam) or its sample falls back to scrapers.
       POLYGON_API_KEY: ${POLYGON_API_KEY:-}

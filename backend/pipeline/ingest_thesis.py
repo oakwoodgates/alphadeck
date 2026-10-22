@@ -19,8 +19,13 @@ ever). It is:
   the Form 4 leg the tolerance is also PER-FILING: one unfetchable or unparseable filing (pre-2004-06-30
   Form 4s are SGML/text, not XML, and some ancient document URLs 404) is skipped-and-counted with a warning
   (``NameResult.form4_skipped``) — a single bad old filing never blanks the name's whole insider history.
-  The live fetchers are polite (``ingest.http.polite_get`` retries 429 / transient 5xx with backoff; EDGAR
-  also throttles ≤8 req/s).
+  The live fetchers are polite (``ingest.http.polite_get`` retries 429 / transient 5xx with jittered backoff;
+  every SEC request draws from the ONE global SEC budget every process shares — ``ingest/sec_budget.py``, X2 —
+  and every Yahoo pull from the process-wide Yahoo gate, X7).
+- **Concurrent fetch, serial write** — on a live walk the company's vendor reads are made AHEAD of the walk by
+  a small pool (``pipeline/fetch_ahead.py``, ``Settings.ingest_fetch_concurrency``; 1 = the serial walk), and
+  each read's outcome is handed to the legs in place of their own first read. Every WRITE still happens on
+  the one connection, under the W1 company lock, in basket order — the same facts and versions as serial.
 - **No-lookahead** — ``recorded_at`` is left to the DB default ``now()`` (NEVER backdated), so a fact ingested
   today is invisible to an as-of read pinned at an earlier transaction time (the replay guarantee holds).
 - **Exact membership (#2)** — it targets the member's RESOLVED ``security_id`` via ``master.get`` (the issuer
@@ -86,6 +91,7 @@ from ingest.skips import (
     clip_reason,
     is_known,
 )
+from pipeline.fetch_ahead import FetchAhead, Handoff, fetch_workers, thread_completed
 from pipeline.pass_timings import timed
 from repositories import thesis_repo
 from securities import master
@@ -485,24 +491,58 @@ def ingest_thesis(
         and (only_security_ids is None or m.security_id in only_security_ids)
     ]
 
-    def one(m: BasketMember) -> NameResult:
-        # the freeze floor's per-company fact: the EDGAR fetches that COMPLETED while THIS name's legs ran
-        # (the client is shared across the walk, so the delta is this name's own)
-        before = getattr(client, "live_completed", 0)
+    def one(m: BasketMember, handoff: Handoff | None = None) -> NameResult:
+        # THE FETCH-AHEAD's handoff (``pipeline/fetch_ahead.py``): this company's vendor reads were already
+        # made by a worker; its legs consume each read's outcome in place of their own first network read
+        # of the same key — identical inputs, identical writes. ``None`` = the serial walk's own reads.
+        c, s, n = client, source, now
+        if handoff is not None:
+            c, s = handoff.edgar_client(client), handoff.price_source(source)
+            if n is None and handoff.price_started_at is not None:
+                # D2: the settle guard judges the pull at the instant it was made
+                n = handoff.price_started_at
+        # the freeze floor's per-company fact: the EDGAR fetches that COMPLETED for THIS name's reads — the
+        # ones its legs made on this (the writer's) thread, plus the ones its fetch-ahead tasks made on the
+        # workers (per-thread counts: the client is shared, and other companies' fetches complete meanwhile)
+        before = thread_completed(client)
         r = _ingest_one(
             conn,
-            client,
-            source,
+            c,
+            s,
             m,
             tenant_id=thesis.tenant_id,
             allow_live=allow_live,
             force_refresh=force_refresh,
             fund_source=fund_source,
-            now=now,
+            now=n,
             known_skips=known_skips,
         )
-        r.edgar_completed = getattr(client, "live_completed", 0) - before
+        r.edgar_completed = thread_completed(client) - before
+        if handoff is not None:
+            r.edgar_completed += handoff.completed
         return r
+
+    # THE FETCH-AHEAD (X2/X7 + the measured concurrency lever, 2026-10-21): on a live walk with
+    # ``Settings.ingest_fetch_concurrency`` > 1, a small pool fetches each upcoming company's submissions,
+    # new Form 4 / 4-A documents and price pull AHEAD of this walk, inside the global SEC budget and the
+    # Yahoo gate. FETCHING only: every write below still happens HERE, on this one connection, under the
+    # company's W1 lock, in basket order. ``1`` (or a --no-live walk) = no pool: the serial walk verbatim.
+    workers = fetch_workers(allow_live)
+    ahead = (
+        FetchAhead(
+            conn,
+            client,
+            source,
+            members,
+            tenant_id=thesis.tenant_id,
+            allow_live=allow_live,
+            force_refresh=force_refresh,
+            workers=workers,
+            fetch_submissions=fetch_submissions,
+        )
+        if workers > 1
+        else None
+    )
 
     # W1 — THE PER-COMPANY WRITE LOCK (``db/write_lock.py``): a company's legs run only while this
     # connection holds its lock, so a concurrent writer (the nightly vs a Workbench ingest vs a CLI run) can
@@ -510,15 +550,31 @@ def ingest_thesis(
     # waiting, in basket order; a held one is DEFERRED, so a busy company never delays the free ones.
     results: list[NameResult | None] = [None] * len(members)
     deferred: list[int] = []
-    for i, m in enumerate(members):
-        _end_transaction(conn)
-        try:
-            lock = acquire_company_lock(conn, m.security_id, wait_s=0)
-        except CompanyLockBusy:
-            deferred.append(i)
-            continue
-        with lock:
-            results[i] = one(m)
+    # a deferred company's worker completions: its handoff is dropped, but what the workers fetched for it
+    # this walk is on disk and is what its second-pass legs read — so it still counts as fresh SEC data
+    deferred_completed: dict[int, int] = {}
+    try:
+        for i, m in enumerate(members):
+            handoff = None
+            if ahead is not None:
+                # a clean (never an aborted) transaction for the planning reads
+                _end_transaction(conn)
+                handoff = ahead.take(i)
+            _end_transaction(conn)
+            try:
+                lock = acquire_company_lock(conn, m.security_id, wait_s=0)
+            except CompanyLockBusy:
+                # deferred: its handed-over reads are dropped — after the wait its legs read for
+                # themselves, like the serial walk always did
+                deferred.append(i)
+                if handoff is not None:
+                    deferred_completed[i] = handoff.completed
+                continue
+            with lock:
+                results[i] = one(m, handoff)
+    finally:
+        if ahead is not None:
+            ahead.close()  # no worker outlives the walk; every count is final when we return
     # SECOND PASS: the deferred companies, each with a BOUNDED wait (``Settings.ingest_lock_wait_s``). One
     # still held after it is NOT ingested by this unit — a ``lock_busy`` result carrying the holder and the
     # monitor facts, never an error and never a dropped name (#9): the holder is writing those very facts.
@@ -539,6 +595,7 @@ def ingest_thesis(
             continue
         with lock:
             r = one(m)
+            r.edgar_completed += deferred_completed.get(i, 0)
             r.lock_waited_s = round(lock.waited_s, 1)
             results[i] = r
     return [r for r in results if r is not None]

@@ -24,7 +24,7 @@ from urllib.parse import quote
 
 from domain.settings import get_settings
 from ingest import CacheMiss
-from ingest.http import RateLimiter, polite_get
+from ingest.http import RateLimiter, polite_get, yahoo_limiter
 
 # Runtime cache lives under the repo's gitignored data/; tests pass a tmp dir instead.
 _DEFAULT_CACHE = Path(__file__).resolve().parents[3] / "data" / "symbol_cache"
@@ -65,11 +65,21 @@ def search_quotes(
         return json.loads(path.read_text(encoding="utf-8"))
     if not allow_live:
         raise CacheMiss(f"no cached symbol search for {query!r} (live pulls disabled)")
-    resp = polite_get(  # 429/5xx backoff (D6 politeness), fronted by the shared ~2/s gate
+    yahoo = (
+        yahoo_limiter()
+    )  # X7 — the search shares Yahoo's host with the chart pulls: both gates apply
+
+    def _gate() -> None:
+        _RATE.acquire()
+        yahoo.acquire()
+
+    resp = polite_get(  # 429/5xx backoff (D6 politeness), fronted by the shared ~2/s gate + the Yahoo gate
         search_url(query),
         headers={"User-Agent": "Mozilla/5.0 (Alpha Deck research)"},
         timeout=get_settings().http_timeout_s,
-        pre=_RATE.acquire,
+        pre=_gate,
+        jitter=True,
+        on_throttle=yahoo.penalize,
     )
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(resp.text, encoding="utf-8")

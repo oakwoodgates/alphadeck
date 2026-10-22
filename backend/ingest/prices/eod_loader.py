@@ -14,8 +14,8 @@ from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
 from domain.coerce import to_float
 from domain.settings import get_settings
-from ingest import CacheMiss
-from ingest.http import polite_get
+from ingest import CacheMiss, write_atomic
+from ingest.http import polite_get, yahoo_limiter
 
 # Free EOD source. Stooq's free CSV is now apikey/captcha-gated, so the live default is Yahoo Finance
 # (free, no key); the loader stays swappable (DATA_SOURCES: Stooq / Tiingo-free / equivalent).
@@ -127,13 +127,18 @@ def fetch_eod(
         return parse_yahoo_chart(json.loads(path.read_text(encoding="utf-8")))
     if not allow_live:
         raise CacheMiss(f"no cached EOD for {ticker!r} (live pulls disabled)")
-    resp = polite_get(  # 429/5xx backoff (D6 politeness)
+    gate = (
+        yahoo_limiter()
+    )  # X7 — the process-wide Yahoo token bucket (the fetch-ahead runs several pulls at once)
+    resp = polite_get(  # 429/5xx backoff (D6 politeness), jittered; a 429 pauses every puller (X7)
         yahoo_chart_url(ticker, range_),
         timeout=30,
         headers={"User-Agent": "Mozilla/5.0 (Alpha Deck research)"},
+        pre=gate.acquire,
+        jitter=True,
+        on_throttle=gate.penalize,
     )
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(resp.text, encoding="utf-8")
+    write_atomic(path, resp.text)  # a concurrent reader never sees a half-written series
     return parse_yahoo_chart(resp.json())
 
 
