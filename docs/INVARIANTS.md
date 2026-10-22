@@ -383,6 +383,15 @@ replay stays honest.
   (the split from its publication; the CEO's buys kept before and after the split on history views; the public
   mirror row-for-row with Postgres), `tests/db/test_public_clock.py` (public pick == record pick, every version
   visible), `tests/pipeline/test_fetch_ahead.py` (the normalization identical under the concurrent fetch-ahead).
+- *Also honored by (S5 — the split-night hold, 2026-10-22; `CALL_LOGIC.md` §2b):* whether a member's price-path
+  triggers are held is computed from the VIEW's own bars and split list (`price_history` / `split_events`) at
+  the call's asof — a history view on the PUBLIC clock sees a split from its own filing or first session, the
+  live view what the list holds now — inside the one seam every path assembles through
+  (`pipeline.core.assemble_from_pit`), so the nightly, the serve path, `pipeline.backfill`, D3b and the replay
+  mirror hold identically. No record-clock replay proof was added (the rule above). *Enforced by:*
+  `tests/signals/test_split_hold.py` (real stored versions of GAME / NXL / MDCX / VRME's split nights: held with
+  the split unlisted, not held with it listed — the list row the only variable; the public mirror's card ==
+  Postgres's on a held night).
 
 ## 5. Tenant isolation; production is a fresh tenant, never a destructive wipe
 
@@ -399,7 +408,7 @@ catch it. (RLS is the auth-era defense-in-depth; see `docs/PRODUCTION_TENANT.md`
 - *Enforced by:* `tenant_id` on every table; `DEFAULT_TENANT_ID` for the demo; seeds upsert/append; the
   poison-row proof `tests/db/test_tenant_isolation.py` (grown for each new accessor — insider/price/theme,
   the three scoring facts, the Workbench scored read, the known-feed-limitation read of 0056, the S2 split
-  list on the repo / live PIT / replay mirror paths), plus the Scoreboard price-window's direct split read
+  list on the repo / live PIT / replay mirror paths, the S5 split-jump scan), plus the Scoreboard price-window's direct split read
   (`tests/app/test_scoreboard_price_window_api.py`).
 
 ## 6. The call-assembler is pure and deterministic
@@ -426,6 +435,9 @@ stamped a fresh "policy" on every cron night.
   `tests/repositories/test_calls_repo.py` (a changed hash on an identical card appends nothing —
   **counting the table**; `_canonical` is blind to all three columns);
   `tests/db/test_migration_0044_run_identity.py` (legacy rows NULL, the `no_update` trigger still armed).
+- *Also honored by (S5 — the split-night hold):* `assemble_call` takes the hold's `missing[]` lines as one more
+  parameter (`held`, default empty = byte-identical); which triggers are held is decided before it, in
+  `pipeline.core`, from the point-in-time view — the assembler stays pure (`tests/calls/test_split_hold_missing.py`).
 - *Also honored by (M2 — Option B intact):* the daily cron (`pipeline.daily`) appends the day's call-of-record
   via `calls_repo.record_if_changed` — idempotent (the `calls` log is immutable [`no_update`] + non-unique, so
   a conditional append, not an UPSERT) — but it builds **no read-serving signal/score cache**; the serve path

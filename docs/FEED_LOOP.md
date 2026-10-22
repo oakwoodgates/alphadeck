@@ -1224,8 +1224,14 @@ once, and again only after a pass genuinely found it gone. `/admin/status` carri
 `split_defects_flagged` check passes with defects present and fails only when the scan could not run (there
 is no "acknowledged" state, and failing on a standing, already-flagged defect would page every night). It is
 **benign-class** — a vendor tape defect, so the Admin verdict stays about the cron. It is a **MONITOR**:
-nothing it finds reaches a detector, the CallCard, or a stored bar. Whether price detectors should ABSTAIN on
-a flagged name (plan Q10) and any repair of stored bars are separate, undecided steps. The two-agreeing-pulls
+nothing it finds reaches a detector, the CallCard, or a stored bar. Plan Q10 (should price detectors ABSTAIN
+on a flagged name) closed as superseded: the split list repairs the stored bars (S2, below), and the night a
+split arrives before it is listed is the **split-night hold**'s (S5, `CALL_LOGIC.md` §2b) — a call-logic
+rule with its OWN first-night step test (bar to bar, from bar 1), not this monitor's flag. Its escalation —
+a split-shaped jump the hold released (three sessions on) that no list row sits near — prints ONE quiet line
+in the nightly report ("N split-shaped jump(s) past the split-night hold with no split listed — is this real?
+(Admin → Splits): …", `pipeline/split_jumps.py`; a failed read is one line too, never a failed pass) and is
+listed on the Admin Splits panel; it never pages. The two-agreeing-pulls
 hysteresis on a vendor REVERT (T5) is built in the price leg itself — see "Price restatements" above; it does
 not read this monitor.
 

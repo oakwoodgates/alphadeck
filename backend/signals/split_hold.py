@@ -116,11 +116,11 @@ def identity(event: SignalEvent | None) -> tuple[Any, ...] | None:
 def notes(
     thesis: Thesis, holds: Mapping[UUID, Hold], held: Mapping[UUID, Sequence[str]]
 ) -> list[str]:
-    """The ``missing[]`` lines, in basket order: one per HELD member whose price-path reading the hold changed
-    tonight — "Breakout on BTOC held: possible unconfirmed 1-for-16 reverse split (SEC 8-K filed 10-09; waiting
-    for a second source)". ``held[sid]`` names the triggers WITHHELD there; empty means only a reading changed
-    (a trigger re-read on the bars before the step, or one the step's jump would have cleared), and the line
-    then reads "Price triggers on ...". Then ONE line for the co-members whose laggard confirmation was
+    """The ``missing[]`` lines, in basket order: one per HELD member, every night its hold is open — "Breakout on
+    BTOC held: possible unconfirmed 1-for-16 reverse split (SEC 8-K filed 10-09; waiting for a second source)".
+    ``held[sid]`` names the triggers WITHHELD there; empty means none was (nothing read across the step fired,
+    or a trigger was only re-read on the bars before it), and the line then reads "Price triggers on ...".
+    Then ONE line for the co-members whose laggard confirmation was
     withheld because it read a held member's price (a fake breakout as the leader cue, a fake return in the
     basket median): "Laggard confirmation on ALAB and ARM held: it reads the price of SMTK, held for a possible
     unconfirmed split"."""

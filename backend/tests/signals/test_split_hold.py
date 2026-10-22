@@ -197,6 +197,67 @@ def test_the_hold_only_touches_the_held_member(db):
     assert [m for m in card.missing if " held: " in m and " on JAGX " in m] == []
 
 
+@pytest.mark.parametrize("listed", [False, True], ids=["unlisted", "listed"])
+def test_the_public_mirror_holds_exactly_like_postgres(db, tmp_path, listed):
+    """ONE implementation: the backtest's public mirror (``export_snapshot(clock="public")``, DuckDB) runs the
+    same seam over the same rows, so a replay holds the same night the same way — the same hold line, the
+    same triggers."""
+    from replay.export import export_snapshot
+    from replay.pit import ReplayPointInTimeData, connect_mirror
+
+    sid, tid = _seeded(db, "GAME", listed=listed)
+    night = date(2026, 8, 25)
+    thesis, live = _view(db, tid, night)
+    export_snapshot(db, tmp_path, clock="public")
+    rep = ReplayPointInTimeData(connect_mirror(tmp_path), asof=night, known_at=live.known_at)
+    a = assemble_from_pit(live, thesis, night)
+    b = assemble_from_pit(rep, thesis, night)
+    assert a.missing == b.missing
+    assert bool(_held_lines(a, "GAME")) is (not listed)
+    assert [(t.label, t.event_date) for t in a.triggers_fired] == [
+        (t.label, t.event_date) for t in b.triggers_fired
+    ]
+    assert [(t.label, t.event_date) for t in a.risk_signals] == [
+        (t.label, t.event_date) for t in b.risk_signals
+    ]
+
+
+def test_every_open_hold_has_its_line_and_co_members_share_one():
+    """The lines' contract (direct inputs): a held member is on the card every night its hold is open — naming
+    the triggers withheld, or "Price triggers" when none was — and co-members whose laggard confirmation read a
+    held member's price share ONE line naming the held members."""
+    import uuid
+
+    from domain.split_hold import Hold, SplitStep
+    from domain.thesis import BasketMember, Thesis
+
+    a, b, c, d = (uuid.UUID(int=i) for i in (1, 2, 3, 4))
+    thesis = Thesis(
+        id=uuid.uuid4(),
+        tenant_id=DEFAULT_TENANT_ID,
+        name="t",
+        narrative="n",
+        basket=[
+            BasketMember(ticker=tk, role="m", security_id=s)
+            for tk, s in (("SMTK", a), ("ARM", b), ("ALAB", c), ("BTAI", d))
+        ],
+    )
+    step = SplitStep(date(2026, 8, 19), date(2026, 8, 20), 0.16, 5.15, 1_000_000, 50_000)
+    holds = {a: Hold(step, "why A"), d: Hold(step, "why D")}
+    held = {
+        a: ["Breakout"],
+        b: [split_hold.LAGGARD_TRIGGER],
+        c: [split_hold.LAGGARD_TRIGGER],
+        d: [],
+    }
+    assert split_hold.notes(thesis, holds, held) == [
+        "Breakout on SMTK held: why A",
+        "Price triggers on BTAI held: why D",
+        "Laggard confirmation on ARM and ALAB held: it reads the price of SMTK and BTAI, held for a "
+        "possible unconfirmed split",
+    ]
+
+
 def test_every_price_path_detector_declares_its_card_name():
     """A detector that reads the price path must declare ``price_trigger`` — or a new one would read across
     an unconfirmed split step unheld. The two insider detectors read the price tape only for a Form 4's

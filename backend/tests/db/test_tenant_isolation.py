@@ -877,3 +877,20 @@ def test_split_list_read_isolation_live_and_replay(db, tmp_path):
         other = PROD_TENANT_ID if tenant == DEFAULT_TENANT_ID else DEFAULT_TENANT_ID
         cross = ReplayPointInTimeData(con, asof=asof, known_at=_KNOWN, tenant_id=other)
         assert cross.split_events(shared) == []
+
+
+def test_the_split_jump_scan_is_tenant_isolated(db):
+    """S5 — the split-night hold's escalation read (``pipeline.split_jumps``: the active basket union + a
+    public-clock PIT over it). GAME's real released step, seeded in the demo tenant with its split unlisted, is
+    the demo's "is this real?" item and never the production tenant's."""
+    from pipeline.split_jumps import scan_unlisted_jumps
+    from tests import split_s5_fixtures as s5
+
+    provision_tenant(db, "prod-isolation", tenant_id=PROD_TENANT_ID)
+    sid = s5.seed(db, "GAME", listed=False)
+    s5.seed_thesis(db, [("GAME", sid)])
+    asof = date(2026, 8, 28)
+    assert [j.ticker for j in scan_unlisted_jumps(db, asof=asof, tenant_id=DEFAULT_TENANT_ID)] == [
+        "GAME"
+    ]
+    assert scan_unlisted_jumps(db, asof=asof, tenant_id=PROD_TENANT_ID) == ()

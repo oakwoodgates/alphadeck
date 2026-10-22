@@ -30,18 +30,18 @@ def assemble_from_pit(
     serve path and every history view apply it identically: a member whose newest bars carry an unconfirmed
     split-shaped step (``signals.split_hold.find_holds``) has its PRICE-PATH triggers (``Detector.
     price_trigger``, and the laggard rotation) read only the bars before the step (``HeldPriceView``). A
-    trigger that reads across the step cannot fire, warm or arm; one wholly before it stands. Each reading the
-    hold changed goes on the card's ``missing[]`` (held is never silent, #6). No hold = the stream is exactly
-    what it was before S5.
+    trigger that reads across the step cannot fire, warm or arm; one wholly before it stands. Every open hold
+    goes on the card's ``missing[]`` for as long as it holds, naming the triggers it withheld (held is never
+    silent, #6). No hold = the stream and the card are exactly what they were before S5.
     """
     if pit.asof != asof:
         raise ValueError(f"pipeline asof {asof} does not match point-in-time view {pit.asof}")
 
     holds = split_hold.find_holds(pit, thesis, asof)
     held_view = split_hold.HeldPriceView(pit, holds) if holds else pit
-    # security -> the price-path triggers the hold WITHHELD there; [] = only a reading changed (a trigger
-    # re-read on the bars before the step, or one the step's jump would have cleared — kept, still on the line)
-    held: dict[UUID, list[str]] = {}
+    # security -> the price-path triggers the hold WITHHELD there (every held member has a line: [] reads
+    # "Price triggers on X held"); a co-member appears only when its laggard confirmation was withheld
+    held: dict[UUID, list[str]] = {sid: [] for sid in holds}
     same = split_hold.identity  # WHICH trigger, not its reading (score / label)
 
     events: list[SignalEvent] = []
@@ -56,12 +56,9 @@ def assemble_from_pit(
                 unheld.append(event)
             if sid in holds and detector.price_trigger is not None:
                 kept = detector(held_view, sid, asof, cfg)
-                if kept != event:
-                    held.setdefault(sid, [])
-                    if event is not None and same(event) != same(kept):
-                        held[sid].append(
-                            detector.price_trigger
-                        )  # withheld: it read across the step
+                if event is not None and same(event) != same(kept):
+                    # withheld: this trigger read across the step
+                    held[sid].append(detector.price_trigger)
                 event = kept
             if event is not None:
                 events.append(event)
@@ -88,12 +85,8 @@ def assemble_from_pit(
         for sid in dict.fromkeys(e.security_id for e in lagging_unheld + lagging):
             mine = [e for e in lagging if e.security_id == sid]
             theirs = [e for e in lagging_unheld if e.security_id == sid]
-            if mine == theirs:
-                continue
             if {same(e) for e in theirs} - {same(e) for e in mine}:
                 held.setdefault(sid, []).append(split_hold.LAGGARD_TRIGGER)
-            elif sid in holds:
-                held.setdefault(sid, [])
     events += lagging
 
     return assemble_call(
