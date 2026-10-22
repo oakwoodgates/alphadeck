@@ -11,6 +11,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from functools import cache
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
@@ -261,7 +262,6 @@ def test_without_the_nightly_reading_a_stopped_feed_says_only_what_the_tape_show
     ],
 )
 def test_the_split_night_hold_is_a_flag_with_the_call_affected(ticker, asof, words):
-    pytest.importorskip("domain.split_hold")  # S5 (PR #437) — the seam until it is on main
     mf = flags_of(ticker, asof)
     f = mf.flags[0]
     assert f.kind == m.SPLIT_HOLD and f.call_affected and f.level == m.IN_DOUBT
@@ -270,13 +270,41 @@ def test_the_split_night_hold_is_a_flag_with_the_call_affected(ticker, asof, wor
     assert mf.marked
 
 
+@pytest.mark.parametrize(("ticker", "asof"), [("SMTK", "2026-08-20"), ("ZCSH", "2026-09-29")])
+def test_the_flag_and_the_call_card_read_the_same_hold(ticker, asof):
+    """The flag is the call path's own hold, read the same way: ``signals.split_hold.find_holds`` over the same
+    view holds the same step with the same reason — the card's held line and the row's flag never disagree.
+    """
+    from signals.base import window_prices
+    from signals.split_hold import find_holds
+
+    v = view(ticker, asof)
+
+    class _View:  # the two accessors find_holds reads, over the extracted view
+        def price_history(self, sid, lookback_days=None):
+            return window_prices(list(v["bars"]), v["asof"], lookback_days)
+
+        def split_events(self, sid):
+            return list(v["splits"])
+
+    thesis = SimpleNamespace(basket=[SimpleNamespace(security_id=v["sid"], ticker=ticker)])
+    holds = find_holds(_View(), thesis, v["asof"])
+    (f,) = [x for x in flags_of(ticker, asof).flags if x.kind == m.SPLIT_HOLD]
+    assert holds[v["sid"]].cut == f.since
+    reason = holds[v["sid"]].reason
+    assert f.reason.startswith(reason[:1].upper() + reason[1:])
+
+
+def test_a_released_hold_is_no_flag():
+    # ZCSH's 09-29 step on today's view: three sessions are long past, the hold released (no flag of its own)
+    assert m.SPLIT_HOLD not in kinds(flags_of("ZCSH", "2026-10-22"))
+
+
 # --- the run-artifact readers ----------------------------------------------------------------------------
 
 
 def test_first_night_corrections_read_what_the_price_leg_writes():
     """The contract between ``ingest_thesis.split_reads_of`` (the artifact writer) and this reader."""
-    from types import SimpleNamespace
-
     from pipeline.ingest_thesis import split_reads_of
 
     sid = UUID("11111111-1111-1111-1111-111111111111")

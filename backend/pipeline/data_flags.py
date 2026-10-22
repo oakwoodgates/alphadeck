@@ -58,6 +58,7 @@ from domain.data_flags import (
     sort_flags,
 )
 from domain.market_time import market_tz
+from domain.split_hold import COVER_SESSIONS, Hold, hold_for, nearby
 from domain.splits import (
     LIVE_STATUSES,
     STATUS_ANNOUNCED,
@@ -87,13 +88,11 @@ from pipeline.split_basis import (
     tape_findings,
 )
 from pipeline.tape_health import is_tape_stale
+from signals.split_hold import HOLD_LOOKBACK_DAYS  # the hold's own read window — one definition
 
-# The S5 hold reads the newest bars over this many calendar days (``signals.split_hold.HOLD_LOOKBACK_DAYS``:
-# three sessions plus a prior bar, with room for a gap). Pinned equal by test once S5 is on main.
-HOLD_LOOKBACK_DAYS = 30
-# How near a list row's first session must sit to a hold's step to be "the same split" (S1's tolerance,
-# ``domain.split_hold.COVER_SESSIONS``): a needs-review row the hold already names is not flagged twice.
-NEAR_SESSIONS = 2
+# How near a list row's first session must sit to a hold's step to be "the same split" (the hold's own
+# ``COVER_SESSIONS``): a needs-review row the hold already names is not flagged twice.
+NEAR_SESSIONS = COVER_SESSIONS
 
 # The repair tool's provenance (``pipeline.repair_split_basis``: KIND / KIND_REVOKE / its log dir) — local
 # copies so this read path does not import the repair tool's ingest graph; pinned equal by test.
@@ -316,18 +315,6 @@ def first_night_corrections(
     return out
 
 
-# --- the S5 seam -----------------------------------------------------------------------------------------
-
-
-def _hold_rule() -> tuple[Callable[..., Any], Callable[..., Any]] | None:
-    """S5's pure hold rule (``domain.split_hold.hold_for`` / ``nearby``), or None before it is on main."""
-    try:
-        from domain.split_hold import hold_for, nearby  # S5 — PR #437
-    except ImportError:  # pragma: no cover — the seam until S5 merges
-        return None
-    return hold_for, nearby
-
-
 # --- the pure composition --------------------------------------------------------------------------------
 
 
@@ -375,7 +362,7 @@ def _sources(row: Mapping[str, Any]) -> str:
 
 
 def hold_flag(
-    hold: Any, bar_dates: Sequence[date], asof: date, near_rows: Sequence[Mapping]
+    hold: Hold, bar_dates: Sequence[date], asof: date, near_rows: Sequence[Mapping]
 ) -> DataFlag:
     """The S5 hold as a flag: in doubt across the step (price + volume), the call affected."""
     step = hold.step
@@ -772,12 +759,11 @@ def member_flags(
     bar_dates = _bar_dates(bars)
     flags: list[DataFlag] = []
 
-    # 1. the S5 split-night hold (its own rule, its own bars window)
-    hold = None
-    near_rows: list[Mapping[str, Any]] = []
-    rule = _hold_rule()
-    if rule is not None and bar_dates:
-        hold_for, nearby = rule
+    # 1. the S5 split-night hold — its own rule over its own bars window (what ``signals.split_hold.
+    #    find_holds`` reads for the call: the view's last HOLD_LOOKBACK_DAYS of bars + its split list), so the
+    #    flag and the card's held line can never disagree
+    hold: Hold | None = None
+    if bar_dates:
         cutoff = asof - timedelta(days=HOLD_LOOKBACK_DAYS)
         recent = [b for b in bars if _day(b["d"]) >= cutoff]
         hold = hold_for(recent, split_rows, asof=asof)
