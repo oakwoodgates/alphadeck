@@ -7,8 +7,9 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
@@ -242,6 +243,28 @@ def test_the_artifact_block_and_a_quiet_night(db, tmp_path):
     assert quiet.result.report_lines() == [
         "splits: no new list rows · 1 companies, 1 filing(s) read"
     ]
+
+
+def test_the_public_clock_reads_a_detected_split_from_its_own_publication(db, tmp_path):
+    # S2's history read (``split_repo.as_of_rows(clock="public")``): every version of the split counts from
+    # its first SEC filing (GAME's 8-K, 2026-08-19), never from the nights the detector wrote it (announced
+    # 08-20, confirmed 08-24 — both stamped NOW, honest bookkeeping)
+    ids = _seed(db, ["GAME"])
+    _run(db, tmp_path, asof=date(2026, 8, 20))
+    _run(db, tmp_path, asof=date(2026, 8, 24))
+    sid = ids["GAME"]
+    et = ZoneInfo("America/New_York")
+
+    def public(at: datetime) -> list[dict]:
+        return split_repo.as_of_rows(
+            db, tenant_id=DEFAULT_TENANT_ID, security_ids=[sid], known_at=at, clock="public"
+        )[sid]
+
+    assert public(datetime(2026, 8, 18, 23, 0, tzinfo=et)) == []
+    (row,) = public(datetime(2026, 8, 19, 12, 0, tzinfo=et))
+    assert (row["status"], row["effective_date"]) == (STATUS_CONFIRMED, date(2026, 8, 24))
+    assert row["recorded_at"] == datetime(2026, 8, 19, tzinfo=et)  # the publication, not our stamp
+    assert row["ingested_at"] > row["recorded_at"]  # the honest stamp is kept beside it
 
 
 # --- the hook inside the per-thesis ingest -------------------------------------------------------------
