@@ -147,9 +147,10 @@ def test_a_rerun_appends_zero_and_a_duplicate_filing_is_refused(db):
 
 
 def test_the_version_key_is_the_filing_not_the_stamp(db):
-    """Migration 0057's constraint set: the UNIQUE keys one version per (tenant, security, metric,
-    period_end, FILING), and no UNIQUE carries ``recorded_at`` any more (it would reject a history written
-    under one honest stamp)."""
+    """The constraint set (0057, widened by 0060): the UNIQUE keys one ORIGINAL per (tenant, security, metric,
+    period_end, FILING) — ``supersedes`` NULL, NULLS NOT DISTINCT — plus one re-parse per version it replaces
+    (the revenue-label fix's chain; ``tests/ingest/test_revenue_label.py``), and no UNIQUE carries
+    ``recorded_at`` any more (it would reject a history written under one honest stamp)."""
     with db.cursor() as cur:
         cur.execute(
             "SELECT conname, pg_get_constraintdef(oid) AS def FROM pg_constraint "
@@ -157,8 +158,9 @@ def test_the_version_key_is_the_filing_not_the_stamp(db):
         )
         uniques = {r["conname"]: r["def"] for r in cur.fetchall()}
     assert uniques == {
-        "fact_fundamentals_filing_version_key": (
-            "UNIQUE (tenant_id, security_id, metric_key, period_end, valid_from)"
+        "fact_fundamentals_filing_reparse_key": (
+            "UNIQUE NULLS NOT DISTINCT "
+            "(tenant_id, security_id, metric_key, period_end, valid_from, supersedes)"
         )
     }
 

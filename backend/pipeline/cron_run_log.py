@@ -689,6 +689,24 @@ def build_run_payload(
                 # writer held the company); the thesis recorded with `ingest_fresh=false`. Listed, never
                 # dropped (#9). Readers use `.get`.
                 "onboarding": _onboarding_rows(r.ingested),
+                # the revenue rows the fundamentals data-quality screen kept OUT of this thesis's names'
+                # series tonight (`ingest.fundamentals.ScreenedRow`) — never stored, so recorded here, one
+                # row each, never dropped (#9). Readers use `.get` (`fundamentals_screened`, below): an
+                # artifact written before the key existed reads as none screened.
+                "fundamentals_screened": [
+                    {
+                        "security_id": str(f.security_id),
+                        "ticker": f.ticker,
+                        "reason": x.reason,
+                        "period_end": x.period_end.isoformat(),
+                        "filed": x.filed.isoformat(),
+                        "value": x.value,
+                        "reference": x.reference,
+                        "accession": x.accession,
+                    }
+                    for f in getattr(r, "fundamentals", ()) or ()
+                    for x in getattr(f, "screened", ()) or ()
+                ],
             }
             for r in results
         ],
@@ -715,6 +733,24 @@ def _onboarding_rows(names: Sequence) -> list[dict]:
             },
         )
     return list(out.values())
+
+
+def fundamentals_screened(doc: dict) -> dict:
+    """The fundamentals data-quality screen's record on one run artifact: ``{count, by_reason, rows}``,
+    summed over the theses. Read with ``.get`` throughout (the G4 rule): an artifact written before the key
+    existed — or a thesis entry without it — reads as nothing screened, never a raise."""
+    rows = [
+        x
+        for t in (doc.get("theses") or [])
+        if isinstance(t, dict)
+        for x in (t.get("fundamentals_screened") or [])
+        if isinstance(x, dict)
+    ]
+    by_reason: dict[str, int] = {}
+    for x in rows:
+        reason = str(x.get("reason") or "unknown")
+        by_reason[reason] = by_reason.get(reason, 0) + 1
+    return {"count": len(rows), "by_reason": by_reason, "rows": rows}
 
 
 def write_cron_run_log(

@@ -232,6 +232,11 @@ replay stays honest.
   version recorded after `known_at` can influence nothing. Detectors date, cite and age a fundamentals fact by
   `knowable_from`, never `valid_from` — the 10-Q comparative re-dating had kept year-old revenue inflections
   live (CALL_LOGIC.md §2, the GEV example). Both the date and the pick are on the PUBLIC clock (the filing).
+  The run counts each filing ONCE, by its latest-recorded version (the revenue-label fix, 2026-10-20: a
+  same-filing re-parse under the current tag replaces the old tag's number — migration 0060), so a superseded
+  old-tag version between two filings of the current number can never break the run and date it at the
+  year-later comparative (MEASURED on the dev copy 2026-10-20: 55 periods in 10 companies would otherwise date
+  late) — the same per-filing collapse the public-clock read applies.
   *(Until migration 0057 the per-version date read `max(valid_from, market date of recorded_at)` — D3a's
   held-date term, retired with the operator's approval 2026-10-21 — and the pick was `recorded_at DESC, id
   DESC`; on every row stored before 0057 — `recorded_at = valid_from 00:00 UTC`, all 120,876 on prod — both are
@@ -242,7 +247,10 @@ replay stays honest.
   *Enforced by:* `tests/db/test_first_knowability.py` (fixed `known_at` pins between and after the filings, a
   restatement, a reverted value, the shared-filing tie-break, and a sweep proving nothing recorded after `known_at`
   moves the pick or the annotation — all on real prod version histories) and `tests/replay/test_pit_first_knowability.py`
-  (row-for-row + event-for-event parity, scoped and prefetched).
+  (row-for-row + event-for-event parity, scoped and prefetched), and `tests/ingest/test_revenue_label.py` (the
+  label-fix re-ingest on real companyfacts — the 2026-10-20 revenue-label fix: first knowability survives it,
+  and a weekly sweep dates every revenue-acceleration event at the filing that first made its number public —
+  never before, never after).
 - *Also honored by (migration 0057, 2026-10-21 — the fundamentals write path; the public-clock rule's
   bookkeeping half):* `fact_fundamentals` was the last writer to backdate its bookkeeping stamp (`recorded_at =
   filed 00:00 UTC` — MEASURED all 120,876 prod rows, a median ~6.2 years before the row was actually written,
@@ -252,7 +260,12 @@ replay stays honest.
   (`knowable_from`) and its pick are both stated on its public FILING (bullet above) — under one shared honest
   stamp a history reads exactly like the per-filing backdated stamps (MEASURED on prod: 0 of 12 cards differ at
   asof 2026-10-21; 0 of 661 securities' rows differ old reader vs new). The table's UNIQUE moved to `(…,
-  period_end, valid_from)`, the ingest's own idempotency key, so a duplicate filing is still refused.
+  period_end, valid_from)`, the ingest's own idempotency key, so a duplicate filing is still refused. Migration
+  0060 (the revenue-label fix) adds `supersedes` to that key, NULLS NOT DISTINCT: still ONE original per filing,
+  and a filing's re-parse under the current tag is admitted only as a link naming the version it replaces, once
+  per version, and only when it changes the number (a trigger refuses a no-op or cross-filing link) — so a
+  duplicate can never hide behind a correct read, and a tag that switches back is one more link
+  (`tests/ingest/test_revenue_label.py::test_the_key_admits_only_a_linked_reparse_that_changes_the_number`).
   *Enforced by:* `tests/ingest/test_fundamentals_honest_stamp.py` (a new row stamped inside the DB-clock window
   of its run; one honest stamp reads row-for-row and event-for-event like the backdated stamps on real
   histories; existing rows read exactly as the pre-0057 reader; a rerun appends zero and a duplicate filing is

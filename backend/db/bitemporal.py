@@ -210,10 +210,11 @@ def first_knowable_versions(
       note).
     - **The run** is the trailing stretch of versions, ending at the pick, whose value columns equal the
       pick's. A different value anywhere before it ends the run (a restatement, or a restatement reverted —
-      each is new knowledge at its own date).
+      each is new knowledge at its own date). Only each public date's latest-recorded version takes part:
+      a superseded parse of a filing is not a separate filing (the per-filing collapse, below).
     - **The annotation** is the run's FIRST version: its public date (``KNOWABLE_FROM`` — the earliest in
       the run, the order being ascending by it; ``version_knowable_date``) and its filing
-      (``KNOWABLE_SOURCE``). A public-date tie keeps the earliest-recorded version.
+      (``KNOWABLE_SOURCE``).
 
     ``versions`` are TUPLE rows in ``columns`` order — what both engines' cursors return natively — and only
     the picks become dicts (``{column: value}``, exactly the shape the ``dict_row`` read returned). Output
@@ -265,13 +266,20 @@ def first_knowable_versions(
                     key=version_order
                 )  # an exact (public date, recorded_at) tie: the id decides
             pick = group[-1]
+            # ONE version per public date — per FILING, for fundamentals — its latest-recorded: a same-filing
+            # re-parse (the revenue-label supersession, migration 0060) replaces that filing's earlier parse,
+            # exactly as the public read collapses a fact's versions sharing one public instant
+            # (``_public_read``). Without it an old tag's superseded number sitting between two filings of the
+            # current tag's number breaks the run, and the current number dates at its year-later comparative
+            # (the D3 phantom shape — late, never early). The group is in version order, so a public date's
+            # last version is its latest-recorded, and the pick (the last of all) always survives. A no-op on
+            # every filing holding one version (all of them before 0060).
+            group = [r for r, nxt in zip(group, group[1:]) if r[pub_i] != nxt[pub_i]] + [pick]
             target = same_value(pick)
             start = len(group) - 1
             while start > 0 and same_value(group[start - 1]) == target:
                 start -= 1
-            first = group[
-                start
-            ]  # ascending by public date: the run's earliest, ties earliest-recorded
+            first = group[start]  # ascending by public date: the run's earliest filing
         row = dict(zip(columns, pick))
         row[KNOWABLE_FROM] = first[pub_i]
         row[KNOWABLE_SOURCE] = first[src_i]

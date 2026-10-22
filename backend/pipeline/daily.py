@@ -55,6 +55,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+from collections import Counter
 from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone, tzinfo
@@ -321,17 +322,44 @@ def _refresh_fundamentals(
     )
 
 
-def _print_fundamentals(results: list[ThesisRunResult]) -> None:
+# The data-quality screen re-judges every cached document each pass, so its historical rejections repeat
+# nightly; only rows from filings this recent are printed one by one (the ones tonight's filings produced,
+# where a false positive would otherwise vanish unseen). Every rejection, old or new, is COUNTED on the
+# summary line and recorded on the run artifact.
+_SCREEN_NEW_DAYS = 7
+
+
+def _print_fundamentals(results: list[ThesisRunResult], asof: date | None = None) -> None:
     """The pass's ONE fundamentals summary (the per-thesis step reports nothing itself): quarters appended,
-    names refreshed, the X8 known-absent count folded into the line, then one ERROR line per real failure —
-    a FRESH 404 included — and one WARNING line per thesis whose whole step failed. Loud only when nonzero.
+    names refreshed, the X8 known-absent count folded into the line, the revenue rows the data-quality screen
+    kept out (by reason), then one line per screened row filed within ``_SCREEN_NEW_DAYS`` of ``asof``, one
+    ERROR line per real failure — a FRESH 404 included — and one WARNING line per thesis whose whole step
+    failed. Loud only when nonzero.
     """
     fund = [f for r in results for f in r.fundamentals]
     quarters = sum(f.appended for f in fund)
     known_absent = sum(1 for f in fund if f.error and f.known_absent)
     errs = [f.error for f in fund if f.error and not f.known_absent]
     absent = f", {known_absent} known without companyfacts (404, cached)" if known_absent else ""
-    print(f"fundamentals refresh: +{quarters} quarters, {len(fund)} names{absent}")
+    screened = [(f.ticker or str(f.security_id), x) for f in fund for x in f.screened]
+    by_reason = Counter(x.reason for _t, x in screened)
+    scr = (
+        f", {len(screened)} revenue row(s) screened out (data quality: "
+        + ", ".join(f"{k} {v}" for k, v in sorted(by_reason.items()))
+        + ")"
+        if screened
+        else ""
+    )
+    print(f"fundamentals refresh: +{quarters} quarters, {len(fund)} names{absent}{scr}")
+    if asof is not None:
+        cutoff = asof - timedelta(days=_SCREEN_NEW_DAYS)
+        for name, x in screened:
+            if x.filed >= cutoff:
+                print(
+                    f"  fundamentals screened (new filing): {name} {x.reason} — quarter ending "
+                    f"{x.period_end} filed {x.filed} value {x.value:,.0f} vs {x.reference:,.0f} "
+                    f"({x.accession}); kept out of the series, never stored"
+                )
     for err in errs:
         print(f"  fundamentals refresh ERROR: {err}")
     for r in results:
@@ -1333,7 +1361,7 @@ def _run_daily_pass_locked(
     finally:
         conn.close()
     if allow_live:
-        _print_fundamentals(results)
+        _print_fundamentals(results, asof)
     finished_at = datetime.now(timezone.utc)
     # G5a — THE NEWLY-STALE DIFF, computed BEFORE the artifact is written (ordering is load-bearing: once
     # this run's artifact exists it would be its own "previous" and nothing could ever read as newly stale).
