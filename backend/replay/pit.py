@@ -26,6 +26,7 @@ import duckdb
 
 from db.bitemporal import (
     _FACT_IDENTITY,
+    first_knowable_order,
     first_knowable_versions,
     has_first_knowability,
     knowability_expr,
@@ -180,9 +181,10 @@ class ReplayPointInTimeData:
 
     The as-of read mirrors ``db.bitemporal._as_of`` exactly: ``valid_from <= asof AND recorded_at <=
     known_at``, then the latest row per natural-key identity (``_FACT_IDENTITY``) by ``recorded_at DESC,
-    id DESC`` (the same deterministic tiebreak). The cap is constructor-bound — every accessor query is
-    upper-bounded by ``asof``/``known_at`` with no widening path (the lookahead boundary). A parity test
-    asserts each accessor equals the live ``PointInTimeData`` accessor row-for-row.
+    id DESC`` (the same deterministic tiebreak; ``fact_fundamentals`` picks its latest FILING through the
+    shared ``first_knowable_versions``, exactly as Postgres does). The cap is constructor-bound — every
+    accessor query is upper-bounded by ``asof``/``known_at`` with no widening path (the lookahead boundary).
+    A parity test asserts each accessor equals the live ``PointInTimeData`` accessor row-for-row.
 
     **The memo + basket prefetch + read bounds (backtest B5a) — the LIVE PIT's rule, ported.** This view
     had none of the three, and that was the entire cost of a replay: MEASURED on the dev copy of prod, a
@@ -268,14 +270,16 @@ class ReplayPointInTimeData:
     ) -> list[dict[str, Any]]:
         """The D3a first-knowability read — the twin of ``db.bitemporal``'s branch: EVERY visible version
         under the SAME gate (no ``QUALIFY``), picked + annotated by the SAME pure
-        ``first_knowable_versions``, so the mirror cannot drift from Postgres. The registry floor (never
-        derived for these tables today) is applied AFTER the pick, to the picked ``valid_from`` — a SQL floor
-        could cut the history the run walks (``db.bitemporal.as_of_many``'s rule, mirrored)."""
+        ``first_knowable_versions``, so the mirror cannot drift from Postgres — including the version order
+        (the latest FILING held wins, ``first_knowable_order``), pre-sorted here exactly as Postgres pre-sorts
+        it. The registry floor (never derived for these tables today) is applied AFTER the pick, to the picked
+        ``valid_from`` — a SQL floor could cut the history the run walks (``db.bitemporal.as_of_many``'s rule,
+        mirrored)."""
         ident = ", ".join(partition)
         query = (
             f"SELECT * FROM {table} WHERE {where} "
             f"AND valid_from <= ? AND {self._gate(table)} <= ? "
-            f"ORDER BY {ident}, recorded_at, id"
+            f"ORDER BY {ident}, {first_knowable_order(table)}"
         )
         res = self.con.execute(query, [*params, self.asof, self.known_at])
         cols = [d[0] for d in res.description]

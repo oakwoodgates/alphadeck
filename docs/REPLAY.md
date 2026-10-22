@@ -48,8 +48,10 @@ both no-lookahead tests green **is** the integrity bar. The fundamentals read's 
 (`knowable_from` / `knowable_accession`, `CALL_LOGIC.md` §2) is computed on BOTH engines by one shared pure function
 (`db.bitemporal.first_knowable_versions`) over every visible version, and `test_pit_first_knowability.py` holds the
 mirror to it row-for-row and event-for-event on real version histories, at `known_at` pins between filings as
-well as after them. The insider read's Form 4/A resolution (R8-A, `CALL_LOGIC.md` §3) is the same pattern: the
-mirror also carries four small AUX tables (`insider_amendment`, `insider_amendment_link`,
+well as after them — under the pre-0057 backdated stamp AND the honest one (migration 0057: the date and the
+pick are on the filing, so a history written under one store-instant stamp reads exactly like the backdated one,
+at every pin on a public-clock mirror). The insider read's Form 4/A resolution (R8-A, `CALL_LOGIC.md` §3) is the
+same pattern: the mirror also carries four small AUX tables (`insider_amendment`, `insider_amendment_link`,
 `insider_amendment_decision`, and `security_cik` — every CIK a security has been known by, identity materialized
 at export), read once per mirror connection, and the ONE pure resolver (`domain.insider_amendments`) runs on both
 engines; `test_pit_insider_amendments.py` holds the mirror to Postgres row-for-row at pins before the links, at

@@ -2,9 +2,11 @@
 
 Each list is EVERY stored ``fact_fundamentals`` revenue version of one name, exactly as prod held them on
 2026-10-16 (read-only ``SELECT ... ORDER BY period_end, recorded_at, id``): ``(period_end, value, filed,
-accession, fiscal_period, fiscal_year, basis)``. Stored through the REAL ingest writer
-(``ingest.fundamentals.store_quarters``), so every version gets the same ``valid_from = recorded_at = filed
-00:00 UTC`` stamp prod's rows carry (MEASURED: all 120,810 prod rows, backfill and nightly alike).
+accession, fiscal_period, fiscal_year, basis)``. ``store_versions`` stores them exactly as prod holds them:
+the ingest's own row values with the ``valid_from = filed``, ``recorded_at = filed 00:00 UTC`` stamp every
+pre-0057 prod row carries (MEASURED: all 120,810 prod rows on 2026-10-16, 120,876 on 2026-10-21, backfill
+and nightly alike) — rows the honest-stamp change (migration 0057) leaves untouched. ``store_versions_live``
+stores the same history through the REAL writer as it stamps today (one honest database instant per batch).
 
 What each one is for:
 
@@ -26,12 +28,13 @@ What each one is for:
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, time, timezone
 from uuid import UUID
 
 import psycopg
 
-from ingest.fundamentals import QuarterPoint, store_quarters
+from db.bitemporal import append_fact
+from ingest.fundamentals import QuarterPoint, fundamentals_row, store_quarters
 
 Version = tuple[date, int, date, str, str, int, str]
 
@@ -464,11 +467,45 @@ def quarter_points(versions: list[Version]) -> list[QuarterPoint]:
     ]
 
 
+def legacy_stamp(filed: date) -> datetime:
+    """The stamp every row written before migration 0057 carries — ``recorded_at = filed 00:00 UTC`` (MEASURED:
+    all 120,876 prod rows on 2026-10-21; those rows are kept exactly as written)."""
+    return datetime.combine(filed, time.min, tzinfo=timezone.utc)
+
+
 def store_versions(conn: psycopg.Connection, security_id: UUID, versions: list[Version]) -> None:
-    """Store every version through the REAL ingest writer (the prod stamp), then commit."""
+    """Store every version EXACTLY as prod holds it today: the ingest's own row values
+    (``ingest.fundamentals.fundamentals_row``) with the pre-0057 backdated stamp (``legacy_stamp``) — the
+    shape of every existing prod row, which the honest-stamp change leaves untouched. The writer itself no
+    longer produces this stamp (``store_versions_live`` stores through it); then commit."""
+    for q in quarter_points(versions):
+        append_fact(
+            conn,
+            "fact_fundamentals",
+            {**fundamentals_row(security_id, q), "recorded_at": legacy_stamp(q.filed)},
+        )
+    conn.commit()
+
+
+def store_versions_live(
+    conn: psycopg.Connection, security_id: UUID, versions: list[Version]
+) -> datetime:
+    """Store every version through the REAL ingest writer — today's honest stamp: one database instant for
+    the whole batch, as a name's onboarding pull writes its full history — then commit. Returns that
+    stamp, read back from the table (the newest one on the security: anything already there is older).
+    """
     result = store_quarters(conn, security_id, quarter_points(versions))
     assert result.appended == len(versions), "every real version is a distinct (period_end, filed)"
     conn.commit()
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT recorded_at, count(*) AS n FROM fact_fundamentals WHERE security_id = %s "
+            "GROUP BY recorded_at ORDER BY recorded_at DESC LIMIT 1",
+            (security_id,),
+        )
+        row = cur.fetchone()
+    assert row["n"] == len(versions), "the batch carries ONE stamp"
+    return row["recorded_at"]
 
 
 def first_filed(versions: list[Version]) -> dict[date, tuple[date, str]]:

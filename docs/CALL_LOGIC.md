@@ -400,9 +400,13 @@ only *coincide* for insider buys, which is exactly why the two conviction source
   latest version, a year-old inflection re-fired as fresh for another 180 days. The as-of read now annotates each
   fundamentals row with `knowable_from` / `knowable_accession` — the earliest knowable date (and filing) in the
   trailing run of value-identical versions ending at the picked one, counting only versions visible at
-  `(asof, known_at)`; a version's own knowable date is `max(valid_from, the market date of recorded_at)` — and the
-  detector's fire date, liveness anchor and provenance accession all come from it. Equality is exact on the stored
-  number, so a genuine restatement (a changed value) is new knowledge at its own filing and still fires from there;
+  `(asof, known_at)`; a version's own knowable date is its FILING date (`valid_from`), and the picked version is the
+  latest filing visible — and the detector's fire date, liveness anchor and provenance accession all come from it.
+  (Migration 0057, operator-approved 2026-10-21: the date is the PUBLIC filing date, never our store time — the
+  ingest now stamps `recorded_at` honestly, as bookkeeping. The earlier `max(valid_from, market date of
+  recorded_at)` would then have dated a name's whole history at the night it joined a basket — re-firing year-old
+  inflections as fresh — and was identical to this rule on every row stored before 0057.) Equality is exact on
+  the stored number, so a genuine restatement (a changed value) is new knowledge at its own filing and still fires from there;
   firing only on a filing's own newest quarter (rule (c)) is a separate, deferred policy call. When several live
   inflections share one knowability date, the NEWEST period is cited (tie-break (d)). Example — GEV: Q1-2025 revenue
   of $8,032M was first filed 2025-04-23 and re-reported unchanged in the 2026-04-22 10-Q; the 2026-10-01 Nuclear

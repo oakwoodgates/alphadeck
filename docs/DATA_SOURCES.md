@@ -112,6 +112,16 @@ and the free proxy is demonstrably inadequate. Default to free + derive.
   cadence (45 weekday passes, 2026-08-18 → 2026-10-16): ~178 pulls a pass instead of 680 (about 26%), ~0.29 GB
   instead of 1.18 GB. (The 24 h grace means a name pulled the night of its filing is pulled once more the next
   night; that second pull is most of the difference from the ~151 a one-pass-late placement would cost.)
+  The gate reads the cached files' own clocks (the companyfacts copy's fetch time, the index's acceptance
+  times), never `fact_fundamentals.recorded_at` — so the stamp change below does not touch it.
+- **The fundamentals' stamp (migration 0057, 2026-10-21).** `fact_fundamentals` rows carry `valid_from =` the
+  filing's acceptance date — the PUBLIC clock, what every detector and every history read dates by — and, since
+  0057, `recorded_at =` the database instant the ingest stored them (`ingest.fundamentals.store_quarters`, one
+  `db_now` per batch): honest bookkeeping, never backdated, never the history gate. Before 0057 the ingest
+  backdated `recorded_at` to `filed 00:00 UTC` (MEASURED on prod 2026-10-21: all 120,876 rows, a median ~6.2
+  years before the row was actually written, because companyfacts hands over a name's whole history in one
+  pull). Those rows are kept as written; under the public clock the old stamp is moot. Detail:
+  `FEED_LOOP.md` §Honest stamps — the fundamentals write path.
 - **The cache PERSISTS across container rebuilds** — the compose stack mounts a named volume (`appdata:/data`,
   backend + the cron sidecar) over the runtime-data home, so `data/edgar_cache/` (and the price/DOE/FIGI/SEC
   caches beside it) survives `docker compose up --build`. Before the volume, every rebuild wiped the cache and
@@ -621,7 +631,11 @@ with intent", 13G = passive; the fire policy (13D-family ORIGINALS only) is appl
 
 Every ingested fact lands with `valid_from` = event/effective time and `recorded_at` = ingest time, into
 the bitemporal store (see `CLAUDE.md`). No source is read in a way that lets a detector see data dated
-after its `asof`. This is what makes the replay harness honest.
+after its `asof`. This is what makes the replay harness honest. History is judged on the PUBLIC clock
+(`INVARIANTS.md` §4, operator decision 2026-10-21); `recorded_at` is bookkeeping. Two writers used to backdate
+it and no longer do — the pre-D1 SPY/IWM bars (`recorded_at = D 00:00 UTC`, 2,598 rows) and the pre-0057
+`fact_fundamentals` rows (`recorded_at = filed 00:00 UTC`, 120,876 rows) keep those stamps as written, which
+is moot under the public clock (each sits on its public date already).
 
 ## Notes on the ETF radar's three faces
 

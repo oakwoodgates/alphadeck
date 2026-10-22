@@ -3,9 +3,11 @@ SHARES-OUTSTANDING series (SEC companyfacts — both ride the same single pull p
 ``fact_fundamentals`` with honest historical knowability.
 
 companyfacts returns the FULL multi-year history in one pull, each period carrying its own ``filed``/``accn``,
-so a single run reconstructs every historical quarter stamped at its TRUE filing date (R17 — never today).
-This is the multi-year backfill the acceleration backtest needs. Incremental + idempotent: a re-run appends
-ZERO rows for already-stored (security, metric, period_end, filed) versions (count-the-table guarded).
+so a single run reconstructs every historical quarter dated at its TRUE filing date (``valid_from = filed``,
+R17 — never today) while ``recorded_at`` says honestly when THIS system stored it (the run's own database
+instant — ``ingest.fundamentals.store_quarters``; never backdated since migration 0057). This is the multi-year
+backfill the acceleration backtest needs. Incremental + idempotent: a re-run appends ZERO rows for
+already-stored (security, metric, period_end, filed) versions (count-the-table guarded).
 
     python -m pipeline.ingest_fundamentals                 # bare = every (non-archived) thesis's basket
     python -m pipeline.ingest_fundamentals --thesis <uuid> # one thesis

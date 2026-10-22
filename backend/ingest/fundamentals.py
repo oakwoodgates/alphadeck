@@ -1,10 +1,13 @@
 """§2.2 fundamentals ingest — the quarterly REVENUE series behind the acceleration-inflection detector.
 
 Pulls a name's SEC ``companyfacts`` (XBRL) ONCE — which returns the FULL multi-year history, each period
-carrying its own ``filed`` / ``accn`` / ``end`` — and reconstructs the honest historical knowability: every
-quarter is stamped ``valid_from = recorded_at = its filing acceptance (``filed``) date`` (R17), NEVER today.
-So a single pull today rebuilds "what was knowable when", and a past-as-of replay sees each quarter EXACTLY
-when it was filed (invariant #1, no-lookahead). A DETERMINISTIC parse — the LLM never sources the number (#3).
+carrying its own ``filed`` / ``accn`` / ``end`` — and reconstructs the honest historical knowability on the
+EVENT axis: every quarter is stamped ``valid_from = its filing acceptance (``filed``) date`` (R17), never the
+period end and never today, so a past-as-of read sees each quarter EXACTLY when it was filed (invariant #1,
+no-lookahead) and a detector dates it by that filing (``knowable_from``, D3a). The TRANSACTION axis is the
+honest one too: ``recorded_at`` is the database instant THIS system stored the row (since migration 0057; it
+used to be backdated to ``filed 00:00 UTC`` — see ``store_quarters``). A DETERMINISTIC parse — the LLM never
+sources the number (#3).
 
 REUSE (one source of truth): it reads the SAME companyfacts client the Workbench AUTO tier uses and the SAME
 revenue concepts (``ingest.edgar.extract.REVENUE_CONCEPTS`` — ``us-gaap:Revenues`` then the two
@@ -38,13 +41,14 @@ mixes concepts inside one computation (issued vs outstanding differ by treasury 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime
 from typing import Any
 from uuid import UUID
 
 import psycopg
 
 from db.bitemporal import append_fact
+from db.clock import db_now
 from db.session import DEFAULT_TENANT_ID
 from domain.security import Security
 from ingest.edgar.client import EdgarClient
@@ -266,6 +270,27 @@ def _existing_versions(
         return {(r["metric_key"], r["period_end"], r["valid_from"]) for r in cur.fetchall()}
 
 
+def fundamentals_row(
+    security_id: UUID, q: QuarterPoint, *, tenant_id: UUID = DEFAULT_TENANT_ID
+) -> dict[str, Any]:
+    """One quarter as its ``fact_fundamentals`` column values — everything EXCEPT ``recorded_at``, which is
+    the writer's transaction-time stamp (``store_quarters``), never a property of the quarter."""
+    return {
+        "tenant_id": tenant_id,
+        "security_id": security_id,
+        "metric_key": q.metric_key,
+        "period_end": q.period_end,
+        "fiscal_period": q.fiscal_period,
+        "fiscal_year": q.fiscal_year,
+        "value": q.value,
+        "unit": q.unit,
+        "basis": q.basis,
+        "accession": q.accession,
+        "source": "companyfacts",
+        "valid_from": q.filed,  # KNOWABILITY: the filing acceptance date, never today
+    }
+
+
 def store_quarters(
     conn: psycopg.Connection,
     security_id: UUID,
@@ -273,37 +298,41 @@ def store_quarters(
     *,
     tenant_id: UUID = DEFAULT_TENANT_ID,
 ) -> FundamentalsResult:
-    """Append each quarter as a bitemporal fact stamped at its TRUE knowability (``valid_from = recorded_at
-    = filed`` — R17, the honest backfill; NOT ``now()``). Idempotent: a (metric, period_end, filed) already
-    stored is skipped, so a re-run appends ZERO. Append-only; the caller owns the txn (no commit here).
+    """Append each quarter as a bitemporal fact: ``valid_from = filed`` (its public knowability — R17) and
+    ``recorded_at`` = the DATABASE instant this call stored it (the honest transaction time). Idempotent: a
+    (metric, period_end, filed) already stored is skipped, so a re-run appends ZERO — and the table's UNIQUE
+    on exactly that key (migration 0057) makes a duplicate a loud error, never a silent extra row.
+    Append-only; the caller owns the txn (no commit here).
+
+    THE STAMP (migration 0057, 2026-10-21; the §2.4 acceptance bar — "no backdated recorded_at on the live
+    path"). ``recorded_at`` is honest bookkeeping — when THIS system stored the row — never the history gate
+    (history is judged on the public clock, ``valid_from`` here; INVARIANTS.md §4). Before 0057 every row was
+    stamped ``recorded_at = filed 00:00 UTC``, wrong as bookkeeping (MEASURED on prod: all 120,876 rows; a
+    lower bound on the backdate puts the median at ~6.2 years, 108,919 rows over a year, since a name's whole
+    history is written on the night it joins a basket). Those rows stay exactly as written (no rewrite of
+    history; moot under the public clock); every NEW row carries the honest stamp. What keeps the CALL
+    unmoved is on the read side (``db.bitemporal``): a quarter dates by its filing (``knowable_from``), and
+    the pick is the latest FILING — so a name's full history written in one transaction (one shared stamp)
+    dates and picks exactly as before.
+
+    ONE stamp for the batch, read from the database clock (``db.clock.db_now`` — the one-clock rule, the D1
+    benchmark precedent) right before the appends, i.e. after the companyfacts pull: the instant the rows
+    were in hand. Not injectable — a production writer with a stamp argument is the backdating door this
+    closes.
     """
     existing = _existing_versions(conn, security_id, tenant_id)
     appended = skipped = 0
+    stamp: datetime | None = None
     for q in quarters:
         if (q.metric_key, q.period_end, q.filed) in existing:
             skipped += 1
             continue
-        # recorded_at = the filing date at 00:00 UTC — the transaction-time twin of valid_from. Under the
-        # canonical fixed-future pin this is trivially <= known_at; under a lockstep known_at it gates too.
-        recorded_at = datetime.combine(q.filed, time.min, tzinfo=timezone.utc)
+        if stamp is None:  # read once, and only when something is new (a no-op re-run asks nothing)
+            stamp = db_now(conn)
         append_fact(
             conn,
             "fact_fundamentals",
-            {
-                "tenant_id": tenant_id,
-                "security_id": security_id,
-                "metric_key": q.metric_key,
-                "period_end": q.period_end,
-                "fiscal_period": q.fiscal_period,
-                "fiscal_year": q.fiscal_year,
-                "value": q.value,
-                "unit": q.unit,
-                "basis": q.basis,
-                "accession": q.accession,
-                "source": "companyfacts",
-                "valid_from": q.filed,  # KNOWABILITY: the filing acceptance date, never today
-                "recorded_at": recorded_at,
-            },
+            {**fundamentals_row(security_id, q, tenant_id=tenant_id), "recorded_at": stamp},
         )
         existing.add((q.metric_key, q.period_end, q.filed))
         appended += 1
@@ -342,6 +371,7 @@ __all__ = [
     "FundamentalsResult",
     "extract_revenue_quarters",
     "extract_share_points",
+    "fundamentals_row",
     "store_quarters",
     "ingest_fundamentals_for_security",
 ]
