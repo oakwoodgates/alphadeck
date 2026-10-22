@@ -208,17 +208,36 @@ replay stays honest.
   `insider_flow_90d` '—' vs '0/0' shapes), and the grown poison-row test (`test_basket_prefetch_read_is_tenant_isolated`).
 - *Also honored by (D3a — FIRST knowability for fundamentals):* a re-reported, UNCHANGED number is not new
   knowledge. The `fact_fundamentals` as-of read (`db/bitemporal.first_knowable_versions`, shared verbatim by the
-  DuckDB mirror) keeps the latest-version pick and annotates each row with `knowable_from` /
-  `knowable_accession`: the earliest `max(valid_from, market date of recorded_at)` over the trailing run of
-  value-identical versions visible at `(asof, known_at)`, so a version recorded after `known_at` can influence
-  nothing, and no fact dates before this system held it (MEASURED 2026-10-16: all 120,810 rows carry
-  `recorded_at = valid_from 00:00 UTC`, backfill and nightly insert transactions alike, so that second term is
-  inert today). Detectors date, cite and age a fundamentals fact by `knowable_from`, never `valid_from` — the 10-Q
-  comparative re-dating had kept year-old revenue inflections live (CALL_LOGIC.md §2, the GEV example).
+  DuckDB mirror) picks the latest FILING visible at `(asof, known_at)` (versions ordered `valid_from,
+  recorded_at, id`) and annotates each row with `knowable_from` / `knowable_accession`: the earliest filing
+  date (`valid_from`) over the trailing run of value-identical versions visible at `(asof, known_at)`, so a
+  version recorded after `known_at` can influence nothing. Detectors date, cite and age a fundamentals fact by
+  `knowable_from`, never `valid_from` — the 10-Q comparative re-dating had kept year-old revenue inflections
+  live (CALL_LOGIC.md §2, the GEV example). Both the date and the pick are on the PUBLIC clock (the filing).
+  *(Until migration 0057 the per-version date read `max(valid_from, market date of recorded_at)` — D3a's
+  held-date term, retired with the operator's approval 2026-10-21 — and the pick was `recorded_at DESC, id
+  DESC`; on every row stored before 0057 — `recorded_at = valid_from 00:00 UTC`, all 120,876 on prod — both are
+  identical to today's rule. See the next bullet for why the honest stamp retired them.)*
   *Enforced by:* `tests/db/test_first_knowability.py` (fixed `known_at` pins between and after the filings, a
   restatement, a reverted value, the shared-filing tie-break, and a sweep proving nothing recorded after `known_at`
   moves the pick or the annotation — all on real prod version histories) and `tests/replay/test_pit_first_knowability.py`
   (row-for-row + event-for-event parity, scoped and prefetched).
+- *Also honored by (migration 0057, 2026-10-21 — the fundamentals write path; the public-clock rule's
+  bookkeeping half):* `fact_fundamentals` was the last writer to backdate its bookkeeping stamp (`recorded_at =
+  filed 00:00 UTC` — MEASURED all 120,876 prod rows, a median ~6.2 years before the row was actually written,
+  since a name's onboarding pull carries its whole history). The writer now stamps the database instant it
+  stores a batch (`ingest.fundamentals.store_quarters`, `db_now`, never backdated); existing rows stay as
+  written, which is moot under the public clock. The CALL does not move because a fundamentals fact's date
+  (`knowable_from`) and its pick are both stated on its public FILING (bullet above) — under one shared honest
+  stamp a history reads exactly like the per-filing backdated stamps (MEASURED on prod: 0 of 12 cards differ at
+  asof 2026-10-21; 0 of 661 securities' rows differ old reader vs new). The table's UNIQUE moved to `(…,
+  period_end, valid_from)`, the ingest's own idempotency key, so a duplicate filing is still refused.
+  *Enforced by:* `tests/ingest/test_fundamentals_honest_stamp.py` (a new row stamped inside the DB-clock window
+  of its run; one honest stamp reads row-for-row and event-for-event like the backdated stamps on real
+  histories; existing rows read exactly as the pre-0057 reader; a rerun appends zero and a duplicate filing is
+  refused, counting the table) and `tests/replay/test_pit_first_knowability.py` (a public-clock mirror reads
+  honest and backdated rows identically at every pin). See `FEED_LOOP.md` §Honest stamps — the fundamentals
+  write path.
 - *Also honored by (the BACKTEST's public clock — a MIRROR-side axis swap, never a gate change):* a research
   run may ask "when could ANYONE have known this?" instead of "when did THIS system record it?". That is a
   third clock (public time: `accepted` / `filed` / the bar date) and it is applied where it cannot touch the

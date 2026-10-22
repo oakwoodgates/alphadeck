@@ -6,9 +6,11 @@ re-fired as fresh for another 180 days (tonight's CEG arm; GEV's 2026-10-01 cita
 (operator-approved 2026-10-16): a fact dates at the EARLIEST knowable date of the trailing run of
 value-identical versions ending at the picked one, counting only versions the read can see.
 
-Every fixture is a real prod version history (``tests/fundamentals_fixtures.py``) stored through the real
-ingest writer. The few pure contract tests at the bottom state ``version_knowable_date`` /
-``first_knowable_versions`` with direct inputs; they fabricate no outcome. DB-backed (skips without Postgres).
+Every fixture is a real prod version history (``tests/fundamentals_fixtures.py``) stored exactly as prod holds
+it (the ingest's own row values under the pre-0057 per-filing stamp — the honest-stamp twin is
+``tests/ingest/test_fundamentals_honest_stamp.py``). The few pure contract tests at the bottom state
+``version_knowable_date`` / ``first_knowable_versions`` with direct inputs; they fabricate no outcome.
+DB-backed (skips without Postgres).
 """
 
 from __future__ import annotations
@@ -41,6 +43,7 @@ from tests.fundamentals_fixtures import (
     LRHC,
     Version,
     first_filed,
+    legacy_stamp,
     store_versions,
 )
 
@@ -63,8 +66,8 @@ def _revenue(db, sid, asof: date, known_at: datetime) -> dict[date, dict]:
 
 
 def _stamp(filed: date) -> datetime:
-    """The prod stamp: ``recorded_at = filed 00:00 UTC`` (``ingest.fundamentals.store_quarters``)."""
-    return datetime.combine(filed, datetime.min.time(), tzinfo=timezone.utc)
+    """The stamp every pre-0057 prod row carries: ``recorded_at = filed 00:00 UTC``."""
+    return legacy_stamp(filed)
 
 
 # --- GEV: the two-filings, one-identical-value shape ---------------------------------------------------
@@ -344,18 +347,20 @@ def _v(value, valid_from, recorded_at, *, accn="a", vid=None, pe=date(2025, 3, 3
     }
 
 
-def test_version_knowable_date_never_precedes_the_versions_own_recorded_at():
-    """``max(valid_from, MARKET date of recorded_at)``. The prod stamp (filed 00:00 UTC = the evening
-    before in ET) dates at the filing; an honest same-evening stamp (02:30 UTC = 22:30 ET) stays on the
-    filing's market day; a late ingest after an outage dates at the day the system first held it."""
+def test_version_knowable_date_is_the_filing_whatever_the_stamp():
+    """A version dates at its PUBLIC date (``valid_from`` = the filing), never at the instant this system
+    recorded it (migration 0057). The pre-0057 backdated stamp, an honest same-evening stamp (02:30 UTC =
+    22:30 ET), a late ingest after an outage and a name onboarded years after the filing all date at the
+    filing — WHETHER the version is held is the gate's question, answered before this one is asked.
+    """
     filed = date(2026, 4, 22)
-    assert version_knowable_date(_v(1, filed, _stamp(filed))) == filed
-    same_evening = datetime(2026, 4, 23, 2, 30, tzinfo=timezone.utc)
-    assert version_knowable_date(_v(1, filed, same_evening)) == filed
-    late = datetime(2026, 5, 1, 3, 0, tzinfo=timezone.utc)  # 2026-04-30 23:00 ET
-    assert version_knowable_date(_v(1, filed, late)) == date(2026, 4, 30)
-    with pytest.raises(ValueError, match="timezone-aware"):
-        version_knowable_date(_v(1, filed, datetime(2026, 4, 22)))
+    for recorded_at in (
+        _stamp(filed),  # the pre-0057 stamp every existing prod row carries
+        datetime(2026, 4, 23, 2, 30, tzinfo=timezone.utc),  # the nightly pass, the same evening
+        datetime(2026, 5, 1, 3, 0, tzinfo=timezone.utc),  # held a week late (2026-04-30 23:00 ET)
+        datetime(2028, 1, 5, 3, 0, tzinfo=timezone.utc),  # onboarded years later
+    ):
+        assert version_knowable_date(_v(1, filed, recorded_at)) == filed
 
 
 def _pick(rows: list[dict]) -> list[dict]:
@@ -369,23 +374,65 @@ def _pick(rows: list[dict]) -> list[dict]:
     )
 
 
-def test_first_knowability_is_never_before_the_system_held_the_first_identical_version():
+def test_a_late_held_first_version_still_dates_at_its_filing():
     """A first version ingested late (held from 2025-04-30, filed 2025-04-23) and its identical comparative:
-    the run's first knowable date is when the system held the value, not the filing it never saw in time.
+    the run dates at the FILING (2025-04-23) — the number was public then, and dating it at the day this
+    system held it would move the signal. (Before migration 0057 this read 2025-04-30: D3a's
+    ``max(valid_from, market date of recorded_at)`` term, inert on every backdated row, would have turned
+    live under the honest stamp — so 0057 retired it.) WHETHER the late version counts at all is the gate's:
+    an input without it (a read pinned before it was held) dates the run at the comparative alone.
     """
     v1 = _v(8032, date(2025, 4, 23), datetime(2025, 5, 1, 3, tzinfo=timezone.utc), accn="first")
     v2 = _v(8032, date(2026, 4, 22), _stamp(date(2026, 4, 22)), accn="comparative")
     (row,) = _pick([v1, v2])
     assert row == {
         **v2,
-        KNOWABLE_FROM: date(2025, 4, 30),
+        KNOWABLE_FROM: date(2025, 4, 23),
         KNOWABLE_SOURCE: "first",
     }  # pick untouched
+    (alone,) = _pick([v2])
+    assert alone == {**v2, KNOWABLE_FROM: date(2026, 4, 22), KNOWABLE_SOURCE: "comparative"}
+
+
+def test_the_pick_is_the_latest_filing_not_the_latest_record():
+    """An OLDER filing recorded AFTER a newer one (a concept switch surfacing an old row, an onboarding pull
+    landing after the nightly) never outranks the newer filing: the pick is the latest ``valid_from`` held —
+    what the pre-0057 stamp (a function of the filing) always picked. The run walk follows the same order.
+    """
+    newer = _v(9339, date(2026, 4, 22), _stamp(date(2026, 4, 22)), accn="newer")
+    older = _v(
+        9000, date(2025, 4, 23), datetime(2026, 10, 21, 3, tzinfo=timezone.utc), accn="older"
+    )
+    for order in ([newer, older], [older, newer]):
+        (row,) = _pick(order)
+        assert row == {**newer, KNOWABLE_FROM: date(2026, 4, 22), KNOWABLE_SOURCE: "newer"}
+
+
+@pytest.mark.parametrize(
+    "versions", [GEV, CEG, LRHC, KULR, FLR_2017Q1], ids=["GEV", "CEG", "LRHC", "KULR", "FLR"]
+)
+def test_one_shared_stamp_picks_and_dates_exactly_like_the_backdated_stamps(versions):
+    """A name's onboarding pull writes its whole history in ONE transaction — one honest stamp on every
+    version. Over each real history (with the ids DESCENDING by filing, so an order that fell through to the
+    uuid would pick the OLDEST version) the read returns the SAME pick and the SAME annotation as over the
+    per-filing pre-0057 stamps; only ``recorded_at`` differs."""
+    stamp = datetime(2026, 10, 21, 2, 30, tzinfo=timezone.utc)
+    legacy, shared = [], []
+    for n, (pe, value, filed, accn, *_rest) in enumerate(versions):
+        vid = f"{len(versions) - n:08x}-0000-0000-0000-000000000000"
+        legacy.append(_v(value, filed, _stamp(filed), accn=accn, vid=vid, pe=pe))
+        shared.append(_v(value, filed, stamp, accn=accn, vid=vid, pe=pe))
+
+    def strip(rows: list[dict]) -> list[dict]:
+        return [{k: v for k, v in r.items() if k != "recorded_at"} for r in rows]
+
+    assert strip(_pick(shared)) == strip(_pick(legacy))
 
 
 def test_a_recorded_at_tie_picks_the_greater_id_like_distinct_on():
-    """Two versions recorded at the same instant: the greater id wins (``recorded_at DESC, id DESC``)
-    whatever order the rows arrive in."""
+    """Two versions of the SAME filing recorded at the same instant (migration 0057's UNIQUE forbids that in
+    the table; the pure function still decides it deterministically): the greater id wins (``recorded_at
+    DESC, id DESC``) whatever order the rows arrive in."""
     t = _stamp(date(2026, 4, 22))
     lo = _v(100, date(2026, 4, 22), t, accn="lo", vid="00000000-0000-0000-0000-000000000001")
     hi = _v(200, date(2026, 4, 22), t, accn="hi", vid="ffffffff-0000-0000-0000-000000000001")

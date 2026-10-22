@@ -372,6 +372,57 @@ provenance detail of 62 more and the low digits of 13 `breakout_52w` scores. A C
 trigger would record the other digit; neither value is more right — the difference is the vendor's own
 post-settle noise.
 
+## Honest stamps — the fundamentals write path (migration 0057, 2026-10-21)  `[BUILT]`
+
+The acceptance bar (cron-correctness plan §2.4): facts dated by when they were first knowable, and no
+backdated `recorded_at` on the live path. Under the operator's public-clock rule (`INVARIANTS.md` §4,
+2026-10-21) `recorded_at` is honest BOOKKEEPING — when this system stored a row, stamped now, never backdated —
+and history is judged on the PUBLIC clock. `fact_fundamentals` was the last writer that backdated it:
+`ingest.fundamentals.store_quarters` stamped `recorded_at = filed 00:00 UTC`.
+
+**MEASURED on prod, read-only, 2026-10-21.** All **120,876** rows carry exactly that stamp. No column records the
+real insert time, but each row's transaction id (`xmin`) orders it among the transactions of tables whose
+`recorded_at` is honest: against the nearest earlier one (a lower bound) the stamp runs a median **2,274 days**
+early, over a year for **108,919** rows — companyfacts hands over a name's whole history in one pull, so its
+onboarding night wrote years of quarters. **20,752** identities hold two or more versions written in ONE
+transaction (an onboarding pull carries the original quarter and its later comparatives together).
+
+**The change.**
+- **The writer** stamps `recorded_at = db_now()` — the DATABASE clock (the one-clock rule; D1's benchmark
+  precedent), read once per batch after the companyfacts pull, so a name's history shares one instant. Not
+  injectable. `valid_from = filed` is unchanged: it is this table's PUBLIC clock and what every detector dates
+  by. Existing rows are untouched — no rewrite of history.
+- **The table's UNIQUE moved** (migration 0057) from `(tenant, security, metric_key, period_end, recorded_at)`
+  to `(…, period_end, valid_from)`. The old key really meant "one version per FILING" because the stamp was a
+  function of the filing; under one honest stamp per batch it would REJECT a history whose period carries
+  several filings, and it would no longer refuse a duplicate of the same filing. The new key is the ingest's own
+  idempotency key (MEASURED: 0 prod groups violate it).
+- **The read** (`db/bitemporal.first_knowable_versions`, shared by the DuckDB mirror) orders a period's versions
+  by `valid_from, recorded_at, id` — the latest FILING wins — and dates the run by its first FILING
+  (`knowable_from = valid_from`; the operator approved retiring D3a's `max(valid_from, market date of
+  recorded_at)` term, 2026-10-21). On every pre-0057 row both are identical to the old rules (`recorded_at DESC,
+  id DESC` and the `max`). Under the honest stamp the old rules would have MOVED calls: the pick would fall to a
+  random uuid among one batch's versions, and every quarter of a newly onboarded name would date at its
+  onboarding night — a years-old inflection firing as fresh, the class D3a closed. So a fundamentals fact's
+  date and pick are both stated on its public filing; the store stamp plays no part in either.
+
+**What a reader sees.**
+- *The nightly call* (`asof = today`, where the two clocks coincide): every quarter seen, picked and dated
+  exactly as before.
+- *History* — the backtest's public-clock mirror, the Scoreboard editions re-run, and the history views as they
+  move to the public clock: fundamentals are clocked at `valid_from` (the filing), which the stamp never touched
+  — unchanged, old rows and new alike.
+- *The pre-0057 rows' backdated stamps* stay as written (operator decision 2026-10-21) and are MOOT under the
+  public clock: nothing judges history by `recorded_at`, and `filed 00:00 UTC` already sits on the filing date.
+- *The Scoreboard* reads the immutable `calls` log, never `fact_fundamentals`. *The Q17 companyfacts gate* reads
+  the cache files' own clocks, never the stamp.
+
+**The call effect, MEASURED on prod (read-only, 2026-10-21).** The new reader vs `origin/main`'s over EVERY
+prod fundamentals row (661 securities, 69,289 picked rows at the live pin), at every pin tried: **0 securities
+differ**. All 12 non-archived theses re-assembled at asof 2026-10-21: **0 of 12 cards differ**. On the public
+clock the effect is zero by construction — the public mirror clocks each version at its filing, where the old
+and new rules coincide — and `tests/replay/test_pit_first_knowability.py` holds it at every pin.
+
 ## The daily cron — `pipeline/daily.py`  `[BUILT #71]`
 
 `run_daily(conn, *, asof=today, known_at=now, allow_live=True, force_refresh=True, notifier=None, …)`.

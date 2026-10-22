@@ -43,10 +43,12 @@ MANIFEST_NAME = "manifest.json"
 # disclosure date is a row we decline to replay, not a guess (#6).
 _PUBLIC_CLOCK: dict[str, str] = {
     "fact_price_eod": "d",  # the bar's own date — a close is public at the close
-    # XBRL fundamentals: there is NO ``filed`` column; ``valid_from`` IS the filing date here (R17 already
-    # stamps it that way — MEASURED on the dev copy, ``recorded_at::date == valid_from`` for all 120,626
-    # rows). So ``clock=public`` is a NO-OP for this table, which is worth knowing before reading a
-    # fundamentals result as something the clock change revealed.
+    # XBRL fundamentals: there is NO ``filed`` column; ``valid_from`` IS the filing date here (R17). Every row
+    # written before migration 0057 was ALSO stamped ``recorded_at = filed 00:00 UTC`` (MEASURED on prod: all
+    # 120,876), so for those rows ``clock=public`` is a NO-OP — worth knowing before reading a fundamentals
+    # result as something the clock change revealed. Rows written since carry the honest ingest instant as
+    # ``recorded_at``; the public mirror still clocks them at their filing, so a public-clock run reads every
+    # fundamentals row exactly as before (one row per (identity, filing) — the key migration 0057 enforces).
     "fact_fundamentals": "valid_from",
     "fact_corporate_event": "filed",  # the 8-K's filing date
     "fact_activist_stake": "filed",  # the 13D/G's filing date

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime, tzinfo
+from datetime import date, datetime
 from decimal import Decimal
 from operator import itemgetter
 from typing import Any
@@ -13,7 +13,6 @@ from psycopg import sql
 from psycopg.rows import tuple_row
 
 from db import insider_resolution
-from domain.market_time import market_tz
 
 # Whitelist of bitemporal fact tables -> the natural-key columns that identify one logical fact
 # (so an as-of read keeps the latest *version* of each, by recorded_at). Whitelisting also keeps
@@ -97,11 +96,18 @@ def knowability_expr(table: str) -> str:
 # is a version the as-of read could already see (``valid_from <= asof AND recorded_at <= known_at``), so a
 # version recorded after ``known_at`` can influence nothing — not the pick, not the run, not the date.
 #
-# A version's own knowable date is ``max(valid_from, market date of recorded_at)``: never before the filing,
-# and never before THIS system held the version. MEASURED on prod 2026-10-16, every one of the 120,810
-# ``fact_fundamentals`` rows has ``recorded_at = valid_from 00:00 UTC`` (initial-backfill and later nightly
-# insert transactions alike), so the second term is inert today; it exists so a future honest live stamp
-# (``recorded_at = now()``, a late ingest after an outage) can never date a fact before it was held.
+# A version's own knowable date is its PUBLIC date — ``valid_from``, the filing's acceptance date — never the
+# day this system happened to record it (the public clock judges history; ``recorded_at`` is bookkeeping —
+# INVARIANTS.md §4, operator decision 2026-10-21, which also approved retiring the held-date term below). The
+# store stamp only bounds which rows the gate hands in (``recorded_at <= known_at``; at the live nightly's
+# ``asof = today`` the two clocks coincide). Until migration 0057 the ingest stamped ``recorded_at = filed
+# 00:00 UTC`` (a backdated stamp — MEASURED: all 120,876 prod rows), and this date read ``max(valid_from, market
+# date of recorded_at)``, a second term inert on every such row (filed 00:00 UTC is the evening BEFORE in
+# market time). The ingest now stamps the honest transaction time (``ingest.fundamentals.store_quarters``),
+# and that second term would have turned live: a name onboarded today would date every historical quarter
+# TODAY — the phantom-arm class D3a closed (a year-old inflection firing as fresh), re-opened through the
+# onboarding door — and a filing ingested days late would stay live days longer. Dating by the filing keeps
+# every signal exactly where the backdated stamp put it, on every row old and new.
 #
 # Equality is EXACT on the stored number (compared as float on both engines, which is lossless for these
 # integer XBRL values and keeps the Postgres numeric and the mirror's float64 in lockstep). Any nonzero
@@ -110,9 +116,14 @@ def knowability_expr(table: str) -> str:
 # relative (there is no float jitter to absorb), while 7 revenue pairs differ by <= 1e-6 (a precision change:
 # 84,182,954 re-reported as 84,183,000) — those stay new knowledge, a named residual.
 #
-# The read stays the latest-version pick (``recorded_at DESC, id DESC``, byte-for-byte the ``DISTINCT ON``
-# pick); the row just carries two more keys. Detectors date, cite and age a fact by these, never by the
-# picked version's ``valid_from``.
+# THE PICK is the latest FILING the read can see: versions ordered ``valid_from, recorded_at, id`` and the
+# last one wins. With the backdated stamp that was byte-for-byte the ``DISTINCT ON ... recorded_at DESC, id
+# DESC`` pick (``recorded_at`` was a strictly increasing function of ``valid_from``, so the two orders — ties
+# and all — coincide on every existing row). With the honest stamp they would not: one pass writes several
+# filings of one period in ONE transaction (MEASURED: 20,752 prod identities hold >= 2 versions written
+# together), all sharing one ``recorded_at``, and ``id`` is a random uuid — so ordering by ``recorded_at``
+# would hand the pick to a coin flip, and a late-recorded OLDER filing would outrank a newer one. The row
+# carries two more keys; detectors date, cite and age a fact by them, never by the picked ``valid_from``.
 #
 # the first knowable date of the row's CURRENT value (a date)
 KNOWABLE_FROM = "knowable_from"
@@ -126,13 +137,17 @@ class _FirstKnowability:
     value_cols: tuple[str, ...]
     # the column naming the filing that carried a version (-> KNOWABLE_SOURCE)
     source_col: str
+    # the version's PUBLIC date: its own knowable date, and the leading key of the version order
+    public_col: str
 
 
 # The tables whose as-of read carries the first-knowability annotation — a trusted whitelist like
 # ``_FACT_IDENTITY``. Both engines (Postgres here, DuckDB ``replay/pit.py``) branch on it and post-process
 # through the SAME pure ``first_knowable_versions`` below, so replay parity holds by construction.
 _FIRST_KNOWABILITY: dict[str, _FirstKnowability] = {
-    "fact_fundamentals": _FirstKnowability(value_cols=("value",), source_col="accession"),
+    "fact_fundamentals": _FirstKnowability(
+        value_cols=("value",), source_col="accession", public_col="valid_from"
+    ),
 }
 
 
@@ -141,26 +156,26 @@ def has_first_knowability(table: str) -> bool:
     return table in _FIRST_KNOWABILITY
 
 
+def first_knowable_order(table: str) -> str:
+    """The SQL ORDER BY tail (after the partition columns) both engines pre-sort a first-knowability read by:
+    the version order itself — public date, then ``recorded_at``, then ``id`` — so the Python pick re-sorts
+    nothing in the common case. Rendered from the trusted ``_FIRST_KNOWABILITY`` literals, never input.
+    """
+    return f"{_FIRST_KNOWABILITY[table].public_col}, recorded_at, id"
+
+
 def _same_number(v: Any) -> Any:
     """The equality key for one value column: numerics as float (Postgres numeric -> Decimal, the mirror ->
     float64 — one representation on both engines), anything else as-is."""
     return float(v) if isinstance(v, (Decimal, int, float)) and not isinstance(v, bool) else v
 
 
-def _market_day(recorded_at: Any, tz: tzinfo) -> date:
-    """The market-time date of a transaction instant. A naive ``recorded_at`` is refused — a transaction time
-    with no zone cannot be placed on a day, and guessing one is how a date slides."""
-    if not isinstance(recorded_at, datetime) or recorded_at.tzinfo is None:
-        raise ValueError(f"recorded_at must be a timezone-aware datetime, got {recorded_at!r}")
-    return recorded_at.astimezone(tz).date()
-
-
-def version_knowable_date(row: dict[str, Any], tz: tzinfo | None = None) -> date:
-    """One version's own knowable date: ``max(valid_from, the MARKET date of recorded_at)``.
-
-    Market date, not UTC: ``asof`` is a market-time trading day (``domain.market_time``), and a fact the
-    22:30 ET pass recorded at 02:30 UTC was in hand for THAT day's call."""
-    return max(row["valid_from"], _market_day(row["recorded_at"], tz or market_tz()))
+def version_knowable_date(row: dict[str, Any], table: str = "fact_fundamentals") -> date:
+    """One version's own knowable date: its PUBLIC date (for ``fact_fundamentals``, ``valid_from`` = the
+    filing's acceptance date), never the instant this system recorded it. Whether the version is HELD at all
+    is the gate's question (``recorded_at <= known_at``), settled before this is ever asked (module note).
+    """
+    return row[_FIRST_KNOWABILITY[table].public_col]
 
 
 def first_knowable_versions(
@@ -172,13 +187,19 @@ def first_knowable_versions(
     """Pure: every as-of-VISIBLE version of ``table`` (already gated on ``valid_from <= asof`` and the
     knowability column ``<= known_at``) -> the latest version per natural key, annotated (D3a).
 
-    - **The pick** is the as-of read's own: the last version in ``recorded_at, id`` order — identical to the
-      ``DISTINCT ON ... ORDER BY recorded_at DESC, id DESC`` row, all of its columns untouched.
+    - **The version order** is ascending ``public date, recorded_at, id`` (``first_knowable_order``): the
+      latest FILING last, a same-filing re-record after its predecessor, ``id`` breaking an exact tie
+      (``str(id)`` because the mirror stores uuids as VARCHAR; canonical lowercase-hex text sorts exactly like
+      Postgres's byte-wise uuid order, so both engines break a tie identically).
+    - **The pick** is the last version in that order, all of its columns untouched. On every row stamped
+      before migration 0057 it IS the ``DISTINCT ON ... ORDER BY recorded_at DESC, id DESC`` row (module
+      note).
     - **The run** is the trailing stretch of versions, ending at the pick, whose value columns equal the
       pick's. A different value anywhere before it ends the run (a restatement, or a restatement reverted —
       each is new knowledge at its own date).
-    - **The annotation** is the run's earliest ``version_knowable_date`` (``KNOWABLE_FROM``) and that
-      version's filing (``KNOWABLE_SOURCE``); a tie keeps the earliest-recorded version.
+    - **The annotation** is the run's FIRST version: its public date (``KNOWABLE_FROM`` — the earliest in
+      the run, the order being ascending by it; ``version_knowable_date``) and its filing
+      (``KNOWABLE_SOURCE``). A public-date tie keeps the earliest-recorded version.
 
     ``versions`` are TUPLE rows in ``columns`` order — what both engines' cursors return natively — and only
     the picks become dicts (``{column: value}``, exactly the shape the ``dict_row`` read returned). Output
@@ -186,38 +207,29 @@ def first_knowable_versions(
     exactly the ``DISTINCT ON`` output order. Inputs are not mutated.
 
     Written for the basket prefetch's volume (~38k versions for a 190-name thesis): tuple rows,
-    ``itemgetter`` keys, one market-day conversion per distinct ``recorded_at``, a ``recorded_at``-only sort
-    that falls back to the full ``(recorded_at, id)`` key only on a tie, and no walk for a single version.
+    ``itemgetter`` keys, a ``(public date, recorded_at)`` sort that falls back to the full key (``id`` too)
+    only on a tie, and no walk for a single version.
     """
     spec = _FIRST_KNOWABILITY[table]
-    tz = market_tz()
     columns = list(columns)
     at = {c: i for i, c in enumerate(columns)}
-    rec_i, vf_i, id_i, src_i = at["recorded_at"], at["valid_from"], at["id"], at[spec.source_col]
+    pub_i, rec_i, id_i, src_i = (
+        at[spec.public_col],
+        at["recorded_at"],
+        at["id"],
+        at[spec.source_col],
+    )
     key_of = itemgetter(*(at[c] for c in partition))
-    rec_of = itemgetter(rec_i)
+    order_of = itemgetter(pub_i, rec_i)
     value_of = itemgetter(*(at[c] for c in spec.value_cols))  # a scalar for one column
     multi = len(spec.value_cols) > 1
-    # recorded_at -> its market day (versions share filing-date instants)
-    day_of: dict[Any, date] = {}
-
-    def knowable(row: Sequence[Any]) -> date:
-        rec = row[rec_i]
-        day = day_of.get(rec)
-        if day is None:
-            day = day_of[rec] = _market_day(rec, tz)
-        valid_from = row[vf_i]
-        return valid_from if valid_from >= day else day
 
     def same_value(row: Sequence[Any]) -> Any:
         v = value_of(row)
         return tuple(_same_number(x) for x in v) if multi else _same_number(v)
 
-    def version_order(row: Sequence[Any]) -> tuple[Any, str]:
-        # ascending (recorded_at, id) — the reverse of the read's ``recorded_at DESC, id DESC``. ``str(id)``
-        # because the mirror stores uuids as VARCHAR; canonical lowercase-hex text sorts exactly like
-        # Postgres's byte-wise uuid order, so both engines break a tie identically.
-        return (row[rec_i], str(row[id_i]))
+    def version_order(row: Sequence[Any]) -> tuple[Any, Any, str]:
+        return (row[pub_i], row[rec_i], str(row[id_i]))
 
     groups: dict[Any, list[Sequence[Any]]] = {}
     for row in versions:
@@ -232,24 +244,22 @@ def first_knowable_versions(
     for group in groups.values():
         if len(group) == 1:
             pick = first = group[0]
-            first_day = knowable(first)
         else:
-            group.sort(key=rec_of)
-            if any(rec_of(a) == rec_of(b) for a, b in zip(group, group[1:])):
-                group.sort(key=version_order)  # a recorded_at tie: the id decides, as in the SQL
+            group.sort(key=order_of)
+            if any(order_of(a) == order_of(b) for a, b in zip(group, group[1:])):
+                group.sort(
+                    key=version_order
+                )  # an exact (public date, recorded_at) tie: the id decides
             pick = group[-1]
             target = same_value(pick)
             start = len(group) - 1
             while start > 0 and same_value(group[start - 1]) == target:
                 start -= 1
-            # ascending version order: a strictly-earlier day wins, so a tie keeps the earliest-recorded
-            first, first_day = group[start], knowable(group[start])
-            for candidate in group[start + 1 :]:
-                day = knowable(candidate)
-                if day < first_day:
-                    first, first_day = candidate, day
+            first = group[
+                start
+            ]  # ascending by public date: the run's earliest, ties earliest-recorded
         row = dict(zip(columns, pick))
-        row[KNOWABLE_FROM] = first_day
+        row[KNOWABLE_FROM] = first[pub_i]
         row[KNOWABLE_SOURCE] = first[src_i]
         out.append(row)
     return out
@@ -279,7 +289,8 @@ def _as_of(
     replay mirror, which applies the identical ``recorded_at DESC, id DESC`` ordering, agrees row-for-row.
 
     A ``_FIRST_KNOWABILITY`` table (``fact_fundamentals``) reads every VISIBLE version under the SAME gate
-    and picks in Python (``first_knowable_versions``) — the same row, plus the D3a annotation.
+    and picks in Python (``first_knowable_versions``): the latest FILING held — ordered by its public date,
+    not by ``recorded_at`` — plus the D3a annotation.
 
     ``fact_insider_txn`` is then RESOLVED against the Form 4/A amendments, links and operator decisions
     recorded at/before ``known_at`` (R8-A, ``db.insider_resolution`` -> the pure
@@ -295,23 +306,26 @@ def _as_of(
     knowability = sql.SQL(knowability_expr(table))  # noqa: S608 — hardcoded map, never caller input
     first_knowable = has_first_knowability(table)
     template = (
-        # every visible version (the run walk needs the history), ordered for the Python pick
+        # every visible version (the run walk needs the history), pre-sorted in the Python pick's own order
         "SELECT * FROM {table} "
         "WHERE tenant_id = %(tenant_id)s AND {scope} = %(scope_id)s "
         "AND valid_from <= %(asof)s AND {knowability} <= %(known_at)s "
-        "ORDER BY {ident}, recorded_at, id"
+        "ORDER BY {ident}, {version_order}"
         if first_knowable
         else "SELECT DISTINCT ON ({ident}) * FROM {table} "
         "WHERE tenant_id = %(tenant_id)s AND {scope} = %(scope_id)s "
         "AND valid_from <= %(asof)s AND {knowability} <= %(known_at)s "
         "ORDER BY {ident}, recorded_at DESC, id DESC"
     )
-    query = sql.SQL(template).format(
-        ident=ident,
-        table=sql.Identifier(table),
-        scope=sql.Identifier(scope_col),
-        knowability=knowability,
-    )
+    parts: dict[str, sql.Composable] = {
+        "ident": ident,
+        "table": sql.Identifier(table),
+        "scope": sql.Identifier(scope_col),
+        "knowability": knowability,
+    }
+    if first_knowable:  # a trusted literal from the whitelist, never caller input
+        parts["version_order"] = sql.SQL(first_knowable_order(table))  # noqa: S608
+    query = sql.SQL(template).format(**parts)
     params = {"tenant_id": tenant_id, "scope_id": scope_id, "asof": asof, "known_at": known_at}
     if first_knowable:
         return _first_knowable_read(conn, table, query, params, _FACT_IDENTITY[table])
@@ -428,8 +442,13 @@ def as_of_many(
             "SELECT * FROM {table} "
             "WHERE tenant_id = %(tenant_id)s AND security_id = ANY(%(ids)s) "
             "AND valid_from <= %(asof)s AND {knowability} <= %(known_at)s "
-            "ORDER BY {ident}, recorded_at, id"
-        ).format(ident=ident, table=sql.Identifier(table), knowability=knowability)
+            "ORDER BY {ident}, {version_order}"
+        ).format(
+            ident=ident,
+            table=sql.Identifier(table),
+            knowability=knowability,
+            version_order=sql.SQL(first_knowable_order(table)),  # noqa: S608 — trusted literal
+        )
         for row in _first_knowable_read(conn, table, query, params, partition):
             if valid_from_lower is None or row["valid_from"] >= valid_from_lower:
                 out[row["security_id"]].append(row)

@@ -10,7 +10,7 @@ them, on the scoped AND the basket-prefetched mirror reads, and down to the dete
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
@@ -22,7 +22,15 @@ from replay.export import export_snapshot
 from replay.pit import ReplayPointInTimeData, connect_mirror
 from signals import revenue_acceleration as ra
 from signals.base import PointInTimeData
-from tests.fundamentals_fixtures import CEG, FLR_2017Q1, GEV, KULR, LRHC, store_versions
+from tests.fundamentals_fixtures import (
+    CEG,
+    FLR_2017Q1,
+    GEV,
+    KULR,
+    LRHC,
+    store_versions,
+    store_versions_live,
+)
 from tests.replay.test_pit_parity import _match
 
 _FIXTURES = {"GEV": GEV, "CEG": CEG, "LRHC": LRHC, "KULR": KULR, "FLR": FLR_2017Q1}
@@ -44,7 +52,8 @@ _PINS = [
 
 @pytest.fixture
 def mirror(db, tmp_path):
-    """Every fixture on its own security, stored through the real ingest writer, exported, opened."""
+    """Every fixture on its own security, stored exactly as prod holds it (the pre-0057 stamp), exported,
+    opened."""
     sids: dict[str, uuid.UUID] = {}
     with db.cursor() as cur:
         for name in _FIXTURES:
@@ -149,3 +158,94 @@ def test_replay_gev_cites_q1_2026_and_ceg_does_not_rearm_on_its_comparative(mirr
     n = date(2026, 10, 15)
     pit = ReplayPointInTimeData(con, asof=n, known_at=known_at_for_asof(n))
     assert ra.detect(pit, sids["CEG"], n, DEFAULT_CONFIG) is None
+
+
+# --- migration 0057: the honest stamp, in replay ---------------------------------------------------------
+
+
+@pytest.fixture
+def honest(db):
+    """Every fixture stored TWICE — as prod holds it (the pre-0057 backdated stamp) and through today's
+    writer (one honest stamp per history, a name onboarded tonight). Returns the two id maps and each
+    honest history's stamp, keyed by its security."""
+    legacy: dict[str, uuid.UUID] = {}
+    live: dict[str, uuid.UUID] = {}
+    with db.cursor() as cur:
+        for name in _FIXTURES:
+            for target, tag in ((legacy, ""), (live, "-live")):
+                sid = uuid.uuid4()
+                cur.execute(
+                    "INSERT INTO security_master (id, tenant_id, ticker, cik, valid_from) "
+                    "VALUES (%s, %s, %s, %s, %s)",
+                    (sid, DEFAULT_TENANT_ID, name + tag, f"{sid.int % 10**10:010d}", "2020-01-01"),
+                )
+                target[name] = sid
+    db.commit()
+    stamps: dict[uuid.UUID, datetime] = {}
+    for name, versions in _FIXTURES.items():
+        store_versions(db, legacy[name], versions)
+        stamps[live[name]] = store_versions_live(db, live[name], versions)
+    return legacy, live, stamps
+
+
+def test_honest_stamps_hold_replay_parity_at_every_pin(db, honest, tmp_path):
+    """THE PARITY GATE, under the honest stamp: on a record-clock mirror of BOTH stores, the live
+    ``PointInTimeData`` rows equal the mirror's — scoped and prefetched, annotation included — at every
+    historical pin (where the honest rows are not held yet: both engines return nothing for them), just
+    before and at each honest history's stamp, and far ahead."""
+    legacy, live, stamps = honest
+    export_snapshot(db, tmp_path)
+    con = connect_mirror(tmp_path)
+    try:
+        sids = [*legacy.values(), *live.values()]
+        pins = list(_PINS)
+        for stamp in stamps.values():
+            pins += [
+                (date(2026, 10, 15), stamp - timedelta(microseconds=1)),
+                (date(2026, 10, 15), stamp),
+            ]
+        for asof, known_at in pins:
+            live_pit = PointInTimeData(db, asof=asof, known_at=known_at, basket=sids)
+            scoped = ReplayPointInTimeData(con, asof=asof, known_at=known_at)
+            batched = ReplayPointInTimeData(con, asof=asof, known_at=known_at, basket=sids)
+            for sid in sids:
+                pg = live_pit.fundamentals_facts(sid)
+                rep_s, rep_b = scoped.fundamentals_facts(sid), batched.fundamentals_facts(sid)
+                assert len(pg) == len(rep_s) == len(rep_b), (sid, asof, known_at)
+                _match(pg, rep_s, _IDENT)
+                _match(pg, rep_b, _IDENT)
+                if sid in stamps:
+                    held = known_at >= stamps[sid]
+                    assert bool(pg) == held, "an honest row is visible exactly from its stamp on"
+    finally:
+        con.close()
+
+
+@pytest.mark.parametrize("clock", ["record", "public"])
+def test_a_backtest_reads_honest_rows_exactly_like_backdated_ones(db, honest, tmp_path, clock):
+    """Replay is unmoved. Under the determinism pin (``known_at`` after every write) on a record-clock
+    mirror — and at EVERY pin, lockstep included, on a public-clock mirror (which clocks fundamentals at
+    their filing whatever the stamp) — a history written under one honest stamp reads row-for-row and
+    event-for-event like the same history under the backdated stamps."""
+    legacy, live, _stamps = honest
+    export_snapshot(db, tmp_path, clock=clock)
+    con = connect_mirror(tmp_path)
+    try:
+        pins = _PINS if clock == "public" else [p for p in _PINS if p[1].year == 2100]
+        for asof, known_at in pins:
+            pit = ReplayPointInTimeData(con, asof=asof, known_at=known_at)
+            for name in _FIXTURES:
+                a, b = pit.fundamentals_facts(legacy[name]), pit.fundamentals_facts(live[name])
+                strip = ("id", "security_id", "recorded_at")
+                assert [{k: v for k, v in r.items() if k not in strip} for r in a] == [
+                    {k: v for k, v in r.items() if k not in strip} for r in b
+                ], (clock, name, asof)
+                ea = ra.detect(pit, legacy[name], asof, DEFAULT_CONFIG)
+                eb = ra.detect(pit, live[name], asof, DEFAULT_CONFIG)
+                assert (ea is None) == (eb is None), (clock, name, asof)
+                if ea is not None:
+                    da, db_ = ea.model_dump(mode="json"), eb.model_dump(mode="json")
+                    da.pop("security_id"), db_.pop("security_id")
+                    assert da == db_, (clock, name, asof)
+    finally:
+        con.close()
