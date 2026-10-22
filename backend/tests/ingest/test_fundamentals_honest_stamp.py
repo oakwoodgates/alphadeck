@@ -182,18 +182,27 @@ def test_one_honest_stamp_reads_exactly_like_the_backdated_stamps(db, name):
     known_at = db_now(db)
     db.commit()
     asofs = sorted({filed for _pe, _v, filed, *_ in versions} | {_ASOF})
-    fired = 0
+    # today's rule AND the rule without rule (c) (2026-10-22): LRHC's only live inflections are its
+    # 2026-06-04 10-K's restated / late quarters, which rule (c) keeps from firing — so the stamp gate still
+    # compares a FIRE on LRHC, it reads the pre-rule-(c) detector too
+    pre_rule_c = DEFAULT_CONFIG.model_copy(update={"revenue_accel_max_quarter_age_days": None})
+    fired = {"today": 0, "pre_rule_c": 0}
     for asof in asofs:
         assert _strip(_read(db, live, asof, known_at)) == _strip(_read(db, legacy, asof, known_at))
         pit = PointInTimeData(db, asof=asof, known_at=known_at)
-        ev_legacy = ra.detect(pit, legacy, asof, DEFAULT_CONFIG)
-        ev_live = ra.detect(pit, live, asof, DEFAULT_CONFIG)
-        assert (ev_legacy is None) == (ev_live is None), (name, asof)
-        if ev_legacy is not None:
-            fired += 1
-            assert _event(ev_live) == _event(ev_legacy), (name, asof)
+        for label, cfg in (("today", DEFAULT_CONFIG), ("pre_rule_c", pre_rule_c)):
+            ev_legacy = ra.detect(pit, legacy, asof, cfg)
+            ev_live = ra.detect(pit, live, asof, cfg)
+            assert (ev_legacy is None) == (ev_live is None), (name, asof, label)
+            if ev_legacy is not None:
+                fired[label] += 1
+                assert _event(ev_live) == _event(ev_legacy), (name, asof, label)
     if name in ("GEV", "LRHC"):  # histories with a live inflection somewhere in the sweep
-        assert fired, "the sweep must reach a firing date, or it compares only declines"
+        assert fired[
+            "pre_rule_c"
+        ], "the sweep must reach a firing date, or it compares only declines"
+    if name == "GEV":  # GEV's genuine Q1-2026 inflection fires under today's rule too
+        assert fired["today"]
 
 
 def _event(ev: Any) -> dict:
