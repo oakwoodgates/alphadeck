@@ -300,12 +300,12 @@ def test_the_BACKFILL_takes_the_same_lock(db, monkeypatch, tmp_path, capsys):
     held = acquire_pass_lock(holder="cron")
     try:
         with pytest.raises(SystemExit) as exc:
-            backfill.main(["--asof", "2026-06-10", "--known-at", "2026-06-11T13:00:00Z"])
+            backfill.main(["--asof", "2026-06-10"])
         assert exc.value.code == EXIT_ALREADY_RUNNING
         assert "ALREADY RUNNING" in capsys.readouterr().out
         assert _count_calls(db) == before
         # a dry run is still allowed — it writes nothing, so it needs no lock
-        backfill.main(["--asof", "2026-06-10", "--known-at", "2026-06-11T13:00:00Z", "--dry-run"])
+        backfill.main(["--asof", "2026-06-10", "--dry-run"])
         assert _count_calls(db) == before
     finally:
         held.release()

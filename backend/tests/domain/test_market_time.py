@@ -32,6 +32,7 @@ from domain.market_time import (
     market_today,
     market_tz,
     serve_known_at,
+    serve_view,
 )
 from domain.settings import get_settings
 
@@ -536,3 +537,26 @@ def test_serve_known_at_defaults_today_to_market_today_not_the_ambient_date(monk
     assert market_today() == date(2026, 7, 17)
     assert serve_known_at(date(2026, 7, 17)) is None
     assert serve_known_at(date(2026, 7, 18)) is None  # tomorrow in market time: future = live
+
+
+def test_serve_view_pairs_the_cap_with_the_PUBLIC_clock_and_the_live_read_with_the_record_one(
+    monkeypatch,
+):
+    """The ONE place a history read decides both halves (operator decision 2026-10-21): a past as-of is a
+    history view — the market-day cap on the PUBLIC clock (each fact from when it became public); a live or
+    future as-of is the unchanged live read — ``(None, "record")``, where the two clocks coincide. Decided
+    from ONE ``market_today()`` read, so the two halves can never straddle midnight and disagree."""
+    monkeypatch.delenv("ALPHADECK_MARKET_TZ", raising=False)
+    get_settings.cache_clear()
+    today = date(2026, 7, 24)
+    assert serve_view(today, today=today) == (None, "record")
+    assert serve_view(date(2026, 8, 1), today=today) == (None, "record")
+    assert serve_view(date(2026, 6, 10), today=today) == (
+        datetime(2026, 6, 11, 3, 59, 59, 999999, tzinfo=timezone.utc),
+        "public",
+    )
+    # 21:30 ET on the 17th (01:30Z on the 18th): the market is still on the 17th, so the 17th is LIVE —
+    # decided with market_today(), never the ambient date (``_pin``'s clock has no ``combine``, so the past
+    # branch is pinned above with ``today=``)
+    _pin(monkeypatch, _UTC_EVENING)
+    assert serve_view(date(2026, 7, 17)) == (None, "record")

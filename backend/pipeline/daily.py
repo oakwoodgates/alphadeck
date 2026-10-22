@@ -34,7 +34,7 @@ C3 — A HAND-TYPED PAST ``--asof`` IS REFUSED (exit 2). A pass computes its nig
 so ``--asof <a night older than the last expected one>`` would append a SCORED call-of-record that knew
 things that night did not. Such an as-of runs only with ``--catch-up`` (the sidecar's guarded catch-up),
 ``--late-ok`` (a deliberate late record; the sidecar's scheduled run passes it for an overshot sleep) or
-``--no-live`` (records nothing); a missed night is ``pipeline.backfill``'s, with a PINNED ``known_at``.
+``--no-live`` (records nothing); a missed night is ``pipeline.backfill``'s, reconstructed on the PUBLIC clock.
 
 EXIT CODE (the contract a wrapper reads): **0 when the night has a call-of-record** for at least one
 thesis — including a healthy-quiet night where nothing changed, a partial night where some theses errored,
@@ -1866,7 +1866,7 @@ def past_asof_refusal(asof: date, *, now: datetime, run_at: time) -> str | None:
         f"--asof {asof} is older than the last expected night ({last}, market time). A pass computes its "
         "night with TODAY's knowledge (known_at = now) and would append a SCORED call-of-record that knew "
         "things that night did not. For a missed night run "
-        f"`python -m pipeline.backfill --asof {asof} --known-at next-run` (a PINNED reconstruction: marked "
+        f"`python -m pipeline.backfill --asof {asof}` (a PUBLIC-CLOCK reconstruction: marked "
         "reconstructed, reported, never scored). `--catch-up` is the sidecar's guarded catch-up; pass "
         "`--late-ok` only to record a late night on purpose."
     )
@@ -1904,8 +1904,8 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="C3: allow an --asof OLDER than the last expected night. Without this (or --catch-up / "
         "--no-live) such an as-of is REFUSED: the pass would compute that night with TODAY's knowledge and "
-        "append a SCORED call-of-record. For a missed night use `python -m pipeline.backfill --known-at "
-        "next-run` (pinned, marked reconstructed). The sidecar's scheduled run passes this flag, because "
+        "append a SCORED call-of-record. For a missed night use `python -m pipeline.backfill --asof <night>` "
+        "(public clock, marked reconstructed). The sidecar's scheduled run passes this flag, because "
         "its target night is fixed before the sleep and an overshot sleep makes it late by construction.",
     )
     args = p.parse_args(argv)

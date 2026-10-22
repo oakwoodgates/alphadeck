@@ -1571,20 +1571,22 @@ def test_ratify_revenue_mix_preserves_the_basis_source(client, db, security_id):
     assert m["purity"]["provenance"][0]["source"] == "10-k-segment"  # the basis, preserved
 
 
-# --- invariant #1 on the SERVE path: a scored scrub-back reads the facts as knowable THEN ---
+# --- invariant #1 on the SERVE path: a scored scrub-back reads the facts as PUBLIC then ---
 #
-# The measured leak (docs/temp/serve-path-lookahead-audit-2026-09-09.md) was on /call; this route builds
-# the SAME PointInTimeData with the SAME default pin (known_at = now), so a past-asof scored view rendered
-# meters from facts ratified/ingested after the as-of. Same cap, same seam, own test.
+# This route builds the SAME PointInTimeData the call does and threads the SAME history clock (the PUBLIC
+# clock for a past asof — operator decision 2026-10-21). A Workbench-RATIFIED fact (purity, runway, shares)
+# is an operator decision whose row carries no filing date — its ``valid_from`` is the filing PERIOD / cover
+# date, earlier than the filing was public — so its public instant is its ratification (``db.public_clock``):
+# a fact ratified after the as-of never scores a past view.
 
 
-def test_scored_scrub_back_hides_facts_recorded_after_the_asof(client, db, security_id):
-    """THE LEAK, on the measured shape: both scoring facts dated 2025-12-31 / 2026-03-31 but recorded at
-    the 2026-09-01 thaw. A 2026-06-02 read sees NEITHER — purity and runway are the honest "—" (None),
-    never meters computed with hindsight — while the LIVE read holds them (the thaw is in the past
-    relative to today). Before the fix the 06-02 view scored 4 / 4 pips off facts not on file that day
-    (the positive control is ``test_scored_endpoint_serves_meters_on_real_data``, same facts stamped when
-    they were actually knowable)."""
+def test_scored_scrub_back_hides_facts_ratified_after_the_asof(client, db, security_id):
+    """Both scoring facts dated 2025-12-31 / 2026-03-31 but RATIFIED at the 2026-09-01 thaw. On the public
+    clock a ratified fact counts from its ratification (an operator decision counts from when it was made;
+    its period date is not a publication date), so a 2026-06-02 read sees NEITHER — purity and runway are the
+    honest "—" (None) — while the LIVE read holds them. (The positive control is
+    ``test_scored_endpoint_serves_meters_on_real_data``, the same facts ratified before the as-of.)
+    """
     tid = _scored_thesis(db, security_id, recorded_at=_THAW)
     past = client.get(f"/workbench/theses/{tid}/scored", params={"asof": "2026-06-02"}).json()
     (m,) = past["members"]
@@ -1597,19 +1599,19 @@ def test_scored_scrub_back_hides_facts_recorded_after_the_asof(client, db, secur
     assert lm["purity"]["pips"] == 4 and lm["runway"]["pips"] == 4
 
 
-def test_scored_threads_the_asof_cap_for_a_past_view_and_None_for_the_live_one(
+def test_scored_threads_the_public_clock_for_a_past_view_and_the_live_read_for_today(
     client, db, security_id, monkeypatch
 ):
-    """The per-site TEMPLATE (a future serve site that forgets ``known_at`` fails a copy of this): the
-    scored PIT is built with ``known_at = known_at_for_asof(asof)`` — the end of that MARKET day — for a
-    past asof and ``None`` for a live one (the unchanged live read; None, not a host-clock now — the
+    """The per-site TEMPLATE (a future serve site that forgets the clock fails a copy of this): the scored
+    PIT is built with ``known_at = known_at_for_asof(asof)`` on the PUBLIC clock for a past asof and
+    ``(None, "record")`` for a live one (the unchanged live read; None, not a host-clock now — the
     one-clock rule in ``decisions_repo``). The same seam the call and the display view thread."""
     tid = _scored_thesis(db, security_id)
-    seen: list[datetime | None] = []
+    seen: list[tuple[datetime | None, str]] = []
 
     class SpyPIT(PointInTimeData):
         def __init__(self, conn, **kw):
-            seen.append(kw.get("known_at"))
+            seen.append((kw.get("known_at"), kw.get("clock", "record")))
             super().__init__(conn, **kw)
 
     monkeypatch.setattr(workbench_router, "PointInTimeData", SpyPIT)
@@ -1617,8 +1619,8 @@ def test_scored_threads_the_asof_cap_for_a_past_view_and_None_for_the_live_one(
     assert r.status_code == 200
     r = client.get(f"/workbench/theses/{tid}/scored", params={"asof": market_today().isoformat()})
     assert r.status_code == 200
-    assert seen == [known_at_for_asof(date(2026, 6, 2)), None]
-    assert seen[0] == datetime(
+    assert seen == [(known_at_for_asof(date(2026, 6, 2)), "public"), (None, "record")]
+    assert seen[0][0] == datetime(
         2026, 6, 3, 3, 59, 59, 999999, tzinfo=timezone.utc
     )  # 06-02 23:59 EDT
 

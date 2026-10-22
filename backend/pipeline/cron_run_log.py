@@ -89,7 +89,8 @@ def run_status(doc: dict) -> str:
 def is_finished(doc: dict) -> bool:
     """Did this artifact's pass FINISH (or is it a legacy artifact with no status)? The one test every
     "this pass happened" reader applies — the ``--catch-up`` guard, the stale-tape / name-error baselines,
-    the Admin ``last_run``, the backfill's ``next-run`` pin."""
+    the Admin ``last_run``. (The backfill's record-clock ``next-run`` pin read it too, until the backfill
+    moved to the public clock, 2026-10-21.)"""
     return run_status(doc) == RUN_STATUS_FINISHED
 
 

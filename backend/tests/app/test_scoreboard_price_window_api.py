@@ -356,59 +356,49 @@ def test_price_window_universe_floor_excludes_a_pre_thesis_buy(client, db, secur
     assert all(b["d"] >= "2025-06-01" for b in buys)
 
 
-def test_price_window_insider_gate_keys_on_recorded_at_not_disclosure(client, db, security_id):
-    """The event twin of the price no-lookahead test — BOTH axes, keyed on ``recorded_at``:
-    - transaction axis: a buy transacted 06-05, DISCLOSED (accepted) 06-20 but INGESTED 07-01 is ABSENT
-      at as-of 06-25 (already disclosed, but the system had not recorded it yet) and PRESENT at 07-05 — the
-      no-lookahead gate keys on ``recorded_at`` (our ingest instant) like every fact table, NOT on
-      ``accepted``: an early disclosure never opens the gate. When the buy IS visible its ``disclosed``
-      field still reads the acceptance date (06-20) — the honest two-clock DISPLAY, off the gate.
-    - valid axis: a buy transacted 08-15 (future vs both as-ofs) NEVER appears — no `valid_from > asof`.
+def test_price_window_insider_gate_keys_on_the_public_clock_not_the_ingest(client, db, security_id):
+    """The event twin of the price no-lookahead test — BOTH axes, judged on the PUBLIC clock (operator
+    decision 2026-10-21): a past as-of is a history view, and a Form 4 counts from its SEC ACCEPTANCE.
+    - transaction axis: a buy transacted 06-05, ACCEPTED (public) 06-20, INGESTED 07-01 is ABSENT at as-of
+      06-15 (traded, not yet public) and PRESENT at 06-25 — public by then, so our late ingest does not hide
+      it. Its ``ingested`` line still reads 07-01 (our honest bookkeeping: we were late), beside
+      ``disclosed`` 06-20.
+    - valid axis: a buy transacted 08-15 (future vs every as-of) NEVER appears — no `valid_from > asof`.
     """
     thesis = persist_thesis(db, security_id)
-    disc = datetime(
-        2026, 6, 20, 12, 0, tzinfo=timezone.utc
-    )  # the Form 4 is ACCEPTED (public) 06-20 — display-only
-    ingest = datetime(
-        2026, 7, 1, 12, 0, tzinfo=timezone.utc
-    )  # we INGESTED it 11 days later — the gate
+    disc = datetime(2026, 6, 20, 12, 0, tzinfo=timezone.utc)  # ACCEPTED (public) 06-20 — the gate
+    ingest = datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc)  # we INGESTED it 11 days later
     insider_buy(
         db,
         security_id,
         accession="0000000001-26-000001",
         valid_from=date(2026, 6, 5),
-        accepted=disc,  # the disclosure clock: the "disclosed" DISPLAY date, NEVER the gate
-        recorded_at=ingest,  # the ingest clock — the transaction-time no-lookahead gate keys on THIS
+        accepted=disc,
+        recorded_at=ingest,
     )
-    # a FUTURE-transaction buy (recorded early) — the valid axis must hide it at both as-ofs
+    # a FUTURE-transaction buy (recorded early) — the valid axis must hide it at every as-of
     insider_buy(
         db,
         security_id,
         accession="0000000002-26-000002",
         valid_from=date(2026, 8, 15),
         recorded_at=datetime(2026, 6, 1, 12, 0, tzinfo=timezone.utc),
+        accepted=datetime(2026, 6, 1, 12, 0, tzinfo=timezone.utc),
         insider_name="Future Buyer",
     )
 
+    before = _get(client, thesis.id, security_id, "2026-06-15").json()["insider_buys"]
     early = _get(client, thesis.id, security_id, "2026-06-25").json()["insider_buys"]
     late = _get(client, thesis.id, security_id, "2026-07-05").json()["insider_buys"]
 
-    assert (
-        early == []
-    )  # disclosed 06-20 but recorded_at 07-01 is after known_at(06-25) -> not held; 08-15 is future
-    assert (
-        len(late) == 1
-    )  # by 07-05 the 06-05 buy IS recorded; the 08-15 buy still hasn't transacted
-    (buy,) = late
-    assert (
-        buy["d"] == "2026-06-05" and buy["disclosed"] == "2026-06-20"
-    )  # disclosed = accepted (display)
-    assert (
-        buy["ingested"] == "2026-07-01"
-    )  # the second clock — shown because it differs from disclosed
-    assert buy["insider_name"] == "A Buyer" and buy["usd"] == 50000.0
+    assert before == []  # traded 06-05, accepted 06-20: not yet public at 06-15
+    for buys in (early, late):
+        (buy,) = buys  # public 06-20 — visible though ingested 07-01; the 08-15 buy never
+        assert buy["d"] == "2026-06-05" and buy["disclosed"] == "2026-06-20"
+        assert buy["ingested"] == "2026-07-01"  # the honest second clock, shown because it differs
+        assert buy["insider_name"] == "A Buyer" and buy["usd"] == 50000.0
     # the load-bearing assertion: no returned buy is ever transacted after the as-of
-    for asof, buys in (("2026-06-25", early), ("2026-07-05", late)):
+    for asof, buys in (("2026-06-15", before), ("2026-06-25", early), ("2026-07-05", late)):
         assert all(b["d"] <= asof for b in buys)
 
 
@@ -600,20 +590,21 @@ def test_price_window_insider_carries_the_10b5_1_role_and_character(client, db, 
 
 
 # --- Slice B: three more dated event families through the SAME window + knowability gate ---
-# Per family the load-bearing case is the two-axis no-lookahead one: a row RECORDED after
-# known_at_for_asof(asof) is invisible on a scrubbed-back asof (the recorded_at gate), and a row
-# whose event date is past the asof never appears (the valid axis) — rows seeded at EXPLICIT
-# recorded_at values, mirroring the insider-buy gate test above.
+# Per family the load-bearing case is the two-axis no-lookahead one, on the PUBLIC clock: a row PUBLISHED
+# after the as-of (its acceptance / filing date) is invisible on a scrubbed-back asof — however early it
+# was ingested — while one public before it is visible however LATE it was ingested; and a row whose event
+# date is past the asof never appears (the valid axis). Rows seeded at EXPLICIT instants, mirroring the
+# insider-buy gate test above.
 
 
-def test_price_window_sell_gate_keys_on_recorded_at(client, db, security_id):
-    """The sell twin of the insider no-lookahead test — BOTH axes, keyed on ``recorded_at``:
-    a sale transacted 06-05 but INGESTED 07-01 is ABSENT at as-of 06-25 and PRESENT at 07-05; a
-    FUTURE-transacted sale (recorded early) never appears. When visible the sale carries the
-    two-clock fields and its wire ``character`` (``kept`` — no screen trips here)."""
+def test_price_window_sell_gate_keys_on_the_public_clock(client, db, security_id):
+    """The sell twin of the insider no-lookahead test — BOTH axes, on the PUBLIC clock: a sale transacted
+    06-05, ACCEPTED 06-20 and INGESTED 07-01 is ABSENT at as-of 06-15 and PRESENT at 06-25 (public, though
+    ingested later); a FUTURE-transacted sale never appears. When visible the sale carries the two-clock
+    fields and its wire ``character`` (``kept`` — no screen trips here)."""
     thesis = persist_thesis(db, security_id)
-    disc = datetime(2026, 6, 20, 12, 0, tzinfo=timezone.utc)  # accepted — display-only, never gates
-    ingest = datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc)  # recorded_at — THE gate
+    disc = datetime(2026, 6, 20, 12, 0, tzinfo=timezone.utc)  # accepted — THE gate (public)
+    ingest = datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc)  # recorded_at — bookkeeping only
     insider_buy(
         db,
         security_id,
@@ -628,22 +619,23 @@ def test_price_window_sell_gate_keys_on_recorded_at(client, db, security_id):
         db,
         security_id,
         accession="0000000102-26-000102",
-        valid_from=date(2026, 8, 15),  # future vs both as-ofs — the valid axis must hide it
+        valid_from=date(2026, 8, 15),  # future vs every as-of — the valid axis must hide it
         recorded_at=datetime(2026, 6, 1, 12, 0, tzinfo=timezone.utc),
+        accepted=datetime(2026, 6, 1, 12, 0, tzinfo=timezone.utc),
         txn_code="S",
         insider_name="Future Seller",
     )
 
+    before = _get(client, thesis.id, security_id, "2026-06-15").json()
     early = _get(client, thesis.id, security_id, "2026-06-25").json()
-    late = _get(client, thesis.id, security_id, "2026-07-05").json()
-    assert early["insider_sells"] == []  # recorded 07-01 > known_at(06-25) → not held yet
-    (sell,) = late["insider_sells"]
+    assert before["insider_sells"] == []  # not public until 06-20
+    (sell,) = early["insider_sells"]
     assert sell["d"] == "2026-06-05" and sell["insider_name"] == "A Seller"
     assert sell["disclosed"] == "2026-06-20" and sell["ingested"] == "2026-07-01"  # two clocks
     assert sell["character"] == "kept"
     # a code-S row is never a BUY chip (and vice versa — the family split is by txn_code)
-    assert early["insider_buys"] == [] and late["insider_buys"] == []
-    for asof, body in (("2026-06-25", early), ("2026-07-05", late)):
+    assert before["insider_buys"] == [] and early["insider_buys"] == []
+    for asof, body in (("2026-06-15", before), ("2026-06-25", early)):
         assert all(s["d"] <= asof for s in body["insider_sells"])  # never past the as-of
 
 
@@ -781,10 +773,11 @@ def test_price_window_relevance_floor_applies_to_all_three_families(client, db, 
     assert [s["d"] for s in body["activist_stakes"]] == ["2025-10-01"]
 
 
-def test_price_window_corporate_events_gate_keys_on_recorded_at(client, db, security_id):
-    """The 8-K twin of the no-lookahead test: filed 06-05 but INGESTED 07-01 → absent at as-of
-    06-25, present at 07-05 with form/items/url/ingested; a future-FILED 8-K (recorded early) never
-    appears at either as-of."""
+def test_price_window_corporate_events_gate_keys_on_the_filing_date(client, db, security_id):
+    """The 8-K twin of the no-lookahead test, on the PUBLIC clock: filed 06-05 but INGESTED 07-01 → absent
+    at as-of 06-04, present at 06-25 (public on its filing date, however late we ingested it) with
+    form/items/url and the honest ``ingested``; a future-FILED 8-K (recorded early) never appears.
+    """
     thesis = persist_thesis(db, security_id)
     corp_event(
         db,
@@ -798,26 +791,27 @@ def test_price_window_corporate_events_gate_keys_on_recorded_at(client, db, secu
         db,
         security_id,
         accession="0000000117-26-000117",
-        filed=date(2026, 8, 15),  # future vs both as-ofs
+        filed=date(2026, 8, 15),  # future vs every as-of
         recorded_at=datetime(2026, 6, 1, 12, 0, tzinfo=timezone.utc),
         items=["1.01"],
     )
 
+    before = _get(client, thesis.id, security_id, "2026-06-04").json()["corporate_events"]
     early = _get(client, thesis.id, security_id, "2026-06-25").json()["corporate_events"]
-    late = _get(client, thesis.id, security_id, "2026-07-05").json()["corporate_events"]
-    assert early == []  # recorded 07-01 > known_at(06-25); the 08-15 filing is future
-    (ev,) = late
+    assert before == []  # not filed yet; the 08-15 filing is future
+    (ev,) = early
     assert ev["d"] == "2026-06-05" and ev["form"] == "8-K"
     assert ev["items"] == ["2.02", "9.01"]
     assert ev["url"].endswith("0000000116-26-000116-index.htm")  # the EDGAR index provenance (#6)
-    assert ev["ingested"] == "2026-07-01"
+    assert ev["ingested"] == "2026-07-01"  # our honest ingest date, never the gate
 
 
 def test_price_window_corporate_event_items_resolution_is_honest(client, db, security_id):
-    """The items-resolve flow through the bitemporal read: v1 (items NULL) recorded 06-10, v2 (items
-    resolved) recorded 06-20 — an as-of BETWEEN the two honestly reads ``items: null`` (what we held
-    then), a later as-of reads the resolved codes, and there is never a double-count (latest version
-    per accession). An off-policy item set rides too — NO server-side item cut."""
+    """The items-resolve flow through the public-clock read: v1 (items NULL) recorded 06-10, v2 (items
+    resolved) recorded 06-20 — both readings of ONE public filing (filed 06-05). On the public clock our
+    resolve is today's reading of what was public, so EVERY as-of from the filing on reads the resolved
+    codes (no "what our database held that day" replay), never a double-count (one version per
+    accession). An off-policy item set rides too — NO server-side item cut."""
     thesis = persist_thesis(db, security_id)
     corp_event(
         db,
@@ -846,21 +840,17 @@ def test_price_window_corporate_event_items_resolution_is_honest(client, db, sec
 
     mid = _get(client, thesis.id, security_id, "2026-06-15").json()["corporate_events"]
     late = _get(client, thesis.id, security_id, "2026-07-15").json()["corporate_events"]
-    # at 06-15 only v1 was recorded: items honestly null (never the not-yet-known resolve)
-    assert [(e["d"], e["items"]) for e in mid] == [
-        ("2026-06-05", None),
-        ("2026-06-06", ["7.01"]),
-    ]
-    # at 07-15 the resolve is held: ONE row (no double-count), the latest version's items
-    assert [(e["d"], e["items"]) for e in late] == [
-        ("2026-06-05", ["2.02", "9.01"]),
-        ("2026-06-06", ["7.01"]),
-    ]
+    for events in (mid, late):
+        assert [(e["d"], e["items"]) for e in events] == [
+            ("2026-06-05", ["2.02", "9.01"]),
+            ("2026-06-06", ["7.01"]),
+        ]
 
 
-def test_price_window_activist_gate_keys_on_recorded_at(client, db, security_id):
-    """The 13D twin of the no-lookahead test: filed 06-05 but INGESTED 07-01 → absent at as-of
-    06-25, present at 07-05; a future-filed 13D (recorded early) never appears."""
+def test_price_window_activist_gate_keys_on_the_filing_date(client, db, security_id):
+    """The 13D twin of the no-lookahead test, on the PUBLIC clock: filed 06-05 but INGESTED 07-01 → absent
+    at as-of 06-04, present at 06-25 (public on its filing date); a future-filed 13D (recorded early) never
+    appears."""
     thesis = persist_thesis(db, security_id)
     activist(
         db,
@@ -877,15 +867,15 @@ def test_price_window_activist_gate_keys_on_recorded_at(client, db, security_id)
         db,
         security_id,
         accession="0000000121-26-000121",
-        filed=date(2026, 8, 15),  # future vs both as-ofs
+        filed=date(2026, 8, 15),  # future vs every as-of
         recorded_at=datetime(2026, 6, 1, 12, 0, tzinfo=timezone.utc),
         form="SC 13D",
     )
 
+    before = _get(client, thesis.id, security_id, "2026-06-04").json()["activist_stakes"]
     early = _get(client, thesis.id, security_id, "2026-06-25").json()["activist_stakes"]
-    late = _get(client, thesis.id, security_id, "2026-07-05").json()["activist_stakes"]
-    assert early == []
-    (stake,) = late
+    assert before == []
+    (stake,) = early
     assert stake["d"] == "2026-06-05" and stake["form"] == "SCHEDULE 13D"
     assert stake["filer_name"] == "Big Activist LP" and stake["pct_owned"] == 7.5
     assert stake["ingested"] == "2026-07-01"

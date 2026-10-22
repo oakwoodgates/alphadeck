@@ -44,7 +44,9 @@ beforeEach(() => {
 describe("Board — F11 past-asof recompute note", () => {
   it("shows the quiet board-wide line when scrubbed to a PAST date", () => {
     const { container } = render(<Board asof="2026-06-01" onSelect={noop} />);
-    expect(screen.getByText("Recomputed as of Jun 1 — not the recorded call")).toBeInTheDocument();
+    expect(
+      screen.getByText("Recomputed as of Jun 1 — today's rules on what was public then, not the recorded call"),
+    ).toBeInTheDocument();
     expect(container.querySelector(".board-recompute")).not.toBeNull();
   });
 

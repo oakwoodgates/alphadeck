@@ -60,7 +60,7 @@ from db.session import connect, name_session
 from db.write_lock import CompanyLockBusy, acquire_company_lock
 from domain.enums import Authorship, InstrumentKind, TermTier
 from domain.extraction import ExtractedFact, ExtractionResult, Tier
-from domain.market_time import serve_known_at
+from domain.market_time import serve_view
 from domain.settings import get_settings
 from domain.thesis import Thesis
 from ingest.cash_burn import ingest_cash_burn
@@ -127,17 +127,21 @@ def get_scored(
     into every scoring fact read so a production thesis scores off production's facts."""
     # the resolved basket = the PIT's prefetch scope (one query per fact table); ``scored_bounds()`` is
     # the scorer's own declaration — every table unbounded (signals/horizons.py).
-    # ``known_at`` (#1, both axes): a scrubbed-back ``asof`` caps the transaction axis at that market
-    # day's end — the same cap the call and display recomputes thread — so a ratified fact RECORDED after
-    # the as-of never scores a past view; a live ``asof`` threads ``None`` (the unchanged live read).
+    # ``known_at`` + ``clock`` (#1, the PUBLIC clock): a scrubbed-back ``asof`` reads each fact as it was
+    # public by that market day's end — the same view the call and display recomputes thread. A Workbench-
+    # RATIFIED fact is public from its ratification (an operator decision counts from when it was made —
+    # ``db.public_clock``), so one ratified after the as-of never scores a past view; a live ``asof``
+    # threads ``(None, "record")`` (the unchanged live read).
     basket = {m.security_id for m in thesis.basket if m.security_id is not None}
+    known_at, clock = serve_view(asof)
     pit = PointInTimeData(
         conn,
         asof=asof,
-        known_at=serve_known_at(asof),
+        known_at=known_at,
         tenant_id=thesis.tenant_id,
         basket=basket,
         bounds=scored_bounds(),
+        clock=clock,
     )
     scored = score_thesis(pit, thesis)
     sec_ids = {m.security_id for m in scored}

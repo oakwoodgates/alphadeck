@@ -651,11 +651,14 @@ events** as **colored numbered chips**:
   visible range is the recent episode; **pan/zoom** reveals earlier events and de-crowds dense clusters
   (collision-stacking spills to a visible "+N", never a silent drop).
 - **No-lookahead on both axes** — an insider buy is **positioned by its transaction date** (`valid_from`) but
-  **gated by disclosure** (`recorded_at ≤ known_at`, capped at the end of the as-of's MARKET day —
-  `domain.market_time.known_at_for_asof`, the same cap the Board/Cockpit/Workbench scrub-back threads through
-  `serve_known_at`; a UTC day-end sat BEFORE the 22:30 ET cron and read one bar short), so a scrubbed-back Scoreboard hides
-  later bars AND later-*disclosed* buys — the honesty a filing's days-to-months lag demands (the price bar's
-  `valid_from == d` needs only the valid-axis cap). SMA is a warm-up read with an honest `None` gap where
+  **gated by disclosure**: for a PAST as-of on the PUBLIC clock (since 2026-10-21 — its SEC acceptance, capped at
+  the end of the as-of's MARKET day, `domain.market_time.known_at_for_asof`; the same view the
+  Board/Cockpit/Workbench scrub-back threads through `serve_view`), for today's as-of on the record clock
+  (`recorded_at ≤ now`, where the two coincide). So a scrubbed-back Scoreboard hides later bars AND
+  later-*disclosed* buys — the honesty a filing's days-to-months lag demands — but no longer hides a buy that was
+  public and merely ingested late; each chip's "ingested" line stays our honest ingest date (`ingested_at`).
+  8-Ks and 13D/Gs are gated by their filing date the same way (the price bar's `valid_from == d` needs only
+  the valid-axis cap). SMA is a warm-up read with an honest `None` gap where
   history is short (`scoreboard/overlays.py`).
 - **Explainability (#6)** — hover any chip for the buyer/$/date, the **disclosure lag**, the buy's
   **character line** (why it did or didn't count; open-market stays unbadged, the 10b5-1 plan note renders

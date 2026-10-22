@@ -1,8 +1,9 @@
 """R8-A — PIT PARITY for the Form 4/A resolution: the DuckDB replay mirror resolves ``fact_insider_txn``
 byte-for-byte like Postgres (the ONE pure resolver, fed the same visible inputs), on REAL filings, at every
 transaction instant that matters — before the links, after them, before and after the operator's decisions —
-on both read shapes (the basket prefetch and the per-security read). Plus the public-clock export: an
-amendment becomes visible at its SEC acceptance, and the operator's standing decision rides that clock.
+on both read shapes (the basket prefetch and the per-security read). Plus the PUBLIC clock (operator decision
+2026-10-21): the live public read and the public mirror resolve identically; an amendment, its link and a SYSTEM
+decision count from the 4/A's SEC acceptance, an OPERATOR decision from when the operator made it.
 """
 
 from __future__ import annotations
@@ -243,25 +244,73 @@ def test_public_clock_shows_an_amendment_at_its_sec_acceptance(db, tmp_path):
     assert {r["txn_code"] for r in eod.insider_txns(sid)} == {"P"}
 
 
-def test_public_clock_carries_only_the_standing_decision_at_the_acceptance(db, tmp_path):
+@pytest.mark.parametrize("basket", [True, False], ids=["prefetch", "scoped"])
+def test_the_public_mirror_resolves_amendments_exactly_like_the_live_public_read(
+    db, tmp_path, basket
+):
+    """ONE public-clock definition, two engines: every disposition, every as-of, at the lockstep cap (the end
+    of each market day — what the history views and a public backtest read) and at instants around the
+    operator's decisions, the live ``PointInTimeData(clock="public")`` and the public mirror agree row for
+    row. The links + system decisions were recorded "tonight" (``T_LINK``) and the operator's decisions NOW —
+    on the public clock the former count from each 4/A's acceptance, the latter from when they were made.
+    """
+    sids = _seed(db)
+    before_decisions = _decide(db, sids)
+    export_snapshot(db, tmp_path, clock="public")
+    con = connect_mirror(tmp_path)
+    ids = list(sids.values())
+    checked = 0
+    for asof in (date(2025, 8, 15), date(2026, 3, 31), date(2026, 6, 15), date(2026, 10, 1)):
+        for known_at in (known_at_for_asof(asof, FAR), before_decisions, FAR):
+            live = PointInTimeData(
+                db, asof=asof, known_at=known_at, basket=ids if basket else None, clock="public"
+            )
+            rep = ReplayPointInTimeData(
+                con, asof=asof, known_at=known_at, basket=ids if basket else None
+            )
+            for sid in ids:
+                _assert_equal(live.insider_txns(sid), rep.insider_txns(sid))
+                checked += 1
+    assert checked == 4 * 3 * len(ids)
+
+
+def test_public_clock_counts_an_operator_decision_from_when_it_was_made(db, tmp_path):
+    """AZTA's power-of-attorney 4/A: the SYSTEM resolved it at ingest (``T_LINK``) — no retraction language,
+    so it KEPT the CFO's buy; on the public clock that reading of a public filing counts from the 4/A's
+    acceptance. The OPERATOR then applied the void, undid that, and applied it again, NOW. An operator
+    decision counts from when it was made: a read at the 4/A's acceptance reads the system's keep (the buy
+    stands), a read after the operator's apply reads the buy voided — on the live public read and the mirror
+    alike. Every decision rides the mirror with its honest ``recorded_at`` (the order the resolver reads —
+    the newest standing verdict wins) beside ``public_at``."""
     sid = make_security(db, "AZTA")
     ingest_originals(db, sid, "AZTA", recorded_at=T_ORIG)
     ingest_amendment(db, sid, "0001193125-25-282945", recorded_at=T_LINK)
-    keep = insider_amendment_repo.decide(
-        db, sid, "0001193125-25-282945", "keep", reason="POA", basis="operator:keep"
+    db.commit()
+    first = insider_amendment_repo.decide(
+        db, sid, "0001193125-25-282945", "apply", reason="void", basis="operator:apply"
     )
-    insider_amendment_repo.revoke(db, keep["id"], reason="undo", basis="operator:revoke")
+    insider_amendment_repo.revoke(db, first["id"], reason="undo", basis="operator:revoke")
     insider_amendment_repo.decide(
-        db, sid, "0001193125-25-282945", "keep", reason="POA, again", basis="operator:keep"
+        db, sid, "0001193125-25-282945", "apply", reason="void, again", basis="operator:apply"
     )
     db.commit()
+    decided = db_now(db)
+    db.commit()
     manifest = export_snapshot(db, tmp_path, clock="public")
-    assert (
-        manifest["aux_tables"]["insider_amendment_decision"]["rows"] == 1
-    )  # the standing keep only
     con = connect_mirror(tmp_path)
     accepted = FILINGS["0001193125-25-282945"].accepted
-    rows = con.execute("SELECT action, recorded_at FROM insider_amendment_decision").fetchall()
-    assert [r[0] for r in rows] == ["keep"] and rows[0][1] == accepted
-    rep = ReplayPointInTimeData(con, asof=date(2025, 8, 15), known_at=accepted)
-    assert any(r["txn_code"] == "P" for r in rep.insider_txns(sid))  # kept: the buy stands
+    rows = con.execute(
+        "SELECT action, basis, recorded_at, public_at FROM insider_amendment_decision"
+    ).fetchall()
+    assert manifest["aux_tables"]["insider_amendment_decision"]["rows"] == len(rows)
+    operator = [r for r in rows if r[1].startswith("operator:")]
+    system = [r for r in rows if r[1].startswith("system:")]
+    assert sorted(r[0] for r in operator) == ["apply", "apply", "revoke"]
+    assert all(r[3] == r[2] for r in operator)  # the operator's: when it was made
+    assert system and all(r[3] == accepted for r in system)  # the system's: the 4/A's acceptance
+    asof = date(2025, 11, 20)
+    for known_at, buy_stands in ((accepted, True), (decided, False)):
+        live = PointInTimeData(db, asof=asof, known_at=known_at, clock="public")
+        rep = ReplayPointInTimeData(con, asof=asof, known_at=known_at)
+        for view in (live, rep):
+            assert any(r["txn_code"] == "P" for r in view.insider_txns(sid)) is buy_stands

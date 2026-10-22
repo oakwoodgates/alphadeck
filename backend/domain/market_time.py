@@ -46,6 +46,7 @@ it is no longer the mechanism.
 from __future__ import annotations
 
 from datetime import date, datetime, time, timezone
+from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from domain.settings import get_settings
@@ -112,9 +113,10 @@ def known_at_for_asof(asof: date, now: datetime | None = None) -> datetime:
     is a superset of the record's (by at most the hours between the run and midnight ET), never a subset.
     It also makes the live identity exact: for ``asof == market_today()`` the cap is always in the future,
     so ``min(now, cap) == now`` at every hour (the UTC cap broke this after 20:00 ET — the same time-of-day
-    window ``market_today`` exists for). ``pipeline.backfill``'s ``next-run`` pin is deliberately LATER
-    (the first live run after the night, to reconstruct a MISSED record consistent with its neighbors);
-    this cap serves the recompute, not the record, and stays inside the day.
+    window ``market_today`` exists for). Since the public-clock rule (2026-10-21) every HISTORY view —
+    the serve recomputes, the drawer, ``pipeline.backfill``'s missed-night reconstruction — bounds the
+    PUBLIC instant of each fact by this same cap (``serve_view``): "what was public by the end of that
+    day". (The backfill's old record-clock ``next-run`` pin is retired.)
 
     ``now`` is injectable for tests; the default is the UTC instant (transaction time, correctly UTC — #4).
     Returns an aware UTC datetime either way.
@@ -137,8 +139,29 @@ def serve_known_at(asof: date, today: date | None = None) -> datetime | None:
 
     A past ``asof`` gets ``known_at_for_asof(asof)`` — the cap that makes the scrub-back honest to the
     as-of. ``today`` is injectable for tests; the default is ``market_today()``.
+
+    **Which axis that cap bounds is ``serve_view``'s half** (operator decision 2026-10-21): a past view reads
+    on the PUBLIC clock — a fact counts from when it became public, not from when our database ingested it.
     """
     today = today or market_today()
     if asof >= today:
         return None
     return known_at_for_asof(asof)
+
+
+def serve_view(
+    asof: date, today: date | None = None
+) -> tuple[datetime | None, Literal["record", "public"]]:
+    """``(known_at, clock)`` for a HISTORY-capable read at ``asof`` — the ONE place a serve path (and the
+    other history views: ``pipeline.run`` for a past asof) decides both halves together, so they can never
+    disagree (one ``market_today()`` read, never two straddling midnight).
+
+    - live (``asof >= market_today()``): ``(None, "record")`` — the unchanged live read (``serve_known_at``).
+    - past: ``(known_at_for_asof(asof), "public")`` — a HISTORY view, judged on the PUBLIC clock (operator
+      decision 2026-10-21, ``docs/INVARIANTS.md`` §4): each fact version counts from when it became public
+      (``db.public_clock``) up to the end of that market day — so a scrub-back shows how today's rules judge
+      what was public then, not which rows our database happened to hold (our outages, our onboarding order).
+      The roster and the position (operator decisions) stay as of that same instant.
+    """
+    known_at = serve_known_at(asof, today)
+    return known_at, ("record" if known_at is None else "public")

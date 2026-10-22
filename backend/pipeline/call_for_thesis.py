@@ -5,6 +5,7 @@ from uuid import UUID
 
 import psycopg
 
+from db.public_clock import Clock
 from domain.call import CallCard
 from domain.config import DEFAULT_CONFIG, CallConfig, config_hash
 from domain.settings import get_settings
@@ -24,6 +25,7 @@ def call_for_thesis(
     cfg: CallConfig = DEFAULT_CONFIG,
     record: bool = True,
     run_kind: str = "manual",
+    clock: Clock = "record",
 ) -> CallCard:
     """Load the thesis, RE-DERIVE its dated signal stream from the bitemporal facts as-of (via the shared
     ``assemble_from_pit`` core), and (when ``record``) append the CallCard to the write-only ``calls``
@@ -36,7 +38,9 @@ def call_for_thesis(
     ``record=False`` (a GET writes nothing); the batch ``pipeline.run`` is the writer of the call of record
     (``record=True``). When it writes, that append is the only write and is never read back to serve. The
     caller owns the transaction (commit/rollback). ``known_at`` defaults to now (live read); the replay
-    harness pins it to a past transaction time.
+    harness pins it to a past transaction time. ``clock="public"`` makes it a HISTORY view (a past-asof
+    serve recompute, the backfill): every fact is judged on its PUBLIC instant ``<= known_at``
+    (``db.public_clock``) — see ``load_call_inputs``.
 
     ``run_kind`` (0044) labels the write for the record's run identity. It defaults to ``"manual"`` because
     the ONLY ``record=True`` caller is the one-off ``python -m pipeline.run`` CLI — the nightly cron and the
@@ -48,7 +52,7 @@ def call_for_thesis(
     optional record — the input half is its own function so a DIAGNOSTIC caller can assemble twice over ONE
     prefetched view (``pipeline.annotate_phantom_arms``); this funnel's behavior is unchanged by that split.
     """
-    thesis, pit = load_call_inputs(conn, thesis_id, asof, known_at=known_at, cfg=cfg)
+    thesis, pit = load_call_inputs(conn, thesis_id, asof, known_at=known_at, cfg=cfg, clock=clock)
     card = assemble_from_pit(pit, thesis, asof, cfg)
     if record:
         calls_repo.append(
@@ -69,6 +73,7 @@ def load_call_inputs(
     *,
     known_at: datetime | None = None,
     cfg: CallConfig = DEFAULT_CONFIG,
+    clock: Clock = "record",
 ) -> tuple[Thesis, PointInTimeData]:
     """The INPUT half of ``call_for_thesis`` — everything the funnel reads before it assembles: the thesis
     with its roster AS OF ``known_at`` (basket_snapshot), its position as of both axes (the decisions log),
@@ -80,6 +85,11 @@ def load_call_inputs(
     ONE view — the PIT memo makes the second assembly cost no further DB reads — while still reading
     through exactly this funnel. The live callers (serve, the cron, the backfill, ``pipeline.run``) go
     through ``call_for_thesis`` and are unchanged.
+
+    ``clock`` reaches ONLY the fact view. The roster (``basket_snapshot``) and the position (the decisions log)
+    are the OPERATOR's decisions, and an operator decision counts from when the operator made it — its
+    ``recorded_at`` — so both stay read as of ``known_at`` on either clock (on the public clock that is the
+    end of the as-of's market day: the roster and the fills the operator had logged by then).
     """
     # THE ROSTER FEED (F12, the SECOND bitemporal leak): read the basket as it was known at ``known_at``
     # (via basket_snapshot), MIRRORING the position feed just below. ``basket_member`` is full-replace /
@@ -116,5 +126,6 @@ def load_call_inputs(
         tenant_id=thesis.tenant_id,
         basket=basket,
         bounds=call_bounds(cfg),
+        clock=clock,
     )
     return thesis, pit

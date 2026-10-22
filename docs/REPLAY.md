@@ -63,7 +63,8 @@ files and reads unresolved (exactly what it held); a partial aux set refuses to 
 A run pins `known_at = PIN` (the `recorded_at` ceiling) — and the pin only gates transaction time when it sits
 in the PAST: `replay.run --pin` is explicit, but the Scoreboard's replay-snapshot CLI (`scoreboard.replay_snapshot`)
 pins `now`, so that panel is honest by LABELING (a recompute, never the record), not by gating to the past — the
-same knowledge-horizon caveat the serve path closed with `serve_known_at` (`INVARIANTS.md` #4). **That CLI also
+same knowledge-horizon caveat the serve path closes for a past view with the public clock (`serve_view`,
+`INVARIANTS.md` #4). **That CLI also
 passes an explicit `cfg` and stamps its fingerprint (F2):** it used to omit `cfg` entirely and silently take
 `DEFAULT_CONFIG`, so the artifact could not name the dials behind the panel. It now carries `config_hash` (the
 same `domain.config.config_hash` the `calls` rows carry, so lab and record are comparable on policy) and the
@@ -111,8 +112,8 @@ Step 2, which runs against real history at scale.
 ## ⚠️ KNOWN LIMITATION — the ROSTER is replayed point-in-time; the rest of the definition is not
 
 **The roster half is CLOSED (F4).** At every session T the harness re-resolves each thesis's basket through
-`thesis_repo.get_asof` at `known_at = min(pin, known_at_for_asof(T))` — the same **market-day cap** the serve
-path uses for a scrub-back (`domain/market_time.py`, `INVARIANTS.md` #4), never the run's bare pin. The
+`thesis_repo.get_asof` at `known_at = min(pin, known_at_for_asof(T))` — the same **market-day cap** every
+history view uses (`domain.market_time.serve_view`, `INVARIANTS.md` #4), never the run's bare pin. The
 per-session clock is the load-bearing part: the harness pins ONE `known_at` for the sweep, so resolving the
 roster once at that pin would return **today's** basket for the `scoreboard.replay_snapshot` path (which pins
 `now`) and the lookahead would have survived the fix. A member added after T is now invisible at T.
@@ -127,10 +128,11 @@ roster once at that pin would return **today's** basket for the `scoreboard.repl
 2. **The rest of the thesis definition and `security_master` are still read from the CURRENT SoR** —
    narrative, catalysts, kill criteria, and every identity mapping. Only the roster is versioned.
 
-**The fact axis is still capped at the run's single pin**, so the roster can be *older* knowledge than the
-facts. That asymmetry is deliberate and conservative — it can never invent a member the thesis did not have —
-and it is temporary: the backtest's public-clock mode moves the fact axis onto the same per-T clock, at which
-point the two are lockstep. F4 lays that rail without changing the fact axis today.
+**On the record clock the fact axis is capped at the run's single pin**, so the roster can be *older*
+knowledge than the facts — deliberate and conservative (it can never invent a member the thesis did not have).
+The backtest's public-clock mode moves the fact axis onto the same per-T cap (`known_at_mode = lockstep`), so
+the two are lockstep there — and since 2026-10-21 the public clock is THE history clock (`INVARIANTS.md` #4):
+its per-table definition is `db/public_clock.py`, shared verbatim with the product's history views.
 
 The *roster* gap was never replay's alone — it sits under every past-`asof` recompute (the
 Board/Cockpit/Workbench scrub-back, `INVARIANTS.md` #4) and under `pipeline.backfill`'s reconstruction of a
@@ -174,9 +176,19 @@ nulls, the no-leaderboard rule, the cost numbers — lives there, not here.
 Two pieces of this harness are now read by that layer and should not be changed casually:
 
 - **`replay/export.py::export_snapshot(clock=...)`** — `"record"` is byte-for-byte what this exporter always
-  wrote and is the ONLY mode the Postgres-vs-Parquet parity gate runs on. `"public"` rewrites `recorded_at`
-  to the disclosure instant and resolves the version pile-up that creates, partitioned by
-  `(identity, clock_value)`. The reader, the gate and `knowability_expr` are untouched in both modes.
+  wrote and is the mode the original Postgres-vs-Parquet parity gate runs on. `"public"` runs the SAME SQL as
+  the live history read (`db/public_clock.public_versions_sql` — ONE per-table definition: a Form 4 at its
+  acceptance, a bar's first version at its session settle and a re-version at its own publication, a filing at
+  its `filed` date, the ratified / sampled tables at their ratification / sampling), rewrites `recorded_at` to
+  that public instant (the honest one rides as `ingested_at`), resolves the version pile-up partitioned by
+  `(identity, public instant)`, and writes the 4/A tables whole with a `public_at` column the reader gates on
+  (an operator decision from when it was made). So a public mirror read is row-for-row the live
+  `PointInTimeData(clock="public")` read — its own parity gate
+  (`tests/replay/test_public_clock.py::test_the_public_mirror_is_row_for_row_the_live_public_read`). The one
+  named asymmetry: a Form 4 with no acceptance on any version is excluded + counted here, shown by the live
+  history read from the first time we held it. A mirror exported before 2026-10-21 carries the older
+  definition (every bar version at its date; standing 4/A decisions stamped at the acceptance) — its manifest
+  does not say which, so re-export rather than compare across that line.
 - **`replay/pit.py`'s memo + basket prefetch + bounds** — the port of the live PIT's rule, MEASURED at 25.5×
   with byte-identical snapshots. An equivalence test on this path must assert row COUNTS per security: the
   mirror stores uuid columns as VARCHAR, so a `str`/`UUID` key mismatch reads as "fast" while returning

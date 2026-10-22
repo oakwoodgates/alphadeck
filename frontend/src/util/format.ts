@@ -147,13 +147,15 @@ export function isPastAsof(asof: string): boolean {
 }
 
 /** F11 — the ONE wording for "you're looking at a recompute, not the record" (Board + Cockpit call
- *  views). Deliberately basis-agnostic: it never claims the roster or facts are period-accurate
- *  (untrue for a pre-F12 fallback date) — it only flags that this is a recompute, not the immutable
- *  nightly calls-of-record row the Scoreboard scores. */
+ *  views). It says exactly what a past view IS since the public-clock rule (2026-10-21): TODAY's rules run
+ *  over what was PUBLIC by the end of that date (each filing from its acceptance, each bar from its close —
+ *  never what our database happened to hold then). It never claims the roster is period-accurate (untrue
+ *  for a pre-F12 fallback date) — and it is not the immutable nightly call-of-record the Scoreboard scores. */
 export function recomputeNote(asof: string): string {
-  return `Recomputed as of ${fmtDate(asof)} — not the recorded call`;
+  return `Recomputed as of ${fmtDate(asof)} — today's rules on what was public then, not the recorded call`;
 }
 
 /** The tooltip paired with `recomputeNote` everywhere it renders. */
 export const RECOMPUTE_TOOLTIP =
-  "Re-derived from data known as of this date; the recorded call-of-record is the Scoreboard entry.";
+  "Re-derived with today's rules from what was public by the end of this date (each filing from its " +
+  "acceptance, each price bar from its close); the recorded call-of-record is the Scoreboard entry.";

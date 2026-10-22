@@ -13,6 +13,14 @@ from psycopg import sql
 from psycopg.rows import tuple_row
 
 from db import insider_resolution
+from db.public_clock import (
+    INGESTED_COL,
+    PUBLIC_COL,
+    Clock,
+    public_params,
+    public_versions_sql,
+    to_public_row,
+)
 
 # Whitelist of bitemporal fact tables -> the natural-key columns that identify one logical fact
 # (so an as-of read keeps the latest *version* of each, by recorded_at). Whitelisting also keeps
@@ -70,6 +78,12 @@ _FACT_IDENTITY: dict[str, list[str]] = {
 # the injection-safe seam for any future per-table override (a trusted literal, never caller input); both
 # engines (Postgres ``_as_of`` + DuckDB ``ReplayPointInTimeData._as_of``) render whatever it returns
 # BYTE-IDENTICALLY, so the replay-parity gate stays provable.
+#
+# THIS IS THE RECORD CLOCK — the LIVE read's gate (``asof`` = today, ``known_at = now``), where it coincides
+# with the public one. HISTORY is judged on the PUBLIC clock (operator decision 2026-10-21, INVARIANTS §4):
+# a past-asof view reads with ``clock="public"``, which gates each version on its PUBLIC instant
+# (``db.public_clock`` — the filing / acceptance / settled session; a correction from its own publication)
+# instead of ``recorded_at``. The paragraphs above are the record-clock history of this gate.
 _KNOWABILITY_EXPR: dict[str, str] = {}
 _DEFAULT_KNOWABILITY_EXPR = "recorded_at"
 
@@ -274,8 +288,13 @@ def _as_of(
     asof: date,
     known_at: datetime,
     tenant_id: UUID,
+    clock: Clock = "record",
 ) -> list[dict[str, Any]]:
     """Shared bitemporal point-in-time read, scoped by ``scope_col`` — no lookahead on either axis.
+
+    ``clock="public"`` (a HISTORY view — the past-asof serve path, the backfill) judges the transaction axis on
+    each version's PUBLIC instant instead of ``recorded_at`` (``_public_read``; ``db.public_clock``). The
+    default ``"record"`` is the live read, byte-for-byte what follows.
 
     Returns the latest version (by ``recorded_at``) of each logical fact whose event time
     (``valid_from``) is on/before ``asof`` AND whose ingest time (``recorded_at``) is on/before
@@ -300,6 +319,23 @@ def _as_of(
     """
     if table not in _FACT_IDENTITY:
         raise ValueError(f"unknown fact table: {table!r}")
+    if clock == "public":
+        rows = _public_read(
+            conn,
+            table,
+            where=sql.SQL(
+                "tenant_id = %(tenant_id)s AND {scope} = %(scope_id)s AND valid_from <= %(asof)s"
+            ).format(scope=sql.Identifier(scope_col)),
+            params={"tenant_id": tenant_id, "scope_id": scope_id, "asof": asof},
+            known_at=known_at,
+            partition=_FACT_IDENTITY[table],
+        )
+        if table == insider_resolution.RESOLVED_TABLE and scope_col == "security_id":
+            inputs = insider_resolution.load_inputs(
+                conn, [scope_id], known_at=known_at, tenant_id=tenant_id, clock=clock
+            )
+            rows = inputs.resolve(scope_id, rows, asof=asof, lower=None)
+        return rows
     ident = sql.SQL(", ").join(sql.Identifier(c) for c in _FACT_IDENTITY[table])
     # the knowability gate — recorded_at for every table (the strict "what we held" no-lookahead axis;
     # accepted is a display/metrics column, never a gate); the version-pick ORDER BY is unchanged
@@ -358,6 +394,61 @@ def _first_knowable_read(
         return first_knowable_versions(table, columns, cur.fetchall(), partition)
 
 
+_PICK_COL = "_pick"
+
+
+def _public_read(
+    conn: psycopg.Connection,
+    table: str,
+    *,
+    where: sql.Composable,
+    params: dict[str, Any],
+    known_at: datetime,
+    partition: Sequence[str],
+) -> list[dict[str, Any]]:
+    """The PUBLIC-clock as-of read (a history view): every version ``where`` admits gets its public instant
+    (``db.public_clock.public_versions_sql`` — the SAME SQL the backtest's public mirror materializes), the
+    gate is ``public <= known_at``, and the pick is the NEWEST version public by then (``public DESC``, then
+    our best parse of it, ``recorded_at DESC, id DESC``). Returned rows carry ``recorded_at`` = that public
+    instant — the axis the read was judged on, exactly the mirror's rewrite, so replay parity holds row-for-row.
+
+    A ``_FIRST_KNOWABILITY`` table first collapses each fact's versions sharing one public instant to our best
+    parse (the mirror's export-time resolution), rewrites, and walks the result through the shared pure
+    ``first_knowable_versions`` — so D3a's knowable date is judged on the public clock too (its held-date term
+    reads the public instant, which for a filing-dated table is the filing day: inert)."""
+    versions = public_versions_sql(table, where=where)
+    ident = sql.SQL(", ").join(sql.Identifier(c) for c in partition)
+    pub = sql.Identifier(PUBLIC_COL)
+    params = {**params, "known_at": known_at, **public_params()}
+    if has_first_knowability(table):
+        query = sql.SQL(
+            "WITH v AS ({versions}), c AS ("
+            "  SELECT *, row_number() OVER (PARTITION BY {ident}, {pub} "
+            "    ORDER BY recorded_at DESC, id DESC) AS {pick} "
+            "  FROM v WHERE {pub} <= %(known_at)s"
+            ") SELECT * FROM c WHERE {pick} = 1 ORDER BY {ident}, {pub}, id"
+        ).format(versions=versions, ident=ident, pub=pub, pick=sql.Identifier(_PICK_COL))
+        with conn.cursor(row_factory=tuple_row) as cur:
+            cur.execute(query, params)
+            columns = [d.name for d in cur.description]
+            raw = cur.fetchall()
+        # the rewrite (``to_public_row``'s, on tuple rows): recorded_at := the public instant, the honest
+        # ingest instant appended as ``ingested_at``, the helper columns dropped
+        rec_i, pub_i = columns.index("recorded_at"), columns.index(PUBLIC_COL)
+        keep = [i for i, c in enumerate(columns) if c not in (PUBLIC_COL, _PICK_COL)]
+        rows = [(*(r[pub_i] if i == rec_i else r[i] for i in keep), r[rec_i]) for r in raw]
+        out_cols = [columns[i] for i in keep] + [INGESTED_COL]
+        return first_knowable_versions(table, out_cols, rows, partition)
+    query = sql.SQL(
+        "WITH v AS ({versions}) "
+        "SELECT DISTINCT ON ({ident}) * FROM v WHERE {pub} <= %(known_at)s "
+        "ORDER BY {ident}, {pub} DESC, recorded_at DESC, id DESC"
+    ).format(versions=versions, ident=ident, pub=pub)
+    with conn.cursor() as cur:
+        cur.execute(query, params)
+        return [to_public_row(r) for r in cur.fetchall()]
+
+
 def as_of(
     conn: psycopg.Connection,
     table: str,
@@ -366,11 +457,13 @@ def as_of(
     asof: date,
     known_at: datetime,
     tenant_id: UUID,
+    clock: Clock = "record",
 ) -> list[dict[str, Any]]:
     """Bitemporal as-of read for a SECURITY-scoped fact table. **Behavior-identical** to the original
     single-function ``as_of`` (same inputs, same rows); it delegates to the shared ``_as_of``. The only
     SQL difference versus that original is cosmetic: the scope column is rendered quoted via
     ``sql.Identifier`` (``"security_id"``), semantically identical for the lowercase fact-table columns.
+    ``clock="public"`` is the history read (``_as_of``).
     """
     return _as_of(
         conn,
@@ -380,6 +473,7 @@ def as_of(
         asof=asof,
         known_at=known_at,
         tenant_id=tenant_id,
+        clock=clock,
     )
 
 
@@ -392,6 +486,7 @@ def as_of_many(
     known_at: datetime,
     tenant_id: UUID,
     valid_from_lower: date | None = None,
+    clock: Clock = "record",
 ) -> dict[UUID, list[dict[str, Any]]]:
     """The BATCH twin of ``as_of``: ONE query for a whole basket of securities, the SAME bitemporal gate.
 
@@ -420,6 +515,11 @@ def as_of_many(
 
     ``fact_insider_txn`` is resolved against the Form 4/A amendments exactly as the scoped ``as_of`` does
     (R8-A), in ONE load for the whole basket, with the floor applied to the amended rows too.
+
+    ``clock="public"`` is the history read — row-for-row the scoped public ``as_of`` per id (``_public_read``).
+    Its floor rides in the SQL for every table but a first-knowability one: on the two tables the registry
+    bounds (price, insider) ``valid_from`` is part of the identity, so the floor admits or drops a fact's
+    versions together and the cross-version public instant is unchanged.
     """
     if table not in _FACT_IDENTITY:
         raise ValueError(f"unknown fact table: {table!r}")
@@ -428,6 +528,36 @@ def as_of_many(
     if not ids:
         return out
     partition = ["security_id"] + [c for c in _FACT_IDENTITY[table] if c != "security_id"]
+    if clock == "public":
+        first_knowable = has_first_knowability(table)
+        floor = (
+            sql.SQL(" AND valid_from >= %(lower)s")
+            if valid_from_lower is not None and not first_knowable
+            else sql.SQL("")
+        )
+        rows = _public_read(
+            conn,
+            table,
+            where=sql.SQL(
+                "tenant_id = %(tenant_id)s AND security_id = ANY(%(ids)s) "
+                "AND valid_from <= %(asof)s{floor}"
+            ).format(floor=floor),
+            params={"tenant_id": tenant_id, "ids": ids, "asof": asof, "lower": valid_from_lower},
+            known_at=known_at,
+            partition=partition,
+        )
+        for row in rows:
+            if first_knowable and valid_from_lower is not None:
+                if row["valid_from"] < valid_from_lower:
+                    continue  # the post-pick floor (the record read's first-knowability rule)
+            out[row["security_id"]].append(row)
+        if table == insider_resolution.RESOLVED_TABLE:
+            inputs = insider_resolution.load_inputs(
+                conn, ids, known_at=known_at, tenant_id=tenant_id, clock=clock
+            )
+            for sid in ids:
+                out[sid] = inputs.resolve(sid, out[sid], asof=asof, lower=valid_from_lower)
+        return out
     ident = sql.SQL(", ").join(sql.Identifier(c) for c in partition)
     knowability = sql.SQL(knowability_expr(table))  # noqa: S608 — hardcoded map, never caller input
     params = {
@@ -482,6 +612,7 @@ def as_of_thesis(
     asof: date,
     known_at: datetime,
     tenant_id: UUID,
+    clock: Clock = "record",
 ) -> list[dict[str, Any]]:
     """Bitemporal as-of read for a THESIS-scoped fact table (e.g. ``fact_theme_conviction``) — the same
     honesty as ``as_of`` but keyed by thesis, since a theme conviction is basket-level, not co-located
@@ -494,6 +625,7 @@ def as_of_thesis(
         asof=asof,
         known_at=known_at,
         tenant_id=tenant_id,
+        clock=clock,
     )
 
 

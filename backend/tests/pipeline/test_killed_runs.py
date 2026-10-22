@@ -396,7 +396,7 @@ def test_C3_a_hand_typed_PAST_asof_is_REFUSED_before_anything_runs(monkeypatch, 
     assert exc.value.code == 2
     err = capsys.readouterr().err
     assert "--asof 2026-10-12 is older than the last expected night (2026-10-16" in err
-    assert "python -m pipeline.backfill --asof 2026-10-12 --known-at next-run" in err
+    assert "python -m pipeline.backfill --asof 2026-10-12` (a PUBLIC-CLOCK reconstruction" in err
     assert seen["locked"] == 0 and "asof" not in seen  # no lock, no pass, no artifact, no row
 
 

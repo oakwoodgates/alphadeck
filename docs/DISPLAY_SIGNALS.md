@@ -65,8 +65,10 @@ The payload is **generic on purpose**: adding a metrics/events member changes ze
 `openapi.json` / `types.gen.ts` diff, no FE change) and one panel section renders every member
 uniformly (`series[]` was the one deliberate widening — a SHAPE needed a field of its own; the next
 series member rides it with zero schema change). Because every read is the bitemporal as-of, an old `asof` time-travels the tape for free
-(#1) — on both axes: the route threads `serve_known_at(asof)`, so a past as-of also hides bars RECORDED after the
-end of that market day (#336; the basket is today's — `INVARIANTS.md` §Known gaps). A member with nothing computable returns `signals: []` — an honest empty, never a dropped row.
+(#1) — on the PUBLIC clock: the route threads `serve_view(asof)`, so a past as-of reads every bar from its
+session settle (a vendor correction from its own publication) up to the end of that market day — a bar we
+ingested late is not hidden for it (`INVARIANTS.md` #4, `db/public_clock.py`; the roster is point-in-time from
+2026-09-15 — `INVARIANTS.md` §Known gaps). A member with nothing computable returns `signals: []` — an honest empty, never a dropped row.
 
 ## Member catalog
 
