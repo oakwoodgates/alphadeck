@@ -32,6 +32,7 @@ from pipeline.ingest_thesis import NameResult
 from pipeline.insider_amendment_scan import AmendmentScan, SweepOutcome
 from pipeline.rename_probe import RenameProbe
 from pipeline.split_basis import SplitScan
+from pipeline.split_jumps import JumpScan
 from pipeline.successor_cik import SuccessorScan
 from repositories import calls_repo, price_feed_repo
 from tests import price_feed_fixtures as fx
@@ -742,6 +743,9 @@ def _prime_pass(monkeypatch, *, bench_raises=False, sweep_raises=False):
     # the T4 split-basis scan reads the price TABLE — DB-free here; proved on a real DB (and end to end
     # through run_daily_pass) in tests/pipeline/test_split_basis.py
     monkeypatch.setattr(daily, "run_split_scan", lambda **k: SplitScan())
+    monkeypatch.setattr(
+        daily, "run_jump_scan", lambda **k: JumpScan()
+    )  # S5 — proved in test_split_jumps.py
     # the T2 rename probe reads the price TABLE and fetches the vendor — DB- and network-free here; proved
     # on a real DB with a fake source in tests/pipeline/test_rename_probe.py
     monkeypatch.setattr(daily, "run_rename_probe", lambda **k: RenameProbe(evaluated=True))

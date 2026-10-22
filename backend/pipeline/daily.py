@@ -66,7 +66,7 @@ from uuid import UUID
 
 import psycopg
 
-from db.session import connect, name_session, set_statement_timeout
+from db.session import connect, current_tenant_id, name_session, set_statement_timeout
 from domain.config import DEFAULT_CONFIG, config_hash
 from domain.feed_kinds import FEED_KINDS, StaleFeedLabel, feed_kind
 from domain.market_time import market_now, market_today, market_tz
@@ -138,6 +138,8 @@ from pipeline.self_audit import (
 )
 from pipeline.split_basis import SplitScan, run_split_scan
 from pipeline.split_basis import report_lines as split_report_lines
+from pipeline.split_jumps import JumpScan, run_jump_scan
+from pipeline.split_jumps import report_lines as jump_report_lines
 from pipeline.successor_cik import SuccessorScan, previous_successor_keys, run_successor_scan
 from pipeline.successor_cik import report_lines as successor_report_lines
 from pipeline.tape_health import StaleTape, stale_fund_shares, stale_tapes
@@ -1035,6 +1037,9 @@ class DailyPassOutcome:
     # S4 — the nightly split detection (``pipeline/detect_splits.py``): the new split-list rows, the filings it
     # could not place, the Polygon source's status — computed in the pass, so the artifact and the poll agree
     split_detect: SplitDetection = field(default_factory=SplitDetection)
+    # S5 — the split-night hold's escalation (``pipeline/split_jumps.py``): released split-shaped jumps no source
+    # listed, for one quiet report line (the Admin Splits panel reads them live). Not an artifact field.
+    jumps: JumpScan = field(default_factory=JumpScan)
 
     def payload_kwargs(self) -> dict:
         """Every run-level field ``cron_run_log.build_run_payload`` / ``write_cron_run_log`` take, from this
@@ -1466,6 +1471,15 @@ def _run_daily_pass_locked(
         previous=previous_split_defects,
         clock=perf_counter,
     )
+    # S5 — THE SPLIT-NIGHT HOLD's ESCALATION (`pipeline/split_jumps.py`): a split-shaped jump the hold has
+    # released (three sessions on) that no source ever listed goes to the operator — one quiet report line,
+    # never a page (#7). The hold itself is on tonight's cards. Its own read-only connection; fail-open.
+    jumps = timed("split_jumps")(run_jump_scan)(
+        asof=asof,
+        allow_live=allow_live,
+        tenant_id=current_tenant_id(),
+        connect=_pass_connect,
+    )
     # T2 — THE RENAME PROBE (`pipeline/rename_probe.py`, operator Q7 = nightly): for every stopped price
     # tape T1 marked `renamed`, ONE vendor fetch per EDGAR-listed candidate into a throwaway cache, spliced
     # against our stored tape (>= 5 shared dates, median close ratio within 1% = verified). A pending
@@ -1574,6 +1588,7 @@ def _run_daily_pass_locked(
         edgar_coverage=edgar_coverage,
         split_reads_prev=prior_split_reads,
         split_detect=split_detector.result,
+        jumps=jumps,
     )
     # R3 — the cron's run-of-record, so the next freeze is noticed by the platform, not by eye. Written
     # AFTER the run from the collected results (write-only, no DB); fail-open, so it never fails the cron.
@@ -2147,6 +2162,10 @@ def main(argv: list[str] | None = None) -> None:
         split_reads_prev=outcome.split_reads_prev,
     )  # the per-thesis summary + the errored count, printed either way
     for line in outcome.split_detect.report_lines():  # S4 — one quiet line (+ Polygon off / faults)
+        print(line)
+    for line in jump_report_lines(
+        outcome.jumps
+    ):  # S5 — one quiet line: unlisted split-shaped jumps
         print(line)
     # X5 — ONE timings line: the total, the three slowest legs, the slowest thesis, the peak RSS
     timings_line = pass_timings.summary_line(outcome.timings)

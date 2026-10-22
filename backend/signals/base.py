@@ -457,6 +457,12 @@ class Detector:
     # (``signals.horizons.insider_signal_codes``): a future detector reading another code widens it by declaring
     # it here, and ``tests/signals/test_insider_signal_codes.py`` fails a detector that reads an undeclared one.
     txn_codes: frozenset[str] = frozenset()
+    # S5 — the SPLIT-NIGHT HOLD (``signals/split_hold.py``): a detector that fires on the PRICE PATH (a breakout,
+    # a breakdown, an SMA cross) declares its name on the card here ("Breakout"); on a held company it then
+    # reads only the bars before an unconfirmed split-shaped step. ``None`` = not a price-path trigger (an
+    # insider detector reads the day's low only to screen a Form 4 price — it fires on the filing).
+    # ``tests/signals/test_split_hold.py`` fails a detector that reads the price path without declaring one.
+    price_trigger: str | None = None
 
     def __call__(
         self,
