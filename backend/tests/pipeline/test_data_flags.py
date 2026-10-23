@@ -124,6 +124,25 @@ def test_a_flapping_bar_with_no_split_on_the_list_after_it_is_not_settled():
     assert df.settled_flaps(flaps[0].dates, tape, [], asof=v["asof"]) == set()
 
 
+def test_a_flap_T4_SETTLES_draws_no_flag_even_where_the_S2_bar_rule_would_not_settle_it():
+    """The same settled rule as Admin's quiet line: with the split list read away, the S2 per-bar rule
+    leaves BTOC's flapping bars (a mixed-scale flag) — unless T4's name-level settle check found no night's
+    view reads them on two bases (``flaps_settled``, which ``read_flags`` computes)."""
+    v = view("BTOC", "2026-10-22")
+    common = {
+        "bars": v["bars"],
+        "split_rows": [],
+        "asof": v["asof"],
+        "stale_days": STALE_DAYS,
+        "versions": v["versions"],
+        "shares": v["shares"],
+    }
+    loud = df.member_flags(v["sid"], v["ticker"], **common)
+    assert m.MIXED_SCALE in kinds(loud)
+    quiet = df.member_flags(v["sid"], v["ticker"], **common, flaps_settled=True)
+    assert m.MIXED_SCALE not in kinds(quiet)
+
+
 def test_btoc_split_row_names_its_sources_and_the_repair_that_corrected_its_history(tmp_path):
     (tmp_path / "20261022T094736Z-split-basis.json").write_text(
         json.dumps(_provenance()["repair"]), encoding="utf-8"

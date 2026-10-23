@@ -418,8 +418,11 @@ def build_run_payload(
     T4 — THE SPLIT-BASIS MONITOR (`pipeline/split_basis.SplitScan.payload`): `split_evaluated` (the scan
     ran — the only kind of pass that is a diff baseline), `split_error`, `split_window_days`,
     `split_duration_s`, `split_defects` (`[{security_id, ticker, kind, dates, factor, events}]` — the
-    inventory the Admin panel renders and the next pass diffs, keyed on `kind:security_id`) and
-    `split_defects_new` (what PAGED). `split=None` writes the not-evaluated block; readers use `.get`.
+    inventory the Admin panel renders and the next pass diffs, keyed on `kind:security_id`; a kept flap
+    carries `evidence`) and `split_defects_new` (what PAGED); `split_settled` (the same row shape plus
+    `reason` — flaps no reader sees on two bases: named, never paged, never in the diff baseline),
+    `split_settle_error` and `split_settle_duration_s`. `split=None` writes the not-evaluated block; readers
+    use `.get`.
 
     T2 / Q8 / T3 — THE PRICE-FEED REPAIRS. `rename_probe` (`pipeline/rename_probe.RenameProbe.payload`) is
     the nightly splice probe of every renamed tape's EDGAR symbols — `{evaluated, error, fetches,

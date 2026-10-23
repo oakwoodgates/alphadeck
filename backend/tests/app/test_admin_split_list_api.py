@@ -8,10 +8,13 @@ from __future__ import annotations
 import uuid
 from datetime import date
 
+from app.routers import admin_splits
 from db.session import DEFAULT_TENANT_ID
 from ingest.edgar.client import EdgarClient
 from pipeline import backfill_splits as bf
 from repositories import split_repo
+from tests.split_801_fixtures import ENHA_8K, OLD_ITEMS, enha_polygon, seed_enha
+from tests.split_801_fixtures import SINCE as SINCE_8_01
 from tests.split_fixtures import edgar_cache, polygon_source, seed_union
 
 BASE = "/admin/splits"
@@ -138,6 +141,67 @@ def test_refusals(client, db, tmp_path):
     )
     assert client.post(f"{BASE}/{mi['version_id']}/restore").status_code == 409
     assert split_repo.count_rows(db) == n  # a refusal writes nothing
+
+
+def _enha_backfill(db, tmp_path, *, asof: date) -> None:
+    bf.backfill_splits(
+        db,
+        polygon=enha_polygon(tmp_path, today=asof),
+        edgar=EdgarClient(cache_dir=edgar_cache(tmp_path), allow_live=False),
+        since=SINCE_8_01,
+        asof=asof,
+        apply=True,
+        tickers=["ENHA"],
+    )
+
+
+def test_enha_offers_its_real_first_session_once_the_8_01_8k_is_read(
+    client, db, tmp_path, monkeypatch
+):
+    """ENHA's card (2026-10-23). As prod holds it, Polygon's 10-28 is the only value: one "Confirm" button,
+    which would put the 10-28 bar on the wrong scale. Once the reader reads its Item 8.01 8-K, the card offers
+    "Confirm SEC values" for the first session the 8-K states (10-29) beside Polygon's, and confirming it on a
+    day before 10-29 lists the split ANNOUNCED for 10-29 — one version, the table counted."""
+    seed_enha(db)
+    with monkeypatch.context() as m:
+        m.setattr(bf, "SPLIT_8K_ITEMS", OLD_ITEMS)
+        _enha_backfill(db, tmp_path, asof=date(2026, 10, 20))
+    _, before = _find(client.get(BASE).json(), "ENHA", "2026-10-28")
+    assert before["sec"] is None and before["actions"] == ["confirm:polygon", "reject"]
+    _enha_backfill(db, tmp_path, asof=date(2026, 10, 23))
+    bucket, card = _find(client.get(BASE).json(), "ENHA", "2026-10-28")
+    assert (bucket, card["effective_date"], card["value_source"]) == (
+        "needs_review",
+        "2026-10-28",
+        "polygon",
+    )
+    sec = card["sec"]
+    assert (sec["accession"], sec["effective_date"], sec["date_kind"], sec["ratio_label"]) == (
+        ENHA_8K,
+        "2026-10-29",
+        "trading",
+        "1-for-10 reverse split",
+    )
+    assert "at the opening of trading on October 29, 2026" in sec["passage"]
+    assert [(o["source"], o["label"]) for o in card["confirm_options"]] == [
+        ("sec", "1-for-10 reverse split, first session 2026-10-29"),
+        ("polygon", "1-for-10 reverse split, first session 2026-10-28"),
+    ]
+    assert card["actions"] == ["confirm:sec", "confirm:polygon", "reject"]
+    monkeypatch.setattr(admin_splits, "market_today", lambda: date(2026, 10, 28))
+    n = split_repo.count_rows(db)
+    r = client.post(f"{BASE}/{card['version_id']}/confirm", json={"source": "sec"})
+    assert r.status_code == 200, r.text
+    c = r.json()
+    assert (c["key_date"], c["effective_date"], c["status"], c["value_source"]) == (
+        "2026-10-28",
+        "2026-10-29",
+        "announced",
+        "sec",
+    )
+    assert split_repo.count_rows(db) == n + 1
+    bucket, listed = _find(client.get(BASE).json(), "ENHA", "2026-10-28")
+    assert bucket == "announced" and listed["actions"] == ["reject"]  # its inverse is beside it
 
 
 def test_an_empty_list_reads_empty(client, db):

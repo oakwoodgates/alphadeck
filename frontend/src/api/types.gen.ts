@@ -1061,7 +1061,8 @@ export interface paths {
          *     Informational: it never changes ``reason``, the verdict, or ``cron.alarms``, and never pages.
          *
          *     ``split_defects`` (T4) is the split-basis panel — every basket name whose stored tape mixes two split
-         *     bases (island / cliff / flap), from the newest artifact that scanned; flag only, never the verdict.
+         *     bases (island / cliff / flap) as some reader sees it, from the newest artifact that scanned; flag only,
+         *     never the verdict. Its ``settled`` rows are flaps no reader sees on two bases — quiet, never an alarm.
          */
         get: operations["get_admin_status_admin_status_get"];
         put?: never;
@@ -3457,10 +3458,11 @@ export interface components {
          * @description The split-basis panel (T4), read from the newest run artifact whose scan EVALUATED — like ``tape``,
          *     artifact-sourced so this surface still owns no tables. ``asof`` / ``ran_at`` name that pass;
          *     ``window_days`` is the calendar window it scanned (the widest price lookback on the call path).
-         *     ``defects`` is the full current inventory (one row per name per kind); ``newly_flagged`` the labels
-         *     that PAGED that night (new since the pass before — a standing defect never re-pages). ``error`` is set
-         *     when the NEWEST live pass's scan could not run (``defects`` then still shows the last good inventory,
-         *     from ``asof``) — a broken monitor is shown, never silently absent.
+         *     ``defects`` is the full current inventory (one row per name per kind) of the rows some reader sees;
+         *     ``settled`` the flaps no reader sees on two bases (quiet, never counted as a defect); ``newly_flagged``
+         *     the labels that PAGED that night (new since the pass before — a standing defect never re-pages).
+         *     ``error`` is set when the NEWEST live pass's scan could not run (``defects`` then still shows the last
+         *     good inventory, from ``asof``) — a broken monitor is shown, never silently absent.
          */
         AdminSplitOut: {
             /**
@@ -3481,12 +3483,52 @@ export interface components {
              */
             defects: components["schemas"]["AdminSplitDefectOut"][];
             /**
+             * Settled
+             * @default []
+             */
+            settled: components["schemas"]["AdminSplitSettledOut"][];
+            /**
              * Newly Flagged
              * @default []
              */
             newly_flagged: string[];
             /** Error */
             error?: string | null;
+        };
+        /**
+         * AdminSplitSettledOut
+         * @description A SETTLED flap (``pipeline/split_basis.settle_flap``): the stored history changed basis and back, but
+         *     every night's view reads a single basis — the newest tape has no break, and no night's history view (the
+         *     public clock) reads a lookback on two bases. Named so it stays visible, never paged, never an alarm.
+         *     ``reason`` says how it was judged.
+         */
+        AdminSplitSettledOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker?: string | null;
+            /** Kind */
+            kind: string;
+            /**
+             * Dates
+             * @default []
+             */
+            dates: string[];
+            /** Factor */
+            factor: number;
+            /**
+             * Events
+             * @default 0
+             */
+            events: number;
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
         };
         /**
          * AdminStaleTapeOut
