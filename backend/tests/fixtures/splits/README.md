@@ -70,3 +70,24 @@ trimmed the same way (each extracts identically to its full submission — check
 | 0001493152-26-040184 | FDCT | 8-K | 1-for-100, trading 2026-07-10, filed 08-26 — 47 days after, outside S1's window |
 | 0001185185-26-004872 | MTEK | 6-K | a proxy RANGE, "every two (2) to two hundred and fifty (250) … into one (1)" — abstains |
 | 0001493152-26-039876 | WSHP | 6-K | interim results restating a PAST 1-for-4 (effective 2025-10-22) |
+
+The Item 8.01 / 7.01 reader (2026-10-23) added ten more 8-Ks and one submissions index, copied from the scratch
+EDGAR cache the 2026-10-23 prod dry run read (the app's `EdgarClient`, live) and trimmed the same way (each
+extracts identically to its full submission — checked when trimmed). Items as the filing's own index lists them:
+
+| accession | filer | items | what it states |
+|---|---|---|---|
+| 0001628280-26-066196 | ENHA | 8.01 | 1-for-10, "effective at 12:01 a.m. Central Time on October 29, 2026" AND split-adjusted trading from the 10-29 open (Polygon lists 10-28) |
+| 0001628280-26-063260 | ENHA | 5.02, 7.01, 9.01 | no split |
+| 0001628280-26-058985 | ENHA | 8.01, 9.01 | "one warrant for every two shares acquired … if the business combination is consummated" — no split |
+| 0000913760-26-000034 | SNEX | 8.01, 9.01 | three-for-two as a stock dividend ("one additional share … for every two"), trading 2026-07-20 |
+| 0000913760-25-000021 | SNEX | 2.02, 8.01, 9.01 | the same inside an earnings release, trading 2025-03-24 |
+| 0001193125-26-408382 | ZCSH | 8.01, 9.01 | a trust's 3-for-1 forward share split ("two additional shares for every one"), 2026-09-30 |
+| 0000950170-24-129219 | ETH | 8.01, 9.01 | a trust's 1-for-10, effective 5:00 p.m. ET 2024-11-19 (a LEGAL date) |
+| 0001493152-26-034724 | JUNS | 5.07, 8.01, 9.01 | a RANGE only, "not less than 1:10 and not more than 1:100" — abstains |
+| 0001628280-26-064753 | ASST | 8.01 | restates a PAST 1-for-20 "effected on February 6, 2026" (filed 10-05) |
+| 0001213900-26-102384 | AIRE | 7.01, 9.01 (8-K/A) | "as adjusted for the Company's 1-for-25 reverse stock split"; the only date a cue reaches is 2025-12-31, in a tax table |
+
+- `submissions/CIK0001956439.json` — Enhanced Group (ENHA)'s submissions index as data.sec.gov served it on
+  2026-10-23. Byte-exact. Its 8-Ks in the backfill window of the 10-28 Polygon row are the three above, plus
+  three under other items (5.07 / 5.02 / 2.02) the reader never opens.

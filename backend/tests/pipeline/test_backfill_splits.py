@@ -14,10 +14,26 @@ from decimal import Decimal
 import pytest
 
 from db.session import DEFAULT_TENANT_ID
-from domain.splits import STATUS_CONFIRMED, STATUS_NEEDS_REVIEW, STATUS_REJECTED, VIA_AUTO
+from domain.splits import (
+    STATUS_ANNOUNCED,
+    STATUS_CONFIRMED,
+    STATUS_NEEDS_REVIEW,
+    STATUS_REJECTED,
+    VIA_AUTO,
+    is_applicable,
+)
 from ingest.edgar.client import EdgarClient
 from pipeline import backfill_splits as bf
 from repositories import split_repo
+from tests.split_801_fixtures import (
+    ENHA_8K,
+    ENHA_FIRST_SESSION,
+    ENHA_POLYGON_DAY,
+    OLD_ITEMS,
+    enha_polygon,
+    seed_enha,
+)
+from tests.split_801_fixtures import SINCE as SINCE_8_01
 from tests.split_fixtures import edgar_cache, polygon_source, seed_union
 
 SINCE = date(2025, 8, 1)  # the fixture pages' own query
@@ -163,3 +179,95 @@ def test_a_future_since_is_refused(monkeypatch):
     with pytest.raises(SystemExit) as e:
         bf.main(["--since", "2099-01-01"])
     assert e.value.code == bf.EXIT_REFUSED
+
+
+# --- Item 8.01 / 7.01 8-Ks (2026-10-23): ENHA, the split the reader missed ----------------------------------
+
+
+def _enha_run(db, tmp_path, *, apply: bool, asof: date):
+    return bf.backfill_splits(
+        db,
+        polygon=enha_polygon(tmp_path, today=asof),
+        edgar=EdgarClient(cache_dir=edgar_cache(tmp_path), allow_live=False),
+        since=SINCE_8_01,
+        asof=asof,
+        apply=apply,
+        allow_live=True,  # the fake Polygon socket; the EDGAR client is cache-only
+        tickers=["ENHA"],
+    )
+
+
+def _enha_as_prod_holds_it(db, tmp_path, monkeypatch) -> None:
+    """The version prod holds since 2026-10-20: the backfill, reading only items 3.03 / 5.03, saw none of
+    ENHA's 8-Ks — Polygon's 1-for-10 on 10-28, needs review, no SEC side."""
+    with monkeypatch.context() as m:
+        m.setattr(bf, "SPLIT_8K_ITEMS", OLD_ITEMS)
+        r = _enha_run(db, tmp_path, apply=True, asof=date(2026, 10, 20))
+    (p,) = r.planned
+    assert (p.decision.status, p.decision.sec, p.filings_read) == (STATUS_NEEDS_REVIEW, None, 0)
+    assert p.decision.note == (
+        "Polygon only — no SEC filing read in the window states this split (0 filing(s) read)."
+    )
+
+
+def test_an_item_8_01_8k_attaches_its_reading_to_the_listed_split(db, tmp_path, monkeypatch):
+    """ENHA's Item 8.01 8-K states the 1-for-10 and its first trading session, 2026-10-29. Read now, it
+    attaches to the split already listed (the backfill wrote its newest version, still needs review): ONE new
+    version carrying the SEC side, Polygon's values kept until the operator decides — the two sources are one
+    session apart, so review offers both. A re-run appends nothing (the TABLE is counted)."""
+    sid = seed_enha(db)
+    _enha_as_prod_holds_it(db, tmp_path, monkeypatch)
+    assert split_repo.count_rows(db) == 1
+    r = _enha_run(db, tmp_path, apply=True, asof=date(2026, 10, 23))
+    (p,) = r.planned
+    assert (p.action, r.appended, split_repo.count_rows(db)) == (bf.APPEND, 1, 2)
+    assert {"sec_accession", "sec_effective_date", "sec_date_kind", "note"} <= set(p.changed)
+    # the three 8.01 / 7.01 8-Ks in the window are read; only one states a split
+    assert (p.filings_read, p.filings_unread) == (3, 0)
+    (v,) = split_repo.latest_versions(db, tenant_id=DEFAULT_TENANT_ID, security_ids=[sid])
+    assert (v.key_date, v.status, v.value_source) == (
+        ENHA_POLYGON_DAY,
+        STATUS_NEEDS_REVIEW,
+        "polygon",
+    )
+    assert (v.effective_date, v.ratio_from, v.ratio_to) == (
+        ENHA_POLYGON_DAY,
+        Decimal(10),
+        Decimal(1),
+    )
+    assert (v.sec_accession, v.sec_form, v.sec_filed) == (ENHA_8K, "8-K", date(2026, 10, 19))
+    assert (v.sec_effective_date, v.sec_date_kind) == (ENHA_FIRST_SESSION, "trading")
+    assert (v.sec_ratio_from, v.sec_ratio_to) == (Decimal(10), Decimal(1))
+    assert v.valid_from == date(2026, 10, 19)  # public from the 8-K, not from Polygon's date
+    assert "the SEC filing states the first session 2026-10-29, Polygon 2026-10-28" in v.note
+    assert split_repo.confirm_options(v) == ["sec", "polygon"]
+    assert split_repo.confirm_values(v, "sec") == (Decimal(10), Decimal(1), ENHA_FIRST_SESSION)
+    # the same inputs again: nothing appended, the TABLE does not grow
+    again = _enha_run(db, tmp_path, apply=True, asof=date(2026, 10, 23))
+    assert (again.appended, again.count(bf.UNCHANGED), split_repo.count_rows(db)) == (0, 1, 2)
+
+
+@pytest.mark.parametrize("today", [date(2026, 10, 23), date(2026, 10, 28)])
+def test_confirming_the_sec_values_lists_enha_announced_for_its_real_first_session(
+    db, tmp_path, monkeypatch, today
+):
+    """The operator's "Confirm SEC values" on any day before 10-29 re-dates the split to the session the 8-K
+    states and lands it ANNOUNCED (not in force until 10-29); the backfill never touches it again.
+    """
+    sid = seed_enha(db)
+    _enha_as_prod_holds_it(db, tmp_path, monkeypatch)
+    _enha_run(db, tmp_path, apply=True, asof=date(2026, 10, 23))
+    (v,) = split_repo.latest_versions(db, tenant_id=DEFAULT_TENANT_ID, security_ids=[sid])
+    c = split_repo.confirm(db, v.id, source="sec", tenant_id=DEFAULT_TENANT_ID, today=today)
+    db.commit()
+    assert (c.key_date, c.effective_date, c.status) == (
+        ENHA_POLYGON_DAY,
+        ENHA_FIRST_SESSION,
+        STATUS_ANNOUNCED,
+    )
+    assert (c.confirmed_via, c.value_source, c.author) == ("operator", "sec", "operator")
+    assert not is_applicable(c.status, c.effective_date, on=date(2026, 10, 28))
+    assert is_applicable(c.status, c.effective_date, on=ENHA_FIRST_SESSION)
+    n = split_repo.count_rows(db)
+    again = _enha_run(db, tmp_path, apply=True, asof=today)
+    assert (again.appended, again.count(bf.OPERATOR_KEPT), split_repo.count_rows(db)) == (0, 1, n)

@@ -10,7 +10,14 @@ is typed ``PART II AND III``) and its press-release exhibits (``EX-99.x``). Char
 graphics / XBRL blobs are skipped — a certificate of amendment restates the ratio at best, and at worst
 carries an EARLIER amendment's.
 
-**The ratio** is read from four phrasings, every one MEASURED on the real filings in
+**Which filings** is the caller's (``pipeline/backfill_splits.py``): 8-Ks filed under Item 3.03 / 5.03 (the
+charter amendment) and — since 2026-10-23 — Item 8.01 / 7.01 (a split announced with no charter amendment: one
+paid as a stock dividend, a trust's share split, a board-set ratio — ENHA, SNEX, ZCSH, ETH, BTC, OFAL), 6-Ks
+and Reg A forms. An 8-K read only for its 8.01 / 7.01 is a CATCH-ALL filing — MEASURED on the basket 2026-10-23,
+47 of 852 mention a split ratio at all — so it is read with its filing date (``extract_split(filed=...)``,
+below).
+
+**The ratio** is read from five phrasings, every one MEASURED on the real filings in
 ``tests/fixtures/splits``:
 
 - ``N-for-M`` / ``N for M`` in digits or words, with an optional parenthesized digit restatement —
@@ -21,17 +28,22 @@ carries an EARLIER amendment's.
 - ``N share(s) for every M`` — "one (1) share for every sixteen (16)", "1 post-split ordinary share for every
   20 pre-split ordinary shares", and the other way round, "four (4) pre-Reverse Split shares for every one (1)
   post-Reverse Split share" (ELBM): the words beside each number (pre / old / outstanding vs post / new) say
-  which side is old;
+  which side is old. The words between the two numbers are never a number themselves ("… September 28, 2026
+  received two additional shares for every one" reads "two … for every one", ZCSH);
+- ``A additional share(s) … for every B`` — a split paid as extra shares, B old shares becoming A + B: "one
+  additional share of common stock for every two shares owned" (SNEX's three-for-two, 2 -> 3), "two additional
+  shares for every one pre-split share" (ZCSH's 3-for-1), "nine (9) additional shares … for every" one (KLA);
 - ``every/each M … combined/consolidated/converted … into N`` — "every fifteen (15) … consolidated into one
   (1)", "each nine (9) pre-split shares … combine into one (1) new share", "every twenty-eight and one half …
   combined into one" (SMX; a word number may end "and one half").
 
-The last states the direction itself (old shares first, then new). The ``N-for-M`` and ``N:M`` forms do not —
+The last two state the direction themselves. The ``N-for-M`` and ``N:M`` forms do not —
 filings write a 1-for-16 reverse split as "1-for-16" and a 25-for-1 consolidation as "25-for-1" — so they (and a
 "for every" with no pre/post words) are oriented by the filing's own words: "reverse … split" / "consolidation"
 / "combined" make it a reverse split (old = the larger number), "forward … split" / "stock dividend" /
-"subdivision" a forward one. A ratio is only ever read inside a sentence that talks about a split, and
-"1-for-1" (a share exchange) is not a split. An ADS RATIO CHANGE counts as a split of the ADS — "the same effect
+"subdivision" a forward one. A ratio is only ever read inside a sentence that talks about a split (a "business
+combination" is a merger, not shares combined), and "1-for-1" (a share exchange) is not a split. An ADS RATIO
+CHANGE counts as a split of the ADS — "the same effect
 as a one-for-thirty reverse ADS split" (NIPG) — because it moves the ADS price exactly like one, and Polygon
 lists it as one.
 
@@ -46,7 +58,9 @@ the real filings forced (named so the rule stays checkable):
   ONLY a range abstains: no ratio was set.
 - a PAST split: a ratio whose sentence's every date is more than ``HISTORICAL_GAP_DAYS`` before the filing's
   own effective date (PBM's 6-K restates "a 1-for-7.97 consolidation ratio which was implemented Monday, May 5,
-  2025" beside its 1-for-6.25). Only judged when an effective date was read.
+  2025" beside its 1-for-6.25) — or, for a CATCH-ALL filing, before its FILING date: ASST's 8.01 8-K of
+  2026-10-05 restates "the 1-for-20 reverse stock split effected on February 6, 2026", and NAKA's and CURLD's
+  restate theirs (MEASURED 2026-10-23: four such 8.01 / 7.01 readings on the basket, 123 to 266 days back).
 
 After those, **exactly one** distinct ratio must remain, or the extractor ABSTAINS and says why: none found,
 only a range, only a past split, two different ratios, a word and its digit restatement disagreeing, or no
@@ -59,7 +73,11 @@ such as "split-adjusted basis", "post-consolidation basis", "market open", "open
 CMND) states it directly — kind ``trading``. Only when no trading sentence carries a date does a LEGAL sentence
 about the split ("effective as of", "Effective June 12, 2025", "will take effect on") supply one — kind
 ``legal``, which may be the session before the first one (a 5:00 p.m. effective time). Two different dates of
-the winning kind → no date (named in ``date_note``); the ratio still stands.
+the winning kind → no date (named in ``date_note``); the ratio still stands. A filing that states both reads
+its trading date: ENHA's 8.01 8-K says "effective at 12:01 a.m. Central Time on October 29, 2026" AND "expected
+to begin trading on a split-adjusted basis … at the opening of trading on October 29, 2026" — ``trading``. For a
+CATCH-ALL filing a date more than ``HISTORICAL_GAP_DAYS`` before its filing date dates nothing (AIRE's 7.01
+8-K/A of 2026-09-23 reaches only 2025-12-31, in a tax table): no date, named in ``date_note``.
 
 **The passage** is the filing's own sentence(s), verbatim after the HTML is stripped (tags removed, entities
 decoded, whitespace collapsed): the sentence that states the ratio and, when it is another one, the sentence
@@ -78,9 +96,12 @@ from fractions import Fraction
 
 # a ratio's sentence must have this much of a split in it, or the "N for M" is something else
 # (an ADS RATIO CHANGE is a split of the ADS — "the same effect as a one-for-thirty reverse ADS split" (NIPG),
-# and Polygon lists it as one)
+# and Polygon lists it as one). A "business combination" is a merger, not shares combined: "SAFE investors will
+# receive one warrant for every two shares acquired, … if the business combination is consummated" (ENHA's
+# Item 8.01 8-K of 2026-08-26) states no split.
 _SPLIT_CUE = re.compile(
-    r"revers|split|consolidat|subdivi|combin|reclassif|ratio\s+change|ADS\s+ratio", re.I
+    r"revers|split|consolidat|subdivi|(?<!business\s)combin|reclassif|ratio\s+change|ADS\s+ratio",
+    re.I,
 )
 _REVERSE_CUE = re.compile(
     r"reverse\s+(?:[\w-]+\s+)?split|reverse-split|share\s+consolidation|consolidat|combined\s+into|"
@@ -176,12 +197,18 @@ _COLON_AFTER = re.compile(
     r"basis)",
     re.I,
 )
-# "one (1) share for every sixteen (16)" — NEW shares first, then OLD
+# "one (1) share for every sixteen (16)" — NEW shares first, then OLD. The words between the two numbers are
+# never a number themselves: "… as of market close on September 28, 2026 received two additional shares for
+# every one pre-split share" (ZCSH) reads "two … for every one", never "2026 … for every one".
 _FOR_EVERY = re.compile(
-    rf"(?<![\w$.,]){_num('a')}\s+(?:[A-Za-z][\w'-]*\s+){{0,6}}?for\s+(?:each|every)\s+{_num('b')}"
-    r"(?![\w]|[.,]\d)",
+    rf"(?<![\w$.,]){_num('a')}\s+(?:(?!{_WORD}\b)[A-Za-z][\w'-]*\s+){{0,6}}?for\s+(?:each|every)\s+"
+    rf"{_num('b')}(?![\w]|[.,]\d)",
     re.I,
 )
+# "one additional share of common stock for every two shares owned" (SNEX's three-for-two, paid as a stock
+# dividend), "two additional shares for every one pre-split share" (ZCSH's 3-for-1): the shares a holder
+# RECEIVES on top of the ones held — B old shares become A + B
+_ADDITIONAL = re.compile(r"\badditional\b", re.I)
 # "every fifteen (15) ... consolidated into one (1)" — OLD shares first, then NEW
 _EVERY_INTO = re.compile(
     rf"\b(?:each|every)\s+{_num('a')}(?![\w]|[.,]\d)(?P<fill>[^;]{{0,250}}?)\b(?:into|become|becomes)\s+"
@@ -561,6 +588,11 @@ def _mentions(docs: list[_Doc], doc_direction: str | None) -> list[_Mention]:
                 if ca or cb:
                     found.append((m.start(), m.end(), a, b, "conflict", m.group(0)))
                     continue
+                whole = m.group(0)
+                if _ADDITIONAL.search(whole[: whole.lower().rfind("for")]):
+                    # "A additional shares for every B": B old shares -> A + B new (a forward split)
+                    found.append((m.start(), m.end(), b, a + b, "explicit", whole))  # type: ignore[operator]
+                    continue
                 o = _for_every_oriented(m, sent, a, b, direction)  # type: ignore[arg-type]
                 if o is None:
                     found.append((m.start(), m.end(), a, b, "undirected", m.group(0)))
@@ -646,6 +678,12 @@ def _cued_dates(
     return out
 
 
+def _past(d: date, filed: date) -> bool:
+    """Is ``d`` a PAST split's date for a filing filed on ``filed`` (more than ``HISTORICAL_GAP_DAYS``
+    before it)?"""
+    return (filed - d).days > HISTORICAL_GAP_DAYS
+
+
 def _fmt(v: Decimal) -> str:
     s = format(v.normalize(), "f")
     return s
@@ -683,9 +721,13 @@ def _passage(
     return " … ".join(texts), label
 
 
-def extract_split(documents: list[FilingDocument]) -> SplitExtraction:
+def extract_split(documents: list[FilingDocument], *, filed: date | None = None) -> SplitExtraction:
     """Read one filing's split ratio, effective date and located passage (see the module docstring for every
     rule). Pure: the documents in, a ``SplitExtraction`` out — an abstain is a result, never a raise.
+
+    ``filed`` — the filing date, given for a CATCH-ALL filing (an 8-K read only for its Item 8.01 / 7.01): a
+    date more than ``HISTORICAL_GAP_DAYS`` before it is a PAST split's (the filing restates it), never this
+    filing's first session, and a ratio stated only beside such dates is a past split's too.
     """
     docs: list[_Doc] = []
     for fd in relevant_documents(documents):
@@ -707,6 +749,13 @@ def extract_split(documents: list[FilingDocument]) -> SplitExtraction:
     # the date first — the past-split screen measures against it
     trading = _cued_dates(docs, _TRADING_CUE, need_trading=True)
     legal = _cued_dates(docs, _LEGAL_CUE, need_trading=False)
+    past: list[date] = []
+    if filed is not None:
+        # a catch-all filing restating a PAST split (AIRE's 8-K/A, filed 2026-09-23: "as adjusted for the
+        # Company's 1-for-25 reverse stock split", its only date 2025-12-31) dates nothing of its own there
+        past = sorted({c[0] for c in trading + legal if _past(c[0], filed)})
+        trading = [c for c in trading if not _past(c[0], filed)]
+        legal = [c for c in legal if not _past(c[0], filed)]
     effective: date | None = None
     kind: str | None = None
     date_note: str | None = None
@@ -725,17 +774,22 @@ def extract_split(documents: list[FilingDocument]) -> SplitExtraction:
         break
     if effective is None and date_note is None:
         date_note = "no first-session or effective date stated"
+        if past:
+            date_note = (
+                f"only a past date stated ({', '.join(x.isoformat() for x in past)}), more than "
+                f"{HISTORICAL_GAP_DAYS} days before the filing"
+            )
 
     direction = _doc_direction([d.match for d in docs])
     mentions = _mentions(docs, direction)
-    if effective is not None:
-        for mt in mentions:
-            if mt.kind != "operative":
-                continue
-            s, e = mt.sentence
-            ds = [x for _, x in _dates(docs[mt.doc].match[s:e])]
-            if ds and all((effective - x).days > HISTORICAL_GAP_DAYS for x in ds):
-                mt.kind = "historical"
+    anchors = [a for a in (effective, filed) if a is not None]
+    for mt in mentions:
+        if mt.kind != "operative":
+            continue
+        s, e = mt.sentence
+        ds = [x for _, x in _dates(docs[mt.doc].match[s:e])]
+        if ds and any(all((a - x).days > HISTORICAL_GAP_DAYS for x in ds) for a in anchors):
+            mt.kind = "historical"
 
     seen_labels = tuple(dict.fromkeys(f"{m.kind}:{m.raw}" for m in mentions))
     base = {

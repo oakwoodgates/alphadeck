@@ -8,7 +8,9 @@ every non-archived thesis):
    stored two-year tape), paced on the shared free-tier budget (``ingest/polygon_splits.py``). The request
    carries a date only. Rows are matched to members by ticker or vendor price symbol.
 2. **SEC** — for each matched split, the filings in ``[execution - 120 days, execution + 10 days]``:
-   - 8-K filers: the ``fact_corporate_event`` rows the nightly already stores, with item 3.03 and/or 5.03;
+   - 8-K filers: the ``fact_corporate_event`` rows the nightly already stores, with item 3.03, 5.03, 7.01
+     or 8.01 (``SPLIT_8K_ITEMS`` — the charter-amendment items, and since 2026-10-23 the press-release items a
+     split with no charter amendment is announced under);
    - 6-K / Reg A / any filer: the company's submissions index (through the EDGAR client's cache) for
      6-K, 1-A, 1-U and 8-K (with those items) filings in the window.
    Each is read ONCE as its full submission (``forms/<accession>/<accession>.txt`` — immutable, cached
@@ -89,8 +91,13 @@ DEFAULT_SINCE = date(2024, 10, 1)
 WINDOW_BEFORE_DAYS = 120
 WINDOW_AFTER_DAYS = 10
 # the 8-K items a split is reported under: 3.03 (material modification to rights of security holders) and
-# 5.03 (amendments to articles) — every real split 8-K in tests/fixtures/splits carries 5.03
-SPLIT_8K_ITEMS = frozenset({"3.03", "5.03"})
+# 5.03 (amendments to articles) — the charter amendment — and, since 2026-10-23, 8.01 (other events) and 7.01
+# (Reg FD), where a company announces a split it files no charter amendment for: one paid as a stock dividend
+# (SNEX's three 3-for-2s, two of them inside an earnings 8-K), a trust's share split (Grayscale's ETH / BTC /
+# ZCSH), a board-set ratio (ENHA, OFAL) — the eight 8-Ks the operator's 2026-10-22 review found the list missing.
+CHARTER_8K_ITEMS = frozenset({"3.03", "5.03"})
+CATCH_ALL_8K_ITEMS = frozenset({"7.01", "8.01"})
+SPLIT_8K_ITEMS = CHARTER_8K_ITEMS | CATCH_ALL_8K_ITEMS
 _8K_FORMS = frozenset({"8-K", "8-K/A"})
 SEC_FORMS = frozenset({"6-K", "6-K/A", "1-A", "1-A/A", "1-A POS", "1-U", *_8K_FORMS})
 SEC_RATE_PER_SEC = 4.0
@@ -346,21 +353,37 @@ def _memo_save(path: Path, x: SplitExtraction) -> None:
         _log.warning("split extraction memo not written: %s", path)
 
 
+def catch_all(ref: FilingRef) -> bool:
+    """Is this an 8-K read only for its Item 8.01 / 7.01 — a catch-all filing (its RESOLVED items carry no
+    3.03 / 5.03)? Its dates are then screened against its filing date (``extract_split(filed=...)``): MEASURED
+    2026-10-23 on the basket, of the 852 such 8-Ks the wider item set reads, 47 mention a split ratio and four
+    of those state a PAST split with its old date (AIRE, ASST, NAKA, CURLD — 123 to 266 days before the filing);
+    AIRE's would have been listed as a new split. A 3.03 / 5.03 8-K, a 6-K or a Reg A form is read without
+    this screen, as before (an 8-K whose items are not resolved yet too)."""
+    return (
+        ref.form in _8K_FORMS and bool(ref.items) and not (CHARTER_8K_ITEMS & set(ref.items or ()))
+    )
+
+
 def read_filing(
     client: EdgarClient, cik: str, ref: FilingRef, *, memo_dir: Path | None = None
 ) -> SecEvidence:
-    """Fetch one filing's full submission through the EDGAR client and extract its split statement.
+    """Fetch one filing's full submission through the EDGAR client and extract its split statement (a
+    catch-all 8-K with its filing date — ``catch_all``).
 
     ``memo_dir`` (the nightly, S4): the extraction of an immutable filing by this exact extractor
     (``EXTRACTOR_VERSION``) is kept as a small JSON there and served instead of re-reading the document —
-    MEASURED 2026-10-22: re-reading 953 cached filings took ~150 s of a pass."""
-    memo = memo_dir / f"{ref.accession}.{EXTRACTOR_VERSION}.json" if memo_dir else None
+    MEASURED 2026-10-22: re-reading 953 cached filings took ~150 s of a pass. A catch-all reading is keyed
+    apart (its items may resolve after a first read without them)."""
+    screened = catch_all(ref)
+    tag = ".catchall" if screened else ""
+    memo = memo_dir / f"{ref.accession}.{EXTRACTOR_VERSION}{tag}.json" if memo_dir else None
     x = _memo_load(memo) if memo is not None and memo.exists() else None
     if x is None:
         raw = client.get_text(
             _filing_url(cik, ref.accession), f"forms/{ref.accession}/{ref.accession}.txt"
         )
-        x = extract_split(submission_documents(raw))
+        x = extract_split(submission_documents(raw), filed=ref.filed if screened else None)
         if memo is not None:
             _memo_save(memo, x)
     return SecEvidence(
@@ -412,8 +435,8 @@ class SecReader:
         return self.submissions[m.cik]
 
     def refs(self, conn: psycopg.Connection, m: Member, lo: date, hi: date) -> dict[str, FilingRef]:
-        """The filings in ``[lo, hi]`` that can announce a split: the stored 3.03 / 5.03 8-Ks, then the
-        index's (``SEC_FORMS``)."""
+        """The filings in ``[lo, hi]`` that can announce a split: the stored 8-Ks with a split item
+        (``SPLIT_8K_ITEMS``), then the index's (``SEC_FORMS``)."""
         refs: dict[str, FilingRef] = {}
         if not m.cik:
             return refs
