@@ -27,10 +27,12 @@ https://apt.postgresql.org/pub/repos/apt $(. /etc/os-release && echo $VERSION_CO
 # packaged into site-packages. psycopg[binary] bundles its own libpq, so no system deps are needed.
 COPY . .
 # PIP_EXTRAS selects the optional-dependency extras baked into the image. It defaults to EMPTY, so the
-# prod + dev + cron builds install exactly `pip install -e .` (the lean image — UNCHANGED). Fork stacks
-# pass `--build-arg PIP_EXTRAS=replay` (docker-compose.fork.yml; the Signals-Lab sig branch pioneered
-# this) so the in-container backtest harness gets the `.[replay]` extra (duckdb + pyarrow) the lean
-# image deliberately omits. Empty extras can't be written `".[]"` (pip rejects it), so branch on set.
+# prod + dev API (backend) builds install exactly `pip install -e .` (the lean image — UNCHANGED). The prod
+# CRON image passes PIP_EXTRAS=replay (docker-compose.yml, editions S5: the Scoreboard editions' nightly page
+# job runs the replay engine after the nightly pass), and fork stacks pass `--build-arg PIP_EXTRAS=replay`
+# (docker-compose.fork.yml; the Signals-Lab sig branch pioneered this) so the in-container backtest harness
+# gets the `.[replay]` extra (duckdb + pyarrow) the lean image deliberately omits. Empty extras can't be
+# written `".[]"` (pip rejects it), so branch on set.
 ARG PIP_EXTRAS=""
 RUN if [ -n "$PIP_EXTRAS" ]; then \
       pip install --no-cache-dir -e ".[$PIP_EXTRAS]"; \

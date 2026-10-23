@@ -2176,6 +2176,30 @@ export interface components {
             alarms: string[];
         };
         /**
+         * AdminEditionsNightlyOut
+         * @description The Scoreboard editions' nightly page job (editions S5), as ONE plain-English line from its newest
+         *     APPLIED run artifact (``data/edition_runs``): which edition, which night it paged, how many theses, any held
+         *     for history still loading, and the self-check — e.g. "Edition 1 · page for Oct 23 added · 10 theses ·
+         *     self-check passed". Backend-authored copy (the FE renders, never composes). ``attention`` is true only when
+         *     the self-check found a real mismatch or the job crashed — the one case worth a louder line.
+         */
+        AdminEditionsNightlyOut: {
+            /** Line */
+            line: string;
+            /**
+             * Ran At
+             * Format: date-time
+             */
+            ran_at: string;
+            /** Night */
+            night?: string | null;
+            /**
+             * Attention
+             * @default false
+             */
+            attention: boolean;
+        };
+        /**
          * AdminFeedLimitationIn
          * @description Why the operator marks a name's price feed as a known limitation (REQUIRED — the mark is the
          *     operator's statement, so it carries the operator's words; blank is refused).
@@ -3666,6 +3690,9 @@ export interface components {
          *     ``fundamentals_set_aside`` (migration 0062) is how many stored fundamentals versions are set aside — the
          *     revenue rows the data-quality screen would have refused, stored before it existed, which every read skips
          *     (``python -m pipeline.set_aside_fundamentals``). A quiet line; ``null`` when the count could not be read.
+         *
+         *     ``editions_nightly`` (editions S5) is the Scoreboard editions' nightly page job's one line, from its newest
+         *     applied run artifact; ``null`` until that job has run (a directory read — no DB). Never a cron verdict.
          */
         AdminStatusOut: {
             record: components["schemas"]["AdminRecordOut"];
@@ -3684,6 +3711,7 @@ export interface components {
             splits_needs_review?: number | null;
             /** Fundamentals Set Aside */
             fundamentals_set_aside?: number | null;
+            editions_nightly?: components["schemas"]["AdminEditionsNightlyOut"] | null;
         };
         /**
          * AdminSuccessorCandidateOut

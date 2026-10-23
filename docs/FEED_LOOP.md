@@ -2043,6 +2043,12 @@ The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
   its own artifacts (`data/onboard_runs`), no heartbeat (Admin reads a stalled queue from the table and the
   artifacts instead). Started after the `CRON_EXIT_AFTER_BOOT` seam, so the boot block can still be exercised
   alone.
+- **After the nightly backup: the Scoreboard editions' nightly page (editions S5, 2026-10-23)** `[BUILT]`.
+  Right after `snapshot "${target}" "nightly"`, once per wake, `editions_nightly` fires `timeout -k 60
+  EDITIONS_TIMEOUT_S python -m editions.run nightly --apply` (default **1800 s**; `EDITIONS_NIGHTLY=0` is the
+  kill switch, an env-only cron deploy; compose `ALPHADECK_EDITIONS_NIGHTLY` / `ALPHADECK_EDITIONS_TIMEOUT_S`).
+  Fail-open: any exit is one `daily-cron:` line and the loop goes on. In the scheduling layer, never inside
+  `run_daily_pass`, so the Admin "Run daily now" never fires it. The section below has the job.
 
 - **On by default.** The `cron` service comes up with the normal `docker compose up` (no profile flag), so the
   deployed stack notifies itself with no extra command to remember. Skip it for one run with
@@ -2223,6 +2229,63 @@ The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
   run was killed, and the log had no cap. (Postgres is left uncapped for now: changing its logging config
   would make the next `up` recreate the database container.)
 - No `ANTHROPIC_API_KEY` (the ingest + call engine are deterministic — no LLM on this path).
+
+### The Scoreboard editions' nightly page — `editions.nightly` (S5, 2026-10-23)  `[BUILT]`
+
+A Scoreboard edition (`SCOREBOARD.md` §Editions) is published once and then **grows**: every night the
+CURRENT edition (the newest, not closed) gains one page per live thesis for every market session it has no page
+for. `python -m editions.run nightly [--apply]` (dry-run by default: read-only, no page, a `dry_run` artifact the
+Admin ignores) is that job; `editions/nightly.py` has the whole contract.
+
+- **The gate.** It runs only when the newest run artifact (`data/cron_runs`) is a FINISHED, live, nightly pass —
+  that pass's as-of is the night it pages through, so a page is never computed before the night's facts are
+  ingested. A running / crashed / `--no-live` pass or a non-nightly artifact: a quiet "no page" line, nothing
+  written. `--end YYYY-MM-DD` bypasses the gate for a manual run.
+- **The locks.** Its own advisory lock, `LOCK_ID_EDITIONS = 4` (holder `editions`; the build plan named id 2, but
+  2 is the fact-writer gate). It **refuses with exit 75** while the call-of-record lock is held (a pass, a backfill,
+  a repair) — read from `pg_locks`, never taken, so it can never make a starting pass exit 75 — and probes again
+  just before the write.
+- **One consistent read** on the PUBLIC clock: the engine's `REPEATABLE READ` snapshot, the public-clock mirror cut
+  at the database instant the job started (`known_by`), the join dates, the edition's own pages and frozen join
+  dates, the onboarding queue. The pages are assembled by the editions engine — the same `assemble_from_pit` the
+  live call uses — and each carries its own `data_known_by` and engine fingerprint.
+- **The pages.** Per thesis: every real session (a date with bars on its tape — a market holiday has no page)
+  after its own newest page, through tonight. Tonight's is `nightly`, an earlier missed session's `catchup` (a night
+  the job did not run, or a thesis that was held). The roster per night is the latest `basket_snapshot` taken by
+  the night's cap (`thesis_repo.get_asof`'s rule): a company added by a promote joins from that night, one removed
+  drops off from the night it left. A company NEW to the edition — a promote since the cut, or a whole thesis
+  created after it — gets its join date appended (`edition_entry`, method `snapshot`, exact), and a new thesis's
+  pages start at its first join date, never before it existed. An archived thesis gets no new page.
+- **The hold.** A thesis with any member still in the onboarding queue (a `security_onboarding` row not `done` —
+  a COLD name, X1 above) gets **no page**: on the public clock it would be computed on a partial filing history
+  and then frozen. It is listed as held (the artifact, the Admin line), and the first run after the name loads
+  catches up every night it missed. An ordinary ingest fault (a leg errored tonight) is not held: the page is
+  computed and the fault noted in the artifact.
+- **Idempotent.** Pages, join dates and inks are `ON CONFLICT DO NOTHING` on their unique keys, and the `paged`
+  event is appended only when something was: a second run the same night appends **0 rows** (the tests count the
+  table).
+- **The ink** (migration 0064, `edition_outcome`). An episode whose signal window ENDED (its `exit_by` — the window
+  end, never the de-arm: the operator's decision) is scored once and frozen the first night the market tape has
+  printed a session past that date and the window reads complete; an episode still waiting on prices is listed,
+  not inked. The Scoreboard's edition read uses the inked score from then on (`scoreboard/record.py`
+  `inked_outcome`), so a later price correction never re-scores it, while a view scrubbed back before the window
+  ended still scores on read. `ink_running_at_close(edition)` inks the rest when an edition closes (no caller yet —
+  the automatic cut, S7).
+- **The self-check.** Tonight's page against tonight's recorded call of record (`editions.selfcheck.live_edge`:
+  canonical full-card equality, with provenance money compared to the cent — a detector's `round(sum, 2)` can land
+  one cent apart when the same trades are summed in another order, MEASURED on COHR in the Edition 1 publish). A
+  row recorded under another call policy or image than the running job (a deploy day) is SKIPPED and says why; a
+  held thesis and a night only one side has (a holiday row) are reported, never compared; a REAL mismatch pages
+  through `notify_health` (an ops alarm with counts only, never a call alert). Only the comparison changed: what
+  the cron records and `calls_repo._canonical` are untouched.
+- **The artifact.** `data/edition_runs/<started>.json` (`pipeline/edition_run_log.py`, its own directory, so no
+  pass reader ever counts it): timings, pages per thesis, held and noted theses, the ink, the self-check, the table
+  counts before and after, and the one Admin line (`ADMIN.md` §Scoreboard editions). A crash writes a `crashed`
+  artifact; a refusal writes none.
+- **The cron image carries the `.[replay]` extra** (duckdb + pyarrow: `docker-compose.yml`'s cron build args
+  `PIP_EXTRAS: replay`); the API image stays lean — the Scoreboard reads stored editions with psycopg alone.
+- **Never on the call-of-record path:** `pipeline/daily.py`, `pipeline/daily_job.py` and `calls/` import nothing
+  from `editions/` (import-graph tests), and the job only ever reads `calls`.
 
 ### Backfilling a missed night — `pipeline.backfill`  `[BUILT]`
 

@@ -428,7 +428,9 @@ DB/network/clock inside it; `asof` is always a parameter (no implicit "now"). Th
 **accountability record**, never the read path (the API recomputes live). The Scoreboard's Edition 0 scores
 it AS the record; a Scoreboard edition >= 1 (editions S3/S4, migration `0063`) reads only its own frozen
 `edition_call` pages — a re-run published beside the log, which never writes `calls` and is never moved by a
-later `calls` row (`docs/SCOREBOARD.md` §Editions).
+later `calls` row (`docs/SCOREBOARD.md` §Editions). The current edition grows by nightly / catch-up pages
+appended after the nightly pass (S5, `editions.nightly` — still never `calls`), and a matured episode's score
+is inked once (`edition_outcome`, migration `0064`) so a later price correction never re-scores it.
 
 **And the record now names the policy it ran under (F1, migration `0044`).** Purity makes the card a function
 of `(thesis, events, asof, cfg)` — but until now the row recorded only the card, so `cfg` (and the code) were

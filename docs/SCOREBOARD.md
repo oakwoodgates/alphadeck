@@ -54,7 +54,15 @@ for an edition, and only this:
   The drawer says "join date estimated" (`edition_join.note`) for every estimated join.
 - **The drawer's provenance caption names the edition and its engine fingerprint** (the `run_identity_note`
   slot), and its chart overlays read on the public clock (the same reads #433 gave a past as-of).
-- **Scores are computed on read** against today's realized prices (the ink of S5 is not built yet).
+- **A matured episode's score is INKED** (S5, migration 0064 `edition_outcome`): once its signal window ends
+  (`exit_by`, never the de-arm) and the tape has printed a session past it, the nightly page job scores it once and
+  freezes it, and the edition read uses that number from then on (a later price correction never re-scores it).
+  A running episode — or a view scrubbed back before the window ended — is scored on read against today's
+  realized prices, as before.
+
+The CURRENT edition grows nightly: the cron sidecar appends tonight's page (and a catch-up page for any session it
+missed) per live thesis after the nightly backup, so new theses and new companies join it from their own first
+night (`FEED_LOOP.md` §the editions nightly page).
 
 **The default is the NEWEST published edition** (operator decision 2026-10-23: "edition 1 is now kinda like
 main, so the menu should just link to that by default"). `GET /scoreboard` and `price-window` with no `edition`
@@ -63,8 +71,8 @@ nav's plain `/scoreboard` lands on it; when a new edition is cut the default mov
 Edition 0 stays one click away in the switcher, and `?edition=0` still works. `Settings.scoreboard_default_edition`
 (`ALPHADECK_SCOREBOARD_DEFAULT_EDITION`) is an optional OVERRIDE, unset by default: 0 pins the record, N pins
 Edition N, and an override naming an unpublished edition falls back to the newest (the default view never
-404s), while an explicit request for a missing edition is a 404. Plan and open slices: the editions build plan
-(S5 nightly pages + ink, S7 the automatic cut).
+404s), while an explicit request for a missing edition is a 404. Plan and open slice: the editions build plan
+(S7 the automatic cut).
 
 ### What changed (S6) — one edition against the one before it
 

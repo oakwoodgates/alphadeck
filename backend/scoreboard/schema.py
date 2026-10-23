@@ -152,6 +152,10 @@ class ScoredEpisode(BaseModel):
     operator: EpisodeOperator | None = None  # None = no decision logged: the honest capture gap
     # Editions S4 — the company's join date in the edition being read; None on Edition 0 (the record)
     edition_join: EditionJoin | None = None
+    # Editions S5 — the INK this episode's ``outcome`` came from (``matured`` / ``running_at_close``, migration
+    # 0064); None = scored on read (every Edition 0 episode, and an edition episode not inked or not yet final
+    # at this as-of). Internal: no wire field reads it yet.
+    inked: Literal["matured", "running_at_close"] | None = None
 
 
 class ThesisRecord(BaseModel):

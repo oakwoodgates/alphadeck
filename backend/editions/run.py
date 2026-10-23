@@ -25,6 +25,15 @@ default: the run directory is written and the plan printed, and the connection s
 ``--apply`` writes, in one transaction. A tenant that already holds Edition 1 (or an edition at the same
 cut) is REFUSED before anything runs, and again inside the write transaction — a second publish appends
 nothing. The ``calls`` log is only read, and the counts printed before and after the write prove it.
+
+    python -m editions.run nightly [--apply] [--end YYYY-MM-DD] [--workers N] [--max-nights N] [--keep-mirror]
+
+``nightly`` (S5) appends tonight's page (and any missed session's catch-up page) to the CURRENT edition, inks
+the episodes whose signal window ended, and runs the live-edge self-check — ``editions.nightly`` has the whole
+contract. The cron sidecar runs it with ``--apply`` after the nightly backup; it runs only when the newest
+run artifact is a finished nightly pass (``--end`` bypasses that gate for a manual run) and refuses with exit
+75 while a pass holds the call-of-record lock or another editions job runs. DRY-RUN by default (read-only, no
+page, a ``dry_run`` artifact the Admin ignores).
 """
 
 from __future__ import annotations
@@ -333,6 +342,39 @@ def _print_publish(s: dict[str, Any]) -> None:
         print(f"  {k:14} {s['counts_before'][k]:>7} -> {s['counts_after'][k]:>7}")
 
 
+def _main_nightly(args: argparse.Namespace) -> None:
+    """The ``nightly`` subcommand: exit 0 = ran (or the gate said not tonight), 75 = refused (a lock), any
+    other = it failed (a ``crashed`` artifact says so on the Admin page). Imported here, not at the top, so
+    ``trial`` / ``publish`` load nothing they do not use."""
+    from editions import nightly
+
+    started = datetime.now(timezone.utc)
+    conn = connect()
+    if not args.apply:
+        conn.read_only = True
+    try:
+        result = nightly.run_nightly(
+            conn,
+            apply=args.apply,
+            end=args.end,
+            workers=args.workers,
+            keep_mirror=args.keep_mirror,
+            max_nights=args.max_nights or nightly.MAX_NIGHTS_PER_RUN,
+        )
+    except nightly.NightlyRefused as exc:
+        print(
+            f"editions nightly: REFUSED — {exc}. Nothing was written (exit {nightly.EXIT_ALREADY_RUNNING})"
+        )
+        raise SystemExit(nightly.EXIT_ALREADY_RUNNING) from None
+    except Exception as exc:
+        if args.apply:
+            nightly.crashed_artifact(started_at=started, error=exc)
+        raise
+    finally:
+        conn.close()
+    nightly.print_result(result)
+
+
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(prog="python -m editions.run", description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -369,7 +411,32 @@ def main(argv: list[str] | None = None) -> None:
         help="the cut (default: now) — an aware ISO instant at or before now",
     )
     pb.add_argument("--workers", type=int, default=1)
+    nt = sub.add_parser(
+        "nightly",
+        help="append tonight's pages to the current edition (dry-run unless --apply)",
+    )
+    nt.add_argument("--apply", action="store_true", help="write the pages + ink (default: dry-run)")
+    nt.add_argument(
+        "--end",
+        type=date.fromisoformat,
+        default=None,
+        help="page through this night, bypassing the finished-nightly-pass gate (a manual run)",
+    )
+    nt.add_argument("--workers", type=int, default=1)
+    nt.add_argument(
+        "--max-nights",
+        type=int,
+        default=None,
+        help="sessions to page per thesis in one run, oldest first (default 30)",
+    )
+    nt.add_argument(
+        "--keep-mirror", action="store_true", help="keep the run's mirror (default: removed)"
+    )
     args = ap.parse_args(argv)
+
+    if args.cmd == "nightly":
+        _main_nightly(args)
+        return
 
     if args.cmd == "publish":
         conn = connect()

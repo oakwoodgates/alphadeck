@@ -15,11 +15,11 @@ from domain.market_time import market_tz
 from domain.settings import get_settings
 from domain.thesis import Thesis
 from replay.episodes import derive_episodes
-from replay.schema import CallSnapshot, Episode, MemberRow
+from replay.schema import CallSnapshot, Episode, MemberRow, Outcome
 from replay.scoring import score_episode
 from repositories import calls_repo, decisions_repo, editions_repo, thesis_repo
 from repositories.call_annotations_repo import CallAnnotation
-from repositories.editions_repo import Edition, JoinDate
+from repositories.editions_repo import Edition, InkedOutcome, JoinDate
 from scoreboard import provenance
 from scoreboard.decisions import attach_operator_track
 from scoreboard.late import late_call_ids, resolve_exclude_late
@@ -222,8 +222,51 @@ class EditionSource:
     def joins(self, conn: psycopg.Connection, thesis_id: UUID) -> dict[UUID, JoinDate]:
         return editions_repo.joins_for_thesis(conn, self.edition.id, thesis_id)
 
+    def inks(
+        self, conn: psycopg.Connection, thesis_id: UUID
+    ) -> dict[tuple[UUID, date], InkedOutcome]:
+        return editions_repo.outcomes_for_thesis(conn, self.edition.id, thesis_id)
+
 
 TimelineSource = RecordSource | EditionSource
+
+# The Outcome fields copied from the EPISODE (``replay.scoring._base_outcome``): an inked score froze only the
+# price-derived numbers, so these still come from the pages on every read.
+_EPISODE_OUTCOME_FIELDS = (
+    "thesis_id",
+    "security_id",
+    "is_headline",
+    "verdict",
+    "entry_grade",
+    "conviction_grade",
+    "confidence",
+    "theme_armed",
+    "close_reason",
+    "arm_date",
+    "exit_by",
+)
+
+
+def inked_outcome(ink: InkedOutcome | None, ep: Episode, asof: date) -> Outcome | None:
+    """THE INK (editions S5, migration 0064): an edition's FINAL score for this episode, when it applies at
+    ``asof`` — else ``None`` and the caller scores on read, exactly as before the ink existed.
+
+    - ``matured``: inked once the episode's signal window ENDED (``exit_by``); it applies at every as-of the
+      window has ended by (``exit_by <= asof`` — the ``matured`` flag). Before that the episode is running
+      and is scored on read, so a scrubbed-back view never shows a final number early (no lookahead, #1).
+    - ``running_at_close``: inked when the edition closed mid-run, at its last night; it applies from that
+      night on (an as-of inside the closed edition still scores on read — the stated G13 limitation).
+
+    The ink froze only the price-derived numbers: the episode's own fields (close reason, grades) are taken
+    from the pages again."""
+    if ink is None:
+        return None
+    if ink.kind == "matured":
+        if ep.exit_by is None or ep.exit_by > asof:
+            return None
+    elif asof < ink.night:
+        return None
+    return ink.outcome.model_copy(update={f: getattr(ep, f) for f in _EPISODE_OUTCOME_FIELDS})
 
 
 # the join-date rule's words, for the drawer's note (an unknown token reads as itself)
@@ -578,6 +621,9 @@ def derive_thesis_record(
         )
         # an edition's frozen join dates (G12's censoring + the drawer's note); Edition 0 has none
         joins = src.joins(conn, thesis.id) if isinstance(src, EditionSource) and episodes else {}
+        # an edition's INKED scores (S5): a matured episode's final number, used in place of the on-read
+        # score when it applies at this as-of (``inked_outcome``); Edition 0 is always scored on read
+        inks = src.inks(conn, thesis.id) if isinstance(src, EditionSource) and episodes else {}
         for ep, trigs in zip(episodes, triggers):
             if isinstance(src, EditionSource):
                 join = edition_join(joins.get(ep.security_id), ep.arm_date)
@@ -613,10 +659,12 @@ def derive_thesis_record(
                     run_identity_note=provenance.run_identity_note(ident),
                     annotation_note=_annotation_note(annotations, ep, exclude_annotated=exclude),
                 )
+            inked = inked_outcome(inks.get((ep.security_id, ep.arm_date)), ep, asof)
             record.episodes.append(
                 ScoredEpisode(
                     episode=ep,
-                    outcome=score_episode(ep, prices),
+                    outcome=inked if inked is not None else score_episode(ep, prices),
+                    inked=inks[(ep.security_id, ep.arm_date)].kind if inked is not None else None,
                     status="open" if ep.dearm_date is None else "closed",
                     matured=ep.exit_by is not None and ep.exit_by <= asof,
                     **specific,

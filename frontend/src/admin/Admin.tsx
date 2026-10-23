@@ -484,6 +484,18 @@ export function Admin({ header }: Props) {
                 (pipeline.set_aside_fundamentals)
               </div>
             )}
+            {/* editions S5 — the Scoreboard editions' nightly page job, as the backend's one line (which
+                edition, which night, held theses, the self-check). QUIET — the normal night is not news —
+                and louder only when the self-check found a real mismatch or the job crashed (attention).
+                Rendered only once the job has run; an older backend omits the field. */}
+            {status.editions_nightly && (
+              <div
+                className={`adm-line ${status.editions_nightly.attention ? "adm-loud" : "adm-quiet"}`}
+                data-testid="adm-editions-nightly"
+              >
+                {status.editions_nightly.line}
+              </div>
+            )}
             <div className="adm-sub">
               {status.record.reason} · today {status.record.today} · last expected as-of{" "}
               {status.record.expected_asof}

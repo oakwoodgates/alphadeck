@@ -59,6 +59,12 @@ _log = logging.getLogger("alphadeck.run_lock")
 # exclude EACH OTHER, which is the point (both write ``calls``).
 LOCK_NAMESPACE = 0x41444B
 LOCK_ID_CALL_OF_RECORD = 1
+# The ids taken in the same namespace: 2 = the fact-writer gate (``db.write_lock.FACT_GATE_ID``), 3 = the
+# staged onboarding job (``pipeline.onboarding.ONBOARD_LOCK_ID``), 4 = the Scoreboard editions nightly page job
+# (``editions.nightly``; holder ``editions``). The editions build plan named id 2 for it, but 2 is the gate:
+# an exclusive editions lock there would stall every company writer and every repair, so it took the next free
+# id. The editions job only ever PROBES id 1 (``describe_holder``), never takes it.
+LOCK_ID_EDITIONS = 4
 
 # The exit code a CLI uses when another process holds the lock (EX_TEMPFAIL, sysexits.h: "a temporary
 # failure; the user is invited to retry"). DISTINCT from 1 ("this night has no record") on purpose: this
@@ -144,10 +150,13 @@ class PassLock:
         self.release()
 
 
-def describe_holder(conn: psycopg.Connection) -> str | None:
-    """Who holds the call-of-record lock right now, as a plain-English line — or ``None`` when nobody
-    does (or it cannot be read). READ-ONLY (``pg_locks`` × ``pg_stat_activity``); never raises. The
-    two-int advisory form shows in ``pg_locks`` as ``classid`` = key1, ``objid`` = key2, ``objsubid`` = 2.
+def describe_holder(
+    conn: psycopg.Connection, *, lock_id: int = LOCK_ID_CALL_OF_RECORD
+) -> str | None:
+    """Who holds the call-of-record lock (or another lock in this namespace: ``lock_id``) right now, as a
+    plain-English line — or ``None`` when nobody does (or it cannot be read). READ-ONLY (``pg_locks`` ×
+    ``pg_stat_activity``); never raises. The two-int advisory form shows in ``pg_locks`` as ``classid`` = key1,
+    ``objid`` = key2, ``objsubid`` = 2.
     """
     try:
         row = conn.execute(
@@ -157,7 +166,7 @@ def describe_holder(conn: psycopg.Connection) -> str | None:
                   AND l.classid = %s AND l.objid = %s AND l.objsubid = 2
                   AND l.database = (SELECT oid FROM pg_database WHERE datname = current_database())
                 LIMIT 1""",
-            (LOCK_NAMESPACE, LOCK_ID_CALL_OF_RECORD),
+            (LOCK_NAMESPACE, lock_id),
         ).fetchone()
     except Exception:  # noqa: BLE001 — a descriptive read never changes the refusal
         return None
@@ -265,3 +274,76 @@ def probe_pass_lock() -> str | None:
         return exc.holder or "another session"
     lock.release()
     return None
+
+
+# --- the Scoreboard editions nightly page job's own lock (LOCK_ID_EDITIONS) ---------------------------------
+
+
+class EditionsJobRunning(RuntimeError):
+    """Another editions nightly page job holds ``LOCK_ID_EDITIONS``; this one did not run."""
+
+    def __init__(self, holder: str | None) -> None:
+        self.holder = holder
+        who = f" — held by {holder}" if holder else ""
+        super().__init__(f"another editions page job is already running{who}")
+
+
+@dataclass
+class JobLock:
+    """A HELD job lock (``lock_id`` in this namespace) on its own dedicated autocommit session. ``release()``
+    is idempotent and fail-open (closing the session releases a session lock anyway). A context manager.
+    """
+
+    conn: psycopg.Connection
+    lock_id: int
+    holder: str
+    _released: bool = field(default=False, repr=False)
+
+    def release(self) -> None:
+        if self._released:
+            return
+        self._released = True
+        try:
+            self.conn.execute("SELECT pg_advisory_unlock(%s, %s)", (LOCK_NAMESPACE, self.lock_id))
+        except Exception:  # noqa: BLE001 — the close below releases a session lock regardless
+            _log.warning("job lock: explicit unlock failed (closing the session)", exc_info=True)
+        finally:
+            try:
+                self.conn.close()
+            except Exception:  # noqa: BLE001 — a dead session is reaped by Postgres
+                _log.warning("job lock: closing the lock session failed", exc_info=True)
+
+    def call_of_record_holder(self) -> str | None:
+        """Who holds the CALL-OF-RECORD lock right now (``None`` = nobody) — a ``pg_locks`` PROBE on this
+        session, never an acquisition: a probe that took lock 1 could make a starting nightly pass exit 75.
+        """
+        return describe_holder(self.conn)
+
+    def __enter__(self) -> JobLock:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.release()
+
+
+def acquire_editions_lock(*, holder: str = "editions") -> JobLock:
+    """TRY to take ``LOCK_ID_EDITIONS`` on a fresh, dedicated, autocommit session (``alphadeck-pass:editions``
+    in ``pg_stat_activity``). Raises ``EditionsJobRunning`` (the session closed, nothing written) when another
+    editions job holds it. Never touches the call-of-record lock."""
+    conn = connect()
+    try:
+        conn.autocommit = True
+        conn.execute(
+            "SELECT set_config('application_name', %s, false)", (f"{_APP_PREFIX}{holder}"[:63],)
+        )
+        got = conn.execute(
+            "SELECT pg_try_advisory_lock(%s, %s) AS got", (LOCK_NAMESPACE, LOCK_ID_EDITIONS)
+        ).fetchone()["got"]
+    except BaseException:
+        conn.close()
+        raise
+    if not got:
+        who = describe_holder(conn, lock_id=LOCK_ID_EDITIONS)
+        conn.close()
+        raise EditionsJobRunning(who)
+    return JobLock(conn=conn, lock_id=LOCK_ID_EDITIONS, holder=holder)

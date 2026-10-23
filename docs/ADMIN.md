@@ -440,6 +440,30 @@ Nothing here writes a fact or a call. The Workbench shows the same queue scoped 
 (`GET /workbench/theses/{id}/onboarding`) as a quiet note after a promote whose cold names were queued.
 `python -m pipeline.onboarding --status` prints it from the CLI.
 
+### Scoreboard editions — "did tonight's page land?"  `[BUILT, editions S5 2026-10-23]`
+
+The cron sidecar grows the Scoreboard's current edition after the nightly backup (`FEED_LOOP.md` §the editions
+nightly page; `editions/nightly.py`). `GET /admin/status` carries its **one line**, `editions_nightly` — the
+newest APPLIED run's own words from `data/edition_runs/<ts>.json` (a directory read, no DB; a dry run is never
+shown; `null` until the job has run, and the page then renders nothing):
+
+- `Edition 1 · page for Oct 23 added · 10 theses · self-check passed` — the normal night (QUIET);
+- `… · 2 catch-up pages added …` — a session the edition missed (a night the job did not run, or a thesis that
+  was held), filled from the public clock;
+- `… · 2 theses held: history still loading` — a thesis with a member still in the onboarding queue (the panel
+  above) gets no page until its history is loaded; the next night's catch-up fills it;
+- `… · 3 final scores inked` — episodes whose signal window ended were scored once and frozen;
+- `… · self-check skipped: recorded by another build or policy` — tonight's recorded call came from another
+  image or call policy than the job's (a deploy day), so it was not compared;
+- `Editions · no page: the nightly pass has not finished (status running)` — the gate held it (the job runs only
+  after a finished nightly pass);
+- LOUD (`attention`) only when the self-check found a REAL mismatch between tonight's page and tonight's recorded
+  call (it also paged, counts only) or the job crashed. Both are worth a look; the artifact names the theses and
+  the fields that differ.
+
+The line includes the night it paged, so a job that stopped running reads as an old date. Nothing here writes;
+the job is the cron's, never a button (it is not part of "Run daily now").
+
 ## Cron health — "did last night's run work?"
 
 The one-word `cron.status` verdict, plus the last run's counts and any problems:
@@ -690,7 +714,7 @@ the freeze it is adjacent to: `POSTMORTEM_CRON_FREEZE_2026-07.md`.
 
 | Endpoint | Shape | Notes |
 |---|---|---|
-| `GET /admin/status` | freshness + cron verdict + last-snapshot age + the stopped-feed, split-basis and price-feed-repairs panels | read-only; the page opens on it |
+| `GET /admin/status` | freshness + cron verdict + last-snapshot age + the stopped-feed, split-basis and price-feed-repairs panels + the editions nightly line (`editions_nightly`) | read-only; the page opens on it |
 | `POST /admin/price-feed/{security_id}/adopt` | `{symbol}` → the change row | a symbol EDGAR lists for a renamed name; 409 otherwise / nothing to change |
 | `POST /admin/price-feed/{security_id}/set-symbol` | `{symbol}` → the change row | ONE vendor fetch validates first (no bars → 422, nothing written) |
 | `POST /admin/price-feed/changes/{change_id}/undo` | → the undo row | exact restore; 409 already undone / a later change stands / the master moved |

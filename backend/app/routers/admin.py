@@ -33,6 +33,7 @@ from app.routers.admin_splits import count_needs_review as splits_needs_review_c
 from app.schemas_api import (
     AdminAuditCheckOut,
     AdminCronOut,
+    AdminEditionsNightlyOut,
     AdminLateOnlyNightOut,
     AdminPartialNightOut,
     AdminReconstructedNightOut,
@@ -61,6 +62,7 @@ from domain.insider_amendments import page_text
 from domain.market_time import market_now, market_tz
 from domain.settings import get_settings
 from notify import HealthEvent
+from pipeline import edition_run_log
 from pipeline.backup import BackupInfo, list_backups, run_backup
 from pipeline.backup_job import BackupRunInFlight, start_backup_job
 from pipeline.backup_job import get_job as get_backup_job
@@ -1079,6 +1081,14 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
     except Exception:  # noqa: BLE001 — the count is a passenger on the status read
         _log.exception("set-aside count failed (fail-open — the status read is unaffected)")
 
+    # editions S5 — the Scoreboard editions' nightly page job, as its newest APPLIED run's one line (a file
+    # read; no DB). Fail-open like the panels above: a fault costs the line (null), never the status read.
+    editions_nightly = None
+    try:
+        editions_nightly = _editions_nightly_out(edition_run_log.latest_edition_run())
+    except Exception:  # noqa: BLE001 — the line is a passenger on the status read
+        _log.exception("editions nightly line failed (fail-open — the status read is unaffected)")
+
     return AdminStatusOut(
         record=AdminRecordOut(
             edge=edge,
@@ -1133,6 +1143,22 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
         price_repairs=price_repairs,
         splits_needs_review=splits_needs_review,
         fundamentals_set_aside=fundamentals_set_aside,
+        editions_nightly=editions_nightly,
+    )
+
+
+def _editions_nightly_out(doc: Mapping | None) -> AdminEditionsNightlyOut | None:
+    """The editions nightly page job's artifact -> its one Admin line (``None`` until it has run applied).
+    The line is the job's own (``editions.nightly.admin_line``) — composed once, where the run's facts are.
+    """
+    if not doc or not doc.get("admin_line") or not doc.get("started_at"):
+        return None
+    end = doc.get("end")
+    return AdminEditionsNightlyOut(
+        line=str(doc["admin_line"]),
+        ran_at=datetime.fromisoformat(str(doc.get("finished_at") or doc["started_at"])),
+        night=date.fromisoformat(end) if end else None,
+        attention=bool(doc.get("attention")),
     )
 
 
