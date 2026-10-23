@@ -10,6 +10,13 @@ Self-contained on purpose: nothing outside ``editions/`` may import ``editions``
 the Scoreboard API reads editions through this module with psycopg alone (the lean API image has no
 duckdb). The publisher (``editions.run publish``) hands join dates over as plain dicts in
 ``editions.entry.Entry.as_json`` shape.
+
+S5 adds the NIGHTLY side (``editions.nightly``): ``current_edition`` (the newest edition not closed), the
+appends that grow it — ``append_pages`` (``nightly`` / ``catchup`` pages), ``append_entries`` (the join date
+of a company new to the edition), ``append_event`` (the ``paged`` event) — and the INK (migration 0064,
+``edition_outcome``): ``ink_outcomes`` writes an episode's final score once, ``outcomes_for_thesis`` is the
+Scoreboard's read. Every append is ``ON CONFLICT DO NOTHING`` on the table's unique key and returns how many
+rows it actually wrote, so a second run of the same night appends nothing (the tests count the table).
 """
 
 from __future__ import annotations
@@ -24,11 +31,13 @@ import psycopg
 from psycopg.types.json import Json
 
 from domain.call import CallCard
+from replay.schema import Outcome
 from repositories.mappers import call_to_row, row_to_call
 
 EDITION_0_LABEL = "the original record"
 CAUSES = ("initial", "rule_change", "data_repair", "code_drift")
 PAGE_KINDS = ("rerun", "nightly", "catchup")
+INK_KINDS = ("matured", "running_at_close")
 
 
 class EditionExists(Exception):
@@ -259,16 +268,252 @@ def publish_edition(
 
 
 def table_counts(conn: psycopg.Connection) -> dict[str, int]:
-    """Row counts of the four edition tables plus ``calls`` — the count-the-table check a publish reports."""
+    """Row counts of the edition tables plus ``calls`` — the count-the-table check a publish (and the nightly
+    page job) reports."""
     with conn.cursor() as cur:
         cur.execute(
             "SELECT (SELECT count(*) FROM edition) AS edition, "
             "(SELECT count(*) FROM edition_event) AS edition_event, "
             "(SELECT count(*) FROM edition_entry) AS edition_entry, "
             "(SELECT count(*) FROM edition_call) AS edition_call, "
+            "(SELECT count(*) FROM edition_outcome) AS edition_outcome, "
             "(SELECT count(*) FROM calls) AS calls"
         )
         return dict(cur.fetchone())
+
+
+# --- the nightly side (S5): the current edition and the appends that grow it ---------------------------------
+
+
+def current_edition(conn: psycopg.Connection, *, tenant_id: UUID) -> Edition | None:
+    """The edition the nightly pages are appended to: the tenant's NEWEST edition, when it is not closed.
+    ``None`` = no stored edition, or the newest one is closed (nothing to append to — a closed edition is
+    frozen whole)."""
+    eds = list_editions(conn, tenant_id=tenant_id)
+    if not eds or eds[-1].closed_at is not None:
+        return None
+    return eds[-1]
+
+
+def last_page_by_thesis(conn: psycopg.Connection, edition_id: UUID) -> dict[UUID, date]:
+    """``thesis_id -> its newest page's as-of`` in the edition (a thesis with no page is absent)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT thesis_id, max(asof) AS last FROM edition_call WHERE edition_id = %s GROUP BY 1",
+            (edition_id,),
+        )
+        return {r["thesis_id"]: r["last"] for r in cur.fetchall()}
+
+
+def entries_by_thesis(
+    conn: psycopg.Connection, edition_id: UUID
+) -> dict[UUID, dict[UUID, JoinDate]]:
+    """Every frozen join date in the edition, ``thesis_id -> security_id -> JoinDate``."""
+    out: dict[UUID, dict[UUID, JoinDate]] = {}
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT thesis_id, security_id, entry_date, estimated, method, evidence FROM edition_entry "
+            "WHERE edition_id = %s",
+            (edition_id,),
+        )
+        for r in cur.fetchall():
+            out.setdefault(r["thesis_id"], {})[r["security_id"]] = JoinDate(
+                thesis_id=r["thesis_id"],
+                security_id=r["security_id"],
+                entry_date=r["entry_date"],
+                estimated=r["estimated"],
+                method=r["method"],
+                evidence=dict(r["evidence"] or {}),
+            )
+    return out
+
+
+def pages_at(conn: psycopg.Connection, edition_id: UUID, asof: date) -> dict[UUID, CallCard]:
+    """The edition's page for ``asof``, per thesis (one per night by the unique key)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT thesis_id, card FROM edition_call WHERE edition_id = %s AND asof = %s",
+            (edition_id, asof),
+        )
+        return {r["thesis_id"]: row_to_call(r) for r in cur.fetchall()}
+
+
+def append_pages(
+    conn: psycopg.Connection,
+    *,
+    tenant_id: UUID,
+    edition_id: UUID,
+    pages: Sequence[tuple[CallCard, str]],
+    data_known_by: datetime,
+    engine_fingerprint: str,
+    computed_at: datetime,
+) -> int:
+    """Append ``(card, page_kind)`` pages to an edition, each stamped with its own watermark and engine
+    fingerprint. ``ON CONFLICT DO NOTHING`` on (edition, thesis, night): a page already there is never
+    replaced and never duplicated. Returns the rows written. The caller owns the transaction."""
+    for _, kind in pages:
+        if kind not in PAGE_KINDS:
+            raise ValueError(f"page_kind must be one of {PAGE_KINDS}, got {kind!r}")
+    written = 0
+    with conn.cursor() as cur:
+        for card, kind in pages:
+            r = call_to_row(card, tenant_id)
+            cur.execute(
+                """INSERT INTO edition_call
+                       (tenant_id, edition_id, thesis_id, asof, state, verdict, card, data_known_by,
+                        engine_fingerprint, page_kind, computed_at)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                   ON CONFLICT (edition_id, thesis_id, asof) DO NOTHING""",
+                (
+                    tenant_id,
+                    edition_id,
+                    r["thesis_id"],
+                    r["asof"],
+                    r["state"],
+                    r["verdict"],
+                    Json(r["card"]),
+                    data_known_by,
+                    engine_fingerprint,
+                    kind,
+                    computed_at,
+                ),
+            )
+            written += cur.rowcount
+    return written
+
+
+def append_entries(
+    conn: psycopg.Connection,
+    *,
+    tenant_id: UUID,
+    edition_id: UUID,
+    entries: Sequence[Mapping[str, Any]],
+) -> int:
+    """Append join dates (``editions.entry.Entry.as_json`` shape) for companies NEW to the edition.
+    ``ON CONFLICT DO NOTHING`` on (edition, thesis, company): a frozen join date is never replaced. Returns
+    the rows written."""
+    written = 0
+    with conn.cursor() as cur:
+        for e in entries:
+            cur.execute(
+                """INSERT INTO edition_entry
+                       (tenant_id, edition_id, thesis_id, security_id, entry_date, estimated, method,
+                        evidence)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                   ON CONFLICT (edition_id, thesis_id, security_id) DO NOTHING""",
+                (
+                    tenant_id,
+                    edition_id,
+                    UUID(str(e["thesis_id"])),
+                    UUID(str(e["security_id"])),
+                    date.fromisoformat(str(e["entry_date"])),
+                    bool(e["estimated"]),
+                    e["method"],
+                    Json(dict(e.get("evidence") or {})),
+                ),
+            )
+            written += cur.rowcount
+    return written
+
+
+def append_event(
+    conn: psycopg.Connection,
+    *,
+    tenant_id: UUID,
+    edition_id: UUID,
+    kind: str,
+    detail: Mapping[str, Any] | None = None,
+) -> None:
+    """Append one life event (``published`` / ``closed`` / ``paged`` / ``trial_no_change``)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO edition_event (tenant_id, edition_id, kind, detail) VALUES (%s, %s, %s, %s)",
+            (tenant_id, edition_id, kind, Json(dict(detail or {}))),
+        )
+
+
+# --- the ink (S5, migration 0064): an episode's final score, written once -------------------------------------
+
+
+@dataclass(frozen=True)
+class InkedOutcome:
+    """One inked episode score (``edition_outcome``)."""
+
+    thesis_id: UUID
+    security_id: UUID
+    arm_date: date
+    exit_by: date | None
+    kind: str  # matured | running_at_close
+    outcome: Outcome
+    night: date
+    prices_known_by: datetime
+    inked_at: datetime
+
+
+def ink_outcomes(
+    conn: psycopg.Connection,
+    *,
+    tenant_id: UUID,
+    edition_id: UUID,
+    rows: Sequence[Mapping[str, Any]],
+) -> int:
+    """Ink episode scores: each row ``{thesis_id, security_id, arm_date, exit_by, kind, outcome (an
+    Outcome), night, prices_known_by}``. ``ON CONFLICT DO NOTHING`` on the episode key — an inked score is
+    never re-scored, and a second ink appends nothing. Returns the rows written. The caller owns the
+    transaction."""
+    written = 0
+    with conn.cursor() as cur:
+        for r in rows:
+            if r["kind"] not in INK_KINDS:
+                raise ValueError(f"ink kind must be one of {INK_KINDS}, got {r['kind']!r}")
+            outcome: Outcome = r["outcome"]
+            cur.execute(
+                """INSERT INTO edition_outcome
+                       (tenant_id, edition_id, thesis_id, security_id, arm_date, exit_by, kind, outcome,
+                        night, prices_known_by)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                   ON CONFLICT (edition_id, thesis_id, security_id, arm_date) DO NOTHING""",
+                (
+                    tenant_id,
+                    edition_id,
+                    r["thesis_id"],
+                    r["security_id"],
+                    r["arm_date"],
+                    r["exit_by"],
+                    r["kind"],
+                    Json(outcome.model_dump(mode="json")),
+                    r["night"],
+                    r["prices_known_by"],
+                ),
+            )
+            written += cur.rowcount
+    return written
+
+
+def outcomes_for_thesis(
+    conn: psycopg.Connection, edition_id: UUID, thesis_id: UUID
+) -> dict[tuple[UUID, date], InkedOutcome]:
+    """The edition's inked scores for one thesis, keyed ``(security_id, arm_date)`` — the episode key."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT thesis_id, security_id, arm_date, exit_by, kind, outcome, night, prices_known_by, "
+            "inked_at FROM edition_outcome WHERE edition_id = %s AND thesis_id = %s",
+            (edition_id, thesis_id),
+        )
+        return {
+            (r["security_id"], r["arm_date"]): InkedOutcome(
+                thesis_id=r["thesis_id"],
+                security_id=r["security_id"],
+                arm_date=r["arm_date"],
+                exit_by=r["exit_by"],
+                kind=r["kind"],
+                outcome=Outcome.model_validate(r["outcome"]),
+                night=r["night"],
+                prices_known_by=r["prices_known_by"],
+                inked_at=r["inked_at"],
+            )
+            for r in cur.fetchall()
+        }
 
 
 # --- the Scoreboard's reads ----------------------------------------------------------------------------

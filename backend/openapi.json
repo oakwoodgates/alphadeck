@@ -4078,6 +4078,43 @@
         "title": "AdminCronOut",
         "description": "The one-word cron verdict + a plain-English detail. ``unhealthy`` (the LAST run froze / errored /\nwithheld on total ingest failure / failed to refresh the benchmark tape) is deliberately its own\nLOUD state, peer to ``stale`` \u2014 a bad run\nmust read as loud as a missing one, never hide behind green (the R1 freeze lesson). A benign\n``--no-live`` dev run is NOT unhealthy. ``never_ran`` = no run artifact at all (quiet). ``gappy`` =\nthe edge is current and the last run clean, but the recent window has a night with NO call-of-record\n(a wrong-day fire) \u2014 as loud as ``stale``. Priority: never_ran > unhealthy > stale > gappy > healthy.\n\n``alarms`` (Phase 1B) are the STATUS-level alarms that are not one run's health, each a plain-English\nline, and any of them makes the verdict ``unhealthy`` (they are listed even under ``never_ran``): the\ncron's last pass ran with an UNKNOWN ``code_sha``; the cron's sha differs from this backend's own (an\nimage left stale by a partial rebuild) or the backend's own is unknown \u2014 compared only for a cron pass\nthat started after this backend process did, so a full deploy does not read ``unhealthy`` until the\nnight's pass confirms it; the last live pass paged\nthrough the LOG notifier (``SLACK_WEBHOOK_URL`` unset \u2014 a bad night pages nobody) or ran with\n``ALPHADECK_USER_AGENT`` unset; the newest unlabeled DB dump is older than\n``ALPHADECK_BACKUP_STALE_HOURS`` in schedule time (B4 \u2014 only on a stack whose run history shows the cron\nsidecar, where a nightly dump is expected). ``[]`` on a clean stack.\n\nM1 adds three alarms and one verdict. Alarms: **the last pass did not finish** (the newest artifact still\nreads ``running`` past the run timeout \u2014 killed or hung), **the last pass crashed** (``crashed``), and\n**rows without a run artifact** (a night has post-``RUN_AT`` rows but no pass artifact at all for it).\n``gappy`` now also covers a PARTIAL night (``record.partial_nights``). ``running`` = a pass is in flight\ninside its timeout and nothing else is wrong; its own night is not judged until it finishes, so a\nhealthy pass mid-loop never reads partial or stale. Priority: never_ran > unhealthy > stale > gappy >\nrunning > healthy."
       },
+      "AdminEditionsNightlyOut": {
+        "properties": {
+          "line": {
+            "type": "string",
+            "title": "Line"
+          },
+          "ran_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Ran At"
+          },
+          "night": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Night"
+          },
+          "attention": {
+            "type": "boolean",
+            "title": "Attention",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "line",
+          "ran_at"
+        ],
+        "title": "AdminEditionsNightlyOut",
+        "description": "The Scoreboard editions' nightly page job (editions S5), as ONE plain-English line from its newest\nAPPLIED run artifact (``data/edition_runs``): which edition, which night it paged, how many theses, any held\nfor history still loading, and the self-check \u2014 e.g. \"Edition 1 \u00b7 page for Oct 23 added \u00b7 10 theses \u00b7\nself-check passed\". Backend-authored copy (the FE renders, never composes). ``attention`` is true only when\nthe self-check found a real mismatch or the job crashed \u2014 the one case worth a louder line."
+      },
       "AdminFeedLimitationIn": {
         "properties": {
           "reason": {
@@ -7045,6 +7082,16 @@
               }
             ],
             "title": "Fundamentals Set Aside"
+          },
+          "editions_nightly": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdminEditionsNightlyOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -7053,7 +7100,7 @@
           "cron"
         ],
         "title": "AdminStatusOut",
-        "description": "The admin page's one-GET summary: record freshness + the newest run + the cron verdict + the\nnewest DB snapshot + the feed-freshness panel. READ-ONLY \u2014 the endpoint owns no tables and writes\nnothing (test-proved; the ``last_backup`` join is a pure directory read, and ``tape`` is read from\nthe run artifacts). ``last_backup`` is ``None`` = the quiet \"no snapshots yet\" state; ``tape`` is\n``None`` until a pass has evaluated feed recency (the quiet \"not looked yet\" state).\n\n``backend_sha`` is this backend's OWN ``Settings.image_sha`` (``null`` = built without ``GIT_SHA``) and\n``cron_sha`` the ``code_sha`` the newest CRON-kind run artifact recorded (``null`` = unknown, or no\ncron pass has recorded its identity yet) \u2014 the pair the identity alarm compares (I1). The latest\nself-audit rides ``last_run.audit``.\n\nM1: ``last_run`` is the newest FINISHED pass (a pre-M1 artifact counts as finished); when the newest\nartifact is a pass that has not finished, ``unfinished_run`` describes it (``null`` otherwise).\n\n``split_defects`` (T4) is the split-basis panel \u2014 ``null`` until a finished live pass has scanned (a\npartial catch-up counts: the scan reads the whole basket union); a defect is a FEED problem (flag\nonly), so it never changes ``cron.status``.\n\n``price_repairs`` (T2 + Q8 + T3 + T7) is the \"Price feed repairs\" panel \u2014 renamed names with their\nsplice-verified successors to Adopt, unpriceable names to Set / Acknowledge / Remove, members whose\ncompany now files under a successor CIK to Adopt, the quiet closed and acknowledged names, and every\nstanding operator repair with its Undo. A feed matter, never the cron verdict.\n\n``splits_needs_review`` (split plan S1) is how many splits on the split list one source could not settle\n(one source only, a disagreement, an extractor abstain) \u2014 the \"Splits\" panel (``GET /admin/splits``) holds\nthem. ``null`` when the count could not be read; never a cron verdict.\n\n``fundamentals_set_aside`` (migration 0062) is how many stored fundamentals versions are set aside \u2014 the\nrevenue rows the data-quality screen would have refused, stored before it existed, which every read skips\n(``python -m pipeline.set_aside_fundamentals``). A quiet line; ``null`` when the count could not be read."
+        "description": "The admin page's one-GET summary: record freshness + the newest run + the cron verdict + the\nnewest DB snapshot + the feed-freshness panel. READ-ONLY \u2014 the endpoint owns no tables and writes\nnothing (test-proved; the ``last_backup`` join is a pure directory read, and ``tape`` is read from\nthe run artifacts). ``last_backup`` is ``None`` = the quiet \"no snapshots yet\" state; ``tape`` is\n``None`` until a pass has evaluated feed recency (the quiet \"not looked yet\" state).\n\n``backend_sha`` is this backend's OWN ``Settings.image_sha`` (``null`` = built without ``GIT_SHA``) and\n``cron_sha`` the ``code_sha`` the newest CRON-kind run artifact recorded (``null`` = unknown, or no\ncron pass has recorded its identity yet) \u2014 the pair the identity alarm compares (I1). The latest\nself-audit rides ``last_run.audit``.\n\nM1: ``last_run`` is the newest FINISHED pass (a pre-M1 artifact counts as finished); when the newest\nartifact is a pass that has not finished, ``unfinished_run`` describes it (``null`` otherwise).\n\n``split_defects`` (T4) is the split-basis panel \u2014 ``null`` until a finished live pass has scanned (a\npartial catch-up counts: the scan reads the whole basket union); a defect is a FEED problem (flag\nonly), so it never changes ``cron.status``.\n\n``price_repairs`` (T2 + Q8 + T3 + T7) is the \"Price feed repairs\" panel \u2014 renamed names with their\nsplice-verified successors to Adopt, unpriceable names to Set / Acknowledge / Remove, members whose\ncompany now files under a successor CIK to Adopt, the quiet closed and acknowledged names, and every\nstanding operator repair with its Undo. A feed matter, never the cron verdict.\n\n``splits_needs_review`` (split plan S1) is how many splits on the split list one source could not settle\n(one source only, a disagreement, an extractor abstain) \u2014 the \"Splits\" panel (``GET /admin/splits``) holds\nthem. ``null`` when the count could not be read; never a cron verdict.\n\n``fundamentals_set_aside`` (migration 0062) is how many stored fundamentals versions are set aside \u2014 the\nrevenue rows the data-quality screen would have refused, stored before it existed, which every read skips\n(``python -m pipeline.set_aside_fundamentals``). A quiet line; ``null`` when the count could not be read.\n\n``editions_nightly`` (editions S5) is the Scoreboard editions' nightly page job's one line, from its newest\napplied run artifact; ``null`` until that job has run (a directory read \u2014 no DB). Never a cron verdict."
       },
       "AdminSuccessorCandidateOut": {
         "properties": {

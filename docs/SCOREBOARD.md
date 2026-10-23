@@ -52,12 +52,20 @@ for an edition, and only this:
   The drawer says "join date estimated" (`edition_join.note`) for every estimated join.
 - **The drawer's provenance caption names the edition and its engine fingerprint** (the `run_identity_note`
   slot), and its chart overlays read on the public clock (the same reads #433 gave a past as-of).
-- **Scores are computed on read** against today's realized prices (the ink of S5 is not built yet).
+- **A matured episode's score is INKED** (S5, migration 0064 `edition_outcome`): once its signal window ends
+  (`exit_by`, never the de-arm) and the tape has printed a session past it, the nightly page job scores it once and
+  freezes it, and the edition read uses that number from then on (a later price correction never re-scores it).
+  A running episode — or a view scrubbed back before the window ended — is scored on read against today's
+  realized prices, as before.
+
+The CURRENT edition grows nightly: the cron sidecar appends tonight's page (and a catch-up page for any session it
+missed) per live thesis after the nightly backup, so new theses and new companies join it from their own first
+night (`FEED_LOOP.md` §the editions nightly page).
 
 The default edition is `Settings.scoreboard_default_edition` (`ALPHADECK_SCOREBOARD_DEFAULT_EDITION`), shipped
 as 0 so the record stays the default view until the operator says otherwise; a default naming an unpublished
 edition falls back to 0, while an explicit request for one is a 404. Plan and open slices: the editions build
-plan (S5 nightly pages + ink, S6 "what changed", S7 the automatic cut, S8 retiring the replay panel).
+plan (S6 "what changed", S7 the automatic cut, S8 retiring the replay panel).
 
 ## The one rule everything hangs on
 

@@ -2512,6 +2512,19 @@ class AdminSuccessorCikIn(BaseModel):
     cik: str = Field(min_length=1, max_length=16)
 
 
+class AdminEditionsNightlyOut(BaseModel):
+    """The Scoreboard editions' nightly page job (editions S5), as ONE plain-English line from its newest
+    APPLIED run artifact (``data/edition_runs``): which edition, which night it paged, how many theses, any held
+    for history still loading, and the self-check — e.g. "Edition 1 · page for Oct 23 added · 10 theses ·
+    self-check passed". Backend-authored copy (the FE renders, never composes). ``attention`` is true only when
+    the self-check found a real mismatch or the job crashed — the one case worth a louder line."""
+
+    line: str
+    ran_at: datetime
+    night: date | None = None
+    attention: bool = False
+
+
 class AdminStatusOut(BaseModel):
     """The admin page's one-GET summary: record freshness + the newest run + the cron verdict + the
     newest DB snapshot + the feed-freshness panel. READ-ONLY — the endpoint owns no tables and writes
@@ -2543,6 +2556,9 @@ class AdminStatusOut(BaseModel):
     ``fundamentals_set_aside`` (migration 0062) is how many stored fundamentals versions are set aside — the
     revenue rows the data-quality screen would have refused, stored before it existed, which every read skips
     (``python -m pipeline.set_aside_fundamentals``). A quiet line; ``null`` when the count could not be read.
+
+    ``editions_nightly`` (editions S5) is the Scoreboard editions' nightly page job's one line, from its newest
+    applied run artifact; ``null`` until that job has run (a directory read — no DB). Never a cron verdict.
     """
 
     record: AdminRecordOut
@@ -2557,6 +2573,7 @@ class AdminStatusOut(BaseModel):
     price_repairs: AdminPriceRepairsOut | None = None
     splits_needs_review: int | None = None
     fundamentals_set_aside: int | None = None
+    editions_nightly: AdminEditionsNightlyOut | None = None
 
 
 class AdminRunsOut(BaseModel):

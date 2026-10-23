@@ -168,10 +168,17 @@ services:
     # writes the nightly call-of-record, so its image sha is the `code_sha` on the rows that ARE the record.
     # Its own image, its own rebuild (`--no-deps cron` — the cron caveat in docs/DEPLOY.md), so it needs the
     # arg declared here too rather than inheriting the backend's.
+    #
+    # PIP_EXTRAS=replay (editions S5): the cron image bakes the `.[replay]` extra (duckdb + pyarrow), because the
+    # Scoreboard editions' nightly page job (`python -m editions.run nightly`, fired by daily_cron.sh after the
+    # nightly backup) runs the replay engine over a public-clock Parquet mirror. ONLY the cron image: the backend
+    # (API) image above stays lean (`PIP_EXTRAS` defaults to "" in the Dockerfile) — the Scoreboard reads the
+    # stored editions with psycopg alone. The two services build separate images, so this changes nothing there.
     build:
       context: ./backend
       args:
         GIT_SHA: ${GIT_SHA:-}
+        PIP_EXTRAS: replay
     environment:
       DATABASE_URL: postgresql://alphadeck:alphadeck@postgres:5432/alphadeck
       ALPHADECK_USER_AGENT: ${ALPHADECK_USER_AGENT:-} # the daily run does LIVE EDGAR/Yahoo pulls
@@ -224,6 +231,10 @@ services:
       # fallbacks, the same reason as RETRY_DELAY_S above.
       ONBOARD_EVERY_S: ${ALPHADECK_ONBOARD_EVERY_S:-1800}
       ONBOARD_TIMEOUT_S: ${ALPHADECK_ONBOARD_TIMEOUT_S:-2700}
+      # Editions S5 — the Scoreboard editions' nightly page job (daily_cron.sh `editions_nightly`, after the
+      # nightly backup): its kill switch (0 = off, an env-only cron deploy) and the hard timeout around one run.
+      EDITIONS_NIGHTLY: ${ALPHADECK_EDITIONS_NIGHTLY:-1}
+      EDITIONS_TIMEOUT_S: ${ALPHADECK_EDITIONS_TIMEOUT_S:-1800}
       # No ANTHROPIC_API_KEY: ingest + the call engine are deterministic — no LLM on this path.
       # The notify delivery channel — this is the AUTOMATED path that fires the daily -> armed push, and (H3)
       # the shell's failure page (`python -m notify.page`) when a night or a backup fails for good. Unset ->

@@ -1177,3 +1177,47 @@ describe("Admin — the fundamentals set-aside count (migration 0062)", () => {
     expect(screen.queryByTestId("adm-fundamentals-set-aside")).toBeNull();
   });
 });
+
+describe("Admin — the Scoreboard editions nightly line (editions S5)", () => {
+  const LINE = "Edition 1 · page for Oct 23 added · 10 theses · self-check passed";
+
+  it("renders the backend's line quietly on a normal night", () => {
+    h.status = {
+      ...h.status,
+      data: {
+        ...STATUS_CURRENT,
+        editions_nightly: { line: LINE, ran_at: "2026-10-24T03:01:10Z", night: "2026-10-23", attention: false },
+      },
+    };
+    renderAdmin();
+    const line = screen.getByTestId("adm-editions-nightly");
+    expect(line.textContent).toBe(LINE);
+    expect(line.className).toContain("adm-quiet");
+  });
+
+  it("is loud only when the self-check found a mismatch or the job crashed", () => {
+    h.status = {
+      ...h.status,
+      data: {
+        ...STATUS_CURRENT,
+        editions_nightly: {
+          line: "Edition 1 · page for Oct 23 added · 10 theses · self-check: 1 thesis differs from the recorded call",
+          ran_at: "2026-10-24T03:01:10Z",
+          night: "2026-10-23",
+          attention: true,
+        },
+      },
+    };
+    renderAdmin();
+    expect(screen.getByTestId("adm-editions-nightly").className).toContain("adm-loud");
+  });
+
+  it("renders nothing before the job has run, or from an older backend", () => {
+    h.status = { ...h.status, data: { ...STATUS_CURRENT, editions_nightly: null } };
+    renderAdmin();
+    expect(screen.queryByTestId("adm-editions-nightly")).toBeNull();
+    h.status = { ...h.status, data: { ...STATUS_CURRENT } };
+    renderAdmin();
+    expect(screen.queryByTestId("adm-editions-nightly")).toBeNull();
+  });
+});
