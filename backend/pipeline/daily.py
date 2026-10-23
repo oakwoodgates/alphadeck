@@ -81,6 +81,7 @@ from pipeline.cron_run_log import (
     RUN_STATUS_RUNNING,
     already_ran_live,
     amend_run_timings,
+    list_run_logs,
     mark_run_crashed,
     previous_ingest_skips,
     previous_name_errors,
@@ -111,6 +112,8 @@ from pipeline.insider_amendment_scan import (
     run_amendment_sweep,
 )
 from pipeline.insider_amendment_scan import report_lines as amendment_report_lines
+from pipeline.missing_closes import MissingCloses, run_missing_closes
+from pipeline.missing_closes import report_lines as missing_close_report_lines
 from pipeline.name_errors import NameIngestError, dedup_name_errors, name_errors_of
 from pipeline.night_coverage import NightTiming, night_timing, read_on_time_theses
 from pipeline.pass_timings import per_thesis, timed
@@ -1040,6 +1043,10 @@ class DailyPassOutcome:
     # S5 — the split-night hold's escalation (``pipeline/split_jumps.py``): released split-shaped jumps no source
     # listed, for one quiet report line (the Admin Splits panel reads them live). Not an artifact field.
     jumps: JumpScan = field(default_factory=JumpScan)
+    # MISSING CLOSES (``pipeline/missing_closes.py``, 2026-10-23): the companies with no close for the night's
+    # session after their price leg, the older sessions' closes still missing (loud), and the late ones that
+    # arrived — computed ONCE in the pass, so the artifact, the printed report and the Admin poll agree
+    missing_closes: MissingCloses = field(default_factory=MissingCloses)
 
     def payload_kwargs(self) -> dict:
         """Every run-level field ``cron_run_log.build_run_payload`` / ``write_cron_run_log`` take, from this
@@ -1073,6 +1080,7 @@ class DailyPassOutcome:
             "amendments": self.amendments,
             "edgar_coverage": self.edgar_coverage,
             "split_detect": self.split_detect,
+            "missing_closes": self.missing_closes,
         }
 
 
@@ -1471,6 +1479,24 @@ def _run_daily_pass_locked(
         previous=previous_split_defects,
         clock=perf_counter,
     )
+    # MISSING CLOSES (`pipeline/missing_closes.py`, operator decision 2026-10-23): every live basket company
+    # with no close for tonight's session after its price leg (judged only when SPY or IWM has one — else a
+    # holiday or an unsettled session), and the previous pass's missing closes re-checked against the stored
+    # bars (arrived = quiet, with the lag; still missing after a later session's pass = LOUD on Admin). A
+    # MONITOR: never a call input, never paged. AFTER `run_daily` (it reads the edges tonight's price legs left)
+    # and BEFORE this run's artifact is written (its previous pass is the newest FINISHED evaluated artifact —
+    # this pass's own start artifact reads `running`, never a baseline). Its own read-only connection;
+    # fail-open (a fault rides `missing_closes.error`, printed loud and shown on Admin).
+    missing_closes = timed("missing_closes")(run_missing_closes)(
+        results=results,
+        asof=asof,
+        allow_live=allow_live,
+        started_at=started_at,
+        tenant_id=current_tenant_id(),
+        connect=_pass_connect,
+        payloads=list_run_logs,
+        clock=perf_counter,
+    )
     # S5 — THE SPLIT-NIGHT HOLD's ESCALATION (`pipeline/split_jumps.py`): a split-shaped jump the hold has
     # released (three sessions on) that no source ever listed goes to the operator — one quiet report line,
     # never a page (#7). The hold itself is on tonight's cards. Its own read-only connection; fail-open.
@@ -1589,6 +1615,7 @@ def _run_daily_pass_locked(
         split_reads_prev=prior_split_reads,
         split_detect=split_detector.result,
         jumps=jumps,
+        missing_closes=missing_closes,
     )
     # R3 — the cron's run-of-record, so the next freeze is noticed by the platform, not by eye. Written
     # AFTER the run from the collected results (write-only, no DB); fail-open, so it never fails the cron.
@@ -2166,6 +2193,10 @@ def main(argv: list[str] | None = None) -> None:
     for line in jump_report_lines(
         outcome.jumps
     ):  # S5 — one quiet line: unlisted split-shaped jumps
+        print(line)
+    # MISSING CLOSES — the night's quiet count line (+ the arrivals), LOUD only for an older session's close
+    # still missing after a later session's pass, and a failed check loud
+    for line in missing_close_report_lines(outcome.missing_closes):
         print(line)
     # X5 — ONE timings line: the total, the three slowest legs, the slowest thesis, the peak RSS
     timings_line = pass_timings.summary_line(outcome.timings)

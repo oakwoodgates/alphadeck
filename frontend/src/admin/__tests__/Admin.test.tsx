@@ -1221,3 +1221,117 @@ describe("Admin — the Scoreboard editions nightly line (editions S5)", () => {
     expect(screen.queryByTestId("adm-editions-nightly")).toBeNull();
   });
 });
+
+describe("Admin — missing closing prices (2026-10-23)", () => {
+  // synthetic companies; the line is the backend's own (the FE renders, never composes)
+  const QUIET_LINE =
+    "Closing prices · 3 of 679 companies had no close for Oct 23 at the night's run (1 OTC, a known issue) · usually arrive with the next night's pull";
+  let n = 0;
+  const row = (ticker: string, extra: Record<string, unknown> = {}) => ({
+    security_id: `00000000-0000-0000-0000-${String(++n).padStart(12, "0")}`,
+    ticker,
+    session: "2026-10-23",
+    edge: "2026-10-22",
+    reason: "no_bar",
+    error: null,
+    loud: false,
+    usual_late: false,
+    late_nights: 1,
+    judged_nights: 20,
+    otc: false,
+    ...extra,
+  });
+  const QUIET = {
+    asof: "2026-10-23",
+    ran_at: "2026-10-24T02:30:00+00:00",
+    session: "2026-10-23",
+    is_session: true,
+    judged: 679,
+    line: QUIET_LINE,
+    missing: [
+      row("PINK", { otc: true, usual_late: true, late_nights: 15 }),
+      row("CHRON", { usual_late: true, late_nights: 12 }),
+      row("ONCE"),
+    ],
+    still_missing: [] as ReturnType<typeof row>[],
+    loud_lines: [] as string[],
+    arrived: [
+      {
+        security_id: "00000000-0000-0000-0000-00000000aaaa",
+        ticker: "ARRV",
+        session: "2026-10-22",
+        lag_h: 24.1,
+        otc: false,
+      },
+    ],
+    error: null as string | null,
+  };
+
+  it("renders the night's line QUIETLY, expanding to each company with its marker and the arrivals", () => {
+    h.status = { ...h.status, data: { ...STATUS_CURRENT, missing_closes: QUIET } };
+    renderAdmin();
+    const block = screen.getByTestId("adm-missing-closes");
+    const summary = block.querySelector("summary");
+    expect(summary?.textContent).toBe(QUIET_LINE);
+    expect(summary?.className).toContain("adm-quiet");
+    expect(block.querySelector(".adm-loud")).toBeNull();
+    expect(screen.queryByTestId("adm-missing-closes-loud")).toBeNull();
+    // the OTC company says the known issue (not the generic usual-late); another chronic one says usually late
+    expect(screen.getAllByTestId("adm-mc-otc")).toHaveLength(1);
+    const usual = screen.getAllByTestId("adm-mc-usual");
+    expect(usual).toHaveLength(1);
+    expect(usual[0].textContent).toContain("usually late (12 of 20 nights)");
+    expect(block.textContent).toContain("ONCE");
+    expect(screen.getByTestId("adm-mc-arrived").textContent).toContain(
+      "late, arrived: the 2026-10-22 close, 24.1 h after the pass that missed it",
+    );
+  });
+
+  it("is LOUD only for an older session's close still missing after a later session's pass", () => {
+    const loud = {
+      ...QUIET,
+      still_missing: [
+        row("STUCK", { session: "2026-10-21", edge: "2026-10-20", loud: true }),
+        row("WAIT", { session: "2026-10-22", loud: false }),
+      ],
+      loud_lines: ["1 company still has no close for Oct 21: STUCK"],
+    };
+    h.status = { ...h.status, data: { ...STATUS_CURRENT, missing_closes: loud } };
+    renderAdmin();
+    const block = screen.getByTestId("adm-missing-closes-loud");
+    expect(block.querySelector(".adm-loud")?.textContent).toBe(
+      "1 company still has no close for Oct 21: STUCK",
+    );
+    expect(block.textContent).toContain("STUCK");
+    expect(block.textContent).not.toContain("WAIT"); // a not-yet-loud close stays in the quiet list
+    expect(screen.getByTestId("adm-missing-closes").textContent).toContain("WAIT");
+  });
+
+  it("renders a clean night as one quiet line", () => {
+    const clean = {
+      ...QUIET,
+      line: "Closing prices · all 679 companies had a close for Oct 23 at the night's run",
+      missing: [],
+      arrived: [],
+    };
+    h.status = { ...h.status, data: { ...STATUS_CURRENT, missing_closes: clean } };
+    renderAdmin();
+    const line = screen.getByTestId("adm-missing-closes");
+    expect(line.textContent).toBe(clean.line);
+    expect(line.className).toContain("adm-quiet");
+  });
+
+  it("renders nothing from an older backend (no field)", () => {
+    h.status = { ...h.status, data: { ...STATUS_CURRENT } };
+    renderAdmin();
+    expect(screen.queryByTestId("adm-missing-closes")).toBeNull();
+    expect(screen.queryByTestId("adm-missing-closes-loud")).toBeNull();
+  });
+
+  it("says so, loudly, when the check could not run", () => {
+    const failed = { ...QUIET, error: "OperationalError: db down" };
+    h.status = { ...h.status, data: { ...STATUS_CURRENT, missing_closes: failed } };
+    renderAdmin();
+    expect(screen.getByTestId("adm-missing-closes-error").className).toContain("adm-loud");
+  });
+});

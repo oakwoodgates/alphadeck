@@ -440,6 +440,33 @@ Nothing here writes a fact or a call. The Workbench shows the same queue scoped 
 (`GET /workbench/theses/{id}/onboarding`) as a quiet note after a promote whose cold names were queued.
 `python -m pipeline.onboarding --status` prints it from the CLI.
 
+### Missing closes — "did every company get the night's close?"  `[BUILT, 2026-10-23]`
+
+The operator's rule (2026-10-23): "an admin flag should fire if no closing price was found for a company on a
+day". The Scoreboard's edition pages are written the same night, right after the nightly pass, so a close that
+had not arrived by then is paged without it. `status.missing_closes` is that flag, read from the newest
+finished live run artifact that ran the check (`missing_closes` block — a file read, no DB; `null` until a live
+pass has run it). The rule and the measurements: `FEED_LOOP.md` §Missing closes; the code:
+`pipeline/missing_closes.py`.
+
+- **QUIET, every night** — one gray line, the backend's own words: `Closing prices · 21 of 679 companies had no
+  close for Oct 23 at the night's run (17 OTC, a known issue) · usually arrive with the next night's pull`, or
+  `… all 679 companies had a close …`, or `… not judged for Nov 26 — neither SPY nor IWM has a close for it`
+  (a holiday, or a pass before the session settled). It expands to the companies, each with its last bar and
+  why (the vendor had no close yet / the price pull failed / another writer held it), the marker
+  **"OTC · known issue"** on a company the master lists on the OTC venue (`FEED_LOOP.md` §Known feed
+  limitations — OTC closes arrive a night late, logged, not fixed) and **"usually late (n of m nights)"** on any
+  other company late on most of its recent sessions; plus the closes still waiting on a later session's pull,
+  and the late closes that arrived since the previous check ("late, arrived", with how many hours after the
+  pass that missed them).
+- **LOUD only for a close STILL missing after the next session's pass** — `2 companies still have no close for
+  Oct 21: X, Y`, the Admin flag styling, one line per session. It persists until the bar arrives (it then drops
+  to the quiet "late, arrived") or the tape reads stale, when the stopped-price-tape block above takes the
+  company over (never both). A holiday pass never makes one loud: only a pass for a LATER session that has a
+  benchmark close does.
+- **Never paged, never the cron verdict**, never a run-row problem. A check that could not run says so loudly
+  (`error`), over the last good flag.
+
 ### Scoreboard editions — "did tonight's page land?"  `[BUILT, editions S5 2026-10-23]`
 
 The cron sidecar grows the Scoreboard's current edition after the nightly backup (`FEED_LOOP.md` §the editions
@@ -714,7 +741,7 @@ the freeze it is adjacent to: `POSTMORTEM_CRON_FREEZE_2026-07.md`.
 
 | Endpoint | Shape | Notes |
 |---|---|---|
-| `GET /admin/status` | freshness + cron verdict + last-snapshot age + the stopped-feed, split-basis and price-feed-repairs panels + the editions nightly line (`editions_nightly`) | read-only; the page opens on it |
+| `GET /admin/status` | freshness + cron verdict + last-snapshot age + the stopped-feed, split-basis and price-feed-repairs panels + the editions nightly line (`editions_nightly`) + the missing-close flag (`missing_closes`) | read-only; the page opens on it |
 | `POST /admin/price-feed/{security_id}/adopt` | `{symbol}` → the change row | a symbol EDGAR lists for a renamed name; 409 otherwise / nothing to change |
 | `POST /admin/price-feed/{security_id}/set-symbol` | `{symbol}` → the change row | ONE vendor fetch validates first (no bars → 422, nothing written) |
 | `POST /admin/price-feed/changes/{change_id}/undo` | → the undo row | exact restore; 409 already undone / a later change stands / the master moved |

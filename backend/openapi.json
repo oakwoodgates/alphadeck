@@ -2083,7 +2083,7 @@
           "admin"
         ],
         "summary": "Get Admin Status",
-        "description": "The freshness + health summary the admin page opens on \u2014 READ-ONLY (writes nothing, owns no\ntables). ``record`` measures the calls-log edge against the last EXPECTED Mon-Fri+RUN_AT run\n(container-local clock; a Friday edge on a Monday morning is CURRENT \u2014 never a weekend false\nalarm); ``edge: null`` is the quiet \"record has never begun\" state. ``last_run`` is the newest\nreadable run-of-record artifact. ``cron.status`` is the one-word verdict: ``never_ran`` (no\nartifact), ``unhealthy`` (the last run froze / errored / totally failed / could not refresh the\nshared benchmark tape \u2014 as loud as stale, so a bad run can't hide behind green), ``stale`` (the\nrecord missed an expected run), ``gappy`` (the edge is current but a night inside the last\n``ALPHADECK_ADMIN_MISSED_WINDOW`` scheduled runs has no call-of-record recorded at/after that night's\n``RUN_AT`` \u2014 a run that fired on the wrong day, or failed after a daytime pass; the edge check alone\ncannot see either), else ``healthy``. ``record.missed_asofs`` lists the holes (empty on a clean\nwindow) and ``record.daytime_only_asofs`` names the subset whose only row is a pre-``RUN_AT`` one.\n``tape`` is the FEED freshness panel (G5a price tapes \u00b7 F1 ETF fund shares): every basket\nname whose stored EOD tape or fund-shares sampling has stopped, each row naming which feed, read from\nthe newest run artifact that evaluated recency \u2014 ``null`` until a pass has looked. A stale feed is a\nFEED gap, not a cron fault, so it never changes ``cron.status``. A row whose ``closed_at`` is set (G5b)\nis a name that CLOSED \u2014 delisted / acquired / deregistered per a SEC delisting form filed near its last\nbar \u2014 so its tape correctly ended and needs no repair; it stays on the panel (never dropped, #9) but\nrenders quietly as \"closed\" and never pages. A row with ``renamed`` set (T1) is a repair row whose\ncompany EDGAR lists under other symbols (``edgar_tickers``). ``cron.alarms`` are the status-level\nalarms (Phase 1B) that make the verdict\n``unhealthy`` though no single run failed: the cron's ``code_sha`` unknown or different from this\nbackend's (``backend_sha`` / ``cron_sha``), the last live pass paging through the LOG notifier or\nrunning without a User-Agent, and the newest unlabeled DB dump older than the schedule-aware backup\nwindow. ``last_run.audit`` is the latest pass's nightly self-audit; a failed check is a run problem.\n\nM1 \u2014 a killed or partial pass never reads healthy. A pass writes its artifact ``running`` at its start\nand finalizes it at the end: ``last_run`` is the newest FINISHED pass, and ``unfinished_run`` describes\na newer one that has not finished. Past the sidecar's run timeout (``ALPHADECK_CRON_RUN_TIMEOUT_S``) a\nstill-``running`` pass alarms \"the last pass did not finish\", a ``crashed`` one alarms at once, and a\nrecorded night with no run artifact at all alarms too; inside the timeout the verdict is ``running``.\n``record.partial_nights`` judges every window night PER THESIS (the self-audit's own rule): each thesis\nin that night's roster needs a non-reconstructed call-of-record at/after ``RUN_AT``, else the night is\npartial (\"4 of 12 theses\") and the verdict ``gappy`` \u2014 unless ``pipeline.backfill`` reconstructed that\nthesis's night: the backfill resolves the hole, so the night stays QUIET and is listed in\n``record.reconstructed_nights`` (a count, never an alarm). The night a pass is still running for is not\njudged until it finishes. A LATE row (recorded at/after the next weekday's 06:00 ET EDGAR open) still\ncovers its night here, but the Scoreboard sets late rows aside (L1), so ``record.late_only_nights`` names\nevery judged (thesis, night) with a late row and no row the Scoreboard scores \u2014 \"covered\" here, a gap\nthere.\nInformational: it never changes ``reason``, the verdict, or ``cron.alarms``, and never pages.\n\n``split_defects`` (T4) is the split-basis panel \u2014 every basket name whose stored tape mixes two split\nbases (island / cliff / flap) as some reader sees it, from the newest artifact that scanned; flag only,\nnever the verdict. Its ``settled`` rows are flaps no reader sees on two bases \u2014 quiet, never an alarm.",
+        "description": "The freshness + health summary the admin page opens on \u2014 READ-ONLY (writes nothing, owns no\ntables). ``record`` measures the calls-log edge against the last EXPECTED Mon-Fri+RUN_AT run\n(container-local clock; a Friday edge on a Monday morning is CURRENT \u2014 never a weekend false\nalarm); ``edge: null`` is the quiet \"record has never begun\" state. ``last_run`` is the newest\nreadable run-of-record artifact. ``cron.status`` is the one-word verdict: ``never_ran`` (no\nartifact), ``unhealthy`` (the last run froze / errored / totally failed / could not refresh the\nshared benchmark tape \u2014 as loud as stale, so a bad run can't hide behind green), ``stale`` (the\nrecord missed an expected run), ``gappy`` (the edge is current but a night inside the last\n``ALPHADECK_ADMIN_MISSED_WINDOW`` scheduled runs has no call-of-record recorded at/after that night's\n``RUN_AT`` \u2014 a run that fired on the wrong day, or failed after a daytime pass; the edge check alone\ncannot see either), else ``healthy``. ``record.missed_asofs`` lists the holes (empty on a clean\nwindow) and ``record.daytime_only_asofs`` names the subset whose only row is a pre-``RUN_AT`` one.\n``tape`` is the FEED freshness panel (G5a price tapes \u00b7 F1 ETF fund shares): every basket\nname whose stored EOD tape or fund-shares sampling has stopped, each row naming which feed, read from\nthe newest run artifact that evaluated recency \u2014 ``null`` until a pass has looked. A stale feed is a\nFEED gap, not a cron fault, so it never changes ``cron.status``. A row whose ``closed_at`` is set (G5b)\nis a name that CLOSED \u2014 delisted / acquired / deregistered per a SEC delisting form filed near its last\nbar \u2014 so its tape correctly ended and needs no repair; it stays on the panel (never dropped, #9) but\nrenders quietly as \"closed\" and never pages. A row with ``renamed`` set (T1) is a repair row whose\ncompany EDGAR lists under other symbols (``edgar_tickers``). ``cron.alarms`` are the status-level\nalarms (Phase 1B) that make the verdict\n``unhealthy`` though no single run failed: the cron's ``code_sha`` unknown or different from this\nbackend's (``backend_sha`` / ``cron_sha``), the last live pass paging through the LOG notifier or\nrunning without a User-Agent, and the newest unlabeled DB dump older than the schedule-aware backup\nwindow. ``last_run.audit`` is the latest pass's nightly self-audit; a failed check is a run problem.\n\nM1 \u2014 a killed or partial pass never reads healthy. A pass writes its artifact ``running`` at its start\nand finalizes it at the end: ``last_run`` is the newest FINISHED pass, and ``unfinished_run`` describes\na newer one that has not finished. Past the sidecar's run timeout (``ALPHADECK_CRON_RUN_TIMEOUT_S``) a\nstill-``running`` pass alarms \"the last pass did not finish\", a ``crashed`` one alarms at once, and a\nrecorded night with no run artifact at all alarms too; inside the timeout the verdict is ``running``.\n``record.partial_nights`` judges every window night PER THESIS (the self-audit's own rule): each thesis\nin that night's roster needs a non-reconstructed call-of-record at/after ``RUN_AT``, else the night is\npartial (\"4 of 12 theses\") and the verdict ``gappy`` \u2014 unless ``pipeline.backfill`` reconstructed that\nthesis's night: the backfill resolves the hole, so the night stays QUIET and is listed in\n``record.reconstructed_nights`` (a count, never an alarm). The night a pass is still running for is not\njudged until it finishes. A LATE row (recorded at/after the next weekday's 06:00 ET EDGAR open) still\ncovers its night here, but the Scoreboard sets late rows aside (L1), so ``record.late_only_nights`` names\nevery judged (thesis, night) with a late row and no row the Scoreboard scores \u2014 \"covered\" here, a gap\nthere.\nInformational: it never changes ``reason``, the verdict, or ``cron.alarms``, and never pages.\n\n``split_defects`` (T4) is the split-basis panel \u2014 every basket name whose stored tape mixes two split\nbases (island / cliff / flap) as some reader sees it, from the newest artifact that scanned; flag only,\nnever the verdict. Its ``settled`` rows are flaps no reader sees on two bases \u2014 quiet, never an alarm.\n\n``missing_closes`` is the missing-closing-price flag: a QUIET line every night (\"21 of 679 companies had no\nclose for Oct 23 at the night's run\"), and a LOUD line only for an older session's close still missing after\na later session's pass \u2014 from the newest artifact that ran the check; never paged, never the verdict.",
         "operationId": "get_admin_status_admin_status_get",
         "responses": {
           "200": {
@@ -3941,6 +3941,48 @@
         "title": "AdminAcknowledgeIn",
         "description": "Why the operator keeps an unpriceable name unpriced (optional \u2014 a default reason is stored)."
       },
+      "AdminArrivedCloseOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "session": {
+            "type": "string",
+            "format": "date",
+            "title": "Session"
+          },
+          "lag_h": {
+            "type": "number",
+            "title": "Lag H"
+          },
+          "otc": {
+            "type": "boolean",
+            "title": "Otc",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "session",
+          "lag_h"
+        ],
+        "title": "AdminArrivedCloseOut",
+        "description": "A close that was missing at an earlier pass and is now stored \u2014 \"late, arrived\". ``lag_h`` is the hours\nfrom the pass that first found it missing to the bar's first ``recorded_at`` (our store's own bookkeeping\nof when the feed delivered \u2014 never a history gate)."
+      },
       "AdminAuditCheckOut": {
         "properties": {
           "check": {
@@ -4990,6 +5032,181 @@
         ],
         "title": "AdminLateOnlyNightOut",
         "description": "One (thesis, night) recorded ONLY LATE (operator decision 2026-10-17): it holds at least one\nnon-reconstructed call-of-record recorded at/after the night's on-time window closed (the next weekday's\n06:00 ET EDGAR open \u2014 ``pipeline.night_coverage.is_late``) and NO row the Scoreboard would score (no\nnon-late, non-reconstructed row \u2014 on-time or daytime). The coverage readout counts the late row as\ncovering the night (the pass did record it), but the Scoreboard sets late rows aside (L1 \u2014 they never\ndefine an episode), so there the night is a GAP: listed so \"covered\" here and the gap there reconcile.\nINFORMATIONAL \u2014 never an alarm, never the verdict, never paged.\n\n``recorded_at`` = the first late row's stamp and ``edgar_open`` = the window end it missed, both in\nmarket time; ``n_rows`` = late rows on the night. A reconstructed row is never scored, so it does not\nfill the gap beside a late row; a reconstructed-only night holds no late row and is never listed (its\nown marker, ``reconstructed_nights``)."
+      },
+      "AdminMissingCloseOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "session": {
+            "type": "string",
+            "format": "date",
+            "title": "Session"
+          },
+          "edge": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Edge"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "loud": {
+            "type": "boolean",
+            "title": "Loud",
+            "default": false
+          },
+          "usual_late": {
+            "type": "boolean",
+            "title": "Usual Late",
+            "default": false
+          },
+          "late_nights": {
+            "type": "integer",
+            "title": "Late Nights",
+            "default": 0
+          },
+          "judged_nights": {
+            "type": "integer",
+            "title": "Judged Nights",
+            "default": 0
+          },
+          "otc": {
+            "type": "boolean",
+            "title": "Otc",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "session",
+          "reason"
+        ],
+        "title": "AdminMissingCloseOut",
+        "description": "One company with no stored close for ``session`` (``pipeline/missing_closes.py``) \u2014 on the night's quiet\nlist, or (``loud``) an older session's close still missing after a later session's pass. ``edge`` is its\nnewest stored bar at that pass; ``reason`` is ``no_bar`` (the price leg ran clean \u2014 the vendor had no close\nyet), ``fetch_error`` (the leg failed; ``error`` keeps its message) or ``not_ingested`` (another writer held\nthe company). ``usual_late`` marks a company late at the night's run on most of its recent sessions\n(``late_nights`` of ``judged_nights``); ``otc`` a company the master lists on the OTC venue \u2014 a KNOWN vendor\nissue (``FEED_LOOP.md`` \u00a7Known feed limitations). ``ticker`` may be null; the row renders by id (#9)."
+      },
+      "AdminMissingClosesOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "ran_at": {
+            "type": "string",
+            "title": "Ran At"
+          },
+          "session": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session"
+          },
+          "is_session": {
+            "type": "boolean",
+            "title": "Is Session",
+            "default": false
+          },
+          "judged": {
+            "type": "integer",
+            "title": "Judged",
+            "default": 0
+          },
+          "line": {
+            "type": "string",
+            "title": "Line"
+          },
+          "missing": {
+            "items": {
+              "$ref": "#/components/schemas/AdminMissingCloseOut"
+            },
+            "type": "array",
+            "title": "Missing",
+            "default": []
+          },
+          "still_missing": {
+            "items": {
+              "$ref": "#/components/schemas/AdminMissingCloseOut"
+            },
+            "type": "array",
+            "title": "Still Missing",
+            "default": []
+          },
+          "loud_lines": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Loud Lines",
+            "default": []
+          },
+          "arrived": {
+            "items": {
+              "$ref": "#/components/schemas/AdminArrivedCloseOut"
+            },
+            "type": "array",
+            "title": "Arrived",
+            "default": []
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "ran_at",
+          "line"
+        ],
+        "title": "AdminMissingClosesOut",
+        "description": "MISSING CLOSES (operator decision 2026-10-23) \u2014 did every live basket company get the session's close\nby the night's run? Read from the newest finished live run artifact that ran the check (a file read, no\nDB). ``line`` is the QUIET nightly line (backend-authored: \"21 of 679 companies had no close for Oct 23 at\nthe night's run (17 OTC, a known issue) \u00b7 usually arrive with the next night's pull\", or \"not judged\" on a\nsession with no SPY/IWM close); ``missing`` the companies behind it; ``arrived`` the late closes that\narrived since the previous check (quiet). ``loud_lines`` / ``still_missing`` are the LOUD flag \u2014 one line\nper older session whose close is still missing after a later session's pass (\"2 companies still have no\nclose for Oct 21: X, Y\"); it persists until the bar arrives or the tape goes stale (the stopped-feed list\ntakes over). Never paged and never the cron verdict. ``error`` = the check could not run on that pass."
       },
       "AdminNameChangeFilingOut": {
         "properties": {
@@ -7128,6 +7345,16 @@
                 "type": "null"
               }
             ]
+          },
+          "missing_closes": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdminMissingClosesOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -7136,7 +7363,7 @@
           "cron"
         ],
         "title": "AdminStatusOut",
-        "description": "The admin page's one-GET summary: record freshness + the newest run + the cron verdict + the\nnewest DB snapshot + the feed-freshness panel. READ-ONLY \u2014 the endpoint owns no tables and writes\nnothing (test-proved; the ``last_backup`` join is a pure directory read, and ``tape`` is read from\nthe run artifacts). ``last_backup`` is ``None`` = the quiet \"no snapshots yet\" state; ``tape`` is\n``None`` until a pass has evaluated feed recency (the quiet \"not looked yet\" state).\n\n``backend_sha`` is this backend's OWN ``Settings.image_sha`` (``null`` = built without ``GIT_SHA``) and\n``cron_sha`` the ``code_sha`` the newest CRON-kind run artifact recorded (``null`` = unknown, or no\ncron pass has recorded its identity yet) \u2014 the pair the identity alarm compares (I1). The latest\nself-audit rides ``last_run.audit``.\n\nM1: ``last_run`` is the newest FINISHED pass (a pre-M1 artifact counts as finished); when the newest\nartifact is a pass that has not finished, ``unfinished_run`` describes it (``null`` otherwise).\n\n``split_defects`` (T4) is the split-basis panel \u2014 ``null`` until a finished live pass has scanned (a\npartial catch-up counts: the scan reads the whole basket union); a defect is a FEED problem (flag\nonly), so it never changes ``cron.status``.\n\n``price_repairs`` (T2 + Q8 + T3 + T7) is the \"Price feed repairs\" panel \u2014 renamed names with their\nsplice-verified successors to Adopt, unpriceable names to Set / Acknowledge / Remove, members whose\ncompany now files under a successor CIK to Adopt, the quiet closed and acknowledged names, and every\nstanding operator repair with its Undo. A feed matter, never the cron verdict.\n\n``splits_needs_review`` (split plan S1) is how many splits on the split list one source could not settle\n(one source only, a disagreement, an extractor abstain) \u2014 the \"Splits\" panel (``GET /admin/splits``) holds\nthem. ``null`` when the count could not be read; never a cron verdict.\n\n``fundamentals_set_aside`` (migration 0062) is how many stored fundamentals versions are set aside \u2014 the\nrevenue rows the data-quality screen would have refused, stored before it existed, which every read skips\n(``python -m pipeline.set_aside_fundamentals``). A quiet line; ``null`` when the count could not be read.\n\n``editions_nightly`` (editions S5) is the Scoreboard editions' nightly page job's one line, from its newest\napplied run artifact; ``null`` until that job has run (a directory read \u2014 no DB). Never a cron verdict."
+        "description": "The admin page's one-GET summary: record freshness + the newest run + the cron verdict + the\nnewest DB snapshot + the feed-freshness panel. READ-ONLY \u2014 the endpoint owns no tables and writes\nnothing (test-proved; the ``last_backup`` join is a pure directory read, and ``tape`` is read from\nthe run artifacts). ``last_backup`` is ``None`` = the quiet \"no snapshots yet\" state; ``tape`` is\n``None`` until a pass has evaluated feed recency (the quiet \"not looked yet\" state).\n\n``backend_sha`` is this backend's OWN ``Settings.image_sha`` (``null`` = built without ``GIT_SHA``) and\n``cron_sha`` the ``code_sha`` the newest CRON-kind run artifact recorded (``null`` = unknown, or no\ncron pass has recorded its identity yet) \u2014 the pair the identity alarm compares (I1). The latest\nself-audit rides ``last_run.audit``.\n\nM1: ``last_run`` is the newest FINISHED pass (a pre-M1 artifact counts as finished); when the newest\nartifact is a pass that has not finished, ``unfinished_run`` describes it (``null`` otherwise).\n\n``split_defects`` (T4) is the split-basis panel \u2014 ``null`` until a finished live pass has scanned (a\npartial catch-up counts: the scan reads the whole basket union); a defect is a FEED problem (flag\nonly), so it never changes ``cron.status``.\n\n``price_repairs`` (T2 + Q8 + T3 + T7) is the \"Price feed repairs\" panel \u2014 renamed names with their\nsplice-verified successors to Adopt, unpriceable names to Set / Acknowledge / Remove, members whose\ncompany now files under a successor CIK to Adopt, the quiet closed and acknowledged names, and every\nstanding operator repair with its Undo. A feed matter, never the cron verdict.\n\n``splits_needs_review`` (split plan S1) is how many splits on the split list one source could not settle\n(one source only, a disagreement, an extractor abstain) \u2014 the \"Splits\" panel (``GET /admin/splits``) holds\nthem. ``null`` when the count could not be read; never a cron verdict.\n\n``fundamentals_set_aside`` (migration 0062) is how many stored fundamentals versions are set aside \u2014 the\nrevenue rows the data-quality screen would have refused, stored before it existed, which every read skips\n(``python -m pipeline.set_aside_fundamentals``). A quiet line; ``null`` when the count could not be read.\n\n``editions_nightly`` (editions S5) is the Scoreboard editions' nightly page job's one line, from its newest\napplied run artifact; ``null`` until that job has run (a directory read \u2014 no DB). Never a cron verdict.\n\n``missing_closes`` (2026-10-23) is the missing-closing-price flag: the night's quiet count line and, loud,\nany older session's close still missing after a later session's pass; ``null`` until a live pass has run\nthe check (a file read \u2014 no DB). Never paged, never a cron verdict."
       },
       "AdminSuccessorCandidateOut": {
         "properties": {

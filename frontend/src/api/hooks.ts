@@ -1296,6 +1296,10 @@ export type AdminSplitDefectOut = components["schemas"]["AdminSplitDefectOut"];
 export type AdminSplitSettledOut = components["schemas"]["AdminSplitSettledOut"];
 // one (thesis, night) recorded ONLY late — covered on Admin, set aside on the Scoreboard (L1)
 export type AdminLateOnlyNightOut = components["schemas"]["AdminLateOnlyNightOut"];
+// MISSING CLOSES (2026-10-23) — the night's quiet line + the loud still-missing closes; one company row each
+export type AdminMissingClosesOut = components["schemas"]["AdminMissingClosesOut"];
+export type AdminMissingCloseOut = components["schemas"]["AdminMissingCloseOut"];
+export type AdminArrivedCloseOut = components["schemas"]["AdminArrivedCloseOut"];
 export type AdminRunsOut = components["schemas"]["AdminRunsOut"];
 export type AdminRunJobRef = components["schemas"]["AdminRunJobRef"];
 export type AdminRunJobStatus = components["schemas"]["AdminRunJobStatus"];

@@ -23,6 +23,7 @@ from uuid import UUID
 from pipeline import daily
 from pipeline.ingest_thesis import NameResult
 from pipeline.insider_amendment_scan import SweepOutcome
+from pipeline.missing_closes import MissingCloses
 from pipeline.rename_probe import RenameProbe
 from pipeline.split_basis import SplitScan
 from pipeline.split_jumps import JumpScan
@@ -72,6 +73,8 @@ def prime_pass(monkeypatch) -> Pager:
     )
     monkeypatch.setattr(daily, "run_audit", lambda ctx, *a, **k: [])
     monkeypatch.setattr(daily, "run_split_scan", lambda **k: SplitScan())
+    # the missing-close check reads the price TABLE — DB-free here (proved in test_missing_closes.py)
+    monkeypatch.setattr(daily, "run_missing_closes", lambda **k: MissingCloses())
     monkeypatch.setattr(
         daily, "run_jump_scan", lambda **k: JumpScan()
     )  # S5 — proved in test_split_jumps.py

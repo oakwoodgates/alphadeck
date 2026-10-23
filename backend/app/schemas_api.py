@@ -2643,6 +2643,66 @@ class AdminEditionsNightlyOut(BaseModel):
     attention: bool = False
 
 
+class AdminMissingCloseOut(BaseModel):
+    """One company with no stored close for ``session`` (``pipeline/missing_closes.py``) — on the night's quiet
+    list, or (``loud``) an older session's close still missing after a later session's pass. ``edge`` is its
+    newest stored bar at that pass; ``reason`` is ``no_bar`` (the price leg ran clean — the vendor had no close
+    yet), ``fetch_error`` (the leg failed; ``error`` keeps its message) or ``not_ingested`` (another writer held
+    the company). ``usual_late`` marks a company late at the night's run on most of its recent sessions
+    (``late_nights`` of ``judged_nights``); ``otc`` a company the master lists on the OTC venue — a KNOWN vendor
+    issue (``FEED_LOOP.md`` §Known feed limitations). ``ticker`` may be null; the row renders by id (#9).
+    """
+
+    security_id: UUID
+    ticker: str | None = None
+    session: date
+    edge: date | None = None
+    reason: str
+    error: str | None = None
+    loud: bool = False
+    usual_late: bool = False
+    late_nights: int = 0
+    judged_nights: int = 0
+    otc: bool = False
+
+
+class AdminArrivedCloseOut(BaseModel):
+    """A close that was missing at an earlier pass and is now stored — "late, arrived". ``lag_h`` is the hours
+    from the pass that first found it missing to the bar's first ``recorded_at`` (our store's own bookkeeping
+    of when the feed delivered — never a history gate)."""
+
+    security_id: UUID
+    ticker: str | None = None
+    session: date
+    lag_h: float
+    otc: bool = False
+
+
+class AdminMissingClosesOut(BaseModel):
+    """MISSING CLOSES (operator decision 2026-10-23) — did every live basket company get the session's close
+    by the night's run? Read from the newest finished live run artifact that ran the check (a file read, no
+    DB). ``line`` is the QUIET nightly line (backend-authored: "21 of 679 companies had no close for Oct 23 at
+    the night's run (17 OTC, a known issue) · usually arrive with the next night's pull", or "not judged" on a
+    session with no SPY/IWM close); ``missing`` the companies behind it; ``arrived`` the late closes that
+    arrived since the previous check (quiet). ``loud_lines`` / ``still_missing`` are the LOUD flag — one line
+    per older session whose close is still missing after a later session's pass ("2 companies still have no
+    close for Oct 21: X, Y"); it persists until the bar arrives or the tape goes stale (the stopped-feed list
+    takes over). Never paged and never the cron verdict. ``error`` = the check could not run on that pass.
+    """
+
+    asof: date
+    ran_at: str
+    session: date | None = None
+    is_session: bool = False
+    judged: int = 0
+    line: str
+    missing: list[AdminMissingCloseOut] = []
+    still_missing: list[AdminMissingCloseOut] = []
+    loud_lines: list[str] = []
+    arrived: list[AdminArrivedCloseOut] = []
+    error: str | None = None
+
+
 class AdminStatusOut(BaseModel):
     """The admin page's one-GET summary: record freshness + the newest run + the cron verdict + the
     newest DB snapshot + the feed-freshness panel. READ-ONLY — the endpoint owns no tables and writes
@@ -2677,6 +2737,10 @@ class AdminStatusOut(BaseModel):
 
     ``editions_nightly`` (editions S5) is the Scoreboard editions' nightly page job's one line, from its newest
     applied run artifact; ``null`` until that job has run (a directory read — no DB). Never a cron verdict.
+
+    ``missing_closes`` (2026-10-23) is the missing-closing-price flag: the night's quiet count line and, loud,
+    any older session's close still missing after a later session's pass; ``null`` until a live pass has run
+    the check (a file read — no DB). Never paged, never a cron verdict.
     """
 
     record: AdminRecordOut
@@ -2692,6 +2756,7 @@ class AdminStatusOut(BaseModel):
     splits_needs_review: int | None = None
     fundamentals_set_aside: int | None = None
     editions_nightly: AdminEditionsNightlyOut | None = None
+    missing_closes: AdminMissingClosesOut | None = None
 
 
 class AdminRunsOut(BaseModel):

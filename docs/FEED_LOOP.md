@@ -1407,6 +1407,57 @@ x1.000; SVIAW rejected at x0.143), BTAI → **BTAIQ** (495, x1.000), VRME → **
 (GTLS / XOMA / CPRX / AVNS are excused as closed); Modern Defense (HLLK) and The Everything Exchange (WONDF)
 stay `false` until the operator Adopts SDCO and decides WONDF.
 
+### Missing closes — "did every company get the night's close?" (2026-10-23)  `[BUILT]`
+
+The operator's rule: "an admin flag should fire if no closing price was found for a company on a day" — the
+Scoreboard's edition pages are written the same night, right after the pass. `pipeline/missing_closes.py`, a
+MONITOR in the stale-tape mold (imports nothing from `calls/` / `signals/`, never on the CallCard, never a
+call input), run once per live pass after `run_daily` and before the artifact, on its own read-only
+connection, fail-open (a fault rides `missing_closes.error`: one loud cron-log line + a loud Admin line).
+
+**What prod looks like** (MEASURED read-only on prod, sessions 2026-09-21..10-22, the basket companies already
+being tracked): **14–26 of 679 companies (~3%)** have no bar for the session at the end of that night's pass;
+nearly all **arrive with the NEXT nightly pull** — a median of **~24 h later, ~72 h over a weekend** (the
+nightly is the only price pull); almost none never arrive; and it is the **same companies** — **22** are late
+on 11+ of ~20 nights (mostly OTC — a known issue: §Known feed limitations, "OTC closes arrive a night late",
+below), **6** on 3–10 nights, **649** never. A flag that
+shouted every night would be noise (#7, WB#3), so the loudness rule is part of the spec.
+
+- **Was the session a session?** D (the pass's as-of) is judged only when SPY or IWM has a stored bar for D. If
+  neither does — a market holiday, or a pass that ran before the session settled (D2 withholds the unsettled
+  bar) — nothing is flagged for D; a vendor-wide outage is the benchmark alarm's (G4).
+- **The missing set:** every live basket company (walked tonight, with a price tape) whose tape edge after its
+  price leg is before D, with the reason — `no_bar` (the leg ran clean, the vendor had no close yet),
+  `fetch_error` (the leg failed; the message kept), `not_ingested` (W1: another writer held the company).
+  Deduped across theses. **Not counted:** a company in tonight's stale / closed / renamed / unpriceable price
+  inventory (that flag owns it — no double flag), a company still onboarding (X1), a member with no bar at all
+  (`excluded` counts each).
+- **Recovery:** each pass re-checks the previous evaluated pass's open entries against the **exact** stored bar
+  (a later bar does not close an older hole). Arrived = **"late, arrived"**, quiet, with `lag_h` = hours from
+  the pass that first found it missing to the bar's first `recorded_at` — our store's own bookkeeping of when
+  the feed delivered (never a history gate, #1). Still absent = still missing; **LOUD** once a pass for a LATER
+  session (one with a benchmark close) has re-checked it, and loud until the bar arrives or the tape goes stale
+  (`resolved` `why: stale` — the stopped-feed flag takes over) or no active basket holds the company
+  (`why: left_basket`).
+- **The usual-late marker:** late at the night's run on MORE than half of the last 20 judged sessions (tonight
+  included), once 5 are on record — read from the carried artifacts. On the measured 20 sessions that marks
+  the 22 chronic names and none of the 6 occasional ones. A company the master lists on the OTC venue is marked
+  **"OTC · known issue"** instead (the master's `exchange` only — no network call), and the night's line
+  counts them ("21 … (17 OTC, a known issue)").
+- **Pages: none.** A quiet line every night on Admin + in the cron log (`closing prices: …`, and
+  `late closes arrived: n (median h …)`); the loud `MISSING CLOSES — 2 companies still have no close for
+  Oct 21: X, Y` only for the still-missing case. `ADMIN.md` §Missing closes.
+- **The measurement trail** — the artifact's `missing_closes` block: `evaluated`, `error`, `session`,
+  `is_session`, `benchmarks`, `judged`, `excluded`, **`missing`** (the night's set: `security_id`, `ticker`,
+  `session`, `edge`, `reason`, `error`, `first_seen_at`, `checks`, `loud`, `late_nights`, `judged_nights`,
+  `usual_late`, `otc`), `still_missing` (the same row shape, older sessions), **`arrived`** (`session`,
+  `first_seen_at`, `arrived_at`, **`lag_h`**, `checks`, `otc` — the arrival lag of the previous night's set),
+  `resolved` (`why`), `usual_late_window`, `duration_s`. That is enough to measure later how often a page was
+  written without a close that arrived the next night.
+- **Accepted edge (open):** a close the vendor NEVER serves while later bars keep arriving (a permanent hole —
+  SCE-PG's shape below) stays loud indefinitely, since the tape never reads stale. MEASURED "almost none never
+  arrive"; if one appears, the fix is a decision (a known-limitation mark, or an age-out), not built here.
+
 ### Known feed limitations — a vendor that serves no history (0056, 2026-10-21)  `[BUILT]`
 
 A fourth reading of a price feed, beside closed / renamed / unpriceable — and the only one that is about a
@@ -1454,6 +1505,28 @@ only the overlap the vendor serves — a one-bar pull has none and says nothing)
 it reads the STORED tape only), the settle audit (it judges rows recorded since the previous pass, so the
 pre-guard SCE-PG bars never page), and the thin-history flag (SCE-PG's 304 stored dates clear its 200-bar
 floor; on a marked name that is starved the flag stays — the starvation is real, and the note explains it).
+
+#### OTC closes arrive a night late (known issue, 2026-10-23, not fixed)
+
+Found by the missing-close flag (§Missing closes above). The operator (2026-10-23): "im not really worried about
+otc right now, i dont trade it, but log it as a known issue". The evidence, MEASURED read-only on prod:
+
+- Most of the chronically late companies trade OTC (the vendor's exchange `PNK` = OTC Pink, `OQB` = OTCQB).
+- At the 22:30 ET pass the vendor's chart response already has the day's candle slot, with a NULL close: the
+  cached responses from the 2026-10-22 pass for AAPI, HCMC, RAPH, LIVG, VSTD and MVNC all show a 10-22 candle
+  with close `None` and `regularMarketTime` on 10-21. `parse_yahoo_chart` correctly skips a null close, and the
+  next night's pull gets the bar. By 05:00 ET the vendor had filled every one of them.
+- Listed names in the same pass (NVDA, ADEA, SVIA) had theirs.
+- Many of these OTC names barely trade — sub-penny, often zero-volume days whose filled bar is just the prior
+  close.
+- Side notes: the renamed-symbol names (BRR → SVIA and the like) looked late only until their `price_symbol`
+  override was set — a one-time catch-up, not chronic. ADEA (liquid, Nasdaq) was a night late on 8 of 20 nights,
+  cause unknown: the cache keeps only the latest response.
+
+The operator does not trade OTC, so this is **logged, not fixed**: the flag marks such a company "OTC · known
+issue" (from `security_master.exchange`) and its close still goes loud by the normal rule if it misses the next
+night too. The fix, if ever wanted: a price feed with same-day OTC end-of-day data, or a later retry once the
+vendor's fill time is measured.
 
 ### The identity monitor — a SUCCESSOR CIK (T7, 2026-10-17)  `[BUILT]`
 

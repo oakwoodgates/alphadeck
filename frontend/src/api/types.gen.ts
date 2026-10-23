@@ -1100,6 +1100,10 @@ export interface paths {
          *     ``split_defects`` (T4) is the split-basis panel — every basket name whose stored tape mixes two split
          *     bases (island / cliff / flap) as some reader sees it, from the newest artifact that scanned; flag only,
          *     never the verdict. Its ``settled`` rows are flaps no reader sees on two bases — quiet, never an alarm.
+         *
+         *     ``missing_closes`` is the missing-closing-price flag: a QUIET line every night ("21 of 679 companies had no
+         *     close for Oct 23 at the night's run"), and a LOUD line only for an older session's close still missing after
+         *     a later session's pass — from the newest artifact that ran the check; never paged, never the verdict.
          */
         get: operations["get_admin_status_admin_status_get"];
         put?: never;
@@ -2068,6 +2072,33 @@ export interface components {
             reason?: string | null;
         };
         /**
+         * AdminArrivedCloseOut
+         * @description A close that was missing at an earlier pass and is now stored — "late, arrived". ``lag_h`` is the hours
+         *     from the pass that first found it missing to the bar's first ``recorded_at`` (our store's own bookkeeping
+         *     of when the feed delivered — never a history gate).
+         */
+        AdminArrivedCloseOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker?: string | null;
+            /**
+             * Session
+             * Format: date
+             */
+            session: string;
+            /** Lag H */
+            lag_h: number;
+            /**
+             * Otc
+             * @default false
+             */
+            otc: boolean;
+        };
+        /**
          * AdminAuditCheckOut
          * @description One check of a pass's nightly SELF-AUDIT (V1, ``pipeline/self_audit.py``), as the artifact recorded
          *     it. ``ok`` is ``true`` (checked, holds), ``false`` (checked, FAILS — it paged and makes the verdict
@@ -2604,6 +2635,118 @@ export interface components {
              * @default 1
              */
             n_rows: number;
+        };
+        /**
+         * AdminMissingCloseOut
+         * @description One company with no stored close for ``session`` (``pipeline/missing_closes.py``) — on the night's quiet
+         *     list, or (``loud``) an older session's close still missing after a later session's pass. ``edge`` is its
+         *     newest stored bar at that pass; ``reason`` is ``no_bar`` (the price leg ran clean — the vendor had no close
+         *     yet), ``fetch_error`` (the leg failed; ``error`` keeps its message) or ``not_ingested`` (another writer held
+         *     the company). ``usual_late`` marks a company late at the night's run on most of its recent sessions
+         *     (``late_nights`` of ``judged_nights``); ``otc`` a company the master lists on the OTC venue — a KNOWN vendor
+         *     issue (``FEED_LOOP.md`` §Known feed limitations). ``ticker`` may be null; the row renders by id (#9).
+         */
+        AdminMissingCloseOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker?: string | null;
+            /**
+             * Session
+             * Format: date
+             */
+            session: string;
+            /** Edge */
+            edge?: string | null;
+            /** Reason */
+            reason: string;
+            /** Error */
+            error?: string | null;
+            /**
+             * Loud
+             * @default false
+             */
+            loud: boolean;
+            /**
+             * Usual Late
+             * @default false
+             */
+            usual_late: boolean;
+            /**
+             * Late Nights
+             * @default 0
+             */
+            late_nights: number;
+            /**
+             * Judged Nights
+             * @default 0
+             */
+            judged_nights: number;
+            /**
+             * Otc
+             * @default false
+             */
+            otc: boolean;
+        };
+        /**
+         * AdminMissingClosesOut
+         * @description MISSING CLOSES (operator decision 2026-10-23) — did every live basket company get the session's close
+         *     by the night's run? Read from the newest finished live run artifact that ran the check (a file read, no
+         *     DB). ``line`` is the QUIET nightly line (backend-authored: "21 of 679 companies had no close for Oct 23 at
+         *     the night's run (17 OTC, a known issue) · usually arrive with the next night's pull", or "not judged" on a
+         *     session with no SPY/IWM close); ``missing`` the companies behind it; ``arrived`` the late closes that
+         *     arrived since the previous check (quiet). ``loud_lines`` / ``still_missing`` are the LOUD flag — one line
+         *     per older session whose close is still missing after a later session's pass ("2 companies still have no
+         *     close for Oct 21: X, Y"); it persists until the bar arrives or the tape goes stale (the stopped-feed list
+         *     takes over). Never paged and never the cron verdict. ``error`` = the check could not run on that pass.
+         */
+        AdminMissingClosesOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /** Ran At */
+            ran_at: string;
+            /** Session */
+            session?: string | null;
+            /**
+             * Is Session
+             * @default false
+             */
+            is_session: boolean;
+            /**
+             * Judged
+             * @default 0
+             */
+            judged: number;
+            /** Line */
+            line: string;
+            /**
+             * Missing
+             * @default []
+             */
+            missing: components["schemas"]["AdminMissingCloseOut"][];
+            /**
+             * Still Missing
+             * @default []
+             */
+            still_missing: components["schemas"]["AdminMissingCloseOut"][];
+            /**
+             * Loud Lines
+             * @default []
+             */
+            loud_lines: string[];
+            /**
+             * Arrived
+             * @default []
+             */
+            arrived: components["schemas"]["AdminArrivedCloseOut"][];
+            /** Error */
+            error?: string | null;
         };
         /**
          * AdminNameChangeFilingOut
@@ -3693,6 +3836,10 @@ export interface components {
          *
          *     ``editions_nightly`` (editions S5) is the Scoreboard editions' nightly page job's one line, from its newest
          *     applied run artifact; ``null`` until that job has run (a directory read — no DB). Never a cron verdict.
+         *
+         *     ``missing_closes`` (2026-10-23) is the missing-closing-price flag: the night's quiet count line and, loud,
+         *     any older session's close still missing after a later session's pass; ``null`` until a live pass has run
+         *     the check (a file read — no DB). Never paged, never a cron verdict.
          */
         AdminStatusOut: {
             record: components["schemas"]["AdminRecordOut"];
@@ -3712,6 +3859,7 @@ export interface components {
             /** Fundamentals Set Aside */
             fundamentals_set_aside?: number | null;
             editions_nightly?: components["schemas"]["AdminEditionsNightlyOut"] | null;
+            missing_closes?: components["schemas"]["AdminMissingClosesOut"] | null;
         };
         /**
          * AdminSuccessorCandidateOut

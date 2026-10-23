@@ -31,10 +31,13 @@ from app.deps import get_conn
 from app.routers.admin_price_feed import price_repairs_out
 from app.routers.admin_splits import count_needs_review as splits_needs_review_count
 from app.schemas_api import (
+    AdminArrivedCloseOut,
     AdminAuditCheckOut,
     AdminCronOut,
     AdminEditionsNightlyOut,
     AdminLateOnlyNightOut,
+    AdminMissingCloseOut,
+    AdminMissingClosesOut,
     AdminPartialNightOut,
     AdminReconstructedNightOut,
     AdminRecordOut,
@@ -80,6 +83,8 @@ from pipeline.daily_job import DailyRunInFlight, get_job, start_daily_job
 from pipeline.edgar_coverage import EdgarCoverage
 from pipeline.insider_amendment_scan import new_labels_of as amendment_new_labels
 from pipeline.insider_amendment_scan import new_more_of as amendment_new_more
+from pipeline.missing_closes import loud_lines as missing_close_loud_lines
+from pipeline.missing_closes import quiet_line as missing_close_quiet_line
 from pipeline.night_coverage import NightCoverage, read_night_coverage
 from pipeline.run_lock import probe_pass_lock
 from pipeline.schedule import (
@@ -509,6 +514,96 @@ def _split_out(payloads: list[dict]) -> AdminSplitOut | None:
     return None
 
 
+def _missing_close_row(m: Mapping) -> AdminMissingCloseOut:
+    """One artifact missing-close row (``MissingClose.to_json``) as the wire row; raises on a malformed row."""
+    return AdminMissingCloseOut(
+        security_id=UUID(str(m["security_id"])),
+        ticker=m.get("ticker") if isinstance(m.get("ticker"), str) else None,
+        session=date.fromisoformat(str(m["session"])),
+        edge=date.fromisoformat(str(m["edge"])) if m.get("edge") else None,
+        reason=str(m.get("reason") or "no_bar"),
+        error=m.get("error") if isinstance(m.get("error"), str) else None,
+        loud=bool(m.get("loud")),
+        usual_late=bool(m.get("usual_late")),
+        late_nights=int(m.get("late_nights") or 0),
+        judged_nights=int(m.get("judged_nights") or 0),
+        otc=bool(m.get("otc")),
+    )
+
+
+def _rows(raw: object, build) -> list:
+    """Each artifact row through ``build``, a malformed one skipped (never a blank panel)."""
+    out = []
+    for m in raw if isinstance(raw, list) else ():
+        try:
+            out.append(build(m))
+        except Exception:  # noqa: BLE001 — skip a malformed row, never blank the flag
+            continue
+    return out
+
+
+def _missing_closes_out(payloads: list[dict]) -> AdminMissingClosesOut | None:
+    """The MISSING-CLOSES flag (``pipeline/missing_closes.py``), from the artifacts already read (no DB query —
+    this router owns no tables, and a second definition of "missing" here could drift from the pass's). The
+    flag comes from the newest FINISHED, LIVE artifact whose check EVALUATED — the same block the next pass
+    re-checks — so the loud rows here are exactly what the next pass carries. When a NEWER live pass's check
+    FAILED, ``error`` says so (the rows stay the last evaluated pass's, so a broken check never silently hides a
+    loud close). ``None`` = no live pass has run the check yet (the quiet state right after deploy). The lines
+    are the module's own builders, so the page and the cron log say the same thing."""
+    error: str | None = None
+    for doc in payloads:
+        if doc.get("mode") != "live" or not is_finished(doc):
+            continue
+        block = doc.get("missing_closes")
+        if not isinstance(block, Mapping):
+            continue
+        if not block.get("evaluated"):
+            if error is None and block.get("error"):
+                error = str(block["error"])
+            continue
+        try:
+            return AdminMissingClosesOut(
+                asof=date.fromisoformat(doc["asof"]),
+                ran_at=str(doc["started_at"]),
+                session=date.fromisoformat(block["session"]) if block.get("session") else None,
+                is_session=bool(block.get("is_session")),
+                judged=int(block.get("judged") or 0),
+                line=missing_close_quiet_line(block),
+                missing=_rows(block.get("missing"), _missing_close_row),
+                still_missing=_rows(block.get("still_missing"), _missing_close_row),
+                loud_lines=missing_close_loud_lines(block),
+                arrived=_rows(
+                    block.get("arrived"),
+                    lambda a: AdminArrivedCloseOut(
+                        security_id=UUID(str(a["security_id"])),
+                        ticker=a.get("ticker") if isinstance(a.get("ticker"), str) else None,
+                        session=date.fromisoformat(str(a["session"])),
+                        lag_h=float(a["lag_h"]),
+                        otc=bool(a.get("otc")),
+                    ),
+                ),
+                error=error,
+            )
+        except Exception:  # noqa: BLE001 — a malformed artifact is skipped like any other read
+            continue
+    if error is not None:
+        newest = next(
+            (d for d in payloads if d.get("mode") == "live" and is_finished(d) and "asof" in d),
+            None,
+        )
+        if newest is not None:
+            try:
+                return AdminMissingClosesOut(
+                    asof=date.fromisoformat(newest["asof"]),
+                    ran_at=str(newest["started_at"]),
+                    line="Closing prices · not checked — the check could not run on the last pass",
+                    error=error,
+                )
+            except Exception:  # noqa: BLE001
+                return None
+    return None
+
+
 def _short_sha(sha: str) -> str:
     return sha[:12]
 
@@ -813,6 +908,10 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
     ``split_defects`` (T4) is the split-basis panel — every basket name whose stored tape mixes two split
     bases (island / cliff / flap) as some reader sees it, from the newest artifact that scanned; flag only,
     never the verdict. Its ``settled`` rows are flaps no reader sees on two bases — quiet, never an alarm.
+
+    ``missing_closes`` is the missing-closing-price flag: a QUIET line every night ("21 of 679 companies had no
+    close for Oct 23 at the night's run"), and a LOUD line only for an older session's close still missing after
+    a later session's pass — from the newest artifact that ran the check; never paged, never the verdict.
     """
     run_at = _run_at()
     now = _now()
@@ -1048,6 +1147,8 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
     tape = _tape_out(payloads)
     # T4 — the split-basis panel, from the same artifacts (no second read, no DB query)
     split_defects = _split_out(payloads)
+    # MISSING CLOSES — the night's quiet line + the loud still-missing closes, from the same artifacts (no DB)
+    missing_closes = _missing_closes_out(payloads)
     # T2 + Q8 + T3 — the price-feed repairs panel: the same artifacts' inventory overlaid with the LIVE
     # repair log (SELECTs only — this surface still writes nothing). In a SAVEPOINT and fail-open: a fault
     # reading the repair log costs the panel (null, the FE falls back to the freshness blocks — every row
@@ -1144,6 +1245,7 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
         splits_needs_review=splits_needs_review,
         fundamentals_set_aside=fundamentals_set_aside,
         editions_nightly=editions_nightly,
+        missing_closes=missing_closes,
     )
 
 

@@ -30,6 +30,7 @@ from pipeline import cron_run_log, daily
 from pipeline.cron_run_log import write_cron_run_log
 from pipeline.ingest_thesis import NameResult
 from pipeline.insider_amendment_scan import AmendmentScan, SweepOutcome
+from pipeline.missing_closes import MissingCloses
 from pipeline.rename_probe import RenameProbe
 from pipeline.split_basis import SplitScan
 from pipeline.split_jumps import JumpScan
@@ -746,6 +747,9 @@ def _prime_pass(monkeypatch, *, bench_raises=False, sweep_raises=False):
     monkeypatch.setattr(
         daily, "run_jump_scan", lambda **k: JumpScan()
     )  # S5 — proved in test_split_jumps.py
+    # the missing-close check reads the price TABLE — DB-free here; proved on a real DB (and end to end
+    # through run_daily_pass) in tests/pipeline/test_missing_closes.py
+    monkeypatch.setattr(daily, "run_missing_closes", lambda **k: MissingCloses())
     # the T2 rename probe reads the price TABLE and fetches the vendor — DB- and network-free here; proved
     # on a real DB with a fake source in tests/pipeline/test_rename_probe.py
     monkeypatch.setattr(daily, "run_rename_probe", lambda **k: RenameProbe(evaluated=True))
