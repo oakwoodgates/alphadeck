@@ -13,8 +13,7 @@
 #   - Prod's *.sql dumps live in the MAIN checkout's ./data/backups (prod runs from there). That dir is a
 #     shared, READ-ONLY prod->X dump path (the same idiom refresh-dev relies on — regenerable dumps, not the
 #     live DB), so we resolve it via `git rev-parse --git-common-dir` and read the newest prod dump from
-#     there. The worktree's OWN ./data/backups + ./data/scoreboard_replay are created too (the sig
-#     containers host-bind them).
+#     there. The worktree's OWN ./data/backups is created too (the sig containers host-bind it).
 #
 # Agent-legible by contract: non-interactive (no prompts), idempotent (drop-create-restore each run),
 # exit-code-clean (0 = ok, non-zero = fail), greppable (--> progress + a terminal OK:/FAIL: line).
@@ -109,7 +108,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
     echo "  dump          : ${dump:-<none found — $BACKUPS_DIR has no *.sql>}"
   fi
   echo "  target DB     : $SIG_DB  (sig Postgres, project $SIG_PROJECT, host :5546)"
-  echo "  worktree dirs : ensure $REPO_ROOT/data/backups + $REPO_ROOT/data/scoreboard_replay exist (sig host-binds)"
+  echo "  worktree dirs : ensure $REPO_ROOT/data/backups exists (sig host-binds it)"
   echo "  step (drop)   : docker exec <sig pg> psql -U $PGUSER -d postgres -c 'DROP DATABASE IF EXISTS $SIG_DB WITH (FORCE)'"
   echo "  step (create) : docker exec <sig pg> psql -U $PGUSER -d postgres -c 'CREATE DATABASE $SIG_DB'"
   echo "  step (restore): docker exec -i <sig pg> psql -U $PGUSER -d $SIG_DB -f - < <dump>"
@@ -133,10 +132,10 @@ command -v docker >/dev/null 2>&1 || fail "docker not found on PATH"
 # redirection + `ls`, never passed to docker.exe, so its absolute path is safe.)
 cd "$REPO_ROOT" || fail "cannot cd to worktree root: $REPO_ROOT"
 
-# Ensure the worktree's OWN data dirs exist — the sig containers host-bind ./data/backups +
-# ./data/scoreboard_replay (sig runs from here). Idempotent; not the prod dump dir (that's $BACKUPS_DIR).
-mkdir -p "$REPO_ROOT/data/backups" "$REPO_ROOT/data/scoreboard_replay" \
-  || fail "cannot create the worktree data dirs under $REPO_ROOT/data"
+# Ensure the worktree's OWN data dir exists — the sig containers host-bind ./data/backups (sig runs from
+# here). Idempotent; not the prod dump dir (that's $BACKUPS_DIR).
+mkdir -p "$REPO_ROOT/data/backups" \
+  || fail "cannot create the worktree data dir under $REPO_ROOT/data"
 
 # --fresh: a brand-new read-only pg_dump of PROD, then use it (it lands in the MAIN checkout's data/backups
 # = $BACKUPS_DIR, prod's own bind).

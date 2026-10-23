@@ -1369,6 +1369,27 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
    design (#7): which edition you read is context, never an alarm. */
 .sb-editions button { text-transform: none; letter-spacing: 0.03em; }
 .sb-editionpick { align-self: flex-start; font-family: var(--mono); font-size: 10.5px; color: var(--txt-2); background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 3px 8px; }
+/* "what changed" (editions S6) — a quiet text link beside the switcher, no louder than the switcher itself,
+   and the comparison view the drawer hosts: muted mono lines, no positive/negative tints and no alarm colors
+   (a comparison between editions is context, never an alert, #7). */
+.sb-editionrow { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; align-self: flex-start; }
+.sb-whatchanged { font: inherit; font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.03em; color: var(--txt-3); background: none; border: none; padding: 0; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+.sb-whatchanged:hover { color: var(--txt); }
+.wc { display: flex; flex-direction: column; gap: 10px; font-size: 12px; color: var(--txt-2); }
+.wc-intro { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
+.wc-counts { display: flex; flex-direction: column; gap: 3px; font-family: var(--mono); font-size: 11px; color: var(--txt-1); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.wc-note { font-family: var(--mono); font-size: 10px; color: var(--txt-4); }
+.wc-thesis { border-top: 1px solid var(--line); padding-top: 10px; display: flex; flex-direction: column; gap: 5px; }
+.wc-thesis-h { margin: 0; font-size: 12.5px; font-weight: 700; color: var(--txt-1); }
+.wc-tag { margin-left: 8px; font-family: var(--mono); font-size: 9.5px; font-weight: 400; color: var(--txt-4); }
+.wc-line { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
+.wc-quiet { color: var(--txt-4); }
+.wc-company { padding-left: 10px; }
+.wc-company-h { display: flex; gap: 8px; align-items: baseline; }
+.wc-company-h .tk { font-family: var(--mono); font-weight: 700; color: var(--txt-1); }
+.wc-name { color: var(--txt-3); font-size: 11px; }
+.wc-list { margin: 3px 0 0; padding-left: 16px; display: flex; flex-direction: column; gap: 2px; font-size: 11.5px; }
+.wc-run { color: var(--txt-3); }
 .sb-annottoggle { padding: 2px 8px; }
 .sb-annottoggle[aria-pressed="true"] { color: var(--txt); background: var(--panel-2); }
 .sb-metrics { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
@@ -1567,11 +1588,11 @@ tr.sb-row .tk { font-family: var(--mono); font-weight: 700; letter-spacing: 0.04
 .sb-error { color: var(--neg); font-family: var(--mono); font-size: 10.5px; }
 .sb-anomaly { color: var(--warm); font-family: var(--mono); font-size: 10.5px; }
 
-/* -------- The historical (replayed) section: quiet by construction — context, not action ------- */
-.rp-section { margin-top: 26px; padding-top: 14px; border-top: 1px dashed var(--line-2); display: flex; flex-direction: column; gap: 12px; }
+/* -------- Replayed (recomputed) groups: quiet by construction — context, not action -------------
+   First the Scoreboard's replay panel's, retired by editions S8; the /backtest page's run ledger, run picker
+   and sweep headers still use these. */
 .rp-head { --gc: var(--incub); }
 .rp-head .hint { font-size: 10px; }
-.rp-banner { border-style: dotted; }
 .rp-grp { --gc: var(--incub); }
 .rp-grp-h { cursor: default; }
 .rp-grp-h .lbl { color: var(--txt-3); }

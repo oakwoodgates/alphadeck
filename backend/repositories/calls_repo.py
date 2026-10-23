@@ -318,10 +318,17 @@ def latest_for_thesis(
     include_reconstructed: bool = True,
     exclude_annotated: bool = False,
     exclude_call_ids: Collection[UUID] = (),
+    drop_card_keys: Sequence[str] = (),
 ) -> list[CallCard]:
     """The call of record at each ``asof`` — one row per as-of, the latest append wins (a re-run after
     a fact correction supersedes the earlier row), newest as-of first. This is the deduped read a
     scoreboard wants; ``list_for_thesis`` keeps the full history. Never the serve path.
+
+    ``drop_card_keys`` (default empty: the whole card, the SQL unchanged) projects top-level card keys
+    away IN SQL before they are fetched — for a reader that only builds snapshot timelines (the editions
+    "what changed" comparison), where the bulky keys it never reads are most of the bytes. The rows chosen
+    and their order are exactly the default read's; only the returned cards are thinner (each dropped key
+    reads as its default).
 
     ``include_reconstructed`` (default ``True``: every row, the behavior every existing caller relies
     on — the cron's transition compare, the backfill's prior-row report, ``record_if_changed``'s
@@ -340,14 +347,17 @@ def latest_for_thesis(
     BEFORE the same dedup (``_ids_clause``) — so an on-time row for the night wins over a later late one.
     """
     ids_sql, ids_params = _ids_clause(exclude_call_ids)
+    card_sql, card_params = (
+        ("card - %s::text[] AS card", (list(drop_card_keys),)) if drop_card_keys else ("card", ())
+    )
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT DISTINCT ON (asof) card FROM calls WHERE thesis_id = %s"
+            f"SELECT DISTINCT ON (asof) {card_sql} FROM calls WHERE thesis_id = %s"
             + _reconstructed_clause(include_reconstructed)
             + _annotated_clause(exclude_annotated)
             + ids_sql
             + " ORDER BY asof DESC, seq DESC",
-            (thesis_id, *ids_params),
+            (*card_params, thesis_id, *ids_params),
         )
         return [row_to_call(r) for r in cur.fetchall()]
 

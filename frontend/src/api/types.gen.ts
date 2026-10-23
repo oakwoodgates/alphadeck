@@ -903,11 +903,12 @@ export interface paths {
          * Get Scoreboard
          * @description The Scoreboard (SCORE): one EDITION scored as-of ``asof`` — a READ-ONLY pass over the
          *     immutable calls log (or a stored edition's frozen pages), the operator-decision log, and realized
-         *     asof-capped prices. Edition 0, the default, is the call-of-record: the RECORD is the scoring
-         *     source, never a recompute (this holds the platform to what it actually said). Edition N >= 1 is a
-         *     stored re-run of today's rules from each company's join date on the public clock, scored on read
-         *     the same way. Aggregate metrics judge only matured, non-censored episodes and gate below
-         *     ``min_n`` — an instrument, not a claim, until n accrues.
+         *     asof-capped prices. Edition 0 is the call-of-record: the RECORD is the scoring source, never a
+         *     recompute (this holds the platform to what it actually said). Edition N >= 1 is a stored re-run of
+         *     today's rules from each company's join date on the public clock, scored on read the same way. A
+         *     request that names no edition reads the NEWEST published one (Edition 0 when nothing is published).
+         *     Aggregate metrics judge only matured, non-censored episodes and gate below ``min_n`` — an
+         *     instrument, not a claim, until n accrues.
          *
          *     On Edition 0 three kinds of recorded row are set aside before scoring: reconstructed rows
          *     (always), rows annotated as phantom arms (by the annotated-night policy, which
@@ -937,7 +938,8 @@ export interface paths {
          * @description Every edition the Scoreboard can show: Edition 0 (the original record, the calls log — always
          *     present, never stored) first, then each stored re-run edition ascending, with its cut, nights, join-date
          *     counts and engine fingerprint. ``default`` = the edition ``GET /scoreboard`` serves when the request
-         *     names none (the setting; an unpublished default reads as 0). Read-only.
+         *     names none: the newest published edition (0 only when nothing is published), unless the server's
+         *     override pins another. Read-only.
          */
         get: operations["get_scoreboard_editions_scoreboard_editions_get"];
         put?: never;
@@ -948,7 +950,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/scoreboard/replay": {
+    "/scoreboard/editions/diff": {
         parameters: {
             query?: never;
             header?: never;
@@ -956,16 +958,24 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Scoreboard Replay
-         * @description The HISTORICAL (replayed) panel — replayed history served from the operator-kicked artifact
-         *     (``python -m scoreboard.replay_snapshot``, dev venv only: replay needs the .[replay] extra the
-         *     lean image deliberately lacks). A RECOMPUTE by construction — today's code + dials over
-         *     historical facts, the not-bitemporal basket caveat riding the banner — NEVER the record and
-         *     never merged with it: separate artifact, separate endpoint, metrics never pooled with the live
-         *     summary. ``available=false`` when no artifact exists (or it fails validation — absence, not an
-         *     outage). Read-only; the container's artifact mount is read-only besides.
+         * Get Scoreboard Edition Diff
+         * @description What changed from one edition to a later one (editions S6) — computed on read, never stored, and
+         *     read-only. Every thesis is compared on the nights BOTH editions cover, through the earlier of the two
+         *     editions' last nights (the earlier edition's last night once the later one has reached it), so a night
+         *     neither could disagree about is never a change. Edition 0 is read the way the default Scoreboard reads
+         *     it: reconstructed rows never, annotated and late rows under the server's default policies.
+         *
+         *     Per company-night: armed or not in each edition, and — on a night both arm the company — its verdict,
+         *     entry grade, conviction grade and exit-by; a night with no page reads that edition's last page before
+         *     it. Per episode, paired on (thesis, company, arm date): matched (listed only when the run differs),
+         *     moved (the same company armed in both over overlapping windows), appeared, vanished — each scored
+         *     arm -> exit-by on realized closes through the last night, with the delta on a pair. Pages only one
+         *     edition holds are reported as spans; a run lying wholly on them is counted, never compared, while one
+         *     that armed there and runs into the shared nights is a change (``armed_before_window``).
+         *     Grouped thesis -> company, with headline counts. ``cause`` is null on every change until the automatic
+         *     cut (S7) supplies it; a cause is never guessed.
          */
-        get: operations["get_scoreboard_replay_scoreboard_replay_get"];
+        get: operations["get_scoreboard_edition_diff_scoreboard_editions_diff_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4006,7 +4016,7 @@ export interface components {
          *     It reuses `ScoreboardReplayThesisOut` / `ScoreboardEpisodeOut` deliberately: the rows ARE replayed,
          *     scored arm episodes, and re-declaring a parallel shape would give the two surfaces two definitions
          *     of the same row and let their renderers drift. The front end therefore renders this through the
-         *     same ledger components the Scoreboard's replay panel uses.
+         *     same ledger components the Scoreboard's own ledger uses.
          *
          *     A DRILL-DOWN, never a ranking: theses come back in NAME order (fixed by the writer), which is the
          *     one ordering that cannot be read as a leaderboard (invariant #4). The pooled view above it carries
@@ -5154,6 +5164,210 @@ export interface components {
             terms: components["schemas"]["TermEdit"][];
         };
         /**
+         * EditionCompanyDiffOut
+         * @description One company that changed: every changed night (``nights``), the same nights folded into runs
+         *     (``runs``), and its episode changes.
+         */
+        EditionCompanyDiffOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker?: string | null;
+            /** Company Name */
+            company_name?: string | null;
+            /**
+             * Nights
+             * @default []
+             */
+            nights: components["schemas"]["EditionCompanyNightOut"][];
+            /**
+             * Runs
+             * @default []
+             */
+            runs: components["schemas"]["EditionNightRunOut"][];
+            /**
+             * Episodes
+             * @default []
+             */
+            episodes: components["schemas"]["EditionEpisodeDiffOut"][];
+        };
+        /**
+         * EditionCompanyNightOut
+         * @description One changed company-night: ``changed`` = ``["armed"]`` when exactly one edition arms the company, else
+         *     the fields that differ on a night both arm it. ``cause`` is always null for now: the automatic cut (S7)
+         *     fills it (rule change / data repair / data that arrived late); a cause is never guessed.
+         */
+        EditionCompanyNightOut: {
+            /**
+             * Night
+             * Format: date
+             */
+            night: string;
+            before: components["schemas"]["EditionNightReadOut"];
+            after: components["schemas"]["EditionNightReadOut"];
+            /**
+             * Changed
+             * @default []
+             */
+            changed: string[];
+            /** Cause */
+            cause?: string | null;
+        };
+        /**
+         * EditionDiffCountsOut
+         * @description The headline counts over every thesis (company-nights and episodes).
+         */
+        EditionDiffCountsOut: {
+            /**
+             * N Theses
+             * @default 0
+             */
+            n_theses: number;
+            /**
+             * N Theses Changed
+             * @default 0
+             */
+            n_theses_changed: number;
+            /**
+             * N Companies Changed
+             * @default 0
+             */
+            n_companies_changed: number;
+            /**
+             * N Thesis Nights
+             * @default 0
+             */
+            n_thesis_nights: number;
+            /**
+             * N State Nights
+             * @default 0
+             */
+            n_state_nights: number;
+            /**
+             * N Company Nights Changed
+             * @default 0
+             */
+            n_company_nights_changed: number;
+            /**
+             * N Armed Before Only
+             * @default 0
+             */
+            n_armed_before_only: number;
+            /**
+             * N Armed After Only
+             * @default 0
+             */
+            n_armed_after_only: number;
+            /**
+             * N Fields Changed
+             * @default 0
+             */
+            n_fields_changed: number;
+            /**
+             * N Episodes Matched
+             * @default 0
+             */
+            n_episodes_matched: number;
+            /**
+             * N Episodes Matched Changed
+             * @default 0
+             */
+            n_episodes_matched_changed: number;
+            /**
+             * N Episodes Moved
+             * @default 0
+             */
+            n_episodes_moved: number;
+            /**
+             * N Episodes Appeared
+             * @default 0
+             */
+            n_episodes_appeared: number;
+            /**
+             * N Episodes Vanished
+             * @default 0
+             */
+            n_episodes_vanished: number;
+            /**
+             * N Episodes Outside
+             * @default 0
+             */
+            n_episodes_outside: number;
+        };
+        /**
+         * EditionEpisodeDiffOut
+         * @description One episode change, paired on (thesis, company, arm date): ``matched`` (same arm date, listed only when
+         *     the run differs — ``differs`` names what), ``moved`` (the same company armed in both over overlapping
+         *     windows, ``arm_shift_days`` apart), ``appeared`` (later edition only), ``vanished`` (earlier edition only).
+         *     ``return_delta`` = later minus earlier score when both are scored. ``armed_before_window`` (appeared /
+         *     vanished) = the run armed before the first compared night and is listed because it runs into the nights
+         *     both editions cover. ``cause``: null until S7.
+         */
+        EditionEpisodeDiffOut: {
+            /**
+             * Change
+             * @enum {string}
+             */
+            change: "matched" | "moved" | "appeared" | "vanished";
+            before?: components["schemas"]["EditionEpisodeSideOut"] | null;
+            after?: components["schemas"]["EditionEpisodeSideOut"] | null;
+            /** Arm Shift Days */
+            arm_shift_days?: number | null;
+            /**
+             * Differs
+             * @default []
+             */
+            differs: string[];
+            /** Return Delta */
+            return_delta?: number | null;
+            /**
+             * Armed Before Window
+             * @default false
+             */
+            armed_before_window: boolean;
+            /** Cause */
+            cause?: string | null;
+        };
+        /**
+         * EditionEpisodeSideOut
+         * @description One edition's arm episode, scored through the comparison's last night (``forward_return`` = arm ->
+         *     exit-by on realized closes). ``began_mid_arm`` = armed on that edition's first page for the thesis.
+         */
+        EditionEpisodeSideOut: {
+            /**
+             * Arm Date
+             * Format: date
+             */
+            arm_date: string;
+            /**
+             * Last Armed Date
+             * Format: date
+             */
+            last_armed_date: string;
+            /** Dearm Date */
+            dearm_date?: string | null;
+            /** Close Reason */
+            close_reason: string;
+            /** Exit By */
+            exit_by?: string | null;
+            /** Verdict */
+            verdict?: string | null;
+            /** Entry Grade */
+            entry_grade?: string | null;
+            /** Conviction Grade */
+            conviction_grade?: string | null;
+            /**
+             * Began Mid Arm
+             * @default false
+             */
+            began_mid_arm: boolean;
+            /** Forward Return */
+            forward_return?: number | null;
+        };
+        /**
          * EditionJoinOut
          * @description The episode's company's join date in an edition (``edition_entry``): the date, whether it is the
          *     option-A ESTIMATE (a deploy-seed member whose real join predates the snapshot record), the rule that
@@ -5176,6 +5390,141 @@ export interface components {
             armed_on_join_night: boolean;
             /** Note */
             note?: string | null;
+        };
+        /**
+         * EditionNightReadOut
+         * @description One company's read on one night in one edition: ``page`` = the page it comes from (the night itself,
+         *     or that edition's last page before it — the Scoreboard's own carry rule), ``armed``, and — only on an
+         *     armed night — the call's verdict, entry grade, conviction grade and exit-by.
+         */
+        EditionNightReadOut: {
+            /**
+             * Page
+             * Format: date
+             */
+            page: string;
+            /** Armed */
+            armed: boolean;
+            /** Verdict */
+            verdict?: string | null;
+            /** Entry Grade */
+            entry_grade?: string | null;
+            /** Conviction Grade */
+            conviction_grade?: string | null;
+            /** Exit By */
+            exit_by?: string | null;
+        };
+        /**
+         * EditionNightRunOut
+         * @description Consecutive compared nights on which one company's change is the same (the same ``changed`` fields
+         *     with the same values of those fields on both sides) — ``nights`` folded so a 30-night run reads as one
+         *     line; ``before`` / ``after`` are the reads on its first night.
+         */
+        EditionNightRunOut: {
+            /**
+             * First
+             * Format: date
+             */
+            first: string;
+            /**
+             * Last
+             * Format: date
+             */
+            last: string;
+            /** N Nights */
+            n_nights: number;
+            /**
+             * Changed
+             * @default []
+             */
+            changed: string[];
+            before: components["schemas"]["EditionNightReadOut"];
+            after: components["schemas"]["EditionNightReadOut"];
+        };
+        /**
+         * EditionNightSpanOut
+         * @description A run of one edition's pages the other does not cover (``n_nights`` pages, ``first`` -> ``last``).
+         */
+        EditionNightSpanOut: {
+            /**
+             * First
+             * Format: date
+             */
+            first: string;
+            /**
+             * Last
+             * Format: date
+             */
+            last: string;
+            /** N Nights */
+            n_nights: number;
+        };
+        /**
+         * EditionThesisDiffOut
+         * @description One thesis: the nights compared (``first_night`` -> ``last_night``, the ones BOTH editions cover; null
+         *     when they share none), the pages only one edition holds (``before_only`` / ``after_only`` spans, with
+         *     ``n_outside`` unpaired runs lying wholly there — counted, never compared), the nights its own state differs,
+         *     the matched-episode count, the armed companies with nothing to list, and the companies that changed.
+         */
+        EditionThesisDiffOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Name */
+            name: string;
+            /**
+             * Archived
+             * @default false
+             */
+            archived: boolean;
+            /** First Night */
+            first_night?: string | null;
+            /** Last Night */
+            last_night?: string | null;
+            /**
+             * N Nights
+             * @default 0
+             */
+            n_nights: number;
+            /**
+             * N State Nights
+             * @default 0
+             */
+            n_state_nights: number;
+            /**
+             * Before Only
+             * @default []
+             */
+            before_only: components["schemas"]["EditionNightSpanOut"][];
+            /**
+             * After Only
+             * @default []
+             */
+            after_only: components["schemas"]["EditionNightSpanOut"][];
+            /**
+             * N Outside
+             * @default 0
+             */
+            n_outside: number;
+            /**
+             * N Matched
+             * @default 0
+             */
+            n_matched: number;
+            /**
+             * N Companies Unchanged
+             * @default 0
+             */
+            n_companies_unchanged: number;
+            /**
+             * Companies
+             * @default []
+             */
+            companies: components["schemas"]["EditionCompanyDiffOut"][];
+            /** Error */
+            error?: string | null;
         };
         /**
          * EpisodeOperatorOut
@@ -6681,6 +7030,27 @@ export interface components {
             segment_count: number;
         };
         /**
+         * ScoreboardEditionDiffResponse
+         * @description What changed from the EARLIER edition (``before``) to the LATER one (``after``), computed on read:
+         *     grouped thesis -> company, compared through ``through`` (the earlier of the two editions' last nights)
+         *     from ``first_night``, with the headline ``counts``. Substance only — state, the armed set, verdict,
+         *     grades, exit-by and each episode's score — never card text.
+         */
+        ScoreboardEditionDiffResponse: {
+            before: components["schemas"]["ScoreboardEditionOut"];
+            after: components["schemas"]["ScoreboardEditionOut"];
+            /** Through */
+            through?: string | null;
+            /** First Night */
+            first_night?: string | null;
+            counts: components["schemas"]["EditionDiffCountsOut"];
+            /**
+             * Theses
+             * @default []
+             */
+            theses: components["schemas"]["EditionThesisDiffOut"][];
+        };
+        /**
          * ScoreboardEditionOut
          * @description Which EDITION a Scoreboard read shows (editions S4). Edition 0 = the original record: the calls log,
          *     never stored as an edition (``cut`` null — the record is append-only and current; ``first_night`` /
@@ -7026,85 +7396,10 @@ export interface components {
             activist_stakes: components["schemas"]["ActivistStakeOut"][];
         };
         /**
-         * ScoreboardReplayResponse
-         * @description The replay panel: replayed history served from the operator-kicked artifact — a RECOMPUTE
-         *     (today's code + dials over historical facts), never the record; separate endpoint, separate
-         *     section, metrics never pooled with the live summary. ``available=false`` = no artifact yet
-         *     (run ``python -m scoreboard.replay_snapshot`` from the dev venv).
-         */
-        ScoreboardReplayResponse: {
-            /** Available */
-            available: boolean;
-            /** Generated At */
-            generated_at?: string | null;
-            /** Window Start */
-            window_start?: string | null;
-            /** Window End */
-            window_end?: string | null;
-            /** Known At Pin */
-            known_at_pin?: string | null;
-            /** Record Began */
-            record_began?: string | null;
-            /**
-             * Window Overlaps Record
-             * @default false
-             */
-            window_overlaps_record: boolean;
-            /**
-             * Roster Fallback Theses
-             * @default 0
-             */
-            roster_fallback_theses: number;
-            /** Roster Source Note */
-            roster_source_note?: string | null;
-            /** Config Hash */
-            config_hash?: string | null;
-            /** Code Sha */
-            code_sha?: string | null;
-            /** Policy Label */
-            policy_label?: string | null;
-            /** Banner */
-            banner?: string | null;
-            /**
-             * Min N
-             * @default 0
-             */
-            min_n: number;
-            /**
-             * N Theses
-             * @default 0
-             */
-            n_theses: number;
-            /**
-             * N Episodes
-             * @default 0
-             */
-            n_episodes: number;
-            /**
-             * N Censored
-             * @default 0
-             */
-            n_censored: number;
-            /**
-             * N Eligible
-             * @default 0
-             */
-            n_eligible: number;
-            /**
-             * Metrics
-             * @default []
-             */
-            metrics: components["schemas"]["ScoreboardMetricOut"][];
-            /**
-             * Theses
-             * @default []
-             */
-            theses: components["schemas"]["ScoreboardReplayThesisOut"][];
-        };
-        /**
          * ScoreboardReplayThesisOut
-         * @description One thesis's slice of the HISTORICAL (replayed) panel — platform track only (decision
-         *     capture post-dates history, so the operator column is structurally absent, not empty).
+         * @description One thesis's replayed, scored arm episodes — the `/backtest` run ledger's per-thesis slice (the name
+         *     survives from the Scoreboard's replay-alongside panel, retired by editions S8). Platform track only:
+         *     decision capture post-dates history, so the operator column is structurally absent, not empty.
          */
         ScoreboardReplayThesisOut: {
             /**
@@ -9098,7 +9393,7 @@ export interface operations {
                 include_annotated?: boolean | null;
                 /** @description the late-night reading: true = score rows recorded after their night's next EDGAR open (06:00 ET the next weekday) as before; false = set them aside, so an on-time row for the night wins and a late-only night reads like a cron gap; omitted = the server setting (ALPHADECK_SCOREBOARD_EXCLUDE_LATE, default: set aside). The response's summary.late_policy names the reading used */
                 include_late?: boolean | null;
-                /** @description which EDITION to score: 0 = the original record (the calls log); N >= 1 = the stored re-run Edition N (404 if it does not exist); omitted = the server setting (ALPHADECK_SCOREBOARD_DEFAULT_EDITION, default 0 — an unpublished default falls back to 0). The response's `edition` block names the edition served */
+                /** @description which EDITION to score: 0 = the original record (the calls log); N >= 1 = the stored re-run Edition N (404 if it does not exist); omitted = the NEWEST published edition (0 when nothing is published; ALPHADECK_SCOREBOARD_DEFAULT_EDITION, unset by default, overrides it, and an unpublished override falls back to the newest). The response's `edition` block names the edition served */
                 edition?: number | null;
             };
             header?: never;
@@ -9147,9 +9442,14 @@ export interface operations {
             };
         };
     };
-    get_scoreboard_replay_scoreboard_replay_get: {
+    get_scoreboard_edition_diff_scoreboard_editions_diff_get: {
         parameters: {
-            query?: never;
+            query: {
+                /** @description the EARLIER edition: 0 = the original record (its honest default read), N >= 1 = the stored Edition N (404 if it does not exist) */
+                from: number;
+                /** @description the LATER edition, a stored re-run (404 if it does not exist); it must be newer than `from` (422 otherwise) */
+                to: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -9162,7 +9462,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ScoreboardReplayResponse"];
+                    "application/json": components["schemas"]["ScoreboardEditionDiffResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -9178,7 +9487,7 @@ export interface operations {
                 end: string;
                 /** @description score as-of this date — the series is CAPPED here (no-lookahead) */
                 asof: string;
-                /** @description the EDITION the drawer belongs to (the `/scoreboard` param's semantics): an edition >= 1 reads every dated overlay on the PUBLIC clock, a live as-of included; 0 / omitted with the default 0 = the record's reading, unchanged */
+                /** @description the EDITION the drawer belongs to (the `/scoreboard` param's semantics, so omitted = the newest published edition): an edition >= 1 reads every dated overlay on the PUBLIC clock, a live as-of included; 0 (or omitted with nothing published) = the record's reading, unchanged */
                 edition?: number | null;
                 thesis_id: string;
             };

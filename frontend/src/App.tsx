@@ -84,8 +84,9 @@ function ScoreboardRoute() {
   const here = useHere();
   const { asof, asofParam, setAsof } = useAsof();
   // The edition rides ?edition= (editions S4) so an edition is a shareable link — the ?run= precedent. A view
-  // dial, so it REPLACES. Absent = the server's default edition; picking one always names it, so a shared
-  // link keeps showing that edition even after the default changes.
+  // dial, so it REPLACES. Absent = the server's default (the newest published edition — so the top nav's
+  // plain /scoreboard lands on it); picking one always names it, so a shared link keeps showing that edition
+  // even after a newer one becomes the default.
   const [searchParams, setSearchParams] = useSearchParams();
   const onEditionChange = (n: number) =>
     setSearchParams(

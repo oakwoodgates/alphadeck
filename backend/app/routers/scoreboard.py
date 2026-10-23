@@ -11,19 +11,20 @@ from app.schemas_api import (
     ActivistStakeOut,
     AnnotatedNightOut,
     CorporateEventOut,
+    EditionCompanyDiffOut,
+    EditionDiffCountsOut,
+    EditionThesisDiffOut,
     InsiderBuyOut,
     InsiderSellOut,
     LateNightOut,
     PriceBar,
+    ScoreboardEditionDiffResponse,
     ScoreboardEditionOut,
     ScoreboardEditionsResponse,
     ScoreboardMetricOut,
     ScoreboardPriceWindowOut,
-    ScoreboardReplayResponse,
-    ScoreboardReplayThesisOut,
     ScoreboardResponse,
     ScoreboardSummaryOut,
-    _scoreboard_episode_out,
     _scoreboard_thesis_out,
 )
 from db.clock import db_now
@@ -33,10 +34,9 @@ from domain.settings import get_settings
 from domain.splits import tape_scale
 from domain.thesis import Thesis
 from pipeline.schedule import expected_runs_behind, last_expected_asof, parse_run_at
-from replay.metrics import MetricResult
 from repositories import calls_repo, editions_repo, split_repo
-from scoreboard.artifact import read_snapshot
 from scoreboard.assemble import assemble_scoreboard
+from scoreboard.diff import edition_diff
 from scoreboard.overlays import (
     SMA_WARMUP_DAYS,
     UNIVERSE_LOOKBACK_DAYS,
@@ -102,20 +102,22 @@ def get_scoreboard(
         None,
         ge=0,
         description="which EDITION to score: 0 = the original record (the calls log); N >= 1 = the "
-        "stored re-run Edition N (404 if it does not exist); omitted = the server setting "
-        "(ALPHADECK_SCOREBOARD_DEFAULT_EDITION, default 0 — an unpublished default falls back to 0). "
-        "The response's `edition` block names the edition served",
+        "stored re-run Edition N (404 if it does not exist); omitted = the NEWEST published edition (0 "
+        "when nothing is published; ALPHADECK_SCOREBOARD_DEFAULT_EDITION, unset by default, overrides "
+        "it, and an unpublished override falls back to the newest). The response's `edition` block "
+        "names the edition served",
     ),
     conn: psycopg.Connection = Depends(get_conn),
     current_tenant: UUID = Depends(get_current_tenant),
 ) -> ScoreboardResponse:
     """The Scoreboard (SCORE): one EDITION scored as-of ``asof`` — a READ-ONLY pass over the
     immutable calls log (or a stored edition's frozen pages), the operator-decision log, and realized
-    asof-capped prices. Edition 0, the default, is the call-of-record: the RECORD is the scoring
-    source, never a recompute (this holds the platform to what it actually said). Edition N >= 1 is a
-    stored re-run of today's rules from each company's join date on the public clock, scored on read
-    the same way. Aggregate metrics judge only matured, non-censored episodes and gate below
-    ``min_n`` — an instrument, not a claim, until n accrues.
+    asof-capped prices. Edition 0 is the call-of-record: the RECORD is the scoring source, never a
+    recompute (this holds the platform to what it actually said). Edition N >= 1 is a stored re-run of
+    today's rules from each company's join date on the public clock, scored on read the same way. A
+    request that names no edition reads the NEWEST published one (Edition 0 when nothing is published).
+    Aggregate metrics judge only matured, non-censored episodes and gate below ``min_n`` — an
+    instrument, not a claim, until n accrues.
 
     On Edition 0 three kinds of recorded row are set aside before scoring: reconstructed rows
     (always), rows annotated as phantom arms (by the annotated-night policy, which
@@ -225,15 +227,30 @@ def get_scoreboard(
 # --- editions (S4) -------------------------------------------------------------------------------------
 
 
+def _default_edition(conn: psycopg.Connection, tenant: UUID) -> editions_repo.Edition | None:
+    """The edition a read with no ``edition`` serves: the NEWEST published edition (operator decision
+    2026-10-23), so the default moves on its own when a new edition is cut; ``None`` = Edition 0, the record,
+    which is also what an empty store serves. ``Settings.scoreboard_default_edition`` is an optional
+    override: 0 pins the record, N >= 1 pins Edition N, and an override naming an edition this tenant has not
+    published falls back to the newest — the default view never 404s."""
+    override = get_settings().scoreboard_default_edition
+    if override == 0:
+        return None
+    if override is not None:
+        pinned = editions_repo.get_by_number(conn, tenant_id=tenant, number=override)
+        if pinned is not None:
+            return pinned
+    return editions_repo.newest(conn, tenant_id=tenant)
+
+
 def _resolve_edition(
     conn: psycopg.Connection, tenant: UUID, requested: int | None
 ) -> editions_repo.Edition | None:
-    """The edition a read serves: ``None`` = Edition 0 (the record). An explicit N >= 1 that this tenant has
-    not published is a 404; an omitted ``edition`` reads the setting, and a default naming an edition that
-    does not exist falls back to Edition 0 — the default view never 404s."""
+    """The edition a read serves: ``None`` = Edition 0 (the record). An omitted ``edition`` reads the default
+    (``_default_edition``: the newest published, never a 404); 0 is the record; an explicit N >= 1 that this
+    tenant has not published is a 404."""
     if requested is None:
-        n = get_settings().scoreboard_default_edition
-        return editions_repo.get_by_number(conn, tenant_id=tenant, number=n) if n >= 1 else None
+        return _default_edition(conn, tenant)
     if requested == 0:
         return None
     found = editions_repo.get_by_number(conn, tenant_id=tenant, number=requested)
@@ -274,12 +291,12 @@ def get_scoreboard_editions(
     """Every edition the Scoreboard can show: Edition 0 (the original record, the calls log — always
     present, never stored) first, then each stored re-run edition ascending, with its cut, nights, join-date
     counts and engine fingerprint. ``default`` = the edition ``GET /scoreboard`` serves when the request
-    names none (the setting; an unpublished default reads as 0). Read-only."""
+    names none: the newest published edition (0 only when nothing is published), unless the server's
+    override pins another. Read-only."""
     stored = editions_repo.list_editions(conn, tenant_id=current_tenant)
-    n = get_settings().scoreboard_default_edition
-    default = n if n >= 1 and any(e.number == n for e in stored) else 0
+    chosen = _default_edition(conn, current_tenant)
     return ScoreboardEditionsResponse(
-        default=default,
+        default=chosen.number if chosen is not None else 0,
         editions=[
             _record_edition_out(calls_repo.record_first(conn), calls_repo.record_edge(conn)),
             *(_edition_out(e) for e in stored),
@@ -287,71 +304,83 @@ def get_scoreboard_editions(
     )
 
 
-def _metric_out(m: MetricResult) -> ScoreboardMetricOut:
-    return ScoreboardMetricOut(
-        name=m.name,
-        claim=m.claim,
-        n=m.n,
-        insufficient_n=m.insufficient_n,
-        summary=m.summary,
-        detail=m.detail,
-        note=m.note,
-    )
-
-
-@router.get("/replay", response_model=ScoreboardReplayResponse)
-def get_scoreboard_replay(
+@router.get("/editions/diff", response_model=ScoreboardEditionDiffResponse)
+def get_scoreboard_edition_diff(
+    before_number: int = Query(
+        ...,
+        alias="from",
+        ge=0,
+        description="the EARLIER edition: 0 = the original record (its honest default read), N >= 1 = "
+        "the stored Edition N (404 if it does not exist)",
+    ),
+    after_number: int = Query(
+        ...,
+        alias="to",
+        ge=1,
+        description="the LATER edition, a stored re-run (404 if it does not exist); it must be newer "
+        "than `from` (422 otherwise)",
+    ),
     conn: psycopg.Connection = Depends(get_conn),
-) -> ScoreboardReplayResponse:
-    """The HISTORICAL (replayed) panel — replayed history served from the operator-kicked artifact
-    (``python -m scoreboard.replay_snapshot``, dev venv only: replay needs the .[replay] extra the
-    lean image deliberately lacks). A RECOMPUTE by construction — today's code + dials over
-    historical facts, the not-bitemporal basket caveat riding the banner — NEVER the record and
-    never merged with it: separate artifact, separate endpoint, metrics never pooled with the live
-    summary. ``available=false`` when no artifact exists (or it fails validation — absence, not an
-    outage). Read-only; the container's artifact mount is read-only besides.
-    """
-    snap = read_snapshot()
-    if snap is None:
-        return ScoreboardReplayResponse(available=False)
+    current_tenant: UUID = Depends(get_current_tenant),
+) -> ScoreboardEditionDiffResponse:
+    """What changed from one edition to a later one (editions S6) — computed on read, never stored, and
+    read-only. Every thesis is compared on the nights BOTH editions cover, through the earlier of the two
+    editions' last nights (the earlier edition's last night once the later one has reached it), so a night
+    neither could disagree about is never a change. Edition 0 is read the way the default Scoreboard reads
+    it: reconstructed rows never, annotated and late rows under the server's default policies.
+
+    Per company-night: armed or not in each edition, and — on a night both arm the company — its verdict,
+    entry grade, conviction grade and exit-by; a night with no page reads that edition's last page before
+    it. Per episode, paired on (thesis, company, arm date): matched (listed only when the run differs),
+    moved (the same company armed in both over overlapping windows), appeared, vanished — each scored
+    arm -> exit-by on realized closes through the last night, with the delta on a pair. Pages only one
+    edition holds are reported as spans; a run lying wholly on them is counted, never compared, while one
+    that armed there and runs into the shared nights is a change (``armed_before_window``).
+    Grouped thesis -> company, with headline counts. ``cause`` is null on every change until the automatic
+    cut (S7) supplies it; a cause is never guessed."""
+    if before_number >= after_number:
+        raise HTTPException(
+            status_code=422,
+            detail=f"`from` must be an earlier edition than `to` (got {before_number} -> "
+            f"{after_number})",
+        )
+    before = _resolve_edition(conn, current_tenant, before_number)
+    after = _resolve_edition(conn, current_tenant, after_number)
+    before_out = (
+        _edition_out(before)
+        if before is not None
+        else _record_edition_out(calls_repo.record_first(conn), calls_repo.record_edge(conn))
+    )
+    assert after is not None  # `to` >= 1: a stored edition, or the 404 above
+    after_out = _edition_out(after)
+    lasts = [before_out.last_night, after_out.last_night]
+    through = min(d for d in lasts if d is not None) if None not in lasts else None
+    result = edition_diff(conn, before=before, after=after, through=through)
     theses_out = []
-    for t in snap.theses:
-        sids = {e.episode.security_id for e in t.episodes} | {
-            tr.security_id for e in t.episodes for tr in e.triggers_at_arm
-        }
+    for t in result.theses:
+        sids = [c.security_id for c in t.companies]
         tenant = t.tenant_id or DEFAULT_TENANT_ID
-        ciks = master.ciks_for(conn, sids, tenant_id=tenant)
-        tickers = master.tickers_for(conn, sids, tenant_id=tenant)
-        names = master.names_for(conn, sids, tenant_id=tenant)
+        tickers = master.tickers_for(conn, sids, tenant_id=tenant) if sids else {}
+        names = master.names_for(conn, sids, tenant_id=tenant) if sids else {}
         theses_out.append(
-            ScoreboardReplayThesisOut(
-                thesis_id=t.thesis_id,
-                name=t.name,
-                ticker=t.ticker,
-                basket_size=t.basket_size,
-                episodes=[_scoreboard_episode_out(e, ciks, tickers, names) for e in t.episodes],
+            EditionThesisDiffOut(
+                **t.model_dump(exclude={"companies", "tenant_id"}),
+                companies=[
+                    EditionCompanyDiffOut(
+                        **c.model_dump(),
+                        ticker=tickers.get(c.security_id),
+                        company_name=names.get(c.security_id),
+                    )
+                    for c in t.companies
+                ],
             )
         )
-    return ScoreboardReplayResponse(
-        available=True,
-        generated_at=snap.generated_at,
-        window_start=snap.window_start,
-        window_end=snap.window_end,
-        known_at_pin=snap.known_at_pin,
-        record_began=snap.record_began,
-        window_overlaps_record=snap.window_overlaps_record,
-        roster_fallback_theses=snap.roster_fallback_theses,
-        roster_source_note=snap.roster_source_note,
-        config_hash=snap.config_hash,
-        code_sha=snap.code_sha,
-        policy_label=snap.policy_label,
-        banner=snap.banner,
-        min_n=snap.min_n,
-        n_theses=snap.n_theses,
-        n_episodes=snap.n_episodes,
-        n_censored=snap.n_censored,
-        n_eligible=snap.n_eligible,
-        metrics=[_metric_out(m) for m in snap.metrics],
+    return ScoreboardEditionDiffResponse(
+        before=before_out,
+        after=after_out,
+        through=result.through,
+        first_night=result.first_night,
+        counts=EditionDiffCountsOut(**result.counts.model_dump()),
         theses=theses_out,
     )
 
@@ -376,9 +405,10 @@ def get_price_window(
     edition: int | None = Query(
         None,
         ge=0,
-        description="the EDITION the drawer belongs to (the `/scoreboard` param's semantics): an "
-        "edition >= 1 reads every dated overlay on the PUBLIC clock, a live as-of included; 0 / omitted "
-        "with the default 0 = the record's reading, unchanged",
+        description="the EDITION the drawer belongs to (the `/scoreboard` param's semantics, so "
+        "omitted = the newest published edition): an edition >= 1 reads every dated overlay on the "
+        "PUBLIC clock, a live as-of included; 0 (or omitted with nothing published) = the record's "
+        "reading, unchanged",
     ),
     thesis: Thesis = Depends(get_thesis_or_404),
     current_tenant: UUID = Depends(get_current_tenant),

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from uuid import UUID
@@ -97,6 +98,7 @@ def thesis_timeline(
     exclude_annotated: bool | None = None,
     exclude_late: bool | None = None,
     late_ids: frozenset[UUID] | None = None,
+    drop_card_keys: Sequence[str] = (),
 ) -> tuple[list[CallSnapshot], dict[date, CallCard]]:
     """The thesis's HONEST call-of-record timeline up to ``asof``, ascending, plus the cards by as-of
     (for trigger enrichment). ``latest_for_thesis`` dedups to the final card per as-of — its own
@@ -105,7 +107,9 @@ def thesis_timeline(
     policy (``resolve_exclude_annotated``) — rows carrying an active ``exclude`` annotation too, and — under
     the late-night policy (``resolve_exclude_late``) — the thesis's LATE rows too. ``late_ids`` = the late
     rows already judged by the caller (``derive_thesis_record`` reads them once for all four peer reads);
-    ``None`` = judge them here when the policy excludes."""
+    ``None`` = judge them here when the policy excludes. ``drop_card_keys`` (default none) thins the cards
+    for a caller that only needs the snapshots (``SNAPSHOT_UNREAD_CARD_KEYS``); the rows are the same.
+    """
     if late_ids is None:
         late_ids = (
             late_call_ids(conn, thesis_id) if resolve_exclude_late(exclude_late) else frozenset()
@@ -118,6 +122,7 @@ def thesis_timeline(
             include_reconstructed=False,
             exclude_annotated=resolve_exclude_annotated(exclude_annotated),
             exclude_call_ids=late_ids,
+            drop_card_keys=drop_card_keys,
         )
         if c.asof <= asof
     ]
@@ -138,6 +143,14 @@ def thesis_timeline(
 #   computed the same way, on the PUBLIC clock), so those readings do not apply. Its provenance is the
 #   edition itself (the engine fingerprint caption), and its censoring rule is G12's: an arm on the
 #   company's own ESTIMATED join night has an unknowable true arm date.
+
+
+# The top-level card keys ``CallSnapshot.from_card`` never reads — and most of a card's bytes (MEASURED on dev
+# Edition 1: risk_signals 39 MB + triggers_fired 15 MB + counter_case 7 MB of 73 MB over 659 pages). A reader
+# that needs ONLY the snapshot timeline (the editions "what changed" comparison) passes these as
+# ``drop_card_keys`` so they never leave Postgres; the Scoreboard's own record path must NOT (its arm-day
+# triggers, risk tape and de-arm detail read them off the cards). A test pins that the snapshot is identical.
+SNAPSHOT_UNREAD_CARD_KEYS = ("risk_signals", "triggers_fired", "counter_case")
 
 
 @dataclass(frozen=True)
@@ -162,10 +175,22 @@ class RecordSource:
         self.exclude_annotated = resolve_exclude_annotated(exclude_annotated)
         self.exclude_late = resolve_exclude_late(exclude_late)
 
-    def read(self, conn: psycopg.Connection, thesis_id: UUID, asof: date) -> Timeline:
+    def read(
+        self,
+        conn: psycopg.Connection,
+        thesis_id: UUID,
+        asof: date,
+        *,
+        drop_card_keys: Sequence[str] = (),
+    ) -> Timeline:
         late = late_call_ids(conn, thesis_id) if self.exclude_late else frozenset()
         snaps, cards = thesis_timeline(
-            conn, thesis_id, asof, exclude_annotated=self.exclude_annotated, late_ids=late
+            conn,
+            thesis_id,
+            asof,
+            exclude_annotated=self.exclude_annotated,
+            late_ids=late,
+            drop_card_keys=drop_card_keys,
         )
         return Timeline(snaps, cards, late)
 
@@ -181,8 +206,17 @@ class EditionSource:
         self.edition = edition
         self.number = edition.number
 
-    def read(self, conn: psycopg.Connection, thesis_id: UUID, asof: date) -> Timeline:
-        cards = editions_repo.pages_for_thesis(conn, self.edition.id, thesis_id, upto=asof)
+    def read(
+        self,
+        conn: psycopg.Connection,
+        thesis_id: UUID,
+        asof: date,
+        *,
+        drop_card_keys: Sequence[str] = (),
+    ) -> Timeline:
+        cards = editions_repo.pages_for_thesis(
+            conn, self.edition.id, thesis_id, upto=asof, drop_card_keys=drop_card_keys
+        )
         return Timeline([CallSnapshot.from_card(c) for c in cards], {c.asof: c for c in cards})
 
     def joins(self, conn: psycopg.Connection, thesis_id: UUID) -> dict[UUID, JoinDate]:

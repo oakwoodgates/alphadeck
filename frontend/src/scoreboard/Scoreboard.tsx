@@ -26,7 +26,8 @@ import {
 } from "./filters";
 import { LedgerHead } from "./LedgerHead";
 import { MetricsStrip } from "./MetricsStrip";
-import { ReplayPanel } from "./ReplayPanel";
+import { EditionChanges } from "./EditionChanges";
+import { editionName, previousEdition } from "./whatChanged";
 import {
   fmtReturn,
   groupCount,
@@ -258,6 +259,13 @@ export function Scoreboard({ header, asof, onSelect, edition = null, onEditionCh
   const served = servedEdition?.number ?? 0;
   const rerun = isRerun(served);
   const editionLine = editionNote(servedEdition);
+  // Editions S6 — "what changed": the viewed edition against the one before it. The link exists only when
+  // there is a "before" (two or more editions, and not the record itself); the view is a drawer, local state
+  // like the scorecard's, and its comparison is fetched only while it is open.
+  const editionList = editionsQ.data?.editions ?? [];
+  const priorEdition = previousEdition(editionList, served);
+  const servedListed = editionList.find((e) => e.number === served) ?? servedEdition;
+  const [changesOpen, setChangesOpen] = useState(false);
   // the episode-scorecard drawer's open episode — local state only (no URL param this slice); a
   // click opens it, the drawer's ✕/backdrop/Esc close it, and the ledger underneath never rerenders.
   const [openEp, setOpenEp] = useState<ScoreboardEpisodeOut | null>(null);
@@ -306,12 +314,23 @@ export function Scoreboard({ header, asof, onSelect, edition = null, onEditionCh
 
       {data && summary && (
         <div className="sb-body">
-          {/* the edition label + switcher (S4) — quiet, and absent until a second edition exists */}
-          <EditionSwitcher
-            editions={editionsQ.data?.editions ?? []}
-            served={served}
-            onPick={onEditionChange}
-          />
+          {/* the edition label + switcher (S4) — quiet, and absent until a second edition exists — and,
+              beside it, the quiet "what changed" link (S6) when the viewed edition has one before it */}
+          {editionList.length >= 2 && (
+            <div className="sb-editionrow">
+              <EditionSwitcher editions={editionList} served={served} onPick={onEditionChange} />
+              {priorEdition && servedListed && (
+                <button
+                  type="button"
+                  className="sb-whatchanged"
+                  title={`what changed from ${editionName(priorEdition)} to ${editionName(servedListed)}, company by company`}
+                  onClick={() => setChangesOpen(true)}
+                >
+                  what changed since {editionName(priorEdition)}
+                </button>
+              )}
+            </div>
+          )}
           {editionLine && (
             <div
               className="sb-freshline sb-fresh sb-editionline"
@@ -604,14 +623,26 @@ export function Scoreboard({ header, asof, onSelect, edition = null, onEditionCh
             </tbody>
           </table>
           </div>
-
-          {/* the historical (replayed) panel is deliberately OUTSIDE the filter chips: its rows
-              predate decision capture, so "in position" and "needs an answer" could only ever
-              answer the same way for every row there — a control that doesn't discriminate
-              shouldn't render (#7). The chips filter the LIVE record ledger only. */}
-          <ReplayPanel onSelect={onSelect} onOpenScorecard={setOpenEp} view={view} />
         </div>
       )}
+
+      {/* "what changed" (S6) — the comparison in the same reusable slide-out; closing it never touches the
+          ledger underneath. Mounted only while open, so the comparison is fetched only when asked for. */}
+      <Drawer
+        open={changesOpen && priorEdition != null && servedListed != null}
+        onClose={() => setChangesOpen(false)}
+        title={
+          priorEdition && servedListed ? (
+            <>
+              What changed <span className="sc-sub">{editionName(priorEdition)} → {editionName(servedListed)}</span>
+            </>
+          ) : undefined
+        }
+      >
+        {changesOpen && priorEdition && servedListed && (
+          <EditionChanges before={priorEdition} after={servedListed} />
+        )}
+      </Drawer>
 
       {/* the episode scorecard, in a reusable slide-out. A sibling overlay (like the Cockpit's
           NamePanel): opening/closing never touches the ledger. Guarded content so a null episode

@@ -2393,8 +2393,8 @@ happened to exist. So a snapshot is now a one-click safety net — and a nightly
   traceback (`CalledProcessError` prints the command). It now gets the URL WITHOUT the password and the
   password as `PGPASSWORD` in its environment (`_dump_target`; URI userinfo, `?password=` and key=value DSNs
   alike); every message the backup path raises is redacted and raised without the chained subprocess error.
-- **The host bind is on BOTH services.** `./data/backups:/data/backups` (writable, the `scoreboard_replay`
-  idiom minus `:ro`) is bound on `backend` (the button + list) **and** `cron` (the nightly dump), so the two
+- **The host bind is on BOTH services.** `./data/backups:/data/backups` (a writable host bind over the
+  appdata volume's subpath) is bound on `backend` (the button + list) **and** `cron` (the nightly dump), so the two
   share ONE host directory — host-accessible so a dump is copyable off-box. `pg_dump` comes from
   `postgresql-client-16` (PGDG apt repo, matching server 16 — Debian's default client lags and refuses a newer
   server).

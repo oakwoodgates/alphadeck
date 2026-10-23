@@ -120,9 +120,10 @@ vs **PowerShell** `Get-Content file.sql | docker exec -i <dev-pg> psql -U alphad
   volume, i.e. the SAME project + volume as the root stack, so `infra up` touches the **prod** data. That's
   intentional for a uvicorn-on-host dev loop against real data, but it is **not** an isolated dev DB. For
   isolation use `docker-compose.dev.yml` (this doc). Don't point tests or throwaway experiments at `infra`.
-- **Shared host-bind dirs (by design, not a leak).** Both stacks bind the same host `./data/backups` and
-  `./data/scoreboard_replay` (regenerable artifacts + DB dumps, **not** the live DB). That's *why*
-  `refresh-dev` can read prod's dumps from dev. The live DB (the `pgdata` volume) is what's isolated.
+- **Shared host-bind dir (by design, not a leak).** Both stacks bind the same host `./data/backups` (DB
+  dumps, **not** the live DB). That's *why* `refresh-dev` can read prod's dumps from dev. The live DB (the
+  `pgdata` volume) is what's isolated. (A second shared bind, `./data/scoreboard_replay` for the Scoreboard's
+  replay panel, went with the panel in editions S8.)
 - **Source mount + `--reload` (dev only).** The dev backend mounts `./backend:/app`; edit-and-reload works
   because the editable install resolves packages from `/app`. If Windows file-watching misbehaves, comment
   out the `- ./backend:/app` line in `docker-compose.dev.yml` to run the pristine built image.

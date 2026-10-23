@@ -371,8 +371,9 @@ swept a frozen mirror.
 
 **Nothing links into it.** Board, Cockpit and Scoreboard do not know it exists, and it never notifies.
 
-Compose gives sig and dev a READ-ONLY bind of `./data/backtest` at `/data/backtest` (the
-`scoreboard_replay` idiom). Prod's base file does not carry it at all.
+Compose gives sig and dev a READ-ONLY bind of `./data/backtest` at `/data/backtest` (the idiom of the
+Scoreboard's old replay-panel bind, retired with the panel in editions S8). Prod's base file does not carry
+it at all; prod's frozen archive rides `docker-compose.prod.yml`'s read-only bind of `./data/backtest_prod`.
 
 ### Two metric sets, deliberately not merged
 

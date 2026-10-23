@@ -299,7 +299,7 @@ export type LateNightOut = components["schemas"]["LateNightOut"];
 export type EpisodeOperatorOut = components["schemas"]["EpisodeOperatorOut"];
 export type OperatorSpanOut = components["schemas"]["OperatorSpanOut"];
 
-export type ScoreboardReplayResponse = components["schemas"]["ScoreboardReplayResponse"];
+// the per-thesis slice of the /backtest run ledger (the name survives the Scoreboard's retired replay panel)
 export type ScoreboardReplayThesisOut = components["schemas"]["ScoreboardReplayThesisOut"];
 
 // the episode price-window (Slice 3, extended in Slice A, widened in Slice B): the drawer chart's
@@ -313,20 +313,6 @@ export type InsiderBuyOut = components["schemas"]["InsiderBuyOut"];
 export type InsiderSellOut = components["schemas"]["InsiderSellOut"];
 export type CorporateEventOut = components["schemas"]["CorporateEventOut"];
 export type ActivistStakeOut = components["schemas"]["ActivistStakeOut"];
-
-// The HISTORICAL (replayed) panel — served from the operator-kicked artifact, so it is
-// asof-INDEPENDENT (the artifact is what it is; no asof in the key). available:false = no
-// artifact yet; the panel renders nothing at all (absence, not an empty shell).
-export function useScoreboardReplay() {
-  return useQuery({
-    queryKey: ["scoreboard-replay"] as const,
-    queryFn: async () => {
-      const { data, error } = await api.GET("/scoreboard/replay");
-      if (error) throw error;
-      return data;
-    },
-  });
-}
 
 // ONE aggregate GET (cross-thesis is the Scoreboard's nature — deliberately not a useCalls-style
 // fan-out). Read-only on the server; archived theses ride by default (the record is not erased).
@@ -376,6 +362,35 @@ export function useScoreboardEditions() {
     queryKey: ["scoreboard", "editions"] as const,
     queryFn: async () => {
       const { data, error } = await api.GET("/scoreboard/editions");
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+// Editions S6 — "what changed" from one edition to a later one, computed on read (asof-independent: the
+// server compares through the earlier edition's last night). ENABLED only while the view is open, so the
+// Scoreboard never pays for a comparison nobody asked for. The ["scoreboard"] prefix keeps it under the
+// daily pass's invalidation (an edition that grows nightly moves the comparison).
+export type ScoreboardEditionDiffResponse = components["schemas"]["ScoreboardEditionDiffResponse"];
+export type EditionThesisDiffOut = components["schemas"]["EditionThesisDiffOut"];
+export type EditionCompanyDiffOut = components["schemas"]["EditionCompanyDiffOut"];
+export type EditionCompanyNightOut = components["schemas"]["EditionCompanyNightOut"];
+export type EditionEpisodeDiffOut = components["schemas"]["EditionEpisodeDiffOut"];
+export type EditionEpisodeSideOut = components["schemas"]["EditionEpisodeSideOut"];
+export type EditionDiffCountsOut = components["schemas"]["EditionDiffCountsOut"];
+export type EditionNightSpanOut = components["schemas"]["EditionNightSpanOut"];
+export type EditionNightReadOut = components["schemas"]["EditionNightReadOut"];
+export type EditionNightRunOut = components["schemas"]["EditionNightRunOut"];
+
+export function useEditionDiff(from: number, to: number, enabled: boolean) {
+  return useQuery({
+    queryKey: ["scoreboard", "editions", "diff", from, to] as const,
+    enabled,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/scoreboard/editions/diff", {
+        params: { query: { from, to } },
+      });
       if (error) throw error;
       return data;
     },

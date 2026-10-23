@@ -127,6 +127,17 @@ def get_by_number(conn: psycopg.Connection, *, tenant_id: UUID, number: int) -> 
     return _edition(r) if r else None
 
 
+def newest(conn: psycopg.Connection, *, tenant_id: UUID) -> Edition | None:
+    """The tenant's highest-numbered stored edition — the Scoreboard's default view — or ``None`` when
+    nothing is published (the record, Edition 0, is then the only edition)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            _EDITION_SELECT + " WHERE e.tenant_id = %s ORDER BY e.number DESC LIMIT 1", (tenant_id,)
+        )
+        r = cur.fetchone()
+    return _edition(r) if r else None
+
+
 def get_by_cut(
     conn: psycopg.Connection, *, tenant_id: UUID, data_known_by: datetime
 ) -> Edition | None:
@@ -275,15 +286,25 @@ def table_counts(conn: psycopg.Connection) -> dict[str, int]:
 
 
 def pages_for_thesis(
-    conn: psycopg.Connection, edition_id: UUID, thesis_id: UUID, *, upto: date
+    conn: psycopg.Connection,
+    edition_id: UUID,
+    thesis_id: UUID,
+    *,
+    upto: date,
+    drop_card_keys: Sequence[str] = (),
 ) -> list[CallCard]:
     """The edition's frozen pages for one thesis, ASCENDING, ``asof <= upto``. One page per night by the
-    unique key, so there is nothing to dedup; a ``calls`` row is never read."""
+    unique key, so there is nothing to dedup; a ``calls`` row is never read. ``drop_card_keys`` (default
+    empty: the whole card) projects top-level card keys away in SQL — ``calls_repo.latest_for_thesis``'s
+    twin, for a reader that only builds snapshot timelines."""
+    card_sql, card_params = (
+        ("card - %s::text[] AS card", (list(drop_card_keys),)) if drop_card_keys else ("card", ())
+    )
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT card FROM edition_call WHERE edition_id = %s AND thesis_id = %s AND asof <= %s "
-            "ORDER BY asof",
-            (edition_id, thesis_id, upto),
+            f"SELECT {card_sql} FROM edition_call WHERE edition_id = %s AND thesis_id = %s "
+            "AND asof <= %s ORDER BY asof",
+            (*card_params, edition_id, thesis_id, upto),
         )
         return [row_to_call(r) for r in cur.fetchall()]
 

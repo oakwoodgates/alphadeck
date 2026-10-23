@@ -15,7 +15,7 @@ import {
 } from "./rows";
 import { noForwardBar } from "./scorecard";
 
-// One episode ledger row — shared by the live record table and the historical (replayed) panel.
+// One episode ledger row — shared by the Scoreboard's ledger and the backtest run ledger (replayed rows).
 // `historical` swaps the operator cell: history predates decision capture, so it says so
 // (structurally absent) instead of faking a "no decision logged" capture gap.
 // `view` (Slice 2) swaps the middle cells: Summary keeps today's Why · Exit-by · Status · Return ·

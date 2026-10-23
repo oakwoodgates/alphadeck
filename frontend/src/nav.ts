@@ -10,7 +10,7 @@
 //   ?name=<key>          Cockpit only; the NamePanel open on that member (ticker or security_id)
 //   ?rail=0              Cockpit only; the call rail collapsed (absent = open, the default)
 //   ?edition=N           Scoreboard only; the edition shown (0 = the original record; absent = the server's
-//                        default edition)
+//                        default: the newest published edition)
 //
 // App.tsx owns the router wiring; everything here is plain string-building so a router swap (or a
 // test) never touches the scheme itself.

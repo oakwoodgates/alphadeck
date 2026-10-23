@@ -115,17 +115,19 @@ def _edition_counts(db) -> dict[str, int]:
     return c
 
 
-def test_with_no_edition_stored_only_the_record_is_listed(client, db):
+def test_with_no_edition_stored_only_the_record_is_listed_and_is_the_default(client, db):
     r = client.get("/scoreboard/editions")
     assert r.status_code == 200
     body = r.json()
-    assert body["default"] == 0
+    assert body["default"] == 0  # the 0-editions fallback: the newest edition is the record itself
     assert [(e["number"], e["label"], e["cut"]) for e in body["editions"]] == [
         (0, "the original record", None)
     ]
     assert client.get("/scoreboard", params={"asof": ASOF, "edition": 1}).status_code == 404
     zero = client.get("/scoreboard", params={"asof": ASOF, "edition": 0}).json()
     assert zero["edition"]["number"] == 0 and zero["edition"]["n_entries_estimated"] is None
+    default = client.get("/scoreboard", params={"asof": ASOF}).json()
+    assert default["edition"]["number"] == 0 and _strip(default) == _strip(zero)
 
 
 def test_an_edition_is_read_from_its_pages_with_its_own_block(client, db):
@@ -188,13 +190,13 @@ def test_an_edition_is_read_from_its_pages_with_its_own_block(client, db):
 def test_an_edition_read_ignores_a_calls_row_appended_later(client, db):
     ta, tb, sa, sb, conv_a, conf_a = _seed(db)
     first = _strip(client.get("/scoreboard", params={"asof": ASOF, "edition": 1}).json())
-    zero_before = _strip(client.get("/scoreboard", params={"asof": ASOF}).json())
+    zero_before = _strip(client.get("/scoreboard", params={"asof": ASOF, "edition": 0}).json())
     # the nightly appends a NEW call of record that arms A on 07-14, and re-versions 07-09 (armed)
     record_day(db, ta, [conv_a, conf_a], date(2026, 7, 14))
     record_day(db, ta, [conv_a, conf_a], date(2026, 7, 9))
     counts = _edition_counts(db)
     again = _strip(client.get("/scoreboard", params={"asof": ASOF, "edition": 1}).json())
-    zero_after = _strip(client.get("/scoreboard", params={"asof": ASOF}).json())
+    zero_after = _strip(client.get("/scoreboard", params={"asof": ASOF, "edition": 0}).json())
     # the edition is frozen: its pages, not the log. The ONLY fields that move are the nightly FEED's
     # freshness (the calls log's edge — asof-independent by design, and the same on every view)
     feed = {"record_edge", "expected_asof", "days_behind", "stale"}
@@ -210,32 +212,76 @@ def test_an_edition_read_ignores_a_calls_row_appended_later(client, db):
     assert _edition_counts(db) == counts
 
 
-def test_the_default_edition_is_the_setting_and_an_unpublished_default_reads_the_record(
+def _default_number(client) -> tuple[int, int]:
+    """(the edition GET /scoreboard serves with no ``edition``, the list's ``default``) — they must agree."""
+    served = client.get("/scoreboard", params={"asof": ASOF}).json()["edition"]["number"]
+    return served, client.get("/scoreboard/editions").json()["default"]
+
+
+def test_the_default_is_the_newest_published_edition_and_moves_when_a_new_one_is_cut(client, db):
+    ta, tb, sa, sb, conv_a, conf_a = _seed(db)
+    assert _default_number(client) == (
+        1,
+        1,
+    )  # operator decision 2026-10-23: the newest is the default
+    one = _strip(client.get("/scoreboard", params={"asof": ASOF, "edition": 1}).json())
+    assert _strip(client.get("/scoreboard", params={"asof": ASOF}).json()) == one
+    # Edition 0 stays one click away: an explicit edition=0 still reads the record
+    zero = client.get("/scoreboard", params={"asof": ASOF, "edition": 0}).json()
+    assert zero["edition"]["number"] == 0 and "EDA" not in _eps(zero)
+    # cut Edition 2: the default follows it with no setting touched
+    editions_repo.publish_edition(
+        db,
+        tenant_id=ta.tenant_id,
+        number=2,
+        label="second re-run",
+        causes=["rule_change"],
+        engine=ENGINE,
+        data_known_by=datetime(2026, 7, 16, 2, 0, tzinfo=timezone.utc),
+        pages=[assemble_call(ta, [conv_a, conf_a], date(2026, 7, 9), DEFAULT_CONFIG)],
+        entries=[],
+        computed_at=CUT,
+    )
+    db.commit()
+    assert _default_number(client) == (2, 2)
+    # the drawer's price window with no edition reads the newest too (a past as-of is on the public
+    # clock either way, so it matches the explicit read)
+    params = {
+        "thesis_id": str(ta.id),
+        "security_id": str(sa),
+        "start": "2026-07-09",
+        "end": "2026-11-06",
+        "asof": ASOF,
+    }
+    bare = client.get("/scoreboard/price-window", params=params)
+    named = client.get("/scoreboard/price-window", params={**params, "edition": 2})
+    assert bare.status_code == named.status_code == 200 and bare.json() == named.json()
+
+
+def test_the_setting_is_an_optional_override_and_an_unpublished_one_falls_back_to_the_newest(
     client, db, monkeypatch
 ):
     _seed(db)
-    assert client.get("/scoreboard", params={"asof": ASOF}).json()["edition"]["number"] == 0
     try:
+        monkeypatch.setenv("ALPHADECK_SCOREBOARD_DEFAULT_EDITION", "0")
+        get_settings.cache_clear()
+        assert _default_number(client) == (0, 0)  # 0 pins the record
         monkeypatch.setenv("ALPHADECK_SCOREBOARD_DEFAULT_EDITION", "1")
         get_settings.cache_clear()
-        assert client.get("/scoreboard", params={"asof": ASOF}).json()["edition"]["number"] == 1
-        assert client.get("/scoreboard/editions").json()["default"] == 1
-        # an explicit edition=0 still reads the record
-        zero = client.get("/scoreboard", params={"asof": ASOF, "edition": 0}).json()
-        assert zero["edition"]["number"] == 0
+        assert _default_number(client) == (1, 1)
         monkeypatch.setenv("ALPHADECK_SCOREBOARD_DEFAULT_EDITION", "5")
         get_settings.cache_clear()
-        assert client.get("/scoreboard", params={"asof": ASOF}).json()["edition"]["number"] == 0
-        assert client.get("/scoreboard/editions").json()["default"] == 0
+        assert _default_number(client) == (1, 1)  # never a 404: the newest stands in
     finally:
         monkeypatch.delenv("ALPHADECK_SCOREBOARD_DEFAULT_EDITION")
         get_settings.cache_clear()
+    assert get_settings().scoreboard_default_edition is None  # unset = newest
 
 
 def test_the_editions_list_names_the_record_then_each_stored_edition(client, db):
     _seed(db)
     body = client.get("/scoreboard/editions").json()
-    assert body["default"] == 0
+    assert body["default"] == 1  # the newest published edition
     zero, one = body["editions"]
     assert (zero["number"], zero["label"], zero["first_night"]) == (
         0,
@@ -255,7 +301,7 @@ def test_the_drawer_price_window_takes_the_edition(client, db):
         "end": "2026-11-06",
         "asof": ASOF,
     }
-    zero = client.get("/scoreboard/price-window", params=params)
+    zero = client.get("/scoreboard/price-window", params={**params, "edition": 0})
     one = client.get("/scoreboard/price-window", params={**params, "edition": 1})
     assert zero.status_code == one.status_code == 200
     # a past as-of is already on the public clock (#433): the edition's drawer reads the same window

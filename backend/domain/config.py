@@ -869,7 +869,7 @@ def short_hash(full: str | None) -> str | None:
 
     Takes the HASH, not a ``CallConfig``, so it works identically on a freshly computed fingerprint and on
     one read back from the ``calls`` row — and so the slice exists in exactly ONE place. Every surface that
-    shows a shortened policy hash (the Scoreboard drawer's identity line; the replay panel's banner) composes
+    shows a shortened policy hash (the Scoreboard drawer's identity line; a replay snapshot's banner) composes
     it through here; nothing slices a hash inline, and the frontend never slices at all (the full hash still
     rides the wire — #6, show the work).
     """

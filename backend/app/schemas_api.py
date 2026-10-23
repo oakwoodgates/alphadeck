@@ -1432,6 +1432,159 @@ class ScoreboardEditionsResponse(BaseModel):
     editions: list[ScoreboardEditionOut] = []
 
 
+# --- "what changed" between two editions (editions S6) — the wire twin of ``scoreboard.diff`` -------------
+
+
+class EditionNightReadOut(BaseModel):
+    """One company's read on one night in one edition: ``page`` = the page it comes from (the night itself,
+    or that edition's last page before it — the Scoreboard's own carry rule), ``armed``, and — only on an
+    armed night — the call's verdict, entry grade, conviction grade and exit-by."""
+
+    page: date
+    armed: bool
+    verdict: str | None = None
+    entry_grade: str | None = None
+    conviction_grade: str | None = None
+    exit_by: date | None = None
+
+
+class EditionCompanyNightOut(BaseModel):
+    """One changed company-night: ``changed`` = ``["armed"]`` when exactly one edition arms the company, else
+    the fields that differ on a night both arm it. ``cause`` is always null for now: the automatic cut (S7)
+    fills it (rule change / data repair / data that arrived late); a cause is never guessed."""
+
+    night: date
+    before: EditionNightReadOut
+    after: EditionNightReadOut
+    changed: list[str] = []
+    cause: str | None = None
+
+
+class EditionEpisodeSideOut(BaseModel):
+    """One edition's arm episode, scored through the comparison's last night (``forward_return`` = arm ->
+    exit-by on realized closes). ``began_mid_arm`` = armed on that edition's first page for the thesis.
+    """
+
+    arm_date: date
+    last_armed_date: date
+    dearm_date: date | None = None
+    close_reason: str
+    exit_by: date | None = None
+    verdict: str | None = None
+    entry_grade: str | None = None
+    conviction_grade: str | None = None
+    began_mid_arm: bool = False
+    forward_return: float | None = None
+
+
+class EditionEpisodeDiffOut(BaseModel):
+    """One episode change, paired on (thesis, company, arm date): ``matched`` (same arm date, listed only when
+    the run differs — ``differs`` names what), ``moved`` (the same company armed in both over overlapping
+    windows, ``arm_shift_days`` apart), ``appeared`` (later edition only), ``vanished`` (earlier edition only).
+    ``return_delta`` = later minus earlier score when both are scored. ``armed_before_window`` (appeared /
+    vanished) = the run armed before the first compared night and is listed because it runs into the nights
+    both editions cover. ``cause``: null until S7."""
+
+    change: Literal["matched", "moved", "appeared", "vanished"]
+    before: EditionEpisodeSideOut | None = None
+    after: EditionEpisodeSideOut | None = None
+    arm_shift_days: int | None = None
+    differs: list[str] = []
+    return_delta: float | None = None
+    armed_before_window: bool = False
+    cause: str | None = None
+
+
+class EditionNightRunOut(BaseModel):
+    """Consecutive compared nights on which one company's change is the same (the same ``changed`` fields
+    with the same values of those fields on both sides) — ``nights`` folded so a 30-night run reads as one
+    line; ``before`` / ``after`` are the reads on its first night."""
+
+    first: date
+    last: date
+    n_nights: int
+    changed: list[str] = []
+    before: EditionNightReadOut
+    after: EditionNightReadOut
+
+
+class EditionCompanyDiffOut(BaseModel):
+    """One company that changed: every changed night (``nights``), the same nights folded into runs
+    (``runs``), and its episode changes."""
+
+    security_id: UUID
+    ticker: str | None = None
+    company_name: str | None = None
+    nights: list[EditionCompanyNightOut] = []
+    runs: list[EditionNightRunOut] = []
+    episodes: list[EditionEpisodeDiffOut] = []
+
+
+class EditionNightSpanOut(BaseModel):
+    """A run of one edition's pages the other does not cover (``n_nights`` pages, ``first`` -> ``last``)."""
+
+    first: date
+    last: date
+    n_nights: int
+
+
+class EditionThesisDiffOut(BaseModel):
+    """One thesis: the nights compared (``first_night`` -> ``last_night``, the ones BOTH editions cover; null
+    when they share none), the pages only one edition holds (``before_only`` / ``after_only`` spans, with
+    ``n_outside`` unpaired runs lying wholly there — counted, never compared), the nights its own state differs,
+    the matched-episode count, the armed companies with nothing to list, and the companies that changed.
+    """
+
+    thesis_id: UUID
+    name: str
+    archived: bool = False
+    first_night: date | None = None
+    last_night: date | None = None
+    n_nights: int = 0
+    n_state_nights: int = 0
+    before_only: list[EditionNightSpanOut] = []
+    after_only: list[EditionNightSpanOut] = []
+    n_outside: int = 0
+    n_matched: int = 0
+    n_companies_unchanged: int = 0
+    companies: list[EditionCompanyDiffOut] = []
+    error: str | None = None
+
+
+class EditionDiffCountsOut(BaseModel):
+    """The headline counts over every thesis (company-nights and episodes)."""
+
+    n_theses: int = 0
+    n_theses_changed: int = 0
+    n_companies_changed: int = 0
+    n_thesis_nights: int = 0
+    n_state_nights: int = 0
+    n_company_nights_changed: int = 0
+    n_armed_before_only: int = 0
+    n_armed_after_only: int = 0
+    n_fields_changed: int = 0
+    n_episodes_matched: int = 0
+    n_episodes_matched_changed: int = 0
+    n_episodes_moved: int = 0
+    n_episodes_appeared: int = 0
+    n_episodes_vanished: int = 0
+    n_episodes_outside: int = 0
+
+
+class ScoreboardEditionDiffResponse(BaseModel):
+    """What changed from the EARLIER edition (``before``) to the LATER one (``after``), computed on read:
+    grouped thesis -> company, compared through ``through`` (the earlier of the two editions' last nights)
+    from ``first_night``, with the headline ``counts``. Substance only — state, the armed set, verdict,
+    grades, exit-by and each episode's score — never card text."""
+
+    before: ScoreboardEditionOut
+    after: ScoreboardEditionOut
+    through: date | None = None
+    first_night: date | None = None
+    counts: EditionDiffCountsOut
+    theses: list[EditionThesisDiffOut] = []
+
+
 class ScoreboardResponse(BaseModel):
     """The Scoreboard: one EDITION scored as-of ``asof`` — Edition 0 is the call-of-record (the record, never
     a recompute); Edition N >= 1 is a stored re-run, read from its frozen pages (``edition`` says which).
@@ -1695,51 +1848,16 @@ def _operator_span_out(s: OperatorSpan, tickers: Mapping[UUID, str | None]) -> O
 
 
 class ScoreboardReplayThesisOut(BaseModel):
-    """One thesis's slice of the HISTORICAL (replayed) panel — platform track only (decision
-    capture post-dates history, so the operator column is structurally absent, not empty)."""
+    """One thesis's replayed, scored arm episodes — the `/backtest` run ledger's per-thesis slice (the name
+    survives from the Scoreboard's replay-alongside panel, retired by editions S8). Platform track only:
+    decision capture post-dates history, so the operator column is structurally absent, not empty.
+    """
 
     thesis_id: UUID
     name: str
     ticker: str | None = None
     basket_size: int = 0
     episodes: list[ScoreboardEpisodeOut] = []
-
-
-class ScoreboardReplayResponse(BaseModel):
-    """The replay panel: replayed history served from the operator-kicked artifact — a RECOMPUTE
-    (today's code + dials over historical facts), never the record; separate endpoint, separate
-    section, metrics never pooled with the live summary. ``available=false`` = no artifact yet
-    (run ``python -m scoreboard.replay_snapshot`` from the dev venv)."""
-
-    available: bool
-    generated_at: str | None = None
-    window_start: date | None = None
-    window_end: date | None = None
-    known_at_pin: str | None = None
-    record_began: date | None = None
-    window_overlaps_record: bool = False
-    # F4 — the ROSTER provenance of the replayed run: how many theses recomputed on TODAY's basket for want
-    # of a `basket_snapshot` reaching that far back, plus the backend-authored sentence. Defaulted, so an
-    # artifact written before F4 still serves (as "nothing to report" — the honest value for a run that
-    # could not have known). The note is already folded into `banner`; these carry it structured so a later
-    # surface can read the number without parsing prose.
-    roster_fallback_theses: int = 0
-    roster_source_note: str | None = None
-    # F2 — the replayed run's own identity: the CallConfig fingerprint and the image SHA behind this
-    # panel. The short form is already folded into `banner` (composed server-side, so the hash is
-    # shortened in exactly one place — `domain.config.short_hash`); these carry the FULL values so
-    # provenance can always show its work (#6). Defaulted: an artifact written before F2 still serves.
-    config_hash: str | None = None
-    code_sha: str | None = None
-    policy_label: str | None = None  # server-composed display form; the FE renders, never slices
-    banner: str | None = None
-    min_n: int = 0
-    n_theses: int = 0
-    n_episodes: int = 0
-    n_censored: int = 0
-    n_eligible: int = 0
-    metrics: list[ScoreboardMetricOut] = []
-    theses: list[ScoreboardReplayThesisOut] = []
 
 
 class MemberDisplaySignalsOut(BaseModel):
@@ -2704,7 +2822,7 @@ class BacktestLedgerOut(BaseModel):
     It reuses `ScoreboardReplayThesisOut` / `ScoreboardEpisodeOut` deliberately: the rows ARE replayed,
     scored arm episodes, and re-declaring a parallel shape would give the two surfaces two definitions
     of the same row and let their renderers drift. The front end therefore renders this through the
-    same ledger components the Scoreboard's replay panel uses.
+    same ledger components the Scoreboard's own ledger uses.
 
     A DRILL-DOWN, never a ranking: theses come back in NAME order (fixed by the writer), which is the
     one ordering that cannot be read as a leaderboard (invariant #4). The pooled view above it carries
