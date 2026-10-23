@@ -455,7 +455,9 @@ visible, distinguished.
   narration fail-open keeps a name even when its prose breaks. *Enforced by:* the answer-key recall re-score on
   every discovery-touching change (2026-07 live re-score: **31/32 holds** — ATAI, the historical miss, now
   RECALLED; the one non-placeable is PRTG, delisted out of `company_tickers`, surfaced shown-not-placed →
-  counted recalled by operator ruling; details in the fixture header) — the
+  counted recalled by operator ruling; details in the fixture header. 2026-10-23 re-score (EFTS error-body
+  fix): 30/30 on the placeable set; ATAI delisted (closed 2026-09-11, SEC lists no ticker) and moved to the
+  surfaced-only canaries — it surfaced AMBIGUOUS, never dropped) — the
   ground truth is the **committed fixture `backend/tests/fixtures/recall_answer_key.py`** (the operator seeds +
   the 32 acceptable-ticker groups + the collision-junk set that must stay OUT of PLACED; previously it lived only
   in gitignored scripts, so the gate wasn't re-runnable); `workbench/discovery.py` (the `503`s); `fulltext.classify`

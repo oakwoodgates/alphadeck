@@ -589,7 +589,8 @@ own unit gate; none was caught by anything but a recall re-score.)
 
 Rules this imposes on any change touching discovery / classify / filters / caps / term tiers:
 1. **No change may REDUCE recall to gain precision, speed, or cost without PROVING recall is preserved.**
-   Re-run the answer-key score; recall must hold (currently 31/32). "Probably fine" / "the dropped pages
+   Re-run the answer-key score; recall must hold (currently 30/30 on the placeable set; PRTG and ATAI, both
+   delisted, are surfaced-only canaries — 2026-10-23). "Probably fine" / "the dropped pages
    are noise anyway" is an assumption, not proof — and exactly the wording that preceded the misses above.
 2. **No name may lose placement/surfacing authority SILENTLY.** If a name changes tier, gets filtered,
    or stops placing, that effect must be VISIBLE — logged, flagged, or surfaced. A demotion the operator

@@ -29,6 +29,19 @@
 # name: #9 tests SILENT DROPS, not placeability — a name the operator can see
 # and judge was never dropped.
 #
+# THE ATAI RULING (operator, 2026-10-23 — the PRTG precedent, applied): ATAI
+# (AtaiBeckley Inc., CIK 0002081043) DELISTED. MEASURED 2026-10-23: SEC's
+# submissions record for the CIK lists NO ticker and NO exchange; SEC's
+# company_tickers_exchange map has no ATAI row; prod's price tape ends
+# 2026-09-11, and the stopped-feed classifier marks it CLOSED at 2026-09-11 (a
+# delisting-type filing near its last bar). The 2026-10-23 re-score (the EFTS
+# error-body fix, a clean 256/256-page full-scope run, zero error replies) found
+# it — "AtaiBeckley Inc.", 20 matched terms, the correct CIK as its ONE
+# candidate — and the inactive-listing gate correctly held it as AMBIGUOUS (one
+# click re-places it): visible, never dropped. Ruling: ATAI moves to
+# SURFACED_ONLY_CANARY; the HARD BAR is now 30/30 on ANSWER. That run: 30/30,
+# ATAI surfaced (ambiguous), PRTG absent.
+#
 # WHY IT'S COMMITTED: #9 is a standing invariant. Its guarantee ("no name
 # silently dropped") is only testable if this ground truth is committed — it
 # previously lived only in gitignored temp scripts, meaning the recall gate
@@ -40,7 +53,7 @@
 # several master ticker rows — common + warrants, e.g. KTTAW/PBMWW — and
 # ids_for_ciks resolves to one of them arbitrarily; compare a company's
 # ticker GROUP against ALL tickers of each surfaced CIK, or ticker-string
-# scoring miscounts). The bar is 31/31 on ANSWER. Separately, CHECK and
+# scoring miscounts). The bar is 30/30 on ANSWER. Separately, CHECK and
 # REPORT (never assume, never count) whether each SURFACED_ONLY_CANARY name
 # appears anywhere on the draft (any status — the Couldn't-resolve drawer
 # included). A name in ANSWER that does NOT appear in discovery output is a
@@ -71,15 +84,14 @@ SEEDS: list[str] = [
 
 # The ground truth — one set of ACCEPTABLE tickers per company (a set handles
 # rebrands / dual tickers on one CIK, e.g. Cybin CYBN/HELP, MindMed→Definium
-# MNMD/DFTX). 31 placeable companies: the CORE psychedelic developers + the
+# MNMD/DFTX). 30 placeable companies: the CORE psychedelic developers + the
 # ADJACENT CNS bracket (esketamine/ketamine names — NBIX/ALKS/AXSM/ANRO/…). A
 # company is "recalled" if ANY ticker in its set appears in discovery's
-# PLACED+VERIFY. (PRTG moved to SURFACED_ONLY_CANARY — ruling v2 above.)
+# PLACED+VERIFY. (PRTG and ATAI moved to SURFACED_ONLY_CANARY — the rulings above.)
 ANSWER: list[set[str]] = [
     {"CMPS"},
     {"CYBN", "HELP"},
     {"MNMD", "DFTX"},
-    {"ATAI"},
     {"GHRS"},
     {"DRUG"},
     {"ENVB"},
@@ -109,15 +121,18 @@ ANSWER: list[set[str]] = [
     {"XENE"},
 ]
 
-# SURFACED-ONLY canaries (ruling v2, 2026-09-01) — real on-thesis names that are
-# STRUCTURALLY UNPLACEABLE (delisted out of company_tickers → no master row) and
-# reach a draft only through the stochastic organizer/tail-sweep corner. NOT
-# counted toward the recall bar; a re-score CHECKS and REPORTS each (surfaced
-# shown-not-placed, or absent) so the corner's behavior stays on the record. A
-# future mechanism that surfaces these RELIABLY would be measured against this
-# list — and a canary that RELISTS moves back into ANSWER.
+# SURFACED-ONLY canaries (ruling v2, 2026-09-01; ATAI 2026-10-23) — real on-thesis
+# names that DELISTED, so they are not auto-placeable: PRTG left company_tickers
+# (no master row) and reaches a draft only through the stochastic
+# organizer/tail-sweep corner; ATAI keeps its master row but SEC lists no ticker
+# for it, so the inactive-listing gate holds it AMBIGUOUS. NOT counted toward the
+# recall bar; a re-score CHECKS and REPORTS each (surfaced at any status, or
+# absent) so their behavior stays on the record. A future mechanism that surfaces
+# these RELIABLY would be measured against this list — and a canary that RELISTS
+# moves back into ANSWER.
 SURFACED_ONLY_CANARY: list[set[str]] = [
     {"PRTG"},  # Portage Biotech — delisted; last recorded surfacing 2026-07-06
+    {"ATAI"},  # AtaiBeckley — delisted (closed 2026-09-11); surfaced AMBIGUOUS 2026-10-23
 ]
 
 # The named collision "junk" the OLD (LLM-tiered) draft wrongly PLACED — miners /

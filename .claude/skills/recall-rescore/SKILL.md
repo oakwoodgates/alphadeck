@@ -2,8 +2,9 @@
 name: recall-rescore
 description: >-
   Run INVARIANT #9's recall gate — a LIVE discovery run against the psychedelic
-  thesis, scored at CIK level against the committed answer key (currently 31/32
-  + PRTG surfaced-not-placed). REQUIRED after any change touching discovery,
+  thesis, scored at CIK level against the committed answer key (hard bar 30/30
+  on ANSWER, plus a report of whether the PRTG and ATAI canaries surfaced, any
+  status). REQUIRED after any change touching discovery,
   classify, filters, caps, or term tiers; also trigger on "re-score recall",
   "run the answer key". Runs on DEV, never prod; a silent drop is a system
   failure, never waved through.
@@ -42,9 +43,9 @@ and this skill is its executable home.
 3. **Score at CIK level** — write a scratch scorer (scratchpad, not the repo)
    importing `SEEDS`/`ANSWER` from the fixture. A company counts recalled if ANY
    ticker in its group matches ANY ticker of a surfaced CIK (a CIK carries several
-   ticker rows — common + warrants; ticker-string equality miscounts). A
-   delisted, no-master-row name (PRTG) counts recalled iff it SURFACES
-   shown-not-placed — check it surfaced, don't assume.
-4. **Verdict:** recall holds at the fixture's current bar (31/32 + the PRTG
-   surfacing). Report the MEASURED score, the coverage report, and — on any miss —
+   ticker rows — common + warrants; ticker-string equality miscounts). The
+   delisted canaries (`SURFACED_ONLY_CANARY`: PRTG, ATAI) are not counted —
+   check and report whether each surfaced (any status), don't assume.
+4. **Verdict:** recall holds at the fixture's current bar (30/30 on ANSWER, plus
+   the PRTG / ATAI canary report). Report the MEASURED score, the coverage report, and — on any miss —
    which company, and the investigation, before any change lands.
