@@ -20,6 +20,7 @@ Auth stays deferred project-wide (these routes ride the same tenancy seam as the
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from datetime import date, datetime, time, timedelta, timezone, tzinfo
 from uuid import UUID
 
@@ -43,6 +44,7 @@ from app.schemas_api import (
     AdminRunsOut,
     AdminSplitDefectOut,
     AdminSplitOut,
+    AdminSplitSettledOut,
     AdminStaleTapeOut,
     AdminStatusOut,
     AdminTapeOut,
@@ -443,6 +445,18 @@ def _tape_out(payloads: list[dict]) -> AdminTapeOut | None:
     return None
 
 
+def _split_row(d: Mapping) -> dict:
+    """One artifact split row (``SplitDefect.to_json``) as the panel's fields; raises on a malformed row."""
+    return {
+        "security_id": UUID(str(d["security_id"])),
+        "ticker": d.get("ticker"),
+        "kind": str(d["kind"]),
+        "dates": [date.fromisoformat(x) for x in d.get("dates") or []],
+        "factor": float(d["factor"]),
+        "events": int(d.get("events") or 0),
+    }
+
+
 def _split_out(payloads: list[dict]) -> AdminSplitOut | None:
     """The SPLIT-BASIS panel (T4), from the artifacts already read (no DB query — this router owns no
     tables, and a second definition of "defect" here could drift from the one the page fired on). The
@@ -452,7 +466,8 @@ def _split_out(payloads: list[dict]) -> AdminSplitOut | None:
     set when the newest such artifact that ran the monitor at all (``split_evaluated`` present) FAILED its
     scan, so a broken monitor shows instead of the panel quietly aging. ``None`` = no pass has scanned yet
     (the quiet state right after deploy). Fail-open per row, like ``_tape_out``: a malformed row is
-    skipped."""
+    skipped. ``settled`` (the flaps no reader sees on two bases) comes from the same artifact's
+    ``split_settled`` — absent on one written before the settle check, read as nothing settled."""
     newest_error: str | None = None
     seen_live = False
     for doc in payloads:
@@ -466,15 +481,14 @@ def _split_out(payloads: list[dict]) -> AdminSplitOut | None:
         rows: list[AdminSplitDefectOut] = []
         for d in doc.get("split_defects") or []:
             try:
-                rows.append(
-                    AdminSplitDefectOut(
-                        security_id=UUID(str(d["security_id"])),
-                        ticker=d.get("ticker"),
-                        kind=str(d["kind"]),
-                        dates=[date.fromisoformat(x) for x in d.get("dates") or []],
-                        factor=float(d["factor"]),
-                        events=int(d.get("events") or 0),
-                    )
+                rows.append(AdminSplitDefectOut(**_split_row(d)))
+            except Exception:  # noqa: BLE001 — skip a malformed row, never blank the panel
+                continue
+        settled: list[AdminSplitSettledOut] = []
+        for d in doc.get("split_settled") or []:
+            try:
+                settled.append(
+                    AdminSplitSettledOut(**_split_row(d), reason=str(d.get("reason") or ""))
                 )
             except Exception:  # noqa: BLE001 — skip a malformed row, never blank the panel
                 continue
@@ -484,6 +498,7 @@ def _split_out(payloads: list[dict]) -> AdminSplitOut | None:
                 ran_at=str(doc["started_at"]),
                 window_days=int(doc.get("split_window_days") or 0),
                 defects=rows,
+                settled=settled,
                 newly_flagged=list(split_new_labels(doc)),
                 error=newest_error,
             )
@@ -794,7 +809,8 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
     Informational: it never changes ``reason``, the verdict, or ``cron.alarms``, and never pages.
 
     ``split_defects`` (T4) is the split-basis panel — every basket name whose stored tape mixes two split
-    bases (island / cliff / flap), from the newest artifact that scanned; flag only, never the verdict.
+    bases (island / cliff / flap) as some reader sees it, from the newest artifact that scanned; flag only,
+    never the verdict. Its ``settled`` rows are flaps no reader sees on two bases — quiet, never an alarm.
     """
     run_at = _run_at()
     now = _now()

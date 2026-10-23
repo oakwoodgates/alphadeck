@@ -1045,6 +1045,38 @@ describe("Admin — split-basis defects (T4)", () => {
     expect(screen.getByTestId("adm-split-error").textContent).toContain("OSError: down");
     expect(screen.getByTestId("adm-split-defects")).toBeTruthy();
   });
+
+  it("SETTLED flaps are one quiet, collapsed gray line — never the loud block", () => {
+    const settled = {
+      ...SPLIT_PANEL.defects[1],
+      reason: "the stored history changed basis and back, but every night's view reads a single basis",
+    };
+    h.status = {
+      ...h.status,
+      data: {
+        ...STATUS_CURRENT,
+        split_defects: { ...SPLIT_PANEL, defects: [], newly_flagged: [], settled: [settled] },
+      },
+    };
+    renderAdmin();
+    expect(screen.queryByTestId("adm-split-defects")).toBeNull(); // no alarm block for a settled row
+    const line = screen.getByTestId("adm-split-settled");
+    expect(line.tagName).toBe("DETAILS"); // collapsed until opened
+    expect((line as HTMLDetailsElement).open).toBe(false);
+    const summary = line.querySelector("summary");
+    expect(summary?.className).toContain("adm-quiet");
+    expect(summary?.className).not.toContain("adm-loud");
+    expect(summary?.textContent).toContain("1 settled");
+    expect(summary?.textContent).toContain("no view is affected");
+    expect(line.textContent).toContain("MPU"); // still named (WB#2)
+    expect(line.textContent).toContain("(+271 more)");
+  });
+
+  it("an older backend without the settled field renders no settled line", () => {
+    h.status = { ...h.status, data: { ...STATUS_CURRENT, split_defects: SPLIT_PANEL } };
+    renderAdmin();
+    expect(screen.queryByTestId("adm-split-settled")).toBeNull();
+  });
 });
 
 describe("Admin — the price feed repairs panel takes the rows it can act on (T2/Q8)", () => {

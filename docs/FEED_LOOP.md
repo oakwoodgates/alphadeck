@@ -1206,6 +1206,23 @@ re-based ONCE since (GAME, JUNS, MDCX, NXL — the mixed-basis window between a 
 now consistent, so correctly not flagged today; their breakout factors match their re-base factors), and 2
 read as genuine volume-spike moves on today's tape (JAGX 09-22 on x383 volume, WGRX's 09-16 pump).
 
+**Settled flaps (2026-10-23).** A flap is a fact about our STORED versions, not about what a reader saw:
+when the vendor re-based a name's whole history at once (and back), every night's view still sat on one
+basis. So a flap stays a defect only if some reader sees two bases — (a) the newest-version tape (what the
+live call reads) has a break in the window (an island / cliff, or a flapping bar a basis away from both
+neighbors), or (b) on some night in the window (every calendar day), the HISTORY view on the public clock
+(`db.public_clock`'s own SQL: a bar before a listed split reads its newest version every night) reads a
+lookback — the longest declared price horizon of any reader, 600 days today — with a bar whose version
+ratio to the newest tape sits x>=1.8 off the night's median ratio. Otherwise it is **settled**
+(`split_basis.settle_flap`): `split_settled` on the artifact (with its `reason`), one quiet gray line on
+Admin, never paged, never an alarm, never in the diff baseline. Only the names the detectors flag get the
+check (`settle_split_defects`, one more SELECT on the scan's read-only connection). The S3 data flag applies
+the same rule to a name whose flap bars survive its own S2 per-bar rule. MEASURED on prod (read-only,
+asof 2026-10-22): all ten of that night's flaps (ARTL, BTOC, BURU, LRHC, MPU, REAX, SEGG, VRME, VWAV, YYAI)
+settle, every one on bars a confirmed listed split covers; the check adds ~0.9 s to the ~2.6 s scan.
+Without S2's listed-split rule the same check finds every one of them mixed (VWAV's 09-14..16 island read
+x20 off for 29 nights), so the verdict is the split list's repair taking effect, not a vacuous pass.
+
 **Where it shows, and what it never does.** The artifact carries `split_evaluated` / `split_error` /
 `split_window_days` / `split_defects` (`[{security_id, ticker, kind, dates, factor, events}]`, at most the 12
 newest dates per row) / `split_defects_new`; the printed report shows NEW defects loud and the known ones as

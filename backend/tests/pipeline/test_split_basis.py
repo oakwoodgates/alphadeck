@@ -30,8 +30,11 @@ from pipeline.split_basis import (
     DATES_CAP,
     FLAP,
     ISLAND,
+    SETTLED_REASON,
     BarVersion,
     Finding,
+    PublicVersion,
+    SettledDefect,
     SplitDefect,
     SplitScan,
     TapeBar,
@@ -43,7 +46,10 @@ from pipeline.split_basis import (
     report_lines,
     run_split_scan,
     scan_split_defects,
+    settle_flap,
+    settle_split_defects,
     tape_findings,
+    view_lookback_days,
     window_days,
 )
 
@@ -210,6 +216,205 @@ def test_the_window_covers_the_widest_price_lookback_on_the_call_path():
         c.laggard_lookback_days,
         c.breakdown_core_lookback_days,
     )
+
+
+def test_the_settle_lookback_is_the_longest_DECLARED_price_horizon_of_any_reader():
+    """Read off the horizon registry (call path and display columns alike), never shorter than the window."""
+    from domain.config import DEFAULT_CONFIG as c
+    from signals.horizons import call_horizons, display_horizons
+
+    declared = [
+        h["fact_price_eod"]
+        for h in (*call_horizons(c), *display_horizons())
+        if h.get("fact_price_eod") is not None
+    ]
+    assert view_lookback_days() == max(declared) >= window_days()
+
+
+# --- the SETTLE check: a flap no reader sees on two bases (direct-input contract cases) ------------------
+#
+# Each case is a version history built for the rule it pins (no real tape needed: the rule is a statement
+# about which version each night's view picks). Instants are UTC: a bar's first version is public at its
+# session settle, a re-version from its own recorded_at (db.public_clock's plain price rule); a night's view
+# is known through the end of that day.
+
+_D0 = date(2026, 6, 1)
+_BARS = 40
+_ASOF_S = date(2026, 8, 15)
+_T1 = datetime(2026, 7, 20, 2, 30, tzinfo=timezone.utc)  # the vendor re-bases (night of 07-19 ET)
+_T2 = datetime(2026, 7, 25, 2, 30, tzinfo=timezone.utc)  # ... and flips it back
+
+
+def _settle(d: date) -> datetime:
+    return datetime(d.year, d.month, d.day, 22, 0, tzinfo=timezone.utc)
+
+
+def _night(n: date) -> datetime:
+    return datetime(n.year, n.month, n.day, 23, 59, tzinfo=timezone.utc)
+
+
+def _flipping(rebase_at, *, publics_at_settle: bool = False, k: float = 10.0):
+    """``_BARS`` smooth daily bars (~5.0 on 1M shares), each stored once the next morning, then re-based by
+    ``k`` at ``rebase_at(i)`` (None = never) and flipped back at ``_T2`` — every flipped bar FLAPS. With
+    ``publics_at_settle`` every version is public at the bar's settle (the listed-split rule the SQL applies
+    to a bar before a listed split)."""
+    out: dict[date, list[PublicVersion]] = {}
+    for i in range(_BARS):
+        d = _D0 + timedelta(days=i)
+        c = 5.0 + 0.05 * (i % 3)
+        stored = _settle(d) + timedelta(hours=4, minutes=30)
+        vs = [(stored, c)]
+        at = rebase_at(i)
+        if at is not None:
+            vs += [(at, c * k), (_T2, c)]
+        out[d] = [
+            PublicVersion(
+                _settle(d) if (publics_at_settle or j == 0) else max(_settle(d), rec),
+                rec,
+                uuid.uuid4(),
+                close,
+                1e6,
+            )
+            for j, (rec, close) in enumerate(vs)
+        ]
+    return out
+
+
+def _flap_dates(versions):
+    hist = {d: [BarVersion(v.recorded_at, v.close) for v in vs] for d, vs in versions.items()}
+    (f,) = flap_findings(hist, flap_since=_ASOF_S - timedelta(days=90))
+    return f.dates
+
+
+def _verdict(versions, **kw):
+    return settle_flap(
+        _flap_dates(versions),
+        versions,
+        asof=_ASOF_S,
+        window=430,
+        lookback=600,
+        known_at=_night,
+        **kw,
+    )
+
+
+def test_a_WHOLESALE_re_base_is_SETTLED_every_night_read_one_basis():
+    """The vendor re-based EVERY bar at once and back: the stored history flaps, yet each night's view sat on
+    one basis (x1 before, x10 on every bar between the flips, x1 after)."""
+    versions = _flipping(lambda i: _T1)
+    v = _verdict(versions)
+    assert v.settled is True and v.mixed is None
+    assert v.reason.startswith(SETTLED_REASON) and v.nights == 431
+
+
+def test_a_PARTIAL_re_base_that_leaves_a_night_MIXED_stays_a_defect():
+    """The vendor re-based the 10 oldest bars on 07-20 and the other 30 only on 07-22: the views of 07-20 and
+    07-21 read 10 bars at x10 beside 30 at x1 — two bases in one lookback. The defect names that night.
+    """
+    versions = _flipping(lambda i: _T1 if i < 10 else _T1 + timedelta(days=2))
+    v = _verdict(versions)
+    assert v.settled is False and v.mixed is not None
+    assert v.mixed.night == date(2026, 7, 20) and v.mixed.nights == 2
+    assert v.mixed.events == 10 and v.mixed.dates == tuple(
+        _D0 + timedelta(days=i) for i in range(10)
+    )
+    assert v.mixed.majority == pytest.approx(1.0) and v.mixed.other == pytest.approx(10.0)
+    assert "the history view of 2026-07-20 read 10 bar(s)" in v.reason and "x10 apart" in v.reason
+
+
+def test_the_same_partial_re_base_on_bars_a_LISTED_SPLIT_covers_is_SETTLED():
+    """db.public_clock puts every version of a bar before a listed split at its session settle, so every
+    night's view reads the bar's NEWEST version — the partial re-base never reaches a view."""
+    versions = _flipping(
+        lambda i: _T1 if i < 10 else _T1 + timedelta(days=2), publics_at_settle=True
+    )
+    assert _verdict(versions).settled is True
+
+
+def test_a_NEWEST_TAPE_cliff_keeps_the_flap_a_defect():
+    """What the live call reads: the newest tape steps up x10 on a /10 volume at bar 20 (an unadjusted
+    reverse split, T4's cliff). A flap elsewhere on that name is not settled — the live tape mixes bases.
+    """
+    versions = _flipping(lambda i: _T1 if i == 5 else None)
+    for i in range(20, _BARS):
+        d = _D0 + timedelta(days=i)
+        versions[d] = [replace_close(v, v.close * 10, 1e5) for v in versions[d]]
+    assert [f.kind for f in tape_findings(_newest_tape(versions))] == [CLIFF]
+    v = _verdict(versions)
+    assert v.settled is False and v.mixed is None
+    assert "newest-version tape itself carries a basis break" in v.reason and "cliff" in v.reason
+
+
+def test_a_flapping_bar_whose_NEWEST_version_sits_a_basis_off_its_neighbors_is_a_defect():
+    """Flipped up, back, and up again: its newest version reads x10 beside x1 neighbors on the live tape,
+    on flat volume — the level gates do not judge it, the bar-to-neighbor rule does."""
+    versions = _flipping(lambda i: None)
+    d = _D0 + timedelta(days=5)
+    (v1,) = versions[d]
+    versions[d] = [
+        v1,
+        PublicVersion(_T1, _T1, uuid.uuid4(), 50.0, 1e6),
+        PublicVersion(_T1 + timedelta(days=1), _T1 + timedelta(days=1), uuid.uuid4(), 5.0, 1e6),
+        PublicVersion(_T2, _T2, uuid.uuid4(), 50.0, 1e6),
+    ]
+    assert tape_findings(_newest_tape(versions)) == []
+    v = _verdict(versions)
+    assert v.settled is False and "the newest version of 2026-06-06 sits a basis away" in v.reason
+
+
+def test_the_verdict_is_the_VIEWS_on_the_view_scale_the_evidence_is_put_on_it():
+    """on_view_scale multiplies every version of one bar by the same factor, so the raw ratio IS the view's
+    ratio; the evidence reads the off bar on that night's scale (a 1-for-2 split listed after the tape: the
+    07-20 view, before it, reads the stored post-split values / 2)."""
+    from decimal import Decimal
+
+    versions = _flipping(lambda i: _T1 if i < 10 else _T1 + timedelta(days=2))
+    split = {
+        "key_date": date(2026, 8, 3),
+        "effective_date": date(2026, 8, 3),
+        "ratio_from": Decimal(2),
+        "ratio_to": Decimal(1),
+        "status": "confirmed",
+    }
+    from domain.splits import STORE_THROUGH_COL, on_view_scale
+
+    store = date(2026, 8, 14)
+    # the property the verdict rests on: the 07-20 view's picks and the newest tape, both put on that
+    # night's scale by the history views' own conversion, keep every bar's raw version ratio
+    k = _night(date(2026, 7, 20))
+    picks, refs = [], []
+    for d, vs in sorted(versions.items()):
+        ordered = sorted(vs, key=lambda v: (v.public, v.recorded_at, v.vid))
+        pick = [v for v in ordered if v.public <= k][-1]
+        newest = max(vs, key=lambda v: (v.recorded_at, v.vid))
+        picks.append({"d": d, "close": pick.close, STORE_THROUGH_COL: store})
+        refs.append({"d": d, "close": newest.close, STORE_THROUGH_COL: store})
+    on_view = on_view_scale(picks, [split], through=date(2026, 7, 20))
+    ref_view = on_view_scale(refs, [split], through=date(2026, 7, 20))
+    assert on_view[0]["close"] == pytest.approx(picks[0]["close"] / 2)  # the conversion did apply
+    for p, r, pv, rv in zip(picks, refs, on_view, ref_view):
+        assert pv["close"] / rv["close"] == pytest.approx(p["close"] / r["close"])
+
+    plain = _verdict(versions)
+    scaled = _verdict(versions, split_rows=[split], store_through=store)
+    assert scaled.settled is plain.settled is False
+    assert scaled.mixed.night == plain.mixed.night and scaled.mixed.factor == plain.mixed.factor
+    d, seen, ref = scaled.mixed.example
+    assert (
+        d == _D0 and seen == pytest.approx(25.0) and ref == pytest.approx(2.5)
+    )  # x10 vs x1, both / 2
+
+
+def replace_close(v: PublicVersion, close: float, volume: float) -> PublicVersion:
+    return PublicVersion(v.public, v.recorded_at, v.vid, close, volume)
+
+
+def _newest_tape(versions):
+    return [
+        TapeBar(d, n.close, n.volume)
+        for d in sorted(versions)
+        for n in [max(versions[d], key=lambda v: (v.recorded_at, v.vid))]
+    ]
 
 
 # --- the nightly integration (pure parts) ----------------------------------------------------------------
@@ -635,3 +840,181 @@ def test_a_defect_genuinely_CLEARED_during_a_catch_up_and_then_BACK_pages_again(
     db.commit()
     back = _split_pass(tmp_path, 20, [(t_vwav, None), (t_myps, None), (second, None)])
     assert {(d.ticker, d.kind) for d in back.new} == {("VWAV", ISLAND), ("VWAV", FLAP)}
+
+
+# --- the SETTLE check on a real DB: the history views' own public-clock SQL picks the versions ----------
+#
+# The same direct-input layouts as the pure cases above, stored as rows (each version at its real stamp);
+# the public instants now come from ``db.public_clock`` itself — a first version at its 18:00 ET settle, a
+# re-version from its recorded_at, and every version of a bar before a LISTED split at its settle.
+
+_SPLIT_DAY = date(2026, 7, 13)
+
+
+def _store_flipping(db, sid, *, partial: bool, listed: bool):
+    """40 smooth bars 06-01..07-10, re-based x10 (all at _T1, or the 10 oldest at _T1 and the rest two days
+    later) and flipped back at _T2. ``listed``: 5 post-split bars 07-13..07-17 (stored once) and a confirmed
+    1-for-2 split on the list at 07-13 — the stored tape already on its scale (continuous)."""
+    from repositories import split_repo
+
+    rows = []
+    for i in range(_BARS):
+        d = _D0 + timedelta(days=i)
+        c = 5.0 + 0.05 * (i % 3)
+        rows.append((d, c, 1e6, _settle(d) + timedelta(hours=4, minutes=30)))
+        at = _T1 if (not partial or i < 10) else _T1 + timedelta(days=2)
+        rows += [(d, c * 10, 1e5, at), (d, c, 1e6, _T2)]
+    if listed:
+        for i in range(5):
+            d = _SPLIT_DAY + timedelta(days=i)
+            rows.append((d, 5.0 + 0.05 * (i % 3), 1e6, _settle(d) + timedelta(hours=4, minutes=30)))
+    with db.cursor() as cur:
+        for d, c, v, at in rows:
+            cur.execute(
+                "INSERT INTO fact_price_eod (tenant_id, security_id, d, close, volume, valid_from, "
+                "recorded_at) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                (DEFAULT_TENANT_ID, sid, d, c, v, d, at),
+            )
+    if listed:
+        split_repo.append_version(
+            db,
+            tenant_id=DEFAULT_TENANT_ID,
+            security_id=sid,
+            key_date=_SPLIT_DAY,
+            values={
+                "effective_date": _SPLIT_DAY,
+                "ratio_from": 2,
+                "ratio_to": 1,
+                "status": "confirmed",
+                "confirmed_via": "auto:sec+polygon",
+                "value_source": "both",
+                "valid_from": _SPLIT_DAY,
+            },
+            action="backfill",
+            author="system:test",
+        )
+    db.commit()
+
+
+@pytest.mark.parametrize(
+    "partial, listed, settled",
+    [
+        (False, False, True),  # a wholesale re-base: every night read one basis
+        (True, False, False),  # a partial one: the 07-20 / 07-21 views read two
+        (
+            True,
+            True,
+            True,
+        ),  # the same partial one on bars a listed split covers: newest read every night
+    ],
+)
+def test_the_settle_check_reads_the_PUBLIC_CLOCK_and_WRITES_NOTHING(db, partial, listed, settled):
+    sid = _security(db, "FLIP")
+    _store_flipping(db, sid, partial=partial, listed=listed)
+    _thesis(db, "active", [("FLIP", sid)])
+    before = (_count(db), _count(db, "security_split"))
+
+    defects = scan_split_defects(db, asof=_ASOF_S)
+    assert [(d.ticker, d.kind, d.events) for d in defects] == [("FLIP", FLAP, _BARS)]
+    kept, done = settle_split_defects(db, defects, asof=_ASOF_S)
+    db.rollback()
+
+    assert (_count(db), _count(db, "security_split")) == before  # count the tables: SELECTs only
+    if settled:
+        assert kept == () and [s.defect for s in done] == list(defects)
+        assert done[0].reason.startswith(SETTLED_REASON)
+    else:
+        assert done == () and len(kept) == 1
+        # _T1 (02:30 UTC on 07-20) is 22:30 ET on 07-19 — the nightly pass of 07-19, so the view of that
+        # MARKET day (known through its end, ``known_at_for_asof``) already reads the re-based bars
+        assert "the history view of 2026-07-19 read 10 bar(s)" in kept[0].evidence
+        assert "(2 night(s) mixed)" in kept[0].evidence
+        assert kept[0].to_json()["evidence"] == kept[0].evidence  # rides the artifact
+
+
+def test_a_SETTLED_flap_never_pages_never_counts_and_the_audit_still_PASSES(db):
+    """The first pass after deploy treats every row as news (``previous`` = None) — and still pages nothing
+    for a settled flap: it is named (artifact, report, audit detail), never a defect."""
+    sid = _security(db, "FLIP")
+    _store_flipping(db, sid, partial=True, listed=True)
+    _thesis(db, "active", [("FLIP", sid)])
+
+    scan = run_split_scan(
+        asof=_ASOF_S, allow_live=True, connect=connect, previous=lambda: None, clock=lambda: 0
+    )
+
+    assert scan.evaluated and scan.error is None and scan.settle_error is None
+    assert scan.defects == () and scan.new == () and scan.known == 0
+    assert [s.defect.ticker for s in scan.settled] == ["FLIP"]
+    doc = scan.payload()
+    assert doc["split_defects"] == [] and doc["split_defects_new"] == []
+    assert doc["split_settled"][0]["ticker"] == "FLIP" and doc["split_settled"][0]["reason"]
+    assert defect_keys_of(doc) == set()  # never in the next pass's diff baseline
+    audit = check_split_defects_flagged(_audit_ctx(split=scan))
+    assert audit.ok is True and "1 settled flap(s)" in audit.detail
+    assert (
+        daily.assess_health([], asof=_ASOF_S, allow_live=True, split_defects_new=scan.new_labels)
+        is None
+    )
+    (line,) = report_lines(scan)
+    assert line.startswith("1 settled split-basis flap(s)") and "no view is affected" in line
+
+
+def test_a_settle_check_FAULT_keeps_every_flap_LOUD(db, monkeypatch):
+    sid = _security(db, "FLIP")
+    _store_flipping(db, sid, partial=False, listed=False)
+    _thesis(db, "active", [("FLIP", sid)])
+
+    def _boom(*a, **k):
+        raise RuntimeError("settle read failed")
+
+    monkeypatch.setattr("pipeline.split_basis.settle_split_defects", _boom)
+    scan = run_split_scan(
+        asof=_ASOF_S, allow_live=True, connect=connect, previous=lambda: None, clock=lambda: 0
+    )
+    assert (
+        scan.evaluated
+        and scan.settled == ()
+        and scan.settle_error == "RuntimeError: settle read failed"
+    )
+    assert [d.kind for d in scan.new] == [
+        FLAP
+    ]  # it pages exactly as before the settle check existed
+    assert any(
+        line.startswith("split-basis settle check could not run") for line in report_lines(scan)
+    )
+
+
+@pytest.mark.parametrize("partial, drawn", [(False, False), (True, True)])
+def test_the_DATA_FLAG_applies_the_same_settled_rule(db, partial, drawn):
+    """S3's compute-on-read ⚑ reads the same T4 flap findings; with no split on the list the S2 per-bar rule
+    settles nothing, so T4's name-level check decides: a wholesale re-base draws no mixed-scale flag, a
+    partial one that left a night mixed does."""
+    from domain.data_flags import MIXED_SCALE
+    from pipeline.data_flags import read_flags
+
+    sid = _security(db, "FLIP")
+    _store_flipping(db, sid, partial=partial, listed=False)
+    before = _count(db)
+    flags = read_flags(
+        db,
+        tenant_id=DEFAULT_TENANT_ID,
+        security_ids=[sid],
+        tickers={sid: "FLIP"},
+        asof=_ASOF_S,
+        known_at=None,
+        clock="record",
+        stale_days=5,
+    )
+    db.rollback()
+    assert _count(db) == before
+    assert (MIXED_SCALE in [f.kind for f in flags[sid].flags]) is drawn
+
+
+def test_the_settled_payload_and_report_name_each_row():
+    d = SplitDefect(uuid.uuid4(), "MPU", FLAP, (date(2026, 9, 14),), 20.0, 270)
+    s = SettledDefect(d, f"{SETTLED_REASON} (431 night(s) checked)")
+    doc = SplitScan(evaluated=True, settled=(s,)).payload()
+    assert doc["split_settled"] == [{**d.to_json(), "reason": s.reason}]
+    assert "evidence" not in doc["split_settled"][0]  # only a KEPT flap carries evidence
+    assert SplitScan().payload()["split_settled"] == []
