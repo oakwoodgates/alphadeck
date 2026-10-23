@@ -10,7 +10,7 @@ from domain.edgar_forms import CORPORATE_EVENT_FORMS, ORDINARY_8K_FORMS
 from domain.security import SecurityIdentity
 from domain.settings import get_settings
 from ingest import CacheMiss
-from ingest.edgar.client import EdgarClient
+from ingest.edgar.client import EdgarClient, InvalidBody
 
 # EDGAR joins multiple filer-category attributes with a literal "<br>" (e.g. "Accelerated filer<br>Emerging
 # growth company"). Strip any HTML tag → a clean " · "-joined string so the identity chip never shows raw markup.
@@ -434,9 +434,10 @@ def acceptance_times_deep(
 
 def _tolerable_page_error(e: Exception) -> bool:
     """Is ``e`` ONE older page's fetch/parse failure rather than a systemic one? An uncached page under
-    ``--no-live`` (``CacheMiss``), a truncated/garbled document (``json.JSONDecodeError``), or a fetch that
-    still fails after the polite retries (``httpx.HTTPError``). A missing User-Agent or any other systemic
-    fault is NOT one page's fault and must still abort.
+    ``--no-live`` (``CacheMiss``), a truncated/garbled document (``json.JSONDecodeError``), a fetch that
+    still fails after the polite retries (``httpx.HTTPError``), or a 2xx that was SEC's error reply rather
+    than the page (``InvalidBody`` — the client never caches one; it is a failed fetch, not a fault here).
+    A missing User-Agent or any other systemic fault is NOT one page's fault and must still abort.
 
     NARROWED to ``json.JSONDecodeError`` rather than the bare ``ValueError`` its sibling
     ``pipeline.ingest_thesis._tolerable_filing_error`` tolerates — and the two SHOULD differ. That one
@@ -446,7 +447,7 @@ def _tolerable_page_error(e: Exception) -> bool:
     ``fetch_submissions_page``'s belt-and-suspenders page-name guard, which ``submissions_page_names`` has
     already made unreachable — and if it ever DID fire it would mean a programming fault, which must abort
     loudly rather than be absorbed into a per-page tally (the skip-counter lesson)."""
-    if isinstance(e, (CacheMiss, json.JSONDecodeError)):
+    if isinstance(e, (CacheMiss, json.JSONDecodeError, InvalidBody)):
         return True
     try:
         import httpx  # lazy, mirroring the clients — the package imports without it

@@ -115,6 +115,23 @@ structural, not log-only):
   message carries the counts (`"N/M EFTS pages failed"`). A **within-tolerance gap is no longer only a log
   line**: `DiscoveryCoverage` (pages ok/attempted, the failed TERMS, retried/recovered) rides the draft report
   to the operator.
+- **An error reply is a FAILED page, never an empty one (2026-10-23).** EFTS sometimes answers with a success
+  status but an error body instead of results — MEASURED on prod: `{"errorType": "ConnectionError",
+  "errorMessage": "getaddrinfo EBUSY ...", ...}`, no `hits`. It used to read as a real zero-hit page: a seed
+  whose page 0 got one landed in `empty_terms` ("no EDGAR filer mentions it") with its deep pages never
+  fetched, a deep page that got one silently dropped its companies (#9), and coverage still read 100% (the
+  Peptide Compounding draft reported `81/81` with three live seeds "empty"; the same seeds had 7–9 hits
+  minutes earlier). Now `_fetch_page` validates every page (a JSON object with a `hits` object whose `hits`
+  is a list and whose `total` is an object with an int `value` — pagination reads `total`, so a page with
+  hits but no total used to stop the term's walk at page 0 without a word; MEASURED 2026-10-23, all 1,691
+  cached prod pages carry it) and anything else raises `EftsErrorBody`, so the page takes the retry pass
+  above and, if still bad, lands in `failed_terms` / `DiscoveryDegraded`. The `EdgarClient` never caches the bad body and treats
+  an old cached copy as a miss (`DATA_SOURCES.md` §EDGAR etiquette), so the retry really goes back to SEC.
+  **`empty_terms` keeps one meaning: SEC returned a VALID page 0 with zero hits.** *Enforced by:*
+  `tests/ingest/test_fulltext.py` (`test_an_error_body_on_page0_is_RETRIED_and_recovered_never_reported_empty`,
+  `…_EVERY_attempt_is_a_FAILED_term_not_an_empty_one`, `…_on_a_DEEP_page_is_a_counted_failed_page_not_a_silent_loss`,
+  `test_a_page_with_hits_but_NO_TOTAL_is_a_failed_page_not_a_silent_truncation`,
+  `test_a_REAL_zero_hit_page_is_still_an_empty_term`, and the real-client cache tests after them).
 - **The hit-cap is on the record — and it is PER TIER.** Two caps, one loop, one cap site: SIGNAL terms
   enumerate **deep** (`hit_cap`, default 5000, `ALPHADECK_DISCOVERY_HIT_CAP`) and BROAD terms **shallow**
   (`broad_hit_cap`, default 1000, `ALPHADECK_DISCOVERY_BROAD_HIT_CAP`); a term stored in BOTH tiers enumerates
@@ -438,7 +455,9 @@ visible, distinguished.
   narration fail-open keeps a name even when its prose breaks. *Enforced by:* the answer-key recall re-score on
   every discovery-touching change (2026-07 live re-score: **31/32 holds** — ATAI, the historical miss, now
   RECALLED; the one non-placeable is PRTG, delisted out of `company_tickers`, surfaced shown-not-placed →
-  counted recalled by operator ruling; details in the fixture header) — the
+  counted recalled by operator ruling; details in the fixture header. 2026-10-23 re-score (EFTS error-body
+  fix): 30/30 on the placeable set; ATAI delisted (closed 2026-09-11, SEC lists no ticker) and moved to the
+  surfaced-only canaries — it surfaced AMBIGUOUS, never dropped) — the
   ground truth is the **committed fixture `backend/tests/fixtures/recall_answer_key.py`** (the operator seeds +
   the 32 acceptable-ticker groups + the collision-junk set that must stay OUT of PLACED; previously it lived only
   in gitignored scripts, so the gate wasn't re-runnable); `workbench/discovery.py` (the `503`s); `fulltext.classify`

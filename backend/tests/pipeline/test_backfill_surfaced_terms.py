@@ -33,7 +33,7 @@ class _FakeEfts:
         self.pages = pages
         self.calls: list[str] = []
 
-    def get_json(self, url, cache_key):
+    def get_json(self, url, cache_key, *, validate=None):
         self.calls.append(cache_key)
         return self.pages.get(cache_key, {"hits": {"total": {"value": 0}, "hits": []}})
 
@@ -46,7 +46,7 @@ class _FailingEfts(_FakeEfts):
         super().__init__(pages)
         self.fail_term = fail_term
 
-    def get_json(self, url, cache_key):
+    def get_json(self, url, cache_key, *, validate=None):
         if self.fail_term in cache_key:
             raise RuntimeError("EFTS down for this term")
         return super().get_json(url, cache_key)
