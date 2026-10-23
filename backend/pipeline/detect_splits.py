@@ -8,7 +8,8 @@ UPDATEd or deleted: a change is a new version; a revoke is the operator's.
 
 THE SOURCES, per basket company:
 
-1. **SEC filings** — the 8-Ks the nightly stores with items 3.03 / 5.03 (``fact_corporate_event``) and, from
+1. **SEC filings** — the 8-Ks the nightly stores with items 3.03 / 5.03 / 7.01 / 8.01 (``fact_corporate_event``;
+   S1's ``SPLIT_8K_ITEMS``) and, from
    the company's submissions index (already fetched by the Form 4 leg), its 6-Ks — the foreign filers (CPOP,
    MI, MPU, REAX, SMX, PBM) announce there — and Reg A forms. Each filing is read ONCE as its full submission
    (``forms/*``, immutable, cached forever) through the pass's EDGAR client — its declared User-Agent, its rate

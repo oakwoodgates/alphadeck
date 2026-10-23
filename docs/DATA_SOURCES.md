@@ -642,6 +642,29 @@ READ, so items outside the cut stay stored (#9) and a policy retune needs no re-
   parked (switch OFF, 5.02-only since the 2026-08-20 `1.01` decision). Full family doc:
   `docs/CORPORATE_EVENTS.md`.
 
+## SEC split filings — the split list's company-side source `[BUILT — S1 / S4; Items 8.01 / 7.01 since 2026-10-23]`
+
+The split list (`security_split`, `FEED_LOOP.md` §The split list) confirms a split only when two independent
+sources agree; the company's own filing is one of them, Polygon's split reference the other (the Polygon row
+above). The filings read (`pipeline/backfill_splits.py` `SPLIT_8K_ITEMS` / `SEC_FORMS`, the nightly's
+`pipeline/detect_splits.py` too): **8-Ks under Item 3.03 / 5.03** (the charter amendment), **8-Ks under Item
+8.01 / 7.01** (since 2026-10-23 — a split with no charter amendment: one paid as a stock dividend, a trust's share
+split, a board-set ratio; the operator's 2026-10-22 review found ENHA, SNEX ×3, ZCSH, ETH, BTC and OFAL missing
+for this reason), **6-Ks** (foreign filers) and **Reg A** forms (1-A / 1-U). Each is fetched ONCE as its full
+submission (`forms/*`, immutable, cached forever) and read by the deterministic extractor
+(`ingest/edgar/split_filing.py` — fixed patterns, the located passage verbatim; its docstring holds every rule).
+
+- **8.01 is the catch-all item**, so an 8-K read only for 8.01 / 7.01 is also screened against its FILING date:
+  a date more than 90 days before it is a past split's (the filing restates it), never this filing's first
+  session. MEASURED 2026-10-23 on prod's basket (688 companies): 852 such 8-Ks in the backfill windows and the
+  nightly's 60-day lookback; 47 mention a split ratio; 37 state one — 32 agree with a listed split, 0 contradict
+  a confirmed one, 5 state no date (never listed alone). The screen keeps AIRE's 8-K/A (a 1-for-25 restated, a
+  2025-12-31 tax-table date) from being listed as a new split.
+- **Cost (MEASURED on the 2026-10-23 dry run of the detect leg):** the first night reads 474 more filings
+  (~871 MB, median 270 KB; each once, ever — the cache is immutable); after that ~7 a night (50 were filed
+  10-16..10-22). No extra request for the item codes — they come from the submissions JSON the 8-K leg already
+  reads.
+
 ## SC 13D/G — the activist-stake ownership tape `[BUILT — Band 03 S5, INERT]`
 
 `fact_activist_stake` stores **every 13D/G-family schedule filed ABOUT a basket member** (the
