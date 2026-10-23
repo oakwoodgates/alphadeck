@@ -1423,13 +1423,31 @@ class ScoreboardEditionOut(BaseModel):
     published_at: datetime | None = None
 
 
+class EditionCutNoticeOut(BaseModel):
+    """The quiet notice for seven days after the AUTOMATIC CUT (editions S7) published the newest edition:
+    ``line`` is the backend-authored sentence ("Edition 2 · rule change: … · includes data that arrived since
+    Edition 1 · 37 company-nights changed"), ``number`` / ``previous`` the pair the "see what changed" link
+    compares, ``unexplained`` true when no declared rule explains the change (the edition is marked).
+    """
+
+    number: int
+    previous: int
+    label: str
+    line: str
+    published_at: datetime
+    n_company_nights_changed: int = 0
+    unexplained: bool = False
+
+
 class ScoreboardEditionsResponse(BaseModel):
     """Every edition the Scoreboard can show, Edition 0 (the original record) first, then each stored
     edition ascending; ``default`` = the edition a ``GET /scoreboard`` with no ``edition`` serves.
-    """
+    ``notice`` (S7) = the quiet line for seven days after the automatic cut published the newest edition
+    (null otherwise)."""
 
     default: int
     editions: list[ScoreboardEditionOut] = []
+    notice: EditionCutNoticeOut | None = None
 
 
 # --- "what changed" between two editions (editions S6) — the wire twin of ``scoreboard.diff`` -------------
@@ -1450,8 +1468,12 @@ class EditionNightReadOut(BaseModel):
 
 class EditionCompanyNightOut(BaseModel):
     """One changed company-night: ``changed`` = ``["armed"]`` when exactly one edition arms the company, else
-    the fields that differ on a night both arm it. ``cause`` is always null for now: the automatic cut (S7)
-    fills it (rule change / data repair / data that arrived late); a cause is never guessed."""
+    the fields that differ on a night both arm it. ``cause`` (S7) is set only when the later edition was cut
+    by the automatic cut from the earlier one: ``rule_change`` / ``unexplained`` (its rules trial proved it,
+    with or without a declared rule), ``late_data`` (a night the rules trial re-tested and found unchanged),
+    ``data_repair`` (a repair trial: a repair or data that arrived late, not separable), ``not_separated``
+    (a night the rules trial did not re-test, or a trial that also carried a deleting repair). Null for any
+    other pair of editions — a cause is never guessed."""
 
     night: date
     before: EditionNightReadOut
@@ -1483,7 +1505,8 @@ class EditionEpisodeDiffOut(BaseModel):
     windows, ``arm_shift_days`` apart), ``appeared`` (later edition only), ``vanished`` (earlier edition only).
     ``return_delta`` = later minus earlier score when both are scored. ``armed_before_window`` (appeared /
     vanished) = the run armed before the first compared night and is listed because it runs into the nights
-    both editions cover. ``cause``: null until S7."""
+    both editions cover. ``cause``: as on a company-night (null unless the later edition was cut from the
+    earlier one)."""
 
     change: Literal["matched", "moved", "appeared", "vanished"]
     before: EditionEpisodeSideOut | None = None
@@ -1497,8 +1520,8 @@ class EditionEpisodeDiffOut(BaseModel):
 
 class EditionNightRunOut(BaseModel):
     """Consecutive compared nights on which one company's change is the same (the same ``changed`` fields
-    with the same values of those fields on both sides) — ``nights`` folded so a 30-night run reads as one
-    line; ``before`` / ``after`` are the reads on its first night."""
+    with the same values of those fields on both sides, and the same ``cause``) — ``nights`` folded so a
+    30-night run reads as one line; ``before`` / ``after`` are the reads on its first night."""
 
     first: date
     last: date
@@ -1506,6 +1529,7 @@ class EditionNightRunOut(BaseModel):
     changed: list[str] = []
     before: EditionNightReadOut
     after: EditionNightReadOut
+    cause: str | None = None
 
 
 class EditionCompanyDiffOut(BaseModel):
@@ -1575,7 +1599,8 @@ class ScoreboardEditionDiffResponse(BaseModel):
     """What changed from the EARLIER edition (``before``) to the LATER one (``after``), computed on read:
     grouped thesis -> company, compared through ``through`` (the earlier of the two editions' last nights)
     from ``first_night``, with the headline ``counts``. Substance only — state, the armed set, verdict,
-    grades, exit-by and each episode's score — never card text."""
+    grades, exit-by and each episode's score — never card text. ``causes`` (S7) = the later edition was cut
+    from the earlier one by the automatic cut, so every change carries a ``cause``."""
 
     before: ScoreboardEditionOut
     after: ScoreboardEditionOut
@@ -1583,6 +1608,7 @@ class ScoreboardEditionDiffResponse(BaseModel):
     first_night: date | None = None
     counts: EditionDiffCountsOut
     theses: list[EditionThesisDiffOut] = []
+    causes: bool = False
 
 
 class ScoreboardResponse(BaseModel):
@@ -2643,6 +2669,18 @@ class AdminEditionsNightlyOut(BaseModel):
     attention: bool = False
 
 
+class AdminEditionsCutOut(BaseModel):
+    """The automatic cut (editions S7), as ONE line for seven days after it published the newest Scoreboard
+    edition — e.g. "Edition 2 · rule change: … · includes data that arrived since Edition 1 · 37
+    company-nights changed". Backend-authored copy. ``attention`` is true when no declared rule explains the
+    change (an unexplained change, which also paged)."""
+
+    line: str
+    published_at: datetime
+    number: int
+    attention: bool = False
+
+
 class AdminStatusOut(BaseModel):
     """The admin page's one-GET summary: record freshness + the newest run + the cron verdict + the
     newest DB snapshot + the feed-freshness panel. READ-ONLY — the endpoint owns no tables and writes
@@ -2677,6 +2715,9 @@ class AdminStatusOut(BaseModel):
 
     ``editions_nightly`` (editions S5) is the Scoreboard editions' nightly page job's one line, from its newest
     applied run artifact; ``null`` until that job has run (a directory read — no DB). Never a cron verdict.
+
+    ``editions_cut`` (editions S7) is the automatic cut's one line for seven days after it published the
+    newest edition (a DB read of that edition); ``null`` otherwise. Never a cron verdict.
     """
 
     record: AdminRecordOut
@@ -2692,6 +2733,7 @@ class AdminStatusOut(BaseModel):
     splits_needs_review: int | None = None
     fundamentals_set_aside: int | None = None
     editions_nightly: AdminEditionsNightlyOut | None = None
+    editions_cut: AdminEditionsCutOut | None = None
 
 
 class AdminRunsOut(BaseModel):

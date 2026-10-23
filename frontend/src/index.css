@@ -1390,6 +1390,10 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .wc-name { color: var(--txt-3); font-size: 11px; }
 .wc-list { margin: 3px 0 0; padding-left: 16px; display: flex; flex-direction: column; gap: 2px; font-size: 11.5px; }
 .wc-run { color: var(--txt-3); }
+/* editions S7 — a change's cause, and the cut notice: the same muted mono as the lines around them (a cause is
+   provenance, not an alert; the notice never blinks and carries no color, #7) */
+.wc-cause { color: var(--txt-4); }
+.sb-cutline .sb-whatchanged { font-size: inherit; }
 .sb-annottoggle { padding: 2px 8px; }
 .sb-annottoggle[aria-pressed="true"] { color: var(--txt); background: var(--panel-2); }
 .sb-metrics { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }

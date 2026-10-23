@@ -33,6 +33,7 @@ from app.routers.admin_splits import count_needs_review as splits_needs_review_c
 from app.schemas_api import (
     AdminAuditCheckOut,
     AdminCronOut,
+    AdminEditionsCutOut,
     AdminEditionsNightlyOut,
     AdminLateOnlyNightOut,
     AdminPartialNightOut,
@@ -91,7 +92,7 @@ from pipeline.schedule import (
 )
 from pipeline.split_basis import new_labels_of as split_new_labels
 from pipeline.successor_cik import new_labels_of as successor_new_labels
-from repositories import calls_repo, fundamentals_set_aside_repo
+from repositories import calls_repo, editions_repo, fundamentals_set_aside_repo
 from scoreboard.late import late_only_nights
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -1089,6 +1090,24 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
     except Exception:  # noqa: BLE001 — the line is a passenger on the status read
         _log.exception("editions nightly line failed (fail-open — the status read is unaffected)")
 
+    # editions S7 — the automatic cut's one line, for seven days after it published the newest edition (a DB
+    # read of that edition). Fail-open like the line above.
+    editions_cut = None
+    try:
+        with conn.transaction():
+            notice = editions_repo.cut_notice(
+                conn, tenant_id=current_tenant_id(), now=datetime.now(timezone.utc)
+            )
+        if notice is not None:
+            editions_cut = AdminEditionsCutOut(
+                line=notice.line(),
+                published_at=notice.published_at,
+                number=notice.number,
+                attention=notice.unexplained,
+            )
+    except Exception:  # noqa: BLE001 — the line is a passenger on the status read
+        _log.exception("editions cut line failed (fail-open — the status read is unaffected)")
+
     return AdminStatusOut(
         record=AdminRecordOut(
             edge=edge,
@@ -1144,6 +1163,7 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
         splits_needs_review=splits_needs_review,
         fundamentals_set_aside=fundamentals_set_aside,
         editions_nightly=editions_nightly,
+        editions_cut=editions_cut,
     )
 
 

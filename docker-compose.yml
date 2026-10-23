@@ -232,8 +232,10 @@ services:
       ONBOARD_TIMEOUT_S: ${ALPHADECK_ONBOARD_TIMEOUT_S:-2700}
       # Editions S5 — the Scoreboard editions' nightly page job (daily_cron.sh `editions_nightly`, after the
       # nightly backup): its kill switch (0 = off, an env-only cron deploy) and the hard timeout around one run.
+      # S7 raised it 1800 -> 3600: a night that also runs the automatic cut's trial re-runs a whole edition
+      # twice (MEASURED on dev: ~9 min at 4 workers for 659 pages; it grows with the edition).
       EDITIONS_NIGHTLY: ${ALPHADECK_EDITIONS_NIGHTLY:-1}
-      EDITIONS_TIMEOUT_S: ${ALPHADECK_EDITIONS_TIMEOUT_S:-1800}
+      EDITIONS_TIMEOUT_S: ${ALPHADECK_EDITIONS_TIMEOUT_S:-3600}
       # No ANTHROPIC_API_KEY: ingest + the call engine are deterministic — no LLM on this path.
       # The notify delivery channel — this is the AUTOMATED path that fires the daily -> armed push, and (H3)
       # the shell's failure page (`python -m notify.page`) when a night or a backup fails for good. Unset ->

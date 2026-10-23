@@ -1892,7 +1892,7 @@
           "scoreboard"
         ],
         "summary": "Get Scoreboard Editions",
-        "description": "Every edition the Scoreboard can show: Edition 0 (the original record, the calls log \u2014 always\npresent, never stored) first, then each stored re-run edition ascending, with its cut, nights, join-date\ncounts and engine fingerprint. ``default`` = the edition ``GET /scoreboard`` serves when the request\nnames none: the newest published edition (0 only when nothing is published), unless the server's\noverride pins another. Read-only.",
+        "description": "Every edition the Scoreboard can show: Edition 0 (the original record, the calls log \u2014 always\npresent, never stored) first, then each stored re-run edition ascending, with its cut, nights, join-date\ncounts and engine fingerprint. ``default`` = the edition ``GET /scoreboard`` serves when the request\nnames none: the newest published edition (0 only when nothing is published), unless the server's\noverride pins another. ``notice`` = the quiet line for seven days after the automatic cut published the\nnewest edition (null otherwise). Read-only.",
         "operationId": "get_scoreboard_editions_scoreboard_editions_get",
         "responses": {
           "200": {
@@ -1914,7 +1914,7 @@
           "scoreboard"
         ],
         "summary": "Get Scoreboard Edition Diff",
-        "description": "What changed from one edition to a later one (editions S6) \u2014 computed on read, never stored, and\nread-only. Every thesis is compared on the nights BOTH editions cover, through the earlier of the two\neditions' last nights (the earlier edition's last night once the later one has reached it), so a night\nneither could disagree about is never a change. Edition 0 is read the way the default Scoreboard reads\nit: reconstructed rows never, annotated and late rows under the server's default policies.\n\nPer company-night: armed or not in each edition, and \u2014 on a night both arm the company \u2014 its verdict,\nentry grade, conviction grade and exit-by; a night with no page reads that edition's last page before\nit. Per episode, paired on (thesis, company, arm date): matched (listed only when the run differs),\nmoved (the same company armed in both over overlapping windows), appeared, vanished \u2014 each scored\narm -> exit-by on realized closes through the last night, with the delta on a pair. Pages only one\nedition holds are reported as spans; a run lying wholly on them is counted, never compared, while one\nthat armed there and runs into the shared nights is a change (``armed_before_window``).\nGrouped thesis -> company, with headline counts. ``cause`` is null on every change until the automatic\ncut (S7) supplies it; a cause is never guessed.",
+        "description": "What changed from one edition to a later one (editions S6) \u2014 computed on read, never stored, and\nread-only. Every thesis is compared on the nights BOTH editions cover, through the earlier of the two\neditions' last nights (the earlier edition's last night once the later one has reached it), so a night\nneither could disagree about is never a change. Edition 0 is read the way the default Scoreboard reads\nit: reconstructed rows never, annotated and late rows under the server's default policies.\n\nPer company-night: armed or not in each edition, and \u2014 on a night both arm the company \u2014 its verdict,\nentry grade, conviction grade and exit-by; a night with no page reads that edition's last page before\nit. Per episode, paired on (thesis, company, arm date): matched (listed only when the run differs),\nmoved (the same company armed in both over overlapping windows), appeared, vanished \u2014 each scored\narm -> exit-by on realized closes through the last night, with the delta on a pair. Pages only one\nedition holds are reported as spans; a run lying wholly on them is counted, never compared, while one\nthat armed there and runs into the shared nights is a change (``armed_before_window``).\nGrouped thesis -> company, with headline counts. ``cause`` is filled only when the automatic cut (S7)\npublished the later edition from the earlier one (``causes`` true): what its trial proved, or what the\ntrial's scope implies (late data, a repair or late data, not separated); any other pair has null\ncauses \u2014 a cause is never guessed.",
         "operationId": "get_scoreboard_edition_diff_scoreboard_editions_diff_get",
         "parameters": [
           {
@@ -4113,6 +4113,36 @@
         ],
         "title": "AdminCronOut",
         "description": "The one-word cron verdict + a plain-English detail. ``unhealthy`` (the LAST run froze / errored /\nwithheld on total ingest failure / failed to refresh the benchmark tape) is deliberately its own\nLOUD state, peer to ``stale`` \u2014 a bad run\nmust read as loud as a missing one, never hide behind green (the R1 freeze lesson). A benign\n``--no-live`` dev run is NOT unhealthy. ``never_ran`` = no run artifact at all (quiet). ``gappy`` =\nthe edge is current and the last run clean, but the recent window has a night with NO call-of-record\n(a wrong-day fire) \u2014 as loud as ``stale``. Priority: never_ran > unhealthy > stale > gappy > healthy.\n\n``alarms`` (Phase 1B) are the STATUS-level alarms that are not one run's health, each a plain-English\nline, and any of them makes the verdict ``unhealthy`` (they are listed even under ``never_ran``): the\ncron's last pass ran with an UNKNOWN ``code_sha``; the cron's sha differs from this backend's own (an\nimage left stale by a partial rebuild) or the backend's own is unknown \u2014 compared only for a cron pass\nthat started after this backend process did, so a full deploy does not read ``unhealthy`` until the\nnight's pass confirms it; the last live pass paged\nthrough the LOG notifier (``SLACK_WEBHOOK_URL`` unset \u2014 a bad night pages nobody) or ran with\n``ALPHADECK_USER_AGENT`` unset; the newest unlabeled DB dump is older than\n``ALPHADECK_BACKUP_STALE_HOURS`` in schedule time (B4 \u2014 only on a stack whose run history shows the cron\nsidecar, where a nightly dump is expected). ``[]`` on a clean stack.\n\nM1 adds three alarms and one verdict. Alarms: **the last pass did not finish** (the newest artifact still\nreads ``running`` past the run timeout \u2014 killed or hung), **the last pass crashed** (``crashed``), and\n**rows without a run artifact** (a night has post-``RUN_AT`` rows but no pass artifact at all for it).\n``gappy`` now also covers a PARTIAL night (``record.partial_nights``). ``running`` = a pass is in flight\ninside its timeout and nothing else is wrong; its own night is not judged until it finishes, so a\nhealthy pass mid-loop never reads partial or stale. Priority: never_ran > unhealthy > stale > gappy >\nrunning > healthy."
+      },
+      "AdminEditionsCutOut": {
+        "properties": {
+          "line": {
+            "type": "string",
+            "title": "Line"
+          },
+          "published_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Published At"
+          },
+          "number": {
+            "type": "integer",
+            "title": "Number"
+          },
+          "attention": {
+            "type": "boolean",
+            "title": "Attention",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "line",
+          "published_at",
+          "number"
+        ],
+        "title": "AdminEditionsCutOut",
+        "description": "The automatic cut (editions S7), as ONE line for seven days after it published the newest Scoreboard\nedition \u2014 e.g. \"Edition 2 \u00b7 rule change: \u2026 \u00b7 includes data that arrived since Edition 1 \u00b7 37\ncompany-nights changed\". Backend-authored copy. ``attention`` is true when no declared rule explains the\nchange (an unexplained change, which also paged)."
       },
       "AdminEditionsNightlyOut": {
         "properties": {
@@ -7128,6 +7158,16 @@
                 "type": "null"
               }
             ]
+          },
+          "editions_cut": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdminEditionsCutOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -7136,7 +7176,7 @@
           "cron"
         ],
         "title": "AdminStatusOut",
-        "description": "The admin page's one-GET summary: record freshness + the newest run + the cron verdict + the\nnewest DB snapshot + the feed-freshness panel. READ-ONLY \u2014 the endpoint owns no tables and writes\nnothing (test-proved; the ``last_backup`` join is a pure directory read, and ``tape`` is read from\nthe run artifacts). ``last_backup`` is ``None`` = the quiet \"no snapshots yet\" state; ``tape`` is\n``None`` until a pass has evaluated feed recency (the quiet \"not looked yet\" state).\n\n``backend_sha`` is this backend's OWN ``Settings.image_sha`` (``null`` = built without ``GIT_SHA``) and\n``cron_sha`` the ``code_sha`` the newest CRON-kind run artifact recorded (``null`` = unknown, or no\ncron pass has recorded its identity yet) \u2014 the pair the identity alarm compares (I1). The latest\nself-audit rides ``last_run.audit``.\n\nM1: ``last_run`` is the newest FINISHED pass (a pre-M1 artifact counts as finished); when the newest\nartifact is a pass that has not finished, ``unfinished_run`` describes it (``null`` otherwise).\n\n``split_defects`` (T4) is the split-basis panel \u2014 ``null`` until a finished live pass has scanned (a\npartial catch-up counts: the scan reads the whole basket union); a defect is a FEED problem (flag\nonly), so it never changes ``cron.status``.\n\n``price_repairs`` (T2 + Q8 + T3 + T7) is the \"Price feed repairs\" panel \u2014 renamed names with their\nsplice-verified successors to Adopt, unpriceable names to Set / Acknowledge / Remove, members whose\ncompany now files under a successor CIK to Adopt, the quiet closed and acknowledged names, and every\nstanding operator repair with its Undo. A feed matter, never the cron verdict.\n\n``splits_needs_review`` (split plan S1) is how many splits on the split list one source could not settle\n(one source only, a disagreement, an extractor abstain) \u2014 the \"Splits\" panel (``GET /admin/splits``) holds\nthem. ``null`` when the count could not be read; never a cron verdict.\n\n``fundamentals_set_aside`` (migration 0062) is how many stored fundamentals versions are set aside \u2014 the\nrevenue rows the data-quality screen would have refused, stored before it existed, which every read skips\n(``python -m pipeline.set_aside_fundamentals``). A quiet line; ``null`` when the count could not be read.\n\n``editions_nightly`` (editions S5) is the Scoreboard editions' nightly page job's one line, from its newest\napplied run artifact; ``null`` until that job has run (a directory read \u2014 no DB). Never a cron verdict."
+        "description": "The admin page's one-GET summary: record freshness + the newest run + the cron verdict + the\nnewest DB snapshot + the feed-freshness panel. READ-ONLY \u2014 the endpoint owns no tables and writes\nnothing (test-proved; the ``last_backup`` join is a pure directory read, and ``tape`` is read from\nthe run artifacts). ``last_backup`` is ``None`` = the quiet \"no snapshots yet\" state; ``tape`` is\n``None`` until a pass has evaluated feed recency (the quiet \"not looked yet\" state).\n\n``backend_sha`` is this backend's OWN ``Settings.image_sha`` (``null`` = built without ``GIT_SHA``) and\n``cron_sha`` the ``code_sha`` the newest CRON-kind run artifact recorded (``null`` = unknown, or no\ncron pass has recorded its identity yet) \u2014 the pair the identity alarm compares (I1). The latest\nself-audit rides ``last_run.audit``.\n\nM1: ``last_run`` is the newest FINISHED pass (a pre-M1 artifact counts as finished); when the newest\nartifact is a pass that has not finished, ``unfinished_run`` describes it (``null`` otherwise).\n\n``split_defects`` (T4) is the split-basis panel \u2014 ``null`` until a finished live pass has scanned (a\npartial catch-up counts: the scan reads the whole basket union); a defect is a FEED problem (flag\nonly), so it never changes ``cron.status``.\n\n``price_repairs`` (T2 + Q8 + T3 + T7) is the \"Price feed repairs\" panel \u2014 renamed names with their\nsplice-verified successors to Adopt, unpriceable names to Set / Acknowledge / Remove, members whose\ncompany now files under a successor CIK to Adopt, the quiet closed and acknowledged names, and every\nstanding operator repair with its Undo. A feed matter, never the cron verdict.\n\n``splits_needs_review`` (split plan S1) is how many splits on the split list one source could not settle\n(one source only, a disagreement, an extractor abstain) \u2014 the \"Splits\" panel (``GET /admin/splits``) holds\nthem. ``null`` when the count could not be read; never a cron verdict.\n\n``fundamentals_set_aside`` (migration 0062) is how many stored fundamentals versions are set aside \u2014 the\nrevenue rows the data-quality screen would have refused, stored before it existed, which every read skips\n(``python -m pipeline.set_aside_fundamentals``). A quiet line; ``null`` when the count could not be read.\n\n``editions_nightly`` (editions S5) is the Scoreboard editions' nightly page job's one line, from its newest\napplied run artifact; ``null`` until that job has run (a directory read \u2014 no DB). Never a cron verdict.\n\n``editions_cut`` (editions S7) is the automatic cut's one line for seven days after it published the\nnewest edition (a DB read of that edition); ``null`` otherwise. Never a cron verdict."
       },
       "AdminSuccessorCandidateOut": {
         "properties": {
@@ -10258,7 +10298,52 @@
           "after"
         ],
         "title": "EditionCompanyNightOut",
-        "description": "One changed company-night: ``changed`` = ``[\"armed\"]`` when exactly one edition arms the company, else\nthe fields that differ on a night both arm it. ``cause`` is always null for now: the automatic cut (S7)\nfills it (rule change / data repair / data that arrived late); a cause is never guessed."
+        "description": "One changed company-night: ``changed`` = ``[\"armed\"]`` when exactly one edition arms the company, else\nthe fields that differ on a night both arm it. ``cause`` (S7) is set only when the later edition was cut\nby the automatic cut from the earlier one: ``rule_change`` / ``unexplained`` (its rules trial proved it,\nwith or without a declared rule), ``late_data`` (a night the rules trial re-tested and found unchanged),\n``data_repair`` (a repair trial: a repair or data that arrived late, not separable), ``not_separated``\n(a night the rules trial did not re-test, or a trial that also carried a deleting repair). Null for any\nother pair of editions \u2014 a cause is never guessed."
+      },
+      "EditionCutNoticeOut": {
+        "properties": {
+          "number": {
+            "type": "integer",
+            "title": "Number"
+          },
+          "previous": {
+            "type": "integer",
+            "title": "Previous"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "line": {
+            "type": "string",
+            "title": "Line"
+          },
+          "published_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Published At"
+          },
+          "n_company_nights_changed": {
+            "type": "integer",
+            "title": "N Company Nights Changed",
+            "default": 0
+          },
+          "unexplained": {
+            "type": "boolean",
+            "title": "Unexplained",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "number",
+          "previous",
+          "label",
+          "line",
+          "published_at"
+        ],
+        "title": "EditionCutNoticeOut",
+        "description": "The quiet notice for seven days after the AUTOMATIC CUT (editions S7) published the newest edition:\n``line`` is the backend-authored sentence (\"Edition 2 \u00b7 rule change: \u2026 \u00b7 includes data that arrived since\nEdition 1 \u00b7 37 company-nights changed\"), ``number`` / ``previous`` the pair the \"see what changed\" link\ncompares, ``unexplained`` true when no declared rule explains the change (the edition is marked)."
       },
       "EditionDiffCountsOut": {
         "properties": {
@@ -10426,7 +10511,7 @@
           "change"
         ],
         "title": "EditionEpisodeDiffOut",
-        "description": "One episode change, paired on (thesis, company, arm date): ``matched`` (same arm date, listed only when\nthe run differs \u2014 ``differs`` names what), ``moved`` (the same company armed in both over overlapping\nwindows, ``arm_shift_days`` apart), ``appeared`` (later edition only), ``vanished`` (earlier edition only).\n``return_delta`` = later minus earlier score when both are scored. ``armed_before_window`` (appeared /\nvanished) = the run armed before the first compared night and is listed because it runs into the nights\nboth editions cover. ``cause``: null until S7."
+        "description": "One episode change, paired on (thesis, company, arm date): ``matched`` (same arm date, listed only when\nthe run differs \u2014 ``differs`` names what), ``moved`` (the same company armed in both over overlapping\nwindows, ``arm_shift_days`` apart), ``appeared`` (later edition only), ``vanished`` (earlier edition only).\n``return_delta`` = later minus earlier score when both are scored. ``armed_before_window`` (appeared /\nvanished) = the run armed before the first compared night and is listed because it runs into the nights\nboth editions cover. ``cause``: as on a company-night (null unless the later edition was cut from the\nearlier one)."
       },
       "EditionEpisodeSideOut": {
         "properties": {
@@ -10662,6 +10747,17 @@
           },
           "after": {
             "$ref": "#/components/schemas/EditionNightReadOut"
+          },
+          "cause": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cause"
           }
         },
         "type": "object",
@@ -10673,7 +10769,7 @@
           "after"
         ],
         "title": "EditionNightRunOut",
-        "description": "Consecutive compared nights on which one company's change is the same (the same ``changed`` fields\nwith the same values of those fields on both sides) \u2014 ``nights`` folded so a 30-night run reads as one\nline; ``before`` / ``after`` are the reads on its first night."
+        "description": "Consecutive compared nights on which one company's change is the same (the same ``changed`` fields\nwith the same values of those fields on both sides, and the same ``cause``) \u2014 ``nights`` folded so a\n30-night run reads as one line; ``before`` / ``after`` are the reads on its first night."
       },
       "EditionNightSpanOut": {
         "properties": {
@@ -13958,6 +14054,11 @@
             "type": "array",
             "title": "Theses",
             "default": []
+          },
+          "causes": {
+            "type": "boolean",
+            "title": "Causes",
+            "default": false
           }
         },
         "type": "object",
@@ -13967,7 +14068,7 @@
           "counts"
         ],
         "title": "ScoreboardEditionDiffResponse",
-        "description": "What changed from the EARLIER edition (``before``) to the LATER one (``after``), computed on read:\ngrouped thesis -> company, compared through ``through`` (the earlier of the two editions' last nights)\nfrom ``first_night``, with the headline ``counts``. Substance only \u2014 state, the armed set, verdict,\ngrades, exit-by and each episode's score \u2014 never card text."
+        "description": "What changed from the EARLIER edition (``before``) to the LATER one (``after``), computed on read:\ngrouped thesis -> company, compared through ``through`` (the earlier of the two editions' last nights)\nfrom ``first_night``, with the headline ``counts``. Substance only \u2014 state, the armed set, verdict,\ngrades, exit-by and each episode's score \u2014 never card text. ``causes`` (S7) = the later edition was cut\nfrom the earlier one by the automatic cut, so every change carries a ``cause``."
       },
       "ScoreboardEditionOut": {
         "properties": {
@@ -14123,6 +14224,16 @@
             "type": "array",
             "title": "Editions",
             "default": []
+          },
+          "notice": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EditionCutNoticeOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -14130,7 +14241,7 @@
           "default"
         ],
         "title": "ScoreboardEditionsResponse",
-        "description": "Every edition the Scoreboard can show, Edition 0 (the original record) first, then each stored\nedition ascending; ``default`` = the edition a ``GET /scoreboard`` with no ``edition`` serves."
+        "description": "Every edition the Scoreboard can show, Edition 0 (the original record) first, then each stored\nedition ascending; ``default`` = the edition a ``GET /scoreboard`` with no ``edition`` serves.\n``notice`` (S7) = the quiet line for seven days after the automatic cut published the newest edition\n(null otherwise)."
       },
       "ScoreboardEpisodeOut": {
         "properties": {

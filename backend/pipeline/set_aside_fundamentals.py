@@ -79,6 +79,7 @@ from ingest.fundamentals import (
 )
 from pipeline.reingest_fundamentals import CACHED, NO_CIK, active_securities, load_companyfacts
 from pipeline.run_lock import repair_lock_or_exit
+from repositories import data_repair_repo
 from repositories import fundamentals_set_aside_repo as repo
 
 _log = logging.getLogger("alphadeck.set_aside_fundamentals")
@@ -627,7 +628,18 @@ def _run_revoke(args: argparse.Namespace) -> None:
                 "revoke_rows": [str(i) for i in new],
                 "at": datetime.now(timezone.utc).isoformat(),
             }
-            print(f"provenance: {write_payload(payload)}")
+            provenance = write_payload(payload)
+            print(f"provenance: {provenance}")
+            # S7 — the data-repair journal: one row per applied --revoke, under the lock
+            data_repair_repo.journal(
+                conn,
+                tool="set_aside_fundamentals",
+                action="revoke",
+                summary=f"revoked {len(new)} fundamentals set-aside(s) ({args.reason.strip()})",
+                rows_changed=len(new),
+                counts={"revoked": len(new)},
+                provenance=str(provenance) if provenance else None,
+            )
         finally:
             conn.close()
     finally:
@@ -664,8 +676,22 @@ def main(argv: list[str] | None = None) -> None:
             result = scan(conn, tickers=tickers)
             result.rows_before = result.rows_after = _count_rows(conn)
             conn.rollback()
+            provenance = None
             if args.apply:
                 apply(conn, result)
+                provenance = write_payload(build_payload(result))
+                # S7 — the data-repair journal: one row per --apply, under the lock
+                data_repair_repo.journal(
+                    conn,
+                    tool="set_aside_fundamentals",
+                    summary=(
+                        f"set aside {len(result.appended)} stored revenue row(s) the data-quality "
+                        "screen refuses"
+                    ),
+                    rows_changed=len(result.appended),
+                    counts={"set_aside": len(result.appended)},
+                    provenance=str(provenance) if provenance else None,
+                )
         finally:
             conn.close()
     finally:
@@ -673,7 +699,7 @@ def main(argv: list[str] | None = None) -> None:
             lock.release()
     report(result)
     if args.apply:
-        print(f"provenance: {write_payload(build_payload(result))}")
+        print(f"provenance: {provenance}")
 
 
 __all__ = [

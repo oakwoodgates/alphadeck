@@ -6,7 +6,7 @@ that job. The cron sidecar fires it after the nightly backup (``scripts/daily_cr
 like ``pipeline.backup``), never inside ``run_daily_pass`` — so the Admin "Run daily now" never fires it, and
 nothing on the call-of-record path imports it (the import-graph tests).
 
-WHAT ONE RUN DOES, in order:
+WHAT ONE RUN DOES, in order (S7 put step 2b, the automatic cut, between the locks and the read):
 
 1. **The gate.** It runs only when the newest run artifact (``data/cron_runs``) is a FINISHED, LIVE, NIGHTLY
    pass; that pass's as-of is the night it pages through (``end``). A running / crashed pass, an onboarding
@@ -16,6 +16,11 @@ WHAT ONE RUN DOES, in order:
    REFUSES (exit 75) while another editions job holds it, and while the call-of-record lock (a daily pass, a
    backfill, a repair) is held — read from ``pg_locks``, never taken. The probe runs again just before the
    write, so a pass that started mid-run costs this run, never the pass.
+2b. **The automatic cut** (S7, ``editions.cut`` has the whole contract): did the rules change, or did a data
+   repair run, since the current edition's cut (or its last no-change trial)? No: nothing runs. Yes: the trial
+   — and either a ``trial_no_change`` event (then the steps below run as usual) or a NEW edition, which already
+   holds tonight, so the run stops paging: only the self-check runs, on the new edition. A trial fault is
+   reported on the artifact and the run goes on (fail-open). It runs on ``trial_workers`` (default 4).
 3. **One consistent read** (``engine.consistent_snapshot``, ``REPEATABLE READ`` read-only): the public-clock
    mirror cut at ``known_by`` = the database instant this job started, the join dates (``editions.entry``), the
    edition's own pages and frozen join dates, the onboarding queue. Never ``calls``.
@@ -78,6 +83,7 @@ from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard
 from domain.config import DEFAULT_CONFIG, config_hash
 from domain.settings import get_settings
+from editions import cut as cut_module
 from editions.engine import ThesisJob, build_job, consistent_snapshot, open_mirror, run_jobs
 from editions.entry import Entry, derive_all
 from editions.fingerprint import engine_fingerprint
@@ -386,7 +392,8 @@ def ink_running_at_close(
     """When an edition CLOSES (S7 cuts a newer one), ink every episode it has not inked yet, as of its last
     night: a matured one as ``matured`` (with whatever its window holds by then), a running one as
     ``running_at_close``. Reading a closed edition then touches only stored rows (G13). Writes inside the
-    CALLER's transaction; idempotent (the episode key). Returns the rows written. No caller yet (S7).
+    CALLER's transaction; idempotent (the episode key). Returns the rows written. The caller is the cut's one
+    write (``editions.run.store_edition`` with ``close=``), in the same transaction as the new edition.
     """
     if edition.last_night is None:
         return 0
@@ -512,6 +519,9 @@ class NightlyResult:
     finished_at: datetime | None = None
     reason: str | None = None
     artifact_path: str | None = None
+    cut: dict[str, Any] = field(
+        default_factory=dict
+    )  # S7 — the automatic cut's result (``CutResult``)
 
     def admin_line(self) -> str:
         return admin_line(self)
@@ -556,8 +566,12 @@ class NightlyResult:
             "counts_before": self.counts_before,
             "counts_after": self.counts_after,
             "timings": self.timings,
+            "cut": self.cut,
             "admin_line": admin_line(self),
-            "attention": self.status == "crashed" or self.self_check.get("status") == "mismatch",
+            "attention": self.status == "crashed"
+            or self.self_check.get("status") == "mismatch"
+            or bool(self.cut.get("unexplained"))
+            or self.cut.get("status") == "failed",
         }
 
 
@@ -579,7 +593,15 @@ def admin_line(r: NightlyResult) -> str:
         return f"{head} · no page{night}: {r.reason}"
     if r.edition is None:
         return "Editions · no open edition to add pages to"
+    cut_part = r.cut.get("part") if r.cut else None
+    if r.cut.get("status") == "cut" and r.mode == edition_run_log.MODE_APPLY:
+        # the new edition already holds tonight: the cut is the night's news, then its self-check
+        parts = [str(cut_part)]
+        _self_check_part(parts, r)
+        return " · ".join(parts)
     parts = [head]
+    if cut_part:
+        parts.append(str(cut_part))
     nightly = sum(1 for p in r.pages for k in p["kinds"] if k == "nightly")
     catchup = sum(1 for p in r.pages for k in p["kinds"] if k == "catchup")
     verb = "added" if r.mode == edition_run_log.MODE_APPLY else "to add (dry run)"
@@ -601,6 +623,11 @@ def admin_line(r: NightlyResult) -> str:
     if inked:
         done = "inked" if r.mode == edition_run_log.MODE_APPLY else "to ink (dry run)"
         parts.append(f"{inked} final score{'s' if inked != 1 else ''} {done}")
+    _self_check_part(parts, r)
+    return " · ".join(parts)
+
+
+def _self_check_part(parts: list[str], r: NightlyResult) -> None:
     status = r.self_check.get("status")
     if status == "passed":
         parts.append("self-check passed")
@@ -613,7 +640,6 @@ def admin_line(r: NightlyResult) -> str:
         parts.append("self-check skipped: recorded by another build or policy")
     elif status == "nothing_to_check":
         parts.append("self-check: no recorded call to compare tonight")
-    return " · ".join(parts)
 
 
 def _noted(gate: Gate, cron_runs_dir: Path | None, theses: set[UUID]) -> list[dict[str, Any]]:
@@ -658,9 +684,13 @@ def run_nightly(
     keep_mirror: bool = False,
     write_artifact: bool = True,
     max_nights: int = MAX_NIGHTS_PER_RUN,
+    trial_workers: int | None = None,
+    cut_runs_dir: Path | None = None,
 ) -> NightlyResult:
     """One nightly run (the module docstring). ``end`` bypasses the gate (a manual run through that night).
-    Raises ``NightlyRefused`` (nothing written, no artifact) on a held lock."""
+    ``trial_workers`` = the automatic cut's workers (default ``editions.cut.TRIAL_WORKERS``, never fewer than
+    ``workers``); ``cut_runs_dir`` = where a cut keeps its run directory. Raises ``NightlyRefused`` (nothing
+    written, no artifact) on a held lock."""
     mode = edition_run_log.MODE_APPLY if apply else edition_run_log.MODE_DRY_RUN
     started = datetime.now(timezone.utc)
     t_all = time.perf_counter()
@@ -692,6 +722,35 @@ def run_nightly(
         result.known_by = db_now(conn)  # the cut: the database instant this job started
         conn.commit()
         result.engine = engine_fingerprint(DEFAULT_CONFIG)
+        result.counts_before = editions_repo.table_counts(conn)
+        conn.commit()
+
+        # 2b — the automatic cut (S7): an event since the current edition's cut? the trial; a new edition?
+        t0 = time.perf_counter()
+        cut = _automatic_cut(
+            conn,
+            result,
+            apply=apply,
+            tenant_id=tenant_id,
+            work_dir=mirror_dir.parent / "cut",
+            runs_dir=cut_runs_dir,
+            workers=max(workers, trial_workers or cut_module.TRIAL_WORKERS),
+            notifier=notifier,
+            keep_mirror=keep_mirror,
+            lock=lock,
+        )
+        result.timings["cut_s"] = round(time.perf_counter() - t0, 1)
+        if cut is not None and cut.status == "cut" and apply:
+            # the new edition already holds tonight: no page to append; its self-check runs
+            result.edition = editions_repo.current_edition(conn, tenant_id=tenant_id)
+            conn.commit()
+            t0 = time.perf_counter()
+            if result.edition is not None:
+                _self_check(conn, result, result.edition, [], apply=apply, notifier=notifier)
+            result.timings["self_check_s"] = round(time.perf_counter() - t0, 1)
+            result.counts_after = editions_repo.table_counts(conn)
+            conn.commit()
+            return _finish(result, runs_dir, write_artifact, t_all)
 
         t0 = time.perf_counter()
         plan = plan_pages(
@@ -734,8 +793,6 @@ def run_nightly(
 
         # the write — re-probing the call-of-record lock first (a pass that started mid-run wins)
         t0 = time.perf_counter()
-        result.counts_before = editions_repo.table_counts(conn)
-        conn.commit()
         if apply:
             holder = lock.call_of_record_holder()
             if holder:
@@ -783,6 +840,54 @@ def run_nightly(
         if not keep_mirror:
             shutil.rmtree(mirror_dir.parent, ignore_errors=True)
     return _finish(result, runs_dir, write_artifact, t_all)
+
+
+def _automatic_cut(
+    conn: psycopg.Connection,
+    result: NightlyResult,
+    *,
+    apply: bool,
+    tenant_id: UUID,
+    work_dir: Path,
+    runs_dir: Path | None,
+    workers: int,
+    notifier: Notifier | None,
+    keep_mirror: bool,
+    lock: JobLock,
+) -> cut_module.CutResult:
+    """Step 2b (``editions.cut``), FAIL-OPEN: a trial that raises is reported (``failed``) and tonight's pages
+    go on the current edition as usual. A call-of-record lock taken before the cut's write refuses the whole
+    job, exactly like the page write (nothing written)."""
+    assert result.known_by is not None
+    try:
+        cut = cut_module.run_cut(
+            conn,
+            apply=apply,
+            known_by=result.known_by,
+            end=result.end,
+            tenant_id=tenant_id,
+            work_dir=work_dir,
+            runs_dir=runs_dir,
+            workers=workers,
+            notifier=notifier,
+            keep_mirror=keep_mirror,
+            lock_probe=lock.call_of_record_holder,
+            engine=result.engine,
+        )
+    except cut_module.CutRefused as exc:
+        raise NightlyRefused(str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001 — fail-open: the trial never costs tonight's pages
+        if conn.info.transaction_status != psycopg.pq.TransactionStatus.IDLE:
+            conn.rollback()
+        cut = cut_module.CutResult(
+            "failed",
+            edition_run_log.MODE_APPLY if apply else edition_run_log.MODE_DRY_RUN,
+            reason=f"{type(exc).__name__}: {exc}"[:300],
+        )
+    finally:
+        shutil.rmtree(work_dir, ignore_errors=True)
+    result.cut = cut.as_json()
+    return cut
 
 
 def _write_pages(
@@ -926,6 +1031,8 @@ def crashed_artifact(
 
 def print_result(r: NightlyResult) -> None:
     print(r.admin_line())
+    if r.cut and r.cut.get("status") not in (None, "no_event", "no_edition"):
+        print(f"  automatic cut: {r.cut.get('line')} · timings {r.cut.get('timings')}")
     if r.status != "done" or r.edition is None:
         return
     nightly = sum(1 for p in r.pages for k in p["kinds"] if k == "nightly")
@@ -944,7 +1051,15 @@ def print_result(r: NightlyResult) -> None:
             + ", ".join(f"{n['ticker']} ({n['status']})" for n in h.names)
         )
     if r.counts_before and r.counts_after:
-        for k in ("edition_event", "edition_entry", "edition_call", "edition_outcome", "calls"):
+        for k in (
+            "edition",
+            "edition_event",
+            "edition_entry",
+            "edition_call",
+            "edition_outcome",
+            "edition_cause",
+            "calls",
+        ):
             print(f"  {k:16} {r.counts_before[k]:>7} -> {r.counts_after[k]:>7}")
     if r.artifact_path:
         print(f"  artifact {r.artifact_path}")

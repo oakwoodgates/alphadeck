@@ -88,7 +88,8 @@ def test_compose_bakes_the_replay_extra_into_the_cron_image_only():
     assert re.search(r"EDITIONS_NIGHTLY: \$\{ALPHADECK_EDITIONS_NIGHTLY:-1\}", cron_block)
     t = re.search(r"EDITIONS_TIMEOUT_S: \$\{ALPHADECK_EDITIONS_TIMEOUT_S:-(\d+)\}", cron_block)
     s = re.search(r'EDITIONS_TIMEOUT_S="\$\{EDITIONS_TIMEOUT_S:-(\d+)\}"', SCRIPT)
-    assert t and s and t.group(1) == s.group(1) == "1800"
+    # S7 raised it 1800 -> 3600 (a trial night re-runs the edition once or twice; MEASURED ~9 min on dev)
+    assert t and s and t.group(1) == s.group(1) == "3600"
 
 
 def _function(name: str) -> str:

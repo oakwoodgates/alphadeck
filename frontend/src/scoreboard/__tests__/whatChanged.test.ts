@@ -2,15 +2,55 @@ import { describe, expect, it } from "vitest";
 
 import type { EditionEpisodeDiffOut, ScoreboardEditionOut } from "../../api/hooks";
 import {
+  causeNote,
+  causeText,
   deltaText,
   episodeLine,
   nightChange,
+  noticePair,
   outsideLine,
   previousEdition,
   scoreText,
   sortCompanies,
   thesisLine,
 } from "../whatChanged";
+
+// Editions S7 — the cause of each change, in plain English, and the cut notice's pair.
+describe("what changed — the causes (S7)", () => {
+  const N = { before: "Edition 1", after: "Edition 2" };
+
+  it("says each server cause plainly, and nothing when there is none", () => {
+    expect(causeText("rule_change", N)).toBe("cause: the declared rule change");
+    expect(causeText("unexplained", N)).toBe("cause: a change in the rules no declared rule explains");
+    expect(causeText("late_data", N)).toBe("cause: data that arrived after Edition 1 was cut");
+    expect(causeText("data_repair", N)).toMatch(/data repair or data that arrived late \(the two cannot be separated\)/);
+    expect(causeText("not_separated", N)).toMatch(/^cause: not separated .*not re-tested\)$/);
+    expect(causeText(null, N)).toBeNull();
+    expect(causeText(undefined, N)).toBeNull();
+    expect(causeText("anything else", N)).toBeNull(); // never guessed
+  });
+
+  it("the note says whether causes are shown, and why not", () => {
+    expect(causeNote(true, N)).toBe("each change names its cause, from the trial that cut Edition 2");
+    expect(causeNote(false, N)).toMatch(/Edition 2 was not cut from Edition 1/);
+  });
+
+  it("the notice compares the new edition with the one it replaced, when both are listed", () => {
+    const eds = [0, 1, 2].map((n) => ({ number: n, label: `e${n}`, causes: [] }) as ScoreboardEditionOut);
+    const notice = {
+      number: 2,
+      previous: 1,
+      label: "x",
+      line: "x",
+      published_at: "2026-10-24T03:00:00Z",
+      n_company_nights_changed: 3,
+      unexplained: false,
+    };
+    expect(noticePair(eds, notice)?.map((e) => e.number)).toEqual([1, 2]);
+    expect(noticePair(eds, null)).toBeNull();
+    expect(noticePair(eds.slice(0, 2), notice)).toBeNull();
+  });
+});
 
 // Editions S6 — the "what changed" copy, as pure functions: which edition the viewed one is compared with,
 // and the plain-English lines for a night run and an episode change (the arrow reads earlier → later).

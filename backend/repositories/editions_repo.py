@@ -17,13 +17,19 @@ of a company new to the edition), ``append_event`` (the ``paged`` event) — and
 ``edition_outcome``): ``ink_outcomes`` writes an episode's final score once, ``outcomes_for_thesis`` is the
 Scoreboard's read. Every append is ``ON CONFLICT DO NOTHING`` on the table's unique key and returns how many
 rows it actually wrote, so a second run of the same night appends nothing (the tests count the table).
+
+S7 adds the AUTOMATIC CUT's side (``editions.cut``, migration 0065): ``events`` (an edition's life events —
+the ``trial_no_change`` records the cut reads back), ``rerun_pages`` (the pages the rules trial re-tests),
+``frozen_bodies`` (the thesis bodies a publish froze), ``append_causes`` / ``cause_set`` (the changes the cut's
+trial attributed to its event — the "what changed" comparison's ``cause``) and ``cut_notice`` (the quiet line
+the Scoreboard and the Admin show for seven days after a cut).
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -38,6 +44,13 @@ EDITION_0_LABEL = "the original record"
 CAUSES = ("initial", "rule_change", "data_repair", "code_drift")
 PAGE_KINDS = ("rerun", "nightly", "catchup")
 INK_KINDS = ("matured", "running_at_close")
+# the stored edition_cause values (0065) — what the cut's RULES trial proved about a change
+STORED_CAUSES = ("rule_change", "unexplained", "not_separated")
+# every value a "what changed" ``cause`` can take: the stored ones, plus what the trial's scope implies for a
+# change outside the proven set — ``late_data`` (a night the rules trial re-tested and found unchanged: the
+# data arrived after the earlier edition's cut) and ``data_repair`` (a repair trial: a repair or late data)
+DIFF_CAUSES = (*STORED_CAUSES, "late_data", "data_repair")
+NOTICE_DAYS = 7
 
 
 class EditionExists(Exception):
@@ -288,6 +301,8 @@ def table_counts(conn: psycopg.Connection) -> dict[str, int]:
             "(SELECT count(*) FROM edition_entry) AS edition_entry, "
             "(SELECT count(*) FROM edition_call) AS edition_call, "
             "(SELECT count(*) FROM edition_outcome) AS edition_outcome, "
+            "(SELECT count(*) FROM edition_cause) AS edition_cause, "
+            "(SELECT count(*) FROM data_repair) AS data_repair, "
             "(SELECT count(*) FROM calls) AS calls"
         )
         return dict(cur.fetchone())
@@ -575,3 +590,212 @@ def joins_for_thesis(
             )
             for r in cur.fetchall()
         }
+
+
+# --- the automatic cut (S7, migration 0065) -----------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class EditionEvent:
+    kind: str
+    at: datetime
+    detail: dict[str, Any]
+
+
+def events(
+    conn: psycopg.Connection, edition_id: UUID, *, kind: str | None = None
+) -> list[EditionEvent]:
+    """The edition's life events, oldest first (``kind`` narrows them)."""
+    sql = "SELECT kind, at, detail FROM edition_event WHERE edition_id = %s"
+    params: list[Any] = [edition_id]
+    if kind is not None:
+        sql += " AND kind = %s"
+        params.append(kind)
+    with conn.cursor() as cur:
+        cur.execute(sql + " ORDER BY at, id", params)
+        return [EditionEvent(r["kind"], r["at"], dict(r["detail"] or {})) for r in cur.fetchall()]
+
+
+def rerun_pages(conn: psycopg.Connection, edition_id: UUID) -> dict[UUID, list[CallCard]]:
+    """The edition's ``rerun`` pages — the ones its publish computed at its own cut — per thesis, ascending.
+    The automatic cut's rules trial re-tests exactly these (a nightly / catch-up page has its own cut).
+    """
+    out: dict[UUID, list[CallCard]] = {}
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT thesis_id, card FROM edition_call WHERE edition_id = %s AND page_kind = 'rerun' "
+            "ORDER BY thesis_id, asof",
+            (edition_id,),
+        )
+        for r in cur.fetchall():
+            out.setdefault(r["thesis_id"], []).append(row_to_call(r))
+    return out
+
+
+def rerun_nights(conn: psycopg.Connection, edition_id: UUID) -> dict[UUID, list[date]]:
+    """The nights of the edition's ``rerun`` pages, per thesis, ascending (no card read)."""
+    out: dict[UUID, list[date]] = {}
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT thesis_id, asof FROM edition_call WHERE edition_id = %s AND page_kind = 'rerun' "
+            "ORDER BY thesis_id, asof",
+            (edition_id,),
+        )
+        for r in cur.fetchall():
+            out.setdefault(r["thesis_id"], []).append(r["asof"])
+    return out
+
+
+def frozen_bodies(conn: psycopg.Connection, edition_id: UUID) -> dict[UUID, dict[str, Any]] | None:
+    """The thesis bodies (kill criteria + catalysts) the edition's publish froze, per thesis — ``None`` for an
+    edition published before S7 froze them (its ``published`` event carries no ``bodies``)."""
+    pub = events(conn, edition_id, kind="published")
+    if not pub or "bodies" not in pub[0].detail:
+        return None
+    return {UUID(k): v for k, v in pub[0].detail["bodies"].items()}
+
+
+def append_causes(
+    conn: psycopg.Connection,
+    *,
+    tenant_id: UUID,
+    edition_id: UUID,
+    rows: Sequence[Mapping[str, Any]],
+) -> int:
+    """Append the cut's proven changes: ``{thesis_id, security_id, night | arm_date, cause}`` each.
+    ``ON CONFLICT DO NOTHING`` on the key. Returns the rows written. The caller owns the transaction.
+    """
+    written = 0
+    with conn.cursor() as cur:
+        for r in rows:
+            if r["cause"] not in STORED_CAUSES:
+                raise ValueError(f"cause must be one of {STORED_CAUSES}, got {r['cause']!r}")
+            cur.execute(
+                """INSERT INTO edition_cause
+                       (tenant_id, edition_id, thesis_id, security_id, night, arm_date, cause)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s)
+                   ON CONFLICT DO NOTHING""",
+                (
+                    tenant_id,
+                    edition_id,
+                    r["thesis_id"],
+                    r["security_id"],
+                    r.get("night"),
+                    r.get("arm_date"),
+                    r["cause"],
+                ),
+            )
+            written += cur.rowcount
+    return written
+
+
+@dataclass(frozen=True)
+class CauseSet:
+    """What the cut that published an edition PROVED, for the "what changed" comparison with its parent: the
+    proven company-nights and episodes (``edition_cause``) and the trial's scope (``edition.reason.trial``):
+    whether it ran a rules trial and/or a repair trial, and the nights per thesis the rules trial re-tested.
+    ``night`` / ``episode`` turn one change into its cause, never a guess: a change in the proven set carries
+    the stored cause; any other change carries what the scope implies — ``late_data`` on a night the rules
+    trial re-tested and found unchanged, ``data_repair`` (a repair or late data, which a repair trial cannot
+    separate), ``not_separated`` on a night the rules trial did not re-test (a nightly or catch-up page).
+    """
+
+    rules: bool
+    repair: bool
+    tested: dict[UUID, tuple[date, date]]
+    nights: dict[tuple[UUID, UUID, date], str]
+    episodes: dict[tuple[UUID, UUID, date], str]
+
+    def _scope(self, thesis_id: UUID, d: date) -> str:
+        win = self.tested.get(thesis_id)
+        tested = self.rules and win is not None and win[0] <= d <= win[1]
+        if self.repair:
+            return "data_repair" if (tested or not self.rules) else "not_separated"
+        return "late_data" if tested else "not_separated"
+
+    def night(self, thesis_id: UUID, security_id: UUID, night: date) -> str:
+        return self.nights.get((thesis_id, security_id, night)) or self._scope(thesis_id, night)
+
+    def episode(self, thesis_id: UUID, security_id: UUID, arm_dates: Sequence[date]) -> str:
+        for d in arm_dates:
+            hit = self.episodes.get((thesis_id, security_id, d))
+            if hit:
+                return hit
+        return self._scope(thesis_id, min(arm_dates))
+
+
+def cause_set(
+    conn: psycopg.Connection, *, before: Edition | None, after: Edition
+) -> CauseSet | None:
+    """The causes for comparing ``before`` -> ``after``, or ``None`` when no trial speaks for that pair: only
+    an edition the automatic cut published, compared with the edition it replaced (its parent), has them
+    (Edition 1 was published, not cut; a comparison across several cuts has no single trial)."""
+    trial = (after.reason or {}).get("trial")
+    if before is None or after.parent_id != before.id or not trial:
+        return None
+    tested = {
+        UUID(k): (date.fromisoformat(v[0]), date.fromisoformat(v[1]))
+        for k, v in (trial.get("tested") or {}).items()
+    }
+    nights: dict[tuple[UUID, UUID, date], str] = {}
+    episodes: dict[tuple[UUID, UUID, date], str] = {}
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT thesis_id, security_id, night, arm_date, cause FROM edition_cause "
+            "WHERE edition_id = %s",
+            (after.id,),
+        )
+        for r in cur.fetchall():
+            if r["night"] is not None:
+                nights[(r["thesis_id"], r["security_id"], r["night"])] = r["cause"]
+            else:
+                episodes[(r["thesis_id"], r["security_id"], r["arm_date"])] = r["cause"]
+    return CauseSet(
+        rules=bool(trial.get("rules")),
+        repair=bool(trial.get("repair")),
+        tested=tested,
+        nights=nights,
+        episodes=episodes,
+    )
+
+
+@dataclass(frozen=True)
+class CutNotice:
+    """The quiet line for seven days after the automatic cut published the newest edition."""
+
+    number: int
+    previous: int
+    label: str
+    published_at: datetime
+    n_company_nights_changed: int
+    n_pages_changed: int
+    unexplained: bool
+
+    def line(self) -> str:
+        n = self.n_company_nights_changed
+        return f"Edition {self.number} · {self.label} · {n} company-night{'s' if n != 1 else ''} changed"
+
+
+def cut_notice(
+    conn: psycopg.Connection, *, tenant_id: UUID, now: datetime, days: int = NOTICE_DAYS
+) -> CutNotice | None:
+    """The newest edition's notice when the automatic cut published it (it has a parent and a trial) less
+    than ``days`` ago; ``None`` otherwise (Edition 1, an older cut, nothing published)."""
+    ed = newest(conn, tenant_id=tenant_id)
+    if ed is None or ed.parent_id is None or not (ed.reason or {}).get("trial"):
+        return None
+    if now - ed.created_at > timedelta(days=days):
+        return None
+    with conn.cursor() as cur:
+        cur.execute("SELECT number FROM edition WHERE id = %s", (ed.parent_id,))
+        r = cur.fetchone()
+    trial = ed.reason["trial"]
+    return CutNotice(
+        number=ed.number,
+        previous=r["number"] if r else ed.number - 1,
+        label=ed.label,
+        published_at=ed.created_at,
+        n_company_nights_changed=int(trial.get("n_company_nights_changed") or 0),
+        n_pages_changed=int(trial.get("n_pages_changed") or 0),
+        unexplained=bool(trial.get("unexplained")),
+    )

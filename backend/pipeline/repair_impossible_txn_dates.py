@@ -68,6 +68,7 @@ from psycopg.rows import dict_row
 from ingest.edgar.form4 import implausible_txn_date
 from pipeline.dedup_identical_versions import require_database_url
 from pipeline.run_lock import repair_lock_or_exit
+from repositories import data_repair_repo
 
 # The Section 16 epoch, mirrored here as the SQL pre-filter's lower edge. It must stay in lockstep with
 # ``ingest.edgar.form4._SECTION_16_EPOCH_YEAR``: the pre-filter is only allowed to be WIDER than the rule
@@ -234,6 +235,15 @@ def main(argv: list[str] | None = None) -> None:
         for reason, n in sorted(per_reason.items()):
             print(f"  {reason}: -{n} row(s)")
         print(f"\nSUMMARY: total_deleted={deleted} distinct_facts={len(facts)}")
+        # S7 — the data-repair journal: one row per --apply (a DELETE), under the lock
+        data_repair_repo.journal(
+            conn,
+            tool="repair_impossible_txn_dates",
+            summary=f"deleted {deleted} insider row(s) whose transaction date cannot be true",
+            rows_changed=deleted,
+            deletes=True,
+            counts={"deleted": deleted, "distinct_facts": len(facts), **dict(per_reason)},
+        )
     finally:
         conn.close()
         if lock is not None:

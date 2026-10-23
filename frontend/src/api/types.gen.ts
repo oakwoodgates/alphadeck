@@ -939,7 +939,8 @@ export interface paths {
          *     present, never stored) first, then each stored re-run edition ascending, with its cut, nights, join-date
          *     counts and engine fingerprint. ``default`` = the edition ``GET /scoreboard`` serves when the request
          *     names none: the newest published edition (0 only when nothing is published), unless the server's
-         *     override pins another. Read-only.
+         *     override pins another. ``notice`` = the quiet line for seven days after the automatic cut published the
+         *     newest edition (null otherwise). Read-only.
          */
         get: operations["get_scoreboard_editions_scoreboard_editions_get"];
         put?: never;
@@ -972,8 +973,10 @@ export interface paths {
          *     arm -> exit-by on realized closes through the last night, with the delta on a pair. Pages only one
          *     edition holds are reported as spans; a run lying wholly on them is counted, never compared, while one
          *     that armed there and runs into the shared nights is a change (``armed_before_window``).
-         *     Grouped thesis -> company, with headline counts. ``cause`` is null on every change until the automatic
-         *     cut (S7) supplies it; a cause is never guessed.
+         *     Grouped thesis -> company, with headline counts. ``cause`` is filled only when the automatic cut (S7)
+         *     published the later edition from the earlier one (``causes`` true): what its trial proved, or what the
+         *     trial's scope implies (late data, a repair or late data, not separated); any other pair has null
+         *     causes — a cause is never guessed.
          */
         get: operations["get_scoreboard_edition_diff_scoreboard_editions_diff_get"];
         put?: never;
@@ -2174,6 +2177,29 @@ export interface components {
              * @default []
              */
             alarms: string[];
+        };
+        /**
+         * AdminEditionsCutOut
+         * @description The automatic cut (editions S7), as ONE line for seven days after it published the newest Scoreboard
+         *     edition — e.g. "Edition 2 · rule change: … · includes data that arrived since Edition 1 · 37
+         *     company-nights changed". Backend-authored copy. ``attention`` is true when no declared rule explains the
+         *     change (an unexplained change, which also paged).
+         */
+        AdminEditionsCutOut: {
+            /** Line */
+            line: string;
+            /**
+             * Published At
+             * Format: date-time
+             */
+            published_at: string;
+            /** Number */
+            number: number;
+            /**
+             * Attention
+             * @default false
+             */
+            attention: boolean;
         };
         /**
          * AdminEditionsNightlyOut
@@ -3693,6 +3719,9 @@ export interface components {
          *
          *     ``editions_nightly`` (editions S5) is the Scoreboard editions' nightly page job's one line, from its newest
          *     applied run artifact; ``null`` until that job has run (a directory read — no DB). Never a cron verdict.
+         *
+         *     ``editions_cut`` (editions S7) is the automatic cut's one line for seven days after it published the
+         *     newest edition (a DB read of that edition); ``null`` otherwise. Never a cron verdict.
          */
         AdminStatusOut: {
             record: components["schemas"]["AdminRecordOut"];
@@ -3712,6 +3741,7 @@ export interface components {
             /** Fundamentals Set Aside */
             fundamentals_set_aside?: number | null;
             editions_nightly?: components["schemas"]["AdminEditionsNightlyOut"] | null;
+            editions_cut?: components["schemas"]["AdminEditionsCutOut"] | null;
         };
         /**
          * AdminSuccessorCandidateOut
@@ -5225,8 +5255,12 @@ export interface components {
         /**
          * EditionCompanyNightOut
          * @description One changed company-night: ``changed`` = ``["armed"]`` when exactly one edition arms the company, else
-         *     the fields that differ on a night both arm it. ``cause`` is always null for now: the automatic cut (S7)
-         *     fills it (rule change / data repair / data that arrived late); a cause is never guessed.
+         *     the fields that differ on a night both arm it. ``cause`` (S7) is set only when the later edition was cut
+         *     by the automatic cut from the earlier one: ``rule_change`` / ``unexplained`` (its rules trial proved it,
+         *     with or without a declared rule), ``late_data`` (a night the rules trial re-tested and found unchanged),
+         *     ``data_repair`` (a repair trial: a repair or data that arrived late, not separable), ``not_separated``
+         *     (a night the rules trial did not re-test, or a trial that also carried a deleting repair). Null for any
+         *     other pair of editions — a cause is never guessed.
          */
         EditionCompanyNightOut: {
             /**
@@ -5243,6 +5277,38 @@ export interface components {
             changed: string[];
             /** Cause */
             cause?: string | null;
+        };
+        /**
+         * EditionCutNoticeOut
+         * @description The quiet notice for seven days after the AUTOMATIC CUT (editions S7) published the newest edition:
+         *     ``line`` is the backend-authored sentence ("Edition 2 · rule change: … · includes data that arrived since
+         *     Edition 1 · 37 company-nights changed"), ``number`` / ``previous`` the pair the "see what changed" link
+         *     compares, ``unexplained`` true when no declared rule explains the change (the edition is marked).
+         */
+        EditionCutNoticeOut: {
+            /** Number */
+            number: number;
+            /** Previous */
+            previous: number;
+            /** Label */
+            label: string;
+            /** Line */
+            line: string;
+            /**
+             * Published At
+             * Format: date-time
+             */
+            published_at: string;
+            /**
+             * N Company Nights Changed
+             * @default 0
+             */
+            n_company_nights_changed: number;
+            /**
+             * Unexplained
+             * @default false
+             */
+            unexplained: boolean;
         };
         /**
          * EditionDiffCountsOut
@@ -5332,7 +5398,8 @@ export interface components {
          *     windows, ``arm_shift_days`` apart), ``appeared`` (later edition only), ``vanished`` (earlier edition only).
          *     ``return_delta`` = later minus earlier score when both are scored. ``armed_before_window`` (appeared /
          *     vanished) = the run armed before the first compared night and is listed because it runs into the nights
-         *     both editions cover. ``cause``: null until S7.
+         *     both editions cover. ``cause``: as on a company-night (null unless the later edition was cut from the
+         *     earlier one).
          */
         EditionEpisodeDiffOut: {
             /**
@@ -5445,8 +5512,8 @@ export interface components {
         /**
          * EditionNightRunOut
          * @description Consecutive compared nights on which one company's change is the same (the same ``changed`` fields
-         *     with the same values of those fields on both sides) — ``nights`` folded so a 30-night run reads as one
-         *     line; ``before`` / ``after`` are the reads on its first night.
+         *     with the same values of those fields on both sides, and the same ``cause``) — ``nights`` folded so a
+         *     30-night run reads as one line; ``before`` / ``after`` are the reads on its first night.
          */
         EditionNightRunOut: {
             /**
@@ -5468,6 +5535,8 @@ export interface components {
             changed: string[];
             before: components["schemas"]["EditionNightReadOut"];
             after: components["schemas"]["EditionNightReadOut"];
+            /** Cause */
+            cause?: string | null;
         };
         /**
          * EditionNightSpanOut
@@ -7062,7 +7131,8 @@ export interface components {
          * @description What changed from the EARLIER edition (``before``) to the LATER one (``after``), computed on read:
          *     grouped thesis -> company, compared through ``through`` (the earlier of the two editions' last nights)
          *     from ``first_night``, with the headline ``counts``. Substance only — state, the armed set, verdict,
-         *     grades, exit-by and each episode's score — never card text.
+         *     grades, exit-by and each episode's score — never card text. ``causes`` (S7) = the later edition was cut
+         *     from the earlier one by the automatic cut, so every change carries a ``cause``.
          */
         ScoreboardEditionDiffResponse: {
             before: components["schemas"]["ScoreboardEditionOut"];
@@ -7077,6 +7147,11 @@ export interface components {
              * @default []
              */
             theses: components["schemas"]["EditionThesisDiffOut"][];
+            /**
+             * Causes
+             * @default false
+             */
+            causes: boolean;
         };
         /**
          * ScoreboardEditionOut
@@ -7124,6 +7199,8 @@ export interface components {
          * ScoreboardEditionsResponse
          * @description Every edition the Scoreboard can show, Edition 0 (the original record) first, then each stored
          *     edition ascending; ``default`` = the edition a ``GET /scoreboard`` with no ``edition`` serves.
+         *     ``notice`` (S7) = the quiet line for seven days after the automatic cut published the newest edition
+         *     (null otherwise).
          */
         ScoreboardEditionsResponse: {
             /** Default */
@@ -7133,6 +7210,7 @@ export interface components {
              * @default []
              */
             editions: components["schemas"]["ScoreboardEditionOut"][];
+            notice?: components["schemas"]["EditionCutNoticeOut"] | null;
         };
         /**
          * ScoreboardEpisodeOut

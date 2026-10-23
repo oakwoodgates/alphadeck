@@ -12,6 +12,7 @@ from app.schemas_api import (
     AnnotatedNightOut,
     CorporateEventOut,
     EditionCompanyDiffOut,
+    EditionCutNoticeOut,
     EditionDiffCountsOut,
     EditionThesisDiffOut,
     InsiderBuyOut,
@@ -292,15 +293,32 @@ def get_scoreboard_editions(
     present, never stored) first, then each stored re-run edition ascending, with its cut, nights, join-date
     counts and engine fingerprint. ``default`` = the edition ``GET /scoreboard`` serves when the request
     names none: the newest published edition (0 only when nothing is published), unless the server's
-    override pins another. Read-only."""
+    override pins another. ``notice`` = the quiet line for seven days after the automatic cut published the
+    newest edition (null otherwise). Read-only."""
     stored = editions_repo.list_editions(conn, tenant_id=current_tenant)
     chosen = _default_edition(conn, current_tenant)
+    notice = editions_repo.cut_notice(
+        conn, tenant_id=current_tenant, now=datetime.now(timezone.utc)
+    )
     return ScoreboardEditionsResponse(
         default=chosen.number if chosen is not None else 0,
         editions=[
             _record_edition_out(calls_repo.record_first(conn), calls_repo.record_edge(conn)),
             *(_edition_out(e) for e in stored),
         ],
+        notice=(
+            EditionCutNoticeOut(
+                number=notice.number,
+                previous=notice.previous,
+                label=notice.label,
+                line=notice.line(),
+                published_at=notice.published_at,
+                n_company_nights_changed=notice.n_company_nights_changed,
+                unexplained=notice.unexplained,
+            )
+            if notice is not None
+            else None
+        ),
     )
 
 
@@ -336,8 +354,10 @@ def get_scoreboard_edition_diff(
     arm -> exit-by on realized closes through the last night, with the delta on a pair. Pages only one
     edition holds are reported as spans; a run lying wholly on them is counted, never compared, while one
     that armed there and runs into the shared nights is a change (``armed_before_window``).
-    Grouped thesis -> company, with headline counts. ``cause`` is null on every change until the automatic
-    cut (S7) supplies it; a cause is never guessed."""
+    Grouped thesis -> company, with headline counts. ``cause`` is filled only when the automatic cut (S7)
+    published the later edition from the earlier one (``causes`` true): what its trial proved, or what the
+    trial's scope implies (late data, a repair or late data, not separated); any other pair has null
+    causes — a cause is never guessed."""
     if before_number >= after_number:
         raise HTTPException(
             status_code=422,
@@ -382,6 +402,7 @@ def get_scoreboard_edition_diff(
         first_night=result.first_night,
         counts=EditionDiffCountsOut(**result.counts.model_dump()),
         theses=theses_out,
+        causes=result.causes,
     )
 
 

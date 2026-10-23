@@ -27,7 +27,7 @@ import {
 import { LedgerHead } from "./LedgerHead";
 import { MetricsStrip } from "./MetricsStrip";
 import { EditionChanges } from "./EditionChanges";
-import { editionName, previousEdition } from "./whatChanged";
+import { editionName, noticePair, previousEdition } from "./whatChanged";
 import {
   fmtReturn,
   groupCount,
@@ -265,7 +265,13 @@ export function Scoreboard({ header, asof, onSelect, edition = null, onEditionCh
   const editionList = editionsQ.data?.editions ?? [];
   const priorEdition = previousEdition(editionList, served);
   const servedListed = editionList.find((e) => e.number === served) ?? servedEdition;
-  const [changesOpen, setChangesOpen] = useState(false);
+  // the pair the drawer compares: the viewed edition and the one before it (S6's link), or the automatic
+  // cut's new edition and the one it replaced (S7's notice) — local state, nothing stored in the browser
+  const [changes, setChanges] = useState<[ScoreboardEditionOut, ScoreboardEditionOut] | null>(null);
+  // Editions S7 — the quiet notice for seven days after the automatic cut published the newest edition: one
+  // backend-authored line in the freshness-line style (never blinking, no color), with its own link
+  const cutNotice = editionsQ.data?.notice ?? null;
+  const cutPair = noticePair(editionList, cutNotice);
   // the episode-scorecard drawer's open episode — local state only (no URL param this slice); a
   // click opens it, the drawer's ✕/backdrop/Esc close it, and the ledger underneath never rerenders.
   const [openEp, setOpenEp] = useState<ScoreboardEpisodeOut | null>(null);
@@ -324,10 +330,29 @@ export function Scoreboard({ header, asof, onSelect, edition = null, onEditionCh
                   type="button"
                   className="sb-whatchanged"
                   title={`what changed from ${editionName(priorEdition)} to ${editionName(servedListed)}, company by company`}
-                  onClick={() => setChangesOpen(true)}
+                  onClick={() => setChanges([priorEdition, servedListed])}
                 >
                   what changed since {editionName(priorEdition)}
                 </button>
+              )}
+            </div>
+          )}
+          {/* the automatic cut's notice (S7) — seven days after a new edition was cut, one quiet line */}
+          {cutNotice && (
+            <div className="sb-freshline sb-fresh sb-cutline" data-testid="sb-cut-notice">
+              {cutNotice.line}
+              {cutPair && (
+                <>
+                  {" · "}
+                  <button
+                    type="button"
+                    className="sb-whatchanged"
+                    title={`what changed from ${editionName(cutPair[0])} to ${editionName(cutPair[1])}, company by company`}
+                    onClick={() => setChanges(cutPair)}
+                  >
+                    see what changed
+                  </button>
+                </>
               )}
             </div>
           )}
@@ -629,19 +654,17 @@ export function Scoreboard({ header, asof, onSelect, edition = null, onEditionCh
       {/* "what changed" (S6) — the comparison in the same reusable slide-out; closing it never touches the
           ledger underneath. Mounted only while open, so the comparison is fetched only when asked for. */}
       <Drawer
-        open={changesOpen && priorEdition != null && servedListed != null}
-        onClose={() => setChangesOpen(false)}
+        open={changes != null}
+        onClose={() => setChanges(null)}
         title={
-          priorEdition && servedListed ? (
+          changes ? (
             <>
-              What changed <span className="sc-sub">{editionName(priorEdition)} → {editionName(servedListed)}</span>
+              What changed <span className="sc-sub">{editionName(changes[0])} → {editionName(changes[1])}</span>
             </>
           ) : undefined
         }
       >
-        {changesOpen && priorEdition && servedListed && (
-          <EditionChanges before={priorEdition} after={servedListed} />
-        )}
+        {changes && <EditionChanges before={changes[0]} after={changes[1]} />}
       </Drawer>
 
       {/* the episode scorecard, in a reusable slide-out. A sibling overlay (like the Cockpit's

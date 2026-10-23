@@ -127,6 +127,7 @@ from ingest.prices.source import DEFAULT_RANGE as NIGHTLY_RANGE
 from ingest.prices.source import PriceSource, YahooPriceSource
 from pipeline.ingest_benchmarks import DEFAULT_RANGE
 from pipeline.run_lock import EXIT_ALREADY_RUNNING, PassAlreadyRunning, acquire_repair_lock
+from repositories import data_repair_repo
 from repositories.price_feed_repo import limited_history_marks
 from securities.benchmarks import BENCHMARKS, benchmark_ids
 
@@ -807,6 +808,17 @@ def main(argv: list[str] | None = None) -> None:
                 result = repair_benchmark_bars(conn, dates, apply=args.apply)
             else:
                 result = repair_bars(conn, pairs, apply=args.apply)
+            provenance = write_payload(build_payload(result)) if args.apply else None
+            if args.apply:  # S7 — the data-repair journal: one row per --apply, under the lock
+                what = "price bar" if result.mode == MODE_BARS else "benchmark bar"
+                data_repair_repo.journal(
+                    conn,
+                    tool="repair_benchmark_bars",
+                    summary=f"appended {result.appended} corrected {what}(s) from the vendor",
+                    rows_changed=result.appended,
+                    counts={"appended": result.appended, **{a: result.count(a) for a in ACTIONS}},
+                    provenance=str(provenance) if provenance else None,
+                )
         except ScopeRefused as exc:
             print("REFUSED (nothing was written):")
             for line in exc.reasons:
@@ -820,7 +832,7 @@ def main(argv: list[str] | None = None) -> None:
 
     report(result)
     if args.apply:
-        print(f"provenance: {write_payload(build_payload(result))}")
+        print(f"provenance: {provenance}")
     if result.fetch_errors:
         if args.apply:
             print(

@@ -20,8 +20,15 @@ out of it, and both are substance only (state, the armed set, verdict, grades, e
   into them is a change, flagged ``armed_before_window``. Every episode carries its score (``forward_return``,
   arm -> exit-by on realized closes through the last night); a paired one carries the delta.
 
-``cause`` exists on every change and stays ``None`` here. Slice S7 (the automatic cut) fills it — a rule
-change, a data repair, data that arrived late — from its trial arms; a cause is never guessed.
+``cause`` exists on every change. It is filled (S7) only when the later edition was published by the
+AUTOMATIC CUT and the earlier one is the edition it replaced (its parent): ``editions_repo.cause_set`` reads
+what that cut's trial PROVED (the ``edition_cause`` rows) and its scope, and each change gets — ``rule_change``
+/ ``unexplained`` (the rules trial proved it; declared or not), ``not_separated`` (proved by a trial that also
+carried a deleting repair, or on a night the rules trial did not re-test), ``late_data`` (a night the rules
+trial re-tested and found unchanged: the data arrived after the earlier edition's cut), ``data_repair`` (a
+repair trial, which cannot separate a repair from late data). Any other pair of editions has no single trial,
+so ``cause`` stays ``None`` — a cause is never guessed. A run of nights (``NightRun``) only folds nights with
+the same cause.
 
 Pure core (``diff_thesis``, ``count``) over ascending ``CallSnapshot`` lists and a scorer; the one database
 seam is ``edition_diff``. Read-only end to end: nothing here writes, and an edition is read through
@@ -43,8 +50,8 @@ from pydantic import BaseModel
 from replay.episodes import derive_episodes
 from replay.schema import CallSnapshot, Episode, MemberRow, Outcome
 from replay.scoring import score_episode
-from repositories import thesis_repo
-from repositories.editions_repo import Edition
+from repositories import editions_repo, thesis_repo
+from repositories.editions_repo import CauseSet, Edition
 from scoreboard.prices import PgRealizedPrices, market_tape_edge
 from scoreboard.record import (
     SNAPSHOT_UNREAD_CARD_KEYS,
@@ -140,6 +147,7 @@ class NightRun(BaseModel):
     changed: list[str]
     before: NightRead
     after: NightRead
+    cause: str | None = None
 
 
 class CompanyDiff(BaseModel):
@@ -248,12 +256,14 @@ def _carry(
 
 
 def _signature(n: CompanyNight) -> tuple:
-    """What makes two nights "the same change": the changed fields and THEIR values on both sides — a field
-    that did not change (an armed-only night's day-to-day exit-by, say) never splits a run."""
+    """What makes two nights "the same change": the changed fields and THEIR values on both sides, and the
+    same cause — a field that did not change (an armed-only night's day-to-day exit-by, say) never splits a
+    run."""
     return (
         tuple(n.changed),
         tuple(getattr(n.before, f) for f in n.changed),
         tuple(getattr(n.after, f) for f in n.changed),
+        n.cause,
     )
 
 
@@ -279,6 +289,7 @@ def _runs(changed: Sequence[CompanyNight], position: dict[date, int]) -> list[Ni
                     changed=list(n.changed),
                     before=n.before,
                     after=n.after,
+                    cause=n.cause,
                 )
             )
         prev = n
@@ -355,9 +366,12 @@ def diff_thesis(
     *,
     through: date,
     score: Scorer,
+    causes: CauseSet | None = None,
 ) -> ThesisDiff:
     """One thesis's differences between the BEFORE (earlier) and AFTER (later) edition's timelines, every page
-    after ``through`` ignored. Pure: the scorer is the only reach outside the arguments."""
+    after ``through`` ignored. ``causes`` (S7: the cut's trial for this pair, ``editions_repo.cause_set``)
+    fills each change's ``cause``; ``None`` leaves it ``None``. Pure: the scorer and the cause set are the only
+    reach outside the arguments."""
     b_snaps = sorted((s for s in before if s.asof <= through), key=lambda s: s.asof)
     a_snaps = sorted((s for s in after if s.asof <= through), key=lambda s: s.asof)
     b_dates = [s.asof for s in b_snaps]
@@ -415,7 +429,13 @@ def diff_thesis(
                     changed = []
                 if changed:
                     nights_by_sid.setdefault(sid, []).append(
-                        CompanyNight(night=night, before=br, after=ar, changed=changed)
+                        CompanyNight(
+                            night=night,
+                            before=br,
+                            after=ar,
+                            changed=changed,
+                            cause=causes.night(thesis_id, sid, night) if causes else None,
+                        )
                     )
 
     # --- per episode ------------------------------------------------------------------------------------------
@@ -483,6 +503,10 @@ def diff_thesis(
                 out.n_outside += 1  # armed only on nights the earlier edition does not cover
         if changes:
             changes.sort(key=lambda c: (c.before or c.after).arm_date)  # type: ignore[union-attr]
+            if causes is not None:
+                for c in changes:
+                    arms = [s.arm_date for s in (c.before, c.after) if s is not None]
+                    c.cause = causes.episode(thesis_id, sid, arms)
             eps_by_sid[sid] = changes
 
     changed_sids = sorted({*nights_by_sid, *eps_by_sid}, key=lambda u: u.int)
@@ -581,6 +605,9 @@ class EditionDiff(BaseModel):
     first_night: date | None = None
     counts: DiffCounts = DiffCounts()
     theses: list[ThesisDiff] = []
+    causes: bool = (
+        False  # S7: the later edition was cut from the earlier one, so every change has a cause
+    )
 
 
 def _source(edition: Edition | None) -> TimelineSource:
@@ -605,6 +632,9 @@ def edition_diff(
     if through is None:
         return result
     src_b, src_a = _source(before), _source(after)
+    # S7 — what the automatic cut's trial proved, when ``after`` was cut from ``before`` (else None: no cause)
+    causes = editions_repo.cause_set(conn, before=before, after=after) if after else None
+    result.causes = causes is not None
     # ONE reader per tenant for the whole comparison (the market edge is a per-tenant scan, and a company in
     # two theses keeps its tape loaded), pinned once like the Scoreboard's per-request readers
     readers: dict[UUID, MemoPrices] = {}
@@ -627,7 +657,12 @@ def edition_diff(
             b = src_b.read(conn, thesis.id, through, **lean).snaps
             a = src_a.read(conn, thesis.id, through, **lean).snaps
             one = diff_thesis(
-                thesis.id, b, a, through=through, score=lambda e: score_episode(e, prices)
+                thesis.id,
+                b,
+                a,
+                through=through,
+                score=lambda e: score_episode(e, prices),
+                causes=causes,
             )
             result.theses.append(one.model_copy(update=ident))
         except Exception as e:  # noqa: BLE001 — one thesis's bad page never blanks the comparison

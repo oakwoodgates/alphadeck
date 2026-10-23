@@ -55,6 +55,7 @@ from ingest.edgar.client import EdgarClient
 from ingest.edgar.form4a import accepted_times, filed_dates
 from ingest.edgar.submissions import fetch_submissions, filings_of
 from pipeline.run_lock import EXIT_ALREADY_RUNNING, PassAlreadyRunning, acquire_repair_lock
+from repositories import data_repair_repo
 from repositories import insider_amendment_repo as repo
 
 
@@ -222,6 +223,19 @@ def run(
                 f"{result.decisions} system decision(s) · skipped (moved since the plan) "
                 f"{len(result.skipped)} · insider_amendment_link {links_before} -> {links_after}, "
                 f"insider_amendment_decision {decisions_before} -> {decisions_after}"
+            )
+            # S7 — the data-repair journal: one row per --apply, under the lock
+            data_repair_repo.journal(
+                conn,
+                tool="relink_amendments",
+                summary=f"re-linked {result.links} Form 4/A amendment(s) to their originals",
+                rows_changed=result.links + result.revokes + result.decisions,
+                counts={
+                    "links": result.links,
+                    "revokes": result.revokes,
+                    "decisions": result.decisions,
+                    "skipped": len(result.skipped),
+                },
             )
             return result
         finally:

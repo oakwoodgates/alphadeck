@@ -2045,7 +2045,8 @@ The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
   alone.
 - **After the nightly backup: the Scoreboard editions' nightly page (editions S5, 2026-10-23)** `[BUILT]`.
   Right after `snapshot "${target}" "nightly"`, once per wake, `editions_nightly` fires `timeout -k 60
-  EDITIONS_TIMEOUT_S python -m editions.run nightly --apply` (default **1800 s**; `EDITIONS_NIGHTLY=0` is the
+  EDITIONS_TIMEOUT_S python -m editions.run nightly --apply` (default **3600 s** since S7 — a night that also runs
+  the automatic cut's trial re-runs the edition once or twice, MEASURED ~9 min on dev at 4 workers; `EDITIONS_NIGHTLY=0` is the
   kill switch, an env-only cron deploy; compose `ALPHADECK_EDITIONS_NIGHTLY` / `ALPHADECK_EDITIONS_TIMEOUT_S`).
   Fail-open: any exit is one `daily-cron:` line and the loop goes on. In the scheduling layer, never inside
   `run_daily_pass`, so the Admin "Run daily now" never fires it. The section below has the job.
@@ -2269,8 +2270,21 @@ Admin ignores) is that job; `editions/nightly.py` has the whole contract.
   printed a session past that date and the window reads complete; an episode still waiting on prices is listed,
   not inked. The Scoreboard's edition read uses the inked score from then on (`scoreboard/record.py`
   `inked_outcome`), so a later price correction never re-scores it, while a view scrubbed back before the window
-  ended still scores on read. `ink_running_at_close(edition)` inks the rest when an edition closes (no caller yet —
-  the automatic cut, S7).
+  ended still scores on read. `ink_running_at_close(edition)` inks the rest when an edition closes (the automatic
+  cut, below, in the same transaction as the new edition).
+- **The automatic cut (S7)** runs first, right after the locks and before the read (`editions/cut.py`;
+  `SCOREBOARD.md` §The automatic cut). Only two things start its trial: the engine fingerprint changed since
+  the edition's last check, or a **data repair** was journaled (`data_repair`, migration 0065 — every repair CLI
+  that rewrites fact history writes one row per `--apply` / `--revoke` in its own write transaction, right after
+  its repair committed and still under its repair lock; a run that changed nothing is journaled and starts
+  nothing). No event: nothing runs, nothing is written. A trial that finds no change appends `trial_no_change`
+  (never tried again for the same change) and tonight's page follows as usual; one that finds a change cuts the
+  new edition, which already holds tonight, so the job only runs the self-check on it. Same lock (4), same exit
+  75 while the call-of-record lock is held (re-probed before the write), FAIL-OPEN (a trial fault is a `failed`
+  line in the artifact and tonight's pages still go on), on 4 workers (`--trial-workers`). At most one cut per
+  market day; a cut waits while a member's history is still loading (the hold, for a whole edition).
+  `python -m editions.run cut [--apply]` is the same step by hand (dry-run by default) — e.g. right after a
+  repair. Hooked repair CLIs: `repositories/data_repair_repo.py`'s docstring lists them and the ones left out.
 - **The self-check.** Tonight's page against tonight's recorded call of record (`editions.selfcheck.live_edge`:
   canonical full-card equality, with provenance money compared to the cent — a detector's `round(sum, 2)` can land
   one cent apart when the same trades are summed in another order, MEASURED on COHR in the Edition 1 publish). A
@@ -2279,9 +2293,9 @@ Admin ignores) is that job; `editions/nightly.py` has the whole contract.
   through `notify_health` (an ops alarm with counts only, never a call alert). Only the comparison changed: what
   the cron records and `calls_repo._canonical` are untouched.
 - **The artifact.** `data/edition_runs/<started>.json` (`pipeline/edition_run_log.py`, its own directory, so no
-  pass reader ever counts it): timings, pages per thesis, held and noted theses, the ink, the self-check, the table
-  counts before and after, and the one Admin line (`ADMIN.md` §Scoreboard editions). A crash writes a `crashed`
-  artifact; a refusal writes none.
+  pass reader ever counts it): timings, pages per thesis, held and noted theses, the ink, the self-check, the
+  automatic cut's result (`cut`), the table counts before and after, and the one Admin line (`ADMIN.md`
+  §Scoreboard editions). A crash writes a `crashed` artifact; a refusal writes none.
 - **The cron image carries the `.[replay]` extra** (duckdb + pyarrow: `docker-compose.yml`'s cron build args
   `PIP_EXTRAS: replay`); the API image stays lean — the Scoreboard reads stored editions with psycopg alone.
 - **Never on the call-of-record path:** `pipeline/daily.py`, `pipeline/daily_job.py` and `calls/` import nothing
