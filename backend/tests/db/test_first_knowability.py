@@ -47,6 +47,11 @@ from tests.fundamentals_fixtures import (
     store_versions,
 )
 
+# Rule (c) (operator sign-off 2026-10-22) also keeps a year-old quarter from being the cited one; these D3a
+# proofs hold it OFF (``None`` = no cap, the rule before it) where they isolate D3a's own effect, and say what
+# rule (c) adds beside them.
+_PRE_RULE_C = DEFAULT_CONFIG.model_copy(update={"revenue_accel_max_quarter_age_days": None})
+
 
 def _security(db, ticker: str) -> uuid.UUID:
     sid = uuid.uuid4()
@@ -154,14 +159,18 @@ def test_ceg_year_old_inflection_is_not_live_after_its_comparative_refiles(db):
     pit = PointInTimeData(db, asof=night, known_at=known_at_for_asof(night))
     assert ra.detect(pit, sid, night, DEFAULT_CONFIG) is None
     # the regression proof: the SAME as-of rows dated by the picked version's valid_from (the pre-D3a
-    # read) re-fire the year-old quarter — the exact phantom on the 2026-10-15 record
+    # read) re-fire the year-old quarter — the exact phantom on the 2026-10-15 record (rule (c) held off:
+    # this isolates D3a)
     stale = [
         {**r, KNOWABLE_FROM: r["valid_from"], KNOWABLE_SOURCE: r["accession"]}
         for r in pit.fundamentals_facts(sid)
     ]
-    phantom = ra.score(stale, sid, night, DEFAULT_CONFIG)
+    phantom = ra.score(stale, sid, night, _PRE_RULE_C)
     assert phantom is not None and phantom.asof == date(2026, 5, 11)
     assert "ending 2025-03-31" in phantom.label
+    # ...and rule (c) is a second, independent guard against it: Q1-2025 dated 2026-05-11 is 406 days past its
+    # period end, so even the pre-D3a dating cannot make it the cited quarter
+    assert ra.score(stale, sid, night, DEFAULT_CONFIG) is None
 
 
 # --- genuine changes are new knowledge -----------------------------------------------------------------
@@ -211,7 +220,10 @@ def test_a_reverted_value_starts_a_new_run(db):
 def test_the_tie_break_cites_the_newest_period_of_a_shared_filing(db):
     """LRHC's 2026-06-04 10-K restated 2024-Q2 and 2025-Q1 and first reported 2025-Q4 — three live
     inflections sharing one knowability date. ``max`` on the date alone kept the OLDEST (2024-Q2); the
-    filing's newest period is the one cited."""
+    filing's newest period is the one cited (tie-break (d), stated with rule (c) held off). Under rule (c) none
+    of the three may be cited — each period ended more than 135 days before 2026-06-04 (704 d, 430 d, and a
+    late filer's 155 d) — so the detector declines: the real late-filer + restated-comparative instance.
+    """
     sid = _security(db, "LRHC")
     store_versions(db, sid, LRHC)
     asof = date(2026, 7, 1)
@@ -229,9 +241,12 @@ def test_the_tie_break_cites_the_newest_period_of_a_shared_filing(db):
         (date(2025, 3, 31), date(2026, 6, 4)),
         (date(2025, 12, 31), date(2026, 6, 4)),
     ], "the real fixture must hold the tie it claims"
-    ev = ra.detect(pit, sid, asof, DEFAULT_CONFIG)
+    ev = ra.detect(pit, sid, asof, _PRE_RULE_C)
     assert ev is not None and "ending 2025-12-31" in ev.label
     assert ev.asof == date(2026, 6, 4) and ev.provenance[0].ref == "0001213900-26-065276"
+    # rule (c): every tied quarter is past 135 days at its knowability, so none fires
+    assert [(q.filed - q.period_end).days for q in hits] == [704, 430, 155]
+    assert ra.detect(pit, sid, asof, DEFAULT_CONFIG) is None
 
 
 # --- no version recorded after known_at influences anything --------------------------------------------

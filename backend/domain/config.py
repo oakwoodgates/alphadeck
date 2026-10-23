@@ -236,6 +236,19 @@ class CallConfig(DomainModel):
     # DECOUPLED from grade (R8 — like a catalyst, unlike insider). 180d ≈ two quarters: the edge persists into
     # the next print, and a co-located breakout within ~6 months still arms on it. STARTING calibration.
     revenue_accel_alpha_liveness_days: int = 180
+    # RULE (c) — the CITED QUARTER's maximum age at knowability (operator sign-off 2026-10-22, CALL_LOGIC §3):
+    # revenue acceleration may NOT fire on a quarter whose period ended more than this many days before the
+    # date its number first became knowable (``knowable_from``, D3a). A 10-Q/10-K that RESTATES a year-old
+    # comparative makes that old quarter's number new knowledge at the later filing (D3a rule (a): exact
+    # equality), and it fired as if it were fresh — MEASURED in the editions preview (2026-10-22): 10 Edition-1
+    # triggers on 9 companies cited such a quarter (RKT Q2-2025 restated 2026-08-07, 403 d; Freedom Holding
+    # Q1-2024 knowable 2026-06-01, 792 d; SEGG Q1-2026 filed 2026-10-08, 191 d — a late filer). The old quarter
+    # stays STORED, SHOWN and a comparison base (its YoY / prior quarter); it just cannot be the quarter the
+    # trigger fires on. 135 d is the operator's number (for scale: the slowest standard SEC deadline is a
+    # non-accelerated filer's 10-K, 90 days after its fiscal year-end; a 10-Q is due within 40-45 days).
+    # ``> 135`` disqualifies; exactly 135 still fires. ``None`` = no cap (the rule before 2026-10-22 — what a
+    # backtest overlay sets to ask "without rule (c)"). DETECTOR dial (read in signals/revenue_acceleration.py).
+    revenue_accel_max_quarter_age_days: int | None = Field(default=135, ge=0)
     # **DORMANT — backtest hypothesis dial (H1 leg 1); the default IS today.** The call-strength class the
     # revenue re-acceleration detector emits. R6 fixed it at CORE inline; this lifts that choice onto the
     # config so H1 can ask whether a COMPUTED fundamentals screen should supply a CORE Key 1 at all.

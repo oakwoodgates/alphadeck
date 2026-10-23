@@ -10,6 +10,9 @@ Rule (R6/R7/R8, ratified):
     floor ``g_q >= revenue_accel_min_yoy``.
   * role=entry_trigger · kind=CATALYST · type=EARNINGS (R7 — REUSE, no new Kind, so no OpenAPI change) ·
     grade=CORE (R6 — a fundamental inflection earns core) · liveness 180d, grade-decoupled (R8).
+  * RULE (c) (operator sign-off 2026-10-22): the CITED quarter must be fresh at knowability — its period ended
+    at most ``revenue_accel_max_quarter_age_days`` (135) before ``knowable_from``. A restated year-old
+    comparative stays stored, shown and a comparison base, but is never the quarter the trigger fires on.
 
 A SEPARATE detector, NOT folded into ``catalyst_conviction``: that one reads *ratified* ``fact_catalyst``
 with the grade ON the fact (invariant #3); a COMPUTED inflection has no ratified grade, so its grade is a
@@ -191,6 +194,18 @@ def _inflection(quarters: list[_Q], q: _Q, cfg: CallConfig) -> _Inflection | Non
     return _Inflection(g_q=g_q, g_prev=g_prev, a_q=a_q, a_prev=a_prev)
 
 
+def _fresh_at_knowability(q: _Q, cfg: CallConfig) -> bool:
+    """RULE (c) (operator sign-off 2026-10-22): may ``q`` be the CITED quarter? Only when its period ended at
+    most ``revenue_accel_max_quarter_age_days`` before its number first became knowable (``q.filed`` = the
+    read's ``knowable_from``, D3a). A restated year-old comparative is new knowledge at the later filing (exact
+    equality, rule (a)) but not a fresh quarter — RKT's Q2-2025, restated 2026-08-07 (403 d), fired as if it
+    were. The quarter stays in ``quarters`` (a YoY base and a prior quarter for the others); this gates only
+    which quarter may fire. Both engines run this one function (the detector is shared). ``None`` = no cap.
+    """
+    cap = cfg.revenue_accel_max_quarter_age_days
+    return cap is None or (q.filed - q.period_end).days <= cap
+
+
 def score(
     rows: list[dict[str, Any]],
     security_id: UUID,
@@ -205,6 +220,8 @@ def score(
     lv = cfg.revenue_accel_alpha_liveness_days
     hits: list[tuple[_Q, _Inflection]] = []
     for q in quarters:
+        if not _fresh_at_knowability(q, cfg):
+            continue  # rule (c): a stale quarter can never be the one the trigger fires on
         infl = _inflection(quarters, q, cfg)
         if infl is None:
             continue
