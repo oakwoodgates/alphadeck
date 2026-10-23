@@ -2,6 +2,8 @@ import { useEffect, useState, type ReactNode } from "react";
 
 import type {
   AdminLateOnlyNightOut,
+  AdminMissingCloseOut,
+  AdminMissingClosesOut,
   AdminRunOut,
   AdminSplitDefectOut,
   AdminSplitSettledOut,
@@ -287,6 +289,107 @@ function SettledSplitLine({ rows }: { rows: AdminSplitSettledOut[] }) {
   );
 }
 
+/** Why a company had no close at the pass (the artifact's `reason`, in words). */
+const MC_REASON: Record<string, string> = {
+  no_bar: "the vendor had no close yet",
+  fetch_error: "the price pull failed",
+  not_ingested: "another writer held it, so this pass did not pull it",
+};
+
+/** A missing-close row's marker: an OTC company is a KNOWN vendor issue (the operator, 2026-10-23: OTC closes
+ *  arrive a night late — logged, not fixed), so it says that instead of the generic "usually late"; any other
+ *  company late on most of its recent nights says "usually late". Only on the minority it is true of (WB#3). */
+function MissingCloseMark({ m }: { m: AdminMissingCloseOut }) {
+  if (m.otc) return <span data-testid="adm-mc-otc"> · OTC · known issue</span>;
+  if (m.usual_late)
+    return (
+      <span data-testid="adm-mc-usual">
+        {" "}
+        · usually late ({m.late_nights} of {m.judged_nights} nights)
+      </span>
+    );
+  return null;
+}
+
+/** MISSING CLOSES (operator decision 2026-10-23): did every live basket company get the session's close by
+ *  the night's run? Honest loudness, because it is the SAME few companies most nights and nearly every late
+ *  close arrives with the next night's pull (#7/WB#3):
+ *  - QUIET, every night: the backend's one line ("21 of 679 companies had no close for Oct 23 …"), collapsed
+ *    over the tickers (each with its usual-late / OTC marker), the closes still waiting on a later session's
+ *    pull, and the late closes that arrived since ("late, arrived", with how late);
+ *  - LOUD only for an older session's close STILL missing after a later session's pass ("2 companies still
+ *    have no close for Oct 21: X, Y"), until the bar arrives or the tape reads stale (the stopped-tape block
+ *    takes over). Never paged; never the cron verdict. A failed check says so. */
+function MissingClosesBlock({ mc }: { mc: AdminMissingClosesOut }) {
+  const loud = (mc.still_missing ?? []).filter((m) => m.loud);
+  const waiting = (mc.still_missing ?? []).filter((m) => !m.loud);
+  const missing = mc.missing ?? [];
+  const arrived = mc.arrived ?? [];
+  const who = (m: { ticker?: string | null; security_id: string }) => m.ticker ?? m.security_id;
+  return (
+    <>
+      {loud.length > 0 && (
+        <div className="adm-stale" data-testid="adm-missing-closes-loud">
+          {(mc.loud_lines ?? []).map((l) => (
+            <div key={l} className="adm-line adm-loud">
+              {l}
+            </div>
+          ))}
+          <ul className="adm-problems">
+            {loud.map((m) => (
+              <li key={`${m.security_id}:${m.session}`}>
+                <b>{who(m)}</b> — no close for {m.session} · last bar {m.edge ?? "never"} ·{" "}
+                {MC_REASON[m.reason] ?? m.reason}
+                {m.error ? ` (${m.error})` : ""}
+                <MissingCloseMark m={m} />
+              </li>
+            ))}
+          </ul>
+          <div className="adm-sub">
+            A late close usually arrives with the next night&apos;s pull; these did not, so the pages
+            written for that session lack them. Each clears when its bar arrives, or moves to the stopped
+            price tapes above once its tape reads stale. Never paged. As of the {mc.asof} pass.
+          </div>
+        </div>
+      )}
+      {mc.error && (
+        <div className="adm-line adm-loud" data-testid="adm-missing-closes-error">
+          The missing-close check could not run on the last pass ({mc.error}).
+        </div>
+      )}
+      {missing.length + waiting.length + arrived.length > 0 ? (
+        <details className="adm-quietlist" data-testid="adm-missing-closes">
+          <summary className="adm-line adm-quiet">{mc.line}</summary>
+          <ul className="adm-problems adm-quietrows">
+            {missing.map((m) => (
+              <li key={`${m.security_id}:${m.session}`}>
+                <b>{who(m)}</b> — last bar {m.edge ?? "never"} · {MC_REASON[m.reason] ?? m.reason}
+                <MissingCloseMark m={m} />
+              </li>
+            ))}
+            {waiting.map((m) => (
+              <li key={`${m.security_id}:${m.session}`}>
+                <b>{who(m)}</b> — no close for {m.session} yet · waiting on the next session&apos;s pull
+                <MissingCloseMark m={m} />
+              </li>
+            ))}
+            {arrived.map((a) => (
+              <li key={`arrived:${a.security_id}:${a.session}`} data-testid="adm-mc-arrived">
+                <b>{who(a)}</b> — late, arrived: the {a.session} close, {a.lag_h} h after the pass that
+                missed it{a.otc ? " · OTC · known issue" : ""}
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : (
+        <div className="adm-line adm-quiet" data-testid="adm-missing-closes">
+          {mc.line}
+        </div>
+      )}
+    </>
+  );
+}
+
 function Problems({ problems }: { problems: AdminRunOut["problems"] }) {
   if (!problems?.length) return null;
   return (
@@ -484,6 +587,29 @@ export function Admin({ header }: Props) {
                 (pipeline.set_aside_fundamentals)
               </div>
             )}
+            {/* editions S5 — the Scoreboard editions' nightly page job, as the backend's one line (which
+                edition, which night, held theses, the self-check). QUIET — the normal night is not news —
+                and louder only when the self-check found a real mismatch or the job crashed (attention).
+                Rendered only once the job has run; an older backend omits the field. */}
+            {status.editions_nightly && (
+              <div
+                className={`adm-line ${status.editions_nightly.attention ? "adm-loud" : "adm-quiet"}`}
+                data-testid="adm-editions-nightly"
+              >
+                {status.editions_nightly.line}
+              </div>
+            )}
+            {/* editions S7 — the automatic cut's one line, for seven days after it published the newest
+                Scoreboard edition. Quiet — a new edition is context — and louder only for an UNEXPLAINED
+                change (no declared rule; it also paged). An older backend omits the field. */}
+            {status.editions_cut && (
+              <div
+                className={`adm-line ${status.editions_cut.attention ? "adm-loud" : "adm-quiet"}`}
+                data-testid="adm-editions-cut"
+              >
+                {status.editions_cut.line}
+              </div>
+            )}
             <div className="adm-sub">
               {status.record.reason} · today {status.record.today} · last expected as-of{" "}
               {status.record.expected_asof}
@@ -543,6 +669,9 @@ export function Admin({ header }: Props) {
                 }
               />
             )}
+            {/* MISSING CLOSES — a quiet line every night once a live pass has run the check, loud only for an
+                older session's close still missing after a later session's pass; an older backend omits it */}
+            {status.missing_closes && <MissingClosesBlock mc={status.missing_closes} />}
             {/* T4 — the SPLIT-BASIS defects: rendered only when the last scan found one (a clean tape is
                 the norm), and a failed scan says so rather than letting the list quietly age. */}
             {status.split_defects && status.split_defects.defects.length > 0 && (

@@ -31,9 +31,14 @@ from app.deps import get_conn
 from app.routers.admin_price_feed import price_repairs_out
 from app.routers.admin_splits import count_needs_review as splits_needs_review_count
 from app.schemas_api import (
+    AdminArrivedCloseOut,
     AdminAuditCheckOut,
     AdminCronOut,
+    AdminEditionsCutOut,
+    AdminEditionsNightlyOut,
     AdminLateOnlyNightOut,
+    AdminMissingCloseOut,
+    AdminMissingClosesOut,
     AdminPartialNightOut,
     AdminReconstructedNightOut,
     AdminRecordOut,
@@ -61,6 +66,7 @@ from domain.insider_amendments import page_text
 from domain.market_time import market_now, market_tz
 from domain.settings import get_settings
 from notify import HealthEvent
+from pipeline import edition_run_log
 from pipeline.backup import BackupInfo, list_backups, run_backup
 from pipeline.backup_job import BackupRunInFlight, start_backup_job
 from pipeline.backup_job import get_job as get_backup_job
@@ -78,6 +84,8 @@ from pipeline.daily_job import DailyRunInFlight, get_job, start_daily_job
 from pipeline.edgar_coverage import EdgarCoverage
 from pipeline.insider_amendment_scan import new_labels_of as amendment_new_labels
 from pipeline.insider_amendment_scan import new_more_of as amendment_new_more
+from pipeline.missing_closes import loud_lines as missing_close_loud_lines
+from pipeline.missing_closes import quiet_line as missing_close_quiet_line
 from pipeline.night_coverage import NightCoverage, read_night_coverage
 from pipeline.run_lock import probe_pass_lock
 from pipeline.schedule import (
@@ -89,7 +97,7 @@ from pipeline.schedule import (
 )
 from pipeline.split_basis import new_labels_of as split_new_labels
 from pipeline.successor_cik import new_labels_of as successor_new_labels
-from repositories import calls_repo, fundamentals_set_aside_repo
+from repositories import calls_repo, editions_repo, fundamentals_set_aside_repo
 from scoreboard.late import late_only_nights
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -507,6 +515,96 @@ def _split_out(payloads: list[dict]) -> AdminSplitOut | None:
     return None
 
 
+def _missing_close_row(m: Mapping) -> AdminMissingCloseOut:
+    """One artifact missing-close row (``MissingClose.to_json``) as the wire row; raises on a malformed row."""
+    return AdminMissingCloseOut(
+        security_id=UUID(str(m["security_id"])),
+        ticker=m.get("ticker") if isinstance(m.get("ticker"), str) else None,
+        session=date.fromisoformat(str(m["session"])),
+        edge=date.fromisoformat(str(m["edge"])) if m.get("edge") else None,
+        reason=str(m.get("reason") or "no_bar"),
+        error=m.get("error") if isinstance(m.get("error"), str) else None,
+        loud=bool(m.get("loud")),
+        usual_late=bool(m.get("usual_late")),
+        late_nights=int(m.get("late_nights") or 0),
+        judged_nights=int(m.get("judged_nights") or 0),
+        otc=bool(m.get("otc")),
+    )
+
+
+def _rows(raw: object, build) -> list:
+    """Each artifact row through ``build``, a malformed one skipped (never a blank panel)."""
+    out = []
+    for m in raw if isinstance(raw, list) else ():
+        try:
+            out.append(build(m))
+        except Exception:  # noqa: BLE001 — skip a malformed row, never blank the flag
+            continue
+    return out
+
+
+def _missing_closes_out(payloads: list[dict]) -> AdminMissingClosesOut | None:
+    """The MISSING-CLOSES flag (``pipeline/missing_closes.py``), from the artifacts already read (no DB query —
+    this router owns no tables, and a second definition of "missing" here could drift from the pass's). The
+    flag comes from the newest FINISHED, LIVE artifact whose check EVALUATED — the same block the next pass
+    re-checks — so the loud rows here are exactly what the next pass carries. When a NEWER live pass's check
+    FAILED, ``error`` says so (the rows stay the last evaluated pass's, so a broken check never silently hides a
+    loud close). ``None`` = no live pass has run the check yet (the quiet state right after deploy). The lines
+    are the module's own builders, so the page and the cron log say the same thing."""
+    error: str | None = None
+    for doc in payloads:
+        if doc.get("mode") != "live" or not is_finished(doc):
+            continue
+        block = doc.get("missing_closes")
+        if not isinstance(block, Mapping):
+            continue
+        if not block.get("evaluated"):
+            if error is None and block.get("error"):
+                error = str(block["error"])
+            continue
+        try:
+            return AdminMissingClosesOut(
+                asof=date.fromisoformat(doc["asof"]),
+                ran_at=str(doc["started_at"]),
+                session=date.fromisoformat(block["session"]) if block.get("session") else None,
+                is_session=bool(block.get("is_session")),
+                judged=int(block.get("judged") or 0),
+                line=missing_close_quiet_line(block),
+                missing=_rows(block.get("missing"), _missing_close_row),
+                still_missing=_rows(block.get("still_missing"), _missing_close_row),
+                loud_lines=missing_close_loud_lines(block),
+                arrived=_rows(
+                    block.get("arrived"),
+                    lambda a: AdminArrivedCloseOut(
+                        security_id=UUID(str(a["security_id"])),
+                        ticker=a.get("ticker") if isinstance(a.get("ticker"), str) else None,
+                        session=date.fromisoformat(str(a["session"])),
+                        lag_h=float(a["lag_h"]),
+                        otc=bool(a.get("otc")),
+                    ),
+                ),
+                error=error,
+            )
+        except Exception:  # noqa: BLE001 — a malformed artifact is skipped like any other read
+            continue
+    if error is not None:
+        newest = next(
+            (d for d in payloads if d.get("mode") == "live" and is_finished(d) and "asof" in d),
+            None,
+        )
+        if newest is not None:
+            try:
+                return AdminMissingClosesOut(
+                    asof=date.fromisoformat(newest["asof"]),
+                    ran_at=str(newest["started_at"]),
+                    line="Closing prices · not checked — the check could not run on the last pass",
+                    error=error,
+                )
+            except Exception:  # noqa: BLE001
+                return None
+    return None
+
+
 def _short_sha(sha: str) -> str:
     return sha[:12]
 
@@ -811,6 +909,10 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
     ``split_defects`` (T4) is the split-basis panel — every basket name whose stored tape mixes two split
     bases (island / cliff / flap) as some reader sees it, from the newest artifact that scanned; flag only,
     never the verdict. Its ``settled`` rows are flaps no reader sees on two bases — quiet, never an alarm.
+
+    ``missing_closes`` is the missing-closing-price flag: a QUIET line every night ("21 of 679 companies had no
+    close for Oct 23 at the night's run"), and a LOUD line only for an older session's close still missing after
+    a later session's pass — from the newest artifact that ran the check; never paged, never the verdict.
     """
     run_at = _run_at()
     now = _now()
@@ -1046,6 +1148,8 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
     tape = _tape_out(payloads)
     # T4 — the split-basis panel, from the same artifacts (no second read, no DB query)
     split_defects = _split_out(payloads)
+    # MISSING CLOSES — the night's quiet line + the loud still-missing closes, from the same artifacts (no DB)
+    missing_closes = _missing_closes_out(payloads)
     # T2 + Q8 + T3 — the price-feed repairs panel: the same artifacts' inventory overlaid with the LIVE
     # repair log (SELECTs only — this surface still writes nothing). In a SAVEPOINT and fail-open: a fault
     # reading the repair log costs the panel (null, the FE falls back to the freshness blocks — every row
@@ -1078,6 +1182,32 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
             )
     except Exception:  # noqa: BLE001 — the count is a passenger on the status read
         _log.exception("set-aside count failed (fail-open — the status read is unaffected)")
+
+    # editions S5 — the Scoreboard editions' nightly page job, as its newest APPLIED run's one line (a file
+    # read; no DB). Fail-open like the panels above: a fault costs the line (null), never the status read.
+    editions_nightly = None
+    try:
+        editions_nightly = _editions_nightly_out(edition_run_log.latest_edition_run())
+    except Exception:  # noqa: BLE001 — the line is a passenger on the status read
+        _log.exception("editions nightly line failed (fail-open — the status read is unaffected)")
+
+    # editions S7 — the automatic cut's one line, for seven days after it published the newest edition (a DB
+    # read of that edition). Fail-open like the line above.
+    editions_cut = None
+    try:
+        with conn.transaction():
+            notice = editions_repo.cut_notice(
+                conn, tenant_id=current_tenant_id(), now=datetime.now(timezone.utc)
+            )
+        if notice is not None:
+            editions_cut = AdminEditionsCutOut(
+                line=notice.line(),
+                published_at=notice.published_at,
+                number=notice.number,
+                attention=notice.unexplained,
+            )
+    except Exception:  # noqa: BLE001 — the line is a passenger on the status read
+        _log.exception("editions cut line failed (fail-open — the status read is unaffected)")
 
     return AdminStatusOut(
         record=AdminRecordOut(
@@ -1133,6 +1263,24 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
         price_repairs=price_repairs,
         splits_needs_review=splits_needs_review,
         fundamentals_set_aside=fundamentals_set_aside,
+        editions_nightly=editions_nightly,
+        missing_closes=missing_closes,
+        editions_cut=editions_cut,
+    )
+
+
+def _editions_nightly_out(doc: Mapping | None) -> AdminEditionsNightlyOut | None:
+    """The editions nightly page job's artifact -> its one Admin line (``None`` until it has run applied).
+    The line is the job's own (``editions.nightly.admin_line``) — composed once, where the run's facts are.
+    """
+    if not doc or not doc.get("admin_line") or not doc.get("started_at"):
+        return None
+    end = doc.get("end")
+    return AdminEditionsNightlyOut(
+        line=str(doc["admin_line"]),
+        ran_at=datetime.fromisoformat(str(doc.get("finished_at") or doc["started_at"])),
+        night=date.fromisoformat(end) if end else None,
+        attention=bool(doc.get("attention")),
     )
 
 

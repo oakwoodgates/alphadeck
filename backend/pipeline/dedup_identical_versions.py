@@ -87,9 +87,10 @@ from psycopg.rows import dict_row
 
 from db.bitemporal import _FACT_IDENTITY
 from db.clock import db_now
+from db.session import DEFAULT_TENANT_ID
 from pipeline.call_for_thesis import call_for_thesis
 from pipeline.run_lock import repair_lock_or_exit
-from repositories import calls_repo, thesis_repo
+from repositories import calls_repo, data_repair_repo, thesis_repo
 
 # The two tables the seed pile-up actually hit hard (§3.3 of the perf diagnosis) — the only ones worth
 # the extra top-5-partitions query in the report; the small tables' whole duplicate set is already
@@ -677,6 +678,16 @@ def main(argv: list[str] | None = None) -> None:
         print(
             f"\nSUMMARY: {per_table} total_deleted={total_deleted} "
             f"total_referenced_kept={total_referenced_kept} {verify_line}"
+        )
+        # S7 — the data-repair journal: one row per --apply (a DELETE: a trial at an older cut sees it too)
+        data_repair_repo.journal(
+            conn,
+            tool="dedup_identical_versions",
+            summary=f"deleted {total_deleted} byte-identical fact re-version(s)",
+            rows_changed=total_deleted,
+            deletes=True,
+            counts={r.table: r.deleted for r in results},
+            tenant_id=args.tenant or DEFAULT_TENANT_ID,
         )
     finally:
         conn.close()

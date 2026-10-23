@@ -22,8 +22,8 @@ import { breadthLine, episodeKey, indexBreadth, key1Line } from "./breadth";
 // It renders through the SCOREBOARD's own components — `LedgerHead`, `EpisodeRow`,
 // `EpisodeScorecard`, `MetricsStrip` — because the rows genuinely are replayed, scored arm episodes
 // and the backend serves them in that exact wire shape. Nothing here re-implements a cell. (The
-// Scoreboard's `ReplayPanel` itself is not reused: it fetches `useScoreboardReplay` internally, so it
-// is bound to that endpoint's data. Its CHILDREN are where the rendering lives, and those are shared.)
+// Scoreboard's replay panel, retired by editions S8, was never reused here: it was bound to its own
+// endpoint. Its CHILDREN are where the rendering lives, and those are shared.)
 //
 // COLLAPSED BY DEFAULT and below the pooled panel, in that order on purpose. Per-thesis outcomes are
 // the leaderboard trap — the platform is opinionated about timing and deferential about the idea (#4)

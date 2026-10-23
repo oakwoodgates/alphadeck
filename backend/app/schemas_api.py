@@ -1423,13 +1423,192 @@ class ScoreboardEditionOut(BaseModel):
     published_at: datetime | None = None
 
 
+class EditionCutNoticeOut(BaseModel):
+    """The quiet notice for seven days after the AUTOMATIC CUT (editions S7) published the newest edition:
+    ``line`` is the backend-authored sentence ("Edition 2 · rule change: … · includes data that arrived since
+    Edition 1 · 37 company-nights changed"), ``number`` / ``previous`` the pair the "see what changed" link
+    compares, ``unexplained`` true when no declared rule explains the change (the edition is marked).
+    """
+
+    number: int
+    previous: int
+    label: str
+    line: str
+    published_at: datetime
+    n_company_nights_changed: int = 0
+    unexplained: bool = False
+
+
 class ScoreboardEditionsResponse(BaseModel):
     """Every edition the Scoreboard can show, Edition 0 (the original record) first, then each stored
     edition ascending; ``default`` = the edition a ``GET /scoreboard`` with no ``edition`` serves.
-    """
+    ``notice`` (S7) = the quiet line for seven days after the automatic cut published the newest edition
+    (null otherwise)."""
 
     default: int
     editions: list[ScoreboardEditionOut] = []
+    notice: EditionCutNoticeOut | None = None
+
+
+# --- "what changed" between two editions (editions S6) — the wire twin of ``scoreboard.diff`` -------------
+
+
+class EditionNightReadOut(BaseModel):
+    """One company's read on one night in one edition: ``page`` = the page it comes from (the night itself,
+    or that edition's last page before it — the Scoreboard's own carry rule), ``armed``, and — only on an
+    armed night — the call's verdict, entry grade, conviction grade and exit-by."""
+
+    page: date
+    armed: bool
+    verdict: str | None = None
+    entry_grade: str | None = None
+    conviction_grade: str | None = None
+    exit_by: date | None = None
+
+
+class EditionCompanyNightOut(BaseModel):
+    """One changed company-night: ``changed`` = ``["armed"]`` when exactly one edition arms the company, else
+    the fields that differ on a night both arm it. ``cause`` (S7) is set only when the later edition was cut
+    by the automatic cut from the earlier one: ``rule_change`` / ``unexplained`` (its rules trial proved it,
+    with or without a declared rule), ``late_data`` (a night the rules trial re-tested and found unchanged),
+    ``data_repair`` (a repair trial: a repair or data that arrived late, not separable), ``not_separated``
+    (a night the rules trial did not re-test, or a trial that also carried a deleting repair). Null for any
+    other pair of editions — a cause is never guessed."""
+
+    night: date
+    before: EditionNightReadOut
+    after: EditionNightReadOut
+    changed: list[str] = []
+    cause: str | None = None
+
+
+class EditionEpisodeSideOut(BaseModel):
+    """One edition's arm episode, scored through the comparison's last night (``forward_return`` = arm ->
+    exit-by on realized closes). ``began_mid_arm`` = armed on that edition's first page for the thesis.
+    """
+
+    arm_date: date
+    last_armed_date: date
+    dearm_date: date | None = None
+    close_reason: str
+    exit_by: date | None = None
+    verdict: str | None = None
+    entry_grade: str | None = None
+    conviction_grade: str | None = None
+    began_mid_arm: bool = False
+    forward_return: float | None = None
+
+
+class EditionEpisodeDiffOut(BaseModel):
+    """One episode change, paired on (thesis, company, arm date): ``matched`` (same arm date, listed only when
+    the run differs — ``differs`` names what), ``moved`` (the same company armed in both over overlapping
+    windows, ``arm_shift_days`` apart), ``appeared`` (later edition only), ``vanished`` (earlier edition only).
+    ``return_delta`` = later minus earlier score when both are scored. ``armed_before_window`` (appeared /
+    vanished) = the run armed before the first compared night and is listed because it runs into the nights
+    both editions cover. ``cause``: as on a company-night (null unless the later edition was cut from the
+    earlier one)."""
+
+    change: Literal["matched", "moved", "appeared", "vanished"]
+    before: EditionEpisodeSideOut | None = None
+    after: EditionEpisodeSideOut | None = None
+    arm_shift_days: int | None = None
+    differs: list[str] = []
+    return_delta: float | None = None
+    armed_before_window: bool = False
+    cause: str | None = None
+
+
+class EditionNightRunOut(BaseModel):
+    """Consecutive compared nights on which one company's change is the same (the same ``changed`` fields
+    with the same values of those fields on both sides, and the same ``cause``) — ``nights`` folded so a
+    30-night run reads as one line; ``before`` / ``after`` are the reads on its first night."""
+
+    first: date
+    last: date
+    n_nights: int
+    changed: list[str] = []
+    before: EditionNightReadOut
+    after: EditionNightReadOut
+    cause: str | None = None
+
+
+class EditionCompanyDiffOut(BaseModel):
+    """One company that changed: every changed night (``nights``), the same nights folded into runs
+    (``runs``), and its episode changes."""
+
+    security_id: UUID
+    ticker: str | None = None
+    company_name: str | None = None
+    nights: list[EditionCompanyNightOut] = []
+    runs: list[EditionNightRunOut] = []
+    episodes: list[EditionEpisodeDiffOut] = []
+
+
+class EditionNightSpanOut(BaseModel):
+    """A run of one edition's pages the other does not cover (``n_nights`` pages, ``first`` -> ``last``)."""
+
+    first: date
+    last: date
+    n_nights: int
+
+
+class EditionThesisDiffOut(BaseModel):
+    """One thesis: the nights compared (``first_night`` -> ``last_night``, the ones BOTH editions cover; null
+    when they share none), the pages only one edition holds (``before_only`` / ``after_only`` spans, with
+    ``n_outside`` unpaired runs lying wholly there — counted, never compared), the nights its own state differs,
+    the matched-episode count, the armed companies with nothing to list, and the companies that changed.
+    """
+
+    thesis_id: UUID
+    name: str
+    archived: bool = False
+    first_night: date | None = None
+    last_night: date | None = None
+    n_nights: int = 0
+    n_state_nights: int = 0
+    before_only: list[EditionNightSpanOut] = []
+    after_only: list[EditionNightSpanOut] = []
+    n_outside: int = 0
+    n_matched: int = 0
+    n_companies_unchanged: int = 0
+    companies: list[EditionCompanyDiffOut] = []
+    error: str | None = None
+
+
+class EditionDiffCountsOut(BaseModel):
+    """The headline counts over every thesis (company-nights and episodes)."""
+
+    n_theses: int = 0
+    n_theses_changed: int = 0
+    n_companies_changed: int = 0
+    n_thesis_nights: int = 0
+    n_state_nights: int = 0
+    n_company_nights_changed: int = 0
+    n_armed_before_only: int = 0
+    n_armed_after_only: int = 0
+    n_fields_changed: int = 0
+    n_episodes_matched: int = 0
+    n_episodes_matched_changed: int = 0
+    n_episodes_moved: int = 0
+    n_episodes_appeared: int = 0
+    n_episodes_vanished: int = 0
+    n_episodes_outside: int = 0
+
+
+class ScoreboardEditionDiffResponse(BaseModel):
+    """What changed from the EARLIER edition (``before``) to the LATER one (``after``), computed on read:
+    grouped thesis -> company, compared through ``through`` (the earlier of the two editions' last nights)
+    from ``first_night``, with the headline ``counts``. Substance only — state, the armed set, verdict,
+    grades, exit-by and each episode's score — never card text. ``causes`` (S7) = the later edition was cut
+    from the earlier one by the automatic cut, so every change carries a ``cause``."""
+
+    before: ScoreboardEditionOut
+    after: ScoreboardEditionOut
+    through: date | None = None
+    first_night: date | None = None
+    counts: EditionDiffCountsOut
+    theses: list[EditionThesisDiffOut] = []
+    causes: bool = False
 
 
 class ScoreboardResponse(BaseModel):
@@ -1695,51 +1874,16 @@ def _operator_span_out(s: OperatorSpan, tickers: Mapping[UUID, str | None]) -> O
 
 
 class ScoreboardReplayThesisOut(BaseModel):
-    """One thesis's slice of the HISTORICAL (replayed) panel — platform track only (decision
-    capture post-dates history, so the operator column is structurally absent, not empty)."""
+    """One thesis's replayed, scored arm episodes — the `/backtest` run ledger's per-thesis slice (the name
+    survives from the Scoreboard's replay-alongside panel, retired by editions S8). Platform track only:
+    decision capture post-dates history, so the operator column is structurally absent, not empty.
+    """
 
     thesis_id: UUID
     name: str
     ticker: str | None = None
     basket_size: int = 0
     episodes: list[ScoreboardEpisodeOut] = []
-
-
-class ScoreboardReplayResponse(BaseModel):
-    """The replay panel: replayed history served from the operator-kicked artifact — a RECOMPUTE
-    (today's code + dials over historical facts), never the record; separate endpoint, separate
-    section, metrics never pooled with the live summary. ``available=false`` = no artifact yet
-    (run ``python -m scoreboard.replay_snapshot`` from the dev venv)."""
-
-    available: bool
-    generated_at: str | None = None
-    window_start: date | None = None
-    window_end: date | None = None
-    known_at_pin: str | None = None
-    record_began: date | None = None
-    window_overlaps_record: bool = False
-    # F4 — the ROSTER provenance of the replayed run: how many theses recomputed on TODAY's basket for want
-    # of a `basket_snapshot` reaching that far back, plus the backend-authored sentence. Defaulted, so an
-    # artifact written before F4 still serves (as "nothing to report" — the honest value for a run that
-    # could not have known). The note is already folded into `banner`; these carry it structured so a later
-    # surface can read the number without parsing prose.
-    roster_fallback_theses: int = 0
-    roster_source_note: str | None = None
-    # F2 — the replayed run's own identity: the CallConfig fingerprint and the image SHA behind this
-    # panel. The short form is already folded into `banner` (composed server-side, so the hash is
-    # shortened in exactly one place — `domain.config.short_hash`); these carry the FULL values so
-    # provenance can always show its work (#6). Defaulted: an artifact written before F2 still serves.
-    config_hash: str | None = None
-    code_sha: str | None = None
-    policy_label: str | None = None  # server-composed display form; the FE renders, never slices
-    banner: str | None = None
-    min_n: int = 0
-    n_theses: int = 0
-    n_episodes: int = 0
-    n_censored: int = 0
-    n_eligible: int = 0
-    metrics: list[ScoreboardMetricOut] = []
-    theses: list[ScoreboardReplayThesisOut] = []
 
 
 class MemberDisplaySignalsOut(BaseModel):
@@ -2512,6 +2656,91 @@ class AdminSuccessorCikIn(BaseModel):
     cik: str = Field(min_length=1, max_length=16)
 
 
+class AdminEditionsNightlyOut(BaseModel):
+    """The Scoreboard editions' nightly page job (editions S5), as ONE plain-English line from its newest
+    APPLIED run artifact (``data/edition_runs``): which edition, which night it paged, how many theses, any held
+    for history still loading, and the self-check — e.g. "Edition 1 · page for Oct 23 added · 10 theses ·
+    self-check passed". Backend-authored copy (the FE renders, never composes). ``attention`` is true only when
+    the self-check found a real mismatch or the job crashed — the one case worth a louder line."""
+
+    line: str
+    ran_at: datetime
+    night: date | None = None
+    attention: bool = False
+
+
+class AdminMissingCloseOut(BaseModel):
+    """One company with no stored close for ``session`` (``pipeline/missing_closes.py``) — on the night's quiet
+    list, or (``loud``) an older session's close still missing after a later session's pass. ``edge`` is its
+    newest stored bar at that pass; ``reason`` is ``no_bar`` (the price leg ran clean — the vendor had no close
+    yet), ``fetch_error`` (the leg failed; ``error`` keeps its message) or ``not_ingested`` (another writer held
+    the company). ``usual_late`` marks a company late at the night's run on most of its recent sessions
+    (``late_nights`` of ``judged_nights``); ``otc`` a company the master lists on the OTC venue — a KNOWN vendor
+    issue (``FEED_LOOP.md`` §Known feed limitations). ``ticker`` may be null; the row renders by id (#9).
+    """
+
+    security_id: UUID
+    ticker: str | None = None
+    session: date
+    edge: date | None = None
+    reason: str
+    error: str | None = None
+    loud: bool = False
+    usual_late: bool = False
+    late_nights: int = 0
+    judged_nights: int = 0
+    otc: bool = False
+
+
+class AdminArrivedCloseOut(BaseModel):
+    """A close that was missing at an earlier pass and is now stored — "late, arrived". ``lag_h`` is the hours
+    from the pass that first found it missing to the bar's first ``recorded_at`` (our store's own bookkeeping
+    of when the feed delivered — never a history gate)."""
+
+    security_id: UUID
+    ticker: str | None = None
+    session: date
+    lag_h: float
+    otc: bool = False
+
+
+class AdminMissingClosesOut(BaseModel):
+    """MISSING CLOSES (operator decision 2026-10-23) — did every live basket company get the session's close
+    by the night's run? Read from the newest finished live run artifact that ran the check (a file read, no
+    DB). ``line`` is the QUIET nightly line (backend-authored: "21 of 679 companies had no close for Oct 23 at
+    the night's run (17 OTC, a known issue) · usually arrive with the next night's pull", or "not judged" on a
+    session with no SPY/IWM close); ``missing`` the companies behind it; ``arrived`` the late closes that
+    arrived since the previous check (quiet). ``loud_lines`` / ``still_missing`` are the LOUD flag — one line
+    per older session whose close is still missing after a later session's pass ("2 companies still have no
+    close for Oct 21: X, Y"); it persists until the bar arrives or the tape goes stale (the stopped-feed list
+    takes over). Never paged and never the cron verdict. ``error`` = the check could not run on that pass.
+    """
+
+    asof: date
+    ran_at: str
+    session: date | None = None
+    is_session: bool = False
+    judged: int = 0
+    line: str
+    missing: list[AdminMissingCloseOut] = []
+    still_missing: list[AdminMissingCloseOut] = []
+    loud_lines: list[str] = []
+    arrived: list[AdminArrivedCloseOut] = []
+    error: str | None = None
+
+
+class AdminEditionsCutOut(BaseModel):
+    """The automatic cut (editions S7), as ONE line for seven days after it published the newest Scoreboard
+    edition — e.g. "Edition 2 · rule change: … · includes data that arrived since Edition 1 · 37
+    company-nights changed". Backend-authored copy. ``attention`` is true when no declared rule explains the
+    change (an unexplained change, which also paged)."""
+
+    line: str
+    published_at: datetime
+    number: int
+    attention: bool = False
+
+
 class AdminStatusOut(BaseModel):
     """The admin page's one-GET summary: record freshness + the newest run + the cron verdict + the
     newest DB snapshot + the feed-freshness panel. READ-ONLY — the endpoint owns no tables and writes
@@ -2543,6 +2772,15 @@ class AdminStatusOut(BaseModel):
     ``fundamentals_set_aside`` (migration 0062) is how many stored fundamentals versions are set aside — the
     revenue rows the data-quality screen would have refused, stored before it existed, which every read skips
     (``python -m pipeline.set_aside_fundamentals``). A quiet line; ``null`` when the count could not be read.
+
+    ``editions_nightly`` (editions S5) is the Scoreboard editions' nightly page job's one line, from its newest
+    applied run artifact; ``null`` until that job has run (a directory read — no DB). Never a cron verdict.
+
+    ``missing_closes`` (2026-10-23) is the missing-closing-price flag: the night's quiet count line and, loud,
+    any older session's close still missing after a later session's pass; ``null`` until a live pass has run
+    the check (a file read — no DB). Never paged, never a cron verdict.
+    ``editions_cut`` (editions S7) is the automatic cut's one line for seven days after it published the
+    newest edition (a DB read of that edition); ``null`` otherwise. Never a cron verdict.
     """
 
     record: AdminRecordOut
@@ -2557,6 +2795,9 @@ class AdminStatusOut(BaseModel):
     price_repairs: AdminPriceRepairsOut | None = None
     splits_needs_review: int | None = None
     fundamentals_set_aside: int | None = None
+    editions_nightly: AdminEditionsNightlyOut | None = None
+    missing_closes: AdminMissingClosesOut | None = None
+    editions_cut: AdminEditionsCutOut | None = None
 
 
 class AdminRunsOut(BaseModel):
@@ -2704,7 +2945,7 @@ class BacktestLedgerOut(BaseModel):
     It reuses `ScoreboardReplayThesisOut` / `ScoreboardEpisodeOut` deliberately: the rows ARE replayed,
     scored arm episodes, and re-declaring a parallel shape would give the two surfaces two definitions
     of the same row and let their renderers drift. The front end therefore renders this through the
-    same ledger components the Scoreboard's replay panel uses.
+    same ledger components the Scoreboard's own ledger uses.
 
     A DRILL-DOWN, never a ranking: theses come back in NAME order (fixed by the writer), which is the
     one ordering that cannot be read as a leaderboard (invariant #4). The pooled view above it carries

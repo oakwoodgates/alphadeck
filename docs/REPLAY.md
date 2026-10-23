@@ -61,8 +61,9 @@ files and reads unresolved (exactly what it held); a partial aux set refuses to 
 ## Determinism pin + the mirror
 
 A run pins `known_at = PIN` (the `recorded_at` ceiling) — and the pin only gates transaction time when it sits
-in the PAST: `replay.run --pin` is explicit, but the Scoreboard's replay-snapshot CLI (`scoreboard.replay_snapshot`)
-pins `now`, so that panel is honest by LABELING (a recompute, never the record), not by gating to the past — the
+in the PAST: `replay.run --pin` is explicit, but the Scoreboard's replay-snapshot CLI (`scoreboard.replay_snapshot`,
+retired with its panel by editions S8 on 2026-10-23 — a stored edition replaced it) pinned `now`, so that panel was
+honest by LABELING (a recompute, never the record), not by gating to the past — the
 same knowledge-horizon caveat the serve path closes for a past view with the public clock (`serve_view`,
 `INVARIANTS.md` #4). **That CLI also
 passes an explicit `cfg` and stamps its fingerprint (F2):** it used to omit `cfg` entirely and silently take
@@ -115,8 +116,8 @@ Step 2, which runs against real history at scale.
 `thesis_repo.get_asof` at `known_at = min(pin, known_at_for_asof(T))` — the same **market-day cap** every
 history view uses (`domain.market_time.serve_view`, `INVARIANTS.md` #4), never the run's bare pin. The
 per-session clock is the load-bearing part: the harness pins ONE `known_at` for the sweep, so resolving the
-roster once at that pin would return **today's** basket for the `scoreboard.replay_snapshot` path (which pins
-`now`) and the lookahead would have survived the fix. A member added after T is now invisible at T.
+roster once at that pin would return **today's** basket for any caller that pins `now` (the retired
+`scoreboard.replay_snapshot` CLI did) and the lookahead would have survived the fix. A member added after T is now invisible at T.
 
 **Two honest residuals stay, and both are labeled rather than assumed away:**
 

@@ -440,6 +440,74 @@ Nothing here writes a fact or a call. The Workbench shows the same queue scoped 
 (`GET /workbench/theses/{id}/onboarding`) as a quiet note after a promote whose cold names were queued.
 `python -m pipeline.onboarding --status` prints it from the CLI.
 
+### Missing closes — "did every company get the night's close?"  `[BUILT, 2026-10-23]`
+
+The operator's rule (2026-10-23): "an admin flag should fire if no closing price was found for a company on a
+day". The Scoreboard's edition pages are written the same night, right after the nightly pass, so a close that
+had not arrived by then is paged without it. `status.missing_closes` is that flag, read from the newest
+finished live run artifact that ran the check (`missing_closes` block — a file read, no DB; `null` until a live
+pass has run it). The rule and the measurements: `FEED_LOOP.md` §Missing closes; the code:
+`pipeline/missing_closes.py`.
+
+- **QUIET, every night** — one gray line, the backend's own words: `Closing prices · 21 of 679 companies had no
+  close for Oct 23 at the night's run (17 OTC, a known issue) · usually arrive with the next night's pull`, or
+  `… all 679 companies had a close …`, or `… not judged for Nov 26 — neither SPY nor IWM has a close for it`
+  (a holiday, or a pass before the session settled). It expands to the companies, each with its last bar and
+  why (the vendor had no close yet / the price pull failed / another writer held it), the marker
+  **"OTC · known issue"** on a company the master lists on the OTC venue (`FEED_LOOP.md` §Known feed
+  limitations — OTC closes arrive a night late, logged, not fixed) and **"usually late (n of m nights)"** on any
+  other company late on most of its recent sessions; plus the closes still waiting on a later session's pull,
+  and the late closes that arrived since the previous check ("late, arrived", with how many hours after the
+  pass that missed them).
+- **LOUD only for a close STILL missing after the next session's pass** — `2 companies still have no close for
+  Oct 21: X, Y`, the Admin flag styling, one line per session. It persists until the bar arrives (it then drops
+  to the quiet "late, arrived") or the tape reads stale, when the stopped-price-tape block above takes the
+  company over (never both). A holiday pass never makes one loud: only a pass for a LATER session that has a
+  benchmark close does.
+- **Never paged, never the cron verdict**, never a run-row problem. A check that could not run says so loudly
+  (`error`), over the last good flag.
+
+### Scoreboard editions — "did tonight's page land?"  `[BUILT, editions S5 2026-10-23]`
+
+The cron sidecar grows the Scoreboard's current edition after the nightly backup (`FEED_LOOP.md` §the editions
+nightly page; `editions/nightly.py`). `GET /admin/status` carries its **one line**, `editions_nightly` — the
+newest APPLIED run's own words from `data/edition_runs/<ts>.json` (a directory read, no DB; a dry run is never
+shown; `null` until the job has run, and the page then renders nothing):
+
+- `Edition 1 · page for Oct 23 added · 10 theses · self-check passed` — the normal night (QUIET);
+- `… · 2 catch-up pages added …` — a session the edition missed (a night the job did not run, or a thesis that
+  was held), filled from the public clock;
+- `… · 2 theses held: history still loading` — a thesis with a member still in the onboarding queue (the panel
+  above) gets no page until its history is loaded; the next night's catch-up fills it;
+- `… · 3 final scores inked` — episodes whose signal window ended were scored once and frozen;
+- `… · self-check skipped: recorded by another build or policy` — tonight's recorded call came from another
+  image or call policy than the job's (a deploy day), so it was not compared;
+- `Editions · no page: the nightly pass has not finished (status running)` — the gate held it (the job runs only
+  after a finished nightly pass);
+- `Edition 1 · trial: the rules changed no page — no new edition · page for Oct 23 added …` — a deploy changed
+  the engine fingerprint (or a repair was journaled), the automatic cut's trial (S7) found no card moved, and
+  the edition grew as usual; the same change is never tried again;
+- `Edition 2 cut · rule change: … · includes data that arrived since Edition 1 · 37 company-nights changed ·
+  self-check passed` — the trial found history moved and cut a new edition (it already holds tonight);
+- `… · a new edition is due but waits: history still loading for 2 companies (…)` — the cut waits for the
+  onboarding queue, like a held page;
+- `… · the edition trial failed (…) · tonight's pages go on as usual` — fail-open (LOUD);
+- LOUD (`attention`) only when the self-check found a REAL mismatch between tonight's page and tonight's recorded
+  call (it also paged, counts only), the job crashed, the trial failed, or a cut was an UNEXPLAINED change (no
+  declared rule; it paged). Each is worth a look; the artifact names the theses and the fields that differ.
+
+The line includes the night it paged, so a job that stopped running reads as an old date. Nothing here writes;
+the job is the cron's, never a button (it is not part of "Run daily now").
+
+**The automatic cut's own line** (`editions_cut`, S7) — for SEVEN days after the automatic cut published the
+newest edition, `GET /admin/status` carries one more quiet line read from that edition (a DB read):
+`Edition 2 · data repair: re-scaled 40 stored price bar(s) onto the split list's scale · includes data that arrived
+since Edition 1 · 12 company-nights changed`. LOUD only for an "unexplained change" (no declared rule in
+`domain/rule_log.py` explains the change; it also paged through `notify_health`). The Scoreboard shows the same
+line with a "see what changed" link (`SCOREBOARD.md` §The automatic cut). `null` after seven days, or when the
+newest edition was published by hand (Edition 1). To cut right after a repair instead of waiting for the night:
+`python -m editions.run cut --apply` (dry-run without `--apply`).
+
 ## Cron health — "did last night's run work?"
 
 The one-word `cron.status` verdict, plus the last run's counts and any problems:
@@ -690,7 +758,7 @@ the freeze it is adjacent to: `POSTMORTEM_CRON_FREEZE_2026-07.md`.
 
 | Endpoint | Shape | Notes |
 |---|---|---|
-| `GET /admin/status` | freshness + cron verdict + last-snapshot age + the stopped-feed, split-basis and price-feed-repairs panels | read-only; the page opens on it |
+| `GET /admin/status` | freshness + cron verdict + last-snapshot age + the stopped-feed, split-basis and price-feed-repairs panels + the editions nightly line (`editions_nightly`) + the missing-close flag (`missing_closes`) + the automatic cut's seven-day line (`editions_cut`) | read-only; the page opens on it |
 | `POST /admin/price-feed/{security_id}/adopt` | `{symbol}` → the change row | a symbol EDGAR lists for a renamed name; 409 otherwise / nothing to change |
 | `POST /admin/price-feed/{security_id}/set-symbol` | `{symbol}` → the change row | ONE vendor fetch validates first (no bars → 422, nothing written) |
 | `POST /admin/price-feed/changes/{change_id}/undo` | → the undo row | exact restore; 409 already undone / a later change stands / the master moved |

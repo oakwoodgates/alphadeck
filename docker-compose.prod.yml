@@ -11,9 +11,10 @@
 #
 # WHY AN OVERLAY, NOT THE BASE: this project's Compose CONCATENATES service `volumes` (see the dev/sig/fork
 # overlays' comments), so a /data/backtest entry in the BASE would collide with dev/sig's own /data/backtest
-# bind = "duplicate mount point". Here base has no /data/backtest target, so this ADDS a fourth backend
-# volume cleanly. Prod is the ONLY tier that loads this file; dev/sig/fork pass their own -f overlays and
-# never see it, so their resolved config is byte-identical to today.
+# bind = "duplicate mount point". Here base has no /data/backtest target, so this ADDS one more backend
+# volume cleanly (beside base's appdata + backups; editions S8 dropped base's old replay-panel bind, which
+# never touched /data/backtest). Prod is the ONLY tier that loads this file; dev/sig/fork pass their own -f
+# overlays and never see it.
 #
 # FROZEN + DECOUPLED: ./data/backtest_prod is a separate COPY. Future dev backtests write ./data/backtest and
 # never touch this dir; :ro means the container physically cannot write it. Absent dir is fine — Docker

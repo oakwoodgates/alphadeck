@@ -50,6 +50,7 @@ import psycopg
 from db.session import connect
 from domain.insider_amendments import AMENDS_ACCESSION
 from pipeline.run_lock import EXIT_ALREADY_RUNNING, PassAlreadyRunning, acquire_repair_lock
+from repositories import data_repair_repo
 from repositories import insider_amendment_repo as repo
 
 
@@ -209,6 +210,18 @@ def run(*, apply: bool, report_json: Path | None) -> repo.RederiveResult | None:
                 f"APPLIED: {result.revokes} system revoke(s), {result.decisions} re-derived system "
                 f"decision(s) · skipped (moved since the plan) {len(result.skipped)} · "
                 f"insider_amendment_decision {before} -> {after}"
+            )
+            # S7 — the data-repair journal: one row per --apply, under the lock
+            data_repair_repo.journal(
+                conn,
+                tool="rederive_amendment_matches",
+                summary=f"re-derived {result.decisions} Form 4/A amendment decision(s) as row matches",
+                rows_changed=result.revokes + result.decisions,
+                counts={
+                    "revokes": result.revokes,
+                    "decisions": result.decisions,
+                    "skipped": len(result.skipped),
+                },
             )
             return result
         finally:

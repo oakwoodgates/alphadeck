@@ -29,7 +29,7 @@ class MemberRow(BaseModel):
     lapsing: bool = False
     theme_armed: bool = False
     # the member's own fired evidence (additive — default empty, so hand-built test rows and every
-    # pre-existing consumer are unchanged): the live Scoreboard's replay panel reads the WHY from
+    # pre-existing consumer are unchanged): a replayed snapshot (the backtest ledger) reads the WHY from
     # the arm-date snapshot, exactly as the forward record reads it from the arm-date card (#6).
     triggers: list[TriggerRef] = []
 

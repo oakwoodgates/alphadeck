@@ -135,6 +135,13 @@
 #   this sidecar every ONBOARD_EVERY_S (default 1800 s) after the previous run ends. The job itself refuses inside
 #   the nightly window and yields to any running pass (see `onboard_loop`); the nightly gives a name still
 #   onboarding a bounded, windowed ingest and stamps its thesis `ingest_fresh=false` (docs/FEED_LOOP.md).
+# - GROWS THE SCOREBOARD'S CURRENT EDITION AFTER THE BACKUP (editions S5, 2026-10-23). Right after the nightly
+#   dump, `editions_nightly` fires `python -m editions.run nightly --apply` once per wake: tonight's page (plus a
+#   catch-up page for any session the edition missed) per live thesis, the ink of every episode whose signal
+#   window ended, and the live-edge self-check (a real mismatch pages from inside the job). The job gates itself
+#   (only after a FINISHED nightly pass; exit 75 while the call-of-record lock or its own lock, id 4, is held),
+#   is bounded by EDITIONS_TIMEOUT_S, and is fail-open here: one log line, never the end of the loop. The cron
+#   image carries the `.[replay]` extra it needs (duckdb + pyarrow; docker-compose.yml's cron build args).
 # - The as-of dates come from this shell's `date` in the container TZ, which compose pins to the market TZ
 #   (the same "today" `market_today()` derives) — keep those two in step.
 # - Inherits the container env directly (DATABASE_URL / ALPHADECK_USER_AGENT / TZ), so unlike a cron daemon
@@ -193,6 +200,16 @@ ONBOARD_EVERY_S="${ONBOARD_EVERY_S:-1800}"
 [ "${ONBOARD_EVERY_S}" -ge 0 ] 2>/dev/null || ONBOARD_EVERY_S=1800
 ONBOARD_TIMEOUT_S="${ONBOARD_TIMEOUT_S:-2700}"
 [ "${ONBOARD_TIMEOUT_S}" -ge 1 ] 2>/dev/null || ONBOARD_TIMEOUT_S=2700
+# Editions S5 — the Scoreboard editions NIGHTLY PAGE job (`editions_nightly`, below): the hard `timeout` around
+# one run (seconds) and its kill switch (EDITIONS_NIGHTLY=0 = off, an env-only cron deploy). A normal night is a
+# public-clock export (~1 min on prod) plus ~10 pages. S7: a night that also runs the AUTOMATIC CUT's trial (a
+# rule change or a data repair since the edition's cut) re-runs the whole edition once or twice — MEASURED on dev
+# 2026-10-23: ~4.5 min per re-run at 4 workers for 659 pages, ~9 min both — so 60 minutes, and it only stops a
+# HUNG run (a long catch-up after an outage resumes the next night — every page it did not write is still
+# missing then). Same guard as SLICE_S.
+EDITIONS_TIMEOUT_S="${EDITIONS_TIMEOUT_S:-3600}"
+[ "${EDITIONS_TIMEOUT_S}" -ge 1 ] 2>/dev/null || EDITIONS_TIMEOUT_S=3600
+EDITIONS_NIGHTLY="${EDITIONS_NIGHTLY:-1}"
 
 # --- schedule math (pure over their arguments; GNU date) ------------------------------------------------
 
@@ -398,6 +415,31 @@ snapshot() {
   fi
 }
 
+# editions_nightly ASOF -> Editions S5: one `python -m editions.run nightly --apply` (the Scoreboard editions'
+# nightly page + catch-up, the ink, the live-edge self-check; editions/nightly.py), run right AFTER the post-pass
+# backup in this SCHEDULING layer — never inside run_daily_pass, so the Admin "Run daily now" never fires it.
+# Every rule lives in the job: it runs only when the newest run artifact is a FINISHED nightly pass (it names
+# its own as-of; ASOF here is for the log line only), it refuses (exit 75) while the call-of-record lock is
+# held (a probe, never a take) or another editions job runs, and a dry/held/up-to-date night is a quiet line.
+# Bounded by `timeout` (EDITIONS_TIMEOUT_S), FAIL-OPEN: a failure is one log line (and a `crashed` artifact the
+# Admin line shows), never a page from here and never the end of the loop — the next night's catch-up fills
+# every page this one did not write. Its own self-check pages a real mismatch itself (notify_health).
+editions_nightly() {
+  if [ "${EDITIONS_NIGHTLY}" = 0 ]; then
+    echo "daily-cron: EDITIONS_NIGHTLY=0 — the editions nightly page job is OFF"
+    return 0
+  fi
+  timeout -k 60 "${EDITIONS_TIMEOUT_S}" python -m editions.run nightly --apply
+  _en_rc=$?
+  case "${_en_rc}" in
+    0) ;;
+    75) echo "daily-cron: editions nightly REFUSED for ${1} (a pass or another editions job holds its lock) (continuing)" ;;
+    124) echo "daily-cron: editions nightly TIMED OUT after ${EDITIONS_TIMEOUT_S}s for ${1} (continuing; the next night catches up)" ;;
+    *) echo "daily-cron: editions nightly FAILED (exit ${_en_rc}) for ${1} (continuing; the next night catches up)" ;;
+  esac
+  return 0
+}
+
 # onboard_loop -> X1, THE SECOND SCHEDULE: the staged cold-ingest job (`python -m pipeline.onboarding`), fired
 # every ONBOARD_EVERY_S after the previous run ENDS (so two runs never overlap), forever, in the background of
 # this one sidecar. The loop is deliberately dumb — every rule lives in the job and is checked there:
@@ -589,5 +631,8 @@ while :; do
     # the run that just finished, which no earlier dump holds (M3 in the header). It also runs after a
     # weekend-target wake whose catch-up covered a weekday (M3), and a failure now pages (H3).
     snapshot "${target}" "nightly"
+    # Editions S5 — the Scoreboard editions' nightly page, AFTER the backup (so the dump never waits on it and
+    # never captures a half-run), in this scheduling layer (never run_daily_pass). Fail-open; see the function.
+    editions_nightly "${target}"
   fi
 done

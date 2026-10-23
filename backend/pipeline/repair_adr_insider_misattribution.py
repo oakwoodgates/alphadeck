@@ -61,6 +61,7 @@ from db.session import DEFAULT_TENANT_ID, database_url
 from ingest.edgar.form4 import parse_form4
 from pipeline.backfill_aff10b5_1 import cached_form_doc
 from pipeline.run_lock import repair_lock_or_exit
+from repositories import data_repair_repo
 
 # The runtime cache home (mirrors ingest.edgar.client._DEFAULT_CACHE / backfill_aff10b5_1._DEFAULT_CACHE).
 _DEFAULT_CACHE = Path(__file__).resolve().parents[2] / "data" / "edgar_cache"
@@ -352,6 +353,21 @@ def main(argv: list[str] | None = None) -> None:
         _print(res, scope_label)
         if not args.apply:
             conn.rollback()  # a dry-run writes nothing
+        else:  # S7 — the data-repair journal: one row per --apply, under the lock
+            data_repair_repo.journal(
+                conn,
+                tool="repair_adr_insider_misattribution",
+                summary=(
+                    f"appended the security title / foreign symbol to {res.rows_reversioned} insider "
+                    f"row(s) ({scope_label})"
+                ),
+                rows_changed=res.rows_reversioned,
+                counts={
+                    "rows_reversioned": res.rows_reversioned,
+                    "accessions_repaired": res.accessions_repaired,
+                },
+                tenant_id=args.tenant,
+            )
     finally:
         conn.close()
         if lock is not None:

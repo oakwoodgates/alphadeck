@@ -78,7 +78,8 @@ class Transition(BaseModel):
     daily confidence wobble); values are the wire tokens, None = unset. ``asof`` = the card that
     FIRST said the new value — a change across a weekend/cron gap lands on the later card (a
     recorded fact: when the record first said it, the same stamp rule as ``risk_events``). Lives
-    here, not in ``replay/schema.py``: a record-honesty concept the replay panel never populates."""
+    here, not in ``replay/schema.py``: a record-honesty concept a replayed snapshot never populates.
+    """
 
     asof: date
     field: str
@@ -151,6 +152,10 @@ class ScoredEpisode(BaseModel):
     operator: EpisodeOperator | None = None  # None = no decision logged: the honest capture gap
     # Editions S4 — the company's join date in the edition being read; None on Edition 0 (the record)
     edition_join: EditionJoin | None = None
+    # Editions S5 — the INK this episode's ``outcome`` came from (``matured`` / ``running_at_close``, migration
+    # 0064); None = scored on read (every Edition 0 episode, and an edition episode not inked or not yet final
+    # at this as-of). Internal: no wire field reads it yet.
+    inked: Literal["matured", "running_at_close"] | None = None
 
 
 class ThesisRecord(BaseModel):
@@ -179,8 +184,9 @@ class ThesisRecord(BaseModel):
 
 
 class ReplayThesisHistory(BaseModel):
-    """One thesis's slice of the HISTORICAL (replayed) panel — platform track only: no operator
-    join exists in history (decision capture post-dates it), structurally absent, never empty."""
+    """One thesis's replayed, scored episodes (the backtest ledger's per-thesis slice) — platform track
+    only: no operator join exists in history (decision capture post-dates it), structurally absent,
+    never empty."""
 
     thesis_id: UUID
     tenant_id: UUID | None = None  # threads ticker/CIK resolution at serve time (never wire)
@@ -191,11 +197,11 @@ class ReplayThesisHistory(BaseModel):
 
 
 class ReplaySnapshot(BaseModel):
-    """The replay-panel artifact — replayed history for the Scoreboard's clearly-separated
-    historical section. A RECOMPUTE by construction (today's code + dials over historical facts,
-    the documented not-bitemporal basket caveat riding the banner) — never the record, never
-    merged with it: separate artifact, separate endpoint, separate section. Written only by the
-    operator-kicked CLI (``python -m scoreboard.replay_snapshot``); the app only reads."""
+    """A replay run flattened into the Scoreboard's vocabulary — today the BACKTEST ledger's artifact
+    (``backtest/ledger.py``, built by ``scoreboard.replay_snapshot.build_snapshot``). A RECOMPUTE by
+    construction (chosen code + dials over historical facts) — never the record, never merged with it.
+    It was first the Scoreboard's replay-alongside panel artifact; editions S8 retired that panel, its
+    route and its CLI. ``kind`` keeps its original value so stored artifacts still validate."""
 
     kind: Literal["scoreboard_replay_snapshot"] = "scoreboard_replay_snapshot"
     generated_at: str

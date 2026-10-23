@@ -37,6 +37,9 @@ const RECORD_EDITION = {
   published_at: null,
 };
 const editionsFx: { data: unknown } = { data: { default: 0, editions: [RECORD_EDITION] } };
+// Editions S6 — the "what changed" comparison: its fixture and every call's (from, to, enabled)
+const diffFx: { data: unknown; isLoading: boolean; error: unknown } = { data: null, isLoading: false, error: null };
+const diffCalls: unknown[][] = [];
 
 vi.mock("../../api/hooks", () => ({
   useScoreboard: (...args: unknown[]) => {
@@ -44,7 +47,10 @@ vi.mock("../../api/hooks", () => ({
     return fx;
   },
   useScoreboardEditions: () => editionsFx,
-  useScoreboardReplay: () => ({ data: null, isLoading: false, error: null }),
+  useEditionDiff: (...args: unknown[]) => {
+    diffCalls.push(args);
+    return diffFx;
+  },
   // the drawer's sparkline hook — stubbed no-data so the scorecard renders its quiet "no price path"
   // line (and never reaches real lightweight-charts) when a test opens the drawer
   useEpisodePriceWindow: (...args: unknown[]) => {
@@ -1228,5 +1234,210 @@ describe("Scoreboard — editions", () => {
     expect(windowCalls.length).toBeGreaterThan(0);
     const [args] = windowCalls[windowCalls.length - 1] as [{ edition: number | null }];
     expect(args.edition).toBe(1);
+  });
+});
+
+// --- Editions S6: the quiet "what changed" link and the comparison it opens -------------------------------
+
+const DIFF = {
+  before: RECORD_EDITION,
+  after: EDITION_1,
+  through: "2026-10-21",
+  first_night: "2026-07-10",
+  counts: {
+    n_theses: 2,
+    n_theses_changed: 1,
+    n_companies_changed: 1,
+    n_thesis_nights: 150,
+    n_state_nights: 3,
+    n_company_nights_changed: 3,
+    n_armed_before_only: 0,
+    n_armed_after_only: 3,
+    n_fields_changed: 0,
+    n_episodes_matched: 4,
+    n_episodes_matched_changed: 0,
+    n_episodes_moved: 0,
+    n_episodes_appeared: 1,
+    n_episodes_vanished: 0,
+    n_episodes_outside: 2,
+  },
+  theses: [
+    {
+      thesis_id: "t-hims",
+      name: "HIMS — insider conviction",
+      archived: false,
+      first_night: "2026-07-10",
+      last_night: "2026-10-21",
+      n_nights: 75,
+      n_state_nights: 3,
+      before_only: [],
+      after_only: [{ first: "2026-06-10", last: "2026-07-09", n_nights: 20 }],
+      n_outside: 2,
+      n_matched: 4,
+      n_companies_unchanged: 0,
+      error: null,
+      companies: [
+        {
+          security_id: "s1",
+          ticker: "HIMS",
+          company_name: "Hims & Hers Health",
+          nights: [],
+          runs: [
+            {
+              first: "2026-07-13",
+              last: "2026-07-15",
+              n_nights: 3,
+              changed: ["armed"],
+              before: { page: "2026-07-13", armed: false },
+              after: { page: "2026-07-13", armed: true, verdict: "core_entry", entry_grade: "core" },
+            },
+          ],
+          episodes: [
+            {
+              change: "appeared",
+              before: null,
+              after: {
+                arm_date: "2026-07-13",
+                last_armed_date: "2026-07-15",
+                dearm_date: "2026-07-16",
+                close_reason: "arm_until_lapsed",
+                began_mid_arm: false,
+                forward_return: 0.042,
+              },
+              differs: [],
+              cause: null,
+            },
+          ],
+        },
+      ],
+    },
+    {
+      thesis_id: "t-unh",
+      name: "UNH — insider cluster",
+      archived: false,
+      first_night: "2026-07-10",
+      last_night: "2026-10-21",
+      n_nights: 75,
+      n_state_nights: 0,
+      before_only: [],
+      after_only: [],
+      n_outside: 0,
+      n_matched: 0,
+      n_companies_unchanged: 0,
+      error: null,
+      companies: [],
+    },
+  ],
+};
+
+describe("Scoreboard — what changed", () => {
+  afterEach(() => {
+    editionsFx.data = { default: 0, editions: [RECORD_EDITION] };
+    diffFx.data = null;
+    diffCalls.length = 0;
+  });
+
+  it("no link with a single edition, nor on Edition 0 (nothing comes before the record)", () => {
+    renderEditions({ ...PAYLOAD, edition: RECORD_EDITION }, { editions: [RECORD_EDITION] });
+    expect(screen.queryByRole("button", { name: /what changed/ })).not.toBeInTheDocument();
+    cleanup();
+    renderEditions({ ...PAYLOAD, edition: RECORD_EDITION });
+    expect(screen.getByRole("group", { name: "edition" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /what changed/ })).not.toBeInTheDocument();
+  });
+
+  it("on Edition 1 a quiet link compares it with Edition 0, fetched only once opened", () => {
+    diffFx.data = DIFF;
+    const { container } = renderEditions(RERUN_PAYLOAD, { edition: 1 });
+    const link = screen.getByRole("button", { name: "what changed since Edition 0" });
+    expect(diffCalls).toEqual([]); // nothing fetched until asked for
+    fireEvent.click(link);
+    expect(diffCalls[diffCalls.length - 1]).toEqual([0, 1, true]);
+    const panel = container.querySelector(".drawer-panel") as HTMLElement;
+    expect(within(panel).getByText(/Edition 0 → Edition 1/)).toBeInTheDocument();
+    // the counts on top, in plain English
+    expect(within(panel).getByText("1 of 2 theses changed · 1 company")).toBeInTheDocument();
+    expect(within(panel).getByText(/3 company-nights differ: 3 armed in Edition 1 only/)).toBeInTheDocument();
+    // thesis -> company, the episode and the folded night run said in words
+    expect(within(panel).getByRole("heading", { name: "HIMS — insider conviction" })).toBeInTheDocument();
+    expect(within(panel).getByText("Hims & Hers Health")).toBeInTheDocument();
+    expect(
+      within(panel).getByText("Edition 1 arms it Jul 13 (de-armed Jul 16); Edition 0 did not · score +4.2%"),
+    ).toBeInTheDocument();
+    expect(within(panel).getByText("Jul 13 – Jul 15 · 3 nights — armed in Edition 1 only")).toBeInTheDocument();
+    expect(
+      within(panel).getByText(
+        "Edition 1 alone covers Jun 10 – Jul 9 · 20 nights · 2 episodes armed there, not compared",
+      ),
+    ).toBeInTheDocument();
+    // nothing vanishes: the unchanged thesis is listed and says so
+    expect(within(panel).getByRole("heading", { name: "UNH — insider cluster" })).toBeInTheDocument();
+    expect(within(panel).getByText("no change")).toBeInTheDocument();
+    // no alarm colors anywhere in the comparison
+    expect(panel.querySelector(".wc .neg, .wc .pos, .wc .sb-stale")).toBeNull();
+    // reversible: closing returns to the ledger, untouched
+    fireEvent.click(within(panel).getByRole("button", { name: "close drawer" }));
+    expect(container.querySelector(".drawer-panel")).toBeNull();
+    expect(screen.getByRole("button", { name: "what changed since Edition 0" })).toBeInTheDocument();
+  });
+
+  it("names each change's cause when the later edition was cut from the earlier one (S7)", () => {
+    const withCauses = JSON.parse(JSON.stringify(DIFF));
+    withCauses.causes = true;
+    const co = withCauses.theses[0].companies[0];
+    co.episodes = co.episodes.map((e: Record<string, unknown>) => ({ ...e, cause: "rule_change" }));
+    co.runs = co.runs.map((r: Record<string, unknown>) => ({ ...r, cause: "late_data" }));
+    diffFx.data = withCauses;
+    const { container } = renderEditions(RERUN_PAYLOAD, { edition: 1 });
+    fireEvent.click(screen.getByRole("button", { name: "what changed since Edition 0" }));
+    const panel = container.querySelector(".drawer-panel") as HTMLElement;
+    expect(within(panel).getByText(/each change names its cause, from the trial that cut Edition 1/)).toBeInTheDocument();
+    expect(within(panel).getByText(/cause: the declared rule change/)).toBeInTheDocument();
+    expect(within(panel).getByText(/cause: data that arrived after Edition 0 was cut/)).toBeInTheDocument();
+  });
+});
+
+describe("Scoreboard — the automatic cut's notice (editions S7)", () => {
+  const EDITION_2 = {
+    ...EDITION_1,
+    number: 2,
+    label: "rule change: insider window · includes data that arrived since Edition 1",
+    causes: ["rule_change"],
+    cut: "2026-10-24T03:00:00Z",
+  };
+  const NOTICE = {
+    number: 2,
+    previous: 1,
+    label: EDITION_2.label,
+    line: "Edition 2 · rule change: insider window · includes data that arrived since Edition 1 · 37 company-nights changed",
+    published_at: "2026-10-24T03:05:00Z",
+    n_company_nights_changed: 37,
+    unexplained: false,
+  };
+
+  afterEach(() => {
+    editionsFx.data = { default: 0, editions: [RECORD_EDITION] };
+    diffFx.data = null;
+    diffCalls.length = 0;
+  });
+
+  it("one quiet line with a link that compares the new edition with the one it replaced", () => {
+    diffFx.data = DIFF;
+    Object.assign(fx, { data: RERUN_PAYLOAD, isLoading: false, error: null });
+    editionsFx.data = { default: 2, editions: [RECORD_EDITION, EDITION_1, EDITION_2], notice: NOTICE };
+    const { container } = render(<Scoreboard asof="2026-07-11" onSelect={vi.fn()} edition={1} />);
+    const line = screen.getByTestId("sb-cut-notice");
+    expect(line.textContent).toBe(`${NOTICE.line} · see what changed`);
+    expect(line.className).toContain("sb-freshline");
+    expect(line.className).not.toMatch(/sb-stale|blink/);
+    fireEvent.click(within(line).getByRole("button", { name: "see what changed" }));
+    expect(diffCalls[diffCalls.length - 1]).toEqual([1, 2, true]);
+    const panel = container.querySelector(".drawer-panel") as HTMLElement;
+    expect(within(panel).getByText(/Edition 1 → Edition 2/)).toBeInTheDocument();
+  });
+
+  it("renders nothing without a notice (no cut in the last seven days, or an older backend)", () => {
+    renderEditions(RERUN_PAYLOAD, { edition: 1 });
+    expect(screen.queryByTestId("sb-cut-notice")).toBeNull();
   });
 });

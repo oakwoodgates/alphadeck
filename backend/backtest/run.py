@@ -279,15 +279,15 @@ def execute(
         # reviewer opens it in DuckDB -- but reading it back needs pyarrow, which the LEAN api image
         # deliberately does not carry (only the sig/fork images bake the `.[replay]` extra). Writing the
         # same rows as JSON is what lets the `/backtest` route serve a run on ANY tier without importing
-        # the replay stack, exactly as the Scoreboard's replay panel serves ONE JSON artifact. Same
+        # the replay stack, exactly as the Scoreboard's (retired) replay panel served ONE JSON artifact. Same
         # `model_dump(mode="json")` rows, so the two files cannot disagree.
         store.write_metrics(
             out, {"episodes": [e.model_dump(mode="json") for e in episodes]}, name="episodes.json"
         )
 
         # B6 — THE LEDGER: the same episodes grouped by thesis, in the Scoreboard's own wire vocabulary,
-        # so the `/backtest` surface renders its drill-down through the SAME components the replay panel
-        # uses instead of a parallel set that could drift. Written here, by the process that holds the DB
+        # so the `/backtest` surface renders its drill-down through the SAME components the Scoreboard's
+        # ledger uses instead of a parallel set that could drift. Written here, by the process that holds the DB
         # connection, because the run is immutable: the tickers a run reports are the ones it resolved,
         # not whatever the master says the day somebody opens it. See backtest/ledger.py.
         t0 = time.perf_counter()

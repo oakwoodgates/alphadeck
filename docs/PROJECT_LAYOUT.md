@@ -58,8 +58,9 @@ alphadeck/
 │       │   ├── NamePanel.tsx · SpineListEditors.tsx   #   the read-only per-name panel (call + own triggers + operator record) · the spine-list editors
 │       │   └── DisplaySignalsSection.tsx         #   the read-only display-signal chips (posture headline · dated flips · basis fine-print)
 │       ├── scoreboard/                           # SCORE — the episode ledger + the drill-down drawer (SCOREBOARD.md)
-│       │   ├── Scoreboard.tsx                    #   the page: live ledger + Summary/Timing toggle + operator-span rows + metrics strip + replay panel + the scorecard drawer
-│       │   ├── EpisodeRow.tsx · LedgerHead.tsx · MetricsStrip.tsx · ReplayPanel.tsx   #   the ledger row/head (Summary|Timing) · the n-gated metric cards · the collapsible replayed-history panel
+│       │   ├── Scoreboard.tsx                    #   the page: edition switcher + "what changed" link · ledger + Summary/Timing toggle + operator-span rows + metrics strip + the scorecard drawer
+│       │   ├── EpisodeRow.tsx · LedgerHead.tsx · MetricsStrip.tsx   #   the ledger row/head (Summary|Timing) · the n-gated metric cards (shared with /backtest's run ledger)
+│       │   ├── EditionChanges.tsx · {editions,whatChanged}.ts   #   editions: the "what changed" view (S6) · the switcher's + the comparison's pure copy
 │       │   ├── EpisodeScorecard.tsx · EventLedger.tsx · PriceSparkline.tsx   #   the drawer: four timing lenses · the numbered event ledger · the lightweight-charts CLOSE+SMA sparkline w/ event chips
 │       │   └── {ledger,overlay,rows,scorecard}.ts   #   the pure formatters (ledger rows/identity · chart-overlay numbering · row badges/tone · the four-lens phrasing)
 │       ├── admin/Admin.tsx                       # the ADMIN ops surface (ADMIN.md): cron health · record freshness · run history · backups + the run-daily / snapshot triggers
@@ -165,7 +166,7 @@ alphadeck/
     │   ├── openapi_export.py        #   dumps backend/openapi.json (the frontend's type source)
     │   ├── routers/theses.py        #   GET /theses · /theses/{id} · /theses/{id}/call?asof=
     │   ├── routers/workbench.py     #   /workbench: scored · securities · extract · facts(+/explain) · theses(promote) · theses/{id}/terms · theses/{id}/draft-chain (EDGAR-first) · the ETF sleeve (resolve-etf · etf-holdings)
-    │   ├── routers/scoreboard.py    #   GET /scoreboard?asof= (the forward record + the staleness line) · /scoreboard/replay (the historical panel artifact) · /scoreboard/price-window (the drill-down chart's on-demand OHLCV + SMA + insider-buy overlay)
+    │   ├── routers/scoreboard.py    #   GET /scoreboard?asof= (the forward record + the staleness line) · /scoreboard/editions (+ /editions/diff, "what changed") · /scoreboard/price-window (the drill-down chart's on-demand OHLCV + SMA + insider-buy overlay)
     │   ├── routers/admin.py         #   the ops surface (ADMIN.md): /admin/status · /runs · /run-daily(+jobs) · /backup(+jobs) · /backups — reads own no tables
     │   └── schemas_api.py           #   the WIRE contracts (ThesisDetail · WorkbenchScored · ChainDraftOut · ScoreboardResponse · EtfHoldingsOut · …)
     ├── scoreboard/                 # THE SCORE STAGE (SCOREBOARD.md) — record-not-recompute, censoring/maturity-gated
@@ -175,7 +176,8 @@ alphadeck/
     │   ├── prices.py · overlays.py #   the asof/known_at-capped realized-EOD reader (no-lookahead) · the drawer-chart overlays (rolling SMA + windowed insider buys)
     │   ├── provenance.py           #   the per-episode ingest-honesty flags (freeze-era, thaw lag)
     │   ├── late.py                 #   L1: judge the LATE rows (recorded after the next EDGAR open) the record reads drop + the banner's late nights
-    │   └── artifact.py · replay_snapshot.py   #   write / read the replay-panel JSON snapshot + the CLI that builds it
+    │   ├── diff.py                 #   editions S6: "what changed" between two editions, computed on read (per company-night + per episode)
+    │   └── replay_snapshot.py      #   the pure replay-snapshot builder the /backtest ledger borrows (the replay panel + its CLI were retired, S8)
     ├── replay/                     # the backtest harness — DuckDB + Parquet, point-in-time (REPLAY.md)
     │   └── harness.py · episodes.py · pit.py · export.py · compare.py · metrics.py · scoring.py · schema.py · run.py
     ├── seed_data/                  # committed REAL inputs (HIMS demo, DOE fixtures) — read by seed + tests

@@ -99,7 +99,7 @@ from ingest.fundamentals import (
     select_revenue,
 )
 from pipeline.run_lock import EXIT_ALREADY_RUNNING, PassAlreadyRunning, acquire_repair_lock
-from repositories import thesis_repo
+from repositories import data_repair_repo, thesis_repo
 from securities import master
 
 _log = logging.getLogger("alphadeck.reingest_fundamentals")
@@ -531,6 +531,19 @@ def main(argv: list[str] | None = None) -> None:
             result = reingest_fundamentals(
                 conn, apply=args.apply, fetch=fetch, thesis_id=thesis_id, tickers=tickers
             )
+            provenance = write_payload(build_payload(result)) if args.apply else None
+            if args.apply:  # S7 — the data-repair journal: one row per --apply, under the lock
+                data_repair_repo.journal(
+                    conn,
+                    tool="reingest_fundamentals",
+                    summary=(
+                        f"re-parsed revenue under the current label rule: appended {result.appended} "
+                        "fundamentals version(s)"
+                    ),
+                    rows_changed=result.appended,
+                    counts={"appended": result.appended, "planned": result.planned},
+                    provenance=str(provenance) if provenance else None,
+                )
         finally:
             conn.close()
     finally:
@@ -539,7 +552,7 @@ def main(argv: list[str] | None = None) -> None:
 
     report(result, verbose=args.verbose)
     if args.apply:
-        print(f"provenance: {write_payload(build_payload(result))}")
+        print(f"provenance: {provenance}")
     if any(c.source == FAILED for c in result.companies):
         raise SystemExit(1)
 

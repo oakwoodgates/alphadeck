@@ -2,7 +2,7 @@ import type { LedgerView } from "./rows";
 import type { LedgerSort, LedgerSortColId } from "./sortLedger";
 
 // The ledger's colgroup + header row (Slice 2), conditional on the view. Shared by the live ledger
-// AND the replay panel so the two never drift on column count — the group-header `colSpan` at each
+// AND the backtest run ledger so the two never drift on column count — the group-header `colSpan` at each
 // call site tracks the SAME count via `ledgerColCount`. Summary keeps today's columns; Timing swaps
 // the middle set to the timing-calibration lens. Name (with the ⤢ drill-down) + Armed + De-armed +
 // Status are shared — a flip only changes which columns render, never the rows or the data. Only the

@@ -50,7 +50,7 @@ def trading_sessions(
 #
 # THE CLOCK IS PER-T, NOT PER-RUN, and that is the whole decision (operator, reading B). The harness pins
 # ONE `known_at` for the sweep — the determinism pin — so the obvious wiring ("resolve the roster at the
-# pin") would resolve it ONCE and, for the `scoreboard.replay_snapshot` path which pins `now`, return
+# pin") would resolve it ONCE and, for a caller that pins `now` (the retired replay-panel CLI did), return
 # today's roster: byte-identical to the bug. The roster is therefore resolved at
 #
 #     known_at = min(pin, known_at_for_asof(T))      == known_at_for_asof(T, now=pin)

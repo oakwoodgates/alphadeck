@@ -4,8 +4,9 @@ The sixth stage: forward attribution over the platform's own record. Two tracks 
 platform's calls** (the daily call-of-record, scored against realized prices on its own yardstick)
 and **the operator's decisions** (the append-only decision log, joined to the episodes it answered).
 The follow-blindly counterfactual track and its deltas are **v2** (additive on the same computation);
-the immediate follow-up after v1 is surfacing **replay's historical episodes alongside** the live
-record (clearly separated — the record stays clean). "The platform feeds itself" became true at M2;
+the immediate follow-up after v1 was surfacing **replay's historical episodes alongside** the live
+record (clearly separated — the record stays clean); **editions** have since replaced that panel (a stored,
+frozen re-run of today's rules, §Editions). "The platform feeds itself" became true at M2;
 *this* is the instrument through which forward evidence accrues. Its existence — or a small sample crossing
 a UI gate — does not by itself make the platform "validated forward."
 
@@ -19,8 +20,9 @@ a UI gate — does not by itself make the platform "validated forward."
 
 Status: **v1 built** — SB1 (the scoring engine + CLI) + SB2 (`GET /scoreboard` + gated metrics) + SB3
 (the operator track) + SB4 (the FE view: the ledger behind the Scoreboard nav, `frontend/src/scoreboard/`).
-**RH (replay-alongside): built** — RH-A (the snapshot CLI + `GET /scoreboard/replay`) + RH-B (the FE
-historical section: collapsed-by-default below the live ledger, `frontend/src/scoreboard/ReplayPanel.tsx`).
+**RH (replay-alongside): built, then RETIRED by editions S8 (2026-10-23)** — the snapshot CLI, `GET
+/scoreboard/replay`, its artifact reader and the collapsed panel are gone; a stored edition replaced them
+(§"The historical panel" says what stayed). **Editions: S1–S4 + S6 built** (S6 = "what changed").
 **The episode drill-down: built** — the row-opened drawer + four timing lenses + Summary|Timing toggle
 (#227–228), the row/icon split (row → drawer, ↗ → Cockpit; #230), the episode price chart with a numbered
 event overlay (SMA context + insider/trigger/lifecycle chips, relevance-floored + as-of-correct on both axes;
@@ -52,12 +54,113 @@ for an edition, and only this:
   The drawer says "join date estimated" (`edition_join.note`) for every estimated join.
 - **The drawer's provenance caption names the edition and its engine fingerprint** (the `run_identity_note`
   slot), and its chart overlays read on the public clock (the same reads #433 gave a past as-of).
-- **Scores are computed on read** against today's realized prices (the ink of S5 is not built yet).
+- **A matured episode's score is INKED** (S5, migration 0064 `edition_outcome`): once its signal window ends
+  (`exit_by`, never the de-arm) and the tape has printed a session past it, the nightly page job scores it once and
+  freezes it, and the edition read uses that number from then on (a later price correction never re-scores it).
+  A running episode — or a view scrubbed back before the window ended — is scored on read against today's
+  realized prices, as before.
 
-The default edition is `Settings.scoreboard_default_edition` (`ALPHADECK_SCOREBOARD_DEFAULT_EDITION`), shipped
-as 0 so the record stays the default view until the operator says otherwise; a default naming an unpublished
-edition falls back to 0, while an explicit request for one is a 404. Plan and open slices: the editions build
-plan (S5 nightly pages + ink, S6 "what changed", S7 the automatic cut, S8 retiring the replay panel).
+The CURRENT edition grows nightly: the cron sidecar appends tonight's page (and a catch-up page for any session it
+missed) per live thesis after the nightly backup, so new theses and new companies join it from their own first
+night (`FEED_LOOP.md` §the editions nightly page).
+
+**The default is the NEWEST published edition** (operator decision 2026-10-23: "edition 1 is now kinda like
+main, so the menu should just link to that by default"). `GET /scoreboard` and `price-window` with no `edition`
+read it, `GET /scoreboard/editions` reports it as `default` (0 only when nothing is published), and the top
+nav's plain `/scoreboard` lands on it; when a new edition is cut the default moves to it with nothing touched.
+Edition 0 stays one click away in the switcher, and `?edition=0` still works. `Settings.scoreboard_default_edition`
+(`ALPHADECK_SCOREBOARD_DEFAULT_EDITION`) is an optional OVERRIDE, unset by default: 0 pins the record, N pins
+Edition N, and an override naming an unpublished edition falls back to the newest (the default view never
+404s), while an explicit request for a missing edition is a 404.
+
+### The automatic cut (S7) — when a new edition is cut, and why  `[BUILT 2026-10-23]`
+
+An edition is never edited. It is REPLACED by a new one only when one of two things happened since its cut —
+**late data alone never starts anything** (it simply reaches the next edition): `editions/cut.py` has the
+whole contract; it runs inside the nightly page job, before tonight's page (`FEED_LOOP.md`), and by hand as
+`python -m editions.run cut [--apply]` (dry-run by default) — e.g. right after a repair.
+
+- **(a) The rules changed.** The running engine's fingerprint (`editions/fingerprint.py`, version 2: the
+  normalized AST of the call path with comments and docstrings stripped, `domain/settings.py` and the rule log
+  left out, the two `Settings` values the engine reads hashed by value — so a comment or docstring edit never
+  counts) differs from the last one CHECKED for the current edition E: E's own, or the one the latest
+  `trial_no_change` on E recorded. A fingerprint made by an older fingerprint VERSION counts as a change (it
+  cannot be compared); the first trial records the current one.
+- **(b) A data repair ran on purpose.** A `data_repair` journal row (migration 0065) applied since E's cut (or
+  since its last no-change trial) that changed rows. Every repair CLI that rewrites fact history journals each
+  `--apply` / `--revoke` (`repositories/data_repair_repo.py` lists them; a dry run journals nothing). Nightly
+  data flow (`detect_splits`) is not a repair; tools that only touch `calls` are not either.
+- **The rules trial (P)** re-runs E's RE-RUN pages (the nights E's publish computed) with the current engine at
+  `known_by = E's own cut`, E's frozen join dates and E's frozen thesis bodies (kill criteria + catalysts; an
+  edition published before S7 froze none — its comparison then leaves out `counter_case` and
+  `catalyst_surface`, the two fields a body feeds, and says so). That is the data E was saved from, held fixed:
+  the edition's own freeze point, not a replay of history on our store clock. Compared page by page (canonical
+  card equality, money to the cent). **Named limitation:** E's nightly and catch-up pages are NOT re-tested —
+  each was computed at its own night's cut, so there is no single cut to hold their data at.
+- **The repair trial** compares N (below) with every page E holds: a repair's rows are stamped after E's cut, so
+  only N sees them — and N cannot separate the repair from data that arrived late, so the label says so.
+- **The decision.** P differs → a new edition. A repair pending and N differs on a night E covers → a new
+  edition. Otherwise `trial_no_change` on E (the fingerprint, the rule-log ids, the repairs checked) — never
+  tried again for the same change — and tonight's page goes on E as usual. At most one new edition per market
+  day; never two at the same cut; a cut waits while a member of N's rosters still has history loading.
+- **The new edition N** is today's engine at `known_by = now` over every thesis from each company's join date —
+  Edition 1's own path (`editions.run.store_edition`): `rerun` pages, E's join dates carried over (an exact
+  snapshot date for a company E never had), the thesis bodies frozen with it, and in the SAME transaction E's
+  `closed` event and E's ink (an episode still running at E's last night is inked `running_at_close`). E stays
+  viewable; the default moves to N on its own; N already holds tonight, so the job stops paging.
+- **Labels.** "rule change: ‹label›" (declared in `domain/rule_log.py`: an entry in code that E does not carry),
+  "unexplained change" (no declared rule: published MARKED — causes `code_drift` — and `notify_health` pages),
+  "data repair: ‹summary›" — each followed by "includes data that arrived since Edition E". A deleting repair
+  riding the same trial as a rules change makes P's differences `not_separated` (a deletion is visible even at
+  E's cut), and nothing pages.
+- **The notice.** For seven days after a cut, one quiet line under the switcher ("Edition 2 · rule change: … ·
+  37 company-nights changed · see what changed"), freshness-line style, never blinking, nothing stored in the
+  browser (`GET /scoreboard/editions` → `notice`), one line on Admin (`editions_cut`), and one plain Slack line
+  (`Notifier.notify_edition`, no emoji; an unexplained change pages instead).
+- **Cost (MEASURED on dev 2026-10-23, 659 pages over 10 theses, 4 workers):** P ≈ 265 s (export 64 s + re-run
+  192 s); N ≈ 278 s; both ≈ 9 min on a night with an event, nothing on any other night. Dev's Edition 1 (cut
+  before S7, fingerprint version 1): P == E on all 659 pages, with the body fields left out AND included, and N
+  == E too (dev holds no data newer than its cut) — the first trial after deploy records `trial_no_change`.
+
+### What changed (S6) — one edition against the one before it
+
+`GET /scoreboard/editions/diff?from=A&to=B` (A < B; Edition 0 allowed as `from`) compares two editions **on
+read** — nothing is stored, nothing is written (`scoreboard/diff.py`). The header shows a quiet "what changed
+since Edition A" link beside the switcher whenever the viewed edition has one before it (so never on Edition 0,
+and never with a single edition); it opens a drawer listing the changes in plain English, thesis → company,
+with the counts on top. Every thesis is listed (an unchanged one says "no change"), only the companies that
+changed are listed under it (the rest are counted), and nothing in it is colored — a comparison is context,
+never an alarm (#7).
+
+- **Edition 0 is read the way the default Scoreboard reads it** — its HONEST default read: reconstructed rows
+  never, annotated and late rows under the server's default policies.
+- **The window.** Through the earlier of the two editions' last nights — the earlier edition's last night once
+  the later one has reached it (the designed case: a closed edition against the one that replaced it) — and,
+  per thesis, only the nights BOTH editions cover. Pages only one edition holds (Edition 1's nights before the
+  record began, say) are reported as spans; a run lying wholly on them is counted as `outside`, never called a
+  change, while one that armed there and runs into the shared nights is listed (`armed_before_window`).
+- **Per company-night:** armed or not in each edition; on a night both arm the company, its verdict, entry
+  grade, conviction grade and exit-by. A night with no page reads that edition's last page before it (the
+  record last spoke on the prior row), so a cron gap is never a change. Consecutive identical changes fold into
+  `runs`, so 30 nights read as one line.
+- **Per episode**, the Scoreboard's own episodes paired on (thesis, company, arm date): `matched` (listed only
+  when the run differs — de-arm, exit-by, verdict, grades or score), `moved` (no same-night partner, but the
+  same company armed in both over overlapping arm → exit-by windows; nearest arm date first), `appeared`,
+  `vanished`. Each side carries its score (arm → exit-by on realized closes through the last night, the
+  Scoreboard's own reader) and a pair carries the delta.
+- **Substance only** — state, the armed set, verdict, grades, exit-by and scores; never card text.
+- **`cause`** (S7) is filled only when the later edition was cut by the automatic cut from the earlier one (its
+  parent; the response's `causes` is true): a change the rules trial proved carries `rule_change` (declared) or
+  `unexplained`; a change on a night the rules trial re-tested and found unchanged carries `late_data`; a repair
+  trial's changes carry `data_repair` (a repair or late data — not separable); a change on a night the rules
+  trial did not re-test (a nightly page) carries `not_separated`. The drawer says each in plain English. Any
+  other pair of editions has no single trial, so `cause` stays null — a cause is never guessed. A folded run
+  only holds nights with the same cause.
+- **Cost.** Two snapshot timelines per thesis plus one tape read per company. The comparison reads the cards
+  without the keys a snapshot never uses (`SNAPSHOT_UNREAD_CARD_KEYS`: risk signals, triggers fired, counter
+  case — 61 of 73 MB on dev's Edition 1) and loads each company's tape once (`MemoPrices`); tests pin that both
+  give exactly the answers of the full read. MEASURED on dev, Edition 0 vs Edition 1 (12 theses, ~640
+  thesis-nights): ~3.0 s median per request (8.7 s before those two), a ~1 MB response.
 
 ## The one rule everything hangs on
 
@@ -97,7 +200,7 @@ replay's job (`docs/REPLAY.md` — the historical twin); attribution's source is
   honest rows and 13 episodes arming honestly — the first cut wrongly named it "not scored"). Never a
   per-row chip,
   because with the filter in place a reconstructed row produces no ledger row. This is the treatment
-  the historical panel already gets: a recompute is never the record, never pooled. MEASURED when the
+  the (since retired) historical panel got: a recompute is never the record, never pooled. MEASURED when the
   rule landed (dev copy, 2026-09-12): of the 106 episode starts that sat on a reconstructed night, 48
   survive with a later (honest) arm date, 56 drop (armed only on reconstructed rows), 2 drop (the
   thesis did not exist); August 7, a reconstructed night, had been the single largest arm date on the
@@ -413,59 +516,39 @@ counted in `n_voided`); the valid axis caps at the request asof (`decision_date 
 - **anomalies** — a log shape the API should have prevented (take-while-open, close-while-flat)
   surfaces as a per-thesis `decision_anomaly` note; the pairing never silently fixes the log.
 
-## The historical panel (replay-alongside, RH)
+## The historical panel (replay-alongside, RH) — RETIRED by editions S8 (2026-10-23)
 
-The immediate post-v1 follow-up: replayed history in a **clearly-separated** section, so the page
-has depth while the forward record accrues — without polluting it. Structure over trust:
+The panel showed replayed history in a clearly-separated, collapsed section below the record's ledger: an
+operator-kicked artifact (`python -m scoreboard.replay_snapshot` wrote `data/scoreboard_replay/latest.json`
+from the dev venv; `GET /scoreboard/replay` served it, `available:false` when absent; a read-only compose bind
+let the container read it and never write it). It was a RECOMPUTE labeled as one — today's code + dials over
+historical facts, its dials named (F2) and its roster provenance stated per run (F4) — with the record's own
+honesty rules (`censored_start` on the window's first day, maturity against the data edge, metrics over matured
+and non-censored episodes, never pooled with the record).
 
-- **An operator-kicked artifact, never live compute.** Replay needs the `.[replay]` extra (absent
-  from the lean prod image) and takes minutes — so `python -m scoreboard.replay_snapshot` (dev
-  venv) runs replay and writes ONE JSON artifact (`data/scoreboard_replay/latest.json`,
-  latest-only: the snapshot is deterministic per (SoR, pin, window, cfg)). The app only READS it
-  (`GET /scoreboard/replay`; `available:false` when absent/unreadable — never a 500). In compose,
-  that one subpath is a **read-only host bind** over the appdata volume: the container serves the
-  artifact but physically cannot write it. Cost stays the operator's to spend, never ambient.
-- **The seam.** The window defaults to ending at `record_began − 1`: replay covers history, the
-  record covers everything after — no double-counted arms. A replayed episode still armed at the
-  seam (`window_end`) and a censored record episode on the same name are the same real arm, split
-  at the seam (noted, never stitched). Pushing `--end` past the record is allowed but LOUD
-  (`window_overlaps_record` + a banner warning), never silent.
-- **...and it NAMES the dials (F2).** The snapshot CLI used to call `replay_all` with no `cfg`, so it
-  silently took `DEFAULT_CONFIG` and the artifact recorded neither the dials nor the code — the panel
-  claimed "today's code + dials" with nothing to back it. It now passes one explicit `cfg` and stamps that
-  run's `config_hash` (the SAME fingerprint the `calls` rows carry, so a replayed episode and a recorded
-  night are comparable on policy) plus the image `code_sha`. The banner says `Policy ‹hash8›.` and the
-  collapsed header's "not the record" line carries `· policy ‹hash8›`, so a closed panel still says what it
-  reflects; the full hash rides the hover. The short form is composed SERVER-side, so the hash is shortened
-  in exactly one place in the codebase and the two surfaces cannot disagree.
-- **A RECOMPUTE, labeled as one.** Today's code + dials over historical facts — that caveat rides the banner
-  permanently. The ROSTER caveat no longer does, because it is no longer true: since F4 the harness resolves
-  each thesis's basket point-in-time at every session (`basket_snapshot`, capped at the session's market day),
-  so the banner now carries a **per-run** sentence instead — either "Rosters are point-in-time." or a named
-  count of the theses that recomputed on today's basket because no snapshot reached that far back
-  (`roster_fallback_theses` / `roster_source_note` on the artifact; `REPLAY.md` §KNOWN LIMITATION for the two
-  residuals, `INVARIANTS.md` §Known gaps for the platform-wide statement it shares with `pipeline.backfill`
-  and the Board/Cockpit scrub-back). The banner therefore reads policy-then-roster: the dials are the
-  stronger claim about what the numbers mean, the roster qualifies whose numbers they are. Separate
-  endpoint, separate section, metrics never pooled with the live summary.
-- **The same honesty rules as the record**, so the two strips are comparable: `censored_start` on
-  the window's first replayed day; `matured` against the data edge; metrics over matured ∧
-  non-censored only; the WHY rides each episode from the arm-date snapshot (`MemberRow.triggers`,
-  the one additive replay-schema change). Platform track only — decision capture post-dates
-  history, so the operator column is structurally absent.
+Editions replaced it: a stored edition is a frozen re-run of today's rules on the PUBLIC clock from each
+company's join date, read by the SAME ledger as the record and switched to in the header, so a second,
+differently-built view of history no longer earns its place (operator, editions plan question 5). Removed: the
+`ReplayPanel` component, `GET /scoreboard/replay` (+ its `ScoreboardReplayResponse` wire model and the
+`useScoreboardReplay` hook), `scoreboard/artifact.py` (the artifact's reader and writer), the snapshot CLI
+(`replay_snapshot.main`), the base compose file's `./data/scoreboard_replay` read-only bind (it existed only
+for that artifact; `/backtest` reads its own `/data/backtest` binds, which the dev/sig overlays and
+`docker-compose.prod.yml` carry, untouched) and the fork/sig scripts' creation of that directory. KEPT: the pure
+`scoreboard/replay_snapshot.build_snapshot` and the models below, because `/backtest` builds its ledger with
+them. A `data/scoreboard_replay/` directory left on a host is inert and safe to delete.
 
 
 ### What `/backtest` borrows from this page (and what it must never borrow back)
 
 The Backtest surface (`docs/BACKTEST.md`) renders its per-thesis drill-down through THIS page's components —
 `LedgerHead`, `EpisodeRow`, `EpisodeScorecard`, `MetricsStrip` — and its ledger artifact is built by
-`scoreboard/replay_snapshot.build_snapshot`, the same pure flattener the panel above uses. That is
+`scoreboard/replay_snapshot.build_snapshot`, the pure flattener the retired panel above used. That is
 deliberate: its rows genuinely are replayed, scored arm episodes, so a parallel set of components would give
 two surfaces two definitions of one row and let their renderers drift. Three consequences to hold:
 
-- **The wire shape is shared, so it is load-bearing in two places.** `ScoreboardEpisodeOut` /
-  `ScoreboardReplayThesisOut` now serve `/scoreboard/replay` AND `/backtest/runs/{id}`. A field added for one
-  arrives on the other.
+- **The wire shape is shared, so it is load-bearing in two places.** `ScoreboardEpisodeOut` serves the
+  Scoreboard's ledger AND `/backtest/runs/{id}`; `ScoreboardReplayThesisOut` (named for the retired panel) now
+  serves `/backtest/runs/{id}` alone. A field added for one arrives on the other.
 - **Backtest-only fields do NOT go on `ScoredEpisode`.** The breadth fields (co-arm counts, the Key-1 source,
   the confirmation grade at the arm) ride the backtest's own response and are joined on
   `(thesis_id, security_id, arm_date)`. They have no meaning on the record's ledger and must not be pushed
@@ -473,8 +556,8 @@ two surfaces two definitions of one row and let their renderers drift. Three con
 - **Nothing flows the other way.** This page's numbers come from the RECORD; a backtest is a recompute under
   chosen dials. They are never pooled, never merged, and the Scoreboard never links to a backtest run.
 
-`ReplayPanel` itself is not reused — it calls `useScoreboardReplay` internally, so it is bound to that
-endpoint. Its children are where the rendering lives, and those are what is shared.
+The retired `ReplayPanel` itself was never reused — it was bound to its own endpoint. Its children are where
+the rendering lives, and those are what is shared.
 
 ## Record freshness on the live view (Slice 2, #209)
 
@@ -505,7 +588,7 @@ gives the box a vertical scroll of its own, and a sticky `<thead>` can only stic
 actually scrolls it: per spec `overflow-x: auto` computes the other axis to `auto`, so `.sb-scroll`
 was already a scroll container on both axes and the page was never the header's scrollport. The cost
 is real and was accepted knowingly — a nested vertical scroll inside a flowing document, with the
-metrics strip above it and the replay panel below — because the alternative on a ~10,000px record is a
+metrics strip above it — because the alternative on a ~10,000px record is a
 column header that is off-screen for all of it. The thesis heading sticks **below** the column header
 (`top: var(--sb-head-h)`, z-index 2 vs the header's 3), so a heading scrolling up slides *under* the
 header rather than over it. `position: sticky` on a `<tr>` is unreliable — both rules target the
@@ -520,8 +603,9 @@ every body row in both views and compares its colSpan-weighted cell count to the
 ### Sorting — a within-group re-order, never a flattening
 
 `sortLedger.ts` (pure, unit-tested, beside `rows.ts` the way `cockpit/sortBasket.ts` sits beside
-`buckets.ts`) holds the comparators; the two hosts — `Scoreboard` and `ReplayPanel` — each hold their
-**own** sort state, because the replay set is a recompute and the two are never pooled.
+`buckets.ts`) holds the comparators; its hosts — `Scoreboard` and the backtest `RunLedger` (the retired
+`ReplayPanel` was the first) — each hold their **own** sort state, because a replayed set is a recompute and
+the two are never pooled.
 
 Sortable: **Name · Armed · De-armed · Return · Peak · Peak high · Worst · Worst low · Past peak**.
 Not sortable, deliberately: **Path** (a shape has no honest scalar), **Status** (a badge set — plus, on a

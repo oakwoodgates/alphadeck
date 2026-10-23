@@ -43,6 +43,7 @@ from psycopg.rows import dict_row
 
 from db.session import DEFAULT_TENANT_ID, database_url
 from pipeline.run_lock import repair_lock_or_exit
+from repositories import data_repair_repo
 from signals.activist_stake import _norm_cik  # the SAME normalization _is_misattributed uses
 
 # The latest version per logical filing (tenant, security, accession) — the same grain the as-of read
@@ -191,6 +192,19 @@ def main(argv: list[str] | None = None) -> None:
         _print(res)
         if not args.apply:
             conn.rollback()  # a dry-run writes nothing
+        else:  # S7 — the data-repair journal: one row per --apply (a DELETE), under the lock
+            data_repair_repo.journal(
+                conn,
+                tool="repair_activist_misattribution",
+                summary=(
+                    f"deleted {res.rows_deleted} self-filed activist-stake row(s) from "
+                    f"{res.filings_targeted} filing(s)"
+                ),
+                rows_changed=res.rows_deleted,
+                deletes=True,
+                counts={"rows_deleted": res.rows_deleted, "filings": res.filings_targeted},
+                tenant_id=args.tenant,
+            )
     finally:
         conn.close()
         if lock is not None:

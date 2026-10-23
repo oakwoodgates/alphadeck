@@ -55,6 +55,7 @@ from ingest.skips import dedup_skips
 from pipeline.edgar_coverage import EdgarCoverage, pass_fresh
 from pipeline.ingest_skips import SkipDiff
 from pipeline.insider_amendment_scan import AmendmentScan
+from pipeline.missing_closes import MissingCloses
 from pipeline.name_errors import NameIngestError, name_errors_of
 from pipeline.rename_probe import RenameProbe
 from pipeline.split_basis import SplitScan, defect_keys_of
@@ -328,6 +329,7 @@ def build_run_payload(
     amendments: AmendmentScan | None = None,
     edgar_coverage: EdgarCoverage | None = None,
     split_detect: Any = None,
+    missing_closes: MissingCloses | None = None,
 ) -> dict:
     """The run-of-record payload — PURE (no I/O), extracted from the artifact writer so the admin
     "run now" job can shape its poll result IDENTICALLY to a parsed artifact (one schema, two readers).
@@ -524,6 +526,12 @@ def build_run_payload(
         # S4 — the nightly split detection (``pipeline/detect_splits.SplitDetection``): the new split-list rows,
         # the filings it could not place, the Polygon source's status; absent = not run (readers use ``.get``)
         **(split_detect.payload() if split_detect is not None else {}),
+        # MISSING CLOSES (``pipeline/missing_closes.MissingCloses.payload``) — one block: ``evaluated``,
+        # ``error``, ``session``, ``is_session``, ``benchmarks``, ``judged``, ``excluded``, ``missing`` (the
+        # session's missing closes, quiet), ``still_missing`` (older sessions' closes still absent; ``loud`` per
+        # row), ``arrived`` (late closes now stored, each with ``lag_h``), ``resolved`` (handed to the stale flag
+        # / left the basket), ``usual_late_window``, ``duration_s``. ``None`` writes the not-evaluated block.
+        **(missing_closes or MissingCloses()).payload(),
         # EDGAR network pulls this run ATTEMPTED (a pull that then failed counts too) — "times we reached out".
         "edgar_fetches": edgar_fetches,
         # O5 — THE FREEZE DETECTOR: the attempts that COMPLETED (a 2xx body arrived). A frozen index and a
@@ -791,6 +799,7 @@ def write_cron_run_log(
     amendments: AmendmentScan | None = None,
     edgar_coverage: EdgarCoverage | None = None,
     split_detect: Any = None,
+    missing_closes: MissingCloses | None = None,
 ) -> Path | None:
     """Dump one cron pass (``build_run_payload``, above — the payload's meaning lives there) to
     ``<base>/<utc-timestamp>.json``; return the path (or ``None`` fail-open). The whole write — payload
@@ -830,6 +839,7 @@ def write_cron_run_log(
             amendments=amendments,
             edgar_coverage=edgar_coverage,
             split_detect=split_detect,
+            missing_closes=missing_closes,
         )
         run_dir = base_dir or _DEFAULT_CRON_RUNS
         run_dir.mkdir(parents=True, exist_ok=True)

@@ -151,7 +151,7 @@ case "$cmd" in
   up)
     load_identity
     cd "$REPO_ROOT" || fail "cannot cd to worktree root: $REPO_ROOT"
-    mkdir -p data/backups data/scoreboard_replay || fail "cannot create the worktree data dirs"
+    mkdir -p data/backups || fail "cannot create the worktree data dir"
     say "starting fork '$FORK_NAME' (project $FORK_PROJECT)"
     docker compose "${FORK_COMPOSE[@]}" up -d --build || fail "compose up failed"
     echo "OK: fork '$FORK_NAME' up — app http://localhost:$(envkey "$ENV_FORK" FORK_APP_PORT) · api http://localhost:$(envkey "$ENV_FORK" FORK_API_PORT)/docs"

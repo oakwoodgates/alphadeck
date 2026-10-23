@@ -1,9 +1,9 @@
 """Reading a backtest run back off disk — the serving side of the store.
 
 The `/backtest` route serves ARTIFACTS, never a live computation: a run is written once by a CLI in a
-venv that carries the `.[replay]` extra, and the API only reads the JSON it left behind. That is the same
-shape the Scoreboard's replay panel already has, and it is what keeps a multi-hour sweep out of a web
-request entirely.
+venv that carries the `.[replay]` extra, and the API only reads the JSON it left behind. That is the shape
+the Scoreboard's replay panel had (retired by editions S8), and it is what keeps a multi-hour sweep out of a
+web request entirely.
 
 **Everything here is JSON, deliberately.** A run also writes `episodes.parquet` / `outcomes.parquet` for
 analysis, but reading those needs pyarrow, which the LEAN api image does not carry — only the sig and fork

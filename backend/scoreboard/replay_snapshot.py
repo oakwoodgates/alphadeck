@@ -1,33 +1,27 @@
 from __future__ import annotations
 
-import argparse
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
-from tempfile import TemporaryDirectory
+from datetime import date, datetime
 from typing import Protocol
 from uuid import UUID
 
-import psycopg
-
-from domain.config import DEFAULT_CONFIG, config_hash, short_hash
-from domain.market_time import market_today
-from domain.settings import get_settings
-from replay.episodes import derive_episodes
+from domain.config import short_hash
 from replay.metrics import MIN_N, compute_metrics
 from replay.schema import CallSnapshot, Episode, Outcome
-from scoreboard.artifact import write_snapshot
 from scoreboard.assemble import _censor_leading_warming
 from scoreboard.schema import ReplaySnapshot, ReplayThesisHistory, ScoredEpisode
 
-# The replay-panel snapshot: replayed history, flattened into the Scoreboard's own vocabulary and
-# written as ONE JSON artifact the lean app can serve. The build_snapshot() core is PURE and
-# duckdb-free (testable without the .[replay] extra); only main() imports the replay machinery,
-# lazily — this module must keep importing in the lean prod image (the lean-import test pins it).
+# The replay snapshot builder: a replay run, flattened into the Scoreboard's own vocabulary (replayed,
+# scored arm episodes with the record-honesty flags). ``build_snapshot()`` is PURE and duckdb-free (testable
+# without the .[replay] extra), and this module must keep importing in the lean prod image (the lean-import
+# test pins it).
 #
-# The seam: the window defaults to ending at record_began - 1 (the day before the forward record's
-# first call-of-record), so replay covers history and the record covers everything after — no
-# double-counted arms. Pushing --end past it is allowed but LOUD (window_overlaps_record rides the
-# artifact and its banner), never silent. Start defaults to end - 365d (the ~1y price depth).
+# Its one caller today is the BACKTEST ledger (``backtest/ledger.py`` / ``backtest/run.py``): `/backtest`
+# renders its drill-down through the Scoreboard's components, so its rows are built here. The Scoreboard's
+# own replay-alongside panel — and the CLI that wrote its artifact, ``python -m scoreboard.replay_snapshot``
+# — were retired by editions S8 (2026-10-23): a stored edition (a frozen public-clock re-run of today's rules)
+# replaced it. The window rule the panel used (end at record_began - 1, an overlap marked loud) lives on in
+# ``window_overlaps_record`` for whoever builds a snapshot.
 
 
 class _Realized(Protocol):  # what compute_metrics' withheld leg needs — duck-typed like the scorer
@@ -192,118 +186,3 @@ def build_snapshot(
         metrics=metrics.metrics,
         theses=theses,
     )
-
-
-def _record_began(conn: psycopg.Connection) -> date | None:
-    with conn.cursor() as cur:
-        cur.execute("SELECT min(asof) AS began FROM calls")
-        row = cur.fetchone()
-        return row["began"] if row else None
-
-
-def main() -> None:
-    p = argparse.ArgumentParser(
-        description="Write the Scoreboard's replay-panel artifact (replayed history, NOT the "
-        "record). Runs replay — needs the .[replay] extra (the dev venv), not the prod image."
-    )
-    p.add_argument("--start", help="window start YYYY-MM-DD (default: end - 365d)")
-    p.add_argument(
-        "--end",
-        help="window end YYYY-MM-DD (default: the day before the forward record began; "
-        "pushing past it is allowed but marks the artifact window_overlaps_record)",
-    )
-    args = p.parse_args()
-
-    # replay machinery imported HERE, not at module top — the lean image imports this module fine
-    from db.session import connect
-    from replay.export import export_snapshot
-    from replay.harness import replay_all
-    from replay.pit import connect_mirror
-    from replay.scoring import RealizedPrices, score_episodes
-    from repositories import thesis_repo
-
-    conn = connect()
-    try:
-        record_began = _record_began(conn)
-        end = (
-            date.fromisoformat(args.end)
-            if args.end
-            else (record_began - timedelta(days=1) if record_began else market_today())
-        )
-        start = date.fromisoformat(args.start) if args.start else end - timedelta(days=365)
-        pin = datetime.now(timezone.utc)
-        cfg = DEFAULT_CONFIG  # the panel reflects PRODUCTION dials; F2 makes it say which
-
-        theses = thesis_repo.list_all(conn)  # archived EXCLUDED (the locked default)
-        meta = {
-            t.id: ThesisMeta(
-                tenant_id=t.tenant_id,
-                name=t.name,
-                ticker=t.ticker,
-                basket_size=len(t.basket),
-            )
-            for t in theses
-        }
-        single_name = {
-            t.id: [m.security_id for m in t.basket if m.security_id is not None][0]
-            for t in theses
-            if len([m for m in t.basket if m.security_id is not None]) == 1
-        }
-
-        with TemporaryDirectory(prefix="sb_replay_mirror_") as tmp:
-            export_snapshot(conn, tmp)
-            con = connect_mirror(tmp)
-            try:
-                # F2 — ONE explicit cfg for the run, passed to the harness AND hashed into the
-                # artifact. It used to be omitted entirely, so `replay_all` silently defaulted and the
-                # panel could not name the dials it was showing. Holding it in a local (rather than
-                # hashing DEFAULT_CONFIG separately) is what keeps the stamp honest: if this run ever
-                # sweeps a non-default cfg, the fingerprint follows it instead of describing a policy
-                # that did not produce these episodes — the same rule `pipeline.daily` holds.
-                # F4 — and `replay_all` now returns a ReplayResult, so the roster provenance comes back
-                # in the same object as the timelines and cannot be dropped on the floor.
-                result = replay_all(conn, con, start=start, end=end, known_at=pin, cfg=cfg)
-                timeline = result.timelines
-                episodes = [ep for snaps in timeline.values() for ep in derive_episodes(snaps)]
-                realized = RealizedPrices(con)
-                scored = list(zip(episodes, score_episodes(episodes, realized), strict=True))
-                snap = build_snapshot(
-                    timeline,
-                    scored,
-                    thesis_meta=meta,
-                    window_start=start,
-                    window_end=end,
-                    pin=pin,
-                    generated_at=pin,
-                    matured_asof=market_today(),
-                    record_began=record_began,
-                    realized=realized,
-                    single_name_security=single_name,
-                    # F4 — the roster provenance rides from the harness onto the artifact, so the panel
-                    # can say which theses recomputed on today's basket rather than asserting a blanket
-                    # caveat that is no longer true.
-                    roster_fallback_theses=result.fallback_theses,
-                    roster_source_note=result.note(),
-                    # F2 — ...and which dials produced them, hashed from the SAME cfg the run used.
-                    config_hash=config_hash(cfg),
-                    code_sha=get_settings().image_sha,
-                )
-            finally:
-                con.close()
-        path = write_snapshot(snap)
-        print(
-            f"wrote {path}\nwindow {snap.window_start} -> {snap.window_end} | "
-            f"theses {snap.n_theses} | episodes {snap.n_episodes} "
-            f"(censored {snap.n_censored}, eligible {snap.n_eligible})"
-            + (
-                "\nWARNING: window overlaps the forward record"
-                if snap.window_overlaps_record
-                else ""
-            )
-        )
-    finally:
-        conn.close()
-
-
-if __name__ == "__main__":
-    main()

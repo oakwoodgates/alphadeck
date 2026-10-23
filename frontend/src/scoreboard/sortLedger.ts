@@ -7,8 +7,8 @@ import { noForwardBar } from "./scorecard";
  *  themselves never move, so the record stays readable as "what did THIS thesis do".
  *
  *  Pure + unit-tested, the way `cockpit/sortBasket.ts` is — it takes wire rows and returns wire rows,
- *  touches no hook and holds no state (the two hosts, `Scoreboard` and `ReplayPanel`, each hold their
- *  own). The three rules it inherits from the Cockpit's sort, because they are the same rules:
+ *  touches no hook and holds no state (its hosts, `Scoreboard` and the backtest `RunLedger`, each hold
+ *  their own). The three rules it inherits from the Cockpit's sort, because they are the same rules:
  *
  *  1. A key is read off the SAME access path the CELL renders from, including the cell's dash guard —
  *     so the ranking always matches what the operator sees.

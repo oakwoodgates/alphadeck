@@ -903,11 +903,12 @@ export interface paths {
          * Get Scoreboard
          * @description The Scoreboard (SCORE): one EDITION scored as-of ``asof`` — a READ-ONLY pass over the
          *     immutable calls log (or a stored edition's frozen pages), the operator-decision log, and realized
-         *     asof-capped prices. Edition 0, the default, is the call-of-record: the RECORD is the scoring
-         *     source, never a recompute (this holds the platform to what it actually said). Edition N >= 1 is a
-         *     stored re-run of today's rules from each company's join date on the public clock, scored on read
-         *     the same way. Aggregate metrics judge only matured, non-censored episodes and gate below
-         *     ``min_n`` — an instrument, not a claim, until n accrues.
+         *     asof-capped prices. Edition 0 is the call-of-record: the RECORD is the scoring source, never a
+         *     recompute (this holds the platform to what it actually said). Edition N >= 1 is a stored re-run of
+         *     today's rules from each company's join date on the public clock, scored on read the same way. A
+         *     request that names no edition reads the NEWEST published one (Edition 0 when nothing is published).
+         *     Aggregate metrics judge only matured, non-censored episodes and gate below ``min_n`` — an
+         *     instrument, not a claim, until n accrues.
          *
          *     On Edition 0 three kinds of recorded row are set aside before scoring: reconstructed rows
          *     (always), rows annotated as phantom arms (by the annotated-night policy, which
@@ -937,7 +938,9 @@ export interface paths {
          * @description Every edition the Scoreboard can show: Edition 0 (the original record, the calls log — always
          *     present, never stored) first, then each stored re-run edition ascending, with its cut, nights, join-date
          *     counts and engine fingerprint. ``default`` = the edition ``GET /scoreboard`` serves when the request
-         *     names none (the setting; an unpublished default reads as 0). Read-only.
+         *     names none: the newest published edition (0 only when nothing is published), unless the server's
+         *     override pins another. ``notice`` = the quiet line for seven days after the automatic cut published the
+         *     newest edition (null otherwise). Read-only.
          */
         get: operations["get_scoreboard_editions_scoreboard_editions_get"];
         put?: never;
@@ -948,7 +951,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/scoreboard/replay": {
+    "/scoreboard/editions/diff": {
         parameters: {
             query?: never;
             header?: never;
@@ -956,16 +959,26 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Scoreboard Replay
-         * @description The HISTORICAL (replayed) panel — replayed history served from the operator-kicked artifact
-         *     (``python -m scoreboard.replay_snapshot``, dev venv only: replay needs the .[replay] extra the
-         *     lean image deliberately lacks). A RECOMPUTE by construction — today's code + dials over
-         *     historical facts, the not-bitemporal basket caveat riding the banner — NEVER the record and
-         *     never merged with it: separate artifact, separate endpoint, metrics never pooled with the live
-         *     summary. ``available=false`` when no artifact exists (or it fails validation — absence, not an
-         *     outage). Read-only; the container's artifact mount is read-only besides.
+         * Get Scoreboard Edition Diff
+         * @description What changed from one edition to a later one (editions S6) — computed on read, never stored, and
+         *     read-only. Every thesis is compared on the nights BOTH editions cover, through the earlier of the two
+         *     editions' last nights (the earlier edition's last night once the later one has reached it), so a night
+         *     neither could disagree about is never a change. Edition 0 is read the way the default Scoreboard reads
+         *     it: reconstructed rows never, annotated and late rows under the server's default policies.
+         *
+         *     Per company-night: armed or not in each edition, and — on a night both arm the company — its verdict,
+         *     entry grade, conviction grade and exit-by; a night with no page reads that edition's last page before
+         *     it. Per episode, paired on (thesis, company, arm date): matched (listed only when the run differs),
+         *     moved (the same company armed in both over overlapping windows), appeared, vanished — each scored
+         *     arm -> exit-by on realized closes through the last night, with the delta on a pair. Pages only one
+         *     edition holds are reported as spans; a run lying wholly on them is counted, never compared, while one
+         *     that armed there and runs into the shared nights is a change (``armed_before_window``).
+         *     Grouped thesis -> company, with headline counts. ``cause`` is filled only when the automatic cut (S7)
+         *     published the later edition from the earlier one (``causes`` true): what its trial proved, or what the
+         *     trial's scope implies (late data, a repair or late data, not separated); any other pair has null
+         *     causes — a cause is never guessed.
          */
-        get: operations["get_scoreboard_replay_scoreboard_replay_get"];
+        get: operations["get_scoreboard_edition_diff_scoreboard_editions_diff_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1090,6 +1103,10 @@ export interface paths {
          *     ``split_defects`` (T4) is the split-basis panel — every basket name whose stored tape mixes two split
          *     bases (island / cliff / flap) as some reader sees it, from the newest artifact that scanned; flag only,
          *     never the verdict. Its ``settled`` rows are flaps no reader sees on two bases — quiet, never an alarm.
+         *
+         *     ``missing_closes`` is the missing-closing-price flag: a QUIET line every night ("21 of 679 companies had no
+         *     close for Oct 23 at the night's run"), and a LOUD line only for an older session's close still missing after
+         *     a later session's pass — from the newest artifact that ran the check; never paged, never the verdict.
          */
         get: operations["get_admin_status_admin_status_get"];
         put?: never;
@@ -2058,6 +2075,33 @@ export interface components {
             reason?: string | null;
         };
         /**
+         * AdminArrivedCloseOut
+         * @description A close that was missing at an earlier pass and is now stored — "late, arrived". ``lag_h`` is the hours
+         *     from the pass that first found it missing to the bar's first ``recorded_at`` (our store's own bookkeeping
+         *     of when the feed delivered — never a history gate).
+         */
+        AdminArrivedCloseOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker?: string | null;
+            /**
+             * Session
+             * Format: date
+             */
+            session: string;
+            /** Lag H */
+            lag_h: number;
+            /**
+             * Otc
+             * @default false
+             */
+            otc: boolean;
+        };
+        /**
          * AdminAuditCheckOut
          * @description One check of a pass's nightly SELF-AUDIT (V1, ``pipeline/self_audit.py``), as the artifact recorded
          *     it. ``ok`` is ``true`` (checked, holds), ``false`` (checked, FAILS — it paged and makes the verdict
@@ -2164,6 +2208,53 @@ export interface components {
              * @default []
              */
             alarms: string[];
+        };
+        /**
+         * AdminEditionsCutOut
+         * @description The automatic cut (editions S7), as ONE line for seven days after it published the newest Scoreboard
+         *     edition — e.g. "Edition 2 · rule change: … · includes data that arrived since Edition 1 · 37
+         *     company-nights changed". Backend-authored copy. ``attention`` is true when no declared rule explains the
+         *     change (an unexplained change, which also paged).
+         */
+        AdminEditionsCutOut: {
+            /** Line */
+            line: string;
+            /**
+             * Published At
+             * Format: date-time
+             */
+            published_at: string;
+            /** Number */
+            number: number;
+            /**
+             * Attention
+             * @default false
+             */
+            attention: boolean;
+        };
+        /**
+         * AdminEditionsNightlyOut
+         * @description The Scoreboard editions' nightly page job (editions S5), as ONE plain-English line from its newest
+         *     APPLIED run artifact (``data/edition_runs``): which edition, which night it paged, how many theses, any held
+         *     for history still loading, and the self-check — e.g. "Edition 1 · page for Oct 23 added · 10 theses ·
+         *     self-check passed". Backend-authored copy (the FE renders, never composes). ``attention`` is true only when
+         *     the self-check found a real mismatch or the job crashed — the one case worth a louder line.
+         */
+        AdminEditionsNightlyOut: {
+            /** Line */
+            line: string;
+            /**
+             * Ran At
+             * Format: date-time
+             */
+            ran_at: string;
+            /** Night */
+            night?: string | null;
+            /**
+             * Attention
+             * @default false
+             */
+            attention: boolean;
         };
         /**
          * AdminFeedLimitationIn
@@ -2570,6 +2661,118 @@ export interface components {
              * @default 1
              */
             n_rows: number;
+        };
+        /**
+         * AdminMissingCloseOut
+         * @description One company with no stored close for ``session`` (``pipeline/missing_closes.py``) — on the night's quiet
+         *     list, or (``loud``) an older session's close still missing after a later session's pass. ``edge`` is its
+         *     newest stored bar at that pass; ``reason`` is ``no_bar`` (the price leg ran clean — the vendor had no close
+         *     yet), ``fetch_error`` (the leg failed; ``error`` keeps its message) or ``not_ingested`` (another writer held
+         *     the company). ``usual_late`` marks a company late at the night's run on most of its recent sessions
+         *     (``late_nights`` of ``judged_nights``); ``otc`` a company the master lists on the OTC venue — a KNOWN vendor
+         *     issue (``FEED_LOOP.md`` §Known feed limitations). ``ticker`` may be null; the row renders by id (#9).
+         */
+        AdminMissingCloseOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker?: string | null;
+            /**
+             * Session
+             * Format: date
+             */
+            session: string;
+            /** Edge */
+            edge?: string | null;
+            /** Reason */
+            reason: string;
+            /** Error */
+            error?: string | null;
+            /**
+             * Loud
+             * @default false
+             */
+            loud: boolean;
+            /**
+             * Usual Late
+             * @default false
+             */
+            usual_late: boolean;
+            /**
+             * Late Nights
+             * @default 0
+             */
+            late_nights: number;
+            /**
+             * Judged Nights
+             * @default 0
+             */
+            judged_nights: number;
+            /**
+             * Otc
+             * @default false
+             */
+            otc: boolean;
+        };
+        /**
+         * AdminMissingClosesOut
+         * @description MISSING CLOSES (operator decision 2026-10-23) — did every live basket company get the session's close
+         *     by the night's run? Read from the newest finished live run artifact that ran the check (a file read, no
+         *     DB). ``line`` is the QUIET nightly line (backend-authored: "21 of 679 companies had no close for Oct 23 at
+         *     the night's run (17 OTC, a known issue) · usually arrive with the next night's pull", or "not judged" on a
+         *     session with no SPY/IWM close); ``missing`` the companies behind it; ``arrived`` the late closes that
+         *     arrived since the previous check (quiet). ``loud_lines`` / ``still_missing`` are the LOUD flag — one line
+         *     per older session whose close is still missing after a later session's pass ("2 companies still have no
+         *     close for Oct 21: X, Y"); it persists until the bar arrives or the tape goes stale (the stopped-feed list
+         *     takes over). Never paged and never the cron verdict. ``error`` = the check could not run on that pass.
+         */
+        AdminMissingClosesOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /** Ran At */
+            ran_at: string;
+            /** Session */
+            session?: string | null;
+            /**
+             * Is Session
+             * @default false
+             */
+            is_session: boolean;
+            /**
+             * Judged
+             * @default 0
+             */
+            judged: number;
+            /** Line */
+            line: string;
+            /**
+             * Missing
+             * @default []
+             */
+            missing: components["schemas"]["AdminMissingCloseOut"][];
+            /**
+             * Still Missing
+             * @default []
+             */
+            still_missing: components["schemas"]["AdminMissingCloseOut"][];
+            /**
+             * Loud Lines
+             * @default []
+             */
+            loud_lines: string[];
+            /**
+             * Arrived
+             * @default []
+             */
+            arrived: components["schemas"]["AdminArrivedCloseOut"][];
+            /** Error */
+            error?: string | null;
         };
         /**
          * AdminNameChangeFilingOut
@@ -3656,6 +3859,15 @@ export interface components {
          *     ``fundamentals_set_aside`` (migration 0062) is how many stored fundamentals versions are set aside — the
          *     revenue rows the data-quality screen would have refused, stored before it existed, which every read skips
          *     (``python -m pipeline.set_aside_fundamentals``). A quiet line; ``null`` when the count could not be read.
+         *
+         *     ``editions_nightly`` (editions S5) is the Scoreboard editions' nightly page job's one line, from its newest
+         *     applied run artifact; ``null`` until that job has run (a directory read — no DB). Never a cron verdict.
+         *
+         *     ``missing_closes`` (2026-10-23) is the missing-closing-price flag: the night's quiet count line and, loud,
+         *     any older session's close still missing after a later session's pass; ``null`` until a live pass has run
+         *     the check (a file read — no DB). Never paged, never a cron verdict.
+         *     ``editions_cut`` (editions S7) is the automatic cut's one line for seven days after it published the
+         *     newest edition (a DB read of that edition); ``null`` otherwise. Never a cron verdict.
          */
         AdminStatusOut: {
             record: components["schemas"]["AdminRecordOut"];
@@ -3674,6 +3886,9 @@ export interface components {
             splits_needs_review?: number | null;
             /** Fundamentals Set Aside */
             fundamentals_set_aside?: number | null;
+            editions_nightly?: components["schemas"]["AdminEditionsNightlyOut"] | null;
+            missing_closes?: components["schemas"]["AdminMissingClosesOut"] | null;
+            editions_cut?: components["schemas"]["AdminEditionsCutOut"] | null;
         };
         /**
          * AdminSuccessorCandidateOut
@@ -4006,7 +4221,7 @@ export interface components {
          *     It reuses `ScoreboardReplayThesisOut` / `ScoreboardEpisodeOut` deliberately: the rows ARE replayed,
          *     scored arm episodes, and re-declaring a parallel shape would give the two surfaces two definitions
          *     of the same row and let their renderers drift. The front end therefore renders this through the
-         *     same ledger components the Scoreboard's replay panel uses.
+         *     same ledger components the Scoreboard's own ledger uses.
          *
          *     A DRILL-DOWN, never a ranking: theses come back in NAME order (fixed by the writer), which is the
          *     one ordering that cannot be read as a leaderboard (invariant #4). The pooled view above it carries
@@ -5154,6 +5369,247 @@ export interface components {
             terms: components["schemas"]["TermEdit"][];
         };
         /**
+         * EditionCompanyDiffOut
+         * @description One company that changed: every changed night (``nights``), the same nights folded into runs
+         *     (``runs``), and its episode changes.
+         */
+        EditionCompanyDiffOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker?: string | null;
+            /** Company Name */
+            company_name?: string | null;
+            /**
+             * Nights
+             * @default []
+             */
+            nights: components["schemas"]["EditionCompanyNightOut"][];
+            /**
+             * Runs
+             * @default []
+             */
+            runs: components["schemas"]["EditionNightRunOut"][];
+            /**
+             * Episodes
+             * @default []
+             */
+            episodes: components["schemas"]["EditionEpisodeDiffOut"][];
+        };
+        /**
+         * EditionCompanyNightOut
+         * @description One changed company-night: ``changed`` = ``["armed"]`` when exactly one edition arms the company, else
+         *     the fields that differ on a night both arm it. ``cause`` (S7) is set only when the later edition was cut
+         *     by the automatic cut from the earlier one: ``rule_change`` / ``unexplained`` (its rules trial proved it,
+         *     with or without a declared rule), ``late_data`` (a night the rules trial re-tested and found unchanged),
+         *     ``data_repair`` (a repair trial: a repair or data that arrived late, not separable), ``not_separated``
+         *     (a night the rules trial did not re-test, or a trial that also carried a deleting repair). Null for any
+         *     other pair of editions — a cause is never guessed.
+         */
+        EditionCompanyNightOut: {
+            /**
+             * Night
+             * Format: date
+             */
+            night: string;
+            before: components["schemas"]["EditionNightReadOut"];
+            after: components["schemas"]["EditionNightReadOut"];
+            /**
+             * Changed
+             * @default []
+             */
+            changed: string[];
+            /** Cause */
+            cause?: string | null;
+        };
+        /**
+         * EditionCutNoticeOut
+         * @description The quiet notice for seven days after the AUTOMATIC CUT (editions S7) published the newest edition:
+         *     ``line`` is the backend-authored sentence ("Edition 2 · rule change: … · includes data that arrived since
+         *     Edition 1 · 37 company-nights changed"), ``number`` / ``previous`` the pair the "see what changed" link
+         *     compares, ``unexplained`` true when no declared rule explains the change (the edition is marked).
+         */
+        EditionCutNoticeOut: {
+            /** Number */
+            number: number;
+            /** Previous */
+            previous: number;
+            /** Label */
+            label: string;
+            /** Line */
+            line: string;
+            /**
+             * Published At
+             * Format: date-time
+             */
+            published_at: string;
+            /**
+             * N Company Nights Changed
+             * @default 0
+             */
+            n_company_nights_changed: number;
+            /**
+             * Unexplained
+             * @default false
+             */
+            unexplained: boolean;
+        };
+        /**
+         * EditionDiffCountsOut
+         * @description The headline counts over every thesis (company-nights and episodes).
+         */
+        EditionDiffCountsOut: {
+            /**
+             * N Theses
+             * @default 0
+             */
+            n_theses: number;
+            /**
+             * N Theses Changed
+             * @default 0
+             */
+            n_theses_changed: number;
+            /**
+             * N Companies Changed
+             * @default 0
+             */
+            n_companies_changed: number;
+            /**
+             * N Thesis Nights
+             * @default 0
+             */
+            n_thesis_nights: number;
+            /**
+             * N State Nights
+             * @default 0
+             */
+            n_state_nights: number;
+            /**
+             * N Company Nights Changed
+             * @default 0
+             */
+            n_company_nights_changed: number;
+            /**
+             * N Armed Before Only
+             * @default 0
+             */
+            n_armed_before_only: number;
+            /**
+             * N Armed After Only
+             * @default 0
+             */
+            n_armed_after_only: number;
+            /**
+             * N Fields Changed
+             * @default 0
+             */
+            n_fields_changed: number;
+            /**
+             * N Episodes Matched
+             * @default 0
+             */
+            n_episodes_matched: number;
+            /**
+             * N Episodes Matched Changed
+             * @default 0
+             */
+            n_episodes_matched_changed: number;
+            /**
+             * N Episodes Moved
+             * @default 0
+             */
+            n_episodes_moved: number;
+            /**
+             * N Episodes Appeared
+             * @default 0
+             */
+            n_episodes_appeared: number;
+            /**
+             * N Episodes Vanished
+             * @default 0
+             */
+            n_episodes_vanished: number;
+            /**
+             * N Episodes Outside
+             * @default 0
+             */
+            n_episodes_outside: number;
+        };
+        /**
+         * EditionEpisodeDiffOut
+         * @description One episode change, paired on (thesis, company, arm date): ``matched`` (same arm date, listed only when
+         *     the run differs — ``differs`` names what), ``moved`` (the same company armed in both over overlapping
+         *     windows, ``arm_shift_days`` apart), ``appeared`` (later edition only), ``vanished`` (earlier edition only).
+         *     ``return_delta`` = later minus earlier score when both are scored. ``armed_before_window`` (appeared /
+         *     vanished) = the run armed before the first compared night and is listed because it runs into the nights
+         *     both editions cover. ``cause``: as on a company-night (null unless the later edition was cut from the
+         *     earlier one).
+         */
+        EditionEpisodeDiffOut: {
+            /**
+             * Change
+             * @enum {string}
+             */
+            change: "matched" | "moved" | "appeared" | "vanished";
+            before?: components["schemas"]["EditionEpisodeSideOut"] | null;
+            after?: components["schemas"]["EditionEpisodeSideOut"] | null;
+            /** Arm Shift Days */
+            arm_shift_days?: number | null;
+            /**
+             * Differs
+             * @default []
+             */
+            differs: string[];
+            /** Return Delta */
+            return_delta?: number | null;
+            /**
+             * Armed Before Window
+             * @default false
+             */
+            armed_before_window: boolean;
+            /** Cause */
+            cause?: string | null;
+        };
+        /**
+         * EditionEpisodeSideOut
+         * @description One edition's arm episode, scored through the comparison's last night (``forward_return`` = arm ->
+         *     exit-by on realized closes). ``began_mid_arm`` = armed on that edition's first page for the thesis.
+         */
+        EditionEpisodeSideOut: {
+            /**
+             * Arm Date
+             * Format: date
+             */
+            arm_date: string;
+            /**
+             * Last Armed Date
+             * Format: date
+             */
+            last_armed_date: string;
+            /** Dearm Date */
+            dearm_date?: string | null;
+            /** Close Reason */
+            close_reason: string;
+            /** Exit By */
+            exit_by?: string | null;
+            /** Verdict */
+            verdict?: string | null;
+            /** Entry Grade */
+            entry_grade?: string | null;
+            /** Conviction Grade */
+            conviction_grade?: string | null;
+            /**
+             * Began Mid Arm
+             * @default false
+             */
+            began_mid_arm: boolean;
+            /** Forward Return */
+            forward_return?: number | null;
+        };
+        /**
          * EditionJoinOut
          * @description The episode's company's join date in an edition (``edition_entry``): the date, whether it is the
          *     option-A ESTIMATE (a deploy-seed member whose real join predates the snapshot record), the rule that
@@ -5176,6 +5632,143 @@ export interface components {
             armed_on_join_night: boolean;
             /** Note */
             note?: string | null;
+        };
+        /**
+         * EditionNightReadOut
+         * @description One company's read on one night in one edition: ``page`` = the page it comes from (the night itself,
+         *     or that edition's last page before it — the Scoreboard's own carry rule), ``armed``, and — only on an
+         *     armed night — the call's verdict, entry grade, conviction grade and exit-by.
+         */
+        EditionNightReadOut: {
+            /**
+             * Page
+             * Format: date
+             */
+            page: string;
+            /** Armed */
+            armed: boolean;
+            /** Verdict */
+            verdict?: string | null;
+            /** Entry Grade */
+            entry_grade?: string | null;
+            /** Conviction Grade */
+            conviction_grade?: string | null;
+            /** Exit By */
+            exit_by?: string | null;
+        };
+        /**
+         * EditionNightRunOut
+         * @description Consecutive compared nights on which one company's change is the same (the same ``changed`` fields
+         *     with the same values of those fields on both sides, and the same ``cause``) — ``nights`` folded so a
+         *     30-night run reads as one line; ``before`` / ``after`` are the reads on its first night.
+         */
+        EditionNightRunOut: {
+            /**
+             * First
+             * Format: date
+             */
+            first: string;
+            /**
+             * Last
+             * Format: date
+             */
+            last: string;
+            /** N Nights */
+            n_nights: number;
+            /**
+             * Changed
+             * @default []
+             */
+            changed: string[];
+            before: components["schemas"]["EditionNightReadOut"];
+            after: components["schemas"]["EditionNightReadOut"];
+            /** Cause */
+            cause?: string | null;
+        };
+        /**
+         * EditionNightSpanOut
+         * @description A run of one edition's pages the other does not cover (``n_nights`` pages, ``first`` -> ``last``).
+         */
+        EditionNightSpanOut: {
+            /**
+             * First
+             * Format: date
+             */
+            first: string;
+            /**
+             * Last
+             * Format: date
+             */
+            last: string;
+            /** N Nights */
+            n_nights: number;
+        };
+        /**
+         * EditionThesisDiffOut
+         * @description One thesis: the nights compared (``first_night`` -> ``last_night``, the ones BOTH editions cover; null
+         *     when they share none), the pages only one edition holds (``before_only`` / ``after_only`` spans, with
+         *     ``n_outside`` unpaired runs lying wholly there — counted, never compared), the nights its own state differs,
+         *     the matched-episode count, the armed companies with nothing to list, and the companies that changed.
+         */
+        EditionThesisDiffOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Name */
+            name: string;
+            /**
+             * Archived
+             * @default false
+             */
+            archived: boolean;
+            /** First Night */
+            first_night?: string | null;
+            /** Last Night */
+            last_night?: string | null;
+            /**
+             * N Nights
+             * @default 0
+             */
+            n_nights: number;
+            /**
+             * N State Nights
+             * @default 0
+             */
+            n_state_nights: number;
+            /**
+             * Before Only
+             * @default []
+             */
+            before_only: components["schemas"]["EditionNightSpanOut"][];
+            /**
+             * After Only
+             * @default []
+             */
+            after_only: components["schemas"]["EditionNightSpanOut"][];
+            /**
+             * N Outside
+             * @default 0
+             */
+            n_outside: number;
+            /**
+             * N Matched
+             * @default 0
+             */
+            n_matched: number;
+            /**
+             * N Companies Unchanged
+             * @default 0
+             */
+            n_companies_unchanged: number;
+            /**
+             * Companies
+             * @default []
+             */
+            companies: components["schemas"]["EditionCompanyDiffOut"][];
+            /** Error */
+            error?: string | null;
         };
         /**
          * EpisodeOperatorOut
@@ -6681,6 +7274,33 @@ export interface components {
             segment_count: number;
         };
         /**
+         * ScoreboardEditionDiffResponse
+         * @description What changed from the EARLIER edition (``before``) to the LATER one (``after``), computed on read:
+         *     grouped thesis -> company, compared through ``through`` (the earlier of the two editions' last nights)
+         *     from ``first_night``, with the headline ``counts``. Substance only — state, the armed set, verdict,
+         *     grades, exit-by and each episode's score — never card text. ``causes`` (S7) = the later edition was cut
+         *     from the earlier one by the automatic cut, so every change carries a ``cause``.
+         */
+        ScoreboardEditionDiffResponse: {
+            before: components["schemas"]["ScoreboardEditionOut"];
+            after: components["schemas"]["ScoreboardEditionOut"];
+            /** Through */
+            through?: string | null;
+            /** First Night */
+            first_night?: string | null;
+            counts: components["schemas"]["EditionDiffCountsOut"];
+            /**
+             * Theses
+             * @default []
+             */
+            theses: components["schemas"]["EditionThesisDiffOut"][];
+            /**
+             * Causes
+             * @default false
+             */
+            causes: boolean;
+        };
+        /**
          * ScoreboardEditionOut
          * @description Which EDITION a Scoreboard read shows (editions S4). Edition 0 = the original record: the calls log,
          *     never stored as an edition (``cut`` null — the record is append-only and current; ``first_night`` /
@@ -6726,6 +7346,8 @@ export interface components {
          * ScoreboardEditionsResponse
          * @description Every edition the Scoreboard can show, Edition 0 (the original record) first, then each stored
          *     edition ascending; ``default`` = the edition a ``GET /scoreboard`` with no ``edition`` serves.
+         *     ``notice`` (S7) = the quiet line for seven days after the automatic cut published the newest edition
+         *     (null otherwise).
          */
         ScoreboardEditionsResponse: {
             /** Default */
@@ -6735,6 +7357,7 @@ export interface components {
              * @default []
              */
             editions: components["schemas"]["ScoreboardEditionOut"][];
+            notice?: components["schemas"]["EditionCutNoticeOut"] | null;
         };
         /**
          * ScoreboardEpisodeOut
@@ -7026,85 +7649,10 @@ export interface components {
             activist_stakes: components["schemas"]["ActivistStakeOut"][];
         };
         /**
-         * ScoreboardReplayResponse
-         * @description The replay panel: replayed history served from the operator-kicked artifact — a RECOMPUTE
-         *     (today's code + dials over historical facts), never the record; separate endpoint, separate
-         *     section, metrics never pooled with the live summary. ``available=false`` = no artifact yet
-         *     (run ``python -m scoreboard.replay_snapshot`` from the dev venv).
-         */
-        ScoreboardReplayResponse: {
-            /** Available */
-            available: boolean;
-            /** Generated At */
-            generated_at?: string | null;
-            /** Window Start */
-            window_start?: string | null;
-            /** Window End */
-            window_end?: string | null;
-            /** Known At Pin */
-            known_at_pin?: string | null;
-            /** Record Began */
-            record_began?: string | null;
-            /**
-             * Window Overlaps Record
-             * @default false
-             */
-            window_overlaps_record: boolean;
-            /**
-             * Roster Fallback Theses
-             * @default 0
-             */
-            roster_fallback_theses: number;
-            /** Roster Source Note */
-            roster_source_note?: string | null;
-            /** Config Hash */
-            config_hash?: string | null;
-            /** Code Sha */
-            code_sha?: string | null;
-            /** Policy Label */
-            policy_label?: string | null;
-            /** Banner */
-            banner?: string | null;
-            /**
-             * Min N
-             * @default 0
-             */
-            min_n: number;
-            /**
-             * N Theses
-             * @default 0
-             */
-            n_theses: number;
-            /**
-             * N Episodes
-             * @default 0
-             */
-            n_episodes: number;
-            /**
-             * N Censored
-             * @default 0
-             */
-            n_censored: number;
-            /**
-             * N Eligible
-             * @default 0
-             */
-            n_eligible: number;
-            /**
-             * Metrics
-             * @default []
-             */
-            metrics: components["schemas"]["ScoreboardMetricOut"][];
-            /**
-             * Theses
-             * @default []
-             */
-            theses: components["schemas"]["ScoreboardReplayThesisOut"][];
-        };
-        /**
          * ScoreboardReplayThesisOut
-         * @description One thesis's slice of the HISTORICAL (replayed) panel — platform track only (decision
-         *     capture post-dates history, so the operator column is structurally absent, not empty).
+         * @description One thesis's replayed, scored arm episodes — the `/backtest` run ledger's per-thesis slice (the name
+         *     survives from the Scoreboard's replay-alongside panel, retired by editions S8). Platform track only:
+         *     decision capture post-dates history, so the operator column is structurally absent, not empty.
          */
         ScoreboardReplayThesisOut: {
             /**
@@ -9098,7 +9646,7 @@ export interface operations {
                 include_annotated?: boolean | null;
                 /** @description the late-night reading: true = score rows recorded after their night's next EDGAR open (06:00 ET the next weekday) as before; false = set them aside, so an on-time row for the night wins and a late-only night reads like a cron gap; omitted = the server setting (ALPHADECK_SCOREBOARD_EXCLUDE_LATE, default: set aside). The response's summary.late_policy names the reading used */
                 include_late?: boolean | null;
-                /** @description which EDITION to score: 0 = the original record (the calls log); N >= 1 = the stored re-run Edition N (404 if it does not exist); omitted = the server setting (ALPHADECK_SCOREBOARD_DEFAULT_EDITION, default 0 — an unpublished default falls back to 0). The response's `edition` block names the edition served */
+                /** @description which EDITION to score: 0 = the original record (the calls log); N >= 1 = the stored re-run Edition N (404 if it does not exist); omitted = the NEWEST published edition (0 when nothing is published; ALPHADECK_SCOREBOARD_DEFAULT_EDITION, unset by default, overrides it, and an unpublished override falls back to the newest). The response's `edition` block names the edition served */
                 edition?: number | null;
             };
             header?: never;
@@ -9147,9 +9695,14 @@ export interface operations {
             };
         };
     };
-    get_scoreboard_replay_scoreboard_replay_get: {
+    get_scoreboard_edition_diff_scoreboard_editions_diff_get: {
         parameters: {
-            query?: never;
+            query: {
+                /** @description the EARLIER edition: 0 = the original record (its honest default read), N >= 1 = the stored Edition N (404 if it does not exist) */
+                from: number;
+                /** @description the LATER edition, a stored re-run (404 if it does not exist); it must be newer than `from` (422 otherwise) */
+                to: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -9162,7 +9715,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ScoreboardReplayResponse"];
+                    "application/json": components["schemas"]["ScoreboardEditionDiffResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -9178,7 +9740,7 @@ export interface operations {
                 end: string;
                 /** @description score as-of this date — the series is CAPPED here (no-lookahead) */
                 asof: string;
-                /** @description the EDITION the drawer belongs to (the `/scoreboard` param's semantics): an edition >= 1 reads every dated overlay on the PUBLIC clock, a live as-of included; 0 / omitted with the default 0 = the record's reading, unchanged */
+                /** @description the EDITION the drawer belongs to (the `/scoreboard` param's semantics, so omitted = the newest published edition): an edition >= 1 reads every dated overlay on the PUBLIC clock, a live as-of included; 0 (or omitted with nothing published) = the record's reading, unchanged */
                 edition?: number | null;
                 thesis_id: string;
             };

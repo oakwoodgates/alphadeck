@@ -6,7 +6,6 @@ from datetime import date, datetime, timezone
 from domain.call import TriggerRef
 from domain.enums import Grade, Kind, State, Verdict
 from replay.schema import CallSnapshot, Episode, MemberRow, Outcome
-from scoreboard.artifact import read_snapshot, write_snapshot
 from scoreboard.replay_snapshot import ThesisMeta, build_snapshot
 
 # The replay-panel flattener â€” PURE (no DB, no duckdb, no clock): the honesty flags mirror the
@@ -174,16 +173,13 @@ def test_old_artifact_missing_slice_c_fields_parses_to_defaults():
     assert e.dearm_detail is None and e.risk_events == [] and e.transitions == []
 
 
-def test_artifact_round_trip_and_unreadable_is_absence(tmp_path):
-    snap = _build([], {_TID: []})
-    path = write_snapshot(snap, base_dir=tmp_path)
-    assert path.name == "latest.json"
-    loaded = read_snapshot(base_dir=tmp_path)
-    assert loaded == snap  # full pydantic round-trip
+def test_the_snapshot_round_trips_through_json():
+    """The backtest ledger stores this model as JSON and serves it back (the Scoreboard's replay-panel
+    artifact reader that used to pin this was retired by editions S8)."""
+    from scoreboard.schema import ReplaySnapshot
 
-    path.write_text("{not json", encoding="utf-8")
-    assert read_snapshot(base_dir=tmp_path) is None  # absence, never a raise
-    assert read_snapshot(base_dir=tmp_path / "missing") is None
+    snap = _build([], {_TID: []})
+    assert ReplaySnapshot.model_validate_json(snap.model_dump_json()) == snap
 
 
 # --- F4: the roster provenance rides the artifact and the banner --------------------------------------

@@ -18,8 +18,7 @@
 #   - Prod's *.sql dumps live in the MAIN checkout's ./data/backups (prod runs from there). That dir is a
 #     shared, READ-ONLY prod->X dump path (the same idiom refresh-dev relies on — regenerable dumps, not
 #     the live DB), so we resolve it via `git rev-parse --git-common-dir` and read the newest prod dump
-#     from there. The worktree's OWN ./data/backups + ./data/scoreboard_replay are created too (the fork
-#     containers host-bind them).
+#     from there. The worktree's OWN ./data/backups is created too (the fork containers host-bind it).
 #
 # Identity comes from ./.env.fork at the worktree root (scaffolded by `fork.sh init`), and the guards are
 # FAIL-CLOSED: an empty/reserved FORK_NAME, or anything resolving to prod's project/DB, dies loudly BEFORE
@@ -152,7 +151,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
     echo "  dump          : ${dump:-<none found — $BACKUPS_DIR has no *.sql>}"
   fi
   echo "  target DB     : $FORK_DB  (fork Postgres, project $FORK_PROJECT)"
-  echo "  worktree dirs : ensure $REPO_ROOT/data/backups + $REPO_ROOT/data/scoreboard_replay exist (the fork host-binds)"
+  echo "  worktree dirs : ensure $REPO_ROOT/data/backups exists (the fork host-binds it)"
   echo "  step (drop)   : docker exec <fork pg> psql -U $PGUSER -d postgres -c 'DROP DATABASE IF EXISTS $FORK_DB WITH (FORCE)'"
   echo "  step (create) : docker exec <fork pg> psql -U $PGUSER -d postgres -c 'CREATE DATABASE $FORK_DB'"
   echo "  step (restore): docker exec -i <fork pg> psql -U $PGUSER -d $FORK_DB -f - < <dump>"
@@ -176,10 +175,10 @@ command -v docker >/dev/null 2>&1 || fail "docker not found on PATH"
 # redirection + `ls`, never passed to docker.exe, so its absolute path is safe.)
 cd "$REPO_ROOT" || fail "cannot cd to worktree root: $REPO_ROOT"
 
-# Ensure the worktree's OWN data dirs exist — the fork containers host-bind ./data/backups +
-# ./data/scoreboard_replay (the fork runs from here). Idempotent; not the prod dump dir (that's $BACKUPS_DIR).
-mkdir -p "$REPO_ROOT/data/backups" "$REPO_ROOT/data/scoreboard_replay" \
-  || fail "cannot create the worktree data dirs under $REPO_ROOT/data"
+# Ensure the worktree's OWN data dir exists — the fork containers host-bind ./data/backups (the fork runs
+# from here). Idempotent; not the prod dump dir (that's $BACKUPS_DIR).
+mkdir -p "$REPO_ROOT/data/backups" \
+  || fail "cannot create the worktree data dir under $REPO_ROOT/data"
 
 # --fresh: a brand-new read-only pg_dump of PROD, then use it (it lands in the MAIN checkout's data/backups
 # = $BACKUPS_DIR, prod's own bind).

@@ -1407,6 +1407,57 @@ x1.000; SVIAW rejected at x0.143), BTAI → **BTAIQ** (495, x1.000), VRME → **
 (GTLS / XOMA / CPRX / AVNS are excused as closed); Modern Defense (HLLK) and The Everything Exchange (WONDF)
 stay `false` until the operator Adopts SDCO and decides WONDF.
 
+### Missing closes — "did every company get the night's close?" (2026-10-23)  `[BUILT]`
+
+The operator's rule: "an admin flag should fire if no closing price was found for a company on a day" — the
+Scoreboard's edition pages are written the same night, right after the pass. `pipeline/missing_closes.py`, a
+MONITOR in the stale-tape mold (imports nothing from `calls/` / `signals/`, never on the CallCard, never a
+call input), run once per live pass after `run_daily` and before the artifact, on its own read-only
+connection, fail-open (a fault rides `missing_closes.error`: one loud cron-log line + a loud Admin line).
+
+**What prod looks like** (MEASURED read-only on prod, sessions 2026-09-21..10-22, the basket companies already
+being tracked): **14–26 of 679 companies (~3%)** have no bar for the session at the end of that night's pass;
+nearly all **arrive with the NEXT nightly pull** — a median of **~24 h later, ~72 h over a weekend** (the
+nightly is the only price pull); almost none never arrive; and it is the **same companies** — **22** are late
+on 11+ of ~20 nights (mostly OTC — a known issue: §Known feed limitations, "OTC closes arrive a night late",
+below), **6** on 3–10 nights, **649** never. A flag that
+shouted every night would be noise (#7, WB#3), so the loudness rule is part of the spec.
+
+- **Was the session a session?** D (the pass's as-of) is judged only when SPY or IWM has a stored bar for D. If
+  neither does — a market holiday, or a pass that ran before the session settled (D2 withholds the unsettled
+  bar) — nothing is flagged for D; a vendor-wide outage is the benchmark alarm's (G4).
+- **The missing set:** every live basket company (walked tonight, with a price tape) whose tape edge after its
+  price leg is before D, with the reason — `no_bar` (the leg ran clean, the vendor had no close yet),
+  `fetch_error` (the leg failed; the message kept), `not_ingested` (W1: another writer held the company).
+  Deduped across theses. **Not counted:** a company in tonight's stale / closed / renamed / unpriceable price
+  inventory (that flag owns it — no double flag), a company still onboarding (X1), a member with no bar at all
+  (`excluded` counts each).
+- **Recovery:** each pass re-checks the previous evaluated pass's open entries against the **exact** stored bar
+  (a later bar does not close an older hole). Arrived = **"late, arrived"**, quiet, with `lag_h` = hours from
+  the pass that first found it missing to the bar's first `recorded_at` — our store's own bookkeeping of when
+  the feed delivered (never a history gate, #1). Still absent = still missing; **LOUD** once a pass for a LATER
+  session (one with a benchmark close) has re-checked it, and loud until the bar arrives or the tape goes stale
+  (`resolved` `why: stale` — the stopped-feed flag takes over) or no active basket holds the company
+  (`why: left_basket`).
+- **The usual-late marker:** late at the night's run on MORE than half of the last 20 judged sessions (tonight
+  included), once 5 are on record — read from the carried artifacts. On the measured 20 sessions that marks
+  the 22 chronic names and none of the 6 occasional ones. A company the master lists on the OTC venue is marked
+  **"OTC · known issue"** instead (the master's `exchange` only — no network call), and the night's line
+  counts them ("21 … (17 OTC, a known issue)").
+- **Pages: none.** A quiet line every night on Admin + in the cron log (`closing prices: …`, and
+  `late closes arrived: n (median h …)`); the loud `MISSING CLOSES — 2 companies still have no close for
+  Oct 21: X, Y` only for the still-missing case. `ADMIN.md` §Missing closes.
+- **The measurement trail** — the artifact's `missing_closes` block: `evaluated`, `error`, `session`,
+  `is_session`, `benchmarks`, `judged`, `excluded`, **`missing`** (the night's set: `security_id`, `ticker`,
+  `session`, `edge`, `reason`, `error`, `first_seen_at`, `checks`, `loud`, `late_nights`, `judged_nights`,
+  `usual_late`, `otc`), `still_missing` (the same row shape, older sessions), **`arrived`** (`session`,
+  `first_seen_at`, `arrived_at`, **`lag_h`**, `checks`, `otc` — the arrival lag of the previous night's set),
+  `resolved` (`why`), `usual_late_window`, `duration_s`. That is enough to measure later how often a page was
+  written without a close that arrived the next night.
+- **Accepted edge (open):** a close the vendor NEVER serves while later bars keep arriving (a permanent hole —
+  SCE-PG's shape below) stays loud indefinitely, since the tape never reads stale. MEASURED "almost none never
+  arrive"; if one appears, the fix is a decision (a known-limitation mark, or an age-out), not built here.
+
 ### Known feed limitations — a vendor that serves no history (0056, 2026-10-21)  `[BUILT]`
 
 A fourth reading of a price feed, beside closed / renamed / unpriceable — and the only one that is about a
@@ -1454,6 +1505,28 @@ only the overlap the vendor serves — a one-bar pull has none and says nothing)
 it reads the STORED tape only), the settle audit (it judges rows recorded since the previous pass, so the
 pre-guard SCE-PG bars never page), and the thin-history flag (SCE-PG's 304 stored dates clear its 200-bar
 floor; on a marked name that is starved the flag stays — the starvation is real, and the note explains it).
+
+#### OTC closes arrive a night late (known issue, 2026-10-23, not fixed)
+
+Found by the missing-close flag (§Missing closes above). The operator (2026-10-23): "im not really worried about
+otc right now, i dont trade it, but log it as a known issue". The evidence, MEASURED read-only on prod:
+
+- Most of the chronically late companies trade OTC (the vendor's exchange `PNK` = OTC Pink, `OQB` = OTCQB).
+- At the 22:30 ET pass the vendor's chart response already has the day's candle slot, with a NULL close: the
+  cached responses from the 2026-10-22 pass for AAPI, HCMC, RAPH, LIVG, VSTD and MVNC all show a 10-22 candle
+  with close `None` and `regularMarketTime` on 10-21. `parse_yahoo_chart` correctly skips a null close, and the
+  next night's pull gets the bar. By 05:00 ET the vendor had filled every one of them.
+- Listed names in the same pass (NVDA, ADEA, SVIA) had theirs.
+- Many of these OTC names barely trade — sub-penny, often zero-volume days whose filled bar is just the prior
+  close.
+- Side notes: the renamed-symbol names (BRR → SVIA and the like) looked late only until their `price_symbol`
+  override was set — a one-time catch-up, not chronic. ADEA (liquid, Nasdaq) was a night late on 8 of 20 nights,
+  cause unknown: the cache keeps only the latest response.
+
+The operator does not trade OTC, so this is **logged, not fixed**: the flag marks such a company "OTC · known
+issue" (from `security_master.exchange`) and its close still goes loud by the normal rule if it misses the next
+night too. The fix, if ever wanted: a price feed with same-day OTC end-of-day data, or a later retry once the
+vendor's fill time is measured.
 
 ### The identity monitor — a SUCCESSOR CIK (T7, 2026-10-17)  `[BUILT]`
 
@@ -2043,6 +2116,13 @@ The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
   its own artifacts (`data/onboard_runs`), no heartbeat (Admin reads a stalled queue from the table and the
   artifacts instead). Started after the `CRON_EXIT_AFTER_BOOT` seam, so the boot block can still be exercised
   alone.
+- **After the nightly backup: the Scoreboard editions' nightly page (editions S5, 2026-10-23)** `[BUILT]`.
+  Right after `snapshot "${target}" "nightly"`, once per wake, `editions_nightly` fires `timeout -k 60
+  EDITIONS_TIMEOUT_S python -m editions.run nightly --apply` (default **3600 s** since S7 — a night that also runs
+  the automatic cut's trial re-runs the edition once or twice, MEASURED ~9 min on dev at 4 workers; `EDITIONS_NIGHTLY=0` is the
+  kill switch, an env-only cron deploy; compose `ALPHADECK_EDITIONS_NIGHTLY` / `ALPHADECK_EDITIONS_TIMEOUT_S`).
+  Fail-open: any exit is one `daily-cron:` line and the loop goes on. In the scheduling layer, never inside
+  `run_daily_pass`, so the Admin "Run daily now" never fires it. The section below has the job.
 
 - **On by default.** The `cron` service comes up with the normal `docker compose up` (no profile flag), so the
   deployed stack notifies itself with no extra command to remember. Skip it for one run with
@@ -2224,6 +2304,76 @@ The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
   would make the next `up` recreate the database container.)
 - No `ANTHROPIC_API_KEY` (the ingest + call engine are deterministic — no LLM on this path).
 
+### The Scoreboard editions' nightly page — `editions.nightly` (S5, 2026-10-23)  `[BUILT]`
+
+A Scoreboard edition (`SCOREBOARD.md` §Editions) is published once and then **grows**: every night the
+CURRENT edition (the newest, not closed) gains one page per live thesis for every market session it has no page
+for. `python -m editions.run nightly [--apply]` (dry-run by default: read-only, no page, a `dry_run` artifact the
+Admin ignores) is that job; `editions/nightly.py` has the whole contract.
+
+- **The gate.** It runs only when the newest run artifact (`data/cron_runs`) is a FINISHED, live, nightly pass —
+  that pass's as-of is the night it pages through, so a page is never computed before the night's facts are
+  ingested. A running / crashed / `--no-live` pass or a non-nightly artifact: a quiet "no page" line, nothing
+  written. `--end YYYY-MM-DD` bypasses the gate for a manual run.
+- **The locks.** Its own advisory lock, `LOCK_ID_EDITIONS = 4` (holder `editions`; the build plan named id 2, but
+  2 is the fact-writer gate). It **refuses with exit 75** while the call-of-record lock is held (a pass, a backfill,
+  a repair) — read from `pg_locks`, never taken, so it can never make a starting pass exit 75 — and probes again
+  just before the write.
+- **One consistent read** on the PUBLIC clock: the engine's `REPEATABLE READ` snapshot, the public-clock mirror cut
+  at the database instant the job started (`known_by`), the join dates, the edition's own pages and frozen join
+  dates, the onboarding queue. The pages are assembled by the editions engine — the same `assemble_from_pit` the
+  live call uses — and each carries its own `data_known_by` and engine fingerprint.
+- **The pages.** Per thesis: every real session (a date with bars on its tape — a market holiday has no page)
+  after its own newest page, through tonight. Tonight's is `nightly`, an earlier missed session's `catchup` (a night
+  the job did not run, or a thesis that was held). The roster per night is the latest `basket_snapshot` taken by
+  the night's cap (`thesis_repo.get_asof`'s rule): a company added by a promote joins from that night, one removed
+  drops off from the night it left. A company NEW to the edition — a promote since the cut, or a whole thesis
+  created after it — gets its join date appended (`edition_entry`, method `snapshot`, exact), and a new thesis's
+  pages start at its first join date, never before it existed. An archived thesis gets no new page.
+- **The hold.** A thesis with any member still in the onboarding queue (a `security_onboarding` row not `done` —
+  a COLD name, X1 above) gets **no page**: on the public clock it would be computed on a partial filing history
+  and then frozen. It is listed as held (the artifact, the Admin line), and the first run after the name loads
+  catches up every night it missed. An ordinary ingest fault (a leg errored tonight) is not held: the page is
+  computed and the fault noted in the artifact.
+- **Idempotent.** Pages, join dates and inks are `ON CONFLICT DO NOTHING` on their unique keys, and the `paged`
+  event is appended only when something was: a second run the same night appends **0 rows** (the tests count the
+  table).
+- **The ink** (migration 0064, `edition_outcome`). An episode whose signal window ENDED (its `exit_by` — the window
+  end, never the de-arm: the operator's decision) is scored once and frozen the first night the market tape has
+  printed a session past that date and the window reads complete; an episode still waiting on prices is listed,
+  not inked. The Scoreboard's edition read uses the inked score from then on (`scoreboard/record.py`
+  `inked_outcome`), so a later price correction never re-scores it, while a view scrubbed back before the window
+  ended still scores on read. `ink_running_at_close(edition)` inks the rest when an edition closes (the automatic
+  cut, below, in the same transaction as the new edition).
+- **The automatic cut (S7)** runs first, right after the locks and before the read (`editions/cut.py`;
+  `SCOREBOARD.md` §The automatic cut). Only two things start its trial: the engine fingerprint changed since
+  the edition's last check, or a **data repair** was journaled (`data_repair`, migration 0065 — every repair CLI
+  that rewrites fact history writes one row per `--apply` / `--revoke` in its own write transaction, right after
+  its repair committed and still under its repair lock; a run that changed nothing is journaled and starts
+  nothing). No event: nothing runs, nothing is written. A trial that finds no change appends `trial_no_change`
+  (never tried again for the same change) and tonight's page follows as usual; one that finds a change cuts the
+  new edition, which already holds tonight, so the job only runs the self-check on it. Same lock (4), same exit
+  75 while the call-of-record lock is held (re-probed before the write), FAIL-OPEN (a trial fault is a `failed`
+  line in the artifact and tonight's pages still go on), on 4 workers (`--trial-workers`). At most one cut per
+  market day; a cut waits while a member's history is still loading (the hold, for a whole edition).
+  `python -m editions.run cut [--apply]` is the same step by hand (dry-run by default) — e.g. right after a
+  repair. Hooked repair CLIs: `repositories/data_repair_repo.py`'s docstring lists them and the ones left out.
+- **The self-check.** Tonight's page against tonight's recorded call of record (`editions.selfcheck.live_edge`:
+  canonical full-card equality, with provenance money compared to the cent — a detector's `round(sum, 2)` can land
+  one cent apart when the same trades are summed in another order, MEASURED on COHR in the Edition 1 publish). A
+  row recorded under another call policy or image than the running job (a deploy day) is SKIPPED and says why; a
+  held thesis and a night only one side has (a holiday row) are reported, never compared; a REAL mismatch pages
+  through `notify_health` (an ops alarm with counts only, never a call alert). Only the comparison changed: what
+  the cron records and `calls_repo._canonical` are untouched.
+- **The artifact.** `data/edition_runs/<started>.json` (`pipeline/edition_run_log.py`, its own directory, so no
+  pass reader ever counts it): timings, pages per thesis, held and noted theses, the ink, the self-check, the
+  automatic cut's result (`cut`), the table counts before and after, and the one Admin line (`ADMIN.md`
+  §Scoreboard editions). A crash writes a `crashed` artifact; a refusal writes none.
+- **The cron image carries the `.[replay]` extra** (duckdb + pyarrow: `docker-compose.yml`'s cron build args
+  `PIP_EXTRAS: replay`); the API image stays lean — the Scoreboard reads stored editions with psycopg alone.
+- **Never on the call-of-record path:** `pipeline/daily.py`, `pipeline/daily_job.py` and `calls/` import nothing
+  from `editions/` (import-graph tests), and the job only ever reads `calls`.
+
 ### Backfilling a missed night — `pipeline.backfill`  `[BUILT]`
 
 When a night has no call-of-record (`/admin/status` says `gappy`; `schedule.missed_asofs` lists it),
@@ -2393,8 +2543,8 @@ happened to exist. So a snapshot is now a one-click safety net — and a nightly
   traceback (`CalledProcessError` prints the command). It now gets the URL WITHOUT the password and the
   password as `PGPASSWORD` in its environment (`_dump_target`; URI userinfo, `?password=` and key=value DSNs
   alike); every message the backup path raises is redacted and raised without the chained subprocess error.
-- **The host bind is on BOTH services.** `./data/backups:/data/backups` (writable, the `scoreboard_replay`
-  idiom minus `:ro`) is bound on `backend` (the button + list) **and** `cron` (the nightly dump), so the two
+- **The host bind is on BOTH services.** `./data/backups:/data/backups` (a writable host bind over the
+  appdata volume's subpath) is bound on `backend` (the button + list) **and** `cron` (the nightly dump), so the two
   share ONE host directory — host-accessible so a dump is copyable off-box. `pg_dump` comes from
   `postgresql-client-16` (PGDG apt repo, matching server 16 — Debian's default client lags and refuses a newer
   server).

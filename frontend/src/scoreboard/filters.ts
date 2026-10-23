@@ -25,9 +25,9 @@ import { groupCount } from "./rows";
  *  no state (the host holds it). Applied BEFORE the sort, never folded into it — `sortEpisodes` keeps
  *  its "same length in, same length out" contract precisely because filtering is a separate step.
  *
- *  Scope: the LIVE record ledger only. `ReplayPanel` (the historical, replayed panel) is deliberately
- *  untouched — its rows predate decision capture, so two of the three chips could only ever answer
- *  "no" there, which is a control that cannot discriminate (#7). */
+ *  Scope: the Scoreboard's own ledger only (the backtest run ledger reuses its rows, not these chips —
+ *  replayed rows predate decision capture, so two of the three chips could only ever answer "no" there,
+ *  which is a control that cannot discriminate, #7). */
 
 /** The three questions the operator asks the record, as chips. Deliberately a small closed set:
  *  each one is a state the ledger can answer from the wire without inventing a judgment. */

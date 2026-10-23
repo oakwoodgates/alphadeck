@@ -136,14 +136,13 @@ services:
       # re-enumerated EFTS fully live — politeness cost + run-to-run index drift at the hit-cap boundary.
       # Also the home of the draft run log (/data/draft_runs — the DISCOVER run-of-record artifacts).
       - appdata:/data
-      # The Scoreboard's replay-panel artifact (SCORE) — written by the HOST dev venv
-      # (`python -m scoreboard.replay_snapshot`; replay needs the .[replay] extra the lean image
-      # lacks), so this one subpath overlays the appdata volume with a READ-ONLY bind of the host
-      # dir: the container serves the artifact but physically cannot write it.
-      - ./data/scoreboard_replay:/data/scoreboard_replay:ro
-      # Operator DB snapshots (Slice 4) — a WRITABLE host bind (the scoreboard_replay idiom minus :ro),
-      # so a dump is copyable off-box + restorable with the documented `psql < ./data/backups/<f>`. On
-      # BOTH backend (the button + the list) and cron (the nightly dump) so the two share ONE directory.
+      # (The Scoreboard's replay-panel artifact had a READ-ONLY host bind here,
+      # ./data/scoreboard_replay:/data/scoreboard_replay:ro; editions S8 retired the panel, its route and
+      # its artifact reader, so nothing in the container reads that path any more. /backtest's own
+      # read-only binds live in the overlays: docker-compose.prod.yml and the dev/sig files.)
+      # Operator DB snapshots (Slice 4) — a WRITABLE host bind over the appdata volume's subpath, so a dump
+      # is copyable off-box + restorable with the documented `psql < ./data/backups/<f>`. On BOTH backend
+      # (the button + the list) and cron (the nightly dump) so the two share ONE directory.
       - ./data/backups:/data/backups
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
@@ -168,10 +167,17 @@ services:
     # writes the nightly call-of-record, so its image sha is the `code_sha` on the rows that ARE the record.
     # Its own image, its own rebuild (`--no-deps cron` — the cron caveat in docs/DEPLOY.md), so it needs the
     # arg declared here too rather than inheriting the backend's.
+    #
+    # PIP_EXTRAS=replay (editions S5): the cron image bakes the `.[replay]` extra (duckdb + pyarrow), because the
+    # Scoreboard editions' nightly page job (`python -m editions.run nightly`, fired by daily_cron.sh after the
+    # nightly backup) runs the replay engine over a public-clock Parquet mirror. ONLY the cron image: the backend
+    # (API) image above stays lean (`PIP_EXTRAS` defaults to "" in the Dockerfile) — the Scoreboard reads the
+    # stored editions with psycopg alone. The two services build separate images, so this changes nothing there.
     build:
       context: ./backend
       args:
         GIT_SHA: ${GIT_SHA:-}
+        PIP_EXTRAS: replay
     environment:
       DATABASE_URL: postgresql://alphadeck:alphadeck@postgres:5432/alphadeck
       ALPHADECK_USER_AGENT: ${ALPHADECK_USER_AGENT:-} # the daily run does LIVE EDGAR/Yahoo pulls
@@ -224,6 +230,12 @@ services:
       # fallbacks, the same reason as RETRY_DELAY_S above.
       ONBOARD_EVERY_S: ${ALPHADECK_ONBOARD_EVERY_S:-1800}
       ONBOARD_TIMEOUT_S: ${ALPHADECK_ONBOARD_TIMEOUT_S:-2700}
+      # Editions S5 — the Scoreboard editions' nightly page job (daily_cron.sh `editions_nightly`, after the
+      # nightly backup): its kill switch (0 = off, an env-only cron deploy) and the hard timeout around one run.
+      # S7 raised it 1800 -> 3600: a night that also runs the automatic cut's trial re-runs a whole edition
+      # twice (MEASURED on dev: ~9 min at 4 workers for 659 pages; it grows with the edition).
+      EDITIONS_NIGHTLY: ${ALPHADECK_EDITIONS_NIGHTLY:-1}
+      EDITIONS_TIMEOUT_S: ${ALPHADECK_EDITIONS_TIMEOUT_S:-3600}
       # No ANTHROPIC_API_KEY: ingest + the call engine are deterministic — no LLM on this path.
       # The notify delivery channel — this is the AUTOMATED path that fires the daily -> armed push, and (H3)
       # the shell's failure page (`python -m notify.page`) when a night or a backup fails for good. Unset ->

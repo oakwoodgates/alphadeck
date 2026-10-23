@@ -11,6 +11,16 @@ A mismatch is reported, never hidden, with what can explain it: the row was reco
 (``config_hash``) or by another image (``code_sha``) than the engine running now — on a deploy day a
 difference is expected, not drift — or a fact that became public by the end of that night was stored after
 the cron's pass. The calls log is only ever READ here.
+
+MONEY IS COMPARED TO THE CENT (S5). A provenance money total (``total_usd``, ``planned_screened_usd``, any key
+``usd`` / ``*_usd``) is a float SUM rounded to cents by the detector (``round(sum, 2)``). Summing the same
+transactions in another order moves the last bits, and a sum sitting on a half cent then rounds to a value one
+cent away — MEASURED on the Edition 1 publish (2026-10-23): AI Memory & Storage read ``risk_signals`` as its
+only difference, COHR's insider-sell ``total_usd`` 2371494.57 in the engine's card against 2371494.58 in the
+recorded one, on every source of that risk (the 10-21 page against that night's recorded row, read on a dev
+copy of prod). So when the canonical cards differ, they are compared again with money values equal within one
+cent (``cards_match``); every other value still compares exactly as ``_canonical`` does. This is the
+COMPARISON only: what the cron records, ``calls_repo._canonical`` and every CallCard field are untouched.
 """
 
 from __future__ import annotations
@@ -39,10 +49,80 @@ class EdgeResult:
     same_policy: bool | None = None
     same_image: bool | None = None  # None when either side has no image sha (a dev venv)
     differs: list[str] = field(default_factory=list)
+    # a match that needed the one-cent money tolerance (the module header) — said, never silent
+    money_within_cent: bool = False
 
     def as_json(self) -> dict[str, Any]:
         d = asdict(self)
         return json.loads(json.dumps(d, default=str))
+
+
+# --- the comparison: canonical equality, then money to the cent ------------------------------------------
+
+MONEY_TOLERANCE_USD = 0.01
+_EPS = 1e-6  # float slack on the tolerance itself (0.58 - 0.57 is 0.01000000000002 in IEEE)
+
+
+def is_money_key(key: str | None) -> bool:
+    """A provenance money value: the key ``usd`` or any ``*_usd`` (``total_usd``, ``planned_screened_usd``)."""
+    return key is not None and (key == "usd" or key.endswith("_usd"))
+
+
+def _is_num(x: Any) -> bool:
+    return isinstance(x, (int, float)) and not isinstance(x, bool)
+
+
+def _masked(x: Any, key: str | None = None) -> Any:
+    """``x`` with every money value blanked and other floats rounded like ``_canonical`` — the ORDER key for
+    lists, so two lists whose elements differ only in a cent sort the same way on both sides."""
+    if isinstance(x, dict):
+        return {k: _masked(v, k) for k, v in sorted(x.items())}
+    if isinstance(x, list):
+        return sorted(
+            (_masked(e) for e in x), key=lambda e: json.dumps(e, sort_keys=True, default=str)
+        )
+    if _is_num(x) and is_money_key(key):
+        return None
+    if isinstance(x, float):
+        return round(x, 9)
+    return x
+
+
+def _order_key(x: Any) -> tuple[str, str]:
+    # masked first (the cent-blind order), then the exact form (a deterministic tie-break)
+    return (
+        json.dumps(_masked(x), sort_keys=True, default=str),
+        json.dumps(x, sort_keys=True, default=str),
+    )
+
+
+def equal_within_cents(a: Any, b: Any, key: str | None = None) -> bool:
+    """Structural equality with ``_canonical``'s rules (dict keys, lists order-independent, floats to 9
+    places) except that a MONEY value (``is_money_key``) equals one within ``MONEY_TOLERANCE_USD``.
+    """
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() == b.keys() and all(equal_within_cents(a[k], b[k], k) for k in a)
+    if isinstance(a, list) and isinstance(b, list):
+        if len(a) != len(b):
+            return False
+        return all(
+            equal_within_cents(x, y)
+            for x, y in zip(sorted(a, key=_order_key), sorted(b, key=_order_key))
+        )
+    if _is_num(a) and _is_num(b):
+        if is_money_key(key):
+            return abs(float(a) - float(b)) <= MONEY_TOLERANCE_USD + _EPS
+        return round(float(a), 9) == round(float(b), 9)
+    return a == b
+
+
+def cards_match(mine: CallCard, theirs: CallCard) -> tuple[bool, bool]:
+    """``(match, via_money_tolerance)``: canonical full-card equality (``calls_repo._canonical``, the compare
+    ``record_if_changed`` uses), else equality with money values within one cent."""
+    if _canonical(mine) == _canonical(theirs):
+        return True, False
+    within = equal_within_cents(mine.model_dump(mode="json"), theirs.model_dump(mode="json"))
+    return within, within
 
 
 def recorded_rows_at(
@@ -61,21 +141,10 @@ def recorded_rows_at(
 
 
 def card_differences(mine: CallCard, theirs: CallCard) -> list[str]:
-    """The top-level card fields that differ (canonicalized), so a mismatch says WHERE it is."""
+    """The top-level card fields that differ (canonicalized, money to the cent), so a mismatch says WHERE it
+    is."""
     a, b = mine.model_dump(mode="json"), theirs.model_dump(mode="json")
-    out = []
-    for k in sorted(set(a) | set(b)):
-        if json.dumps(a.get(k), sort_keys=True, default=str) != json.dumps(
-            b.get(k), sort_keys=True, default=str
-        ):
-            # lists compare order-independently, like ``_canonical``
-            if isinstance(a.get(k), list) and isinstance(b.get(k), list):
-                ka = sorted(json.dumps(x, sort_keys=True, default=str) for x in a[k])
-                kb = sorted(json.dumps(x, sort_keys=True, default=str) for x in b[k])
-                if ka == kb:
-                    continue
-            out.append(k)
-    return out
+    return [k for k in sorted(set(a) | set(b)) if not equal_within_cents(a.get(k), b.get(k), k)]
 
 
 def live_edge(
@@ -109,12 +178,13 @@ def live_edge(
             out.append(EdgeResult(**base, outcome="no_page"))
             continue
         recorded = row_to_call(row)
-        same = _canonical(mine) == _canonical(recorded)
+        same, within = cards_match(mine, recorded)
         out.append(
             EdgeResult(
                 **base,
                 outcome="match" if same else "mismatch",
                 differs=[] if same else card_differences(mine, recorded),
+                money_within_cent=within,
             )
         )
     return out

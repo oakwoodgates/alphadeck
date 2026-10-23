@@ -53,8 +53,8 @@ def test_scoreboard_package_imports_without_replay_extra_modules():
         "scoreboard.record",
         "scoreboard.schema",
         "scoreboard.run",
-        "scoreboard.artifact",
-        "scoreboard.replay_snapshot",  # the CLI imports replay's duckdb bits inside main() only
+        "scoreboard.diff",  # editions S6: "what changed" is served by the lean API image
+        "scoreboard.replay_snapshot",  # the pure builder the backtest ledger borrows
     ):
         path = Path(__file__).resolve().parents[2] / Path(*module.split(".")).with_suffix(".py")
         runtime = _runtime_imports(path)

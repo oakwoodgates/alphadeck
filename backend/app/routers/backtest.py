@@ -1,13 +1,12 @@
 """``/backtest`` — the research surface, served from artifacts and never from a computation.
 
 A backtest run is a multi-hour job written by a CLI in a venv carrying the `.[replay]` extra. These
-routes only READ the JSON it left behind, which is the same shape the Scoreboard's replay panel already
-has and is what keeps the job out of a web request.
+routes only READ the JSON it left behind (the shape the Scoreboard's retired replay panel had), which is
+what keeps the job out of a web request.
 
-**Dev/sig-only BY DATA AVAILABILITY, with no build flag.** On prod the store directory simply does not
-exist, `available` comes back false, and the page renders one quiet line. That is the `scoreboard_replay`
-idiom: absence is a legitimate state, never a 500, and there is no environment variable anyone can get
-wrong.
+**Available BY DATA, with no build flag.** Where the store directory does not exist, `available` comes back
+false and the page renders one quiet line — the idiom the Scoreboard's retired replay panel set: absence is
+a legitimate state, never a 500, and there is no environment variable anyone can get wrong.
 
 **Read-only, and structurally so.** Nothing here writes, nothing here opens a point-in-time view, and no
 simulated row has ever been near `calls`. The container's mount of the store is `:ro` besides.

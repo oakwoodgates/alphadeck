@@ -18,6 +18,7 @@ from notify import (
     ArmedName,
     DigestEvent,
     DigestThesis,
+    EditionCutEvent,
     HealthEvent,
     LogNotifier,
     SlackNotifier,
@@ -677,3 +678,38 @@ def test_the_digest_push_is_FAIL_OPEN(monkeypatch):
         _digest(DigestThesis(uuid4(), "Rainbow Rush", (ArmedName("CYCN", ()),)))
     )  # must not raise
     assert len(calls) == 1
+
+
+# --- editions S7: the quiet "a new edition was cut" line ---------------------------------------------------
+
+
+def _edition_event() -> EditionCutEvent:
+    return EditionCutEvent(
+        number=2,
+        previous=1,
+        edition_label="rule change: insider window · includes data that arrived since Edition 1",
+        company_nights_changed=37,
+    )
+
+
+def test_a_new_edition_is_one_PLAIN_quiet_line(monkeypatch):
+    _enable_slack(monkeypatch)
+    calls = _capture_post(monkeypatch)
+    SlackNotifier().notify_edition(_edition_event())
+    (call,) = calls
+    assert call["json"]["text"] == (
+        "Scoreboard Edition 2 · rule change: insider window · includes data that arrived since Edition 1 · "
+        "37 company-nights changed from Edition 1 · see what changed on the Scoreboard"
+    )
+    assert "🚨" not in call["json"]["text"] and "🔴" not in call["json"]["text"]
+
+
+def test_the_edition_line_is_FAIL_OPEN_and_logged_without_slack(monkeypatch, caplog):
+    _enable_slack(monkeypatch)
+    calls = _capture_post(monkeypatch, raises=httpx.ConnectError("slack is down"))
+    SlackNotifier().notify_edition(_edition_event())  # must not raise
+    assert len(calls) == 1
+    caplog.clear()
+    with caplog.at_level("WARNING"):
+        LogNotifier().notify_edition(_edition_event())
+    assert any("EDITION Scoreboard Edition 2" in r.getMessage() for r in caplog.records)
