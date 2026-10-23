@@ -195,6 +195,27 @@ class DigestEvent:
 
 
 @dataclass(frozen=True)
+class EditionCutEvent:
+    """Editions S7 — the automatic cut published a NEW Scoreboard edition (a declared rule change or a data
+    repair moved history). QUIET by design (#7): context, not a call — one plain line, no emoji, no capitals.
+    An UNEXPLAINED change never comes here: it pages through ``notify_health`` instead."""
+
+    number: int
+    previous: int
+    edition_label: str
+    company_nights_changed: int
+
+    @property
+    def label(self) -> str:
+        n = self.company_nights_changed
+        return (
+            f"Scoreboard Edition {self.number} · {self.edition_label} · {n} company-night"
+            f"{'s' if n != 1 else ''} changed from Edition {self.previous} · see what changed on the "
+            "Scoreboard"
+        )
+
+
+@dataclass(frozen=True)
 class SpacThesisMatch:
     """One thesis whose term set hit an announcing company's DA-class filing (the provenance, #6)."""
 
@@ -441,6 +462,8 @@ class Notifier(Protocol):
 
     def notify_digest(self, event: DigestEvent) -> None: ...  # pragma: no cover — a Protocol
 
+    def notify_edition(self, event: EditionCutEvent) -> None: ...  # pragma: no cover — a Protocol
+
 
 class LogNotifier:
     """v1: the transition is RECORDED loudly, delivered nowhere (the deferred-delivery adapter)."""
@@ -464,6 +487,10 @@ class LogNotifier:
     def notify_digest(self, event: DigestEvent) -> None:
         # O4 — the pass's newly-armed-names digest is a RECORD too (an empty one is never emitted)
         _log.warning("DIGEST %s", event.label)
+
+    def notify_edition(self, event: EditionCutEvent) -> None:
+        # editions S7 — a new Scoreboard edition is a RECORD (logged); delivery is the Slack adapter's job
+        _log.warning("EDITION %s", event.label)
 
 
 _KIND_LABELS = {
@@ -558,6 +585,20 @@ class SlackNotifier:
             _log.warning("slack digest could not format (fail-open, logged only)", exc_info=True)
             return
         self._post(text, "digest", f"asof {event.asof}")
+
+    def notify_edition(self, event: EditionCutEvent) -> None:
+        """Editions S7 — the QUIET line that a new Scoreboard edition was cut: ``notify_digest``'s shape (record
+        first, then one plain push, no emoji — a new edition is context, never an alarm). FAIL-OPEN like the
+        others. An unexplained change pages through ``notify_health`` and never comes here."""
+        self._log_sink.notify_edition(event)
+        try:
+            text = event.label
+        except Exception:  # noqa: BLE001 — a formatting fault never breaks the editions job
+            _log.warning(
+                "slack edition line could not format (fail-open, logged only)", exc_info=True
+            )
+            return
+        self._post(text, "edition", f"Edition {event.number}")
 
     @staticmethod
     def _post(text: str, what: str, subject: str) -> None:

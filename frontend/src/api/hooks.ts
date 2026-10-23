@@ -356,6 +356,8 @@ export function useScoreboard(
 // prefix keeps it under the daily pass's invalidation (S5 grows an edition nightly).
 export type ScoreboardEditionOut = components["schemas"]["ScoreboardEditionOut"];
 export type ScoreboardEditionsResponse = components["schemas"]["ScoreboardEditionsResponse"];
+// Editions S7 — the quiet notice for seven days after the automatic cut published the newest edition
+export type EditionCutNoticeOut = components["schemas"]["EditionCutNoticeOut"];
 
 export function useScoreboardEditions() {
   return useQuery({

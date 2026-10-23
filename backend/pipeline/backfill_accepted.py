@@ -88,6 +88,7 @@ from ingest.edgar.submissions import (
     parse_acceptance,
 )
 from pipeline.run_lock import repair_lock_or_exit
+from repositories import data_repair_repo
 
 # The latest-version view of the table — the SAME grain the shared as-of read dedups on
 # (db.bitemporal._FACT_IDENTITY['fact_insider_txn'] within its (tenant, security) scope), so "latest is
@@ -579,6 +580,19 @@ def main(argv: list[str] | None = None) -> None:
                 basket_only=args.basket_only,
             )
             _print_backfill(bres)
+            if args.execute:  # S7 — the data-repair journal: one row per --execute, under the lock
+                data_repair_repo.journal(
+                    conn,
+                    tool="backfill_accepted",
+                    summary=(
+                        f"backfilled the SEC acceptance time onto {bres.rows_corrected} insider row(s)"
+                    ),
+                    rows_changed=bres.rows_corrected,
+                    counts={
+                        "rows_corrected": bres.rows_corrected,
+                        "rows_residual_null": bres.rows_residual_null,
+                    },
+                )
     finally:
         conn.close()
         if lock is not None:

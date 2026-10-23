@@ -599,6 +599,17 @@ export function Admin({ header }: Props) {
                 {status.editions_nightly.line}
               </div>
             )}
+            {/* editions S7 — the automatic cut's one line, for seven days after it published the newest
+                Scoreboard edition. Quiet — a new edition is context — and louder only for an UNEXPLAINED
+                change (no declared rule; it also paged). An older backend omits the field. */}
+            {status.editions_cut && (
+              <div
+                className={`adm-line ${status.editions_cut.attention ? "adm-loud" : "adm-quiet"}`}
+                data-testid="adm-editions-cut"
+              >
+                {status.editions_cut.line}
+              </div>
+            )}
             <div className="adm-sub">
               {status.record.reason} · today {status.record.today} · last expected as-of{" "}
               {status.record.expected_asof}

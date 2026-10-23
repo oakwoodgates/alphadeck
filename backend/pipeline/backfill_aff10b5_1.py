@@ -60,6 +60,7 @@ from db.bitemporal import append_fact
 from db.session import database_url
 from ingest.edgar.form4 import parse_form4
 from pipeline.run_lock import repair_lock_or_exit
+from repositories import data_repair_repo
 
 # The runtime cache home (mirrors ingest.edgar.client._DEFAULT_CACHE — repo-root/data/edgar_cache
 # locally, /data/edgar_cache in the containers via the appdata volume).
@@ -426,6 +427,19 @@ def main(argv: list[str] | None = None) -> None:
                 conn, cache_dir=args.cache_dir, execute=args.execute, limit=args.limit
             )
             _print_backfill(bres)
+            if args.execute:  # S7 — the data-repair journal: one row per --execute, under the lock
+                n = bres.rows_to_true + bres.rows_to_false
+                data_repair_repo.journal(
+                    conn,
+                    tool="backfill_aff10b5_1",
+                    summary=f"backfilled the Rule 10b5-1 checkbox onto {n} insider row(s)",
+                    rows_changed=n,
+                    counts={
+                        "rows_to_true": bres.rows_to_true,
+                        "rows_to_false": bres.rows_to_false,
+                        "rows_residual_null": bres.rows_residual_null,
+                    },
+                )
     finally:
         conn.close()
         if lock is not None:

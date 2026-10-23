@@ -71,8 +71,56 @@ nav's plain `/scoreboard` lands on it; when a new edition is cut the default mov
 Edition 0 stays one click away in the switcher, and `?edition=0` still works. `Settings.scoreboard_default_edition`
 (`ALPHADECK_SCOREBOARD_DEFAULT_EDITION`) is an optional OVERRIDE, unset by default: 0 pins the record, N pins
 Edition N, and an override naming an unpublished edition falls back to the newest (the default view never
-404s), while an explicit request for a missing edition is a 404. Plan and open slice: the editions build plan
-(S7 the automatic cut).
+404s), while an explicit request for a missing edition is a 404.
+
+### The automatic cut (S7) — when a new edition is cut, and why  `[BUILT 2026-10-23]`
+
+An edition is never edited. It is REPLACED by a new one only when one of two things happened since its cut —
+**late data alone never starts anything** (it simply reaches the next edition): `editions/cut.py` has the
+whole contract; it runs inside the nightly page job, before tonight's page (`FEED_LOOP.md`), and by hand as
+`python -m editions.run cut [--apply]` (dry-run by default) — e.g. right after a repair.
+
+- **(a) The rules changed.** The running engine's fingerprint (`editions/fingerprint.py`, version 2: the
+  normalized AST of the call path with comments and docstrings stripped, `domain/settings.py` and the rule log
+  left out, the two `Settings` values the engine reads hashed by value — so a comment or docstring edit never
+  counts) differs from the last one CHECKED for the current edition E: E's own, or the one the latest
+  `trial_no_change` on E recorded. A fingerprint made by an older fingerprint VERSION counts as a change (it
+  cannot be compared); the first trial records the current one.
+- **(b) A data repair ran on purpose.** A `data_repair` journal row (migration 0065) applied since E's cut (or
+  since its last no-change trial) that changed rows. Every repair CLI that rewrites fact history journals each
+  `--apply` / `--revoke` (`repositories/data_repair_repo.py` lists them; a dry run journals nothing). Nightly
+  data flow (`detect_splits`) is not a repair; tools that only touch `calls` are not either.
+- **The rules trial (P)** re-runs E's RE-RUN pages (the nights E's publish computed) with the current engine at
+  `known_by = E's own cut`, E's frozen join dates and E's frozen thesis bodies (kill criteria + catalysts; an
+  edition published before S7 froze none — its comparison then leaves out `counter_case` and
+  `catalyst_surface`, the two fields a body feeds, and says so). That is the data E was saved from, held fixed:
+  the edition's own freeze point, not a replay of history on our store clock. Compared page by page (canonical
+  card equality, money to the cent). **Named limitation:** E's nightly and catch-up pages are NOT re-tested —
+  each was computed at its own night's cut, so there is no single cut to hold their data at.
+- **The repair trial** compares N (below) with every page E holds: a repair's rows are stamped after E's cut, so
+  only N sees them — and N cannot separate the repair from data that arrived late, so the label says so.
+- **The decision.** P differs → a new edition. A repair pending and N differs on a night E covers → a new
+  edition. Otherwise `trial_no_change` on E (the fingerprint, the rule-log ids, the repairs checked) — never
+  tried again for the same change — and tonight's page goes on E as usual. At most one new edition per market
+  day; never two at the same cut; a cut waits while a member of N's rosters still has history loading.
+- **The new edition N** is today's engine at `known_by = now` over every thesis from each company's join date —
+  Edition 1's own path (`editions.run.store_edition`): `rerun` pages, E's join dates carried over (an exact
+  snapshot date for a company E never had), the thesis bodies frozen with it, and in the SAME transaction E's
+  `closed` event and E's ink (an episode still running at E's last night is inked `running_at_close`). E stays
+  viewable; the default moves to N on its own; N already holds tonight, so the job stops paging.
+- **Labels.** "rule change: ‹label›" (declared in `domain/rule_log.py`: an entry in code that E does not carry),
+  "unexplained change" (no declared rule: published MARKED — causes `code_drift` — and `notify_health` pages),
+  "data repair: ‹summary›" — each followed by "includes data that arrived since Edition E". A deleting repair
+  riding the same trial as a rules change makes P's differences `not_separated` (a deletion is visible even at
+  E's cut), and nothing pages.
+- **The notice.** For seven days after a cut, one quiet line under the switcher ("Edition 2 · rule change: … ·
+  37 company-nights changed · see what changed"), freshness-line style, never blinking, nothing stored in the
+  browser (`GET /scoreboard/editions` → `notice`), one line on Admin (`editions_cut`), and one plain Slack line
+  (`Notifier.notify_edition`, no emoji; an unexplained change pages instead).
+- **Cost (MEASURED on dev 2026-10-23, 659 pages over 10 theses, 4 workers):** P ≈ 265 s (export 64 s + re-run
+  192 s); N ≈ 278 s; both ≈ 9 min on a night with an event, nothing on any other night. Dev's Edition 1 (cut
+  before S7, fingerprint version 1): P == E on all 659 pages, with the body fields left out AND included, and N
+  == E too (dev holds no data newer than its cut) — the first trial after deploy records `trial_no_change`.
 
 ### What changed (S6) — one edition against the one before it
 
@@ -101,8 +149,13 @@ never an alarm (#7).
   `vanished`. Each side carries its score (arm → exit-by on realized closes through the last night, the
   Scoreboard's own reader) and a pair carries the delta.
 - **Substance only** — state, the armed set, verdict, grades, exit-by and scores; never card text.
-- **`cause` is null on every change** until the automatic cut (S7) supplies it from its trial arms (rule
-  change / data repair / data that arrived late). A cause is never guessed.
+- **`cause`** (S7) is filled only when the later edition was cut by the automatic cut from the earlier one (its
+  parent; the response's `causes` is true): a change the rules trial proved carries `rule_change` (declared) or
+  `unexplained`; a change on a night the rules trial re-tested and found unchanged carries `late_data`; a repair
+  trial's changes carry `data_repair` (a repair or late data — not separable); a change on a night the rules
+  trial did not re-test (a nightly page) carries `not_separated`. The drawer says each in plain English. Any
+  other pair of editions has no single trial, so `cause` stays null — a cause is never guessed. A folded run
+  only holds nights with the same cause.
 - **Cost.** Two snapshot timelines per thesis plus one tape read per company. The comparison reads the cards
   without the keys a snapshot never uses (`SNAPSHOT_UNREAD_CARD_KEYS`: risk signals, triggers fired, counter
   case — 61 of 73 MB on dev's Edition 1) and loads each company's tape once (`MemoPrices`); tests pin that both

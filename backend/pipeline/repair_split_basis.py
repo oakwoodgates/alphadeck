@@ -82,7 +82,7 @@ from ingest.prices.source import YahooPriceSource
 from ingest.prices.split_normalize import normalize
 from pipeline import split_repair as sr
 from pipeline.run_lock import EXIT_ALREADY_RUNNING, PassAlreadyRunning, acquire_repair_lock
-from repositories import split_repo
+from repositories import data_repair_repo, split_repo
 from signals.display import range52w, rvol, sma, trailing_returns
 
 _log = logging.getLogger("alphadeck.repair_split_basis")
@@ -843,6 +843,7 @@ def main(argv: list[str] | None = None) -> None:
         result = apply_plans(conn, plans)
         if result.recorded_at is None:
             print("nothing to write: every named company is already on the list's scale (0 bars)")
+            _journal(conn, "apply", result, None)
             return
         path = write_payload(
             build_payload(plans, result, spot_file=args.spot_file), suffix="split-basis"
@@ -851,8 +852,31 @@ def main(argv: list[str] | None = None) -> None:
             f"APPLIED: appended {result.appended} version(s) · recorded_at {result.recorded_at.isoformat()} "
             f"· holds cleared {result.holds_cleared} · {', '.join(result.companies)}\nprovenance: {path}"
         )
+        _journal(conn, "apply", result, path)
 
     _with_lock(run)
+
+
+def _journal(conn: psycopg.Connection, action: str, result: ApplyResult, path: Any) -> None:
+    """S7 — the data-repair journal: one row per --apply / --revoke, under the repair lock."""
+    who = ", ".join(result.companies[:5]) + (
+        f" +{len(result.companies) - 5}" if len(result.companies) > 5 else ""
+    )
+    verb = "re-scaled" if action == "apply" else "put back (revoked a re-scale of)"
+    data_repair_repo.journal(
+        conn,
+        tool="repair_split_basis",
+        action=action,
+        summary=f"{verb} {result.appended} stored price bar(s) onto the split list's scale"
+        + (f" ({who})" if who else ""),
+        rows_changed=result.appended,
+        counts={
+            "appended": result.appended,
+            "holds_cleared": result.holds_cleared,
+            "companies": list(result.companies),
+        },
+        provenance=str(path) if path else None,
+    )
 
 
 def _do_revoke(conn: psycopg.Connection, prov: Mapping[str, Any]) -> None:
@@ -874,6 +898,7 @@ def _do_revoke(conn: psycopg.Connection, prov: Mapping[str, Any]) -> None:
         f"REVOKED: appended {result.appended} prior version(s) · recorded_at "
         f"{_jsonable(result.recorded_at)} · {', '.join(result.companies)}\nprovenance: {path}"
     )
+    _journal(conn, "revoke", result, path)
 
 
 def _with_lock(fn) -> None:

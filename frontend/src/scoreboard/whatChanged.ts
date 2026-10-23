@@ -1,5 +1,6 @@
 import type {
   EditionCompanyDiffOut,
+  EditionCutNoticeOut,
   EditionDiffCountsOut,
   EditionEpisodeDiffOut,
   EditionEpisodeSideOut,
@@ -200,6 +201,45 @@ export function outsideLine(t: EditionThesisDiffOut, names: Names): string | nul
   if (!spans.length) return null;
   const arms = t.n_outside > 0 ? ` · ${plural(t.n_outside, "episode")} armed there, not compared` : "";
   return spans.join(" · ") + arms;
+}
+
+/** WHY one change happened (editions S7), in plain English — only when the later edition was cut by the
+ *  automatic cut from the earlier one, whose trial attributed it; null otherwise (a cause is never guessed).
+ *  The codes are the server's (`scoreboard.diff`): what the trial proved, or what its scope implies. */
+export function causeText(cause: string | null | undefined, names: Names): string | null {
+  switch (cause) {
+    case "rule_change":
+      return "cause: the declared rule change";
+    case "unexplained":
+      return "cause: a change in the rules no declared rule explains";
+    case "late_data":
+      return `cause: data that arrived after ${names.before} was cut`;
+    case "data_repair":
+      return "cause: the data repair or data that arrived late (the two cannot be separated)";
+    case "not_separated":
+      return "cause: not separated (a rule change, a repair or data that arrived late; this night was not re-tested)";
+    default:
+      return null;
+  }
+}
+
+/** The quiet note under the counts: whether the changes below carry their causes. */
+export function causeNote(causes: boolean | undefined, names: Names): string {
+  return causes
+    ? `each change names its cause, from the trial that cut ${names.after}`
+    : `no causes are shown: ${names.after} was not cut from ${names.before}, so no single trial speaks for the pair`;
+}
+
+/** The pair the cut notice's "see what changed" link compares (the new edition and the one it replaced),
+ *  or null when either is missing from the list. */
+export function noticePair(
+  editions: readonly ScoreboardEditionOut[],
+  notice: EditionCutNoticeOut | null | undefined,
+): [ScoreboardEditionOut, ScoreboardEditionOut] | null {
+  if (!notice) return null;
+  const before = editions.find((e) => e.number === notice.previous);
+  const after = editions.find((e) => e.number === notice.number);
+  return before && after ? [before, after] : null;
 }
 
 /** Companies in a stable, neutral order (ticker, then name) — never ranked by how much they moved (#4). */

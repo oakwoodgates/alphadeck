@@ -1380,4 +1380,64 @@ describe("Scoreboard — what changed", () => {
     expect(container.querySelector(".drawer-panel")).toBeNull();
     expect(screen.getByRole("button", { name: "what changed since Edition 0" })).toBeInTheDocument();
   });
+
+  it("names each change's cause when the later edition was cut from the earlier one (S7)", () => {
+    const withCauses = JSON.parse(JSON.stringify(DIFF));
+    withCauses.causes = true;
+    const co = withCauses.theses[0].companies[0];
+    co.episodes = co.episodes.map((e: Record<string, unknown>) => ({ ...e, cause: "rule_change" }));
+    co.runs = co.runs.map((r: Record<string, unknown>) => ({ ...r, cause: "late_data" }));
+    diffFx.data = withCauses;
+    const { container } = renderEditions(RERUN_PAYLOAD, { edition: 1 });
+    fireEvent.click(screen.getByRole("button", { name: "what changed since Edition 0" }));
+    const panel = container.querySelector(".drawer-panel") as HTMLElement;
+    expect(within(panel).getByText(/each change names its cause, from the trial that cut Edition 1/)).toBeInTheDocument();
+    expect(within(panel).getByText(/cause: the declared rule change/)).toBeInTheDocument();
+    expect(within(panel).getByText(/cause: data that arrived after Edition 0 was cut/)).toBeInTheDocument();
+  });
+});
+
+describe("Scoreboard — the automatic cut's notice (editions S7)", () => {
+  const EDITION_2 = {
+    ...EDITION_1,
+    number: 2,
+    label: "rule change: insider window · includes data that arrived since Edition 1",
+    causes: ["rule_change"],
+    cut: "2026-10-24T03:00:00Z",
+  };
+  const NOTICE = {
+    number: 2,
+    previous: 1,
+    label: EDITION_2.label,
+    line: "Edition 2 · rule change: insider window · includes data that arrived since Edition 1 · 37 company-nights changed",
+    published_at: "2026-10-24T03:05:00Z",
+    n_company_nights_changed: 37,
+    unexplained: false,
+  };
+
+  afterEach(() => {
+    editionsFx.data = { default: 0, editions: [RECORD_EDITION] };
+    diffFx.data = null;
+    diffCalls.length = 0;
+  });
+
+  it("one quiet line with a link that compares the new edition with the one it replaced", () => {
+    diffFx.data = DIFF;
+    Object.assign(fx, { data: RERUN_PAYLOAD, isLoading: false, error: null });
+    editionsFx.data = { default: 2, editions: [RECORD_EDITION, EDITION_1, EDITION_2], notice: NOTICE };
+    const { container } = render(<Scoreboard asof="2026-07-11" onSelect={vi.fn()} edition={1} />);
+    const line = screen.getByTestId("sb-cut-notice");
+    expect(line.textContent).toBe(`${NOTICE.line} · see what changed`);
+    expect(line.className).toContain("sb-freshline");
+    expect(line.className).not.toMatch(/sb-stale|blink/);
+    fireEvent.click(within(line).getByRole("button", { name: "see what changed" }));
+    expect(diffCalls[diffCalls.length - 1]).toEqual([1, 2, true]);
+    const panel = container.querySelector(".drawer-panel") as HTMLElement;
+    expect(within(panel).getByText(/Edition 1 → Edition 2/)).toBeInTheDocument();
+  });
+
+  it("renders nothing without a notice (no cut in the last seven days, or an older backend)", () => {
+    renderEditions(RERUN_PAYLOAD, { edition: 1 });
+    expect(screen.queryByTestId("sb-cut-notice")).toBeNull();
+  });
 });

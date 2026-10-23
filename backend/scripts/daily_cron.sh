@@ -202,10 +202,13 @@ ONBOARD_TIMEOUT_S="${ONBOARD_TIMEOUT_S:-2700}"
 [ "${ONBOARD_TIMEOUT_S}" -ge 1 ] 2>/dev/null || ONBOARD_TIMEOUT_S=2700
 # Editions S5 — the Scoreboard editions NIGHTLY PAGE job (`editions_nightly`, below): the hard `timeout` around
 # one run (seconds) and its kill switch (EDITIONS_NIGHTLY=0 = off, an env-only cron deploy). A normal night is a
-# public-clock export (~1 min on prod) plus ~10 pages; 30 minutes only stops a HUNG run (a long catch-up after
-# an outage resumes the next night — every page it did not write is still missing then). Same guard as SLICE_S.
-EDITIONS_TIMEOUT_S="${EDITIONS_TIMEOUT_S:-1800}"
-[ "${EDITIONS_TIMEOUT_S}" -ge 1 ] 2>/dev/null || EDITIONS_TIMEOUT_S=1800
+# public-clock export (~1 min on prod) plus ~10 pages. S7: a night that also runs the AUTOMATIC CUT's trial (a
+# rule change or a data repair since the edition's cut) re-runs the whole edition once or twice — MEASURED on dev
+# 2026-10-23: ~4.5 min per re-run at 4 workers for 659 pages, ~9 min both — so 60 minutes, and it only stops a
+# HUNG run (a long catch-up after an outage resumes the next night — every page it did not write is still
+# missing then). Same guard as SLICE_S.
+EDITIONS_TIMEOUT_S="${EDITIONS_TIMEOUT_S:-3600}"
+[ "${EDITIONS_TIMEOUT_S}" -ge 1 ] 2>/dev/null || EDITIONS_TIMEOUT_S=3600
 EDITIONS_NIGHTLY="${EDITIONS_NIGHTLY:-1}"
 
 # --- schedule math (pure over their arguments; GNU date) ------------------------------------------------

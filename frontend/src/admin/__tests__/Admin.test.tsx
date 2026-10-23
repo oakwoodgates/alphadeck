@@ -1335,3 +1335,46 @@ describe("Admin — missing closing prices (2026-10-23)", () => {
     expect(screen.getByTestId("adm-missing-closes-error").className).toContain("adm-loud");
   });
 });
+
+describe("Admin — the automatic cut's line (editions S7)", () => {
+  const LINE =
+    "Edition 2 · data repair: re-scaled 40 stored price bar(s) onto the split list's scale · includes data " +
+    "that arrived since Edition 1 · 12 company-nights changed";
+
+  it("renders the backend's line quietly after a cut", () => {
+    h.status = {
+      ...h.status,
+      data: {
+        ...STATUS_CURRENT,
+        editions_cut: { line: LINE, published_at: "2026-10-24T03:05:00Z", number: 2, attention: false },
+      },
+    };
+    renderAdmin();
+    const line = screen.getByTestId("adm-editions-cut");
+    expect(line.textContent).toBe(LINE);
+    expect(line.className).toContain("adm-quiet");
+  });
+
+  it("renders nothing when no cut happened in the last seven days, or from an older backend", () => {
+    h.status = { ...h.status, data: { ...STATUS_CURRENT, editions_cut: null } };
+    renderAdmin();
+    expect(screen.queryByTestId("adm-editions-cut")).toBeNull();
+  });
+
+  it("is loud only for an unexplained change", () => {
+    h.status = {
+      ...h.status,
+      data: {
+        ...STATUS_CURRENT,
+        editions_cut: {
+          line: "Edition 2 · unexplained change · includes data that arrived since Edition 1 · 3 company-nights changed",
+          published_at: "2026-10-24T03:05:00Z",
+          number: 2,
+          attention: true,
+        },
+      },
+    };
+    renderAdmin();
+    expect(screen.getByTestId("adm-editions-cut").className).toContain("adm-loud");
+  });
+});

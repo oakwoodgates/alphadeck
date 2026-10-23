@@ -76,6 +76,7 @@ from ingest.edgar.form4 import parse_form4
 from pipeline.backfill_aff10b5_1 import cached_form_doc
 from pipeline.repair_adr_insider_misattribution import _require_security_scoped_natural_key
 from pipeline.run_lock import EXIT_ALREADY_RUNNING, PassAlreadyRunning, acquire_repair_lock
+from repositories import data_repair_repo
 
 _DEFAULT_CACHE = Path(__file__).resolve().parents[2] / "data" / "edgar_cache"
 EVIDENCE = ("direct_indirect", "shares_owned_after")
@@ -510,6 +511,21 @@ def main(argv: list[str] | None = None) -> None:
             )
             if not args.apply:
                 conn.rollback()
+            else:  # S7 — the data-repair journal: one row per --apply, under the lock
+                data_repair_repo.journal(
+                    conn,
+                    tool="repair_insider_ownership",
+                    summary=(
+                        f"appended ownership evidence to {res.fact_rows_versioned} insider row(s) and "
+                        f"{res.amendment_records_versioned} Form 4/A record(s)"
+                    ),
+                    rows_changed=res.fact_rows_versioned + res.amendment_records_versioned,
+                    counts={
+                        "fact_rows_versioned": res.fact_rows_versioned,
+                        "amendment_records_versioned": res.amendment_records_versioned,
+                    },
+                    tenant_id=tenant,
+                )
         finally:
             conn.close()
     finally:

@@ -32,7 +32,14 @@ of T's market day, never later than the cut — exactly the cap the Postgres pas
 - the roster: the latest ``basket_snapshot`` taken by the cap; before the first one, the 0043 seed's members
   whose JOIN DATE is on/before T; nothing for a thesis that had no roster yet;
 - the position: the decisions log at the same cap;
-- the thesis body (narrative, kill criteria, the catalyst list): today's, as every recompute reads it.
+- the thesis body (narrative, kill criteria, the catalyst list): today's, as every recompute reads it — unless
+  the caller hands in a FROZEN body (``bodies``, S7): the two parts of the body a card reads (the kill
+  criteria -> ``counter_case``, the catalysts -> ``catalyst_surface``) as an edition stored them at its cut, so
+  the automatic cut's rules trial holds them fixed like every other input (``editions.cut``).
+
+S7 also lets a caller pin the JOIN DATES (``frozen``: an edition's own ``edition_entry`` rows win over the rule's
+output, so a new edition carries its parent's join dates over) and narrow a thesis to exact NIGHTS (``nights``:
+the rules trial re-runs only the previous edition's re-run nights).
 
 It writes NOTHING to Postgres. Nothing on the call-of-record path imports it (a test pins the import graph).
 """
@@ -55,7 +62,7 @@ from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard
 from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.market_time import known_at_for_asof, market_tz
-from domain.thesis import BasketMember, Position, Thesis
+from domain.thesis import BasketMember, Catalyst, KillCriterion, Position, Thesis
 from editions.entry import Entry, ThesisRoster, derive_all
 from pipeline.core import assemble_from_pit
 from replay.export import export_snapshot
@@ -239,6 +246,27 @@ class ThesisJob:
         )
 
 
+def thesis_body(thesis: Thesis) -> dict[str, Any]:
+    """The parts of a thesis body a card reads — the kill criteria (``counter_case``) and the catalysts
+    (``catalyst_surface``) — as JSON, the form an edition freezes them in (S7)."""
+    return {
+        "kill_criteria": [k.model_dump(mode="json") for k in thesis.kill_criteria],
+        "catalysts": [c.model_dump(mode="json") for c in thesis.catalysts],
+    }
+
+
+def with_body(thesis: Thesis, body: dict[str, Any] | None) -> Thesis:
+    """``thesis`` with a frozen body (``thesis_body``'s form) in place of today's; ``None`` = today's."""
+    if body is None:
+        return thesis
+    return thesis.model_copy(
+        update={
+            "kill_criteria": [KillCriterion.model_validate(k) for k in body["kill_criteria"]],
+            "catalysts": [Catalyst.model_validate(c) for c in body["catalysts"]],
+        }
+    )
+
+
 def build_job(
     conn: psycopg.Connection,
     con,
@@ -249,11 +277,13 @@ def build_job(
     known_by: datetime,
     start: date | None = None,
     nights: set[date] | None = None,
+    body: dict[str, Any] | None = None,
 ) -> ThesisJob | None:
     """One thesis's job: every real trading session (on the union of its rosters, the harness rule — a market
     holiday has no bars and no page) from its first join date to ``end``, each with its roster and its
     position at the night's cap. A night with no resolved member has no page. ``start`` / ``nights`` narrow
-    the sweep (a diagnostic). ``None`` = nothing to re-run."""
+    the sweep (a diagnostic; S7's rules trial). ``body`` = a frozen thesis body (``thesis_body``'s form) in
+    place of today's. ``None`` = nothing to re-run."""
     window = thesis_window(roster, entries, end)
     if window is None:
         return None
@@ -263,6 +293,7 @@ def build_job(
     base = thesis_repo.get(conn, roster.thesis_id)
     if base is None:
         return None
+    base = with_body(base, body)
     every = set(roster.live_security_ids)
     for s in roster.snapshots:
         every |= s.security_ids
@@ -404,11 +435,19 @@ def prepare(
     tenant_id: UUID = DEFAULT_TENANT_ID,
     start: date | None = None,
     only: set[UUID] | None = None,
+    frozen: dict[UUID, dict[UUID, Entry]] | None = None,
+    nights: dict[UUID, set[date]] | None = None,
+    bodies: dict[UUID, dict[str, Any]] | None = None,
 ) -> Prepared:
     """Read EVERYTHING an edition needs inside ONE consistent snapshot: the public-clock mirror (with the
     identity aux) cut at ``known_by`` (default: the snapshot's own instant), the join dates as known at that
     cut, and every thesis's job. ``end`` defaults to the latest recorded night. ``only`` / ``start`` narrow
-    the run (a diagnostic). Writes only ``out_dir``."""
+    the run (a diagnostic). Writes only ``out_dir``.
+
+    S7 (``editions.cut``): ``frozen`` = join dates that WIN over the rule's (an edition's own, carried over;
+    a company it never had keeps the rule's exact date); ``nights`` = per thesis, the only nights to run (a
+    thesis absent from it is not run); ``bodies`` = per thesis, a frozen thesis body (``thesis_body``).
+    """
     with consistent_snapshot(conn) as snapshot_at:
         kb = known_by or snapshot_at
         if kb > snapshot_at:
@@ -421,8 +460,16 @@ def prepare(
         if last is None:
             raise LookupError("no recorded night to run through (pass end=)")
         rosters, entries = derive_all(conn, known_by=kb)
+        if frozen:
+            entries = {
+                tid: {**entries.get(tid, {}), **frozen.get(tid, {})} for tid in {*entries, *frozen}
+            }
         rosters = [
-            r for r in rosters if r.tenant_id == tenant_id and (only is None or r.thesis_id in only)
+            r
+            for r in rosters
+            if r.tenant_id == tenant_id
+            and (only is None or r.thesis_id in only)
+            and (nights is None or r.thesis_id in nights)
         ]
         con = open_mirror(cut.path)
         try:
@@ -438,6 +485,8 @@ def prepare(
                         end=last,
                         known_by=kb,
                         start=start,
+                        nights=nights.get(r.thesis_id) if nights is not None else None,
+                        body=(bodies or {}).get(r.thesis_id),
                     )
                 )
                 is not None

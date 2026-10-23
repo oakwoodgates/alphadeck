@@ -3,6 +3,8 @@ import { useEditionDiff } from "../api/hooks";
 import { fmtDate } from "../util/format";
 import { editionLabel } from "./editions";
 import {
+  causeNote,
+  causeText,
   countsLines,
   episodeLine,
   namesFor,
@@ -56,7 +58,7 @@ export function EditionChanges({
           </div>
           <div className="wc-note">
             a night with no page reads that edition&apos;s last page before it · scores run arm → exit-by on
-            realized closes through {fmtDate(data.through)} · why each night moved is not attributed yet
+            realized closes through {fmtDate(data.through)} · {causeNote(data.causes, names)}
           </div>
           {data.theses.map((t) => {
             const outside = outsideLine(t, names);
@@ -80,14 +82,24 @@ export function EditionChanges({
                       {c.company_name && <span className="wc-name">{c.company_name}</span>}
                     </div>
                     <ul className="wc-list">
-                      {(c.episodes ?? []).map((ep, i) => (
-                        <li key={`ep-${i}`}>{episodeLine(ep, names, t.first_night)}</li>
-                      ))}
-                      {(c.runs ?? []).map((r) => (
-                        <li key={`run-${r.first}`} className="wc-run">
-                          {nightSpan(r.first, r.last, r.n_nights)} — {nightChange(r.changed ?? [], r.before, r.after, names)}
-                        </li>
-                      ))}
+                      {(c.episodes ?? []).map((ep, i) => {
+                        const why = causeText(ep.cause, names);
+                        return (
+                          <li key={`ep-${i}`}>
+                            {episodeLine(ep, names, t.first_night)}
+                            {why && <span className="wc-cause"> · {why}</span>}
+                          </li>
+                        );
+                      })}
+                      {(c.runs ?? []).map((r) => {
+                        const why = causeText(r.cause, names);
+                        return (
+                          <li key={`run-${r.first}`} className="wc-run">
+                            {nightSpan(r.first, r.last, r.n_nights)} — {nightChange(r.changed ?? [], r.before, r.after, names)}
+                            {why && <span className="wc-cause"> · {why}</span>}
+                          </li>
+                        );
+                      })}
                     </ul>
                   </div>
                 ))}

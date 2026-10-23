@@ -82,7 +82,7 @@ from ingest.edgar.submissions import fetch_submissions, parse_item_codes
 from ingest.polygon_splits import PolygonSplitsError, PolygonSplitSource, default_split_source
 from pipeline.run_lock import EXIT_ALREADY_RUNNING, PassAlreadyRunning, acquire_pass_lock
 from pipeline.split_basis import _UNION
-from repositories import split_repo
+from repositories import data_repair_repo, split_repo
 from repositories.split_repo import AUTHOR_BACKFILL, SplitVersion, content_of, decision_values
 
 _log = logging.getLogger("alphadeck.backfill_splits")
@@ -823,6 +823,14 @@ def main(argv: list[str] | None = None) -> None:
             except PolygonSplitsError as exc:
                 print(f"ABORTED: {exc} — nothing was written")
                 raise SystemExit(1) from None
+            if args.apply:  # S7 — the data-repair journal: one row per --apply, under the lock
+                data_repair_repo.journal(
+                    conn,
+                    tool="backfill_splits",
+                    summary=f"appended {result.appended} split-list version(s) checked against SEC",
+                    rows_changed=result.appended,
+                    counts={"appended": result.appended},
+                )
         finally:
             conn.close()
     finally:

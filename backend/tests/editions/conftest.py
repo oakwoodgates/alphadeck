@@ -16,6 +16,7 @@ except ImportError:  # pragma: no cover
         "test_set_aside_ceiling.py",
         "test_nightly.py",
         "test_ink.py",
+        "test_cut.py",
     ]
 
 
