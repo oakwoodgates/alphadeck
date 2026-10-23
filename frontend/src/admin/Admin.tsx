@@ -4,6 +4,7 @@ import type {
   AdminLateOnlyNightOut,
   AdminRunOut,
   AdminSplitDefectOut,
+  AdminSplitSettledOut,
   AdminStaleTapeOut,
 } from "../api/hooks";
 import {
@@ -255,6 +256,34 @@ function SplitDefectBlock({
         pass.
       </div>
     </div>
+  );
+}
+
+/** The SETTLED split-basis flaps (T4): the stored history changed basis and back, but every night's view
+ *  reads a single basis — so no view is affected. Named so the set-aside stays visible (WB#2), but ONE
+ *  quiet gray line, collapsed: never loud, never an alarm, never paged (honest loudness, #7/WB#3).
+ *  Rendered by its caller only when there is one. */
+function SettledSplitLine({ rows }: { rows: AdminSplitSettledOut[] }) {
+  return (
+    <details className="adm-quietlist" data-testid="adm-split-settled">
+      <summary className="adm-line adm-quiet">
+        {rows.length} settled — the stored history changed basis and back, but every night&apos;s view
+        reads a single basis; no view is affected
+      </summary>
+      <ul className="adm-problems adm-quietrows">
+        {rows.map((d) => {
+          const shown = d.dates.slice(-3);
+          const extra = d.events - shown.length;
+          return (
+            <li key={`${d.kind}:${d.security_id}`}>
+              <b>{d.ticker ?? d.security_id}</b> {SPLIT_KIND[d.kind] ?? d.kind} · x
+              {d.factor >= 10 ? d.factor.toFixed(0) : d.factor.toFixed(1)} · {shown.join(", ")}
+              {extra > 0 ? ` (+${extra} more)` : ""}
+            </li>
+          );
+        })}
+      </ul>
+    </details>
   );
 }
 
@@ -522,6 +551,11 @@ export function Admin({ header }: Props) {
                 newly={status.split_defects.newly_flagged}
                 asof={status.split_defects.asof}
               />
+            )}
+            {/* the SETTLED flaps: quiet and collapsed, rendered only when there is one (an older backend
+                omits the field) */}
+            {(status.split_defects?.settled?.length ?? 0) > 0 && (
+              <SettledSplitLine rows={status.split_defects?.settled ?? []} />
             )}
             {status.split_defects?.error && (
               <div className="adm-line adm-loud" data-testid="adm-split-error">

@@ -16,7 +16,7 @@ from db.session import DEFAULT_TENANT_ID
 from pipeline import daily
 from pipeline.cron_run_log import write_cron_run_log
 from pipeline.daily import ThesisRunResult
-from pipeline.split_basis import FLAP, ISLAND, SplitDefect, SplitScan
+from pipeline.split_basis import FLAP, ISLAND, SettledDefect, SplitDefect, SplitScan
 
 _MON = date(2026, 7, 20)
 
@@ -63,6 +63,45 @@ def test_status_split_panel_lists_the_inventory_and_what_PAGED(client, cron_runs
     assert rows["VWAV"]["factor"] == 18.02 and rows["VWAV"]["events"] == 2
     assert rows["MPU"]["kind"] == "flap" and rows["MPU"]["events"] == 274
     assert panel["newly_flagged"] == [new.label] and panel["error"] is None
+
+
+def test_SETTLED_flaps_are_NAMED_on_the_panel_never_a_defect_never_on_the_run_row(
+    client, cron_runs_dir
+):
+    """A settled flap rides its own quiet list (with how it was judged): not in ``defects`` (the loud
+    block), not in ``newly_flagged`` (it never paged), and no line on the run row."""
+    mpu = SplitDefect(uuid.uuid4(), "MPU", FLAP, (date(2026, 9, 14),), 20.0, 270)
+    reason = (
+        "the stored history changed basis and back, but every night's view reads a single basis"
+    )
+    _artifact(
+        at=datetime(2026, 7, 20, 22, 30, tzinfo=timezone.utc),
+        split=SplitScan(evaluated=True, settled=(SettledDefect(mpu, reason),), window_days=430),
+    )
+
+    body = client.get("/admin/status").json()
+    panel = body["split_defects"]
+
+    assert panel["defects"] == [] and panel["newly_flagged"] == []
+    (row,) = panel["settled"]
+    assert row["ticker"] == "MPU" and row["kind"] == "flap" and row["events"] == 270
+    assert row["dates"] == ["2026-09-14"] and row["reason"] == reason
+    run = client.get("/admin/runs").json()["runs"][0]
+    assert run["split_defects_new"] == [] and not any("split" in p for p in run["problems"])
+
+
+def test_an_artifact_from_BEFORE_the_settle_check_reads_nothing_settled(client, cron_runs_dir):
+    path = _artifact(
+        at=datetime(2026, 7, 20, 22, 30, tzinfo=timezone.utc),
+        split=SplitScan(evaluated=True, defects=(_vwav(),), window_days=430),
+    )
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    path.write_text(
+        json.dumps({k: v for k, v in doc.items() if not k.startswith("split_settle")}),
+        encoding="utf-8",
+    )
+    panel = client.get("/admin/status").json()["split_defects"]
+    assert panel["settled"] == [] and [r["ticker"] for r in panel["defects"]] == ["VWAV"]
 
 
 def test_a_NEW_split_defect_pages_on_the_run_row_but_the_cron_stays_HEALTHY(

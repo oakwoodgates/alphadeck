@@ -34,7 +34,8 @@ THE KINDS AT LAUNCH (``KINDS``):
   with its first session inside the view: it is not applied, so prices across it may sit on two scales.
 - ``mixed_scale_history`` — the T4 monitor's island / cliff / flap shapes on the stored tape
   (``pipeline/split_basis.py``), with the S2 follow-up applied: a flapping bar whose newest version sits on the
-  split list's scale is SETTLED and draws nothing.
+  split list's scale is SETTLED and draws nothing — and so does a flap T4's settle check finds no night's view
+  reads on two bases (``split_basis.settle_flap``, the same rule as Admin's quiet settled line).
 - ``price_feed_stopped`` — the tape-recency rule (``pipeline/tape_health.py``): no bar for ``tape_stale_days``,
   read as renamed / closed / a plain feed gap by the nightly classifier where the view is today's.
 - ``market_cap_share_count`` — the market cap multiplies a share count from BEFORE a split the list has not

@@ -33,7 +33,8 @@ PHASE-4 CHECK (T4):
 - ``split_defects_flagged`` — the split-basis monitor (``pipeline/split_basis.py``) ran over tonight's tapes,
   so every defect it can see is flagged (on the artifact; the new ones in tonight's page). It REPORTS the
   count and passes with defects present — there is no "acknowledged" state, and failing on a standing,
-  already-flagged defect would page every night — and FAILS only when the scan could not run.
+  already-flagged defect would page every night — and FAILS only when the scan could not run. A SETTLED flap
+  (no reader sees two bases, ``split_basis.settle_flap``) is named in the detail and is never a defect.
 
 PHASE-7 CHECK (the settle guard, audited — 2026-10-21):
 
@@ -296,13 +297,21 @@ def check_split_defects_flagged(ctx: AuditContext) -> AuditResult:
         )
     if not scan.evaluated:
         return AuditResult(name, None, "not applicable — the split-basis scan did not evaluate")
+    # a SETTLED flap (no reader sees two bases) is named, never a defect: it neither fails nor counts here
+    settled = (
+        f"; {len(scan.settled)} settled flap(s) — no view reads two bases" if scan.settled else ""
+    )
+    if scan.settle_error:
+        settled += f"; the settle check could not run ({scan.settle_error}) — every flap kept"
     if not scan.defects:
-        return AuditResult(name, True, "no split-basis defect on the active basket's tapes")
+        return AuditResult(
+            name, True, f"no split-basis defect on the active basket's tapes{settled}"
+        )
     return AuditResult(
         name,
         True,
         f"{len(scan.defects)} split-basis defect(s) flagged ({len(scan.new)} new — paged once; "
-        f"{scan.known} known) — flag only, the call is unchanged",
+        f"{scan.known} known) — flag only, the call is unchanged{settled}",
     )
 
 
