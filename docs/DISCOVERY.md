@@ -115,6 +115,20 @@ structural, not log-only):
   message carries the counts (`"N/M EFTS pages failed"`). A **within-tolerance gap is no longer only a log
   line**: `DiscoveryCoverage` (pages ok/attempted, the failed TERMS, retried/recovered) rides the draft report
   to the operator.
+- **An error reply is a FAILED page, never an empty one (2026-10-23).** EFTS sometimes answers with a success
+  status but an error body instead of results — MEASURED on prod: `{"errorType": "ConnectionError",
+  "errorMessage": "getaddrinfo EBUSY ...", ...}`, no `hits`. It used to read as a real zero-hit page: a seed
+  whose page 0 got one landed in `empty_terms` ("no EDGAR filer mentions it") with its deep pages never
+  fetched, a deep page that got one silently dropped its companies (#9), and coverage still read 100% (the
+  Peptide Compounding draft reported `81/81` with three live seeds "empty"; the same seeds had 7–9 hits
+  minutes earlier). Now `_fetch_page` validates every page (a JSON object with a `hits` object whose `hits`
+  is a list) and anything else raises `EftsErrorBody`, so the page takes the retry pass above and, if still
+  bad, lands in `failed_terms` / `DiscoveryDegraded`. The `EdgarClient` never caches the bad body and treats
+  an old cached copy as a miss (`DATA_SOURCES.md` §EDGAR etiquette), so the retry really goes back to SEC.
+  **`empty_terms` keeps one meaning: SEC returned a VALID page 0 with zero hits.** *Enforced by:*
+  `tests/ingest/test_fulltext.py` (`test_an_error_body_on_page0_is_RETRIED_and_recovered_never_reported_empty`,
+  `…_EVERY_attempt_is_a_FAILED_term_not_an_empty_one`, `…_on_a_DEEP_page_is_a_counted_failed_page_not_a_silent_loss`,
+  `test_a_REAL_zero_hit_page_is_still_an_empty_term`, and the real-client cache tests after them).
 - **The hit-cap is on the record — and it is PER TIER.** Two caps, one loop, one cap site: SIGNAL terms
   enumerate **deep** (`hit_cap`, default 5000, `ALPHADECK_DISCOVERY_HIT_CAP`) and BROAD terms **shallow**
   (`broad_hit_cap`, default 1000, `ALPHADECK_DISCOVERY_BROAD_HIT_CAP`); a term stored in BOTH tiers enumerates

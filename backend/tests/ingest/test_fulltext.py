@@ -4,13 +4,18 @@ the pagination cap) are gate-2, run against real EFTS + the master."""
 
 from __future__ import annotations
 
+import json
+import urllib.parse
 import uuid
 
 import pytest
 
+from ingest.edgar.client import EdgarClient, InvalidBody
 from ingest.edgar.fulltext import (
     DiscoveryDegraded,
+    EftsErrorBody,
     Filer,
+    _check_efts_page,
     _parse_display,
     ciks_for_keyword,
     classify,
@@ -37,7 +42,9 @@ class _FakeEfts:
         self.fail_once = set(fail_once or ())
         self.calls: list[str] = []
 
-    def get_json(self, url, cache_key):
+    def get_json(self, url, cache_key, *, validate=None):
+        # ``validate`` is accepted (the client protocol) but not applied: ``_fetch_page`` re-checks the
+        # page itself, so a fake that hands back an error body still exercises the real rejection.
         self.calls.append(cache_key)
         if cache_key in self.fail:
             raise RuntimeError(f"EFTS {cache_key} unreachable")
@@ -589,3 +596,228 @@ def test_classify_broad_only_is_verify_not_placed():
         broad={"ketamine", "MDMA", "psychedelic"},
     )
     assert out.placed == {} and out.verify == {"X": sid}  # broad-only (any count) -> VERIFY
+
+
+# --- a 2xx ERROR REPLY is a FAILED page, never a zero-hit one (#9) -------------------------------------
+#
+# MEASURED 2026-10-23 on prod: EFTS answered some pages with a success status and the body
+# {"errorType": "ConnectionError", "errorMessage": "getaddrinfo EBUSY ...", ...} (no ``hits``). Read with
+# ``.get`` defaults it was 0 rows / total 0 / page_size 0, so a live seed on page 0 went to ``empty_terms``,
+# a deep page silently dropped its companies, and coverage read 81/81. It now raises ``EftsErrorBody``.
+
+_ERROR_BODY = {
+    "errorType": "ConnectionError",
+    "errorMessage": "getaddrinfo EBUSY vpc-efts-prod-opensearchservice.example",
+    "trace": ["ConnectionError: getaddrinfo EBUSY ..."],
+}
+_ZERO_HITS = {"hits": {"total": {"value": 0}, "hits": []}}  # what SEC really sends for no matches
+
+
+class _ErrorBodyEfts(_FakeEfts):
+    """Like ``_FakeEfts``, but a cache_key in ``error`` answers the 2xx ERROR BODY on every call (returned,
+    not raised: exactly what the client handed back before the fix), and one in ``error_once`` answers it
+    on its first call only."""
+
+    def __init__(self, pages, *, error=None, error_once=None):
+        super().__init__(pages)
+        self.error = set(error or ())
+        self.error_once = set(error_once or ())
+
+    def get_json(self, url, cache_key, *, validate=None):
+        if cache_key in self.error:
+            self.calls.append(cache_key)
+            return dict(_ERROR_BODY)
+        if cache_key in self.error_once:
+            self.error_once.discard(cache_key)
+            self.calls.append(cache_key)
+            return dict(_ERROR_BODY)
+        return super().get_json(url, cache_key, validate=validate)
+
+
+def _fillers(n: int) -> tuple[list[str], dict[str, dict]]:
+    """``n`` clean one-page keywords (one invented CIK each, 900+), to set the degraded ratio's denominator."""
+    kws = [f"filler{i}" for i in range(n)]
+    pages = {f"efts/filler{i}_0.json": _page(1, *_cik_rows(900 + i)) for i in range(n)}
+    return kws, pages
+
+
+def _deep_pages() -> dict[str, dict]:
+    """'kw' with 250 hits at EFTS's real page size of 100 -> pages from=0 / from=100 / from=200 (CIKs
+    1..100, 101..200, 201..250)."""
+    return {
+        "efts/kw_0.json": _page(250, *_cik_rows(*range(1, 101))),
+        "efts/kw_100.json": _page(250, *_cik_rows(*range(101, 201))),
+        "efts/kw_200.json": _page(250, *_cik_rows(*range(201, 251))),
+    }
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        _ERROR_BODY,
+        {},
+        {"hits": []},  # hits is not an object
+        {"hits": {"total": {"value": 3}}},  # no hits list
+        {"hits": {"hits": None}},
+        ["not", "an", "object"],
+        "a string",
+    ],
+)
+def test_check_efts_page_rejects_anything_but_a_search_results_page(body):
+    with pytest.raises(EftsErrorBody):
+        _check_efts_page(body)
+
+
+def test_check_efts_page_accepts_a_real_page_and_a_real_zero_hit_page():
+    _check_efts_page(_page(1, ("0000000001", "A  (CIK 0000000001)")))
+    _check_efts_page(_ZERO_HITS)
+
+
+def test_EftsErrorBody_is_an_InvalidBody_so_the_client_never_caches_it():
+    assert issubclass(EftsErrorBody, InvalidBody)
+
+
+def test_an_error_body_on_page0_is_RETRIED_and_recovered_never_reported_empty():
+    """THE BUG, reproduced: a live seed whose page 0 came back as the error reply. Before the fix it read as
+    zero hits -> ``empty_terms``, its deep pages never fetched. Now page 0 FAILS, the retry pass recovers
+    it, and the deep pages it owed are fetched: nothing lost, nothing mislabeled."""
+    fake = _ErrorBodyEfts(_pages_3(), error_once={"efts/kw_0.json"})
+    run = discover(fake, ["kw"], max_workers=4)
+    assert run.empty_terms == []
+    assert set(run.filers) == {f"{i:010d}" for i in range(1, 7)}  # deep pages too
+    cov = run.coverage
+    assert cov.pages_ok == cov.pages_attempted == 3
+    assert (cov.retried, cov.recovered, cov.failed_terms) == (1, 1, [])
+
+
+def test_an_error_body_on_page0_EVERY_attempt_is_a_FAILED_term_not_an_empty_one():
+    """Still bad after the retry: within tolerance the term is NAMED in ``failed_terms`` (the draft's
+    honesty strip), never filed as a dead seed."""
+    fill, pages = _fillers(20)
+    fake = _ErrorBodyEfts({**_pages_3(), **pages}, error={"efts/kw_0.json"})
+    run = discover(fake, ["kw", *fill], max_workers=4, degraded_ratio=0.10)  # 1/21 < 10%
+    assert run.empty_terms == []
+    cov = run.coverage
+    assert cov.failed_terms == ["kw"]
+    assert (cov.pages_ok, cov.pages_attempted) == (20, 21)
+    assert (cov.retried, cov.recovered) == (1, 0)
+    assert fake.calls.count("efts/kw_0.json") == 2  # the first pass + the one retry
+
+
+def test_an_error_body_on_page0_every_attempt_over_the_threshold_is_DiscoveryDegraded():
+    fake = _ErrorBodyEfts(_pages_3(), error={"efts/kw_0.json"})
+    with pytest.raises(DiscoveryDegraded) as exc:
+        discover(fake, ["kw"], max_workers=4)  # 1/1 > the 5% default
+    assert (exc.value.failed, exc.value.attempted) == (1, 1)
+
+
+def test_an_error_body_on_a_DEEP_page_is_a_counted_failed_page_not_a_silent_loss():
+    """The silent half of the bug: page from=100 came back as the error reply. Before the fix it added zero
+    rows and nothing was flagged (CIKs 101..200 vanished under a 100% coverage line). Now it is a FAILED
+    page: retried, then counted and the term named; the pages around it still union."""
+    fill, pages = _fillers(10)
+    fake = _ErrorBodyEfts({**_deep_pages(), **pages}, error={"efts/kw_100.json"})
+    run = discover(fake, ["kw", *fill], max_workers=4, degraded_ratio=0.10)  # 1/13 < 10%
+    cov = run.coverage
+    assert cov.failed_terms == ["kw"]
+    assert (cov.pages_ok, cov.pages_attempted) == (12, 13)
+    assert (cov.retried, cov.recovered) == (1, 0)
+    assert {_cik(i) for i in (1, 100, 201, 250)} <= set(run.filers)  # pages 0 and 200 survive
+    assert (
+        _cik(150) not in run.filers
+    )  # the failed page's CIKs are absent, and that is ON THE RECORD
+    assert run.empty_terms == []
+
+
+def test_an_error_body_on_a_deep_page_over_the_threshold_is_DiscoveryDegraded():
+    fake = _ErrorBodyEfts(_deep_pages(), error={"efts/kw_100.json"})
+    with pytest.raises(DiscoveryDegraded) as exc:
+        discover(fake, ["kw"], max_workers=4)  # 1/3 > 5%
+    assert (exc.value.failed, exc.value.attempted) == (1, 3)
+
+
+def test_a_REAL_zero_hit_page_is_still_an_empty_term():
+    """``empty_terms`` keeps its meaning: SEC really returned zero hits (a VALID page with no hits)."""
+    fake = _ErrorBodyEfts({**_pages_3(), "efts/deadterm_0.json": _ZERO_HITS})
+    run = discover(fake, ["kw", "deadterm"], max_workers=4)
+    assert run.empty_terms == ["deadterm"]
+    assert run.coverage.failed_terms == []
+    assert run.coverage.pages_ok == run.coverage.pages_attempted == 4
+
+
+# --- the same, end to end through the REAL EdgarClient (its cache in a tmp dir; ``_fetch`` stubbed) ----
+
+
+def _edgar(tmp_path, answers: dict[str, list[dict]], *, allow_live: bool = True):
+    """A real ``EdgarClient`` over ``tmp_path`` whose network answers, per cache-key stem (``kw_0``), the
+    listed bodies in order (the last repeats). Returns it plus the per-stem fetch count."""
+    counts: dict[str, int] = {}
+    client = EdgarClient(cache_dir=tmp_path, allow_live=allow_live, user_agent="test ua")
+
+    def _fetch(url: str) -> str:
+        q = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+        stem = f"{q['q'][0].strip(chr(34))}_{q['from'][0]}"
+        counts[stem] = counts.get(stem, 0) + 1
+        bodies = answers[stem]
+        return json.dumps(bodies[min(counts[stem], len(bodies)) - 1])
+
+    client._fetch = _fetch  # type: ignore[method-assign]
+    return client, counts
+
+
+def test_through_the_real_client_the_retry_REFETCHES_instead_of_rereading_a_cached_error(tmp_path):
+    """Why the validator runs inside the client: had only ``_fetch_page`` raised, the error body would
+    already be on disk and the retry pass would re-read it from the cache (failing for the whole 12h TTL).
+    The client never wrote it, so the retry goes back to SEC and gets the real page, which IS cached.
+    """
+    pages = _pages_3()
+    client, counts = _edgar(
+        tmp_path,
+        {
+            "kw_0": [_ERROR_BODY, pages["efts/kw_0.json"]],
+            "kw_2": [pages["efts/kw_2.json"]],
+            "kw_4": [pages["efts/kw_4.json"]],
+        },
+    )
+    run = discover(client, ["kw"], max_workers=4)
+    assert counts["kw_0"] == 2  # rejected, then re-fetched by the retry (not served from the cache)
+    assert run.empty_terms == [] and run.coverage.failed_terms == []
+    assert set(run.filers) == {f"{i:010d}" for i in range(1, 7)}
+    cached = json.loads((tmp_path / "efts" / "kw_0.json").read_text(encoding="utf-8"))
+    assert cached == pages["efts/kw_0.json"]
+    assert client.live_completed == 3  # the rejected body was never a completion
+
+
+def test_through_the_real_client_a_POISONED_cache_file_is_refetched_when_live(tmp_path):
+    """A page cached BEFORE this fix (the 8 prod files of 2026-10-23) is a miss, not a dead seed."""
+    pages = _pages_3()
+    poisoned = tmp_path / "efts" / "kw_0.json"
+    poisoned.parent.mkdir(parents=True)
+    poisoned.write_text(json.dumps(_ERROR_BODY), encoding="utf-8")  # fresh by the TTL
+    client, counts = _edgar(
+        tmp_path,
+        {
+            "kw_0": [pages["efts/kw_0.json"]],
+            "kw_2": [pages["efts/kw_2.json"]],
+            "kw_4": [pages["efts/kw_4.json"]],
+        },
+    )
+    run = discover(client, ["kw"], max_workers=4)
+    assert counts["kw_0"] == 1 and run.empty_terms == []
+    assert set(run.filers) == {f"{i:010d}" for i in range(1, 7)}
+    assert "errorType" not in poisoned.read_text(encoding="utf-8")  # overwritten by the real page
+
+
+def test_through_the_real_client_OFFLINE_a_poisoned_page_is_a_failed_term_not_an_empty_one(
+    tmp_path,
+):
+    (tmp_path / "efts").mkdir()
+    (tmp_path / "efts" / "kw_0.json").write_text(json.dumps(_ERROR_BODY), encoding="utf-8")
+    (tmp_path / "efts" / "ok_0.json").write_text(
+        json.dumps(_page(1, *_cik_rows(42))), encoding="utf-8"
+    )
+    client = EdgarClient(cache_dir=tmp_path, allow_live=False)
+    run = discover(client, ["kw", "ok"], max_workers=4, degraded_ratio=0.6)  # 1/2 < 60%
+    assert run.coverage.failed_terms == ["kw"]
+    assert run.empty_terms == []
+    assert set(run.filers) == {_cik(42)}

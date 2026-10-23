@@ -22,11 +22,13 @@ from __future__ import annotations
 import logging
 import re
 import urllib.parse
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 from uuid import UUID
+
+from ingest.edgar.client import InvalidBody
 
 _EFTS_URL = "https://efts.sec.gov/LATEST/search-index"
 
@@ -53,8 +55,41 @@ class DiscoveryDegraded(DiscoveryUnavailable):
         )
 
 
+class EftsErrorBody(InvalidBody):
+    """EFTS answered 2xx with a body that is NOT a search-results page — MEASURED 2026-10-23, an intermittent
+    SEC-side fault: ``{"errorType": "ConnectionError", "errorMessage": "getaddrinfo EBUSY ...", ...}`` with no
+    ``hits``. Read with ``.get`` defaults it looked like a real zero-hit page, so page 0 filed a live term
+    under ``empty_terms`` and a deep page silently dropped its companies (#9), while coverage read 100%.
+    Raising it makes the page FAIL: ``discover``'s ``_safe`` counts it, the retry pass retries it once, and a
+    page still bad lands in ``failed_terms`` / ``DiscoveryDegraded`` — never ``empty_terms``. An
+    ``InvalidBody``, so the ``EdgarClient`` never caches it and treats an old cached copy as a miss.
+    """
+
+
+def _check_efts_page(doc: Any) -> None:
+    """A valid EFTS page is a JSON object with a ``hits`` object whose ``hits`` is a list (possibly empty:
+    a real zero-hit page is valid, and stays ``empty_terms``). Anything else raises ``EftsErrorBody``.
+    """
+    if not isinstance(doc, dict):
+        raise EftsErrorBody(f"EFTS reply is not a JSON object ({type(doc).__name__})")
+    hits = doc.get("hits")
+    if isinstance(hits, dict) and isinstance(hits.get("hits"), list):
+        return
+    if "errorType" in doc:
+        detail = f"errorType={doc.get('errorType')!r}: {str(doc.get('errorMessage', ''))[:120]}"
+    else:
+        detail = f"no hits list (top-level keys: {sorted(doc)[:8]})"
+    raise EftsErrorBody(f"EFTS reply is not a search-results page ({detail})")
+
+
 class _JsonClient(Protocol):
-    def get_json(self, url: str, cache_key: str) -> dict[str, Any]: ...
+    def get_json(
+        self,
+        url: str,
+        cache_key: str,
+        *,
+        validate: Callable[[Any], None] | None = None,
+    ) -> dict[str, Any]: ...
 
 
 @dataclass
@@ -93,7 +128,8 @@ class DiscoveryRun:
     regardless of tier: the term-chip marker renders per term inside its own tier list, so a capped SIGNAL
     term and a capped BROAD term each surface independently. ``empty_terms`` is the zero-hit counterpart: a
     keyword whose page-0 came back with NO hits at all — a dead seed that placed no names, recorded so it is
-    never silently discarded (#9)."""
+    never silently discarded (#9). Only a VALID search-results page with zero hits counts: an error reply
+    (``EftsErrorBody``) is a FAILED page, retried and then reported in ``coverage.failed_terms``."""
 
     filers: dict[str, Filer]
     coverage: DiscoveryCoverage
@@ -164,9 +200,16 @@ def _fetch_page(
     this filer's label); ``total`` is EFTS's reported hit count; ``page_size`` is this page's hit count
     (0 = past the end). Cache-first via ``client.get_json`` with the SAME ``cache_key`` as the sequential
     walk, so the parallel fan-out reuses the same cached pages.
+
+    The body is VALIDATED first (``_check_efts_page``): an error reply raises ``EftsErrorBody`` — the
+    client rejects it before its cache write (and treats a cached copy as a miss), and the page is checked
+    again here, so no client (a fake included) can hand the parse below an unvalidated body.
     """
     q = urllib.parse.quote(f'"{keyword}"')
-    data = client.get_json(f"{_EFTS_URL}?q={q}&from={frm}", _cache_key(keyword, frm))
+    data = client.get_json(
+        f"{_EFTS_URL}?q={q}&from={frm}", _cache_key(keyword, frm), validate=_check_efts_page
+    )
+    _check_efts_page(data)
     hits = data.get("hits", {}).get("hits", [])
     rows: list[tuple[str, str, str | None]] = []
     for h in hits:
@@ -279,7 +322,8 @@ def discover(
         except (
             Exception
         ) as exc:  # noqa: BLE001 — a page that fails AFTER polite_get's retries is persistent;
-            # log + skip it (never nuke the run), and count it toward the degraded threshold below.
+            # log + skip it (never nuke the run), and count it toward the degraded threshold below. A 2xx
+            # error reply lands here too (``EftsErrorBody``), so it is a failed page, never a zero-hit one.
             _log.warning(
                 "discovery: EFTS page failed after retries; keyword=%r from=%d: %s",
                 keyword,

@@ -142,6 +142,24 @@ and the free proxy is demonstrably inadequate. Default to free + derive.
   night; that second pull is most of the difference from the ~151 a one-pass-late placement would cost.)
   The gate reads the cached files' own clocks (the companyfacts copy's fetch time, the index's acceptance
   times), never `fact_fundamentals.recorded_at` — so the stamp change below does not touch it.
+- **An error reply is never cached, never counted, never served (2026-10-23).** SEC can answer with a
+  success status but an ERROR BODY instead of the document — MEASURED on prod from EFTS:
+  `{"errorType": "ConnectionError", "errorMessage": "getaddrinfo EBUSY ...", ...}` (817 bytes, no `hits`).
+  `polite_get` only retries a non-2xx, so that body used to be written to the cache like any document, served
+  for the rest of its TTL (forever, on an immutable key), and read downstream as an empty one (eight EFTS pages
+  on 2026-10-23: three seeds reported "empty", five deep pages silently lost — `DISCOVERY.md` §2). Now
+  `EdgarClient.get_text` checks every body, fresh or cached, before returning it: **(a)** a generic guard for
+  EVERY key rejects a body whose top level is a JSON object carrying `errorType` (no real SEC document has
+  one — checked against every SEC fixture in the repo; it parses only a body that starts with `{` and contains
+  `"errorType"`), and **(b)** a caller may pass `validate=` (`get_json`'s receives the parsed document; EFTS
+  passes its page check). A rejected body raises `InvalidBody` (a `ValueError`; EFTS's is `EftsErrorBody`):
+  a FRESH one is not written to the cache and does not count in `live_completed` (it was an attempt, not
+  EDGAR data reaching the pass — the O5 freeze detector must not read it as a healthy fetch), and any
+  companyfacts 404 marker is left as it was; a CACHED one is a miss — re-fetched when live (even on an
+  immutable or in-TTL key) and raised when not live (never served, never a silent `CacheMiss`). The
+  key-classed TTL, the immutable `forms/*`, the `companyfacts/*` filing gate and the 404 negative cache are
+  otherwise unchanged. One older submissions page answered this way is a counted failed page
+  (`submissions._tolerable_page_error`), like an HTTP error after the retries.
 - **The fundamentals' stamp (migration 0057, 2026-10-21).** `fact_fundamentals` rows carry `valid_from =` the
   filing's acceptance date — the PUBLIC clock, what every detector and every history read dates by — and, since
   0057, `recorded_at =` the database instant the ingest stored them (`ingest.fundamentals.store_quarters`, one

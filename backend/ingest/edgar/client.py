@@ -4,6 +4,7 @@ import json
 import re
 import threading
 import time
+from collections.abc import Callable
 from datetime import date, datetime, timedelta, timezone
 from datetime import time as clock_time
 from pathlib import Path
@@ -117,6 +118,51 @@ class CachedNotFound(Exception):
 
 def _is_http_404(exc: BaseException) -> bool:
     return getattr(getattr(exc, "response", None), "status_code", None) == 404
+
+
+class InvalidBody(ValueError):
+    """SEC answered 2xx, but the BODY is not the document that was asked for: an error reply wrapped in a
+    success status (MEASURED 2026-10-23: EFTS returned ``{"errorType": "ConnectionError", ...}`` with a 2xx),
+    or a body that fails the caller's ``validate``. It is NOT data:
+
+    - a fresh one is never written to the cache, and does not count as a completed fetch (``live_completed``);
+    - a cached one (written before this check existed) is treated as a cache MISS: re-fetched when live, and
+      raised, never served, when not live (never a silent ``CacheMiss`` either).
+
+    A ``ValueError``, so a caller that already skips-and-counts one unreadable document (a malformed body)
+    treats an error reply the same way: one fetch's failure, visible, never read as an empty document.
+    """
+
+
+def _error_reply(text: str) -> str | None:
+    """The ``errorType`` of a body that is SEC's 2xx-wrapped error reply (a top-level JSON object carrying
+    ``errorType``), else None. No real SEC document has a top-level ``errorType`` (checked against every SEC
+    fixture in the repo). Cheap by construction: it parses only a body that starts with ``{`` AND contains
+    the literal ``"errorType"``; anything else (a filing document, an index, a normal JSON) is one prefix
+    check and one substring scan."""
+    s = text.lstrip()
+    if not s.startswith("{") or '"errorType"' not in s:
+        return None
+    try:
+        doc = json.loads(s)
+    except ValueError:
+        return None  # not JSON at all: not this guard's call (the caller's own parse decides)
+    if isinstance(doc, dict) and "errorType" in doc:
+        return str(doc.get("errorType"))
+    return None
+
+
+def _check_body(text: str, cache_key: str, validate: Callable[[str], None] | None) -> None:
+    """Raise ``InvalidBody`` if ``text`` is not a usable document for ``cache_key``: the generic error-reply
+    guard (every key), then the caller's own ``validate`` (which raises ``InvalidBody`` or a subclass).
+    """
+    err = _error_reply(text)
+    if err is not None:
+        raise InvalidBody(
+            f"{cache_key}: SEC answered with an error reply (errorType={err!r}), not the document"
+        )
+    if validate is not None:
+        validate(text)
 
 
 class EdgarClient:
@@ -255,25 +301,47 @@ class EdgarClient:
             return self._gate_due(path.stat().st_mtime, cache_key)
         return (_now() - path.stat().st_mtime) > self.cache_ttl_s
 
-    def get_text(self, url: str, cache_key: str) -> str:
+    def get_text(
+        self,
+        url: str,
+        cache_key: str,
+        *,
+        validate: Callable[[str], None] | None = None,
+    ) -> str:
+        """The document at ``url``, cache-first under ``cache_key`` (the key-classed freshness rules above).
+
+        Every body, fresh or cached, must pass ``_check_body`` before it is returned: the generic error-reply
+        guard (any key) plus the caller's ``validate`` (raises ``InvalidBody`` or a subclass). A fresh body
+        that fails is never cached and never counted as completed; a cached one that fails is a MISS
+        (re-fetched when live, raised when not)."""
         path = self.cache_dir / cache_key
         marker = path.with_name(path.name + _NOT_FOUND_SUFFIX)
-        if path.exists():
-            # Serve the cache UNLESS it's a stale mutable key AND we're allowed to refetch. With
-            # allow_live=False (tests / --no-live) a stale hit is still served — better stale than a
-            # CacheMiss; the TTL only forces a refetch when we can actually fetch.
-            if not self.allow_live or not self._is_stale(path, cache_key):
+        cached = path.exists()
+        # Serve the cache UNLESS it's a stale mutable key AND we're allowed to refetch. With
+        # allow_live=False (tests / --no-live) a stale hit is still served — better stale than a
+        # CacheMiss; the TTL only forces a refetch when we can actually fetch.
+        if cached and (not self.allow_live or not self._is_stale(path, cache_key)):
+            text = path.read_text(encoding="utf-8")
+            try:
+                _check_body(text, cache_key, validate)
+            except InvalidBody:
+                if not self.allow_live:
+                    raise  # a poisoned copy is never served, and never reads as a silent CacheMiss
+                # a poisoned copy is a MISS: re-fetched below (and overwritten if the new body is good)
+                cached = False
+            else:
                 note("sec_cached")  # X5 — a request answered from the disk cache (no network)
-                return path.read_text(encoding="utf-8")
-        elif not self.allow_live:
-            raise CacheMiss(f"{cache_key} not cached (live pulls disabled)")
-        elif self._gated(cache_key) and marker.exists():
-            # X8 — a known 404 is re-asked only when the gate says due; otherwise answer it from the
-            # negative cache, with no request and no `live_fetches` count (nothing reached out).
-            observed = marker.stat().st_mtime
-            if not self._gate_due(observed, cache_key):
-                note("sec_cached_404")  # X5 — answered from the negative cache (no network)
-                raise CachedNotFound(cache_key, datetime.fromtimestamp(observed, timezone.utc))
+                return text
+        if not cached:
+            if not self.allow_live:
+                raise CacheMiss(f"{cache_key} not cached (live pulls disabled)")
+            if self._gated(cache_key) and marker.exists():
+                # X8 — a known 404 is re-asked only when the gate says due; otherwise answer it from the
+                # negative cache, with no request and no `live_fetches` count (nothing reached out).
+                observed = marker.stat().st_mtime
+                if not self._gate_due(observed, cache_key):
+                    note("sec_cached_404")  # X5 — answered from the negative cache (no network)
+                    raise CachedNotFound(cache_key, datetime.fromtimestamp(observed, timezone.utc))
         # decided to hit the network (a cache miss or a stale-mutable refresh) — the freeze detector
         with self._counts_lock:
             self.live_fetches += 1
@@ -287,6 +355,11 @@ class EdgarClient:
                 marker.parent.mkdir(parents=True, exist_ok=True)
                 marker.write_text(url, encoding="utf-8")  # (re)write refreshes the mtime
             raise
+        # A 2xx that is an error reply (or fails the caller's validate) is NOT data: it raises HERE, before
+        # the completion count and the cache write, so it never poisons the cache (it used to be served for
+        # the whole TTL) and never tells the freeze detector that EDGAR data reached this pass (O5). It
+        # stays counted in `live_fetches` above: it was an attempt. Any 404 marker is left alone.
+        _check_body(text, cache_key, validate)
         # O5 — a 2xx body arrived: EDGAR data actually reached this pass
         with self._counts_lock:
             self.live_completed += 1
@@ -299,15 +372,37 @@ class EdgarClient:
             marker.unlink(missing_ok=True)  # the company has companyfacts now — any 404 is history
         return text
 
-    def get_json(self, url: str, cache_key: str) -> dict[str, Any]:
+    def get_json(
+        self,
+        url: str,
+        cache_key: str,
+        *,
+        validate: Callable[[Any], None] | None = None,
+    ) -> dict[str, Any]:
+        """``get_text`` + a JSON parse. ``validate`` receives the PARSED document and raises ``InvalidBody``
+        (or a subclass) to reject it, with ``get_text``'s rules: never cached, never counted, a cached copy
+        that fails is a miss. With a ``validate``, a body that is not JSON at all is rejected the same way.
+        """
         if cache_key.startswith("submissions/"):
             # X5 — a company's submissions index (fetch or cache read + parse) is timed as its OWN leg
             # inside whichever pass leg read it; a no-op outside a metered pass (`ingest/instrument.py`)
-            return timed("submissions")(self._get_json)(url, cache_key)
-        return self._get_json(url, cache_key)
+            return timed("submissions")(self._get_json)(url, cache_key, validate)
+        return self._get_json(url, cache_key, validate)
 
-    def _get_json(self, url: str, cache_key: str) -> dict[str, Any]:
-        return json.loads(self.get_text(url, cache_key))
+    def _get_json(
+        self, url: str, cache_key: str, validate: Callable[[Any], None] | None = None
+    ) -> dict[str, Any]:
+        if validate is None:
+            return json.loads(self.get_text(url, cache_key))
+
+        def _check_parsed(text: str) -> None:
+            try:
+                doc = json.loads(text)
+            except ValueError as exc:
+                raise InvalidBody(f"{cache_key}: not a JSON document ({exc})") from exc
+            validate(doc)
+
+        return json.loads(self.get_text(url, cache_key, validate=_check_parsed))
 
     def _fetch(self, url: str) -> str:
         if not self.user_agent:

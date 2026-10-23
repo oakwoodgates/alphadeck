@@ -39,7 +39,7 @@ class _FakeEfts:
         self.raises = raises
         self.calls: list[str] = []
 
-    def get_json(self, url, cache_key):
+    def get_json(self, url, cache_key, *, validate=None):
         self.calls.append(cache_key)
         if self.raises:
             raise RuntimeError("EFTS down")

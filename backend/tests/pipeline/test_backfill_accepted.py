@@ -659,3 +659,21 @@ def test_a_CacheMiss_is_still_tolerated():
 
     assert (read, failed) == (0, 1)
     assert set(amap) == {"acc-recent"}
+
+
+def test_an_error_reply_page_InvalidBody_is_tolerated_and_counted():
+    """SEC's 2xx-wrapped error reply (``{"errorType": ...}``) on one older page: the client now raises
+    ``InvalidBody`` instead of caching it and handing back a page with no filings. It is one page's FAILED
+    fetch, like an ``httpx.HTTPError`` after the retries: counted, the walk continues, never an abort.
+    """
+    from ingest.edgar.client import InvalidBody
+
+    subs = _subs_with_pages(
+        [("acc-recent", "2026-01-02T18:30:00.000Z")], ["CIK0001234567-submissions-001.json"]
+    )
+    client = _RaisingPagesClient({}, InvalidBody("SEC answered with an error reply"))
+
+    amap, read, failed = acceptance_times_deep(client, subs)
+
+    assert (read, failed) == (0, 1)
+    assert set(amap) == {"acc-recent"}

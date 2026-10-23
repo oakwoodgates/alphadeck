@@ -2019,7 +2019,7 @@ class _FakeEfts:
         self.pages = pages
         self.raises = raises
 
-    def get_json(self, url, cache_key):
+    def get_json(self, url, cache_key, *, validate=None):
         if self.raises:
             raise RuntimeError("EFTS unreachable")
         return self.pages.get(cache_key, {"hits": {"total": {"value": 0}, "hits": []}})
@@ -2983,7 +2983,7 @@ class _RecordingEfts(_FakeEfts):
         super().__init__(pages, raises=raises)
         self.requested: list[str] = []
 
-    def get_json(self, url, cache_key):
+    def get_json(self, url, cache_key, *, validate=None):
         self.requested.append(cache_key)
         return super().get_json(url, cache_key)
 
