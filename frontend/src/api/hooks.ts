@@ -334,14 +334,18 @@ export function useScoreboardReplay() {
 // not sent at all), true = score the phantom-arm nights, false = set them aside. It is part of the key,
 // so both readings cache side by side and flipping back is instant. `includeLate` (L1) is the same
 // tri-state for the late-night reading (rows recorded after their night's next EDGAR open).
+// `edition` (editions S4) picks WHICH edition is scored: null = the server's default edition (the param is
+// not sent), 0 = the original record (the calls log), N >= 1 = the stored re-run Edition N. Part of the key,
+// so switching editions back and forth is instant once each has loaded.
 export function useScoreboard(
   asof: string,
   includeArchived = true,
   includeAnnotated: boolean | null = null,
   includeLate: boolean | null = null,
+  edition: number | null = null,
 ) {
   return useQuery({
-    queryKey: ["scoreboard", asof, includeArchived, includeAnnotated, includeLate] as const,
+    queryKey: ["scoreboard", asof, includeArchived, includeAnnotated, includeLate, edition] as const,
     enabled: Boolean(asof),
     queryFn: async () => {
       const { data, error } = await api.GET("/scoreboard", {
@@ -351,9 +355,27 @@ export function useScoreboard(
             include_archived: includeArchived,
             ...(includeAnnotated === null ? {} : { include_annotated: includeAnnotated }),
             ...(includeLate === null ? {} : { include_late: includeLate }),
+            ...(edition === null ? {} : { edition }),
           },
         },
       });
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+// Editions S4 — every edition the Scoreboard can show (Edition 0 = the original record first, then each
+// stored re-run) and the server's default. Asof-independent: an edition is what it is. The ["scoreboard"]
+// prefix keeps it under the daily pass's invalidation (S5 grows an edition nightly).
+export type ScoreboardEditionOut = components["schemas"]["ScoreboardEditionOut"];
+export type ScoreboardEditionsResponse = components["schemas"]["ScoreboardEditionsResponse"];
+
+export function useScoreboardEditions() {
+  return useQuery({
+    queryKey: ["scoreboard", "editions"] as const,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/scoreboard/editions");
       if (error) throw error;
       return data;
     },
@@ -368,18 +390,43 @@ export function useScoreboard(
 // so one cache entry per episode (expand changes the canvas size, not the window). asof caps the series
 // (no-lookahead is enforced server-side too). Read-only; a refetch/asof-scrub writes nothing. `end` (the
 // episode's exit_by) rides the query but not the key — the server caps at asof, so it can't vary the result.
+// `edition` (editions S4): the edition whose drawer this is — null/absent = not sent (the server default);
+// an edition >= 1 reads the overlays on the public clock. In the key so two editions never share a window.
 export function useEpisodePriceWindow(
-  args: { thesisId: string; securityId: string; start: string; end: string; asof: string },
+  args: {
+    thesisId: string;
+    securityId: string;
+    start: string;
+    end: string;
+    asof: string;
+    edition?: number | null;
+  },
   enabled: boolean,
 ) {
   const { thesisId, securityId, start, end, asof } = args;
+  const edition = args.edition ?? null;
   return useQuery({
-    queryKey: ["episode-price-window", thesisId, securityId, start, asof] as const,
+    // the default read (no edition named) keeps its pre-editions key; a named edition extends it
+    queryKey: [
+      "episode-price-window",
+      thesisId,
+      securityId,
+      start,
+      asof,
+      ...(edition === null ? [] : [edition]),
+    ] as const,
     enabled: enabled && Boolean(thesisId) && Boolean(securityId) && Boolean(asof),
     queryFn: async () => {
       const { data, error } = await api.GET("/scoreboard/price-window", {
         params: {
-          query: { thesis_id: thesisId, security_id: securityId, start, end, asof },
+          query: {
+            thesis_id: thesisId,
+            security_id: securityId,
+            start,
+            end,
+            asof,
+            ...(edition === null ? {} : { edition }),
+          },
         },
       });
       if (error) throw error;

@@ -451,6 +451,24 @@ describe("ledgerRow — the Slice B families", () => {
     expect(r.detail).toContain("items 2.02, 9.01");
     expect(r.detail).toContain("ingested 5d later (2026-06-08)");
     expect(r.detail).not.toContain("filed "); // the date is its own column
+    // editions S4: a re-run edition's ledger drops our ingest lag, keeps the filing's own items
+    const rerun = ledgerRow(
+      {
+        n: 4,
+        family: "filing",
+        date: "2026-06-03",
+        closeThatDay: 104,
+        event: {
+          d: "2026-06-03",
+          form: "8-K",
+          items: ["2.02", "9.01"],
+          url: "https://www.sec.gov/Archives/edgar/data/1/acc-index.htm",
+          ingested: "2026-06-08",
+        },
+      },
+      true,
+    );
+    expect(rerun.detail).toBe("items 2.02, 9.01");
     expect(r.links).toEqual([
       { label: "filing index", url: "https://www.sec.gov/Archives/edgar/data/1/acc-index.htm" },
     ]);

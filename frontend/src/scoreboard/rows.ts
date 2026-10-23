@@ -87,8 +87,10 @@ export function triggerChips(triggers: readonly { kind: string; label: string }[
 
 export type Badge = { label: string; cls: string; title?: string };
 
-/** The episode row's badges — each marks an exception, never a constant (honest loudness). */
-export function episodeBadges(e: ScoreboardEpisodeOut): Badge[] {
+/** The episode row's badges — each marks an exception, never a constant (honest loudness). `rerun` = the row
+ *  belongs to a stored re-run EDITION (S4): it has no ingest history, so the INGEST badge never renders, and
+ *  CENSORED there means the arm fell on the company's own estimated join night (G12). */
+export function episodeBadges(e: ScoreboardEpisodeOut, rerun = false): Badge[] {
   const out: Badge[] = [];
   if (e.status === "open") out.push({ label: "OPEN", cls: "b-open", title: "still armed at the record edge" });
   if (e.matured) out.push({ label: "MATURED", cls: "b-mat", title: "its own exit-by has elapsed — judged" });
@@ -96,9 +98,11 @@ export function episodeBadges(e: ScoreboardEpisodeOut): Badge[] {
     out.push({
       label: "CENSORED",
       cls: "b-cen",
-      title: "the record began mid-arm — the true arm date is unknowable (excluded from metrics)",
+      title: rerun
+        ? "armed on its own estimated join night — the true arm date is unknowable (excluded from metrics)"
+        : "the record began mid-arm — the true arm date is unknowable (excluded from metrics)",
     });
-  if (e.ingest_flagged)
+  if (e.ingest_flagged && !rerun)
     out.push({
       label: "INGEST",
       cls: "b-ing",
@@ -216,7 +220,9 @@ export function ingestProvenanceLine(e: ScoreboardEpisodeOut): string | null {
  *  characters a policy fingerprint is. */
 export function runIdentityTitle(e: ScoreboardEpisodeOut): string {
   const parts = [
-    "which run recorded this arm — provenance only, it changes no score",
+    e.arm_run_kind === "rerun"
+      ? "which edition re-run computed this arm — provenance only, it changes no score"
+      : "which run recorded this arm — provenance only, it changes no score",
     e.arm_config_hash ? `config_hash: ${e.arm_config_hash}` : null,
     e.arm_code_sha ? `code_sha: ${e.arm_code_sha}` : null,
     e.arm_run_kind ? `run_kind: ${e.arm_run_kind}` : null,

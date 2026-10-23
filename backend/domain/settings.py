@@ -407,6 +407,15 @@ class Settings(BaseSettings):
     # policy). ALPHADECK_SCOREBOARD_EXCLUDE_LATE.
     scoreboard_exclude_late: bool = True
 
+    # --- Editions S4 — which EDITION the Scoreboard shows when the request names none ---
+    # 0 = the original record (the calls log, read exactly as above); N >= 1 = the stored re-run Edition N
+    # (`edition` / `edition_call`, migration 0063). Ships as 0 so the record stays the default view until the
+    # operator has looked at Edition 1 and says otherwise (editions plan G18 / operator question 1). A default
+    # naming an edition this deployment has not published falls back to Edition 0 (the default view never
+    # 404s); an EXPLICIT `GET /scoreboard?edition=N` for a missing edition is a 404.
+    # ALPHADECK_SCOREBOARD_DEFAULT_EDITION.
+    scoreboard_default_edition: int = 0
+
     # --- Run loader (the saved-draft-run picker, workbench/run_loader) — the modular off-switch ---
     # A dev/test cost-saver: load a saved draft-run artifact (data/draft_runs/) back into the editable workbench
     # instead of paying for a fresh Opus draft. OFF by default (a testing utility, absent in a normal deploy);

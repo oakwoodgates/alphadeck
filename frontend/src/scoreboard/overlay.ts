@@ -477,6 +477,16 @@ export interface TooltipContent {
   lines: string[];
 }
 
+// Editions S4 — an "ingested Nd later (date)" line describes OUR fetch timing (when this system stored the
+// row), the same thing the INGEST badge describes. A re-run edition is judged on the public clock and has
+// no ingest history, so its drawer drops these lines (chart tooltip + event ledger alike); the disclosure
+// lines ("disclosed …", "filed …") are public facts and stay. Edition 0 keeps every line.
+const INGEST_LINE = /^ingested \d+d later \(/;
+
+export function withoutIngestLines(tip: TooltipContent): TooltipContent {
+  return { ...tip, lines: tip.lines.filter((l) => !INGEST_LINE.test(l)) };
+}
+
 function fmtShares(n: number): string {
   return `${Math.round(n).toLocaleString("en-US")} sh`;
 }

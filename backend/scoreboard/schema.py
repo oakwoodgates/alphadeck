@@ -86,6 +86,20 @@ class Transition(BaseModel):
     to_value: str | None = None
 
 
+class EditionJoin(BaseModel):
+    """Editions S4 — the episode's company's JOIN DATE in the edition being read (``edition_entry``), and the
+    drawer's one-line note about it (backend-authored, the ``ingest_note`` precedent). ``None`` on Edition 0:
+    the record has no join dates (it simply began). ``armed_on_join_night`` = the arm fell on an ESTIMATED
+    join night, so its true arm date is unknowable (G12): the episode is ``censored_start`` in the edition.
+    """
+
+    entry_date: date
+    estimated: bool
+    method: str
+    armed_on_join_night: bool = False
+    note: str | None = None
+
+
 class ScoredEpisode(BaseModel):
     """One arm episode from the record, scored — plus the live record-honesty flags."""
 
@@ -135,6 +149,8 @@ class ScoredEpisode(BaseModel):
     #   "record trail"). Empty on the replay path.
     transitions: list[Transition] = []
     operator: EpisodeOperator | None = None  # None = no decision logged: the honest capture gap
+    # Editions S4 — the company's join date in the edition being read; None on Edition 0 (the record)
+    edition_join: EditionJoin | None = None
 
 
 class ThesisRecord(BaseModel):
@@ -283,13 +299,15 @@ class ScoreboardSummary(BaseModel):
     # per-as-of dedup, like reconstructed rows; "included" = they were scored, exactly as before D3b. The
     # list is the same in both readings (as-ofs <= asof, ledger-wide), so the banner can name the nights
     # either way and an externally quoted number can say which reading produced it.
-    annotated_policy: Literal["excluded", "included"] = "excluded"
+    # Editions S4: "n/a" on an edition >= 1 — a re-run has no annotated rows to set aside
+    annotated_policy: Literal["excluded", "included", "n/a"] = "excluded"
     annotated_nights: list[AnnotatedNight] = []
     # L1 — the late-night READ POLICY this summary was computed under, and the nights it concerns.
     # "excluded" = rows recorded after their night's on-time window closed were dropped before the per-as-of
     # dedup (an on-time row for the night wins; a late-only night reads like a cron gap); "included" = they
     # were scored, exactly as before L1. Listed the same in both readings (as-ofs <= asof, ledger-wide).
-    late_policy: Literal["excluded", "included"] = "excluded"
+    # Editions S4: "n/a" on an edition >= 1 — every page is computed the same way, none is late
+    late_policy: Literal["excluded", "included", "n/a"] = "excluded"
     late_nights: list[LateNight] = []
 
 
@@ -302,6 +320,8 @@ class ScoreboardResult(BaseModel):
     exclude_annotated: bool = True
     # L1 — the late-night policy every record read in this result ran under (resolved once)
     exclude_late: bool = True
+    # Editions S4 — which edition this result read: 0 = the original record (the calls log)
+    edition_number: int = 0
     theses: list[ThesisRecord] = []
     n_theses: int = 0
     n_with_record: int = 0

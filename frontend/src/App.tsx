@@ -14,7 +14,18 @@ import { useTheses } from "./api/hooks";
 import { Backtest } from "./backtest/Backtest";
 import { Board } from "./board/Board";
 import { Cockpit } from "./cockpit/Cockpit";
-import { ASOF, NAME, RAIL, RUN, boardPath, railOpenFrom, thesisPath, validAsof } from "./nav";
+import {
+  ASOF,
+  EDITION,
+  NAME,
+  RAIL,
+  RUN,
+  boardPath,
+  editionFrom,
+  railOpenFrom,
+  thesisPath,
+  validAsof,
+} from "./nav";
 import { Radar } from "./radar/Radar";
 import { Scoreboard } from "./scoreboard/Scoreboard";
 import { todayISO } from "./util/format";
@@ -72,10 +83,25 @@ function ScoreboardRoute() {
   const navigate = useNavigate();
   const here = useHere();
   const { asof, asofParam, setAsof } = useAsof();
+  // The edition rides ?edition= (editions S4) so an edition is a shareable link — the ?run= precedent. A view
+  // dial, so it REPLACES. Absent = the server's default edition; picking one always names it, so a shared
+  // link keeps showing that edition even after the default changes.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const onEditionChange = (n: number) =>
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.set(EDITION, String(n));
+        return next;
+      },
+      { replace: true },
+    );
   return (
     <Scoreboard
       header={<AppHeader current="scoreboard" asof={asof} onAsofChange={setAsof} />}
       asof={asof}
+      edition={editionFrom(searchParams.get(EDITION))}
+      onEditionChange={onEditionChange}
       onSelect={(id, nameKey) =>
         navigate(thesisPath(id, { asof: asofParam, name: nameKey ?? null }), {
           state: { from: here },

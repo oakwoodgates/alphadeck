@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Literal
@@ -14,6 +15,7 @@ from psycopg import sql
 
 from db.bitemporal import _FACT_IDENTITY
 from db.public_clock import (
+    CEILING_PARAM,
     INGESTED_COL,
     PUBLIC_COL,
     PUBLIC_TIME,
@@ -25,7 +27,7 @@ from db.public_clock import (
     to_public_row,
 )
 from db.session import DEFAULT_TENANT_ID
-from db.set_aside import active_ids_sql, exclusion_sql, has_set_aside
+from db.set_aside import active_ids, exclusion_sql, has_set_aside
 
 # The bitemporal fact tables, taken from the as-of read's own whitelist (single source of truth — the
 # mirror can never drift from the set of tables the live reader knows).
@@ -100,19 +102,32 @@ def _coerce(v: Any) -> Any:
     return v
 
 
+def _ceiling_sql(known_by: datetime | None, alias: str | None = None) -> sql.Composable:
+    """The FREEZE CEILING (``db.public_clock.CEILING_PARAM``) on a plain scan: `` AND recorded_at <= cut``
+    when ``known_by`` is set, else nothing (the export is then byte-identical to before the ceiling).
+    """
+    if known_by is None:
+        return sql.SQL("")
+    col = sql.Identifier(alias, "recorded_at") if alias else sql.Identifier("recorded_at")
+    return sql.SQL(" AND {} <= {}").format(col, sql.Placeholder(CEILING_PARAM))
+
+
 def _read_table(
-    conn: psycopg.Connection, table: str, tenant_id: UUID
+    conn: psycopg.Connection, table: str, tenant_id: UUID, *, known_by: datetime | None = None
 ) -> tuple[pa.Schema, list[dict]]:
     """Read ALL columns + ALL rows of one fact table for the tenant, plus an explicit Arrow schema derived
     from the Postgres column types (table name from the trusted ``_FACT_IDENTITY`` whitelist) — except a
     SET-ASIDE version (migration 0062, ``db.set_aside``), which the live read skips too, so the two engines
-    read the same versions (the parity gate); every other table is read whole, exactly as before."""
+    read the same versions (the parity gate); every other table is read whole, exactly as before. ``known_by``
+    = only the rows recorded by that cut (the freeze ceiling), the set-asides judged as they stood at it.
+    """
+    at = sql.Placeholder(CEILING_PARAM) if known_by is not None else None
     with conn.cursor() as cur:
         cur.execute(
-            sql.SQL("SELECT * FROM {} WHERE tenant_id = %(tenant_id)s{}").format(
-                sql.Identifier(table), exclusion_sql(table)
+            sql.SQL("SELECT * FROM {} WHERE tenant_id = %(tenant_id)s{}{}").format(
+                sql.Identifier(table), exclusion_sql(table, at=at), _ceiling_sql(known_by)
             ),
-            {"tenant_id": tenant_id},
+            {"tenant_id": tenant_id, CEILING_PARAM: known_by},
         )
         rows = cur.fetchall()
         schema = pa.schema(
@@ -121,21 +136,24 @@ def _read_table(
     return schema, rows
 
 
-def _count_set_aside(conn: psycopg.Connection, table: str, tenant_id: UUID) -> int:
+def _count_set_aside(
+    conn: psycopg.Connection, table: str, tenant_id: UUID, *, known_by: datetime | None = None
+) -> int:
     """How many of the tenant's stored versions of ``table`` are ACTIVELY set aside (migration 0062) — the
     versions both export modes leave out (``exclusion_sql`` here, ``public_versions_sql`` on the public path).
-    """
-    ids = sql.SQL(active_ids_sql(table))  # noqa: S608 — a module constant, never caller input
+    ``known_by`` (the freeze ceiling) counts what the cut left out: versions stored by the cut whose set-aside
+    was active at the cut."""
+    at = sql.Placeholder(CEILING_PARAM) if known_by is not None else None
     query = sql.SQL(
-        "SELECT count(*) AS n FROM {} WHERE tenant_id = %(tenant_id)s AND id IN ({})"
-    ).format(sql.Identifier(table), ids)
+        "SELECT count(*) AS n FROM {} WHERE tenant_id = %(tenant_id)s AND id IN ({}){}"
+    ).format(sql.Identifier(table), active_ids(table, at=at), _ceiling_sql(known_by))
     with conn.cursor() as cur:
-        cur.execute(query, {"tenant_id": tenant_id})
+        cur.execute(query, {"tenant_id": tenant_id, CEILING_PARAM: known_by})
         return cur.fetchone()["n"]
 
 
 def _read_table_public(
-    conn: psycopg.Connection, table: str, tenant_id: UUID
+    conn: psycopg.Connection, table: str, tenant_id: UUID, *, known_by: datetime | None = None
 ) -> tuple[pa.Schema, list[dict], dict[str, int]]:
     """Read one fact table onto the PUBLIC clock: ``recorded_at`` becomes each version's public instant
     (``db.public_clock`` — the SAME ``public_versions_sql`` the live history read runs), the honest ingest
@@ -176,6 +194,11 @@ def _read_table_public(
     Returns the schema, the rows, and the four counts the run manifest reports — separate numbers because
     they answer separate questions: a 47% raw-row drop with 0.67% identities lost is a healthy export (the
     dropped rows were superseded versions), while a small row drop with a large identity loss is a hole.
+
+    ``known_by`` is the FREEZE CEILING (``db.public_clock``): the store as it stood at that cut — every row
+    recorded after it absent, and every cross-version read (a NULL-filled acceptance, a bar's first version,
+    the tape edge and the split list behind a bar's scale) computed from the rows held then. Not a history
+    gate: the public instant still decides what a view at ``T`` sees.
     """
     spec = PUBLIC_TIME[table]
     part_cols = partition_cols(table)
@@ -188,7 +211,11 @@ def _read_table_public(
             "count(*) OVER pc - count({c}) OVER pc AS _nulls"
         ).format(c=col)
     versions = public_versions_sql(
-        table, where=sql.SQL("tenant_id = %(tenant_id)s"), serve=False, extra=guard
+        table,
+        where=sql.SQL("tenant_id = %(tenant_id)s"),
+        serve=False,
+        extra=guard,
+        ceiling=known_by is not None,
     )
     pub = sql.Identifier(PUBLIC_COL)
     query = sql.SQL(
@@ -199,7 +226,7 @@ def _read_table_public(
     ).format(versions=versions, part=part, pub=pub)
 
     with conn.cursor() as cur:
-        cur.execute(query, {"tenant_id": tenant_id, **public_params()})
+        cur.execute(query, {"tenant_id": tenant_id, **public_params(known_by)})
         raw = cur.fetchall()
         schema = pa.schema(
             [
@@ -279,7 +306,12 @@ _SECURITY_CIK_SQL = (
 
 
 def _read_aux(
-    conn: psycopg.Connection, table: str, tenant_id: UUID, clock: str
+    conn: psycopg.Connection,
+    table: str,
+    tenant_id: UUID,
+    clock: str,
+    *,
+    known_by: datetime | None = None,
 ) -> tuple[pa.Schema, list[dict], int]:
     """One aux table for the mirror: ``(schema, rows, rows_dropped_null_clock)``.
 
@@ -293,28 +325,33 @@ def _read_aux(
     of a public filing under today's rules); an OPERATOR decision from when the operator made it — so a run
     replays the operator's pending window honestly instead of applying a later ratification from the filing
     date (the pre-2026-10-21 mirror's named hindsight). ``public_at`` is never NULL (each falls back to the
-    row's own ``recorded_at``), so nothing is dropped."""
+    row's own ``recorded_at``), so nothing is dropped.
+
+    ``known_by`` (either clock) = the rows recorded by that cut, each public instant computed from the 4/A
+    records + links held then (the freeze ceiling). ``security_cik`` is IDENTITY, never as-of: uncapped.
+    """
     with conn.cursor() as cur:
         if table == "security_cik":
             cur.execute(_SECURITY_CIK_SQL, {"t": tenant_id})
         elif clock == "public":
             cur.execute(
                 sql.SQL(
-                    "SELECT x.*, {pub} AS {col} FROM {table} x WHERE x.tenant_id = %(t)s "
+                    "SELECT x.*, {pub} AS {col} FROM {table} x WHERE x.tenant_id = %(t)s{ceil} "
                     "ORDER BY x.recorded_at, x.id"
                 ).format(
-                    pub=aux_public_sql(table, alias="x"),
+                    pub=aux_public_sql(table, alias="x", ceiling=known_by is not None),
                     col=sql.Identifier(AUX_PUBLIC_COL),
                     table=sql.Identifier(table),
+                    ceil=_ceiling_sql(known_by, "x"),
                 ),
-                {"t": tenant_id, **public_params()},
+                {"t": tenant_id, **public_params(known_by)},
             )
         else:
             cur.execute(
-                sql.SQL("SELECT * FROM {} WHERE tenant_id = %(t)s ORDER BY recorded_at, id").format(
-                    sql.Identifier(table)
-                ),
-                {"t": tenant_id},
+                sql.SQL(
+                    "SELECT * FROM {} WHERE tenant_id = %(t)s{} ORDER BY recorded_at, id"
+                ).format(sql.Identifier(table), _ceiling_sql(known_by)),
+                {"t": tenant_id, CEILING_PARAM: known_by},
             )
         rows = cur.fetchall()
         schema = pa.schema(
@@ -333,28 +370,33 @@ SPLIT_TABLE = "security_split"
 
 
 def _read_splits(
-    conn: psycopg.Connection, tenant_id: UUID, clock: str
+    conn: psycopg.Connection, tenant_id: UUID, clock: str, *, known_by: datetime | None = None
 ) -> tuple[pa.Schema, list[dict]]:
     """The split list for the mirror. ``record`` — every version, untouched (the parity mode). ``public`` —
     the newest version of each logical split, ``recorded_at`` = the split's PUBLIC instant and the honest
     stamp as ``ingested_at`` (``db.public_clock.split_versions_sql``: the SAME builder the live history read
     runs, ``split_repo.current_rows``) — a split counts from its own publication, and the reader's gate and
-    pick are unchanged (one row per split).
+    pick are unchanged (one row per split). ``known_by`` = the list as it stood at that cut (the freeze
+    ceiling).
     """
     if clock != "public":
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT * FROM security_split WHERE tenant_id = %(t)s ORDER BY recorded_at, id",
-                {"t": tenant_id},
+                sql.SQL(
+                    "SELECT * FROM security_split WHERE tenant_id = %(t)s{} ORDER BY recorded_at, id"
+                ).format(_ceiling_sql(known_by)),
+                {"t": tenant_id, CEILING_PARAM: known_by},
             )
             rows = cur.fetchall()
             schema = pa.schema(
                 [(d.name, _OID_ARROW.get(d.type_code, pa.string())) for d in cur.description]
             )
         return schema, rows
-    query = split_versions_sql(where=sql.SQL("s.tenant_id = %(tenant_id)s"))
+    query = split_versions_sql(
+        where=sql.SQL("s.tenant_id = %(tenant_id)s"), ceiling=known_by is not None
+    )
     with conn.cursor() as cur:
-        cur.execute(query, {"tenant_id": tenant_id, **public_params()})
+        cur.execute(query, {"tenant_id": tenant_id, **public_params(known_by)})
         raw = cur.fetchall()
         schema = pa.schema(
             [
@@ -365,6 +407,26 @@ def _read_splits(
             + [(INGESTED_COL, pa.timestamp("us", tz="UTC"))]
         )
     return schema, [to_public_row(dict(r)) for r in raw]
+
+
+# The IDENTITY aux (the Scoreboard editions, ``editions/``): ``(security_id, name, cik)`` from
+# ``security_master`` — what the live PIT's ``security_name`` / ``security_cik`` read (identity, never as-of).
+# Without it a mirror answers ``None`` there, and the insider issuer-self NAME screen and the activist
+# self-filed screen read differently from the Postgres call the edition must equal (``replay/pit.py``).
+# Written only when asked (``identity=True``), so a backtest mirror is byte-identical to before.
+IDENTITY_TABLE = "security_identity"
+
+
+def _read_identity(conn: psycopg.Connection, tenant_id: UUID) -> tuple[pa.Schema, list[dict]]:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id::text AS security_id, name, cik FROM security_master "
+            "WHERE tenant_id = %(t)s ORDER BY id",
+            {"t": tenant_id},
+        )
+        rows = cur.fetchall()
+    schema = pa.schema([("security_id", pa.string()), ("name", pa.string()), ("cik", pa.string())])
+    return schema, rows
 
 
 def blind_detectors(excluded: list[str]) -> list[str]:
@@ -395,6 +457,8 @@ def export_snapshot(
     *,
     tenant_id: UUID = DEFAULT_TENANT_ID,
     clock: Literal["record", "public"] = "record",
+    known_by: datetime | None = None,
+    identity: bool = False,
 ) -> dict[str, Any]:
     """Export the bitemporal fact tables (ALL columns, ALL rows for the tenant) from Postgres (the SoR) to
     one Parquet file per table — the rebuildable, NON-authoritative analytical mirror DuckDB sweeps.
@@ -417,6 +481,14 @@ def export_snapshot(
     no declared clock is excluded WHOLE and named in the manifest with the detectors it blinds. The fact
     reader and its gate are untouched in both modes: the axis is chosen once, when the mirror is
     materialized.
+
+    ``known_by`` (either clock) is the FREEZE CEILING (``db.public_clock.CEILING_PARAM``) — the Scoreboard
+    editions' cut: the store as it stood at that instant, so an edition can be recomputed later on exactly the
+    rows it first saw (the store is append-only). Not a history gate: on the public clock the public instant
+    still decides what a view sees. ``None`` = no ceiling, byte-identical to the export before it existed.
+
+    ``identity`` also writes the ``security_identity`` aux (``IDENTITY_TABLE``), so the mirror answers
+    ``security_name`` / ``security_cik`` as the live PIT does. Off by default (a backtest mirror is unchanged).
     """
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -428,17 +500,22 @@ def export_snapshot(
         "excluded_tables": excluded,
         "blind_detectors": blind_detectors(excluded),
     }
+    if (
+        known_by is not None
+    ):  # only when set, so a plain export's manifest is byte-identical to before
+        manifest["known_by"] = known_by.isoformat()
     for table in FACT_TABLES:
         if table in excluded:
             continue
         counts: dict[str, int] = {}
         if clock == "public":
-            schema, rows, counts = _read_table_public(conn, table, tenant_id)
+            schema, rows, counts = _read_table_public(conn, table, tenant_id, known_by=known_by)
         else:
-            schema, rows = _read_table(conn, table, tenant_id)
+            schema, rows = _read_table(conn, table, tenant_id, known_by=known_by)
         if has_set_aside(table):
             # the versions left out as SET ASIDE (0062) — named, so the mirror says what it does not hold
-            counts["rows_set_aside"] = _count_set_aside(conn, table, tenant_id)
+            # (under the freeze ceiling: what the CUT left out, the set-asides as they stood at it)
+            counts["rows_set_aside"] = _count_set_aside(conn, table, tenant_id, known_by=known_by)
         coerced = [{k: _coerce(v) for k, v in row.items()} for row in rows]
         pq.write_table(pa.Table.from_pylist(coerced, schema=schema), out / f"{table}.parquet")
         max_rec = max((r["recorded_at"] for r in rows), default=None)
@@ -451,15 +528,21 @@ def export_snapshot(
     # them or is from before they existed (``replay.pit.connect_mirror`` refuses a partial set)
     manifest["aux_tables"] = {}
     for table in AUX_TABLES:
-        schema, rows, dropped = _read_aux(conn, table, tenant_id, clock)
+        schema, rows, dropped = _read_aux(conn, table, tenant_id, clock, known_by=known_by)
         coerced = [{k: _coerce(v) for k, v in row.items()} for row in rows]
         pq.write_table(pa.Table.from_pylist(coerced, schema=schema), out / f"{table}.parquet")
         manifest["aux_tables"][table] = {"rows": len(rows), "rows_dropped_null_clock": dropped}
     # S2 — the split list, ALWAYS written (empty or not), so a mirror either has it or is from before it
-    schema, rows = _read_splits(conn, tenant_id, clock)
+    schema, rows = _read_splits(conn, tenant_id, clock, known_by=known_by)
     coerced = [{k: _coerce(v) for k, v in row.items()} for row in rows]
     pq.write_table(pa.Table.from_pylist(coerced, schema=schema), out / f"{SPLIT_TABLE}.parquet")
     manifest["split_table"] = {"rows": len(rows)}
+    if (
+        identity
+    ):  # see IDENTITY_TABLE — only when asked, so a backtest mirror's manifest is unchanged
+        schema, rows = _read_identity(conn, tenant_id)
+        pq.write_table(pa.Table.from_pylist(rows, schema=schema), out / f"{IDENTITY_TABLE}.parquet")
+        manifest["identity_table"] = {"rows": len(rows)}
     (out / MANIFEST_NAME).write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n"
     )
@@ -490,6 +573,9 @@ class MirrorManifest:
     # re-opened as a mirror is held to the same rule; a run from before S2 reads False.
     split_table: bool = False
     split_rows: int | None = None
+    # the exporter wrote ``security_identity.parquet`` (``identity=True``): REQUIRED at open, like the split
+    # file — a lost file must fail loudly, never answer ``None`` where the edition read a name
+    identity_table: bool = False
 
 
 def read_mirror_manifest(mirror_dir: str | Path) -> MirrorManifest | None:
@@ -528,6 +614,7 @@ def read_mirror_manifest(mirror_dir: str | Path) -> MirrorManifest | None:
         # present and not null in either shape (an exporter's ``{"rows": N}``, a run's ``MirrorInfo``)
         split_table=isinstance(inner.get("split_table"), dict),
         split_rows=(inner.get("split_table") or {}).get("rows"),
+        identity_table=isinstance(inner.get("identity_table"), dict),
     )
 
 

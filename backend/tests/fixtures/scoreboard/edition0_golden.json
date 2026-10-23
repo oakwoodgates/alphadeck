@@ -1,0 +1,2370 @@
+{
+ "default": {
+  "asof": "2026-07-31",
+  "summary": {
+   "annotated_nights": [
+    {
+     "asof": "2026-07-10",
+     "n_rows": 1,
+     "reasons": [
+      "stale_comparative_revenue"
+     ],
+     "rules": [
+      "d3a-first-knowability@golden"
+     ],
+     "thesis_id": "00000000-0000-0000-0000-00000000e0b2",
+     "thesis_name": "Psychedelic Therapy"
+    }
+   ],
+   "annotated_policy": "excluded",
+   "banner": "FORWARD RECORD, NOT A CLAIM \u2014 record began 2026-05-29; 4 episodes eligible for metrics (matured + non-censored + clean-ingest; gate n<5); open, immature, censored, and ingest-flagged episodes are ledger-only.",
+   "days_behind": 11,
+   "expected_asof": "2026-07-31",
+   "late_nights": [
+    {
+     "asof": "2026-07-13",
+     "earlier_recorded_at": "2026-07-14T02:45:00Z",
+     "edgar_open": "2026-07-14T06:00:00-04:00",
+     "n_rows": 1,
+     "reason": "recorded after the next EDGAR open",
+     "recorded_at": "2026-07-14T13:00:00Z",
+     "thesis_id": "00000000-0000-0000-0000-00000000e0b2",
+     "thesis_name": "Psychedelic Therapy"
+    }
+   ],
+   "late_policy": "excluded",
+   "metrics": [
+    {
+     "claim": "timing (the flaw patched): the realized return over the hold window from when it armed",
+     "detail": [],
+     "insufficient_n": true,
+     "n": 4,
+     "name": "arm_timing_forward_return",
+     "note": "the distribution of arm_date->exit_by returns; pair with false_arm + withheld_arm.",
+     "summary": {
+      "max": 0.05,
+      "mean": 0.015,
+      "median": 0.015,
+      "min": -0.02
+     }
+    },
+    {
+     "claim": "preserve the edge: how much of the move already visible at the WARM the arm-timing wait gave up",
+     "detail": [],
+     "insufficient_n": true,
+     "n": 1,
+     "name": "early_vs_armed_delta",
+     "note": "warm_return - arm_return, to the same exit_by; large positive => the gate clips the early edge.",
+     "summary": {
+      "max": 0.0,
+      "mean": 0.0,
+      "median": 0.0,
+      "min": 0.0
+     }
+    },
+    {
+     "claim": "timing-quality discrimination: do higher-grade arms track better realized outcomes (monotonic)?",
+     "detail": [
+      {
+       "entry_grade": "core",
+       "max": 0.05,
+       "mean": 0.015,
+       "median": 0.015,
+       "min": -0.02,
+       "n": 4
+      }
+     ],
+     "insufficient_n": true,
+     "n": 4,
+     "name": "grade_confidence_calibration",
+     "note": "calibration needs >= MIN_N per grade bucket; at seed N read the per-bucket n, not the medians.",
+     "summary": {
+      "core_median": 0.015,
+      "flip_median": null,
+      "monotonic": 0.0
+     }
+    },
+    {
+     "claim": "name-selection (the flaw patched): did the ranked headline outperform the rest of the basket?",
+     "detail": [],
+     "insufficient_n": true,
+     "n": 0,
+     "name": "name_selection_lift",
+     "note": "relative (isolates selection from theme beta); on the seed this is ~1 theme decision \u2014 a case, not a rate.",
+     "summary": {
+      "median_lift": null
+     }
+    },
+    {
+     "claim": "timing precision: arms whose realized hold-window return was adverse (the gate firing wrongly)",
+     "detail": [],
+     "insufficient_n": true,
+     "n": 4,
+     "name": "false_arm_rate",
+     "note": "report the raw count at small N; a percentage would imply precision the data can't support.",
+     "summary": {
+      "adverse": 2.0,
+      "rate": 0.5,
+      "total": 4.0
+     }
+    },
+    {
+     "claim": "timing's false-negative side: the move during windows the gate WITHHELD (a gate that never fires is useless)",
+     "detail": [],
+     "insufficient_n": true,
+     "n": 0,
+     "name": "withheld_arm_counterfactual",
+     "note": "single-name theses only; positive => the withhold cost upside, negative => it dodged a drawdown.",
+     "summary": {
+      "max": null,
+      "mean": null,
+      "median": null,
+      "min": null
+     }
+    },
+    {
+     "claim": "timing (the exit side): does the edge persist to exit_by, or decay earlier? (the liveness dials)",
+     "detail": [],
+     "insufficient_n": true,
+     "n": 4,
+     "name": "exit_by_vs_rollover",
+     "note": "days from the realized peak to exit_by, and the return given up by holding to exit_by past it.",
+     "summary": {
+      "median_days_exit_after_peak": 1.0,
+      "median_return_given_up": 0.005
+     }
+    }
+   ],
+   "min_n": 5,
+   "n_censored": 0,
+   "n_eligible": 4,
+   "n_episodes": 6,
+   "n_ingest_flagged": 2,
+   "n_matured": 5,
+   "n_maturing_30d": 0,
+   "n_open": 1,
+   "n_overrides": 0,
+   "n_passes": 0,
+   "n_takes": 0,
+   "n_theses": 2,
+   "n_voided": 0,
+   "n_with_record": 2,
+   "next_maturity": "2026-11-06",
+   "projected_min_n_date": null,
+   "reconstructed_nights": [
+    "2026-07-14"
+   ],
+   "record_began": "2026-05-29",
+   "record_edge": "2026-07-16",
+   "stale": true,
+   "today": "2026-07-31"
+  },
+  "theses": [
+   {
+    "archived": false,
+    "basket_size": 1,
+    "current_state": "incubating",
+    "current_verdict": "watching",
+    "decision_anomaly": null,
+    "episodes": [
+     {
+      "annotation_note": null,
+      "arm_code_sha": "sha1",
+      "arm_config_hash": "cfgA",
+      "arm_date": "2026-06-01",
+      "arm_ingest_fresh": true,
+      "arm_run_kind": "cron",
+      "arm_until": "2026-06-04",
+      "arm_until_return": 0.050000000000000044,
+      "censored_start": false,
+      "close_reason": "conviction_aged_out",
+      "company_name": "Golden A Inc.",
+      "confidence": 0.946,
+      "conviction_grade": "core",
+      "dearm_date": "2026-06-05",
+      "dearm_detail": null,
+      "dearm_index": null,
+      "entry_close": 100.0,
+      "entry_grade": "core",
+      "exit_by": "2026-06-04",
+      "exit_close": 105.0,
+      "exit_date": "2026-06-03",
+      "exit_vs_peak_days": 0,
+      "forward_return": 0.050000000000000044,
+      "freeze_era": false,
+      "ingest_flagged": false,
+      "ingest_note": null,
+      "insufficient_prices": false,
+      "intraday_high_date": null,
+      "intraday_high_return": null,
+      "intraday_low_date": null,
+      "intraday_low_return": null,
+      "is_headline": true,
+      "matured": true,
+      "operator": null,
+      "path": [
+       100.0,
+       105.0
+      ],
+      "peak_date": "2026-06-03",
+      "peak_return": 0.050000000000000044,
+      "risk_events": [],
+      "run_identity_note": "policy cfgA \u00b7 cron \u00b7 code sha1",
+      "security_id": "00000000-0000-0000-0000-00000000e0a1",
+      "status": "closed",
+      "tape_behind_market": false,
+      "thaw_lag_days": null,
+      "theme_armed": false,
+      "thesis_id": "00000000-0000-0000-0000-00000000e0b1",
+      "ticker": "GOLDA",
+      "transitions": [],
+      "triggers_at_arm": [
+       {
+        "event_date": "2026-06-01",
+        "grade": "core",
+        "kind": "insider",
+        "label": "3 insiders incl. CEO+CFO bought $2.1M open-market (code P), 9d pre-earnings",
+        "sources": [
+         {
+          "detail": {},
+          "ref": "0001234567-26-000123",
+          "source": "form4",
+          "url": "https://www.sec.gov/Archives/edgar/data/101/000123456726000123/0001234567-26-000123-index.htm"
+         }
+        ],
+        "ticker": "GOLDA"
+       },
+       {
+        "event_date": "2026-06-01",
+        "grade": "core",
+        "kind": "technical_breakout",
+        "label": "Breakout from a 9-week base on 2.4x average volume",
+        "sources": [
+         {
+          "detail": {},
+          "ref": "price:DEVCO:2026-06-02",
+          "source": "price",
+          "url": null
+         }
+        ],
+        "ticker": "GOLDA"
+       }
+      ],
+      "trough_date": "2026-06-01",
+      "trough_return": 0.0,
+      "truncated": false,
+      "verdict": "core_entry",
+      "warm_date": "2026-05-29",
+      "warm_return": 0.050000000000000044
+     },
+     {
+      "annotation_note": null,
+      "arm_code_sha": "sha1",
+      "arm_config_hash": "cfgA",
+      "arm_date": "2026-06-08",
+      "arm_ingest_fresh": true,
+      "arm_run_kind": "cron",
+      "arm_until": "2026-06-11",
+      "arm_until_return": -0.020000000000000018,
+      "censored_start": false,
+      "close_reason": "conviction_aged_out",
+      "company_name": "Golden A Inc.",
+      "confidence": 0.946,
+      "conviction_grade": "core",
+      "dearm_date": "2026-06-12",
+      "dearm_detail": null,
+      "dearm_index": null,
+      "entry_close": 100.0,
+      "entry_grade": "core",
+      "exit_by": "2026-06-11",
+      "exit_close": 98.0,
+      "exit_date": "2026-06-10",
+      "exit_vs_peak_days": 2,
+      "forward_return": -0.020000000000000018,
+      "freeze_era": false,
+      "ingest_flagged": false,
+      "ingest_note": null,
+      "insufficient_prices": false,
+      "intraday_high_date": null,
+      "intraday_high_return": null,
+      "intraday_low_date": null,
+      "intraday_low_return": null,
+      "is_headline": true,
+      "matured": true,
+      "operator": null,
+      "path": [
+       100.0,
+       98.0
+      ],
+      "peak_date": "2026-06-08",
+      "peak_return": 0.0,
+      "risk_events": [],
+      "run_identity_note": "policy cfgA \u00b7 cron \u00b7 code sha1",
+      "security_id": "00000000-0000-0000-0000-00000000e0a1",
+      "status": "closed",
+      "tape_behind_market": false,
+      "thaw_lag_days": null,
+      "theme_armed": false,
+      "thesis_id": "00000000-0000-0000-0000-00000000e0b1",
+      "ticker": "GOLDA",
+      "transitions": [],
+      "triggers_at_arm": [
+       {
+        "event_date": "2026-06-08",
+        "grade": "core",
+        "kind": "insider",
+        "label": "3 insiders incl. CEO+CFO bought $2.1M open-market (code P), 9d pre-earnings",
+        "sources": [
+         {
+          "detail": {},
+          "ref": "0001234567-26-000123",
+          "source": "form4",
+          "url": "https://www.sec.gov/Archives/edgar/data/101/000123456726000123/0001234567-26-000123-index.htm"
+         }
+        ],
+        "ticker": "GOLDA"
+       },
+       {
+        "event_date": "2026-06-08",
+        "grade": "core",
+        "kind": "technical_breakout",
+        "label": "Breakout from a 9-week base on 2.4x average volume",
+        "sources": [
+         {
+          "detail": {},
+          "ref": "price:DEVCO:2026-06-02",
+          "source": "price",
+          "url": null
+         }
+        ],
+        "ticker": "GOLDA"
+       }
+      ],
+      "trough_date": "2026-06-10",
+      "trough_return": -0.020000000000000018,
+      "truncated": false,
+      "verdict": "core_entry",
+      "warm_date": null,
+      "warm_return": null
+     },
+     {
+      "annotation_note": null,
+      "arm_code_sha": "sha1",
+      "arm_config_hash": "cfgA",
+      "arm_date": "2026-06-15",
+      "arm_ingest_fresh": false,
+      "arm_run_kind": "cron",
+      "arm_until": "2026-06-18",
+      "arm_until_return": 0.10000000000000009,
+      "censored_start": false,
+      "close_reason": "conviction_aged_out",
+      "company_name": "Golden A Inc.",
+      "confidence": 0.946,
+      "conviction_grade": "core",
+      "dearm_date": "2026-06-19",
+      "dearm_detail": null,
+      "dearm_index": null,
+      "entry_close": 100.0,
+      "entry_grade": "core",
+      "exit_by": "2026-06-18",
+      "exit_close": 110.0,
+      "exit_date": "2026-06-17",
+      "exit_vs_peak_days": 0,
+      "forward_return": 0.10000000000000009,
+      "freeze_era": false,
+      "ingest_flagged": true,
+      "ingest_note": "partial ingest on the arm-date run (3 names errored)",
+      "insufficient_prices": false,
+      "intraday_high_date": null,
+      "intraday_high_return": null,
+      "intraday_low_date": null,
+      "intraday_low_return": null,
+      "is_headline": true,
+      "matured": true,
+      "operator": null,
+      "path": [
+       100.0,
+       110.0
+      ],
+      "peak_date": "2026-06-17",
+      "peak_return": 0.10000000000000009,
+      "risk_events": [],
+      "run_identity_note": "policy cfgA \u00b7 cron \u00b7 code sha1",
+      "security_id": "00000000-0000-0000-0000-00000000e0a1",
+      "status": "closed",
+      "tape_behind_market": false,
+      "thaw_lag_days": null,
+      "theme_armed": false,
+      "thesis_id": "00000000-0000-0000-0000-00000000e0b1",
+      "ticker": "GOLDA",
+      "transitions": [],
+      "triggers_at_arm": [
+       {
+        "event_date": "2026-06-15",
+        "grade": "core",
+        "kind": "insider",
+        "label": "3 insiders incl. CEO+CFO bought $2.1M open-market (code P), 9d pre-earnings",
+        "sources": [
+         {
+          "detail": {},
+          "ref": "0001234567-26-000123",
+          "source": "form4",
+          "url": "https://www.sec.gov/Archives/edgar/data/101/000123456726000123/0001234567-26-000123-index.htm"
+         }
+        ],
+        "ticker": "GOLDA"
+       },
+       {
+        "event_date": "2026-06-15",
+        "grade": "core",
+        "kind": "technical_breakout",
+        "label": "Breakout from a 9-week base on 2.4x average volume",
+        "sources": [
+         {
+          "detail": {},
+          "ref": "price:DEVCO:2026-06-02",
+          "source": "price",
+          "url": null
+         }
+        ],
+        "ticker": "GOLDA"
+       }
+      ],
+      "trough_date": "2026-06-15",
+      "trough_return": 0.0,
+      "truncated": false,
+      "verdict": "core_entry",
+      "warm_date": null,
+      "warm_return": null
+     },
+     {
+      "annotation_note": null,
+      "arm_code_sha": "sha1",
+      "arm_config_hash": "cfgA",
+      "arm_date": "2026-06-22",
+      "arm_ingest_fresh": true,
+      "arm_run_kind": "cron",
+      "arm_until": "2026-06-25",
+      "arm_until_return": -0.010000000000000009,
+      "censored_start": false,
+      "close_reason": "conviction_aged_out",
+      "company_name": "Golden A Inc.",
+      "confidence": 0.946,
+      "conviction_grade": "core",
+      "dearm_date": "2026-06-26",
+      "dearm_detail": null,
+      "dearm_index": null,
+      "entry_close": 100.0,
+      "entry_grade": "core",
+      "exit_by": "2026-06-25",
+      "exit_close": 99.0,
+      "exit_date": "2026-06-24",
+      "exit_vs_peak_days": 2,
+      "forward_return": -0.010000000000000009,
+      "freeze_era": false,
+      "ingest_flagged": false,
+      "ingest_note": null,
+      "insufficient_prices": false,
+      "intraday_high_date": null,
+      "intraday_high_return": null,
+      "intraday_low_date": null,
+      "intraday_low_return": null,
+      "is_headline": true,
+      "matured": true,
+      "operator": null,
+      "path": [
+       100.0,
+       99.0
+      ],
+      "peak_date": "2026-06-22",
+      "peak_return": 0.0,
+      "risk_events": [],
+      "run_identity_note": "policy cfgA \u00b7 cron \u00b7 code sha1",
+      "security_id": "00000000-0000-0000-0000-00000000e0a1",
+      "status": "closed",
+      "tape_behind_market": false,
+      "thaw_lag_days": null,
+      "theme_armed": false,
+      "thesis_id": "00000000-0000-0000-0000-00000000e0b1",
+      "ticker": "GOLDA",
+      "transitions": [],
+      "triggers_at_arm": [
+       {
+        "event_date": "2026-06-22",
+        "grade": "core",
+        "kind": "insider",
+        "label": "3 insiders incl. CEO+CFO bought $2.1M open-market (code P), 9d pre-earnings",
+        "sources": [
+         {
+          "detail": {},
+          "ref": "0001234567-26-000123",
+          "source": "form4",
+          "url": "https://www.sec.gov/Archives/edgar/data/101/000123456726000123/0001234567-26-000123-index.htm"
+         }
+        ],
+        "ticker": "GOLDA"
+       },
+       {
+        "event_date": "2026-06-22",
+        "grade": "core",
+        "kind": "technical_breakout",
+        "label": "Breakout from a 9-week base on 2.4x average volume",
+        "sources": [
+         {
+          "detail": {},
+          "ref": "price:DEVCO:2026-06-02",
+          "source": "price",
+          "url": null
+         }
+        ],
+        "ticker": "GOLDA"
+       }
+      ],
+      "trough_date": "2026-06-24",
+      "trough_return": -0.010000000000000009,
+      "truncated": false,
+      "verdict": "core_entry",
+      "warm_date": null,
+      "warm_return": null
+     },
+     {
+      "annotation_note": null,
+      "arm_code_sha": "sha1",
+      "arm_config_hash": "cfgA",
+      "arm_date": "2026-06-29",
+      "arm_ingest_fresh": true,
+      "arm_run_kind": "cron",
+      "arm_until": "2026-07-02",
+      "arm_until_return": 0.040000000000000036,
+      "censored_start": false,
+      "close_reason": "conviction_aged_out",
+      "company_name": "Golden A Inc.",
+      "confidence": 0.946,
+      "conviction_grade": "core",
+      "dearm_date": "2026-07-03",
+      "dearm_detail": null,
+      "dearm_index": null,
+      "entry_close": 100.0,
+      "entry_grade": "core",
+      "exit_by": "2026-07-02",
+      "exit_close": 104.0,
+      "exit_date": "2026-07-01",
+      "exit_vs_peak_days": 0,
+      "forward_return": 0.040000000000000036,
+      "freeze_era": false,
+      "ingest_flagged": false,
+      "ingest_note": null,
+      "insufficient_prices": false,
+      "intraday_high_date": null,
+      "intraday_high_return": null,
+      "intraday_low_date": null,
+      "intraday_low_return": null,
+      "is_headline": true,
+      "matured": true,
+      "operator": null,
+      "path": [
+       100.0,
+       104.0
+      ],
+      "peak_date": "2026-07-01",
+      "peak_return": 0.040000000000000036,
+      "risk_events": [],
+      "run_identity_note": "policy cfgA \u00b7 cron \u00b7 code sha1",
+      "security_id": "00000000-0000-0000-0000-00000000e0a1",
+      "status": "closed",
+      "tape_behind_market": true,
+      "thaw_lag_days": null,
+      "theme_armed": false,
+      "thesis_id": "00000000-0000-0000-0000-00000000e0b1",
+      "ticker": "GOLDA",
+      "transitions": [],
+      "triggers_at_arm": [
+       {
+        "event_date": "2026-06-29",
+        "grade": "core",
+        "kind": "insider",
+        "label": "3 insiders incl. CEO+CFO bought $2.1M open-market (code P), 9d pre-earnings",
+        "sources": [
+         {
+          "detail": {},
+          "ref": "0001234567-26-000123",
+          "source": "form4",
+          "url": "https://www.sec.gov/Archives/edgar/data/101/000123456726000123/0001234567-26-000123-index.htm"
+         }
+        ],
+        "ticker": "GOLDA"
+       },
+       {
+        "event_date": "2026-06-29",
+        "grade": "core",
+        "kind": "technical_breakout",
+        "label": "Breakout from a 9-week base on 2.4x average volume",
+        "sources": [
+         {
+          "detail": {},
+          "ref": "price:DEVCO:2026-06-02",
+          "source": "price",
+          "url": null
+         }
+        ],
+        "ticker": "GOLDA"
+       }
+      ],
+      "trough_date": "2026-06-29",
+      "trough_return": 0.0,
+      "truncated": true,
+      "verdict": "core_entry",
+      "warm_date": null,
+      "warm_return": null
+     }
+    ],
+    "first_call_asof": "2026-05-29",
+    "last_call_asof": "2026-07-03",
+    "name": "Psychedelic Therapy",
+    "operator_spans": [],
+    "record_error": null,
+    "thesis_id": "00000000-0000-0000-0000-00000000e0b1",
+    "ticker": "DEVCO",
+    "warming_since": null
+   },
+   {
+    "archived": false,
+    "basket_size": 1,
+    "current_state": "armed",
+    "current_verdict": "core_entry",
+    "decision_anomaly": null,
+    "episodes": [
+     {
+      "annotation_note": null,
+      "arm_code_sha": "sha2",
+      "arm_config_hash": null,
+      "arm_date": "2026-07-15",
+      "arm_ingest_fresh": null,
+      "arm_run_kind": "manual",
+      "arm_until": "2026-11-06",
+      "arm_until_return": 0.028846153846153744,
+      "censored_start": false,
+      "close_reason": "window_end",
+      "company_name": "Golden B Corp.",
+      "confidence": 0.946,
+      "conviction_grade": "core",
+      "dearm_date": null,
+      "dearm_detail": null,
+      "dearm_index": null,
+      "entry_close": 52.0,
+      "entry_grade": "core",
+      "exit_by": "2026-11-06",
+      "exit_close": 53.5,
+      "exit_date": "2026-07-16",
+      "exit_vs_peak_days": 0,
+      "forward_return": 0.028846153846153744,
+      "freeze_era": true,
+      "ingest_flagged": true,
+      "ingest_note": "armed inside the 2026-07 EDGAR freeze window",
+      "insufficient_prices": false,
+      "intraday_high_date": null,
+      "intraday_high_return": null,
+      "intraday_low_date": null,
+      "intraday_low_return": null,
+      "is_headline": true,
+      "matured": false,
+      "operator": null,
+      "path": [
+       52.0,
+       53.5
+      ],
+      "peak_date": "2026-07-16",
+      "peak_return": 0.028846153846153744,
+      "risk_events": [],
+      "run_identity_note": "manual \u00b7 code sha2",
+      "security_id": "00000000-0000-0000-0000-00000000e0a2",
+      "status": "open",
+      "tape_behind_market": false,
+      "thaw_lag_days": null,
+      "theme_armed": false,
+      "thesis_id": "00000000-0000-0000-0000-00000000e0b2",
+      "ticker": "GOLDB",
+      "transitions": [],
+      "triggers_at_arm": [
+       {
+        "event_date": "2026-07-09",
+        "grade": "core",
+        "kind": "insider",
+        "label": "3 insiders incl. CEO+CFO bought $2.1M open-market (code P), 9d pre-earnings",
+        "sources": [
+         {
+          "detail": {},
+          "ref": "0001234567-26-000123",
+          "source": "form4",
+          "url": "https://www.sec.gov/Archives/edgar/data/102/000123456726000123/0001234567-26-000123-index.htm"
+         }
+        ],
+        "ticker": "GOLDB"
+       },
+       {
+        "event_date": "2026-07-09",
+        "grade": "core",
+        "kind": "technical_breakout",
+        "label": "Breakout from a 9-week base on 2.4x average volume",
+        "sources": [
+         {
+          "detail": {},
+          "ref": "price:DEVCO:2026-06-02",
+          "source": "price",
+          "url": null
+         }
+        ],
+        "ticker": "GOLDB"
+       }
+      ],
+      "trough_date": "2026-07-15",
+      "trough_return": 0.0,
+      "truncated": true,
+      "verdict": "core_entry",
+      "warm_date": "2026-07-09",
+      "warm_return": 0.07000000000000006
+     }
+    ],
+    "first_call_asof": "2026-07-09",
+    "last_call_asof": "2026-07-16",
+    "name": "Psychedelic Therapy",
+    "operator_spans": [],
+    "record_error": null,
+    "thesis_id": "00000000-0000-0000-0000-00000000e0b2",
+    "ticker": "DEVCO",
+    "warming_since": null
+   }
+  ]
+ },
+ "include_annotated": {
+  "asof": "2026-07-31",
+  "summary": {
+   "annotated_nights": [
+    {
+     "asof": "2026-07-10",
+     "n_rows": 1,
+     "reasons": [
+      "stale_comparative_revenue"
+     ],
+     "rules": [
+      "d3a-first-knowability@golden"
+     ],
+     "thesis_id": "00000000-0000-0000-0000-00000000e0b2",
+     "thesis_name": "Psychedelic Therapy"
+    }
+   ],
+   "annotated_policy": "included",
+   "banner": "FORWARD RECORD, NOT A CLAIM \u2014 record began 2026-05-29; 4 episodes eligible for metrics (matured + non-censored + clean-ingest; gate n<5); open, immature, censored, and ingest-flagged episodes are ledger-only.",
+   "days_behind": 11,
+   "expected_asof": "2026-07-31",
+   "late_nights": [
+    {
+     "asof": "2026-07-13",
+     "earlier_recorded_at": "2026-07-14T02:45:00Z",
+     "edgar_open": "2026-07-14T06:00:00-04:00",
+     "n_rows": 1,
+     "reason": "recorded after the next EDGAR open",
+     "recorded_at": "2026-07-14T13:00:00Z",
+     "thesis_id": "00000000-0000-0000-0000-00000000e0b2",
+     "thesis_name": "Psychedelic Therapy"
+    }
+   ],
+   "late_policy": "excluded",
+   "metrics": [
+    {
+     "claim": "timing (the flaw patched): the realized return over the hold window from when it armed",
+     "detail": [],
+     "insufficient_n": true,
+     "n": 4,
+     "name": "arm_timing_forward_return",
+     "note": "the distribution of arm_date->exit_by returns; pair with false_arm + withheld_arm.",
+     "summary": {
+      "max": 0.05,
+      "mean": 0.015,
+      "median": 0.015,
+      "min": -0.02
+     }
+    },
+    {
+     "claim": "preserve the edge: how much of the move already visible at the WARM the arm-timing wait gave up",
+     "detail": [],
+     "insufficient_n": true,
+     "n": 1,
+     "name": "early_vs_armed_delta",
+     "note": "warm_return - arm_return, to the same exit_by; large positive => the gate clips the early edge.",
+     "summary": {
+      "max": 0.0,
+      "mean": 0.0,
+      "median": 0.0,
+      "min": 0.0
+     }
+    },
+    {
+     "claim": "timing-quality discrimination: do higher-grade arms track better realized outcomes (monotonic)?",
+     "detail": [
+      {
+       "entry_grade": "core",
+       "max": 0.05,
+       "mean": 0.015,
+       "median": 0.015,
+       "min": -0.02,
+       "n": 4
+      }
+     ],
+     "insufficient_n": true,
+     "n": 4,
+     "name": "grade_confidence_calibration",
+     "note": "calibration needs >= MIN_N per grade bucket; at seed N read the per-bucket n, not the medians.",
+     "summary": {
+      "core_median": 0.015,
+      "flip_median": null,
+      "monotonic": 0.0
+     }
+    },
+    {
+     "claim": "name-selection (the flaw patched): did the ranked headline outperform the rest of the basket?",
+     "detail": [],
+     "insufficient_n": true,
+     "n": 0,
+     "name": "name_selection_lift",
+     "note": "relative (isolates selection from theme beta); on the seed this is ~1 theme decision \u2014 a case, not a rate.",
+     "summary": {
+      "median_lift": null
+     }
+    },
+    {
+     "claim": "timing precision: arms whose realized hold-window return was adverse (the gate firing wrongly)",
+     "detail": [],
+     "insufficient_n": true,
+     "n": 4,
+     "name": "false_arm_rate",
+     "note": "report the raw count at small N; a percentage would imply precision the data can't support.",
+     "summary": {
+      "adverse": 2.0,
+      "rate": 0.5,
+      "total": 4.0
+     }
+    },
+    {
+     "claim": "timing's false-negative side: the move during windows the gate WITHHELD (a gate that never fires is useless)",
+     "detail": [
+      {
+       "thesis_id": "00000000-0000-0000-0000-00000000e0b2",
+       "warm_end": "2026-07-13",
+       "warm_start": "2026-07-13",
+       "withheld_return": -0.0385
+      }
+     ],
+     "insufficient_n": true,
+     "n": 1,
+     "name": "withheld_arm_counterfactual",
+     "note": "single-name theses only; positive => the withhold cost upside, negative => it dodged a drawdown.",
+     "summary": {
+      "max": -0.0385,
+      "mean": -0.0385,
+      "median": -0.0385,
+      "min": -0.0385
+     }
+    },
+    {
+     "claim": "timing (the exit side): does the edge persist to exit_by, or decay earlier? (the liveness dials)",
+     "detail": [],
+     "insufficient_n": true,
+     "n": 4,
+     "name": "exit_by_vs_rollover",
+     "note": "days from the realized peak to exit_by, and the return given up by holding to exit_by past it.",
+     "summary": {
+      "median_days_exit_after_peak": 1.0,
+      "median_return_given_up": 0.005
+     }
+    }
+   ],
+   "min_n": 5,
+   "n_censored": 0,
+   "n_eligible": 4,
+   "n_episodes": 7,
+   "n_ingest_flagged": 3,
+   "n_matured": 5,
+   "n_maturing_30d": 0,
+   "n_open": 1,
+   "n_overrides": 0,
+   "n_passes": 0,
+   "n_takes": 0,
+   "n_theses": 2,
+   "n_voided": 0,
+   "n_with_record": 2,
+   "next_maturity": "2026-11-06",
+   "projected_min_n_date": null,
+   "reconstructed_nights": [
+    "2026-07-14"
+   ],
+   "record_began": "2026-05-29",
+   "record_edge": "2026-07-16",
+   "stale": true,
+   "today": "2026-07-31"
+  },
+  "theses": [
+   {
+    "archived": false,
+    "basket_size": 1,
+    "current_state": "incubating",
+    "current_verdict": "watching",
+    "decision_anomaly": null,
+    "episodes": [
+     {
+      "annotation_note": null,
+      "arm_code_sha": "sha1",
+      "arm_config_hash": "cfgA",
+      "arm_date": "2026-06-01",
+      "arm_ingest_fresh": true,
+      "arm_run_kind": "cron",
+      "arm_until": "2026-06-04",
+      "arm_until_return": 0.050000000000000044,
+      "censored_start": false,
+      "close_reason": "conviction_aged_out",
+      "company_name": "Golden A Inc.",
+      "confidence": 0.946,
+      "conviction_grade": "core",
+      "dearm_date": "2026-06-05",
+      "dearm_detail": null,
+      "dearm_index": null,
+      "entry_close": 100.0,
+      "entry_grade": "core",
+      "exit_by": "2026-06-04",
+      "exit_close": 105.0,
+      "exit_date": "2026-06-03",
+      "exit_vs_peak_days": 0,
+      "forward_return": 0.050000000000000044,
+      "freeze_era": false,
+      "ingest_flagged": false,
+      "ingest_note": null,
+      "insufficient_prices": false,
+      "intraday_high_date": null,
+      "intraday_high_return": null,
+      "intraday_low_date": null,
+      "intraday_low_return": null,
+      "is_headline": true,
+      "matured": true,
+      "operator": null,
+      "path": [
+       100.0,
+       105.0
+      ],
+      "peak_date": "2026-06-03",
+      "peak_return": 0.050000000000000044,
+      "risk_events": [],
+      "run_identity_note": "policy cfgA \u00b7 cron \u00b7 code sha1",
+      "security_id": "00000000-0000-0000-0000-00000000e0a1",
+      "status": "closed",
+      "tape_behind_market": false,
+      "thaw_lag_days": null,
+      "theme_armed": false,
+      "thesis_id": "00000000-0000-0000-0000-00000000e0b1",
+      "ticker": "GOLDA",
+      "transitions": [],
+      "triggers_at_arm": [
+       {
+        "event_date": "2026-06-01",
+        "grade": "core",
+        "kind": "insider",
+        "label": "3 insiders incl. CEO+CFO bought $2.1M open-market (code P), 9d pre-earnings",
+        "sources": [
+         {
+          "detail": {},
+          "ref": "0001234567-26-000123",
+          "source": "form4",
+          "url": "https://www.sec.gov/Archives/edgar/data/101/000123456726000123/0001234567-26-000123-index.htm"
+         }
+        ],
+        "ticker": "GOLDA"
+       },
+       {
+        "event_date": "2026-06-01",
+        "grade": "core",
+        "kind": "technical_breakout",
+        "label": "Breakout from a 9-week base on 2.4x average volume",
+        "sources": [
+         {
+          "detail": {},
+          "ref": "price:DEVCO:2026-06-02",
+          "source": "price",
+          "url": null
+         }
+        ],
+        "ticker": "GOLDA"
+       }
+      ],
+      "trough_date": "2026-06-01",
+      "trough_return": 0.0,
+      "truncated": false,
+      "verdict": "core_entry",
+      "warm_date": "2026-05-29",
+      "warm_return": 0.050000000000000044
+     },
+     {
+      "annotation_note": null,
+      "arm_code_sha": "sha1",
+      "arm_config_hash": "cfgA",
+      "arm_date": "2026-06-08",
+      "arm_ingest_fresh": true,
+      "arm_run_kind": "cron",
+      "arm_until": "2026-06-11",
+      "arm_until_return": -0.020000000000000018,
+      "censored_start": false,
+      "close_reason": "conviction_aged_out",
+      "company_name": "Golden A Inc.",
+      "confidence": 0.946,
+      "conviction_grade": "core",
+      "dearm_date": "2026-06-12",
+      "dearm_detail": null,
+      "dearm_index": null,
+      "entry_close": 100.0,
+      "entry_grade": "core",
+      "exit_by": "2026-06-11",
+      "exit_close": 98.0,
+      "exit_date": "2026-06-10",
+      "exit_vs_peak_days": 2,
+      "forward_return": -0.020000000000000018,
+      "freeze_era": false,
+      "ingest_flagged": false,
+      "ingest_note": null,
+      "insufficient_prices": false,
+      "intraday_high_date": null,
+      "intraday_high_return": null,
+      "intraday_low_date": null,
+      "intraday_low_return": null,
+      "is_headline": true,
+      "matured": true,
+      "operator": null,
+      "path": [
+       100.0,
+       98.0
+      ],
+      "peak_date": "2026-06-08",
+      "peak_return": 0.0,
+      "risk_events": [],
+      "run_identity_note": "policy cfgA \u00b7 cron \u00b7 code sha1",
+      "security_id": "00000000-0000-0000-0000-00000000e0a1",
+      "status": "closed",
+      "tape_behind_market": false,
+      "thaw_lag_days": null,
+      "theme_armed": false,
+      "thesis_id": "00000000-0000-0000-0000-00000000e0b1",
+      "ticker": "GOLDA",
+      "transitions": [],
+      "triggers_at_arm": [
+       {
+        "event_date": "2026-06-08",
+        "grade": "core",
+        "kind": "insider",
+        "label": "3 insiders incl. CEO+CFO bought $2.1M open-market (code P), 9d pre-earnings",
+        "sources": [
+         {
+          "detail": {},
+          "ref": "0001234567-26-000123",
+          "source": "form4",
+          "url": "https://www.sec.gov/Archives/edgar/data/101/000123456726000123/0001234567-26-000123-index.htm"
+         }
+        ],
+        "ticker": "GOLDA"
+       },
+       {
+        "event_date": "2026-06-08",
+        "grade": "core",
+        "kind": "technical_breakout",
+        "label": "Breakout from a 9-week base on 2.4x average volume",
+        "sources": [
+         {
+          "detail": {},
+          "ref": "price:DEVCO:2026-06-02",
+          "source": "price",
+          "url": null
+         }
+        ],
+        "ticker": "GOLDA"
+       }
+      ],
+      "trough_date": "2026-06-10",
+      "trough_return": -0.020000000000000018,
+      "truncated": false,
+      "verdict": "core_entry",
+      "warm_date": null,
+      "warm_return": null
+     },
+     {
+      "annotation_note": null,
+      "arm_code_sha": "sha1",
+      "arm_config_hash": "cfgA",
+      "arm_date": "2026-06-15",
+      "arm_ingest_fresh": false,
+      "arm_run_kind": "cron",
+      "arm_until": "2026-06-18",
+      "arm_until_return": 0.10000000000000009,
+      "censored_start": false,
+      "close_reason": "conviction_aged_out",
+      "company_name": "Golden A Inc.",
+      "confidence": 0.946,
+      "conviction_grade": "core",
+      "dearm_date": "2026-06-19",
+      "dearm_detail": null,
+      "dearm_index": null,
+      "entry_close": 100.0,
+      "entry_grade": "core",
+      "exit_by": "2026-06-18",
+      "exit_close": 110.0,
+      "exit_date": "2026-06-17",
+      "exit_vs_peak_days": 0,
+      "forward_return": 0.10000000000000009,
+      "freeze_era": false,
+      "ingest_flagged": true,
+      "ingest_note": "partial ingest on the arm-date run (3 names errored)",
+      "insufficient_prices": false,
+      "intraday_high_date": null,
+      "intraday_high_return": null,
+      "intraday_low_date": null,
+      "intraday_low_return": null,
+      "is_headline": true,
+      "matured": true,
+      "operator": null,
+      "path": [
+       100.0,
+       110.0
+      ],
+      "peak_date": "2026-06-17",
+      "peak_return": 0.10000000000000009,
+      "risk_events": [],
+      "run_identity_note": "policy cfgA \u00b7 cron \u00b7 code sha1",
+      "security_id": "00000000-0000-0000-0000-00000000e0a1",
+      "status": "closed",
+      "tape_behind_market": false,
+      "thaw_lag_days": null,
+      "theme_armed": false,
+      "thesis_id": "00000000-0000-0000-0000-00000000e0b1",
+      "ticker": "GOLDA",
+      "transitions": [],
+      "triggers_at_arm": [
+       {
+        "event_date": "2026-06-15",
+        "grade": "core",
+        "kind": "insider",
+        "label": "3 insiders incl. CEO+CFO bought $2.1M open-market (code P), 9d pre-earnings",
+        "sources": [
+         {
+          "detail": {},
+          "ref": "0001234567-26-000123",
+          "source": "form4",
+          "url": "https://www.sec.gov/Archives/edgar/data/101/000123456726000123/0001234567-26-000123-index.htm"
+         }
+        ],
+        "ticker": "GOLDA"
+       },
+       {
+        "event_date": "2026-06-15",
+        "grade": "core",
+        "kind": "technical_breakout",
+        "label": "Breakout from a 9-week base on 2.4x average volume",
+        "sources": [
+         {
+          "detail": {},
+          "ref": "price:DEVCO:2026-06-02",
+          "source": "price",
+          "url": null
+         }
+        ],
+        "ticker": "GOLDA"
+       }
+      ],
+      "trough_date": "2026-06-15",
+      "trough_return": 0.0,
+      "truncated": false,
+      "verdict": "core_entry",
+      "warm_date": null,
+      "warm_return": null
+     },
+     {
+      "annotation_note": null,
+      "arm_code_sha": "sha1",
+      "arm_config_hash": "cfgA",
+      "arm_date": "2026-06-22",
+      "arm_ingest_fresh": true,
+      "arm_run_kind": "cron",
+      "arm_until": "2026-06-25",
+      "arm_until_return": -0.010000000000000009,
+      "censored_start": false,
+      "close_reason": "conviction_aged_out",
+      "company_name": "Golden A Inc.",
+      "confidence": 0.946,
+      "conviction_grade": "core",
+      "dearm_date": "2026-06-26",
+      "dearm_detail": null,
+      "dearm_index": null,
+      "entry_close": 100.0,
+      "entry_grade": "core",
+      "exit_by": "2026-06-25",
+      "exit_close": 99.0,
+      "exit_date": "2026-06-24",
+      "exit_vs_peak_days": 2,
+      "forward_return": -0.010000000000000009,
+      "freeze_era": false,
+      "ingest_flagged": false,
+      "ingest_note": null,
+      "insufficient_prices": false,
+      "intraday_high_date": null,
+      "intraday_high_return": null,
+      "intraday_low_date": null,
+      "intraday_low_return": null,
+      "is_headline": true,
+      "matured": true,
+      "operator": null,
+      "path": [
+       100.0,
+       99.0
+      ],
+      "peak_date": "2026-06-22",
+      "peak_return": 0.0,
+      "risk_events": [],
+      "run_identity_note": "policy cfgA \u00b7 cron \u00b7 code sha1",
+      "security_id": "00000000-0000-0000-0000-00000000e0a1",
+      "status": "closed",
+      "tape_behind_market": false,
+      "thaw_lag_days": null,
+      "theme_armed": false,
+      "thesis_id": "00000000-0000-0000-0000-00000000e0b1",
+      "ticker": "GOLDA",
+      "transitions": [],
+      "triggers_at_arm": [
+       {
+        "event_date": "2026-06-22",
+        "grade": "core",
+        "kind": "insider",
+        "label": "3 insiders incl. CEO+CFO bought $2.1M open-market (code P), 9d pre-earnings",
+        "sources": [
+         {
+          "detail": {},
+          "ref": "0001234567-26-000123",
+          "source": "form4",
+          "url": "https://www.sec.gov/Archives/edgar/data/101/000123456726000123/0001234567-26-000123-index.htm"
+         }
+        ],
+        "ticker": "GOLDA"
+       },
+       {
+        "event_date": "2026-06-22",
+        "grade": "core",
+        "kind": "technical_breakout",
+        "label": "Breakout from a 9-week base on 2.4x average volume",
+        "sources": [
+         {
+          "detail": {},
+          "ref": "price:DEVCO:2026-06-02",
+          "source": "price",
+          "url": null
+         }
+        ],
+        "ticker": "GOLDA"
+       }
+      ],
+      "trough_date": "2026-06-24",
+      "trough_return": -0.010000000000000009,
+      "truncated": false,
+      "verdict": "core_entry",
+      "warm_date": null,
+      "warm_return": null
+     },
+     {
+      "annotation_note": null,
+      "arm_code_sha": "sha1",
+      "arm_config_hash": "cfgA",
+      "arm_date": "2026-06-29",
+      "arm_ingest_fresh": true,
+      "arm_run_kind": "cron",
+      "arm_until": "2026-07-02",
+      "arm_until_return": 0.040000000000000036,
+      "censored_start": false,
+      "close_reason": "conviction_aged_out",
+      "company_name": "Golden A Inc.",
+      "confidence": 0.946,
+      "conviction_grade": "core",
+      "dearm_date": "2026-07-03",
+      "dearm_detail": null,
+      "dearm_index": null,
+      "entry_close": 100.0,
+      "entry_grade": "core",
+      "exit_by": "2026-07-02",
+      "exit_close": 104.0,
+      "exit_date": "2026-07-01",
+      "exit_vs_peak_days": 0,
+      "forward_return": 0.040000000000000036,
+      "freeze_era": false,
+      "ingest_flagged": false,
+      "ingest_note": null,
+      "insufficient_prices": false,
+      "intraday_high_date": null,
+      "intraday_high_return": null,
+      "intraday_low_date": null,
+      "intraday_low_return": null,
+      "is_headline": true,
+      "matured": true,
+      "operator": null,
+      "path": [
+       100.0,
+       104.0
+      ],
+      "peak_date": "2026-07-01",
+      "peak_return": 0.040000000000000036,
+      "risk_events": [],
+      "run_identity_note": "policy cfgA \u00b7 cron \u00b7 code sha1",
+      "security_id": "00000000-0000-0000-0000-00000000e0a1",
+      "status": "closed",
+      "tape_behind_market": true,
+      "thaw_lag_days": null,
+      "theme_armed": false,
+      "thesis_id": "00000000-0000-0000-0000-00000000e0b1",
+      "ticker": "GOLDA",
+      "transitions": [],
+      "triggers_at_arm": [
+       {
+        "event_date": "2026-06-29",
+        "grade": "core",
+        "kind": "insider",
+        "label": "3 insiders incl. CEO+CFO bought $2.1M open-market (code P), 9d pre-earnings",
+        "sources": [
+         {
+          "detail": {},
+          "ref": "0001234567-26-000123",
+          "source": "form4",
+          "url": "https://www.sec.gov/Archives/edgar/data/101/000123456726000123/0001234567-26-000123-index.htm"
+         }
+        ],
+        "ticker": "GOLDA"
+       },
+       {
+        "event_date": "2026-06-29",
+        "grade": "core",
+        "kind": "technical_breakout",
+        "label": "Breakout from a 9-week base on 2.4x average volume",
+        "sources": [
+         {
+          "detail": {},
+          "ref": "price:DEVCO:2026-06-02",
+          "source": "price",
+          "url": null
+         }
+        ],
+        "ticker": "GOLDA"
+       }
+      ],
+      "trough_date": "2026-06-29",
+      "trough_return": 0.0,
+      "truncated": true,
+      "verdict": "core_entry",
+      "warm_date": null,
+      "warm_return": null
+     }
+    ],
+    "first_call_asof": "2026-05-29",
+    "last_call_asof": "2026-07-03",
+    "name": "Psychedelic Therapy",
+    "operator_spans": [],
+    "record_error": null,
+    "thesis_id": "00000000-0000-0000-0000-00000000e0b1",
+    "ticker": "DEVCO",
+    "warming_since": null
+   },
+   {
+    "archived": false,
+    "basket_size": 1,
+    "current_state": "armed",
+    "current_verdict": "core_entry",
+    "decision_anomaly": null,
+    "episodes": [
+     {
+      "annotation_note": "annotated \u00b7 phantom-arm night(s) 2026-07-10 \u2014 annotated exclude; scored here only because this reading includes annotated nights",
+      "arm_code_sha": null,
+      "arm_config_hash": null,
+      "arm_date": "2026-07-10",
+      "arm_ingest_fresh": null,
+      "arm_run_kind": null,
+      "arm_until": "2026-11-06",
+      "arm_until_return": 0.07000000000000006,
+      "censored_start": false,
+      "close_reason": "dearmed_other",
+      "company_name": "Golden B Corp.",
+      "confidence": 0.946,
+      "conviction_grade": "core",
+      "dearm_date": "2026-07-13",
+      "dearm_detail": "now missing: Volume-confirmed breakout (the confirmation key)",
+      "dearm_index": 0,
+      "entry_close": 50.0,
+      "entry_grade": "core",
+      "exit_by": "2026-11-06",
+      "exit_close": 53.5,
+      "exit_date": "2026-07-16",
+      "exit_vs_peak_days": 0,
+      "forward_return": 0.07000000000000006,
+      "freeze_era": true,
+      "ingest_flagged": true,
+      "ingest_note": "armed inside the 2026-07 EDGAR freeze window",
+      "insufficient_prices": false,
+      "intraday_high_date": null,
+      "intraday_high_return": null,
+      "intraday_low_date": null,
+      "intraday_low_return": null,
+      "is_headline": true,
+      "matured": false,
+      "operator": null,
+      "path": [
+       50.0,
+       52.0,
+       53.5
+      ],
+      "peak_date": "2026-07-16",
+      "peak_return": 0.07000000000000006,
+      "risk_events": [],
+      "run_identity_note": null,
+      "security_id": "00000000-0000-0000-0000-00000000e0a2",
+      "status": "closed",
+      "tape_behind_market": false,
+      "thaw_lag_days": null,
+      "theme_armed": false,
+      "thesis_id": "00000000-0000-0000-0000-00000000e0b2",
+      "ticker": "GOLDB",
+      "transitions": [],
+      "triggers_at_arm": [
+       {
+        "event_date": "2026-07-09",
+        "grade": "core",
+        "kind": "insider",
+        "label": "3 insiders incl. CEO+CFO bought $2.1M open-market (code P), 9d pre-earnings",
+        "sources": [
+         {
+          "detail": {},
+          "ref": "0001234567-26-000123",
+          "source": "form4",
+          "url": "https://www.sec.gov/Archives/edgar/data/102/000123456726000123/0001234567-26-000123-index.htm"
+         }
+        ],
+        "ticker": "GOLDB"
+       },
+       {
+        "event_date": "2026-07-09",
+        "grade": "core",
+        "kind": "technical_breakout",
+        "label": "Breakout from a 9-week base on 2.4x average volume",
+        "sources": [
+         {
+          "detail": {},
+          "ref": "price:DEVCO:2026-06-02",
+          "source": "price",
+          "url": null
+         }
+        ],
+        "ticker": "GOLDB"
+       }
+      ],
+      "trough_date": "2026-07-10",
+      "trough_return": 0.0,
+      "truncated": true,
+      "verdict": "core_entry",
+      "warm_date": "2026-07-09",
+      "warm_return": 0.07000000000000006
+     },
+     {
+      "annotation_note": null,
+      "arm_code_sha": "sha2",
+      "arm_config_hash": null,
+      "arm_date": "2026-07-15",
+      "arm_ingest_fresh": null,
+      "arm_run_kind": "manual",
+      "arm_until": "2026-11-06",
+      "arm_until_return": 0.028846153846153744,
+      "censored_start": false,
+      "close_reason": "window_end",
+      "company_name": "Golden B Corp.",
+      "confidence": 0.946,
+      "conviction_grade": "core",
+      "dearm_date": null,
+      "dearm_detail": null,
+      "dearm_index": null,
+      "entry_close": 52.0,
+      "entry_grade": "core",
+      "exit_by": "2026-11-06",
+      "exit_close": 53.5,
+      "exit_date": "2026-07-16",
+      "exit_vs_peak_days": 0,
+      "forward_return": 0.028846153846153744,
+      "freeze_era": true,
+      "ingest_flagged": true,
+      "ingest_note": "armed inside the 2026-07 EDGAR freeze window",
+      "insufficient_prices": false,
+      "intraday_high_date": null,
+      "intraday_high_return": null,
+      "intraday_low_date": null,
+      "intraday_low_return": null,
+      "is_headline": true,
+      "matured": false,
+      "operator": null,
+      "path": [
+       52.0,
+       53.5
+      ],
+      "peak_date": "2026-07-16",
+      "peak_return": 0.028846153846153744,
+      "risk_events": [],
+      "run_identity_note": "manual \u00b7 code sha2",
+      "security_id": "00000000-0000-0000-0000-00000000e0a2",
+      "status": "open",
+      "tape_behind_market": false,
+      "thaw_lag_days": null,
+      "theme_armed": false,
+      "thesis_id": "00000000-0000-0000-0000-00000000e0b2",
+      "ticker": "GOLDB",
+      "transitions": [],
+      "triggers_at_arm": [
+       {
+        "event_date": "2026-07-09",
+        "grade": "core",
+        "kind": "insider",
+        "label": "3 insiders incl. CEO+CFO bought $2.1M open-market (code P), 9d pre-earnings",
+        "sources": [
+         {
+          "detail": {},
+          "ref": "0001234567-26-000123",
+          "source": "form4",
+          "url": "https://www.sec.gov/Archives/edgar/data/102/000123456726000123/0001234567-26-000123-index.htm"
+         }
+        ],
+        "ticker": "GOLDB"
+       },
+       {
+        "event_date": "2026-07-09",
+        "grade": "core",
+        "kind": "technical_breakout",
+        "label": "Breakout from a 9-week base on 2.4x average volume",
+        "sources": [
+         {
+          "detail": {},
+          "ref": "price:DEVCO:2026-06-02",
+          "source": "price",
+          "url": null
+         }
+        ],
+        "ticker": "GOLDB"
+       }
+      ],
+      "trough_date": "2026-07-15",
+      "trough_return": 0.0,
+      "truncated": true,
+      "verdict": "core_entry",
+      "warm_date": "2026-07-13",
+      "warm_return": 0.028846153846153744
+     }
+    ],
+    "first_call_asof": "2026-07-09",
+    "last_call_asof": "2026-07-16",
+    "name": "Psychedelic Therapy",
+    "operator_spans": [],
+    "record_error": null,
+    "thesis_id": "00000000-0000-0000-0000-00000000e0b2",
+    "ticker": "DEVCO",
+    "warming_since": null
+   }
+  ]
+ },
+ "include_late": {
+  "asof": "2026-07-31",
+  "summary": {
+   "annotated_nights": [
+    {
+     "asof": "2026-07-10",
+     "n_rows": 1,
+     "reasons": [
+      "stale_comparative_revenue"
+     ],
+     "rules": [
+      "d3a-first-knowability@golden"
+     ],
+     "thesis_id": "00000000-0000-0000-0000-00000000e0b2",
+     "thesis_name": "Psychedelic Therapy"
+    }
+   ],
+   "annotated_policy": "excluded",
+   "banner": "FORWARD RECORD, NOT A CLAIM \u2014 record began 2026-05-29; 4 episodes eligible for metrics (matured + non-censored + clean-ingest; gate n<5); open, immature, censored, and ingest-flagged episodes are ledger-only.",
+   "days_behind": 11,
+   "expected_asof": "2026-07-31",
+   "late_nights": [
+    {
+     "asof": "2026-07-13",
+     "earlier_recorded_at": "2026-07-14T02:45:00Z",
+     "edgar_open": "2026-07-14T06:00:00-04:00",
+     "n_rows": 1,
+     "reason": "recorded after the next EDGAR open",
+     "recorded_at": "2026-07-14T13:00:00Z",
+     "thesis_id": "00000000-0000-0000-0000-00000000e0b2",
+     "thesis_name": "Psychedelic Therapy"
+    }
+   ],
+   "late_policy": "included",
+   "metrics": [
+    {
+     "claim": "timing (the flaw patched): the realized return over the hold window from when it armed",
+     "detail": [],
+     "insufficient_n": true,
+     "n": 4,
+     "name": "arm_timing_forward_return",
+     "note": "the distribution of arm_date->exit_by returns; pair with false_arm + withheld_arm.",
+     "summary": {
+      "max": 0.05,
+      "mean": 0.015,
+      "median": 0.015,
+      "min": -0.02
+     }
+    },
+    {
+     "claim": "preserve the edge: how much of the move already visible at the WARM the arm-timing wait gave up",
+     "detail": [],
+     "insufficient_n": true,
+     "n": 1,
+     "name": "early_vs_armed_delta",
+     "note": "warm_return - arm_return, to the same exit_by; large positive => the gate clips the early edge.",
+     "summary": {
+      "max": 0.0,
+      "mean": 0.0,
+      "median": 0.0,
+      "min": 0.0
+     }
+    },
+    {
+     "claim": "timing-quality discrimination: do higher-grade arms track better realized outcomes (monotonic)?",
+     "detail": [
+      {
+       "entry_grade": "core",
+       "max": 0.05,
+       "mean": 0.015,
+       "median": 0.015,
+       "min": -0.02,
+       "n": 4
+      }
+     ],
+     "insufficient_n": true,
+     "n": 4,
+     "name": "grade_confidence_calibration",
+     "note": "calibration needs >= MIN_N per grade bucket; at seed N read the per-bucket n, not the medians.",
+     "summary": {
+      "core_median": 0.015,
+      "flip_median": null,
+      "monotonic": 0.0
+     }
+    },
+    {
+     "claim": "name-selection (the flaw patched): did the ranked headline outperform the rest of the basket?",
+     "detail": [],
+     "insufficient_n": true,
+     "n": 0,
+     "name": "name_selection_lift",
+     "note": "relative (isolates selection from theme beta); on the seed this is ~1 theme decision \u2014 a case, not a rate.",
+     "summary": {
+      "median_lift": null
+     }
+    },
+    {
+     "claim": "timing precision: arms whose realized hold-window return was adverse (the gate firing wrongly)",
+     "detail": [],
+     "insufficient_n": true,
+     "n": 4,
+     "name": "false_arm_rate",
+     "note": "report the raw count at small N; a percentage would imply precision the data can't support.",
+     "summary": {
+      "adverse": 2.0,
+      "rate": 0.5,
+      "total": 4.0
+     }
+    },
+    {
+     "claim": "timing's false-negative side: the move during windows the gate WITHHELD (a gate that never fires is useless)",
+     "detail": [],
+     "insufficient_n": true,
+     "n": 0,
+     "name": "withheld_arm_counterfactual",
+     "note": "single-name theses only; positive => the withhold cost upside, negative => it dodged a drawdown.",
+     "summary": {
+      "max": null,
+      "mean": null,
+      "median": null,
+      "min": null
+     }
+    },
+    {
+     "claim": "timing (the exit side): does the edge persist to exit_by, or decay earlier? (the liveness dials)",
+     "detail": [],
+     "insufficient_n": true,
+     "n": 4,
+     "name": "exit_by_vs_rollover",
+     "note": "days from the realized peak to exit_by, and the return given up by holding to exit_by past it.",
+     "summary": {
+      "median_days_exit_after_peak": 1.0,
+      "median_return_given_up": 0.005
+     }
+    }
+   ],
+   "min_n": 5,
+   "n_censored": 0,
+   "n_eligible": 4,
+   "n_episodes": 6,
+   "n_ingest_flagged": 2,
+   "n_matured": 5,
+   "n_maturing_30d": 0,
+   "n_open": 1,
+   "n_overrides": 0,
+   "n_passes": 0,
+   "n_takes": 0,
+   "n_theses": 2,
+   "n_voided": 0,
+   "n_with_record": 2,
+   "next_maturity": "2026-11-06",
+   "projected_min_n_date": null,
+   "reconstructed_nights": [
+    "2026-07-14"
+   ],
+   "record_began": "2026-05-29",
+   "record_edge": "2026-07-16",
+   "stale": true,
+   "today": "2026-07-31"
+  },
+  "theses": [
+   {
+    "archived": false,
+    "basket_size": 1,
+    "current_state": "incubating",
+    "current_verdict": "watching",
+    "decision_anomaly": null,
+    "episodes": [
+     {
+      "annotation_note": null,
+      "arm_code_sha": "sha1",
+      "arm_config_hash": "cfgA",
+      "arm_date": "2026-06-01",
+      "arm_ingest_fresh": true,
+      "arm_run_kind": "cron",
+      "arm_until": "2026-06-04",
+      "arm_until_return": 0.050000000000000044,
+      "censored_start": false,
+      "close_reason": "conviction_aged_out",
+      "company_name": "Golden A Inc.",
+      "confidence": 0.946,
+      "conviction_grade": "core",
+      "dearm_date": "2026-06-05",
+      "dearm_detail": null,
+      "dearm_index": null,
+      "entry_close": 100.0,
+      "entry_grade": "core",
+      "exit_by": "2026-06-04",
+      "exit_close": 105.0,
+      "exit_date": "2026-06-03",
+      "exit_vs_peak_days": 0,
+      "forward_return": 0.050000000000000044,
+      "freeze_era": false,
+      "ingest_flagged": false,
+      "ingest_note": null,
+      "insufficient_prices": false,
+      "intraday_high_date": null,
+      "intraday_high_return": null,
+      "intraday_low_date": null,
+      "intraday_low_return": null,
+      "is_headline": true,
+      "matured": true,
+      "operator": null,
+      "path": [
+       100.0,
+       105.0
+      ],
+      "peak_date": "2026-06-03",
+      "peak_return": 0.050000000000000044,
+      "risk_events": [],
+      "run_identity_note": "policy cfgA \u00b7 cron \u00b7 code sha1",
+      "security_id": "00000000-0000-0000-0000-00000000e0a1",
+      "status": "closed",
+      "tape_behind_market": false,
+      "thaw_lag_days": null,
+      "theme_armed": false,
+      "thesis_id": "00000000-0000-0000-0000-00000000e0b1",
+      "ticker": "GOLDA",
+      "transitions": [],
+      "triggers_at_arm": [
+       {
+        "event_date": "2026-06-01",
+        "grade": "core",
+        "kind": "insider",
+        "label": "3 insiders incl. CEO+CFO bought $2.1M open-market (code P), 9d pre-earnings",
+        "sources": [
+         {
+          "detail": {},
+          "ref": "0001234567-26-000123",
+          "source": "form4",
+          "url": "https://www.sec.gov/Archives/edgar/data/101/000123456726000123/0001234567-26-000123-index.htm"
+         }
+        ],
+        "ticker": "GOLDA"
+       },
+       {
+        "event_date": "2026-06-01",
+        "grade": "core",
+        "kind": "technical_breakout",
+        "label": "Breakout from a 9-week base on 2.4x average volume",
+        "sources": [
+         {
+          "detail": {},
+          "ref": "price:DEVCO:2026-06-02",
+          "source": "price",
+          "url": null
+         }
+        ],
+        "ticker": "GOLDA"
+       }
+      ],
+      "trough_date": "2026-06-01",
+      "trough_return": 0.0,
+      "truncated": false,
+      "verdict": "core_entry",
+      "warm_date": "2026-05-29",
+      "warm_return": 0.050000000000000044
+     },
+     {
+      "annotation_note": null,
+      "arm_code_sha": "sha1",
+      "arm_config_hash": "cfgA",
+      "arm_date": "2026-06-08",
+      "arm_ingest_fresh": true,
+      "arm_run_kind": "cron",
+      "arm_until": "2026-06-11",
+      "arm_until_return": -0.020000000000000018,
+      "censored_start": false,
+      "close_reason": "conviction_aged_out",
+      "company_name": "Golden A Inc.",
+      "confidence": 0.946,
+      "conviction_grade": "core",
+      "dearm_date": "2026-06-12",
+      "dearm_detail": null,
+      "dearm_index": null,
+      "entry_close": 100.0,
+      "entry_grade": "core",
+      "exit_by": "2026-06-11",
+      "exit_close": 98.0,
+      "exit_date": "2026-06-10",
+      "exit_vs_peak_days": 2,
+      "forward_return": -0.020000000000000018,
+      "freeze_era": false,
+      "ingest_flagged": false,
+      "ingest_note": null,
+      "insufficient_prices": false,
+      "intraday_high_date": null,
+      "intraday_high_return": null,
+      "intraday_low_date": null,
+      "intraday_low_return": null,
+      "is_headline": true,
+      "matured": true,
+      "operator": null,
+      "path": [
+       100.0,
+       98.0
+      ],
+      "peak_date": "2026-06-08",
+      "peak_return": 0.0,
+      "risk_events": [],
+      "run_identity_note": "policy cfgA \u00b7 cron \u00b7 code sha1",
+      "security_id": "00000000-0000-0000-0000-00000000e0a1",
+      "status": "closed",
+      "tape_behind_market": false,
+      "thaw_lag_days": null,
+      "theme_armed": false,
+      "thesis_id": "00000000-0000-0000-0000-00000000e0b1",
+      "ticker": "GOLDA",
+      "transitions": [],
+      "triggers_at_arm": [
+       {
+        "event_date": "2026-06-08",
+        "grade": "core",
+        "kind": "insider",
+        "label": "3 insiders incl. CEO+CFO bought $2.1M open-market (code P), 9d pre-earnings",
+        "sources": [
+         {
+          "detail": {},
+          "ref": "0001234567-26-000123",
+          "source": "form4",
+          "url": "https://www.sec.gov/Archives/edgar/data/101/000123456726000123/0001234567-26-000123-index.htm"
+         }
+        ],
+        "ticker": "GOLDA"
+       },
+       {
+        "event_date": "2026-06-08",
+        "grade": "core",
+        "kind": "technical_breakout",
+        "label": "Breakout from a 9-week base on 2.4x average volume",
+        "sources": [
+         {
+          "detail": {},
+          "ref": "price:DEVCO:2026-06-02",
+          "source": "price",
+          "url": null
+         }
+        ],
+        "ticker": "GOLDA"
+       }
+      ],
+      "trough_date": "2026-06-10",
+      "trough_return": -0.020000000000000018,
+      "truncated": false,
+      "verdict": "core_entry",
+      "warm_date": null,
+      "warm_return": null
+     },
+     {
+      "annotation_note": null,
+      "arm_code_sha": "sha1",
+      "arm_config_hash": "cfgA",
+      "arm_date": "2026-06-15",
+      "arm_ingest_fresh": false,
+      "arm_run_kind": "cron",
+      "arm_until": "2026-06-18",
+      "arm_until_return": 0.10000000000000009,
+      "censored_start": false,
+      "close_reason": "conviction_aged_out",
+      "company_name": "Golden A Inc.",
+      "confidence": 0.946,
+      "conviction_grade": "core",
+      "dearm_date": "2026-06-19",
+      "dearm_detail": null,
+      "dearm_index": null,
+      "entry_close": 100.0,
+      "entry_grade": "core",
+      "exit_by": "2026-06-18",
+      "exit_close": 110.0,
+      "exit_date": "2026-06-17",
+      "exit_vs_peak_days": 0,
+      "forward_return": 0.10000000000000009,
+      "freeze_era": false,
+      "ingest_flagged": true,
+      "ingest_note": "partial ingest on the arm-date run (3 names errored)",
+      "insufficient_prices": false,
+      "intraday_high_date": null,
+      "intraday_high_return": null,
+      "intraday_low_date": null,
+      "intraday_low_return": null,
+      "is_headline": true,
+      "matured": true,
+      "operator": null,
+      "path": [
+       100.0,
+       110.0
+      ],
+      "peak_date": "2026-06-17",
+      "peak_return": 0.10000000000000009,
+      "risk_events": [],
+      "run_identity_note": "policy cfgA \u00b7 cron \u00b7 code sha1",
+      "security_id": "00000000-0000-0000-0000-00000000e0a1",
+      "status": "closed",
+      "tape_behind_market": false,
+      "thaw_lag_days": null,
+      "theme_armed": false,
+      "thesis_id": "00000000-0000-0000-0000-00000000e0b1",
+      "ticker": "GOLDA",
+      "transitions": [],
+      "triggers_at_arm": [
+       {
+        "event_date": "2026-06-15",
+        "grade": "core",
+        "kind": "insider",
+        "label": "3 insiders incl. CEO+CFO bought $2.1M open-market (code P), 9d pre-earnings",
+        "sources": [
+         {
+          "detail": {},
+          "ref": "0001234567-26-000123",
+          "source": "form4",
+          "url": "https://www.sec.gov/Archives/edgar/data/101/000123456726000123/0001234567-26-000123-index.htm"
+         }
+        ],
+        "ticker": "GOLDA"
+       },
+       {
+        "event_date": "2026-06-15",
+        "grade": "core",
+        "kind": "technical_breakout",
+        "label": "Breakout from a 9-week base on 2.4x average volume",
+        "sources": [
+         {
+          "detail": {},
+          "ref": "price:DEVCO:2026-06-02",
+          "source": "price",
+          "url": null
+         }
+        ],
+        "ticker": "GOLDA"
+       }
+      ],
+      "trough_date": "2026-06-15",
+      "trough_return": 0.0,
+      "truncated": false,
+      "verdict": "core_entry",
+      "warm_date": null,
+      "warm_return": null
+     },
+     {
+      "annotation_note": null,
+      "arm_code_sha": "sha1",
+      "arm_config_hash": "cfgA",
+      "arm_date": "2026-06-22",
+      "arm_ingest_fresh": true,
+      "arm_run_kind": "cron",
+      "arm_until": "2026-06-25",
+      "arm_until_return": -0.010000000000000009,
+      "censored_start": false,
+      "close_reason": "conviction_aged_out",
+      "company_name": "Golden A Inc.",
+      "confidence": 0.946,
+      "conviction_grade": "core",
+      "dearm_date": "2026-06-26",
+      "dearm_detail": null,
+      "dearm_index": null,
+      "entry_close": 100.0,
+      "entry_grade": "core",
+      "exit_by": "2026-06-25",
+      "exit_close": 99.0,
+      "exit_date": "2026-06-24",
+      "exit_vs_peak_days": 2,
+      "forward_return": -0.010000000000000009,
+      "freeze_era": false,
+      "ingest_flagged": false,
+      "ingest_note": null,
+      "insufficient_prices": false,
+      "intraday_high_date": null,
+      "intraday_high_return": null,
+      "intraday_low_date": null,
+      "intraday_low_return": null,
+      "is_headline": true,
+      "matured": true,
+      "operator": null,
+      "path": [
+       100.0,
+       99.0
+      ],
+      "peak_date": "2026-06-22",
+      "peak_return": 0.0,
+      "risk_events": [],
+      "run_identity_note": "policy cfgA \u00b7 cron \u00b7 code sha1",
+      "security_id": "00000000-0000-0000-0000-00000000e0a1",
+      "status": "closed",
+      "tape_behind_market": false,
+      "thaw_lag_days": null,
+      "theme_armed": false,
+      "thesis_id": "00000000-0000-0000-0000-00000000e0b1",
+      "ticker": "GOLDA",
+      "transitions": [],
+      "triggers_at_arm": [
+       {
+        "event_date": "2026-06-22",
+        "grade": "core",
+        "kind": "insider",
+        "label": "3 insiders incl. CEO+CFO bought $2.1M open-market (code P), 9d pre-earnings",
+        "sources": [
+         {
+          "detail": {},
+          "ref": "0001234567-26-000123",
+          "source": "form4",
+          "url": "https://www.sec.gov/Archives/edgar/data/101/000123456726000123/0001234567-26-000123-index.htm"
+         }
+        ],
+        "ticker": "GOLDA"
+       },
+       {
+        "event_date": "2026-06-22",
+        "grade": "core",
+        "kind": "technical_breakout",
+        "label": "Breakout from a 9-week base on 2.4x average volume",
+        "sources": [
+         {
+          "detail": {},
+          "ref": "price:DEVCO:2026-06-02",
+          "source": "price",
+          "url": null
+         }
+        ],
+        "ticker": "GOLDA"
+       }
+      ],
+      "trough_date": "2026-06-24",
+      "trough_return": -0.010000000000000009,
+      "truncated": false,
+      "verdict": "core_entry",
+      "warm_date": null,
+      "warm_return": null
+     },
+     {
+      "annotation_note": null,
+      "arm_code_sha": "sha1",
+      "arm_config_hash": "cfgA",
+      "arm_date": "2026-06-29",
+      "arm_ingest_fresh": true,
+      "arm_run_kind": "cron",
+      "arm_until": "2026-07-02",
+      "arm_until_return": 0.040000000000000036,
+      "censored_start": false,
+      "close_reason": "conviction_aged_out",
+      "company_name": "Golden A Inc.",
+      "confidence": 0.946,
+      "conviction_grade": "core",
+      "dearm_date": "2026-07-03",
+      "dearm_detail": null,
+      "dearm_index": null,
+      "entry_close": 100.0,
+      "entry_grade": "core",
+      "exit_by": "2026-07-02",
+      "exit_close": 104.0,
+      "exit_date": "2026-07-01",
+      "exit_vs_peak_days": 0,
+      "forward_return": 0.040000000000000036,
+      "freeze_era": false,
+      "ingest_flagged": false,
+      "ingest_note": null,
+      "insufficient_prices": false,
+      "intraday_high_date": null,
+      "intraday_high_return": null,
+      "intraday_low_date": null,
+      "intraday_low_return": null,
+      "is_headline": true,
+      "matured": true,
+      "operator": null,
+      "path": [
+       100.0,
+       104.0
+      ],
+      "peak_date": "2026-07-01",
+      "peak_return": 0.040000000000000036,
+      "risk_events": [],
+      "run_identity_note": "policy cfgA \u00b7 cron \u00b7 code sha1",
+      "security_id": "00000000-0000-0000-0000-00000000e0a1",
+      "status": "closed",
+      "tape_behind_market": true,
+      "thaw_lag_days": null,
+      "theme_armed": false,
+      "thesis_id": "00000000-0000-0000-0000-00000000e0b1",
+      "ticker": "GOLDA",
+      "transitions": [],
+      "triggers_at_arm": [
+       {
+        "event_date": "2026-06-29",
+        "grade": "core",
+        "kind": "insider",
+        "label": "3 insiders incl. CEO+CFO bought $2.1M open-market (code P), 9d pre-earnings",
+        "sources": [
+         {
+          "detail": {},
+          "ref": "0001234567-26-000123",
+          "source": "form4",
+          "url": "https://www.sec.gov/Archives/edgar/data/101/000123456726000123/0001234567-26-000123-index.htm"
+         }
+        ],
+        "ticker": "GOLDA"
+       },
+       {
+        "event_date": "2026-06-29",
+        "grade": "core",
+        "kind": "technical_breakout",
+        "label": "Breakout from a 9-week base on 2.4x average volume",
+        "sources": [
+         {
+          "detail": {},
+          "ref": "price:DEVCO:2026-06-02",
+          "source": "price",
+          "url": null
+         }
+        ],
+        "ticker": "GOLDA"
+       }
+      ],
+      "trough_date": "2026-06-29",
+      "trough_return": 0.0,
+      "truncated": true,
+      "verdict": "core_entry",
+      "warm_date": null,
+      "warm_return": null
+     }
+    ],
+    "first_call_asof": "2026-05-29",
+    "last_call_asof": "2026-07-03",
+    "name": "Psychedelic Therapy",
+    "operator_spans": [],
+    "record_error": null,
+    "thesis_id": "00000000-0000-0000-0000-00000000e0b1",
+    "ticker": "DEVCO",
+    "warming_since": null
+   },
+   {
+    "archived": false,
+    "basket_size": 1,
+    "current_state": "armed",
+    "current_verdict": "core_entry",
+    "decision_anomaly": null,
+    "episodes": [
+     {
+      "annotation_note": null,
+      "arm_code_sha": null,
+      "arm_config_hash": null,
+      "arm_date": "2026-07-13",
+      "arm_ingest_fresh": null,
+      "arm_run_kind": null,
+      "arm_until": "2026-11-06",
+      "arm_until_return": 0.028846153846153744,
+      "censored_start": false,
+      "close_reason": "window_end",
+      "company_name": "Golden B Corp.",
+      "confidence": 0.946,
+      "conviction_grade": "core",
+      "dearm_date": null,
+      "dearm_detail": null,
+      "dearm_index": null,
+      "entry_close": 52.0,
+      "entry_grade": "core",
+      "exit_by": "2026-11-06",
+      "exit_close": 53.5,
+      "exit_date": "2026-07-16",
+      "exit_vs_peak_days": 0,
+      "forward_return": 0.028846153846153744,
+      "freeze_era": true,
+      "ingest_flagged": true,
+      "ingest_note": "armed inside the 2026-07 EDGAR freeze window",
+      "insufficient_prices": false,
+      "intraday_high_date": null,
+      "intraday_high_return": null,
+      "intraday_low_date": null,
+      "intraday_low_return": null,
+      "is_headline": true,
+      "matured": false,
+      "operator": null,
+      "path": [
+       52.0,
+       53.5
+      ],
+      "peak_date": "2026-07-16",
+      "peak_return": 0.028846153846153744,
+      "risk_events": [],
+      "run_identity_note": null,
+      "security_id": "00000000-0000-0000-0000-00000000e0a2",
+      "status": "open",
+      "tape_behind_market": false,
+      "thaw_lag_days": null,
+      "theme_armed": false,
+      "thesis_id": "00000000-0000-0000-0000-00000000e0b2",
+      "ticker": "GOLDB",
+      "transitions": [],
+      "triggers_at_arm": [
+       {
+        "event_date": "2026-07-09",
+        "grade": "core",
+        "kind": "insider",
+        "label": "3 insiders incl. CEO+CFO bought $2.1M open-market (code P), 9d pre-earnings",
+        "sources": [
+         {
+          "detail": {},
+          "ref": "0001234567-26-000123",
+          "source": "form4",
+          "url": "https://www.sec.gov/Archives/edgar/data/102/000123456726000123/0001234567-26-000123-index.htm"
+         }
+        ],
+        "ticker": "GOLDB"
+       },
+       {
+        "event_date": "2026-07-09",
+        "grade": "core",
+        "kind": "technical_breakout",
+        "label": "Breakout from a 9-week base on 2.4x average volume",
+        "sources": [
+         {
+          "detail": {},
+          "ref": "price:DEVCO:2026-06-02",
+          "source": "price",
+          "url": null
+         }
+        ],
+        "ticker": "GOLDB"
+       }
+      ],
+      "trough_date": "2026-07-15",
+      "trough_return": 0.0,
+      "truncated": true,
+      "verdict": "core_entry",
+      "warm_date": "2026-07-09",
+      "warm_return": 0.07000000000000006
+     }
+    ],
+    "first_call_asof": "2026-07-09",
+    "last_call_asof": "2026-07-16",
+    "name": "Psychedelic Therapy",
+    "operator_spans": [],
+    "record_error": null,
+    "thesis_id": "00000000-0000-0000-0000-00000000e0b2",
+    "ticker": "DEVCO",
+    "warming_since": null
+   }
+  ]
+ },
+ "price_window": {
+  "activist_stakes": [],
+  "asof": "2026-07-31",
+  "bars": [
+   {
+    "close": 50.0,
+    "d": "2026-07-10",
+    "high": null,
+    "low": null,
+    "open": null,
+    "sma200": null,
+    "sma50": null,
+    "volume": null
+   },
+   {
+    "close": 52.0,
+    "d": "2026-07-15",
+    "high": null,
+    "low": null,
+    "open": null,
+    "sma200": null,
+    "sma50": null,
+    "volume": null
+   },
+   {
+    "close": 53.5,
+    "d": "2026-07-16",
+    "high": null,
+    "low": null,
+    "open": null,
+    "sma200": null,
+    "sma50": null,
+    "volume": null
+   }
+  ],
+  "corporate_events": [],
+  "end": "2026-11-07",
+  "insider_buys": [
+   {
+    "aff_10b5_1": null,
+    "character": "open_market",
+    "d": "2026-07-15",
+    "disclosed": "2026-07-15",
+    "ingested": "2026-07-22",
+    "insider_name": "Gold Buyer",
+    "insider_role": "CEO",
+    "private_counterparty": null,
+    "private_passage": null,
+    "shares": 1000.0,
+    "transfer_with": null,
+    "usd": 50000.0
+   }
+  ],
+  "insider_sells": [],
+  "security_id": "00000000-0000-0000-0000-00000000e0a2",
+  "source": "fact_price_eod",
+  "start": "2026-07-10",
+  "thesis_id": "00000000-0000-0000-0000-00000000e0b2"
+ }
+}

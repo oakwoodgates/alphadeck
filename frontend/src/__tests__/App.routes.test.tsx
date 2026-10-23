@@ -59,6 +59,9 @@ vi.mock("../scoreboard/Scoreboard", () => ({
       {p.header}
       <h1>SCOREBOARD</h1>
       <span data-testid="sb-asof">{p.asof}</span>
+      <span data-testid="sb-edition">{String(p.edition)}</span>
+      <button onClick={() => p.onEditionChange(1)}>sb-pick-edition-1</button>
+      <button onClick={() => p.onEditionChange(0)}>sb-pick-edition-0</button>
       <button onClick={() => p.onSelect("t-9", "HIMS")}>sb-select</button>
       <button onClick={() => p.onSelect("t-9")}>sb-select-bare</button>
     </div>
@@ -299,6 +302,33 @@ describe("App routes — the ?rail= dial", () => {
     await user.click(screen.getByText("cp-rail-open"));
     expect(screen.getByTestId("cp-rail")).toHaveTextContent("true");
     expect(screen.getByTestId("cp-name")).toHaveTextContent("OKLO");
+  });
+});
+
+describe("App routes — the Scoreboard's ?edition= dial (editions S4)", () => {
+  it("absent = null: the server's default edition (the param is not invented)", () => {
+    renderAt("/scoreboard?asof=2026-06-01");
+    expect(screen.getByTestId("sb-edition")).toHaveTextContent("null");
+  });
+
+  it("?edition=1 in a direct URL (a reload, a shared link) reaches the prop; junk reads as the default", () => {
+    renderAt("/scoreboard?edition=1");
+    expect(screen.getByTestId("sb-edition")).toHaveTextContent("1");
+  });
+
+  it("junk in ?edition= never reaches the page", () => {
+    renderAt("/scoreboard?edition=latest");
+    expect(screen.getByTestId("sb-edition")).toHaveTextContent("null");
+  });
+
+  it("picking an edition writes ?edition= beside the as-of, and Edition 0 is a real, named value", async () => {
+    const user = userEvent.setup();
+    renderAt("/scoreboard?asof=2026-06-01");
+    await user.click(screen.getByText("sb-pick-edition-1"));
+    expect(screen.getByTestId("sb-edition")).toHaveTextContent("1");
+    expect(screen.getByTestId("sb-asof")).toHaveTextContent("2026-06-01"); // the dial rides alongside
+    await user.click(screen.getByText("sb-pick-edition-0"));
+    expect(screen.getByTestId("sb-edition")).toHaveTextContent("0");
   });
 });
 

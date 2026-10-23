@@ -53,17 +53,47 @@ def active_ids_sql(table: str) -> str:
     return _SET_ASIDE_IDS[table]
 
 
-def exclusion_sql(table: str, *, alias: str | None = None) -> sql.Composable:
+# THE SAME JUDGMENT AS IT STOOD AT A CUT (the Scoreboard editions' freeze ceiling, ``db.public_clock``): a
+# set-aside counts only if it was RECORDED by the cut, and a revoke undoes it only if the revoke was recorded by
+# the cut too — so a set-aside, or a revoke, written after an edition was cut can never change that edition's
+# mirror (the store is append-only, so the cut reproduces). ``{at}`` is the caller's bound placeholder.
+_SET_ASIDE_IDS_AT: dict[str, str] = {
+    "fact_fundamentals": (
+        "SELECT s.fact_id FROM fundamentals_set_aside s WHERE s.action = 'set_aside' "
+        "AND s.recorded_at <= {at} AND NOT EXISTS (SELECT 1 FROM fundamentals_set_aside r "
+        "WHERE r.revokes = s.id AND r.recorded_at <= {at})"
+    ),
+}
+
+
+def active_ids(table: str, *, at: sql.Composable | None = None) -> sql.Composable:
+    """The ids of ``table``'s ACTIVE set-aside versions as a composable: ``at`` = None is exactly
+    ``active_ids_sql`` (active now); ``at`` = a bound placeholder for a cut = active AS OF that cut.
+    """
+    if at is None:
+        return sql.SQL(_SET_ASIDE_IDS[table])  # noqa: S608 — a module constant, never caller input
+    return sql.SQL(_SET_ASIDE_IDS_AT[table]).format(at=at)  # noqa: S608 — a module constant
+
+
+def exclusion_sql(
+    table: str, *, alias: str | None = None, at: sql.Composable | None = None
+) -> sql.Composable:
     """`` AND <id> NOT IN (<active set-aside ids>)`` for ``table`` (``<id>`` qualified by ``alias`` when the read
     aliases the table), else the empty SQL — appended to a read's WHERE, so a table with no set-aside reads
-    byte-for-byte as before. ``fact_id`` is NOT NULL, so ``NOT IN`` is exact (no NULL trap)."""
+    byte-for-byte as before. ``fact_id`` is NOT NULL, so ``NOT IN`` is exact (no NULL trap). ``at`` (a bound
+    placeholder, the freeze ceiling's) judges the set-asides as they stood at that cut (``active_ids``); with
+    ``at`` = None the SQL is byte-for-byte what it was before the ceiling existed."""
     if table not in _SET_ASIDE_IDS:
         return sql.SQL("")
     col = sql.Identifier(alias, "id") if alias else sql.Identifier("id")
-    return sql.SQL(" AND {col} NOT IN ({ids})").format(
-        col=col,
-        ids=sql.SQL(_SET_ASIDE_IDS[table]),  # noqa: S608 — a module constant, never caller input
-    )
+    return sql.SQL(" AND {col} NOT IN ({ids})").format(col=col, ids=active_ids(table, at=at))
 
 
-__all__ = ["SET_ASIDE_TABLE", "ACTIVE_SQL", "has_set_aside", "active_ids_sql", "exclusion_sql"]
+__all__ = [
+    "SET_ASIDE_TABLE",
+    "ACTIVE_SQL",
+    "has_set_aside",
+    "active_ids_sql",
+    "active_ids",
+    "exclusion_sql",
+]
