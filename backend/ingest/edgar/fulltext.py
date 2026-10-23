@@ -68,13 +68,25 @@ class EftsErrorBody(InvalidBody):
 
 def _check_efts_page(doc: Any) -> None:
     """A valid EFTS page is a JSON object with a ``hits`` object whose ``hits`` is a list (possibly empty:
-    a real zero-hit page is valid, and stays ``empty_terms``). Anything else raises ``EftsErrorBody``.
+    a real zero-hit page is valid, and stays ``empty_terms``) and whose ``total`` is an object with an int
+    ``value``. Anything else raises ``EftsErrorBody``.
+
+    ``total`` is required because pagination reads it: a page with hits but no total used to read total 0,
+    so its deeper pages were never fetched and nothing said so (the same silent-drop class as the error
+    reply). MEASURED read-only on prod 2026-10-23: all 1,691 cached EFTS pages carry ``hits.total`` as an
+    object with an int ``value``, so the rule rejects no real page.
     """
     if not isinstance(doc, dict):
         raise EftsErrorBody(f"EFTS reply is not a JSON object ({type(doc).__name__})")
     hits = doc.get("hits")
     if isinstance(hits, dict) and isinstance(hits.get("hits"), list):
-        return
+        total = hits.get("total")
+        value = total.get("value") if isinstance(total, dict) else None
+        if isinstance(value, int) and not isinstance(value, bool):
+            return
+        raise EftsErrorBody(
+            f"EFTS reply has a hits list but no int hits.total.value (total={total!r:.80})"
+        )
     if "errorType" in doc:
         detail = f"errorType={doc.get('errorType')!r}: {str(doc.get('errorMessage', ''))[:120]}"
     else:

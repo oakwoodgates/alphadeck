@@ -659,6 +659,11 @@ def _deep_pages() -> dict[str, dict]:
         {"hits": []},  # hits is not an object
         {"hits": {"total": {"value": 3}}},  # no hits list
         {"hits": {"hits": None}},
+        {"hits": {"hits": []}},  # no total
+        {"hits": {"total": 3, "hits": []}},  # total not an object
+        {"hits": {"total": {}, "hits": []}},  # no value
+        {"hits": {"total": {"value": "3"}, "hits": []}},  # value not an int
+        {"hits": {"total": {"value": True}, "hits": []}},  # a bool is not a count
         ["not", "an", "object"],
         "a string",
     ],
@@ -740,6 +745,63 @@ def test_a_REAL_zero_hit_page_is_still_an_empty_term():
     """``empty_terms`` keeps its meaning: SEC really returned zero hits (a VALID page with no hits)."""
     fake = _ErrorBodyEfts({**_pages_3(), "efts/deadterm_0.json": _ZERO_HITS})
     run = discover(fake, ["kw", "deadterm"], max_workers=4)
+    assert run.empty_terms == ["deadterm"]
+    assert run.coverage.failed_terms == []
+    assert run.coverage.pages_ok == run.coverage.pages_attempted == 4
+
+
+class _OverrideOnceEfts(_FakeEfts):
+    """``_FakeEfts`` whose first call for a key in ``once`` returns that body instead of the real page."""
+
+    def __init__(self, pages, *, once=None, always=None):
+        super().__init__(pages)
+        self.once = dict(once or {})
+        self.always = dict(always or {})
+
+    def get_json(self, url, cache_key, *, validate=None):
+        if cache_key in self.always:
+            self.calls.append(cache_key)
+            return self.always[cache_key]
+        if cache_key in self.once:
+            self.calls.append(cache_key)
+            return self.once.pop(cache_key)
+        return super().get_json(url, cache_key, validate=validate)
+
+
+def test_a_page_with_hits_but_NO_TOTAL_is_a_failed_page_not_a_silent_truncation():
+    """Pagination reads ``hits.total``. A page 0 with hits but no total used to read total 0: its own rows
+    merged, its deeper pages were never asked for, and the term was neither empty nor failed (a silent
+    truncation, the error reply's sibling). Now it is a FAILED page like any other bad body."""
+    no_total = {"hits": {"hits": _pages_3()["efts/kw_0.json"]["hits"]["hits"]}}  # 2 hits, no total
+
+    # persistent: the term is NAMED (failed_terms), never empty, and the gap is on the record
+    fill, pages = _fillers(20)
+    fake = _OverrideOnceEfts({**_pages_3(), **pages}, always={"efts/kw_0.json": no_total})
+    run = discover(fake, ["kw", *fill], max_workers=4, degraded_ratio=0.10)  # 1/21 < 10%
+    assert run.coverage.failed_terms == ["kw"] and run.empty_terms == []
+    assert (run.coverage.pages_ok, run.coverage.pages_attempted) == (20, 21)
+    assert "efts/kw_2.json" not in fake.calls  # not fetched, and the coverage line says so
+
+    # transient: the retry gets the real page, so the deeper pages it owes ARE fetched
+    fake = _OverrideOnceEfts(_pages_3(), once={"efts/kw_0.json": no_total})
+    run = discover(fake, ["kw"], max_workers=4)
+    assert set(run.filers) == {f"{i:010d}" for i in range(1, 7)}
+    assert {"efts/kw_2.json", "efts/kw_4.json"} <= set(fake.calls)
+    assert (run.coverage.retried, run.coverage.recovered, run.coverage.failed_terms) == (1, 1, [])
+
+
+def test_the_exact_real_zero_hit_body_through_the_real_client_is_still_an_empty_term(tmp_path):
+    """The literal body SEC sends for no matches, read from the cache by a real ``EdgarClient``, passes
+    the stricter page check and still files the seed under ``empty_terms`` (not failed)."""
+    (tmp_path / "efts").mkdir()
+    (tmp_path / "efts" / "deadterm_0.json").write_text(
+        '{"hits":{"total":{"value":0},"hits":[]}}', encoding="utf-8"
+    )
+    for key, page in _pages_3().items():
+        (tmp_path / key).write_text(json.dumps(page), encoding="utf-8")
+    run = discover(
+        EdgarClient(cache_dir=tmp_path, allow_live=False), ["kw", "deadterm"], max_workers=4
+    )
     assert run.empty_terms == ["deadterm"]
     assert run.coverage.failed_terms == []
     assert run.coverage.pages_ok == run.coverage.pages_attempted == 4
