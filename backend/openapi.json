@@ -2047,7 +2047,7 @@
           "admin"
         ],
         "summary": "Get Admin Status",
-        "description": "The freshness + health summary the admin page opens on \u2014 READ-ONLY (writes nothing, owns no\ntables). ``record`` measures the calls-log edge against the last EXPECTED Mon-Fri+RUN_AT run\n(container-local clock; a Friday edge on a Monday morning is CURRENT \u2014 never a weekend false\nalarm); ``edge: null`` is the quiet \"record has never begun\" state. ``last_run`` is the newest\nreadable run-of-record artifact. ``cron.status`` is the one-word verdict: ``never_ran`` (no\nartifact), ``unhealthy`` (the last run froze / errored / totally failed / could not refresh the\nshared benchmark tape \u2014 as loud as stale, so a bad run can't hide behind green), ``stale`` (the\nrecord missed an expected run), ``gappy`` (the edge is current but a night inside the last\n``ALPHADECK_ADMIN_MISSED_WINDOW`` scheduled runs has no call-of-record recorded at/after that night's\n``RUN_AT`` \u2014 a run that fired on the wrong day, or failed after a daytime pass; the edge check alone\ncannot see either), else ``healthy``. ``record.missed_asofs`` lists the holes (empty on a clean\nwindow) and ``record.daytime_only_asofs`` names the subset whose only row is a pre-``RUN_AT`` one.\n``tape`` is the FEED freshness panel (G5a price tapes \u00b7 F1 ETF fund shares): every basket\nname whose stored EOD tape or fund-shares sampling has stopped, each row naming which feed, read from\nthe newest run artifact that evaluated recency \u2014 ``null`` until a pass has looked. A stale feed is a\nFEED gap, not a cron fault, so it never changes ``cron.status``. A row whose ``closed_at`` is set (G5b)\nis a name that CLOSED \u2014 delisted / acquired / deregistered per a SEC delisting form filed near its last\nbar \u2014 so its tape correctly ended and needs no repair; it stays on the panel (never dropped, #9) but\nrenders quietly as \"closed\" and never pages. A row with ``renamed`` set (T1) is a repair row whose\ncompany EDGAR lists under other symbols (``edgar_tickers``). ``cron.alarms`` are the status-level\nalarms (Phase 1B) that make the verdict\n``unhealthy`` though no single run failed: the cron's ``code_sha`` unknown or different from this\nbackend's (``backend_sha`` / ``cron_sha``), the last live pass paging through the LOG notifier or\nrunning without a User-Agent, and the newest unlabeled DB dump older than the schedule-aware backup\nwindow. ``last_run.audit`` is the latest pass's nightly self-audit; a failed check is a run problem.\n\nM1 \u2014 a killed or partial pass never reads healthy. A pass writes its artifact ``running`` at its start\nand finalizes it at the end: ``last_run`` is the newest FINISHED pass, and ``unfinished_run`` describes\na newer one that has not finished. Past the sidecar's run timeout (``ALPHADECK_CRON_RUN_TIMEOUT_S``) a\nstill-``running`` pass alarms \"the last pass did not finish\", a ``crashed`` one alarms at once, and a\nrecorded night with no run artifact at all alarms too; inside the timeout the verdict is ``running``.\n``record.partial_nights`` judges every window night PER THESIS (the self-audit's own rule): each thesis\nin that night's roster needs a non-reconstructed call-of-record at/after ``RUN_AT``, else the night is\npartial (\"4 of 12 theses\") and the verdict ``gappy`` \u2014 unless ``pipeline.backfill`` reconstructed that\nthesis's night: the backfill resolves the hole, so the night stays QUIET and is listed in\n``record.reconstructed_nights`` (a count, never an alarm). The night a pass is still running for is not\njudged until it finishes. A LATE row (recorded at/after the next weekday's 06:00 ET EDGAR open) still\ncovers its night here, but the Scoreboard sets late rows aside (L1), so ``record.late_only_nights`` names\nevery judged (thesis, night) with a late row and no row the Scoreboard scores \u2014 \"covered\" here, a gap\nthere.\nInformational: it never changes ``reason``, the verdict, or ``cron.alarms``, and never pages.\n\n``split_defects`` (T4) is the split-basis panel \u2014 every basket name whose stored tape mixes two split\nbases (island / cliff / flap), from the newest artifact that scanned; flag only, never the verdict.",
+        "description": "The freshness + health summary the admin page opens on \u2014 READ-ONLY (writes nothing, owns no\ntables). ``record`` measures the calls-log edge against the last EXPECTED Mon-Fri+RUN_AT run\n(container-local clock; a Friday edge on a Monday morning is CURRENT \u2014 never a weekend false\nalarm); ``edge: null`` is the quiet \"record has never begun\" state. ``last_run`` is the newest\nreadable run-of-record artifact. ``cron.status`` is the one-word verdict: ``never_ran`` (no\nartifact), ``unhealthy`` (the last run froze / errored / totally failed / could not refresh the\nshared benchmark tape \u2014 as loud as stale, so a bad run can't hide behind green), ``stale`` (the\nrecord missed an expected run), ``gappy`` (the edge is current but a night inside the last\n``ALPHADECK_ADMIN_MISSED_WINDOW`` scheduled runs has no call-of-record recorded at/after that night's\n``RUN_AT`` \u2014 a run that fired on the wrong day, or failed after a daytime pass; the edge check alone\ncannot see either), else ``healthy``. ``record.missed_asofs`` lists the holes (empty on a clean\nwindow) and ``record.daytime_only_asofs`` names the subset whose only row is a pre-``RUN_AT`` one.\n``tape`` is the FEED freshness panel (G5a price tapes \u00b7 F1 ETF fund shares): every basket\nname whose stored EOD tape or fund-shares sampling has stopped, each row naming which feed, read from\nthe newest run artifact that evaluated recency \u2014 ``null`` until a pass has looked. A stale feed is a\nFEED gap, not a cron fault, so it never changes ``cron.status``. A row whose ``closed_at`` is set (G5b)\nis a name that CLOSED \u2014 delisted / acquired / deregistered per a SEC delisting form filed near its last\nbar \u2014 so its tape correctly ended and needs no repair; it stays on the panel (never dropped, #9) but\nrenders quietly as \"closed\" and never pages. A row with ``renamed`` set (T1) is a repair row whose\ncompany EDGAR lists under other symbols (``edgar_tickers``). ``cron.alarms`` are the status-level\nalarms (Phase 1B) that make the verdict\n``unhealthy`` though no single run failed: the cron's ``code_sha`` unknown or different from this\nbackend's (``backend_sha`` / ``cron_sha``), the last live pass paging through the LOG notifier or\nrunning without a User-Agent, and the newest unlabeled DB dump older than the schedule-aware backup\nwindow. ``last_run.audit`` is the latest pass's nightly self-audit; a failed check is a run problem.\n\nM1 \u2014 a killed or partial pass never reads healthy. A pass writes its artifact ``running`` at its start\nand finalizes it at the end: ``last_run`` is the newest FINISHED pass, and ``unfinished_run`` describes\na newer one that has not finished. Past the sidecar's run timeout (``ALPHADECK_CRON_RUN_TIMEOUT_S``) a\nstill-``running`` pass alarms \"the last pass did not finish\", a ``crashed`` one alarms at once, and a\nrecorded night with no run artifact at all alarms too; inside the timeout the verdict is ``running``.\n``record.partial_nights`` judges every window night PER THESIS (the self-audit's own rule): each thesis\nin that night's roster needs a non-reconstructed call-of-record at/after ``RUN_AT``, else the night is\npartial (\"4 of 12 theses\") and the verdict ``gappy`` \u2014 unless ``pipeline.backfill`` reconstructed that\nthesis's night: the backfill resolves the hole, so the night stays QUIET and is listed in\n``record.reconstructed_nights`` (a count, never an alarm). The night a pass is still running for is not\njudged until it finishes. A LATE row (recorded at/after the next weekday's 06:00 ET EDGAR open) still\ncovers its night here, but the Scoreboard sets late rows aside (L1), so ``record.late_only_nights`` names\nevery judged (thesis, night) with a late row and no row the Scoreboard scores \u2014 \"covered\" here, a gap\nthere.\nInformational: it never changes ``reason``, the verdict, or ``cron.alarms``, and never pages.\n\n``split_defects`` (T4) is the split-basis panel \u2014 every basket name whose stored tape mixes two split\nbases (island / cliff / flap) as some reader sees it, from the newest artifact that scanned; flag only,\nnever the verdict. Its ``settled`` rows are flaps no reader sees on two bases \u2014 quiet, never an alarm.",
         "operationId": "get_admin_status_admin_status_get",
         "responses": {
           "200": {
@@ -6754,6 +6754,14 @@
             "title": "Defects",
             "default": []
           },
+          "settled": {
+            "items": {
+              "$ref": "#/components/schemas/AdminSplitSettledOut"
+            },
+            "type": "array",
+            "title": "Settled",
+            "default": []
+          },
           "newly_flagged": {
             "items": {
               "type": "string"
@@ -6780,7 +6788,62 @@
           "ran_at"
         ],
         "title": "AdminSplitOut",
-        "description": "The split-basis panel (T4), read from the newest run artifact whose scan EVALUATED \u2014 like ``tape``,\nartifact-sourced so this surface still owns no tables. ``asof`` / ``ran_at`` name that pass;\n``window_days`` is the calendar window it scanned (the widest price lookback on the call path).\n``defects`` is the full current inventory (one row per name per kind); ``newly_flagged`` the labels\nthat PAGED that night (new since the pass before \u2014 a standing defect never re-pages). ``error`` is set\nwhen the NEWEST live pass's scan could not run (``defects`` then still shows the last good inventory,\nfrom ``asof``) \u2014 a broken monitor is shown, never silently absent."
+        "description": "The split-basis panel (T4), read from the newest run artifact whose scan EVALUATED \u2014 like ``tape``,\nartifact-sourced so this surface still owns no tables. ``asof`` / ``ran_at`` name that pass;\n``window_days`` is the calendar window it scanned (the widest price lookback on the call path).\n``defects`` is the full current inventory (one row per name per kind) of the rows some reader sees;\n``settled`` the flaps no reader sees on two bases (quiet, never counted as a defect); ``newly_flagged``\nthe labels that PAGED that night (new since the pass before \u2014 a standing defect never re-pages).\n``error`` is set when the NEWEST live pass's scan could not run (``defects`` then still shows the last\ngood inventory, from ``asof``) \u2014 a broken monitor is shown, never silently absent."
+      },
+      "AdminSplitSettledOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "dates": {
+            "items": {
+              "type": "string",
+              "format": "date"
+            },
+            "type": "array",
+            "title": "Dates",
+            "default": []
+          },
+          "factor": {
+            "type": "number",
+            "title": "Factor"
+          },
+          "events": {
+            "type": "integer",
+            "title": "Events",
+            "default": 0
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "kind",
+          "factor"
+        ],
+        "title": "AdminSplitSettledOut",
+        "description": "A SETTLED flap (``pipeline/split_basis.settle_flap``): the stored history changed basis and back, but\nevery night's view reads a single basis \u2014 the newest tape has no break, and no night's history view (the\npublic clock) reads a lookback on two bases. Named so it stays visible, never paged, never an alarm.\n``reason`` says how it was judged."
       },
       "AdminStaleTapeOut": {
         "properties": {

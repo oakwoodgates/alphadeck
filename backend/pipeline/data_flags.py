@@ -12,7 +12,9 @@ kinds from the monitors that already exist — it adds no detector of its own:
   2024-09 bars the repair refused — is still a tape that mixes scales, and the flag says which cells it reaches,
   usually none). Flaps are a property of OUR stored versions, so they are read on the LIVE view only, and the
   S2 follow-up applies: a flapping bar whose newest version sits on the split list's scale is SETTLED
-  (``settled_flaps``) — the repaired names' old flip history draws nothing.
+  (``settled_flaps``) — the repaired names' old flip history draws nothing. A name whose flap has bars left
+  then gets T4's name-level settle check (``split_basis.settle_flap`` — the rule behind Admin's quiet
+  "settled" line): when no night's view reads two bases, its flap draws nothing either.
 - ``price_feed_stopped`` — ``pipeline.tape_health.is_tape_stale`` on the view's newest bar, read as renamed /
   closed / a plain feed gap by the nightly classifier's carried inventory when the view is today's (a history
   view never borrows today's EDGAR reading — no lookahead, #1).
@@ -85,7 +87,11 @@ from pipeline.split_basis import (
     Finding,
     TapeBar,
     flap_findings,
+    read_public_tapes,
+    settle_flap,
     tape_findings,
+    view_lookback_days,
+    window_days,
 )
 from pipeline.tape_health import is_tape_stale
 from signals.split_hold import HOLD_LOOKBACK_DAYS  # the hold's own read window — one definition
@@ -476,6 +482,29 @@ def settled_flaps(
     return out
 
 
+def remaining_flaps(
+    versions: Mapping[date, Sequence[BarVersion]],
+    tape: Sequence[TapeBar],
+    listed: Sequence[ListedSplit],
+    *,
+    asof: date,
+    shaped: Iterable[date] = (),
+) -> tuple[list[Finding], list[Finding]]:
+    """``(flaps, left)``: T4's flap findings on the live view's re-versioned bars, and each one minus its
+    S2-settled bars (``settled_flaps``) — only the ones with bars LEFT. Pure; ``member_flags`` draws ``left``,
+    and ``read_flags`` runs T4's name-level settle check (``split_basis.settle_flap``) on a name only when
+    something is left (the cost bound: no extra read for a name the S2 rule already settles)."""
+    flaps = flap_findings(versions, flap_since=asof - timedelta(days=FLAP_RECENT_DAYS))
+    bad = set(shaped)
+    left: list[Finding] = []
+    for f in flaps:
+        settled = settled_flaps(f.dates, tape, listed, asof=asof, unsettled=bad)
+        rest = tuple(d for d in f.dates if d not in settled)
+        if rest:
+            left.append(Finding(FLAP, rest, f.factor))
+    return flaps, left
+
+
 def mixed_scale_flag(
     findings: Sequence[Finding], bar_dates: Sequence[date], asof: date
 ) -> DataFlag | None:
@@ -749,13 +778,17 @@ def member_flags(
     shares: Mapping[str, Any] | None = None,
     reading: StopReading | None = None,
     corrections: Mapping[tuple[str, date], Correction] | None = None,
+    flaps_settled: bool = False,
 ) -> MemberFlags:
     """Every flag on ONE security as of ``asof`` — pure over the view's reads.
 
     ``bars`` = the view's whole price tape through ``asof`` (ascending); ``split_rows`` = the split list as
     the view knows it; ``versions`` = the bar version history for the flap test (the LIVE view only; ``None``
     on a history view); ``shares`` = the newest share-count fact; ``reading`` = the nightly classifier's read
-    of a stopped tape (today's view only)."""
+    of a stopped tape (today's view only); ``flaps_settled`` = T4's name-level settle check found no reader
+    sees this name's flapping history on two bases (``split_basis.settle_flap``, run by ``read_flags``) — the
+    same rule that moves it to Admin's quiet settled line, so a flap Admin calls settled draws no ⚑ here.
+    """
     bar_dates = _bar_dates(bars)
     flags: list[DataFlag] = []
 
@@ -779,18 +812,14 @@ def member_flags(
 
     flags += review_flags(split_rows, bar_dates, asof, skip=named_by_hold)
 
-    # 3. mixed-scale history: T4 over the whole tape; flaps (live only) minus the settled bars
+    # 3. mixed-scale history: T4 over the whole tape; flaps (live only) minus the settled bars — none at all
+    #    when T4's name-level settle check found no reader sees them on two bases
     tape = [TapeBar(_day(b["d"]), _num(b.get("close")), _num(b.get("volume"))) for b in bars]
     findings = tape_findings(tape)
-    if versions:
+    if versions and not flaps_settled:
         listed = [listed_from_row(r) for r in split_rows]
-        flaps = flap_findings(versions, flap_since=asof - timedelta(days=FLAP_RECENT_DAYS))
         shaped = {d for f in findings for d in f.dates}
-        for f in flaps:
-            settled = settled_flaps(f.dates, tape, listed, asof=asof, unsettled=shaped)
-            left = tuple(d for d in f.dates if d not in settled)
-            if left:
-                findings.append(Finding(FLAP, left, f.factor))
+        findings += remaining_flaps(versions, tape, listed, asof=asof, shaped=shaped)[1]
     mixed = mixed_scale_flag(findings, bar_dates, asof)
     if mixed is not None:
         flags.append(mixed)
@@ -901,6 +930,7 @@ def read_flags(
                 versions[r["security_id"]][r["d"]].append(
                     BarVersion(r["recorded_at"], _num(r["close"]))
                 )
+    settled_names = _settled_flap_names(conn, pit, versions, tenant_id=tenant_id, asof=asof)
     out: dict[UUID, MemberFlags] = {}
     for sid in ids:
         shares_facts = pit.shares_outstanding_facts(sid)
@@ -917,5 +947,59 @@ def read_flags(
             shares=shares,
             reading=reading,
             corrections=corrections,
+            flaps_settled=sid in settled_names,
         )
+    return out
+
+
+def _settled_flap_names(
+    conn: Any,
+    pit: Any,
+    versions: Mapping[UUID, Mapping[date, Sequence[BarVersion]]],
+    *,
+    tenant_id: UUID,
+    asof: date,
+) -> set[UUID]:
+    """The live-view names whose flap T4's settle rule SETTLES (``split_basis.settle_flap`` — the newest
+    tape has no break and no night's history view reads two bases): the rule Admin's quiet settled line
+    uses, so the two surfaces agree. Judged only for a name with flap bars LEFT after the S2 per-bar rule
+    (``remaining_flaps``) — any other name draws no flap anyway — in ONE read of their public-clock versions
+    (``split_basis.read_public_tapes``). Empty on a history view (no ``versions``). SELECTs only."""
+    need: dict[UUID, tuple[date, ...]] = {}
+    for sid, vs in versions.items():
+        if not vs:
+            continue
+        bars = pit.price_history(sid)
+        tape = [TapeBar(_day(b["d"]), _num(b.get("close")), _num(b.get("volume"))) for b in bars]
+        shaped = {d for f in tape_findings(tape) for d in f.dates}
+        listed = [listed_from_row(r) for r in pit.split_events(sid)]
+        flaps, left = remaining_flaps(vs, tape, listed, asof=asof, shaped=shaped)
+        if left:
+            need[sid] = tuple(sorted({d for f in flaps for d in f.dates}))
+    if not need:
+        return set()
+    span, back = window_days(), view_lookback_days()
+    tapes = read_public_tapes(
+        conn,
+        tenant_id=tenant_id,
+        security_ids=list(need),
+        asof=asof,
+        since=asof - timedelta(days=span + back),
+    )
+    out: set[UUID] = set()
+    for sid, dates in need.items():
+        t = tapes.get(sid)
+        if t is None:
+            continue  # nothing to judge on is never settled
+        verdict = settle_flap(
+            dates,
+            t.versions,
+            asof=asof,
+            window=span,
+            lookback=back,
+            split_rows=pit.split_events(sid),
+            store_through=t.store_through,
+        )
+        if verdict.settled:
+            out.add(sid)
     return out

@@ -181,6 +181,47 @@ REAL = [
         "legal",
         "effected a 1-for-80 share consolidation on May 18, 2026",
     ),
+    # --- Item 8.01 / 7.01 8-Ks (2026-10-23): the split list's 8-K reader skipped these items until then ---
+    # ENHA (8.01): states a LEGAL time ("effective at 12:01 a.m. Central Time on October 29, 2026") AND the
+    # first TRADING session — the trading one is read
+    (
+        "0001628280-26-066196.txt",
+        "10",
+        "1",
+        "2026-10-29",
+        "trading",
+        "begin trading on a split-adjusted basis on the New York Stock Exchange at the opening of trading on "
+        "October 29, 2026",
+    ),
+    # SNEX (8.01): a three-for-two paid as a stock dividend — "one additional share … for every two"
+    (
+        "0000913760-26-000034.txt",
+        "2",
+        "3",
+        "2026-07-20",
+        "trading",
+        "has approved a three-for-two split of its common stock",
+    ),
+    # SNEX (2.02 + 8.01): the same, announced inside an earnings release
+    (
+        "0000913760-25-000021.txt",
+        "2",
+        "3",
+        "2025-03-24",
+        "trading",
+        "Trading is expected to begin on a stock split-adjusted basis at market open on March 24, 2025",
+    ),
+    # ZCSH (8.01): a trust's 3-for-1 forward share split — "two additional shares for every one pre-split share"
+    (
+        "0001193125-26-408382.txt",
+        "1",
+        "3",
+        "2026-09-30",
+        "trading",
+        "effected a 3-for-1 forward share split",
+    ),
+    # ETH (8.01): a trust's 1-for-10, a LEGAL time ("effective as of 5:00 p.m. Eastern Time") on 11-19
+    ("0000950170-24-129219.txt", "10", "1", "2024-11-19", "legal", "at a ratio of 1-for-10"),
 ]
 
 
@@ -236,6 +277,98 @@ def test_pbm_reads_its_own_ratio_not_the_past_one_or_the_ceiling():
     assert "range:1-for-50" in x.mentions
     assert x.effective_date == date(2026, 2, 2)
     assert "at the opening of the market on February 2, 2026" in x.passage
+
+
+def test_enha_reads_its_first_trading_session_not_its_legal_time():
+    """ENHA's Item 8.01 8-K states the split's LEGAL moment ("effective at 12:01 a.m. Central Time on October
+    29, 2026") and its first TRADING session ("expected to begin trading on a split-adjusted basis … at the
+    opening of trading on October 29, 2026"). The trading sentence wins (kind ``trading``), so the matcher
+    holds it to Polygon's first session EXACTLY — and Polygon lists 10-28, one session early."""
+    x = extract_split(documents("0001628280-26-066196.txt"))
+    assert (x.ratio_from, x.ratio_to, x.effective_date, x.date_kind) == (
+        Decimal(10),
+        Decimal(1),
+        date(2026, 10, 29),
+        "trading",
+    )
+    assert "effective at 12:01 a.m. Central Time on October 29, 2026" in x.passage
+    assert x.document == "8-K apadu-20261019.htm"  # the filing's own file name
+
+
+@pytest.mark.parametrize(
+    "name", ["0000913760-26-000034.txt", "0000913760-25-000021.txt", "0001193125-26-408382.txt"]
+)
+def test_a_split_paid_as_extra_shares_reads_old_to_old_plus_extra(name):
+    """ "one additional share … for every two shares owned" (SNEX) and "two additional shares for every one
+    pre-split share" (ZCSH) state the shares a holder RECEIVES on top of the ones held: 2 -> 3 and 1 -> 3. Read
+    the old way they were 1 -> 2 (SNEX, beside its own "three-for-two": two ratios, abstained) and 1 -> 2 (ZCSH)
+    — and ZCSH's "September 28, 2026 received two additional shares for every one" read the YEAR as the first
+    number (1 -> 2026): the words between a ratio's two numbers are never a number themselves."""
+    x = extract_split(documents(name))
+    assert x.abstain_reason is None, x.abstain_reason
+    additional = [m for m in x.mentions if "additional" in m]
+    assert additional and all(m.startswith("operative:") for m in additional)
+    assert not any("2026 received" in m for m in x.mentions)
+
+
+def test_an_item_8_01_that_only_authorizes_a_range_abstains():
+    """JUNS's 8-K (Items 5.07 + 8.01, filed 2026-07-27): the stockholders approved "a reverse stock split at a
+    ratio not less than 1:10 and not more than 1:100 … to be determined in the discretion of our Board" — no
+    ratio is SET, so nothing is read (with the catch-all filing-date screen or without it)."""
+    for filed in (None, date(2026, 7, 27)):
+        x = extract_split(documents("0001493152-26-034724.txt"), filed=filed)
+        assert not x.has_ratio and x.effective_date is None
+        assert x.abstain_reason.startswith("only an authorized range of ratios")
+        assert "not less than 1:10 and not more than 1:100" in x.passage
+
+
+def test_an_item_8_01_restating_a_past_split_is_read_as_past():
+    """ASST's Item 8.01 8-K (filed 2026-10-05) restates its 1-for-20 "effected on February 6, 2026" (241 days
+    back). Read bare, that is a 1-for-20 with a legal date of 02-06 — a split this filing never announced. With
+    its filing date (the catch-all screen), the date is a PAST split's, and so is the ratio stated beside it.
+    """
+    bare = extract_split(documents("0001628280-26-064753.txt"))
+    assert (bare.ratio_from, bare.effective_date) == (Decimal(20), date(2026, 2, 6))
+    x = extract_split(documents("0001628280-26-064753.txt"), filed=date(2026, 10, 5))
+    assert not x.has_ratio and x.effective_date is None
+    assert x.abstain_reason == "only a past split's ratio is stated"
+    assert (
+        x.date_note == "only a past date stated (2026-02-06), more than 90 days before the filing"
+    )
+    assert (
+        "retroactively adjusted to reflect the 1-for-20 reverse stock split effected on February 6, 2026"
+        in (x.passage)
+    )
+
+
+def test_a_past_date_never_dates_a_catch_all_reading():
+    """AIRE's Item 7.01 8-K/A (filed 2026-09-23) states its 1-for-25 only "as adjusted for" it, and the one
+    date a legal cue reaches is 2025-12-31 — in a tax table ("Effective Tax Rate"). Bare, that reads as a
+    1-for-25 effective 2025-12-31 (which the nightly would have LISTED as a new split, ``tests/pipeline/
+    test_detect_splits.py``); with its filing date the ratio stands but the past date dates nothing.
+    """
+    bare = extract_split(documents("0001213900-26-102384.txt"))
+    assert (bare.ratio_from, bare.effective_date, bare.date_kind) == (
+        Decimal(25),
+        date(2025, 12, 31),
+        "legal",
+    )
+    x = extract_split(documents("0001213900-26-102384.txt"), filed=date(2026, 9, 23))
+    assert (x.ratio_from, x.ratio_to) == (Decimal(25), Decimal(1))
+    assert x.effective_date is None and x.date_kind is None
+    assert (
+        x.date_note == "only a past date stated (2025-12-31), more than 90 days before the filing"
+    )
+
+
+def test_a_business_combination_is_not_shares_combined():
+    """ENHA's Item 8.01 8-K of 2026-08-26: "SAFE investors will receive one warrant for every two shares
+    acquired, … if the business combination is consummated" — a merger's warrant terms, not a split. It used to
+    read as "a ratio … not whether reverse or forward" (a split filing the nightly could not place).
+    """
+    x = extract_split(documents("0001628280-26-058985.txt"), filed=date(2026, 8, 26))
+    assert x.abstain_reason == "no split ratio found"
+    assert not x.about_a_split and x.mentions == ()
 
 
 def test_a_full_submission_splits_into_typed_documents():

@@ -1277,6 +1277,8 @@ export type AdminRunOut = components["schemas"]["AdminRunOut"];
 export type AdminStaleTapeOut = components["schemas"]["AdminStaleTapeOut"];
 // T4 — one split-basis defect (a stored price tape mixing two split bases: island / cliff / flap)
 export type AdminSplitDefectOut = components["schemas"]["AdminSplitDefectOut"];
+// T4 — a SETTLED flap: the stored history flipped basis and back, but every night's view reads one basis
+export type AdminSplitSettledOut = components["schemas"]["AdminSplitSettledOut"];
 // one (thesis, night) recorded ONLY late — covered on Admin, set aside on the Scoreboard (L1)
 export type AdminLateOnlyNightOut = components["schemas"]["AdminLateOnlyNightOut"];
 export type AdminRunsOut = components["schemas"]["AdminRunsOut"];

@@ -381,6 +381,11 @@ reads — artifact-sourced like the stopped-feed panel, so the surface still own
     reverse split the history before it never got;
   - **`flap`** — a stored bar whose versions changed basis in both directions (the vendor flipped it and
     flipped it back), the latest flip within 90 days.
+- **`settled`** — flaps no reader sees on two bases (2026-10-23): the newest tape has no break and no night's
+  history view (the public clock) reads its lookback on two bases, so the flip is in our stored versions only.
+  Same row shape plus `reason`; rendered as ONE quiet, collapsed gray line ("N settled — … no view is
+  affected"), never in `defects`, never paged, never an alarm. A settled flap that later turns into a real
+  defect pages then, once (`settled` rows are not in the next pass's diff baseline).
 - **`newly_flagged`** are the labels that PAGED that night — new since the last finished pass that scanned
   (a catch-up included), keyed on the kind and the security, so a standing defect never re-pages, not even
   across a skipped-thesis catch-up; the run row carries them too (`split_defects_new`, a

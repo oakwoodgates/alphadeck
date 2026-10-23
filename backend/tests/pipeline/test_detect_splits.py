@@ -22,10 +22,23 @@ from domain.splits import (
 )
 from ingest.edgar.client import EdgarClient
 from ingest.polygon_splits import PolygonSplitSource
+from pipeline import backfill_splits as bf
 from pipeline import detect_splits as ds
 from pipeline import ingest_thesis as IT
 from repositories import split_repo
 from tests.pipeline.test_ingest_thesis import _make_thesis, _patch
+from tests.split_801_fixtures import (
+    AIRE_8KA,
+    AIRE_CIK,
+    ENHA_8K,
+    ENHA_FIRST_SESSION,
+    ENHA_POLYGON_DAY,
+    OLD_ITEMS,
+    enha_polygon,
+    seed_enha,
+    seed_member,
+)
+from tests.split_801_fixtures import SINCE as SINCE_8_01
 from tests.split_fixtures import edgar_cache
 from tests.split_s4_fixtures import CIKS, FILINGS, ROWS, tape_rows
 
@@ -310,3 +323,73 @@ def test_a_detection_fault_never_costs_the_name_its_ingest(db, security_id, monk
     (r,) = IT.ingest_thesis(db, tid, allow_live=False, split_detector=rec)
     assert rec.faults == [("DEVCO", "boom")]
     assert r.error is None and r.leg_errors == () and r.price_bars_appended == 1
+
+
+def test_the_nightly_attaches_an_item_8_01_reading_to_a_listed_split(db, tmp_path, monkeypatch):
+    """ENHA (2026-10-23): the split is listed from Polygon alone (10-28, needs review — the version prod holds,
+    written by the backfill when the reader skipped Item 8.01). The nightly reads the 8.01 8-K and appends ONE
+    version carrying its 1-for-10 and its first trading session (10-29), Polygon's values kept for the
+    operator; the next night appends nothing (the TABLE is counted)."""
+    sid = seed_enha(db)
+    with monkeypatch.context() as m:
+        m.setattr(bf, "SPLIT_8K_ITEMS", OLD_ITEMS)
+        bf.backfill_splits(
+            db,
+            polygon=enha_polygon(tmp_path, today=date(2026, 10, 20)),
+            edgar=EdgarClient(cache_dir=edgar_cache(tmp_path), allow_live=False),
+            since=SINCE_8_01,
+            asof=date(2026, 10, 20),
+            apply=True,
+            tickers=["ENHA"],
+        )
+    assert split_repo.count_rows(db) == 1
+    det = _run(db, tmp_path, asof=date(2026, 10, 23), tickers=["ENHA"])
+    assert [a.line for a in det.result.appended] == [
+        "ENHA 1-for-10 reverse split needs review (8-K + Polygon; updated)"
+    ]
+    assert split_repo.count_rows(db) == 2
+    (v,) = _latest(db, sid)
+    assert (v.author, v.action, v.status) == (
+        split_repo.AUTHOR_DETECT,
+        split_repo.ACTION_DETECT,
+        STATUS_NEEDS_REVIEW,
+    )
+    assert (v.effective_date, v.sec_accession) == (ENHA_POLYGON_DAY, ENHA_8K)
+    assert (v.sec_effective_date, v.sec_date_kind) == (ENHA_FIRST_SESSION, "trading")
+    assert split_repo.confirm_options(v) == ["sec", "polygon"]
+    det2 = _run(db, tmp_path, asof=date(2026, 10, 23), tickers=["ENHA"])
+    assert det2.result.appended == [] and split_repo.count_rows(db) == 2
+    # ENHA's other 8.01 / 7.01 8-Ks in the lookback state no split, and are not listed as unplaced either
+    assert det.result.unplaced == [] and det.result.filings_read == 3
+
+
+def test_a_catch_all_8k_restating_a_past_split_is_never_listed(db, tmp_path, monkeypatch):
+    """AIRE (no split on the list): its Item 7.01 8-K/A of 2026-09-23 restates a 1-for-25 beside a date 266
+    days back. Without the catch-all filing-date screen the nightly would LIST a new split on 2025-12-31 from it
+    — MEASURED on prod's basket 2026-10-23, the one new list row the wider item set produced. With it, nothing
+    is listed, and the filing is named as not placed (#9: shown, never dropped)."""
+    seed_member(db, "AIRE", AIRE_CIK, [AIRE_8KA])
+    asof = date(2026, 10, 23)
+    edgar = EdgarClient(cache_dir=edgar_cache(tmp_path), allow_live=False)
+    with monkeypatch.context() as m:
+        m.setattr(bf, "catch_all", lambda ref: False)  # the reader without the screen
+        bare = ds.SplitDetector.start(
+            asof=asof, allow_live=True, source=_polygon(tmp_path, today=asof), apply=False
+        )
+        ds.run_over_union(db, bare, edgar, tickers=["AIRE"])
+    (p,) = bare.planned
+    assert (p.action, p.decision.key_date, p.decision.status) == (
+        ds.APPEND,
+        date(2025, 12, 31),
+        STATUS_NEEDS_REVIEW,
+    )
+    assert split_repo.count_rows(db) == 0  # a dry run
+    det = _run(db, tmp_path, asof=asof, tickers=["AIRE"])
+    assert det.planned == [] and det.result.appended == []
+    assert split_repo.count_rows(db) == 0
+    (u,) = det.result.unplaced
+    assert (u.ticker, u.accession, u.form) == ("AIRE", AIRE_8KA[0], "8-K/A")
+    assert u.reason == (
+        "1-for-25 reverse split stated, but only a past date stated (2025-12-31), more than 90 days before "
+        "the filing"
+    )
