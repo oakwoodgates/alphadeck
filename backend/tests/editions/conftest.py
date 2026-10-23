@@ -10,5 +10,6 @@ except ImportError:  # pragma: no cover
         "test_engine.py",
         "test_selfcheck.py",
         "test_parity.py",
+        "test_publish.py",
         "test_set_aside_ceiling.py",
     ]

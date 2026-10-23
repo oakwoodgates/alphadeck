@@ -15,6 +15,7 @@ import {
   type PriceMarkerKind,
   stackChips,
   volumeData,
+  withoutIngestLines,
 } from "./overlay";
 
 // The drawer's episode chart (Slice 3, evolved in Slice A/R1, and — Slice B — lifted onto shared props). It
@@ -99,7 +100,10 @@ export function PriceSparkline({
   onActivate,
   loading = false,
   error = false,
+  hideIngest = false,
 }: {
+  /** Editions S4: a re-run edition's drawer — the tooltip drops the "ingested Nd later" lines. */
+  hideIngest?: boolean;
   ep: ScoreboardEpisodeOut;
   /** The whole loaded price window [floor, end], fetched by the parent (EpisodeScorecard). */
   bars: PriceBar[];
@@ -343,7 +347,11 @@ export function PriceSparkline({
       </div>
     );
 
-  const tip = hover ? overlayTooltip(hover.event) : null;
+  const tip = hover
+    ? hideIngest
+      ? withoutIngestLines(overlayTooltip(hover.event))
+      : overlayTooltip(hover.event)
+    : null;
   const tipX = hover ? Math.min(Math.max(hover.x, 76), plotWRef.current - 76) : 0;
   const onEnter = (c: Chip) => {
     setHover({

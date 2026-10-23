@@ -13,6 +13,7 @@ import {
   overlayTooltip,
   type ProvenanceLink,
   triggerLinks,
+  withoutIngestLines,
 } from "./overlay";
 import { closeReasonLine } from "./rows";
 
@@ -52,11 +53,15 @@ const LIFECYCLE_TYPE: Record<LifecycleKind, string> = {
 /** One overlay event → its ledger row. The `detail` reuses the chart tooltip's per-family lines where they
  *  read as a table cell (insider: who + fill + disclosure lag + market-price context; trigger: label +
  *  source), and stays quiet where the tooltip would only echo another column (a lifecycle row's single
- *  tooltip line IS its date). The insider "transacted <date>" echo is dropped — the date is its own column. */
-export function ledgerRow(e: OverlayEvent): LedgerRow {
+ *  tooltip line IS its date). The insider "transacted <date>" echo is dropped — the date is its own column.
+ *  `hideIngest` (editions S4: a re-run edition's drawer) drops the fact rows' "ingested Nd later" lines —
+ *  our fetch timing, which a public-clock re-run has none of (`withoutIngestLines`). */
+export function ledgerRow(e: OverlayEvent, hideIngest = false): LedgerRow {
   const base = { n: e.n, cls: familyCls(e.family), date: e.date };
+  const tipOf = (x: OverlayEvent) =>
+    hideIngest ? withoutIngestLines(overlayTooltip(x)) : overlayTooltip(x);
   if (e.family === "insider") {
-    const tip = overlayTooltip(e);
+    const tip = tipOf(e);
     const lines = tip.lines.filter((l) => !l.startsWith("transacted "));
     return {
       ...base,
@@ -69,7 +74,7 @@ export function ledgerRow(e: OverlayEvent): LedgerRow {
   if (e.family === "sell") {
     // Slice B: the sell mirror of the insider-buy row — who + fill + the two clocks + the character
     // line (why it did/didn't count toward the cluster); the date echo drops (its own column).
-    const tip = overlayTooltip(e);
+    const tip = tipOf(e);
     const lines = tip.lines.filter((l) => !l.startsWith("transacted "));
     return { ...base, type: "insider sell", detail: [tip.title, ...lines].join(" · ") };
   }
@@ -77,7 +82,7 @@ export function ledgerRow(e: OverlayEvent): LedgerRow {
     // Slice B: the type cell carries the verbatim form ("8-K" / "8-K/A" — the tooltip title), so the
     // detail is the lines alone: items (or "items unresolved") + the ingest lag; the "filed <date>"
     // echo drops (the date is its own column). The EDGAR index URL rides as the row's jump (#6).
-    const tip = overlayTooltip(e);
+    const tip = tipOf(e);
     const lines = tip.lines.filter((l) => !l.startsWith("filed "));
     return {
       ...base,
@@ -89,7 +94,7 @@ export function ledgerRow(e: OverlayEvent): LedgerRow {
   if (e.family === "activist") {
     // Slice B: type = the verbatim form, both naming eras (a 13G names itself — the gray row + the
     // form say "passive family" together); detail = filer (or "filer unresolved") + pct + ingest lag.
-    const tip = overlayTooltip(e);
+    const tip = tipOf(e);
     const lines = tip.lines.filter((l) => !l.startsWith("filed "));
     return {
       ...base,

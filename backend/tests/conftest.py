@@ -57,8 +57,11 @@ def db(_migrated):
     """A clean connection per test: truncate the facts + security master, keep the seeded tenant."""
     conn = connect()
     with conn.cursor() as cur:
-        # thesis CASCADE clears the whole spine (basket/evidence/catalyst/kill_criterion/calls too)
-        cur.execute("TRUNCATE thesis, fact_insider_txn, fact_price_eod, security_master CASCADE")
+        # thesis CASCADE clears the whole spine (basket/evidence/catalyst/kill_criterion/calls too);
+        # `edition` (0063) references no thesis, so it is named — its event/entry/page rows cascade
+        cur.execute(
+            "TRUNCATE thesis, fact_insider_txn, fact_price_eod, security_master, edition CASCADE"
+        )
     conn.commit()
     try:
         yield conn

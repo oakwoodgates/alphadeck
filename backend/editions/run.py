@@ -12,7 +12,19 @@
     DIR/preview.json + .txt  the comparison with the original record (``editions.preview``)
 
 ``--end`` defaults to the latest recorded night; ``--known-by`` (a cut at or before now) re-computes an
-earlier cut exactly. ``publish`` (S3) writes a run into the editions store.
+earlier cut exactly.
+
+    python -m editions.run publish [--apply] [--out DIR] [--end YYYY-MM-DD] [--known-by ISO] [--workers N]
+
+``publish`` (S3) publishes EDITION 1 — the initial edition, label "first re-run", cause ``initial``. It runs
+exactly the ``trial`` above at the cut (the same run directory, kept as the edition's evidence), then stores
+it through ``repositories.editions_repo``: the edition row (number, label, causes, engine fingerprint,
+config hash, code sha, the cut as ``data_known_by``, the first night), every join date as ``edition_entry``,
+one ``edition_call`` page per thesis-night (``page_kind = rerun``) and a ``published`` event. DRY-RUN by
+default: the run directory is written and the plan printed, and the connection stays READ-ONLY throughout.
+``--apply`` writes, in one transaction. A tenant that already holds Edition 1 (or an edition at the same
+cut) is REFUSED before anything runs, and again inside the write transaction — a second publish appends
+nothing. The ``calls`` log is only read, and the counts printed before and after the write prove it.
 """
 
 from __future__ import annotations
@@ -36,6 +48,7 @@ from editions.entry import Entry
 from editions.fingerprint import engine_fingerprint
 from editions.preview import compare_to_record, render
 from editions.selfcheck import live_edge
+from repositories import editions_repo
 
 
 def run_trial(
@@ -139,6 +152,187 @@ def _default_out(kind: str) -> Path:
     return Path("data/editions/runs") / f"{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}-{kind}"
 
 
+# --- publish (S3) -----------------------------------------------------------------------------------------
+
+INITIAL_NUMBER = 1
+INITIAL_LABEL = "first re-run"
+INITIAL_CAUSES = ("initial",)
+
+
+class PublishRefused(Exception):
+    """The edition already exists for the tenant; nothing ran and nothing was written."""
+
+
+def _refusal(conn: psycopg.Connection, tenant_id: UUID, known_by: datetime | None) -> str | None:
+    prior = editions_repo.get_by_number(conn, tenant_id=tenant_id, number=INITIAL_NUMBER)
+    if prior is None and known_by is not None:
+        prior = editions_repo.get_by_cut(conn, tenant_id=tenant_id, data_known_by=known_by)
+    if prior is None:
+        return None
+    return (
+        f"REFUSED: Edition {prior.number} ({prior.label}) is already published, cut "
+        f"{prior.data_known_by.isoformat()}, {prior.n_pages} pages. Editions are immutable; a later "
+        "edition is cut by a rule change or a data repair (S7). Nothing was run or written."
+    )
+
+
+def publish_plan(
+    conn: psycopg.Connection,
+    meta: dict[str, Any],
+    cards: dict[UUID, list[CallCard]],
+    entries: list[Entry],
+    *,
+    tenant_id: UUID,
+) -> dict[str, Any]:
+    """What ``--apply`` would store, from a finished run: the pages (every thesis-night), the join dates of
+    THIS tenant's theses (the trial's entries list carries every tenant's), and the counts."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT id FROM thesis WHERE tenant_id = %s", (tenant_id,))
+        own = {r["id"] for r in cur.fetchall()}
+    conn.commit()
+    pages = [c for tid in sorted(cards, key=str) for c in cards[tid]]
+    kept = [e for e in entries if e.thesis_id in own]
+    nights = [p.asof for p in pages]
+    return {
+        "number": INITIAL_NUMBER,
+        "label": INITIAL_LABEL,
+        "causes": list(INITIAL_CAUSES),
+        "data_known_by": meta["known_by"],
+        "first_night": min(nights).isoformat() if nights else None,
+        "last_night": max(nights).isoformat() if nights else None,
+        "engine": meta["engine"],
+        "n_pages": len(pages),
+        "n_theses": sum(1 for cs in cards.values() if cs),
+        "n_entries": len(kept),
+        "n_entries_estimated": sum(1 for e in kept if e.estimated),
+        "pages": pages,
+        "entries": kept,
+    }
+
+
+def run_publish(
+    conn: psycopg.Connection,
+    out: Path,
+    *,
+    apply: bool = False,
+    end: date | None = None,
+    known_by: datetime | None = None,
+    workers: int = 1,
+    tenant_id: UUID = DEFAULT_TENANT_ID,
+) -> dict[str, Any]:
+    """Publish Edition 1 (see the module docstring). Returns a summary: the plan's counts, and with
+    ``apply`` the new edition's id plus the table counts before and after the write. Raises
+    ``PublishRefused`` when the tenant already holds it — before the engine runs, and again inside the write
+    transaction (the unique constraints are the last guard)."""
+    refused = _refusal(conn, tenant_id, known_by)
+    conn.commit()
+    if refused:
+        raise PublishRefused(refused)
+    prior_ro = conn.read_only
+    conn.read_only = True  # the run itself writes no row, dry-run or not
+    try:
+        meta = run_trial(
+            conn, out, end=end, known_by=known_by, workers=workers, tenant_id=tenant_id
+        )
+        meta, cards, entries = load_run(out)
+        plan = publish_plan(conn, meta, cards, entries, tenant_id=tenant_id)
+    finally:
+        if conn.info.transaction_status != psycopg.pq.TransactionStatus.IDLE:
+            conn.rollback()
+        conn.read_only = prior_ro
+    summary = {k: v for k, v in plan.items() if k not in ("pages", "entries")}
+    summary["run_dir"] = str(out)
+    summary["live_edge"] = meta["live_edge"]
+    summary["applied"] = False
+    if not apply:
+        return summary
+
+    cut = datetime.fromisoformat(meta["known_by"])
+    try:
+        refused = _refusal(conn, tenant_id, cut)
+        if refused:
+            raise PublishRefused(refused)
+        before = editions_repo.table_counts(conn)
+        edition_id = editions_repo.publish_edition(
+            conn,
+            tenant_id=tenant_id,
+            number=INITIAL_NUMBER,
+            label=INITIAL_LABEL,
+            causes=INITIAL_CAUSES,
+            engine=meta["engine"],
+            data_known_by=cut,
+            pages=plan["pages"],
+            entries=[e.as_json() for e in plan["entries"]],
+            computed_at=datetime.fromisoformat(meta["created_at"]),
+            page_kind="rerun",
+            reason={
+                "engine": meta["engine"],
+                "run": {
+                    k: meta.get(k)
+                    for k in (
+                        "end",
+                        "known_by",
+                        "snapshot_at",
+                        "clock",
+                        "workers",
+                        "timings",
+                        "n_theses",
+                        "n_pages",
+                        "n_entries",
+                        "n_entries_estimated",
+                        "live_edge",
+                        "mirror",
+                        "insider_rows_dropped_no_acceptance",
+                    )
+                },
+                "run_dir": str(out),
+            },
+            event_detail={
+                k: summary[k]
+                for k in (
+                    "n_pages",
+                    "n_theses",
+                    "n_entries",
+                    "n_entries_estimated",
+                    "first_night",
+                    "last_night",
+                    "live_edge",
+                )
+            },
+        )
+        conn.commit()
+    except editions_repo.EditionExists as exc:
+        conn.rollback()
+        raise PublishRefused(f"REFUSED: {exc}") from exc
+    except Exception:
+        conn.rollback()
+        raise
+    after = editions_repo.table_counts(conn)
+    conn.commit()
+    summary.update(
+        applied=True, edition_id=str(edition_id), counts_before=before, counts_after=after
+    )
+    return summary
+
+
+def _print_publish(s: dict[str, Any]) -> None:
+    eng = s["engine"]
+    print(
+        f"Edition {s['number']} · {s['label']} · causes {s['causes']} · cut {s['data_known_by']}\n"
+        f"  nights {s['first_night']} .. {s['last_night']} · {s['n_pages']} pages over "
+        f"{s['n_theses']} theses · {s['n_entries']} join dates ({s['n_entries_estimated']} estimated)\n"
+        f"  engine {eng['fingerprint'][:12]} · policy {eng['config_hash'][:12]} · code "
+        f"{eng.get('code_sha') or 'unknown'} · live edge {s['live_edge']}\n"
+        f"  run dir {s['run_dir']}"
+    )
+    if not s["applied"]:
+        print("DRY RUN — nothing written to the database (re-run with --apply to publish)")
+        return
+    print(f"PUBLISHED edition {s['edition_id']}")
+    for k in ("edition", "edition_event", "edition_entry", "edition_call", "calls"):
+        print(f"  {k:14} {s['counts_before'][k]:>7} -> {s['counts_after'][k]:>7}")
+
+
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(prog="python -m editions.run", description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -157,7 +351,44 @@ def main(argv: list[str] | None = None) -> None:
         help="the cut (default: now) — an aware ISO instant at or before now",
     )
     tr.add_argument("--workers", type=int, default=1)
+    pb = sub.add_parser(
+        "publish", help="publish Edition 1 (dry-run unless --apply; refuses a second publish)"
+    )
+    pb.add_argument("--apply", action="store_true", help="write the edition (default: dry-run)")
+    pb.add_argument("--out", type=Path, default=None)
+    pb.add_argument(
+        "--end",
+        type=date.fromisoformat,
+        default=None,
+        help="last night (default: the latest recorded night)",
+    )
+    pb.add_argument(
+        "--known-by",
+        type=datetime.fromisoformat,
+        default=None,
+        help="the cut (default: now) — an aware ISO instant at or before now",
+    )
+    pb.add_argument("--workers", type=int, default=1)
     args = ap.parse_args(argv)
+
+    if args.cmd == "publish":
+        conn = connect()
+        try:
+            summary = run_publish(
+                conn,
+                args.out or _default_out("publish"),
+                apply=args.apply,
+                end=args.end,
+                known_by=args.known_by,
+                workers=args.workers,
+            )
+        except PublishRefused as exc:
+            print(exc)
+            raise SystemExit(2) from exc
+        finally:
+            conn.close()
+        _print_publish(summary)
+        return
 
     if args.cmd == "trial":
         conn = connect()

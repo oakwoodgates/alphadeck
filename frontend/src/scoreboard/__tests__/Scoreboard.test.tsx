@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ledgerColCount } from "../rows";
 import { Scoreboard } from "../Scoreboard";
@@ -16,16 +16,41 @@ const fx: { data: unknown; isLoading: boolean; error: unknown } = {
 
 // every useScoreboard call's arguments, so a test can see which annotated-night READING was asked for
 const scoreboardCalls: unknown[][] = [];
+// every drawer price-window call's arguments (editions S4: the edition rides it)
+const windowCalls: unknown[][] = [];
+
+// Editions S4 — the switcher's list. The default is the record alone (nothing published), so every test
+// above the editions block sees the page exactly as before editions.
+const RECORD_EDITION = {
+  number: 0,
+  label: "the original record",
+  causes: [],
+  cut: null,
+  first_night: "2026-07-10",
+  last_night: "2026-07-11",
+  n_pages: null,
+  n_entries: null,
+  n_entries_estimated: null,
+  engine_fingerprint: null,
+  config_hash: null,
+  code_sha: null,
+  published_at: null,
+};
+const editionsFx: { data: unknown } = { data: { default: 0, editions: [RECORD_EDITION] } };
 
 vi.mock("../../api/hooks", () => ({
   useScoreboard: (...args: unknown[]) => {
     scoreboardCalls.push(args);
     return fx;
   },
+  useScoreboardEditions: () => editionsFx,
   useScoreboardReplay: () => ({ data: null, isLoading: false, error: null }),
   // the drawer's sparkline hook — stubbed no-data so the scorecard renders its quiet "no price path"
   // line (and never reaches real lightweight-charts) when a test opens the drawer
-  useEpisodePriceWindow: () => ({ data: undefined, isLoading: false, isError: false }),
+  useEpisodePriceWindow: (...args: unknown[]) => {
+    windowCalls.push(args);
+    return { data: undefined, isLoading: false, isError: false };
+  },
   // Slice B lifted the Cockpit identity + signal-headline reads into the drawer's scorecard — stub them
   // no-data so the ledger's strip degrades to "—" (and no ledger renders without a price window anyway)
   useWorkbenchScored: () => ({ data: undefined, isLoading: false, isError: false }),
@@ -447,12 +472,12 @@ describe("Scoreboard", () => {
       expect.stringContaining("Nuclear Buildout 2026-10-14, Nuclear Buildout 2026-10-15"),
     );
     // the first render asks for the server's default readings (no override sent: annotated, late)
-    expect(scoreboardCalls[0]).toEqual(["2026-07-11", true, null, null]);
+    expect(scoreboardCalls[0]).toEqual(["2026-07-11", true, null, null, null]);
     const toggle = screen.getByRole("button", { name: "include annotated nights" });
     expect(toggle).toHaveAttribute("aria-pressed", "false");
     fireEvent.click(toggle);
     // one click asks for the INCLUDE reading (the late reading stays the server's)
-    expect(scoreboardCalls[scoreboardCalls.length - 1]).toEqual(["2026-07-11", true, true, null]);
+    expect(scoreboardCalls[scoreboardCalls.length - 1]).toEqual(["2026-07-11", true, true, null, null]);
 
     // the include reading says so, and the toggle reads pressed
     renderBoard({
@@ -488,12 +513,12 @@ describe("Scoreboard", () => {
     const title = line.closest("div")?.getAttribute("title") ?? "";
     expect(title).toContain("AI Memory & Storage 2026-10-12 (+11 h; an earlier row scored instead)");
     expect(title).toContain("Modern Defense 2026-10-12 (+11 h; no earlier row: a gap)");
-    expect(scoreboardCalls[0]).toEqual(["2026-07-11", true, null, null]);
+    expect(scoreboardCalls[0]).toEqual(["2026-07-11", true, null, null, null]);
     const toggle = screen.getByRole("button", { name: "include late nights" });
     expect(toggle).toHaveAttribute("aria-pressed", "false");
     fireEvent.click(toggle);
     // one click asks for the INCLUDE-late reading (the annotated reading stays the server's)
-    expect(scoreboardCalls[scoreboardCalls.length - 1]).toEqual(["2026-07-11", true, null, true]);
+    expect(scoreboardCalls[scoreboardCalls.length - 1]).toEqual(["2026-07-11", true, null, true, null]);
 
     // the include reading says so, and the toggle reads pressed
     renderBoard({
@@ -1039,5 +1064,169 @@ describe("Scoreboard", () => {
     expect(container.querySelector(".sb-filterline")?.textContent).toBe(
       "showing 2 of 5 rows · 3 hidden by filter",
     );
+  });
+});
+
+// --- Editions S4: the switcher, the label, the hidden record-only lines, the drawer's edition --------------
+
+const EDITION_1 = {
+  number: 1,
+  label: "first re-run",
+  causes: ["initial"],
+  cut: "2026-10-22T21:59:07Z",
+  first_night: "2026-06-10",
+  last_night: "2026-10-21",
+  n_pages: 659,
+  n_entries: 727,
+  n_entries_estimated: 727,
+  engine_fingerprint: "a".repeat(64),
+  config_hash: "c".repeat(64),
+  code_sha: null,
+  published_at: "2026-10-22T22:04:00Z",
+};
+
+// an Edition 1 read: the record-only lists are filled here ON PURPOSE (the server sends them empty for a
+// re-run) so the test proves the PAGE hides those lines for an edition, not merely that they were empty
+const RERUN_PAYLOAD = {
+  ...PAYLOAD,
+  edition: EDITION_1,
+  summary: {
+    ...PAYLOAD.summary,
+    banner: "EDITION 1 · FIRST RE-RUN — today's rules re-run from each company's join date…",
+    n_ingest_flagged: 1,
+    reconstructed_nights: ["2026-07-10"],
+    annotated_policy: "n/a",
+    annotated_nights: [
+      { thesis_id: "t-hims", thesis_name: "HIMS", asof: "2026-07-10", reasons: ["x"], rules: ["r"], n_rows: 1 },
+    ],
+    late_policy: "n/a",
+    late_nights: [
+      {
+        thesis_id: "t-hims",
+        thesis_name: "HIMS",
+        asof: "2026-07-10",
+        recorded_at: "2026-07-13T13:00:00Z",
+        edgar_open: "2026-07-13T10:00:00Z",
+        n_rows: 1,
+        earlier_recorded_at: null,
+        reason: "recorded after the next EDGAR open",
+      },
+    ],
+  },
+  theses: [
+    {
+      ...PAYLOAD.theses[0],
+      episodes: [
+        {
+          ...EP,
+          ingest_flagged: true, // never shown on a re-run, whatever the wire says
+          run_identity_note: "Edition 1 · first re-run · engine aaaaaaaa · policy cccccccc · cut 2026-10-22",
+          arm_run_kind: "rerun",
+          edition_join: {
+            entry_date: "2026-07-10",
+            estimated: true,
+            method: "first_pull",
+            armed_on_join_night: true,
+            note:
+              "join date estimated · 2026-07-10 (first data pull) · armed on its join night, so the true " +
+              "arm date is unknowable — kept out of the metrics",
+          },
+        },
+      ],
+    },
+  ],
+};
+
+function renderEditions(
+  data: unknown,
+  {
+    edition = null,
+    editions = [RECORD_EDITION, EDITION_1],
+  }: { edition?: number | null; editions?: unknown[] } = {},
+) {
+  Object.assign(fx, { data, isLoading: false, error: null });
+  editionsFx.data = { default: 0, editions };
+  const onEditionChange = vi.fn();
+  const utils = render(
+    <Scoreboard asof="2026-07-11" onSelect={vi.fn()} edition={edition} onEditionChange={onEditionChange} />,
+  );
+  return { onEditionChange, ...utils };
+}
+
+describe("Scoreboard — editions", () => {
+  afterEach(() => {
+    editionsFx.data = { default: 0, editions: [RECORD_EDITION] };
+  });
+
+  it("no switcher until a second edition exists — the page reads as before editions", () => {
+    renderEditions({ ...PAYLOAD, edition: RECORD_EDITION }, { editions: [RECORD_EDITION] });
+    expect(screen.queryByRole("group", { name: "edition" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Edition 0/)).not.toBeInTheDocument();
+  });
+
+  it("the switcher labels both editions, marks the SERVED one, and a click picks an edition", () => {
+    const { onEditionChange } = renderEditions({ ...PAYLOAD, edition: RECORD_EDITION });
+    const group = screen.getByRole("group", { name: "edition" });
+    const record = within(group).getByRole("button", { name: "Edition 0 · the original record" });
+    const rerun = within(group).getByRole("button", { name: "Edition 1 · first re-run · cut Oct 22" });
+    expect(record).toHaveAttribute("aria-pressed", "true"); // the default read served Edition 0
+    expect(rerun).toHaveAttribute("aria-pressed", "false");
+    expect(rerun.getAttribute("title")).toMatch(/727 of 727 join dates estimated/);
+    fireEvent.click(rerun);
+    expect(onEditionChange).toHaveBeenCalledWith(1);
+  });
+
+  it("the edition asked for rides the Scoreboard read (null = the server's default is not sent)", () => {
+    scoreboardCalls.length = 0;
+    renderEditions(RERUN_PAYLOAD, { edition: 1 });
+    expect(scoreboardCalls[0]).toEqual(["2026-07-11", true, null, null, 1]);
+    cleanup();
+    scoreboardCalls.length = 0;
+    renderEditions({ ...PAYLOAD, edition: RECORD_EDITION });
+    expect(scoreboardCalls[0]).toEqual(["2026-07-11", true, null, null, null]);
+  });
+
+  it("Edition 1 hides the reconstructed, annotated and late lines, their toggles, and the INGEST badge", () => {
+    renderEditions(RERUN_PAYLOAD, { edition: 1 });
+    const group = screen.getByRole("group", { name: "edition" });
+    expect(within(group).getByRole("button", { name: /Edition 1/ })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText(/EDITION 1 · FIRST RE-RUN/)).toBeInTheDocument();
+    expect(screen.getByText(/no reconstructed, annotated or late nights in a re-run/)).toBeInTheDocument();
+    expect(screen.queryByText(/reconstructed by a backfill/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/phantom-arm/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/late-recorded/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "include annotated nights" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "include late nights" })).not.toBeInTheDocument();
+    expect(screen.queryByText("INGEST")).not.toBeInTheDocument();
+    expect(screen.queryByText(/ingest-flagged/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Edition return/ })).toBeInTheDocument();
+    // the CENSORED mark stays (it marks the exception) and says G12's reason on hover
+    expect(screen.getByText("CENSORED").getAttribute("title")).toMatch(/estimated join night/);
+  });
+
+  it("the same lines DO render on Edition 0 (the record) — the hide is the edition's, not the data's", () => {
+    renderEditions({
+      ...RERUN_PAYLOAD,
+      edition: RECORD_EDITION,
+      summary: { ...RERUN_PAYLOAD.summary, annotated_policy: "excluded", late_policy: "excluded" },
+    });
+    expect(screen.getByText(/reconstructed by a backfill/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "include annotated nights" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "include late nights" })).toBeInTheDocument();
+    expect(screen.getAllByText("INGEST").length).toBeGreaterThan(0);
+  });
+
+  it("Edition 1's drawer: the join-date note, the edition caption, no INGEST, the edition on its window", () => {
+    windowCalls.length = 0;
+    const { container } = renderEditions(RERUN_PAYLOAD, { edition: 1 });
+    fireEvent.click(screen.getByText("awaiting first bar").closest("tr")!);
+    const panel = container.querySelector(".drawer-panel") as HTMLElement;
+    expect(within(panel).getByText(/join date estimated · 2026-07-10 \(first data pull\)/)).toBeInTheDocument();
+    expect(within(panel).getByText(/Edition 1 · first re-run · engine aaaaaaaa/)).toBeInTheDocument();
+    expect(within(panel).queryByText("INGEST")).not.toBeInTheDocument();
+    expect(within(panel).getByText("The move")).toBeInTheDocument(); // the scorecard mounted, chart slot too
+    expect(windowCalls.length).toBeGreaterThan(0);
+    const [args] = windowCalls[windowCalls.length - 1] as [{ edition: number | null }];
+    expect(args.edition).toBe(1);
   });
 });

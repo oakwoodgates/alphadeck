@@ -901,18 +901,45 @@ export interface paths {
         };
         /**
          * Get Scoreboard
-         * @description The Scoreboard (SCORE): the call-of-record scored as-of ``asof`` — a READ-ONLY pass over
-         *     the immutable calls log, the operator-decision log, and realized asof-capped prices. The
-         *     RECORD is the scoring source, never a recompute (replay re-derives history; this holds the
-         *     platform to what it actually said). Aggregate metrics judge only matured, non-censored
-         *     episodes and gate below ``min_n`` — an instrument, not a claim, until n accrues.
+         * @description The Scoreboard (SCORE): one EDITION scored as-of ``asof`` — a READ-ONLY pass over the
+         *     immutable calls log (or a stored edition's frozen pages), the operator-decision log, and realized
+         *     asof-capped prices. Edition 0, the default, is the call-of-record: the RECORD is the scoring
+         *     source, never a recompute (this holds the platform to what it actually said). Edition N >= 1 is a
+         *     stored re-run of today's rules from each company's join date on the public clock, scored on read
+         *     the same way. Aggregate metrics judge only matured, non-censored episodes and gate below
+         *     ``min_n`` — an instrument, not a claim, until n accrues.
          *
-         *     Three kinds of recorded row are set aside before scoring: reconstructed rows (always), rows
-         *     annotated as phantom arms (by the annotated-night policy, which ``include_annotated`` overrides
-         *     per request), and rows recorded after their night's next EDGAR open (by the late-night policy,
-         *     which ``include_late`` overrides per request). Every reading is available; nothing is deleted.
+         *     On Edition 0 three kinds of recorded row are set aside before scoring: reconstructed rows
+         *     (always), rows annotated as phantom arms (by the annotated-night policy, which
+         *     ``include_annotated`` overrides per request), and rows recorded after their night's next EDGAR
+         *     open (by the late-night policy, which ``include_late`` overrides per request). Every reading is
+         *     available; nothing is deleted. An edition has none of those rows: its lists come back empty and
+         *     both policies read ``n/a``.
          */
         get: operations["get_scoreboard_scoreboard_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/scoreboard/editions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Scoreboard Editions
+         * @description Every edition the Scoreboard can show: Edition 0 (the original record, the calls log — always
+         *     present, never stored) first, then each stored re-run edition ascending, with its cut, nights, join-date
+         *     counts and engine fingerprint. ``default`` = the edition ``GET /scoreboard`` serves when the request
+         *     names none (the setting; an unpublished default reads as 0). Read-only.
+         */
+        get: operations["get_scoreboard_editions_scoreboard_editions_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -5127,6 +5154,30 @@ export interface components {
             terms: components["schemas"]["TermEdit"][];
         };
         /**
+         * EditionJoinOut
+         * @description The episode's company's join date in an edition (``edition_entry``): the date, whether it is the
+         *     option-A ESTIMATE (a deploy-seed member whose real join predates the snapshot record), the rule that
+         *     produced it, whether the arm fell on that estimated night, and the drawer's backend-authored note.
+         */
+        EditionJoinOut: {
+            /**
+             * Entry Date
+             * Format: date
+             */
+            entry_date: string;
+            /** Estimated */
+            estimated: boolean;
+            /** Method */
+            method: string;
+            /**
+             * Armed On Join Night
+             * @default false
+             */
+            armed_on_join_night: boolean;
+            /** Note */
+            note?: string | null;
+        };
+        /**
          * EpisodeOperatorOut
          * @description The operator's answer to an arm episode: took (with the operator's own prices/return —
          *     ``inferred`` marks a close used where no fill price was logged) or passed (no prices; the
@@ -6630,6 +6681,62 @@ export interface components {
             segment_count: number;
         };
         /**
+         * ScoreboardEditionOut
+         * @description Which EDITION a Scoreboard read shows (editions S4). Edition 0 = the original record: the calls log,
+         *     never stored as an edition (``cut`` null — the record is append-only and current; ``first_night`` /
+         *     ``last_night`` = the calls log's first / latest as-of; no join dates, so the entry counts are null and the
+         *     engine fields too). Edition N >= 1 = a stored re-run of today's rules from each company's join date on
+         *     the public clock, frozen at ``cut`` (the newest row it could hold): ``causes`` names why it was cut
+         *     (``initial`` for Edition 1), ``n_entries_estimated`` of ``n_entries`` join dates are option-A estimates,
+         *     and the engine fingerprint / policy hash / code sha say which rules and code produced it (``code_sha``
+         *     null when unknown, never fabricated).
+         */
+        ScoreboardEditionOut: {
+            /** Number */
+            number: number;
+            /** Label */
+            label: string;
+            /**
+             * Causes
+             * @default []
+             */
+            causes: string[];
+            /** Cut */
+            cut?: string | null;
+            /** First Night */
+            first_night?: string | null;
+            /** Last Night */
+            last_night?: string | null;
+            /** N Pages */
+            n_pages?: number | null;
+            /** N Entries */
+            n_entries?: number | null;
+            /** N Entries Estimated */
+            n_entries_estimated?: number | null;
+            /** Engine Fingerprint */
+            engine_fingerprint?: string | null;
+            /** Config Hash */
+            config_hash?: string | null;
+            /** Code Sha */
+            code_sha?: string | null;
+            /** Published At */
+            published_at?: string | null;
+        };
+        /**
+         * ScoreboardEditionsResponse
+         * @description Every edition the Scoreboard can show, Edition 0 (the original record) first, then each stored
+         *     edition ascending; ``default`` = the edition a ``GET /scoreboard`` with no ``edition`` serves.
+         */
+        ScoreboardEditionsResponse: {
+            /** Default */
+            default: number;
+            /**
+             * Editions
+             * @default []
+             */
+            editions: components["schemas"]["ScoreboardEditionOut"][];
+        };
+        /**
          * ScoreboardEpisodeOut
          * @description One arm episode from the record, scored — a ledger row. Outcome fields keep replay's
          *     canonical names (``forward_return`` = arm→exit_by on realized closes ≤ the request asof).
@@ -6809,6 +6916,7 @@ export interface components {
              */
             insufficient_prices: boolean;
             operator?: components["schemas"]["EpisodeOperatorOut"] | null;
+            edition_join?: components["schemas"]["EditionJoinOut"] | null;
         };
         /**
          * ScoreboardMetricOut
@@ -7021,7 +7129,8 @@ export interface components {
         };
         /**
          * ScoreboardResponse
-         * @description The Scoreboard: the call-of-record scored as-of ``asof`` — the record, never a recompute.
+         * @description The Scoreboard: one EDITION scored as-of ``asof`` — Edition 0 is the call-of-record (the record, never
+         *     a recompute); Edition N >= 1 is a stored re-run, read from its frozen pages (``edition`` says which).
          */
         ScoreboardResponse: {
             /**
@@ -7037,6 +7146,7 @@ export interface components {
              * @default []
              */
             theses: components["schemas"]["ScoreboardThesisOut"][];
+            edition: components["schemas"]["ScoreboardEditionOut"];
         };
         /**
          * ScoreboardSummaryOut
@@ -7112,7 +7222,7 @@ export interface components {
              * @default excluded
              * @enum {string}
              */
-            annotated_policy: "excluded" | "included";
+            annotated_policy: "excluded" | "included" | "n/a";
             /**
              * Annotated Nights
              * @default []
@@ -7123,7 +7233,7 @@ export interface components {
              * @default excluded
              * @enum {string}
              */
-            late_policy: "excluded" | "included";
+            late_policy: "excluded" | "included" | "n/a";
             /**
              * Late Nights
              * @default []
@@ -8988,6 +9098,8 @@ export interface operations {
                 include_annotated?: boolean | null;
                 /** @description the late-night reading: true = score rows recorded after their night's next EDGAR open (06:00 ET the next weekday) as before; false = set them aside, so an on-time row for the night wins and a late-only night reads like a cron gap; omitted = the server setting (ALPHADECK_SCOREBOARD_EXCLUDE_LATE, default: set aside). The response's summary.late_policy names the reading used */
                 include_late?: boolean | null;
+                /** @description which EDITION to score: 0 = the original record (the calls log); N >= 1 = the stored re-run Edition N (404 if it does not exist); omitted = the server setting (ALPHADECK_SCOREBOARD_DEFAULT_EDITION, default 0 — an unpublished default falls back to 0). The response's `edition` block names the edition served */
+                edition?: number | null;
             };
             header?: never;
             path?: never;
@@ -9011,6 +9123,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_scoreboard_editions_scoreboard_editions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScoreboardEditionsResponse"];
                 };
             };
         };
@@ -9046,6 +9178,8 @@ export interface operations {
                 end: string;
                 /** @description score as-of this date — the series is CAPPED here (no-lookahead) */
                 asof: string;
+                /** @description the EDITION the drawer belongs to (the `/scoreboard` param's semantics): an edition >= 1 reads every dated overlay on the PUBLIC clock, a live as-of included; 0 / omitted with the default 0 = the record's reading, unchanged */
+                edition?: number | null;
                 thesis_id: string;
             };
             header?: never;

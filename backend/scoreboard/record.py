@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, datetime
 from uuid import UUID
 
@@ -7,19 +8,28 @@ import psycopg
 
 from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard, TriggerRef
+from domain.config import short_hash
 from domain.enums import Kind, State
+from domain.market_time import market_tz
 from domain.settings import get_settings
 from domain.thesis import Thesis
 from replay.episodes import derive_episodes
 from replay.schema import CallSnapshot, Episode, MemberRow
 from replay.scoring import score_episode
-from repositories import calls_repo, decisions_repo, thesis_repo
+from repositories import calls_repo, decisions_repo, editions_repo, thesis_repo
 from repositories.call_annotations_repo import CallAnnotation
+from repositories.editions_repo import Edition, JoinDate
 from scoreboard import provenance
 from scoreboard.decisions import attach_operator_track
 from scoreboard.late import late_call_ids, resolve_exclude_late
 from scoreboard.prices import PgRealizedPrices, market_tape_edge
-from scoreboard.schema import ScoreboardResult, ScoredEpisode, ThesisRecord, Transition
+from scoreboard.schema import (
+    EditionJoin,
+    ScoreboardResult,
+    ScoredEpisode,
+    ThesisRecord,
+    Transition,
+)
 
 # The record read + episode derivation. The scoring source is the CALLS LOG (what the platform
 # actually said), never a recompute: ``latest_for_thesis`` -> ascending ``CallSnapshot``s ->
@@ -113,6 +123,132 @@ def thesis_timeline(
     ]
     cards.reverse()  # newest-first -> ascending
     return [CallSnapshot.from_card(c) for c in cards], {c.asof: c for c in cards}
+
+
+# --- THE TIMELINE SOURCE SEAM (editions S4) -----------------------------------------------------------------
+# WHERE the episode timeline comes from. Everything ``derive_thesis_record`` does with a timeline — episodes,
+# scoring on read, the trigger enrichment, the de-arm detail, the risk tape, the record trail, the operator
+# track — is the same for every source. A source decides only what is source-specific:
+#
+# - ``RecordSource`` = EDITION 0, the original record: ``thesis_timeline`` over the calls log under the
+#   request's annotated / late policies, plus the record's own provenance (ingest stamps, run identity,
+#   annotations, thaw lags). Byte-for-byte the pre-editions read (a golden pins it).
+# - ``EditionSource`` = a stored edition >= 1: its frozen ``edition_call`` pages, ascending — never a
+#   ``calls`` row. A re-run has no reconstructed, annotated or late rows and no ingest history (every page is
+#   computed the same way, on the PUBLIC clock), so those readings do not apply. Its provenance is the
+#   edition itself (the engine fingerprint caption), and its censoring rule is G12's: an arm on the
+#   company's own ESTIMATED join night has an unknowable true arm date.
+
+
+@dataclass(frozen=True)
+class Timeline:
+    """One thesis's timeline from a source: ascending snapshots, the cards by as-of, and (Edition 0 only)
+    the late row ids the record's peer reads drop."""
+
+    snaps: list[CallSnapshot]
+    cards_by_asof: dict[date, CallCard]
+    late_ids: frozenset[UUID] = frozenset()
+
+
+class RecordSource:
+    """EDITION 0 — the calls log, read exactly as the Scoreboard always read it."""
+
+    number = 0
+    provenance = True
+
+    def __init__(
+        self, *, exclude_annotated: bool | None = None, exclude_late: bool | None = None
+    ) -> None:
+        self.exclude_annotated = resolve_exclude_annotated(exclude_annotated)
+        self.exclude_late = resolve_exclude_late(exclude_late)
+
+    def read(self, conn: psycopg.Connection, thesis_id: UUID, asof: date) -> Timeline:
+        late = late_call_ids(conn, thesis_id) if self.exclude_late else frozenset()
+        snaps, cards = thesis_timeline(
+            conn, thesis_id, asof, exclude_annotated=self.exclude_annotated, late_ids=late
+        )
+        return Timeline(snaps, cards, late)
+
+
+class EditionSource:
+    """A stored EDITION >= 1 — its frozen pages (``editions_repo.pages_for_thesis``), never the calls log."""
+
+    provenance = False
+    exclude_annotated = False  # nothing to set aside: the readings are "n/a" for a re-run
+    exclude_late = False
+
+    def __init__(self, edition: Edition) -> None:
+        self.edition = edition
+        self.number = edition.number
+
+    def read(self, conn: psycopg.Connection, thesis_id: UUID, asof: date) -> Timeline:
+        cards = editions_repo.pages_for_thesis(conn, self.edition.id, thesis_id, upto=asof)
+        return Timeline([CallSnapshot.from_card(c) for c in cards], {c.asof: c for c in cards})
+
+    def joins(self, conn: psycopg.Connection, thesis_id: UUID) -> dict[UUID, JoinDate]:
+        return editions_repo.joins_for_thesis(conn, self.edition.id, thesis_id)
+
+
+TimelineSource = RecordSource | EditionSource
+
+
+# the join-date rule's words, for the drawer's note (an unknown token reads as itself)
+_JOIN_METHOD_WORDS = {
+    "snapshot": "basket snapshot",
+    "first_pull": "first data pull",
+    "own_batch": "its thesis's own first batch",
+    "thesis_created": "thesis creation",
+    "no_pull": "thesis creation, no data pulled",
+}
+_JOIN_SUFFIX_WORDS = {
+    "card": "moved to the first recorded card naming it",
+    "seed_cap": "capped at the 09-15 basket snapshot",
+}
+
+
+def join_method_words(method: str) -> str:
+    base, *suffixes = method.split("+")
+    words = [_JOIN_METHOD_WORDS.get(base, base.replace("_", " "))]
+    words += [_JOIN_SUFFIX_WORDS.get(x, x.replace("_", " ")) for x in suffixes]
+    return ", ".join(words)
+
+
+def edition_join(join: JoinDate | None, arm_date: date) -> EditionJoin | None:
+    """The episode's join date in an edition, and the drawer's note. The note renders only for an ESTIMATED
+    join (an exact join is not an exception, #7); an arm ON an estimated join night says why it is censored.
+    """
+    if join is None:
+        return None
+    on_night = join.estimated and arm_date == join.entry_date
+    note = None
+    if join.estimated:
+        note = f"join date estimated · {join.entry_date} ({join_method_words(join.method)})"
+        if on_night:
+            note += (
+                " · armed on its join night, so the true arm date is unknowable — "
+                "kept out of the metrics"
+            )
+    return EditionJoin(
+        entry_date=join.entry_date,
+        estimated=join.estimated,
+        method=join.method,
+        armed_on_join_night=on_night,
+        note=note,
+    )
+
+
+def edition_identity_note(edition: Edition) -> str:
+    """The drawer's provenance caption for an edition's episode — WHICH edition and engine computed it (the
+    ``run_identity_note`` slot; backend-authored, so a hash is shortened in exactly one place)."""
+    parts = [
+        f"Edition {edition.number} · {edition.label}",
+        f"engine {short_hash(edition.engine_fingerprint)}",
+        f"policy {short_hash(edition.config_hash)}",
+    ]
+    if edition.code_sha:
+        parts.append(f"code {short_hash(edition.code_sha)}")
+    parts.append(f"cut {edition.data_known_by.astimezone(market_tz()).date().isoformat()}")
+    return " · ".join(parts)
 
 
 def _triggers_at_arm(card: CallCard | None, security_id: UUID) -> list[TriggerRef]:
@@ -286,9 +422,17 @@ def derive_thesis_record(
     basket_size: int | None = None,
     exclude_annotated: bool | None = None,
     exclude_late: bool | None = None,
+    source: TimelineSource | None = None,
 ) -> tuple[ThesisRecord, list[CallSnapshot]]:
     """One thesis's record scored as-of: episodes from the log, outcomes against asof-capped prices,
     plus the record-honesty flags. Returns the snapshots too (SB2 feeds them to the metric set).
+
+    ``source`` (editions S4) is WHERE the timeline comes from: ``None`` = Edition 0, the calls log under the
+    two read policies below (``RecordSource`` — exactly the pre-editions read); an ``EditionSource`` = a
+    stored edition's frozen pages. Every step below is the same for both, except the three source-specific
+    ones: the record provenance (Edition 0 only), ``censored_start`` (an edition censors an arm on the
+    company's own ESTIMATED join night, G12) and the run-identity caption (an edition's names the edition
+    and its engine fingerprint).
     ``exclude_annotated`` is the D3b read policy (``resolve_exclude_annotated``: None = the setting),
     resolved ONCE here and applied to every record read below, so the timeline, the ingest stamps, the run
     identity and the annotation caption all describe the same winning rows. ``exclude_late`` is the L1 read
@@ -304,11 +448,14 @@ def derive_thesis_record(
       falls back to the LIVE ``thesis`` count (the direct-call default, e.g. unit tests). The live
       roster would misreport a past-as-of.
     """
-    exclude = resolve_exclude_annotated(exclude_annotated)
-    late = late_call_ids(conn, thesis.id) if resolve_exclude_late(exclude_late) else frozenset()
-    snaps, cards_by_asof = thesis_timeline(
-        conn, thesis.id, asof, exclude_annotated=exclude, late_ids=late
+    src: TimelineSource = (
+        source
+        if source is not None
+        else RecordSource(exclude_annotated=exclude_annotated, exclude_late=exclude_late)
     )
+    exclude = src.exclude_annotated
+    timeline = src.read(conn, thesis.id, asof)
+    snaps, cards_by_asof, late = timeline.snaps, timeline.cards_by_asof, timeline.late_ids
     record = ThesisRecord(
         thesis_id=thesis.id,
         tenant_id=thesis.tenant_id,
@@ -340,6 +487,9 @@ def derive_thesis_record(
         triggers = [
             _triggers_at_arm(cards_by_asof.get(ep.arm_date), ep.security_id) for ep in episodes
         ]
+        # The record's own provenance exists only for Edition 0 (``src.provenance``): an edition's pages
+        # have no ingest stamps, run rows, annotations or thaw lags — they were all computed by one re-run.
+        recorded = src.provenance and bool(episodes)
         # Record-provenance (2d) — composed AFTER scoring, from reads the scoring path never sees:
         # the winning arm-date rows' R2b stamps + ONE batched thaw-lag query over every cited form4
         # accession. The flags segment/annotate only; ``score_episode``'s inputs are untouched.
@@ -352,7 +502,7 @@ def derive_thesis_record(
                 exclude_annotated=exclude,
                 exclude_call_ids=late,
             )
-            if episodes
+            if recorded
             else {}
         )
         # F1/0044 — the arm-date row's RUN IDENTITY, read with the SAME include_reconstructed value (and
@@ -366,7 +516,7 @@ def derive_thesis_record(
                 exclude_annotated=exclude,
                 exclude_call_ids=late,
             )
-            if episodes
+            if recorded
             else {}
         )
         # D3b — the ACTIVE annotations on the SAME winning rows (the third peer read on the one rule),
@@ -379,7 +529,7 @@ def derive_thesis_record(
                 exclude_annotated=exclude,
                 exclude_call_ids=late,
             )
-            if episodes
+            if recorded
             else {}
         )
         lags = (
@@ -389,20 +539,34 @@ def derive_thesis_record(
                 tenant_id=thesis.tenant_id or DEFAULT_TENANT_ID,
                 known_at=known_at,
             )
-            if episodes
+            if recorded
             else {}
         )
+        # an edition's frozen join dates (G12's censoring + the drawer's note); Edition 0 has none
+        joins = src.joins(conn, thesis.id) if isinstance(src, EditionSource) and episodes else {}
         for ep, trigs in zip(episodes, triggers):
-            prov = provenance.derive_episode_provenance(
-                ep.arm_date, trigs, health=health, lags=lags
-            )
-            ident = identity.get(ep.arm_date)
-            record.episodes.append(
-                ScoredEpisode(
-                    episode=ep,
-                    outcome=score_episode(ep, prices),
-                    status="open" if ep.dearm_date is None else "closed",
-                    matured=ep.exit_by is not None and ep.exit_by <= asof,
+            if isinstance(src, EditionSource):
+                join = edition_join(joins.get(ep.security_id), ep.arm_date)
+                specific = dict(
+                    # G12: an arm on the company's own ESTIMATED join night has an unknowable true arm
+                    # date; a company with no join row falls back to the record's rule (the first page)
+                    censored_start=(
+                        join.armed_on_join_night
+                        if join is not None
+                        else ep.arm_date == first_recorded
+                    ),
+                    arm_config_hash=src.edition.config_hash,
+                    arm_code_sha=src.edition.code_sha,
+                    arm_run_kind="rerun",
+                    run_identity_note=edition_identity_note(src.edition),
+                    edition_join=join,
+                )
+            else:
+                prov = provenance.derive_episode_provenance(
+                    ep.arm_date, trigs, health=health, lags=lags
+                )
+                ident = identity.get(ep.arm_date)
+                specific = dict(
                     censored_start=ep.arm_date == first_recorded,
                     arm_ingest_fresh=prov.arm_ingest_fresh,
                     freeze_era=prov.freeze_era,
@@ -414,6 +578,14 @@ def derive_thesis_record(
                     arm_run_kind=ident.run_kind if ident else None,
                     run_identity_note=provenance.run_identity_note(ident),
                     annotation_note=_annotation_note(annotations, ep, exclude_annotated=exclude),
+                )
+            record.episodes.append(
+                ScoredEpisode(
+                    episode=ep,
+                    outcome=score_episode(ep, prices),
+                    status="open" if ep.dearm_date is None else "closed",
+                    matured=ep.exit_by is not None and ep.exit_by <= asof,
+                    **specific,
                     triggers_at_arm=trigs,
                     # Slice C — composed ONLY for the one opaque token (the others self-explain, #7);
                     # dict lookups over the cards already in hand, no new queries.
@@ -449,6 +621,7 @@ def scoreboard_records(
     known_at: datetime | None = None,
     exclude_annotated: bool | None = None,
     exclude_late: bool | None = None,
+    edition: Edition | None = None,
 ) -> tuple[ScoreboardResult, dict[UUID, list[CallSnapshot]], dict[UUID, UUID]]:
     """Every thesis's record scored as-of (archived INCLUDED by default — the record is not erased
     by archiving; it just stops accruing). Per-thesis fault isolation: an unreadable historical card
@@ -462,10 +635,25 @@ def scoreboard_records(
     ``exclude_annotated`` (D3b): the annotated-night policy, resolved ONCE for the whole request
     (``resolve_exclude_annotated``) and stamped on the result (``exclude_annotated``), so every thesis is
     read under the same reading and the response can say which one it is. ``exclude_late`` (L1): the
-    late-night policy, resolved once and stamped (``exclude_late``) the same way."""
-    exclude = resolve_exclude_annotated(exclude_annotated)
-    exclude_late = resolve_exclude_late(exclude_late)
-    result = ScoreboardResult(asof=asof, exclude_annotated=exclude, exclude_late=exclude_late)
+    late-night policy, resolved once and stamped (``exclude_late``) the same way.
+
+    ``edition`` (editions S4): ``None`` = Edition 0, the record (the two policies above apply); a stored
+    edition = its frozen pages for every thesis (``EditionSource``) — the two policies do not apply to a
+    re-run and are stamped False (the summary reports them ``n/a``)."""
+    source: TimelineSource
+    if edition is None:
+        exclude = resolve_exclude_annotated(exclude_annotated)
+        exclude_late = resolve_exclude_late(exclude_late)
+        source = RecordSource(exclude_annotated=exclude, exclude_late=exclude_late)
+    else:
+        exclude, exclude_late = False, False
+        source = EditionSource(edition)
+    result = ScoreboardResult(
+        asof=asof,
+        exclude_annotated=exclude,
+        exclude_late=exclude_late,
+        edition_number=source.number,
+    )
     timelines: dict[UUID, list[CallSnapshot]] = {}
     single_name: dict[UUID, UUID] = {}
     # The market tape edge (``truncated``'s second leg) is per TENANT, not per thesis or per episode,
@@ -498,6 +686,7 @@ def scoreboard_records(
                 basket_size=pit_basket_size,
                 exclude_annotated=exclude,
                 exclude_late=exclude_late,
+                source=source,
             )
             timelines[thesis.id] = snaps
         except Exception as e:  # noqa: BLE001 — one thesis's bad card never blanks the Scoreboard

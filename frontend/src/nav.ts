@@ -9,6 +9,8 @@
 //   ?asof=YYYY-MM-DD     any view; absent or malformed = today
 //   ?name=<key>          Cockpit only; the NamePanel open on that member (ticker or security_id)
 //   ?rail=0              Cockpit only; the call rail collapsed (absent = open, the default)
+//   ?edition=N           Scoreboard only; the edition shown (0 = the original record; absent = the server's
+//                        default edition)
 //
 // App.tsx owns the router wiring; everything here is plain string-building so a router swap (or a
 // test) never touches the scheme itself.
@@ -38,6 +40,16 @@ export function validAsof(raw: string | null): string | null {
  *  state is written by DELETING the param, so a default-shaped URL stays clean. */
 export function railOpenFrom(raw: string | null): boolean {
   return raw !== "0";
+}
+
+/** The Scoreboard's edition (?edition=N, editions S4): a non-negative whole number, else null = the server's
+ *  default edition (the param is not sent at all). Absent and malformed are identical, like ?asof=, so junk
+ *  never reaches the API. 0 is the original record, a real value (never "absent"). */
+export const EDITION = "edition";
+
+export function editionFrom(raw: string | null): number | null {
+  if (raw == null || !/^\d{1,4}$/.test(raw)) return null;
+  return Number(raw);
 }
 
 function withParams(path: string, params: Record<string, string | null | undefined>): string {
