@@ -123,7 +123,7 @@ from pipeline.price_feed import (
     expected_miss_reasons,
     mark_acknowledged,
 )
-from pipeline.rename_probe import RenameProbe, run_rename_probe
+from pipeline.rename_probe import RenameProbe, run_auto_adopt, run_rename_probe
 from pipeline.rename_probe import describe as describe_rename
 from pipeline.run_lock import (
     EXIT_ALREADY_RUNNING,
@@ -536,7 +536,7 @@ def run_daily(
             print(
                 f"WARNING: tenant {gap['tenant_id']}: {gap['multi_row_ciks']} multi-row CIKs but ZERO "
                 "is_primary flags — CIK->security resolution is picking ARBITRARY siblings; "
-                "run `python -m pipeline.populate_master --live` to stamp the canonical primaries"
+                "run `python -m pipeline.populate_master --live --apply` to stamp the canonical primaries"
             )
     # M2 — the catch-up's skip set: theses that already hold an ON-TIME row for this night
     skip = _catch_up_skip_set(conn, asof) if catch_up else {}
@@ -1519,6 +1519,16 @@ def _run_daily_pass_locked(
         connect=_pass_connect,
         clock=perf_counter,
     )
+    # THE AUTO-ADOPT (the company-list refresh's hand-off, 2026-10-24): a renamed name the refresh PINNED to its
+    # old ticker (`system:rename-pin`) whose probe splice-verifies SEC's NEW ticker under the strict rule
+    # (>= 20 shared bars, x1.000) is adopted onto it through the existing Adopt path (author
+    # `system:auto-adopt`, shown on Admin, undoable; an undone one is never re-applied). Nothing else is ever
+    # adopted on its own — every other recommendation stays the operator's click. Fail-open: a fault rides
+    # `rename_probe.auto_adopt_error`. A night with no PINNED renamed row (the common night) returns the probe
+    # unchanged and opens no connection.
+    rename_probe = timed("rename_auto_adopt")(run_auto_adopt)(
+        rename_probe, results=results, allow_live=allow_live, connect=_pass_connect
+    )
     # T7 — THE SUCCESSOR-CIK DETECTOR (`pipeline/successor_cik.py`): for EVERY ingested member (fresh tapes
     # too), a stored CIK whose submissions list no tickers + SEC's ticker map assigning our symbol to another
     # CIK = the company now files under a successor issuer, and our filing legs read the dead CIK. A pending
@@ -1910,6 +1920,14 @@ def _report(
             f"RENAME PROBE FAILED — {probe.error} (tonight's renamed tapes have no splice verdict; "
             "the rows above still name EDGAR's symbols)"
         )
+    if probe is not None:
+        # the company-list refresh's pins, adopted onto SEC's new ticker under the strict rule — one quiet
+        # line each (a FAILED write is the loud exception: an uppercase header)
+        for a in probe.auto_adopted:
+            line = a.describe()
+            print(f"RENAME AUTO-ADOPT FAILED — {line}" if a.error else f"price feed: {line}")
+        if probe.auto_adopt_error:
+            print(f"RENAME AUTO-ADOPT FAILED — {probe.auto_adopt_error} (nothing adopted tonight)")
     closed = [s for s in stale.values() if s.closed]
     if closed:
         print(

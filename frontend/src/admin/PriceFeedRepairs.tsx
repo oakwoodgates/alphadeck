@@ -48,6 +48,14 @@ const vendorShort = (err: string | null | undefined) => {
 
 const ratio = (c: AdminProbeCandidateOut) => (c.ratio == null ? "—" : `×${c.ratio.toFixed(3)}`);
 
+/** The verb for a standing repair, naming the two SYSTEM authors plainly (the company-list refresh's pin to a
+ *  renamed company's old ticker, and the nightly probe's automatic adopt of the new one) — both undoable. */
+export function repairVerb(action: string, basis: string): string {
+  if (basis === "system:rename-pin") return "pinned automatically (company renamed) to";
+  if (basis === "system:auto-adopt") return "adopted automatically";
+  return action === "adopt" ? "adopted" : "set to";
+}
+
 /** One candidate's splice verdict, in the operator's words. */
 function CandidateVerdict({ c }: { c: AdminProbeCandidateOut }) {
   if (c.error) return <span className="adm-sub">fetch failed ({vendorShort(c.error)})</span>;
@@ -545,12 +553,13 @@ export function PriceFeedRepairs({ repairs }: { repairs: AdminPriceRepairsOut })
       {applied.length > 0 && (
         <details className="adm-quietlist" data-testid="adm-applied">
           <summary className="adm-line adm-quiet">
-            {applied.length} price-symbol repair(s) in force (operator-applied)
+            {applied.length} price-symbol repair(s) in force (operator-applied, or automatic after a company
+            rename)
           </summary>
           <ul className="adm-problems adm-quietrows">
             {applied.map((c) => (
               <li key={c.id}>
-                <b>{c.ticker ?? c.security_id}</b> — {c.action === "adopt" ? "adopted" : "set to"}{" "}
+                <b>{c.ticker ?? c.security_id}</b> — {repairVerb(c.action, c.basis)}{" "}
                 {c.new_symbol ?? "the canonical ticker"} · {c.created_at.slice(0, 10)} ({c.basis}){" "}
                 <button
                   type="button"

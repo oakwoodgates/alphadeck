@@ -2669,6 +2669,18 @@ class AdminEditionsNightlyOut(BaseModel):
     attention: bool = False
 
 
+class AdminMasterRefreshOut(BaseModel):
+    """The weekly company-list refresh (``python -m pipeline.populate_master --live --apply``), as ONE
+    plain-English line from its newest APPLIED run artifact (``data/master_runs``) — e.g. "Company list ·
+    refreshed Oct 25 · 298 new · 23 renames · 0 conflicts". Backend-authored copy (the FE renders, never
+    composes). ``attention`` is true only when the run left a CONFLICT (a ticker another company holds — not
+    applied) or failed: the one case worth a louder line."""
+
+    line: str
+    ran_at: datetime
+    attention: bool = False
+
+
 class AdminMissingCloseOut(BaseModel):
     """One company with no stored close for ``session`` (``pipeline/missing_closes.py``) — on the night's quiet
     list, or (``loud``) an older session's close still missing after a later session's pass. ``edge`` is its
@@ -2781,6 +2793,8 @@ class AdminStatusOut(BaseModel):
     the check (a file read — no DB). Never paged, never a cron verdict.
     ``editions_cut`` (editions S7) is the automatic cut's one line for seven days after it published the
     newest edition (a DB read of that edition); ``null`` otherwise. Never a cron verdict.
+    ``master_refresh`` is the weekly company-list refresh's one line, from its newest applied run artifact
+    (``data/master_runs``; a directory read — no DB); ``null`` until it has run. Never a cron verdict.
     """
 
     record: AdminRecordOut
@@ -2798,6 +2812,7 @@ class AdminStatusOut(BaseModel):
     editions_nightly: AdminEditionsNightlyOut | None = None
     missing_closes: AdminMissingClosesOut | None = None
     editions_cut: AdminEditionsCutOut | None = None
+    master_refresh: AdminMasterRefreshOut | None = None
 
 
 class AdminRunsOut(BaseModel):

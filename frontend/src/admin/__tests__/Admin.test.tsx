@@ -1222,6 +1222,36 @@ describe("Admin — the Scoreboard editions nightly line (editions S5)", () => {
   });
 });
 
+describe("Admin — the company-list line (the weekly master refresh)", () => {
+  const LINE = "Company list · refreshed Oct 25 · 3 new · 2 renames · 0 conflicts";
+
+  it("renders the backend's line quietly, loud only on a conflict or a failure, nothing before a run", () => {
+    h.status = {
+      ...h.status,
+      data: { ...STATUS_CURRENT, master_refresh: { line: LINE, ran_at: "2026-10-25T13:00:40Z", attention: false } },
+    };
+    renderAdmin();
+    const line = screen.getByTestId("adm-master-refresh");
+    expect(line.textContent).toBe(LINE);
+    expect(line.className).toContain("adm-quiet");
+    h.status = {
+      ...h.status,
+      data: {
+        ...STATUS_CURRENT,
+        master_refresh: { line: LINE.replace("0 conflicts", "1 conflicts"), ran_at: "2026-10-25T13:00:40Z", attention: true },
+      },
+    };
+    renderAdmin();
+    expect(screen.getAllByTestId("adm-master-refresh").at(-1)?.className).toContain("adm-loud");
+  });
+
+  it("renders nothing before the job has run, or from an older backend", () => {
+    h.status = { ...h.status, data: { ...STATUS_CURRENT, master_refresh: null } };
+    renderAdmin();
+    expect(screen.queryByTestId("adm-master-refresh")).toBeNull();
+  });
+});
+
 describe("Admin — missing closing prices (2026-10-23)", () => {
   // synthetic companies; the line is the backend's own (the FE renders, never composes)
   const QUIET_LINE =

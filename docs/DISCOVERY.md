@@ -188,7 +188,7 @@ could resolve a DIFFERENT instrument than the operator confirmed (the FE's secur
 duplicated the row), and the shown ticker / price cache / MONITOR position anchored to whichever sibling
 luck picked. **Promote re-asserts the same pick** (`master.canonicalize_ids` — coerce-all, operator-ratified),
 so the spine stores the instrument the operator actually trades regardless of which sibling a draft
-surfaced. Deploy note: the migration (0017) + a `populate_master` run backfill the flag;
+surfaced. Deploy note: the migration (0017) + a `populate_master --live --apply` run backfill the flag;
 `pipeline.repoint_canonical` is the one-time fix for pre-slice baskets (duplicate sibling pairs are skipped
 loudly — the operator prunes, a script never merges visible rows).
 

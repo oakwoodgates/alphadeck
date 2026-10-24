@@ -189,7 +189,9 @@ def search_securities(
     — never a fuzzy decision, never an ingest (no ``allow_live``). No match -> ``[]``; the operator's pick
     carries the exact ``security_id``. Tenant from the deployment resolver (which universe to author in).
     """
-    matches = master.search(conn, q, tenant_id=tenant_id, limit=limit)
+    # a FORMER ticker matches too (the company-list refresh renames a row in place and keeps the old one):
+    # typing the ticker the operator remembers still finds the company
+    matches = master.search(conn, q, tenant_id=tenant_id, limit=limit, include_former=True)
     return [
         SecurityMatchOut(security_id=m.id, ticker=m.ticker, name=m.name, cik=m.cik) for m in matches
     ]
@@ -829,16 +831,18 @@ def promote(
     # ``identity_overrides`` (per-member, logged — the gate idiom: friction + a record, never a silent
     # pass). A SIBLING disagreement (same CIK, another line's label) is ALIGNED instead, mirroring the
     # canonicalize coerce-all rule the operator already ratified — same company, the spine's label follows
-    # the bound instrument.
+    # the bound instrument. So is a RENAMED one: the label is the bound row's FORMER ticker (the company-list
+    # refresh renamed that very row in place), so the spine's label follows the row's current ticker.
     findings = coherence.classify_members(
         conn, [(m.ticker, m.security_id) for m in thesis.basket], tenant_id=tenant_id
     )
     overrides = set(req.identity_overrides)
     blocked: list[str] = []
     for i, (m, f) in enumerate(zip(thesis.basket, findings)):
-        if f.kind is coherence.CoherenceKind.SIBLING:
+        if f.kind in (coherence.CoherenceKind.SIBLING, coherence.CoherenceKind.RENAMED):
             _log.info(
-                "promote: sibling label %s aligned to bound %s for thesis %s",
+                "promote: %s label %s aligned to bound %s for thesis %s",
+                f.kind,
                 m.ticker,
                 f.bound_ticker,
                 thesis.id,

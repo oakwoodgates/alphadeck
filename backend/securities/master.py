@@ -137,91 +137,43 @@ def populate_universe(
     tenant_id: UUID = DEFAULT_TENANT_ID,
     effective_date: date | None = None,
 ) -> dict[str, int]:
-    """Populate THIS tenant's master from the SEC universe — idempotent, additive, and keyed on
-    ``(cik, ticker)``. The broadener that lifts the loop from "the seeded basket" to "any name you
-    just thought of". The caller commits.
+    """Refresh THIS tenant's master from the SEC universe — the broadener that lifts the loop from "the seeded
+    basket" to "any name you just thought of". Idempotent; the caller commits. Returns the original
+    ``{"inserted", "updated", "skipped"}`` counts (a rename counts as an update of its row).
 
-    Per ``(cik, ticker, name, exchange)`` quadruple (from ``sec_tickers.load_all``, in FILE ORDER): absent ->
-    INSERT a new row (fresh id); present with a changed ``name`` / ``exchange`` / ``is_primary`` -> UPDATE
-    **in place** (id stable); unchanged -> skip. Returns ``{"inserted", "updated", "skipped"}``.
+    The plan + apply live in ``securities/master_refresh.py`` (``plan_refresh`` / ``apply_plan``), which the
+    company-list CLI (``python -m pipeline.populate_master``, dry-run by default) calls directly so it can print
+    the plan first. ONE RECORD PER COMPANY: a CIK whose primary ticker SEC no longer lists has that row RENAMED
+    IN PLACE to the file's primary ticker (the id stays, so every fact stays attached; the old -> new pair is
+    kept in ``security_ticker_history``); any other new ticker on a known CIK is inserted non-primary; a new
+    CIK is inserted; at most one ``is_primary`` per CIK in the file after a run; a ticker another CIK holds is a
+    surfaced CONFLICT, never re-keyed; a CIK SEC no longer lists is left as it is.
 
     Two identity attributes ride the row beyond the mapping itself:
     - ``exchange`` — the SEC's PER-INSTRUMENT venue (ASML=Nasdaq vs ASMLF=OTC). This is the authoritative
       value; the submissions enrichment only fills it when NULL (its ``exchanges[0]`` is company-level and
       stamped the wrong sibling — the ASMLF="Nasdaq" bug).
     - ``is_primary`` — the CIK's ONE canonical instrument (``sec_tickers.flag_primaries``, the composite rank
-      validated against every multi-row CIK). ``ids_for_ciks`` resolves to it; promote re-asserts it. A row
-      the SEC file no longer carries keeps its last flag (a vanished sibling can't steal primacy — the flag
-      only moves when the file's rank moves it).
+      validated against every multi-row CIK). ``ids_for_ciks`` resolves to it; promote re-asserts it.
 
     INVARIANT #2 by construction: only EXACT SEC mappings are written, never a fuzzy guess
     (the ``search`` discovery net still only suggests; the operator still picks the exact id). Identity is
-    keyed on the stable CIK (the extractor keys on CIK; renames preserve it), with ticker in the key so a
-    CIK's several share classes (dual-class) each stay a pickable row. The seeded names reconcile for free —
-    their ``(cik, ticker)`` is already present, so their ids are reused, never duplicated, and their facts
-    stay linked.
+    keyed on the stable CIK (the extractor keys on CIK; renames preserve it). The seeded names reconcile for
+    free — their ``(cik, ticker)`` is already present, so their ids are reused, never duplicated, and their
+    facts stay linked.
 
-    NOTE — the master's FIRST in-place mutation. Legal: the ``no_update`` trigger guards the *fact* tables,
-    NOT ``security_master``. Safe: nothing reads the master as-of, so dropping the prior name (we keep only
-    the current mapping) leaks into no point-in-time read. Necessary: 8 tables FK ``security_id`` ->
-    ``security_master(id)``, so the id MUST stay stable or those facts orphan — an in-place UPDATE keeps it.
+    Legal: the ``no_update`` trigger guards the *fact* tables, NOT ``security_master``. Safe: nothing reads the
+    master as-of, so overwriting the prior name / ticker leaks into no point-in-time read (the ticker's history
+    is kept beside it). Necessary: many tables FK ``security_id`` -> ``security_master(id)``, so the id MUST
+    stay stable or those facts orphan — an in-place UPDATE keeps it.
     """
-    existing: dict[tuple[str, str], tuple[UUID, str | None, str | None, bool | None]] = {}
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT DISTINCT ON (cik, ticker) cik, ticker, id, name, exchange, is_primary "
-            "FROM security_master "
-            "WHERE tenant_id = %s AND cik IS NOT NULL AND ticker IS NOT NULL "
-            "ORDER BY cik, ticker, recorded_at DESC",
-            (tenant_id,),
-        )
-        for r in cur.fetchall():
-            existing[(r["cik"], r["ticker"])] = (r["id"], r["name"], r["exchange"], r["is_primary"])
+    from securities import master_refresh  # lazy: master_refresh's apply imports a repository
 
-    # De-dup defensively (the SEC file shouldn't repeat a (cik, ticker)) BEFORE the primary rank, so a
-    # duplicate row can't split a CIK's rank group; then flag exactly one primary per CIK (file order kept).
-    seen: set[tuple[str, str]] = set()
-    deduped: list[tuple[str, str, str | None, str | None]] = []
-    for cik, ticker, name, exchange in rows:
-        if not cik or not ticker:
-            continue
-        key = (cik, str(ticker).upper())
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append((cik, str(ticker).upper(), name, exchange))
-
-    valid_from = effective_date or market_today()
-    inserts: list[tuple] = []
-    updates: list[tuple] = []
-    for cik, ticker, name, exchange, is_primary in sec_tickers.flag_primaries(deduped):
-        current = existing.get((cik, ticker))
-        if current is None:
-            inserts.append(
-                (uuid4(), tenant_id, cik, ticker, name, exchange, is_primary, valid_from)
-            )
-        elif (name, exchange, is_primary) != (current[1], current[2], current[3]):
-            updates.append((name, exchange, is_primary, current[0]))
-
-    with conn.cursor() as cur:
-        if inserts:
-            cur.executemany(
-                "INSERT INTO security_master "
-                "(id, tenant_id, cik, ticker, name, exchange, is_primary, valid_from) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-                inserts,
-            )
-        if updates:
-            cur.executemany(
-                "UPDATE security_master SET name = %s, exchange = %s, is_primary = %s, "
-                "recorded_at = now() WHERE id = %s",
-                updates,
-            )
-    return {
-        "inserted": len(inserts),
-        "updated": len(updates),
-        "skipped": len(seen) - len(inserts) - len(updates),
-    }
+    plan = master_refresh.plan_refresh(
+        conn, rows, tenant_id=tenant_id, effective_date=effective_date
+    )
+    written = master_refresh.apply_plan(conn, plan)
+    return master_refresh.legacy_counts(written, plan)
 
 
 def enrich(
@@ -761,7 +713,7 @@ def primary_flag_gaps(conn: psycopg.Connection) -> list[dict]:
     line, the OTC foreign ordinary (the live finding: 10,366 rows / 0 flags / 1,449 multi-row CIKs → ASML
     bound to ASMLF, Blaize to its BZAIW warrant). The state is invisible to every read (nothing errors), so
     the daily cron surfaces it LOUDLY instead; the fix is one command — ``python -m pipeline.populate_master
-    --live`` (a re-run stamps the flags; ``populate_universe`` updates on the is_primary diff). Cross-tenant
+    --live --apply`` (a re-run stamps the flags; the refresh updates on the is_primary diff). Cross-tenant
     deliberately: the guard must not miss a tenant the caller didn't think to name."""
     with conn.cursor() as cur:
         cur.execute(
@@ -793,9 +745,13 @@ def search(
     *,
     tenant_id: UUID = DEFAULT_TENANT_ID,
     limit: int = 10,
+    include_former: bool = False,
 ) -> list[Security]:
     """Discovery net over the per-tenant master: the securities whose ticker or name contains ``query``
     (case-insensitive), latest row per ticker, for the operator to PICK from when authoring a basket.
+    ``include_former`` also matches a row by a FORMER ticker (``security_ticker_history``, written when the
+    company-list refresh renamed it in place) — the Workbench company search sets it, so typing "SVAC" finds
+    the company SEC now lists as GFUZ.
 
     INVARIANT #2 by construction — "fuzzy is a discovery net, never a decider": every row returned is an
     EXACT master member; the operator picks the exact ``security_id``. **Read-only** — it never ingests
@@ -804,12 +760,22 @@ def search(
     master read.
     """
     like = f"%{query.strip().upper()}%"
+    former = (
+        " OR id IN (SELECT h.security_id FROM security_ticker_history h"
+        " WHERE h.tenant_id = %s AND h.old_ticker LIKE %s)"
+        if include_former and query.strip()
+        else ""
+    )
+    args: list = [tenant_id, like, like]
+    if former:
+        args += [tenant_id, like]
     with conn.cursor() as cur:
         cur.execute(
             "SELECT DISTINCT ON (ticker) * FROM security_master "
-            "WHERE tenant_id = %s AND ticker IS NOT NULL AND (ticker LIKE %s OR UPPER(name) LIKE %s) "
+            "WHERE tenant_id = %s AND ticker IS NOT NULL AND (ticker LIKE %s OR UPPER(name) LIKE %s"
+            f"{former}) "
             "ORDER BY ticker, recorded_at DESC LIMIT %s",
-            (tenant_id, like, like, limit),
+            (*args, limit),
         )
         return [_row_to_security(row) for row in cur.fetchall()]
 

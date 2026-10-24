@@ -63,8 +63,10 @@ LOCK_ID_CALL_OF_RECORD = 1
 # staged onboarding job (``pipeline.onboarding.ONBOARD_LOCK_ID``), 4 = the Scoreboard editions nightly page job
 # (``editions.nightly``; holder ``editions``). The editions build plan named id 2 for it, but 2 is the gate:
 # an exclusive editions lock there would stall every company writer and every repair, so it took the next free
-# id. The editions job only ever PROBES id 1 (``describe_holder``), never takes it.
+# id. The editions job only ever PROBES id 1 (``describe_holder``), never takes it. 5 = the weekly company-list
+# refresh (``pipeline.populate_master --apply``; holder ``master-refresh``), which likewise only PROBES id 1.
 LOCK_ID_EDITIONS = 4
+LOCK_ID_MASTER_REFRESH = 5
 
 # The exit code a CLI uses when another process holds the lock (EX_TEMPFAIL, sysexits.h: "a temporary
 # failure; the user is invited to retry"). DISTINCT from 1 ("this night has no record") on purpose: this
@@ -324,6 +326,41 @@ class JobLock:
 
     def __exit__(self, *exc: object) -> None:
         self.release()
+
+
+class JobAlreadyRunning(RuntimeError):
+    """Another process holds a job lock (``acquire_job_lock``); this run did not start."""
+
+    def __init__(self, what: str, holder: str | None) -> None:
+        self.holder = holder
+        who = f" — held by {holder}" if holder else ""
+        super().__init__(f"another {what} is already running{who}")
+
+
+def acquire_job_lock(*, lock_id: int, holder: str, what: str) -> JobLock:
+    """TRY to take job lock ``lock_id`` (this namespace) on a fresh, dedicated, autocommit session
+    (``alphadeck-pass:<holder>`` in ``pg_stat_activity``). Raises ``JobAlreadyRunning`` (the session closed,
+    nothing written) when another session holds it. Never touches the call-of-record lock — a job that must
+    yield to a pass PROBES it (``JobLock.call_of_record_holder``)."""
+    if lock_id in (LOCK_ID_CALL_OF_RECORD, FACT_GATE_ID):
+        raise ValueError(f"lock id {lock_id} is not a job lock")
+    conn = connect()
+    try:
+        conn.autocommit = True
+        conn.execute(
+            "SELECT set_config('application_name', %s, false)", (f"{_APP_PREFIX}{holder}"[:63],)
+        )
+        got = conn.execute(
+            "SELECT pg_try_advisory_lock(%s, %s) AS got", (LOCK_NAMESPACE, lock_id)
+        ).fetchone()["got"]
+    except BaseException:
+        conn.close()
+        raise
+    if not got:
+        who = describe_holder(conn, lock_id=lock_id)
+        conn.close()
+        raise JobAlreadyRunning(what, who)
+    return JobLock(conn=conn, lock_id=lock_id, holder=holder)
 
 
 def acquire_editions_lock(*, holder: str = "editions") -> JobLock:

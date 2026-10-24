@@ -610,6 +610,17 @@ export function Admin({ header }: Props) {
                 {status.editions_cut.line}
               </div>
             )}
+            {/* the weekly company-list refresh's one line ("Company list · refreshed Oct 25 · 298 new · 23
+                renames · 0 conflicts"). Quiet; louder only when a conflict was left unapplied (a ticker another
+                company holds) or the run failed. Rendered once it has run; an older backend omits the field. */}
+            {status.master_refresh && (
+              <div
+                className={`adm-line ${status.master_refresh.attention ? "adm-loud" : "adm-quiet"}`}
+                data-testid="adm-master-refresh"
+              >
+                {status.master_refresh.line}
+              </div>
+            )}
             <div className="adm-sub">
               {status.record.reason} · today {status.record.today} · last expected as-of{" "}
               {status.record.expected_asof}

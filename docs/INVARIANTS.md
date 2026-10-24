@@ -59,11 +59,14 @@ spans thousands of names — but it is still a **discovery NET**: it surfaces ex
 to PICK (the row shows ticker + CIK, so a homonym like Oklo is disambiguated by sight), and it **never decides
 a mapping** — the operator commits the exact `security_id`. More rows strengthen the net; exact-identifier-
 decides is unchanged. The broadener itself writes **only** exact `company_tickers` mappings — an incomplete
-row (missing CIK or ticker) is **dropped**, never guessed.
+row (missing CIK or ticker) is **dropped**, never guessed. Since the weekly company-list refresh (2026-10-24) a
+company SEC re-tickers keeps ONE row (renamed in place; the old ticker kept in `security_ticker_history`), and a
+re-key onto a ticker another company holds is a surfaced conflict, never applied — the refresh never decides
+which of two companies a ticker belongs to.
 
 - *Enforced by:* `securities/master.search` (read-only — never an ingest, never a write); the broadener's
-  exact `(cik, ticker)` keying that drops incomplete rows (`securities/master.populate_universe`,
-  `tests/securities/test_populate_master.py`).
+  exact keying that drops incomplete rows (`securities/master_refresh.plan_refresh`,
+  `tests/securities/test_populate_master.py`, `tests/securities/test_master_refresh.py`).
 
 **The chain drafter is where that net DECIDES, and promote is where it's enforced (S5).**
 `resolve_placements` (`backend/workbench/chain_draft.py`) runs each drafter-proposed name through the master
