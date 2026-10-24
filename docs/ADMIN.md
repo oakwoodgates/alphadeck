@@ -508,6 +508,23 @@ line with a "see what changed" link (`SCOREBOARD.md` §The automatic cut). `null
 newest edition was published by hand (Edition 1). To cut right after a repair instead of waiting for the night:
 `python -m editions.run cut --apply` (dry-run without `--apply`).
 
+### The company list — "is the security master current?"  `[BUILT, 2026-10-24]`
+
+The cron sidecar refreshes the security master from SEC's company file every Saturday at 09:00 ET
+(`FEED_LOOP.md` §the company list; `python -m pipeline.populate_master`, dry-run by default). `GET /admin/status`
+carries its **one line**, `master_refresh` — the newest APPLIED run's own words from `data/master_runs/<ts>.json`
+(a directory read, no DB; a dry run is never shown; `null` until the job has run):
+
+- `Company list · refreshed Oct 25 · 298 new · 23 renames · 0 conflicts` — the normal week (QUIET). A rename
+  updated the company's row IN PLACE (every fact stays attached); a renamed name with stored bars is pinned to
+  its old ticker, and shows in "Price feed repairs" as **pinned automatically (company renamed)** — then, once
+  the nightly probe splice-verifies the new ticker (>= 20 shared bars at x1.000), as **adopted automatically**.
+  Both have their Undo; an undone automatic adopt is never re-applied.
+- LOUD (`attention`) only when the run left a CONFLICT — a change NOT applied because another company holds the
+  ticker (reuse after a delisting, or a possible successor issuer of a basket member) — or the run FAILED
+  (`Company list · refresh FAILED Oct 25 — …`; nothing was written, one transaction). The artifact (and the cron
+  log) names each conflict with both companies; the repair is by hand.
+
 ## Cron health — "did last night's run work?"
 
 The one-word `cron.status` verdict, plus the last run's counts and any problems:
@@ -758,7 +775,7 @@ the freeze it is adjacent to: `POSTMORTEM_CRON_FREEZE_2026-07.md`.
 
 | Endpoint | Shape | Notes |
 |---|---|---|
-| `GET /admin/status` | freshness + cron verdict + last-snapshot age + the stopped-feed, split-basis and price-feed-repairs panels + the editions nightly line (`editions_nightly`) + the missing-close flag (`missing_closes`) + the automatic cut's seven-day line (`editions_cut`) | read-only; the page opens on it |
+| `GET /admin/status` | freshness + cron verdict + last-snapshot age + the stopped-feed, split-basis and price-feed-repairs panels + the editions nightly line (`editions_nightly`) + the missing-close flag (`missing_closes`) + the automatic cut's seven-day line (`editions_cut`) + the company-list line (`master_refresh`) | read-only; the page opens on it |
 | `POST /admin/price-feed/{security_id}/adopt` | `{symbol}` → the change row | a symbol EDGAR lists for a renamed name; 409 otherwise / nothing to change |
 | `POST /admin/price-feed/{security_id}/set-symbol` | `{symbol}` → the change row | ONE vendor fetch validates first (no bars → 422, nothing written) |
 | `POST /admin/price-feed/changes/{change_id}/undo` | → the undo row | exact restore; 409 already undone / a later change stands / the master moved |

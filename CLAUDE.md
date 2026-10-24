@@ -221,7 +221,7 @@ bash scripts/ensure-venv.sh                              #   runtime deps + pyte
 # backend dev loop (from backend\, venv active)
 python -m db.migrate                                    # apply migrations (idempotent)
 python -m pipeline.seed                                 # seed the HIMS demo thesis
-python -m pipeline.populate_master --live               # load the SEC universe into the master (UA req'd)
+python -m pipeline.populate_master --live               # the company list: DRY-RUN the SEC universe refresh (new companies, renames old->new, new classes, conflicts, price pins) — writes nothing; --apply writes it in one transaction + data/master_runs/ (a rename updates the company's row IN PLACE; UA req'd). Weekly in the cron sidecar (Saturday 09:00 ET)
 python -m pipeline.enrich_identity --live               # re-enrich master identity from submissions (bare = all baskets; --thesis/--universe)
 python -m uvicorn app.main:app --reload                 # serve the API (127.0.0.1:8000)
 python -m pipeline.run --thesis <id> --asof 2026-06-01  # assemble a call from the CLI

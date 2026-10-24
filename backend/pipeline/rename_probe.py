@@ -71,6 +71,13 @@ VERIFY_MAX_DEVIATION = 0.01
 # How much of an error message rides the artifact (the name-error convention)
 _MAX_ERROR = 300
 
+# THE AUTO-ADOPT RULE (the company-list refresh, 2026-10-24) — stricter than "verified": a name the refresh
+# PINNED to its old ticker (``system:rename-pin``) is adopted onto SEC's new ticker WITHOUT the operator only
+# when the splice shares at least AUTO_ADOPT_MIN_OVERLAP dates (a trading month, not a week) AND its median
+# ratio reads exactly x1.000 at the three decimals the report prints (the same issuer's tape matches ours to
+# float noise — MEASURED SDCO / SVIA medians 1.000000). Anything less stays the operator's Adopt on Admin.
+AUTO_ADOPT_MIN_OVERLAP = 20
+
 
 @dataclass(frozen=True)
 class CandidateProbe:
@@ -138,17 +145,57 @@ class RenameRecommendation:
         }
 
 
+@dataclass(frozen=True)
+class AutoAdoption:
+    """One AUTOMATIC adoption (``run_auto_adopt``): the pinned name, the old symbol it was priced under, the
+    new SEC ticker adopted, the splice that justified it, and the repair-log row (``change_id``) its Undo
+    names — or the ``error`` that stopped the write (then nothing changed)."""
+
+    security_id: UUID
+    ticker: str | None
+    from_symbol: str | None
+    symbol: str
+    overlap: int
+    ratio: float | None
+    change_id: UUID | None = None
+    error: str | None = None
+
+    def to_json(self) -> dict:
+        return {
+            "security_id": str(self.security_id),
+            "ticker": self.ticker,
+            "from_symbol": self.from_symbol,
+            "symbol": self.symbol,
+            "overlap": self.overlap,
+            "ratio": self.ratio,
+            "change_id": str(self.change_id) if self.change_id else None,
+            "error": self.error,
+        }
+
+    def describe(self) -> str:
+        if self.error:
+            return f"{self.ticker or self.security_id}: auto-adopt of {self.symbol} FAILED — {self.error}"
+        ratio = f"x{self.ratio:.3f}" if self.ratio is not None else "x?"
+        return (
+            f"{self.ticker or self.security_id}: adopted {self.symbol} automatically (was pinned to "
+            f"{self.from_symbol}; {self.overlap} shared bars, {ratio}) — Undo on the Admin page"
+        )
+
+
 @dataclass
 class RenameProbe:
     """One pass's rename-probe outcome. ``evaluated`` = the probe ran (a live pass whose stored-tape read
     succeeded — including the common night with nothing to probe); ``error`` = why it did not, on a live
-    pass; ``fetches`` = vendor requests made (the Q7 cost, one per distinct candidate symbol)."""
+    pass; ``fetches`` = vendor requests made (the Q7 cost, one per distinct candidate symbol).
+    ``auto_adopted`` / ``auto_adopt_error`` — what ``run_auto_adopt`` did with tonight's rows."""
 
     evaluated: bool = False
     rows: tuple[RenameRecommendation, ...] = ()
     error: str | None = None
     fetches: int = 0
     duration_s: float = 0.0
+    auto_adopted: tuple[AutoAdoption, ...] = ()
+    auto_adopt_error: str | None = None
 
     def by_security(self) -> dict[UUID, RenameRecommendation]:
         return {r.security_id: r for r in self.rows}
@@ -164,6 +211,8 @@ class RenameProbe:
                 "fetches": self.fetches,
                 "duration_s": round(self.duration_s, 3),
                 "rows": [r.to_json() for r in self.rows],
+                "auto_adopted": [a.to_json() for a in self.auto_adopted],
+                "auto_adopt_error": self.auto_adopt_error,
             }
         }
 
@@ -322,6 +371,144 @@ def run_rename_probe(
     return RenameProbe(
         evaluated=True, rows=tuple(out), fetches=len(fetched), duration_s=clock() - t0
     )
+
+
+def auto_adoptable(c: CandidateProbe) -> bool:
+    """The STRICT auto-adopt rule (see ``AUTO_ADOPT_MIN_OVERLAP``): no fetch error, at least 20 shared dates,
+    and a median ratio that reads exactly x1.000 at three decimals. Pure."""
+    return (
+        c.error is None
+        and c.ratio is not None
+        and c.overlap >= AUTO_ADOPT_MIN_OVERLAP
+        and round(c.ratio, 3) == 1.0
+    )
+
+
+_PINNED_SQL = """
+    SELECT sm.id, sm.ticker, sm.price_symbol, sm.price_symbol_basis,
+           EXISTS (SELECT 1 FROM price_symbol_change c
+                    WHERE c.security_id = sm.id AND c.basis = %(auto)s) AS auto_before
+      FROM security_master sm
+     WHERE sm.id = ANY(%(ids)s)
+"""
+
+
+def pinned_ids(results: Iterable) -> set[UUID]:
+    """The securities tonight's ingest saw priced under the company-list refresh's PIN (``NameResult
+    .price_symbol_basis == system:rename-pin``) — the only names ``run_auto_adopt`` ever looks at. Pure.
+    """
+    from domain.price_feed_basis import is_rename_pin
+
+    out: set[UUID] = set()
+    for r in results:
+        for x in getattr(r, "ingested", ()) or ():
+            if is_rename_pin(getattr(x, "price_symbol_basis", None)) and x.security_id:
+                out.add(x.security_id)
+    return out
+
+
+def run_auto_adopt(
+    probe: RenameProbe,
+    *,
+    results: Iterable,
+    allow_live: bool,
+    connect: Callable[[], psycopg.Connection],
+) -> RenameProbe:
+    """AUTO-ADOPT the new SEC ticker for tonight's PINNED renamed names — the company-list refresh's hand-off
+    to the stale-tape machinery. Only a probed row whose ingest result says it is priced under the refresh's
+    pin (``pinned_ids(results)``) is looked at — a night without one returns ``probe`` UNCHANGED and opens no
+    connection. Such a row qualifies only when ALL hold (re-read from the master, never trusted from the
+    result):
+
+    1. its master ``price_symbol`` is the refresh's PIN to the old ticker (``system:rename-pin``) and that pin
+       is still the name's STANDING repair (nobody moved the master since — the operator's own Set wins);
+    2. the candidate it adopts is the master's CURRENT ticker (SEC's new one), and that splice meets the strict
+       rule (``auto_adoptable``: >= 20 shared bars, x1.000);
+    3. the name was never auto-adopted before — an auto-adopt the operator UNDID is their decision, never
+       re-applied by the next night (the recommendation stays on Admin for a manual Adopt).
+
+    The write is the EXISTING Adopt path (``price_feed_repo.apply_change``, action ``adopt``, author
+    ``system:auto-adopt``) — recorded with the master's prior and new values, shown on Admin as adopted
+    automatically, undone exactly by its Undo. Each adoption commits on its own; a fault rides the row's
+    ``error`` (or ``auto_adopt_error`` for the whole step), never an exception into the pass. A ``--no-live``
+    pass, an unevaluated probe or a night with no renamed row does nothing (and opens no connection).
+    """
+    if not allow_live or not probe.evaluated or not probe.rows:
+        return probe
+    wanted = pinned_ids(results)
+    rows = [r for r in probe.rows if r.security_id in wanted]
+    if not rows:
+        return probe  # the common night: nothing pinned among tonight's renamed rows
+    from dataclasses import replace
+
+    from domain.price_feed_basis import BASIS_AUTO_ADOPT, BASIS_RENAME_PIN, is_rename_pin
+    from repositories import price_feed_repo
+
+    out: list[AutoAdoption] = []
+    try:
+        conn = connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    _PINNED_SQL,
+                    {"auto": BASIS_AUTO_ADOPT, "ids": [r.security_id for r in rows]},
+                )
+                pinned = {r["id"]: r for r in cur.fetchall()}
+            conn.rollback()
+            for rec in rows:
+                m = pinned.get(rec.security_id)
+                if (
+                    m is None
+                    or not m["price_symbol"]
+                    or not is_rename_pin(m["price_symbol_basis"])
+                    or m["auto_before"]
+                    or not m["ticker"]
+                ):
+                    continue
+                new = str(m["ticker"]).upper()
+                cand = next((c for c in rec.candidates if c.symbol.upper() == new), None)
+                if cand is None or not auto_adoptable(cand):
+                    continue
+                standing = price_feed_repo.standing_change_for(conn, rec.security_id)
+                conn.rollback()
+                if (
+                    standing is None
+                    or standing.basis != BASIS_RENAME_PIN
+                    or (standing.new_symbol, standing.new_basis)
+                    != (m["price_symbol"], m["price_symbol_basis"])
+                ):
+                    continue  # the pin is not the standing repair any more — the operator's call
+                row = AutoAdoption(
+                    security_id=rec.security_id,
+                    ticker=m["ticker"],
+                    from_symbol=m["price_symbol"],
+                    symbol=new,
+                    overlap=cand.overlap,
+                    ratio=cand.ratio,
+                )
+                try:
+                    change = price_feed_repo.apply_change(
+                        conn,
+                        rec.security_id,
+                        action="adopt",
+                        symbol=new,
+                        basis=BASIS_AUTO_ADOPT,
+                        detail={"probe": rec.to_json(), "rule": "auto-adopt: >=20 shared, x1.000"},
+                    )
+                    conn.commit()
+                    out.append(replace(row, change_id=change.id))
+                except Exception as e:  # noqa: BLE001 — one name's write, recorded
+                    conn.rollback()
+                    out.append(replace(row, error=f"{type(e).__name__}: {_clip(str(e))}"))
+        finally:
+            conn.close()
+    except Exception as e:  # noqa: BLE001 — the step is a passenger on the pass
+        return replace(
+            probe,
+            auto_adopted=tuple(out),
+            auto_adopt_error=f"{type(e).__name__}: {_clip(str(e))}",
+        )
+    return replace(probe, auto_adopted=tuple(out))
 
 
 def describe(rec: RenameRecommendation) -> str:

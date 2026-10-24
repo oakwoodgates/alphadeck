@@ -107,7 +107,9 @@ def audit_spine(conn) -> int:
             conn, [(m["ticker"], m["security_id"]) for m in members], tenant_id=tenant_id
         )
         for m, f in zip(members, findings):
-            if f.kind is CoherenceKind.OK:
+            if f.kind in (CoherenceKind.OK, CoherenceKind.RENAMED):
+                # RENAMED = the bound row's own former ticker (the company list renamed it in place); the
+                # next Save aligns the label — the same row, nothing to review
                 continue
             bad += 1
             print(
@@ -186,6 +188,7 @@ def audit_draft_runs(conn, root: Path, *, allow_live: bool) -> int:
     print(
         f"draft-runs: {len(files)} files, {len(bound)} bound placements -- "
         f"{counts[CoherenceKind.OK]} ok / {counts[CoherenceKind.SIBLING]} sibling / "
+        f"{counts[CoherenceKind.RENAMED]} renamed / "
         f"{counts[CoherenceKind.CROSS_COMPANY]} CROSS-COMPANY "
         f"({len(cross)} distinct) / {counts[CoherenceKind.LABEL_DRIFT]} label-drift "
         f"(= {stale_master} stale-master + {benign_line} same-issuer line + "
@@ -214,7 +217,7 @@ def main(argv: list[str] | None = None) -> None:
         for g in gaps:
             print(
                 f"  MASTER: tenant {g['tenant_id']}: {g['multi_row_ciks']} multi-row CIKs, ZERO "
-                "is_primary flags — run `python -m pipeline.populate_master --live`"
+                "is_primary flags — run `python -m pipeline.populate_master --live --apply`"
             )
         print(f"master: {'OK' if not gaps else f'{len(gaps)} tenant(s) unflagged'}")
         needs_human += len(gaps)

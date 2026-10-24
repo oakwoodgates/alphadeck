@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 
 from domain.settings import get_settings
@@ -102,22 +104,14 @@ def flag_primaries(
 # --- the SEC table itself ----------------------------------------------------------------------------------
 
 
-def _load_rows(
-    cache_dir: Path | None, allow_live: bool, user_agent: str | None
-) -> list[dict[str, str | None]]:
-    """The SEC ``company_tickers_exchange.json`` table as normalized row dicts (``cik``/``ticker``/``name``/
-    ``exchange``), IN FILE ORDER (the rank's final tiebreak). Cache-first — the RAW payload is cached; one
-    file, one GET; raises ``CacheMiss`` if it isn't cached and live pulls are disabled."""
-    cache_dir = cache_dir or _DEFAULT_CACHE
-    path = cache_dir / "company_tickers_exchange.json"
-    if path.exists():
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    elif allow_live:
-        raw = _fetch_live(user_agent)
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(raw), encoding="utf-8")
-    else:
-        raise CacheMiss("no cached SEC company_tickers_exchange.json (live pulls disabled)")
+def _cache_path(cache_dir: Path | None) -> Path:
+    return (cache_dir or _DEFAULT_CACHE) / "company_tickers_exchange.json"
+
+
+def rows_from_raw(raw: dict) -> list[dict[str, str | None]]:
+    """The SEC ``company_tickers_exchange.json`` payload (``{fields, data}``) as normalized row dicts
+    (``cik``/``ticker``/``name``/``exchange``), IN FILE ORDER (the rank's final tiebreak). Rows missing a CIK
+    or a ticker are skipped (exact mappings only — never a fuzzy guess, INVARIANT #2). Pure."""
     idx = {f: i for i, f in enumerate(raw["fields"])}
     out: list[dict[str, str | None]] = []
     for r in raw["data"]:
@@ -133,6 +127,116 @@ def _load_rows(
             }
         )
     return out
+
+
+def quadruples(raw: dict) -> list[tuple[str, str, str | None, str | None]]:
+    """``rows_from_raw`` as the broadener's ``(cik, ticker, name, exchange)`` quadruples (``load_all``'s
+    shape)."""
+    return [(str(r["cik"]), str(r["ticker"]), r["name"], r["exchange"]) for r in rows_from_raw(raw)]
+
+
+def read_cached_raw(cache_dir: Path | None = None) -> dict:
+    """The CACHED raw payload (never the network); ``CacheMiss`` when no copy is cached."""
+    path = _cache_path(cache_dir)
+    if not path.exists():
+        raise CacheMiss("no cached SEC company_tickers_exchange.json")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def cached_at(cache_dir: Path | None = None) -> datetime | None:
+    """When the cached copy was written (its file mtime, UTC), or ``None`` when there is none."""
+    path = _cache_path(cache_dir)
+    if not path.exists():
+        return None
+    return datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+
+
+def fetch_raw(user_agent: str | None = None) -> dict:
+    """ONE live GET of SEC's CURRENT ``company_tickers_exchange.json`` (declared User-Agent, the global SEC
+    budget) — returned, NOT cached: the company-list refresh caches it only after its plan is applied
+    (``store_raw``), so the on-disk copy always matches what the master was refreshed from. Raises on any
+    HTTP or shape failure (a payload without a ``fields`` / ``data`` list is not the file)."""
+    raw = _fetch_live(user_agent)
+    if not isinstance(raw, dict) or not isinstance(raw.get("fields"), list):
+        raise ValueError("SEC company_tickers_exchange.json: unexpected shape (no fields list)")
+    if not isinstance(raw.get("data"), list):
+        raise ValueError("SEC company_tickers_exchange.json: unexpected shape (no data list)")
+    return raw
+
+
+def store_raw(raw: dict, cache_dir: Path | None = None) -> Path:
+    """Replace the cached copy with ``raw`` ATOMICALLY (a temp file renamed over it, so a reader never sees a
+    half-written file). The refresh's one cache write."""
+    path = _cache_path(cache_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(raw), encoding="utf-8")
+    os.replace(tmp, path)
+    return path
+
+
+def _load_rows(
+    cache_dir: Path | None, allow_live: bool, user_agent: str | None
+) -> list[dict[str, str | None]]:
+    """The SEC ``company_tickers_exchange.json`` table as normalized row dicts (``cik``/``ticker``/``name``/
+    ``exchange``), IN FILE ORDER (the rank's final tiebreak). Cache-first — the RAW payload is cached; one
+    file, one GET; raises ``CacheMiss`` if it isn't cached and live pulls are disabled. This reader never
+    re-fetches a cached copy: the company-list refresh (``python -m pipeline.populate_master --live --apply``,
+    weekly in the cron sidecar) is what replaces it (``store_raw``)."""
+    path = _cache_path(cache_dir)
+    if path.exists():
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    elif allow_live:
+        raw = _fetch_live(user_agent)
+        store_raw(raw, cache_dir)
+    else:
+        raise CacheMiss("no cached SEC company_tickers_exchange.json (live pulls disabled)")
+    return rows_from_raw(raw)
+
+
+# The memo behind ``cached_tickers_by_cik``: (path, mtime_ns) -> {cik: tickers}. A replaced file (the weekly
+# refresh) changes the mtime, so the next read re-parses it; within one pass it is parsed once.
+_BY_CIK_MEMO: dict[tuple[str, int], dict[str, tuple[str, ...]]] = {}
+
+
+def cached_tickers_by_cik(cache_dir: Path | None = None) -> dict[str, tuple[str, ...]] | None:
+    """SEC's ticker map from the CACHED file, by CIK: ``{10-digit cik: (ticker, ...)}`` in file order —
+    ``None`` when no copy is cached (or it cannot be read). CACHE-ONLY, never the network, memoized per file
+    version (path + mtime), so the nightly's per-name read costs one parse a pass. The stale-tape
+    classifier's second source for "is this company listed under another symbol now?"
+    (``pipeline/tape_health.classify_stop``)."""
+    path = _cache_path(cache_dir)
+    try:
+        key = (str(path), path.stat().st_mtime_ns)
+    except OSError:
+        return None
+    hit = _BY_CIK_MEMO.get(key)
+    if hit is not None:
+        return hit
+    try:
+        rows = rows_from_raw(json.loads(path.read_text(encoding="utf-8")))
+    except Exception:  # noqa: BLE001 — a damaged cache reads as "not read", never a failed pass
+        return None
+    out: dict[str, list[str]] = {}
+    for r in rows:
+        out.setdefault(str(r["cik"]), []).append(str(r["ticker"]))
+    _BY_CIK_MEMO.clear()  # one file version at a time — the memo never grows past the latest copy
+    _BY_CIK_MEMO[key] = {c: tuple(dict.fromkeys(ts)) for c, ts in out.items()}
+    return _BY_CIK_MEMO[key]
+
+
+def cached_tickers_for_cik(
+    cik: str | None, cache_dir: Path | None = None
+) -> tuple[str, ...] | None:
+    """One CIK's tickers in the cached SEC map: ``()`` = the map lists none for it (delisted, or never
+    listed), ``None`` = not read (no CIK, or no cached map). Cache-only."""
+    if not cik:
+        return None
+    by_cik = cached_tickers_by_cik(cache_dir)
+    if by_cik is None:
+        return None
+    key = cik.zfill(10) if cik.isdigit() else cik
+    return by_cik.get(key, ())
 
 
 def cik_for(

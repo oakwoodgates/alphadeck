@@ -142,6 +142,12 @@
 #   (only after a FINISHED nightly pass; exit 75 while the call-of-record lock or its own lock, id 4, is held),
 #   is bounded by EDITIONS_TIMEOUT_S, and is fail-open here: one log line, never the end of the loop. The cron
 #   image carries the `.[replay]` extra it needs (duckdb + pyarrow; docker-compose.yml's cron build args).
+# - RUNS A THIRD SCHEDULE: THE WEEKLY COMPANY-LIST REFRESH (2026-10-24). `master_refresh_loop` fires
+#   `python -m pipeline.populate_master --live --apply --run-kind cron` every Saturday 09:00 (MASTER_REFRESH_DOW /
+#   MASTER_REFRESH_AT, container TZ), in the background like onboard_loop: SEC's current company file onto the
+#   master (a rename updates the company's row IN PLACE, so every fact stays attached) plus the fund list. The job
+#   refuses inside the nightly window, holds its own lock (advisory id 5) and yields to a running pass; a refused
+#   run retries hourly a few times; fail-open (one log line). docs/FEED_LOOP.md §the company list.
 # - The as-of dates come from this shell's `date` in the container TZ, which compose pins to the market TZ
 #   (the same "today" `market_today()` derives) — keep those two in step.
 # - Inherits the container env directly (DATABASE_URL / ALPHADECK_USER_AGENT / TZ), so unlike a cron daemon
@@ -210,6 +216,22 @@ ONBOARD_TIMEOUT_S="${ONBOARD_TIMEOUT_S:-2700}"
 EDITIONS_TIMEOUT_S="${EDITIONS_TIMEOUT_S:-3600}"
 [ "${EDITIONS_TIMEOUT_S}" -ge 1 ] 2>/dev/null || EDITIONS_TIMEOUT_S=3600
 EDITIONS_NIGHTLY="${EDITIONS_NIGHTLY:-1}"
+# The company-list refresh — the THIRD schedule (`master_refresh_loop`, below): weekly, on day MASTER_REFRESH_DOW
+# (`date +%u`: 1 = Monday .. 7 = Sunday; default 6 = Saturday) at MASTER_REFRESH_AT in the container TZ (the
+# market's; default 09:00 — far outside the nightly window), each run bounded by MASTER_REFRESH_TIMEOUT_S. A run
+# REFUSED (exit 75: a pass or another refresh holds its lock) is retried every MASTER_REFRESH_RETRY_S, at most
+# MASTER_REFRESH_RETRIES times, then waits for the next week. MASTER_REFRESH=0 turns it OFF (an env-only cron
+# deploy). Same non-numeric guards as SLICE_S; an out-of-range day reads as Saturday.
+MASTER_REFRESH="${MASTER_REFRESH:-1}"
+MASTER_REFRESH_DOW="${MASTER_REFRESH_DOW:-6}"
+case "${MASTER_REFRESH_DOW}" in [1-7]) ;; *) MASTER_REFRESH_DOW=6 ;; esac
+MASTER_REFRESH_AT="${MASTER_REFRESH_AT:-09:00}"
+MASTER_REFRESH_TIMEOUT_S="${MASTER_REFRESH_TIMEOUT_S:-900}"
+[ "${MASTER_REFRESH_TIMEOUT_S}" -ge 1 ] 2>/dev/null || MASTER_REFRESH_TIMEOUT_S=900
+MASTER_REFRESH_RETRY_S="${MASTER_REFRESH_RETRY_S:-3600}"
+[ "${MASTER_REFRESH_RETRY_S}" -ge 1 ] 2>/dev/null || MASTER_REFRESH_RETRY_S=3600
+MASTER_REFRESH_RETRIES="${MASTER_REFRESH_RETRIES:-6}"
+[ "${MASTER_REFRESH_RETRIES}" -ge 0 ] 2>/dev/null || MASTER_REFRESH_RETRIES=6
 
 # --- schedule math (pure over their arguments; GNU date) ------------------------------------------------
 
@@ -469,6 +491,66 @@ onboard_loop() {
   done
 }
 
+# next_weekly_epoch EPOCH -> the epoch of the next MASTER_REFRESH_DOW at MASTER_REFRESH_AT strictly AFTER EPOCH
+# (container TZ). Pure over its argument + the two settings, like the schedule math above.
+next_weekly_epoch() {
+  _nw_day=$(date -d "@$1" +%F)
+  _nw_i=0
+  while [ "${_nw_i}" -le 7 ]; do
+    _nw_cand=$(date -d "${_nw_day} + ${_nw_i} day" +%F)
+    if [ "$(date -d "${_nw_cand}" +%u)" = "${MASTER_REFRESH_DOW}" ]; then
+      _nw_e=$(date -d "${_nw_cand} ${MASTER_REFRESH_AT}" +%s)
+      if [ "${_nw_e}" -gt "$1" ]; then
+        echo "${_nw_e}"
+        return 0
+      fi
+    fi
+    _nw_i=$(( _nw_i + 1 ))
+  done
+  echo $(( $1 + 604800 )) # unreachable with a valid day; never a hot loop
+}
+
+# master_refresh_run ARGS... -> ONE bounded `python -m pipeline.populate_master --live --apply --run-kind cron`,
+# returning its exit status (75 = refused). One log line on anything but success; the job prints its own quiet
+# "company-list: Company list · refreshed ..." line (and, loud, any conflict).
+master_refresh_run() {
+  timeout -k 60 "${MASTER_REFRESH_TIMEOUT_S}" python -m pipeline.populate_master --live --apply --run-kind cron "$@"
+  _mr_rc=$?
+  case "${_mr_rc}" in
+    0) ;;
+    75) echo "master-refresh: REFUSED (the nightly window, another refresh or a running pass) — nothing written" ;;
+    124) echo "master-refresh: TIMED OUT after ${MASTER_REFRESH_TIMEOUT_S}s and was stopped (one transaction: nothing written)" ;;
+    *) echo "master-refresh: FAILED (exit ${_mr_rc}) (continuing; the next schedule retries)" ;;
+  esac
+  return "${_mr_rc}"
+}
+
+# master_refresh_loop -> THE THIRD SCHEDULE: the weekly company-list refresh (`python -m pipeline.populate_master
+# --live --apply`, securities/master_refresh.py): SEC's current company file onto the master — new companies, a
+# rename updated IN PLACE (every fact stays attached), new classes, the primary flags — plus the fund list. In the
+# background of this sidecar, like onboard_loop, and deliberately dumb: the job refuses inside the nightly window,
+# holds its OWN lock (advisory id 5) and yields to a running pass (a pg_locks probe; it never takes the
+# call-of-record lock). At start it runs once with `--if-stale-days 7` (a no-op unless the newest applied refresh
+# is over a week old — a Saturday the box missed; never on a first deploy, which has no applied run yet), then
+# fires every MASTER_REFRESH_DOW at MASTER_REFRESH_AT. A refused run retries MASTER_REFRESH_RETRY_S later, at most
+# MASTER_REFRESH_RETRIES times. Fail-open: a failed run is one log line, never the end of the loop.
+master_refresh_loop() {
+  echo "master-refresh: weekly on day ${MASTER_REFRESH_DOW} (date +%u) at ${MASTER_REFRESH_AT} (${TZ:-UTC}) — each run bounded at ${MASTER_REFRESH_TIMEOUT_S}s"
+  master_refresh_run --if-stale-days 7
+  while :; do
+    wait_until "$(next_weekly_epoch "$(date +%s)")"
+    _mr_try=0
+    while :; do
+      master_refresh_run && break
+      [ "$?" = 75 ] || break
+      _mr_try=$(( _mr_try + 1 ))
+      [ "${_mr_try}" -le "${MASTER_REFRESH_RETRIES}" ] || break
+      echo "master-refresh: retry ${_mr_try} of ${MASTER_REFRESH_RETRIES} in ${MASTER_REFRESH_RETRY_S}s"
+      wait_until "$(( $(date +%s) + MASTER_REFRESH_RETRY_S ))"
+    done
+  done
+}
+
 # --- the trigger ------------------------------------------------------------------------------------------
 
 echo "daily-cron: scheduled for ${RUN_AT} (${TZ:-UTC}), Mon-Fri — the daily CLI is idempotent + force-refreshes"
@@ -543,6 +625,12 @@ if [ "${ONBOARD_EVERY_S}" -gt 0 ]; then
   onboard_loop &
 else
   echo "onboard-cron: ONBOARD_EVERY_S=0 — the staged onboarding job is OFF in this sidecar"
+fi
+# THE THIRD SCHEDULE — the weekly company-list refresh, likewise after the boot block and in the background.
+if [ "${MASTER_REFRESH}" != 0 ]; then
+  master_refresh_loop &
+else
+  echo "master-refresh: MASTER_REFRESH=0 — the weekly company-list refresh is OFF in this sidecar"
 fi
 
 while :; do

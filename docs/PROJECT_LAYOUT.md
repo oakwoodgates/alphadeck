@@ -155,7 +155,7 @@ alphadeck/
     │   ├── ingest_skips.py             #   Q18: the cross-pass diff of skipped filings (known = a count, new = loud), the O1 twin
     │   ├── annotate_phantom_arms.py    #   D3b CLI: re-assemble each honest row D3a-off vs D3a-on at its own known_at; annotate phantom arms (exclude) / composition changes (note), dry-run default
     │   ├── backfill_fund_shares.py     #   CLI: backfill historical ETF fund-shares from Polygon over a range (#237)
-    │   ├── populate_master.py      #   the SEC-universe broadener CLI
+    │   ├── populate_master.py      #   the company-list refresh CLI (SEC universe -> master; dry-run default, weekly)
     │   ├── enrich_identity.py      #   re-enrich master identity from EDGAR submissions (--thesis/--baskets/--universe; the standing backfill for submissions-sourced fields)
     │   ├── audit_identity.py · repoint_canonical.py   #   the shown-vs-bound identity audit CLI + the one-time canonical re-point (#172–#175)
     │   ├── provision_tenant.py     #   cut a fresh tenant (production)

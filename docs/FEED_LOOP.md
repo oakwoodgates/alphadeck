@@ -1557,9 +1557,10 @@ derivation) so the operator's Adopt needs no fetch of its own. `recommended` = t
 map is shown, never adoptable).
 
 - **Cost:** ONE ticker-map request through the polite cached `EdgarClient` on the RECURRING five-minute TTL
-  (key `files/company_tickers_exchange.json` — a mutable class, so it is tonight's map, never the
-  forever-cached copy `securities/sec_tickers` keeps for `populate_master`; prod's was from 2026-07-27, before
-  either 8-K12B), only on a night some member lists no tickers, plus ONE submissions fetch per flagged
+  (key `files/company_tickers_exchange.json` — a mutable class, so it is tonight's map, never the copy
+  `securities/sec_tickers` keeps for `populate_master`, which only the weekly company-list refresh replaces;
+  prod's was from 2026-07-27, before either 8-K12B), only on a night some member lists no tickers, plus ONE
+  submissions fetch per flagged
   candidate (two today). Nothing on `--no-live`.
 - **Visibility:** a row whose key (security + successor CIK) is absent from the carried inventory pages ONCE
   through the R4 health event (`successor_cik_new`, benign-class like a stale feed); a known row is one quiet
@@ -1583,7 +1584,8 @@ map is shown, never adoptable).
 append-only, `no_update`, one undo per change). Adopt accepts ONLY the CIK the detector recommended, then — in
 one transaction under the master row's `FOR UPDATE` lock — re-points `security_master.cik` IN PLACE through the
 new narrow writer `master.set_cik` (the row id stays: the tape, every fact, the basket links and the sign-off
-stay attached; NOT `populate_master`, which keys on `(cik, ticker)` and would insert a second row), applies the
+stay attached; NOT `populate_master`, which re-keys only a row of the SAME CIK and reports a new CIK on a
+basket member's ticker as a conflict — it never moves a member across CIKs), applies the
 recorded identity through `master.enrich` (the same derivation `enrich_identity` runs) and the successor's
 entity name. The row records the PRIOR and NEW value of every touched column (`master.CIK_IDENTITY_COLUMNS`:
 cik, name, the submissions-sourced identity, `enriched_source` / `enriched_at`), so Undo restores them byte for
@@ -2123,6 +2125,16 @@ The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
   kill switch, an env-only cron deploy; compose `ALPHADECK_EDITIONS_NIGHTLY` / `ALPHADECK_EDITIONS_TIMEOUT_S`).
   Fail-open: any exit is one `daily-cron:` line and the loop goes on. In the scheduling layer, never inside
   `run_daily_pass`, so the Admin "Run daily now" never fires it. The section below has the job.
+- **A third schedule: the weekly company-list refresh (2026-10-24)** `[BUILT]`. After the boot block, beside
+  `onboard_loop`, the sidecar starts `master_refresh_loop` in the BACKGROUND: `timeout -k 60
+  MASTER_REFRESH_TIMEOUT_S python -m pipeline.populate_master --live --apply --run-kind cron` every
+  `MASTER_REFRESH_DOW` (`date +%u`, default **6 = Saturday**) at `MASTER_REFRESH_AT` (default **09:00** market
+  time — far outside the nightly window), sliced through `wait_until`. At start it runs once with
+  `--if-stale-days 7` (a no-op unless the newest applied refresh is over a week old: a Saturday the box missed;
+  a first deploy has no applied run, so it writes nothing until the schedule or a hand run). A run REFUSED
+  (exit 75) retries `MASTER_REFRESH_RETRY_S` (3600 s) later, at most `MASTER_REFRESH_RETRIES` (6) times.
+  `MASTER_REFRESH=0` (compose `ALPHADECK_MASTER_REFRESH`) is the kill switch, an env-only cron deploy. The
+  section "The company list" below has the job.
 
 - **On by default.** The `cron` service comes up with the normal `docker compose up` (no profile flag), so the
   deployed stack notifies itself with no extra command to remember. Skip it for one run with
@@ -2373,6 +2385,78 @@ Admin ignores) is that job; `editions/nightly.py` has the whole contract.
   `PIP_EXTRAS: replay`); the API image stays lean — the Scoreboard reads stored editions with psycopg alone.
 - **Never on the call-of-record path:** `pipeline/daily.py`, `pipeline/daily_job.py` and `calls/` import nothing
   from `editions/` (import-graph tests), and the job only ever reads `calls`.
+
+### The company list — the weekly security-master refresh (2026-10-24)  `[BUILT]`
+
+**The gap (MEASURED on prod 2026-10-24, read-only).** The master was last loaded from SEC's company file on
+2026-08-16, and the populate keyed every row on `(cik, ticker)`. SEC's current `company_tickers_exchange.json`
+had ~298 companies we did not (59 on Nasdaq/NYSE) and ~268 new tickers on CIKs we did — and **23 live basket
+companies whose ticker changed at SEC**. A rename would have INSERTED a second row for the company, the old row
+kept its primary flag beside the new one, and the next Workbench Save re-pointed the member to the new EMPTY
+row — every fact keyed by `security_id` left behind.
+
+**The job:** `python -m pipeline.populate_master` — **dry run by default** (prints the plan: new companies,
+renames old -> new with the basket ones marked, new classes, conflicts, primary-flag changes, and the price pins
+/ auto-adopt candidates that follow; writes nothing). `--live` reads SEC's CURRENT file (one polite GET; else
+the cached copy); `--apply` writes the plan in ONE transaction, then caches the file it was planned from
+(`data/sec_cache/company_tickers_exchange.json`, an atomic replace — the copy `cik_for` and the nightly's rename
+guard read), refreshes the fund list (`company_tickers_mf.json`, one more GET, fail-open — see `DATA_SOURCES.md`
+§funds) and writes `data/master_runs/<started>.json` (counts, the plan, the one Admin line). The rules are
+`securities/master_refresh.py`'s:
+
+- **One record per company.** A CIK whose current PRIMARY row's ticker SEC no longer lists has that row
+  UPDATED IN PLACE to the file's primary ticker (name / exchange / `is_primary` with it) — the id stays, so the
+  tape, the Form 4s, the 8-Ks, the 13D/Gs, the fundamentals, the basket links and the onboarding checkpoint
+  stay attached (and a renamed name is never re-onboarded cold). The old -> new pair is appended to
+  `security_ticker_history` (migration **0066**, append-only, `no_update`). When the new ticker already sits on
+  an EMPTY row of the same CIK (no stored bar, in no live basket — a placeholder an earlier load inserted; MEASURED
+  on dev 2026-10-24: VREOD / VREOF, CURLD / CURLF, PRTC / PRTCY, 12 in all) the company's row is still renamed
+  in place and the placeholder left as it is, non-primary; a sibling with history of its own is a real line, so
+  primacy moves to it instead.
+- **Primacy is sticky on a tie.** While the company's row is still listed, SEC's rank moves primacy to another
+  line only on structural grounds (a common over its unit, a major venue over OTC), never on file order alone
+  (MEASURED on dev: LRHC / SRTM and WELPM / WELPP listed side by side, the other one first — the old rule would
+  have re-pointed both basket members onto other rows). Any live-basket member whose CIK WILL resolve to another
+  row is listed in the plan ("will RE-POINT at the next Save") — 0 on dev.
+- **New classes** on a known CIK (warrants, units, another class) are inserted NON-primary — they never take
+  primacy from the renamed row. Where SEC's rank moves primacy to a ticker new to the CIK while the old line is
+  STILL listed (a unit -> common separation), that is a different instrument, not a rename: the new line is
+  inserted primary and the plan lists it.
+- **At most one `is_primary` per CIK** in the file after any run, checked inside the transaction (a violation
+  rolls the whole refresh back). A row SEC no longer lists is demoted when another row of its CIK holds
+  primacy — the old "a vanished row keeps its last flag" is how two primaries arose.
+- **Ticker reuse is a CONFLICT** — surfaced, never applied: a rename (or a new line) onto a ticker another
+  CIK's master row holds (reuse after a delisting) leaves the row on its old ticker and flag; a NEW company
+  whose ticker a LIVE-basket row of another CIK holds (a possible successor issuer — T7's Adopt moves that
+  member in place, and an inserted row would block it) is not inserted. A new company sharing only a
+  non-basket row's ticker is inserted (recall, #9) and listed. A conflict is the one LOUD line (the cron log and
+  the Admin line).
+- **A CIK SEC no longer lists** (a real delisting) is left exactly as it is — never deleted, never re-flagged.
+
+**The price feed follows a rename only when safe** (the leg reads `price_symbol or ticker`): a renamed row with
+**no stored bars** prices under the new ticker from the next pass; one **with stored bars and no price symbol**
+is PINNED to its OLD ticker — the same repair-log `set` the Admin Set writes, author **`system:rename-pin`**,
+shown on Admin ("pinned automatically (company renamed)"), undoable — so the stored tape is never silently
+switched to a series whose overlap could re-version history; a row with a **price symbol already set** is never
+touched. **Then the stale-tape machinery takes over:** once the old symbol stops, the classifier calls the
+stop RENAMED (a pinned row counts only its pin as "ours", and SEC's cached ticker map is the guard's second
+source — the PSKY -> SKYD shape that read CLOSED), the T2 probe splices SEC's new ticker, and when that splice
+shares **at least 20 bars at exactly x1.000** the nightly ADOPTS it through the existing Adopt path
+(`pipeline/rename_probe.run_auto_adopt`, author **`system:auto-adopt`**, shown on Admin as adopted
+automatically, undoable; an undone auto-adopt is never re-applied — the recommendation stays for a manual
+Adopt). Anything weaker stays the operator's Adopt / Set symbol, exactly as before.
+
+**The locks + the window.** `--apply` REFUSES (exit 75, one line, nothing written) inside the nightly window
+(`Settings.onboard_window_*` around RUN_AT), while another refresh holds its own advisory lock
+(`LOCK_ID_MASTER_REFRESH = 5`, holder `master-refresh`), or while a pass holds the call-of-record lock (a
+`pg_locks` probe — never taken, so it can never make a pass exit 75). The cron log gets one quiet
+`company-list: Company list · refreshed Oct 25 · 298 new · 23 renames · 0 conflicts` line, and the Admin status
+the same line (`master_refresh`, from the newest applied artifact; louder only on a conflict or a failure).
+
+**The Workbench** reads the history twice: the company search matches a FORMER ticker (typing "SVAC" finds the
+company SEC now lists as GFUZ), and the promote's identity guard reads a stored basket label that is the bound
+row's former ticker as `renamed` — ALIGNED to the current ticker like a sibling, never a 422 (a basket saved
+before the rename still saves).
 
 ### Backfilling a missed night — `pipeline.backfill`  `[BUILT]`
 

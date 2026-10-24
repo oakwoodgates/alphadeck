@@ -29,6 +29,11 @@ class CoherenceKind(StrEnum):
     SIBLING = (
         "sibling"  # same company (CIK), different instrument line (warrant/preferred/F-ordinary)
     )
+    RENAMED = (
+        "renamed"  # the shown ticker is the bound row's FORMER ticker (the company-list refresh
+    )
+    #   renamed that row in place — security_ticker_history): the same row, an old label — alignable
+    #   exactly like a sibling, so a basket that predates the rename still saves
     CROSS_COMPANY = (
         "cross_company"  # the shown ticker belongs to a DIFFERENT company than the bound row
     )
@@ -63,15 +68,18 @@ def classify_members(
     """Classify ``(shown_ticker, security_id)`` pairs against THIS tenant's master, order-preserving.
 
     Per pair: no id → UNBOUND; id without a master row → MISSING_ROW; no shown ticker, or shown equals the
-    bound row's ticker → OK. Otherwise the shown ticker is looked up across the master: any row carrying it
-    with the SAME CIK as the bound row → SIBLING (right company, different line — alignable); rows carrying
-    it under only OTHER CIKs → CROSS_COMPANY (the misbind class — never silently acceptable); carried by no
-    current row at all → LABEL_DRIFT (a label nothing current answers to). Batch reads (two queries),
-    read-only, judges nothing it can't show (#6: the finding carries both identities)."""
+    bound row's ticker → OK; the shown ticker is the bound row's FORMER ticker (the company-list refresh
+    renamed it in place, ``security_ticker_history``) → RENAMED (the same row under an old label —
+    alignable). Otherwise the shown ticker is looked up across the master: any row carrying it with the SAME
+    CIK as the bound row → SIBLING (right company, different line — alignable); rows carrying it under only
+    OTHER CIKs → CROSS_COMPANY (the misbind class — never silently acceptable); carried by no current row at
+    all → LABEL_DRIFT (a label nothing current answers to). Batch reads (three queries), read-only, judges
+    nothing it can't show (#6: the finding carries both identities)."""
     sids = [sid for _, sid in pairs if sid is not None]
     secs = master.get_many(conn, sids, tenant_id=tenant_id)
     shown_set = {t.strip().upper() for t, sid in pairs if t and sid is not None}
     ciks_by_ticker: dict[str, set[str]] = {}
+    former: dict[UUID, set[str]] = {}
     if shown_set:
         with conn.cursor() as cur:
             cur.execute(
@@ -81,6 +89,13 @@ def classify_members(
             )
             for r in cur.fetchall():
                 ciks_by_ticker.setdefault(r["ticker"], set()).add(r["cik"])
+            cur.execute(
+                "SELECT security_id, old_ticker FROM security_ticker_history "
+                "WHERE tenant_id = %s AND security_id = ANY(%s) AND old_ticker = ANY(%s)",
+                (tenant_id, sids, list(shown_set)),
+            )
+            for r in cur.fetchall():
+                former.setdefault(r["security_id"], set()).add(r["old_ticker"])
 
     out: list[CoherenceFinding] = []
     for shown, sid in pairs:
@@ -103,6 +118,15 @@ def classify_members(
         )
         if not shown_norm or (row.ticker or "").upper() == shown_norm:
             out.append(CoherenceFinding(kind=CoherenceKind.OK, **bound))
+            continue
+        if shown_norm in former.get(sid, ()):
+            out.append(
+                CoherenceFinding(
+                    kind=CoherenceKind.RENAMED,
+                    **bound,
+                    detail=f"the same row, renamed {shown_norm} -> {row.ticker} by the company list",
+                )
+            )
             continue
         shown_ciks = ciks_by_ticker.get(shown_norm, set())
         if row.cik and row.cik in shown_ciks:

@@ -37,6 +37,7 @@ from app.schemas_api import (
     AdminEditionsCutOut,
     AdminEditionsNightlyOut,
     AdminLateOnlyNightOut,
+    AdminMasterRefreshOut,
     AdminMissingCloseOut,
     AdminMissingClosesOut,
     AdminPartialNightOut,
@@ -87,6 +88,7 @@ from pipeline.insider_amendment_scan import new_more_of as amendment_new_more
 from pipeline.missing_closes import loud_lines as missing_close_loud_lines
 from pipeline.missing_closes import quiet_line as missing_close_quiet_line
 from pipeline.night_coverage import NightCoverage, read_night_coverage
+from pipeline.populate_master import latest_master_run
 from pipeline.run_lock import probe_pass_lock
 from pipeline.schedule import (
     expected_runs_behind,
@@ -1209,6 +1211,13 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
     except Exception:  # noqa: BLE001 — the line is a passenger on the status read
         _log.exception("editions cut line failed (fail-open — the status read is unaffected)")
 
+    # the weekly company-list refresh, as its newest APPLIED run's one line (a file read; no DB). Fail-open.
+    master_refresh = None
+    try:
+        master_refresh = _master_refresh_out(latest_master_run())
+    except Exception:  # noqa: BLE001 — the line is a passenger on the status read
+        _log.exception("company-list line failed (fail-open — the status read is unaffected)")
+
     return AdminStatusOut(
         record=AdminRecordOut(
             edge=edge,
@@ -1266,6 +1275,20 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
         editions_nightly=editions_nightly,
         missing_closes=missing_closes,
         editions_cut=editions_cut,
+        master_refresh=master_refresh,
+    )
+
+
+def _master_refresh_out(doc: Mapping | None) -> AdminMasterRefreshOut | None:
+    """The company-list refresh's newest applied artifact -> its one Admin line (``None`` until it has run).
+    The line is the job's own (``MasterPlan.admin_line``) — composed once, where the run's facts are.
+    """
+    if not doc or not doc.get("admin_line") or not doc.get("started_at"):
+        return None
+    return AdminMasterRefreshOut(
+        line=str(doc["admin_line"]),
+        ran_at=datetime.fromisoformat(str(doc.get("finished_at") or doc["started_at"])),
+        attention=bool(doc.get("attention")),
     )
 
 

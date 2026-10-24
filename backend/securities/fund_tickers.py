@@ -14,13 +14,15 @@ click, nothing is back-filled.
 Mirrors ``sec_tickers``'s cache discipline exactly: the RAW payload cached once on disk (one file, one
 GET, cache-first forever); tests pass a fixtures dir; ``CacheMiss`` when uncached with live pulls off.
 Shared property with ``sec_tickers``: a fund launched AFTER the cache was written won't resolve until
-the cache file is refreshed — fine for a discovery seed (delete ``data/sec_cache/company_tickers_mf.json``
-to re-pull).
+the cache file is refreshed — the weekly company-list refresh (``pipeline.populate_master --live --apply``,
+the cron sidecar's Saturday job) re-pulls it (``refresh``); deleting
+``data/sec_cache/company_tickers_mf.json`` still forces a re-pull on the next resolve.
 """
 
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -80,6 +82,26 @@ def resolve(
                 class_id=str(r[idx["classId"]] or ""),
             )
     return None
+
+
+def refresh(*, cache_dir: Path | None = None, user_agent: str | None = None) -> int:
+    """Replace the cached fund table with SEC's CURRENT ``company_tickers_mf.json`` — ONE live GET, written
+    ATOMICALLY (a temp file renamed over the old copy, so ``resolve`` never reads a half-written file). Returns
+    the payload's row count. The weekly company-list refresh calls it (``pipeline.populate_master --live
+    --apply``), so a fund launched since the last copy resolves at the operator's next holdings click. Writes
+    NOTHING to the master: a fund still enters it only through the surface-ETF flow (the locked on-the-fly
+    decision above). Raises on any HTTP or shape failure; the old copy is kept then."""
+    raw = _fetch_live(user_agent)
+    if not isinstance(raw, dict) or not isinstance(raw.get("fields"), list):
+        raise ValueError("SEC company_tickers_mf.json: unexpected shape (no fields list)")
+    if not isinstance(raw.get("data"), list):
+        raise ValueError("SEC company_tickers_mf.json: unexpected shape (no data list)")
+    path = (cache_dir or _DEFAULT_CACHE) / "company_tickers_mf.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(raw), encoding="utf-8")
+    os.replace(tmp, path)
+    return len(raw["data"])
 
 
 def _fetch_live(user_agent: str | None) -> dict:

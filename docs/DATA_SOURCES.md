@@ -13,7 +13,7 @@
 | **SEC EDGAR** — submissions API, **full-text search (EFTS)**, daily index/RSS | 8-Ks, Form 4 + Form 4/A (insider; amendments resolved at read — §Form 4/A), 10-K/Q, S-1/S-3 (offerings), 13D/G, 13F | filing intelligence, insider-conviction, dilution clock, language-diff, first-footprint, **the EDGAR-first name-discovery universe** (`DISCOVERY.md`) |
 | **EDGAR — XBRL financial datasets + 10-Q/10-K filing text** | structured financials (cash, burn, shares) + the filing passages | dilution clock, fundamentals (§2.2 revenue + the Band 03 S4 shares-outstanding series: three companyfacts share concepts stored `_xbrl`-keyed for the `share_creep` risk detector), **the Workbench scoring-fact extractor** (10-Q/10-K → candidate purity / shares / burn facts) |
 | **EDGAR — N-1A / 485 registrations** | new fund/ETF registrations & launches | **ETF radar** (coming launches = emergence signal) |
-| **SEC `company_tickers.json`** (one file: ticker → CIK → name) | the full US filer universe | **the broadener** (`populate_master`) — seeds the security master so the extract → ratify → score loop runs on any name |
+| **SEC `company_tickers_exchange.json`** (one file: ticker → CIK → name → exchange) | the full US filer universe | **the company list** (`populate_master`, weekly in the cron sidecar) — seeds and keeps current the security master so the extract → ratify → score loop runs on any name; a rename updates the company's row in place |
 | **USASpending.gov** — federal award API (`spending_by_award` + `awards/{id}`) | DOE contracts, grants, OTAs, loan guarantees + structured terms (obligation, period of performance) | **catalyst-conviction** (the automated DOE feed, §below) — the first automated Key-1 source |
 | **Public ETF holdings** (issuer/fund daily holdings files) | constituents, weights, expense ratio, AUM | **ETF radar** (universe seed + holdings/flows); pure-play scoring |
 | **Polygon.io reference API** (free tier, keyed — `POLYGON_API_KEY`) | ETF shares outstanding **by date** (exact counts + real history; 5 req/min) | **ETF net flow** — the primary `fact_fund_shares` source when keyed (`ingest/funds/polygon.py`; the issuer/aggregator scrapers are the keyless fallback) + the historical backfill (`pipeline.backfill_fund_shares`); and the **split reference** (`/v3/reference/splits`, whole market by date — no ticker sent) — the second source the split list confirms against (`ingest/polygon_splits.py`, `pipeline.backfill_splits`; it shares the fund leg's 5/min pacer) |
@@ -268,17 +268,47 @@ Two SEC capabilities feed the Workbench's per-name scoring facts (`docs/WORKBENC
   `master.resolve()` (the other live writer, ticker-keyed): both set `cik`, so neither duplicates the other's
   rows (tested both orders) — and post-broadener, `resolve()`'s OpenFIGI calls fall to ~zero (the universe is
   already loaded).
+  **ONE RECORD PER COMPANY — a rename updates in place (the company-list refresh, 2026-10-24).** The
+  `(cik, ticker)` keying used to INSERT a second row when SEC re-tickered a company (the old row kept its primary
+  flag beside the new one, and the next Workbench Save re-pointed the member to the new, empty row — every fact
+  left behind; MEASURED 2026-10-24: 23 live basket companies re-tickered since the 2026-08-16 load). Now
+  `pipeline.populate_master` (DRY-RUN by default; `--live --apply` writes; weekly in the cron sidecar, Saturday
+  09:00 ET — `FEED_LOOP.md` §the company list) plans against the master first (`securities/master_refresh.py`):
+  a CIK whose current PRIMARY row's ticker SEC no longer lists has that row RENAMED IN PLACE to the file's
+  primary ticker (the id stays; the old -> new pair goes to the append-only `security_ticker_history`, migration
+  0066) — also over an EMPTY same-CIK placeholder row already holding it; other new tickers on the CIK are
+  inserted non-primary; at most one `is_primary` per CIK after a run (a vanished row is demoted, never left
+  beside the primary; primacy moves between listed lines only on structural grounds, never on SEC's file order
+  alone); a re-key onto a ticker ANOTHER CIK holds (ticker
+  reuse after a delisting) is a surfaced CONFLICT, never applied — and so is a new company whose ticker a LIVE
+  basket row of another CIK holds (a possible successor issuer, the T7 case below); a CIK SEC no longer lists is
+  left untouched. The price feed follows a rename only when safe: a renamed row with stored bars and no price
+  symbol is PINNED to its old ticker (`price_symbol`, author `system:rename-pin`, undoable on Admin) until the
+  nightly rename probe splice-verifies the new ticker (>= 20 shared bars at x1.000 → adopted automatically,
+  `system:auto-adopt`, undoable); a row with a price symbol already set is never touched.
+  **The cached file is now REFRESHED, weekly** — the refresh's `--live --apply` replaces
+  `data/sec_cache/company_tickers_exchange.json` (an atomic replace, only after its plan committed), and that
+  copy is also the stale-tape rename guard's second source (`sec_tickers.cached_tickers_for_cik`, cache-only):
+  a stopped tape whose CIK SEC's map lists under another ticker is RENAMED, never CLOSED (the PSKY -> SKYD
+  shape — a Form 25 at the last bar, EDGAR's own list empty).
+  **Funds are not in this file** (PEPT, WGMI, DTCR, …): an ETF is a fund-trust series in SEC's
+  `company_tickers_mf.json`, resolved ON THE FLY at the operator's holdings click (`securities/fund_tickers.py`;
+  the trust CIK is never written into the master — a locked decision, ETF Sleeve Slice 2a) and entered into the
+  master only by the surface-ETF flow (`master.resolve(..., instrument_kind=ETF)`). The weekly refresh replaces
+  that file's cached copy too (one more GET, fail-open), so a fund launched since the last copy resolves; it
+  writes no master row for a fund.
   **The CIK itself was never revisited — until T7 (2026-10-17).** Nothing above changes a stored CIK, and the
-  populate path's ticker map is cached FOREVER (`securities/sec_tickers`, cache-first; prod's copy dated
-  2026-07-27). A company that re-registers under a SUCCESSOR CIK and keeps its ticker (Rule 12g-3: an 8-K12B
+  populate path's ticker map was cached FOREVER until the weekly refresh (`securities/sec_tickers`, cache-first;
+  prod's copy dated 2026-07-27). A company that re-registers under a SUCCESSOR CIK and keeps its ticker (Rule 12g-3: an 8-K12B
   on the new CIK, a 15-12G on the old) leaves the member on a dead CIK, and every filing leg goes quiet
   (MEASURED: UROY 0001711570 → 0002143673, REAX 0001862461 → 0002136387). The nightly successor-CIK detector
   (`pipeline/successor_cik.py`, `FEED_LOOP.md` §the identity monitor) reads the SAME map fresh each night
   through the polite `EdgarClient` (key `files/company_tickers_exchange.json`, the recurring five-minute TTL)
   and flags a member whose stored CIK lists no tickers while the map assigns its symbol to another CIK. The
   re-point is the operator's (Adopt on Admin → `master.set_cik`, in place, with an exact Undo — migration
-  0049); never `populate_master`, which keys on `(cik, ticker)` and would insert a second row for the
-  successor rather than move the member. Serve-time EDGAR links are built from the CURRENT CIK, which is
+  0049); never `populate_master`, which re-keys only a row of the SAME CIK and reports a successor CIK on a
+  basket member's ticker as a conflict (an inserted successor row would block this Adopt, which refuses when
+  another row already holds the new CIK). Serve-time EDGAR links are built from the CURRENT CIK, which is
   harmless after a re-point: EDGAR resolves a filing index by accession under any CIK path (MEASURED).
 - **Filing extraction (10-Q/10-K).** The three-tier extractor pulls a resolved name's latest 10-Q + 10-K (via
   the same cache-first `EdgarClient` + declared UA + rate-limit gate) and produces *candidate* scoring facts

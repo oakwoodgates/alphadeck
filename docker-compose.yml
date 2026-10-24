@@ -236,6 +236,14 @@ services:
       # twice (MEASURED on dev: ~9 min at 4 workers for 659 pages; it grows with the edition).
       EDITIONS_NIGHTLY: ${ALPHADECK_EDITIONS_NIGHTLY:-1}
       EDITIONS_TIMEOUT_S: ${ALPHADECK_EDITIONS_TIMEOUT_S:-3600}
+      # The sidecar's THIRD schedule: the weekly company-list refresh (`python -m pipeline.populate_master --live
+      # --apply`; daily_cron.sh `master_refresh_loop`): its kill switch (0 = off, an env-only cron deploy), the day
+      # (`date +%u`, 6 = Saturday) and time (market TZ) it fires, and the hard timeout around one run. The job
+      # refuses inside the nightly window, holds its own lock and yields to a running pass (docs/FEED_LOOP.md).
+      MASTER_REFRESH: ${ALPHADECK_MASTER_REFRESH:-1}
+      MASTER_REFRESH_DOW: ${ALPHADECK_MASTER_REFRESH_DOW:-6}
+      MASTER_REFRESH_AT: ${ALPHADECK_MASTER_REFRESH_AT:-09:00}
+      MASTER_REFRESH_TIMEOUT_S: ${ALPHADECK_MASTER_REFRESH_TIMEOUT_S:-900}
       # No ANTHROPIC_API_KEY: ingest + the call engine are deterministic — no LLM on this path.
       # The notify delivery channel — this is the AUTOMATED path that fires the daily -> armed push, and (H3)
       # the shell's failure page (`python -m notify.page`) when a night or a backup fails for good. Unset ->

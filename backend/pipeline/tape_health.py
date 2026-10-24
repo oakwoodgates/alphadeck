@@ -98,7 +98,9 @@ a name; #7/WB#3: the quiet is reserved for the expected event). A stopped tape i
    common stock"), with one ``closed_at`` moving: XOMA's nearest form was the 2026-07-16 25-NSE removing
    its PREFERRED depositary shares, so its close now dates from the next-nearest, the 2026-07-27 15-12G.
 2. **No rename.** EDGAR's current ``tickers`` list (``submissions.edgar_tickers``) is EMPTY, or holds the
-   master ``ticker`` or ``price_symbol``. When EDGAR lists symbols and NEITHER of ours is among them, the
+   master ``ticker`` or ``price_symbol`` — and so does SEC's current ticker map for the CIK (the cached
+   ``company_tickers_exchange.json``, kept current by the weekly company-list refresh; the PSKY -> SKYD
+   shape: EDGAR's list empty, a Form 25 for the old ticker at the last bar, the map listing SKYD). When EDGAR lists symbols and NEITHER of ours is among them, the
    company is still listed under a different symbol: the stopped tape is a rename-starved feed, so the row
    is a stale-REPAIR row marked ``renamed`` and carries EDGAR's list for display ("renamed — EDGAR lists
    OPNW"), never closed — even if a delisting form sits right at the edge (BTAI's Nasdaq exit to OTC as
@@ -142,6 +144,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from domain.feed_kinds import FUND_SHARES, PRICE, FeedKind, feed_kind
+from domain.price_feed_basis import is_rename_pin
 
 if TYPE_CHECKING:  # avoid importing the ingest module at import time (keeps the layering one-way)
     from ingest.edgar.submissions import DelistingFiling
@@ -291,6 +294,8 @@ def classify_stop(
     before_days: int = DEFAULT_CLOSED_BEFORE_DAYS,
     after_days: int = DEFAULT_CLOSED_AFTER_DAYS,
     removes_other_class: Callable[[DelistingFiling], bool] | None = None,
+    sec_map_tickers: tuple[str, ...] | None = None,
+    rename_pinned: bool = False,
 ) -> StopClassification:
     """Is this stopped price tape a CLOSE, a RENAME, or a plain feed gap? Pure over its arguments (the one
     I/O, reading a Form 25's class, is the injected ``removes_other_class``); the caller has already
@@ -299,6 +304,16 @@ def classify_stop(
     1. RENAME guard first: EDGAR lists one or more current symbols and NEITHER ``ticker`` nor
        ``price_symbol`` is among them (case-insensitive MEMBERSHIP, never ``tickers[0]``) → a repair row
        marked ``renamed``, never closed, whatever the forms say. An empty or unread list never fires it.
+       SEC's current TICKER MAP is the second source (``sec_map_tickers`` — the CIK's tickers in the cached
+       ``company_tickers_exchange.json`` the weekly company-list refresh keeps current): when it lists the
+       CIK under symbols that include neither of ours, the stop is a rename too, even with a delisting form
+       right at the last bar and an EMPTY EDGAR list (PSKY -> SKYD, 2026-10-24: a Form 25 for the old
+       ticker near its last bar, EDGAR's submissions listing nothing, SEC's map listing SKYD — read CLOSED,
+       wrongly). ``edgar_tickers`` on the result is then the map's list, so the rename probe splices it.
+       ``rename_pinned`` — the price symbol is the company-list refresh's PIN to the OLD ticker
+       (``domain/price_feed_basis.BASIS_RENAME_PIN``): the master ``ticker`` is then SEC's NEW one, which the
+       price leg deliberately does NOT read, so only the pinned symbol counts as ours — a stopped pinned tape
+       whose new ticker SEC lists is a rename to splice (and, verified, to auto-adopt), never a close.
     2. PROXIMITY: among the delisting filings filed in ``[edge − before_days, edge + after_days]`` and on
        or before ``asof``, the one nearest ``edge`` (a tie goes to the later filing) closes the tape, and
        ``closed_at`` is its filing date. No last bar (``edge`` is None) → nothing to be near → not closed.
@@ -314,9 +329,12 @@ def classify_stop(
     (only a form filed on the edge day itself counts on that side) — never an error inside the nightly
     loop."""
     listed = edgar_tickers
-    ours = {s.strip().upper() for s in (ticker, price_symbol) if s and s.strip()}
+    priced = (price_symbol,) if rename_pinned and price_symbol else (ticker, price_symbol)
+    ours = {s.strip().upper() for s in priced if s and s.strip()}
     if listed and not ours.intersection(t.strip().upper() for t in listed):
         return StopClassification(renamed=True, edgar_tickers=listed)
+    if sec_map_tickers and not ours.intersection(t.strip().upper() for t in sec_map_tickers):
+        return StopClassification(renamed=True, edgar_tickers=tuple(sec_map_tickers))
     if edge is None:
         return StopClassification(edgar_tickers=listed)
     before, after = max(0, before_days), max(0, after_days)
@@ -440,6 +458,8 @@ def stale_tapes(
                         if removes_other_class is not None
                         else None
                     ),
+                    sec_map_tickers=getattr(r, "sec_map_tickers", None),
+                    rename_pinned=is_rename_pin(getattr(r, "price_symbol_basis", None)),
                 ),
             )
             for r in results

@@ -101,7 +101,7 @@ from pipeline.pass_timings import timed
 if TYPE_CHECKING:  # the nightly passes one in (S4); the unit itself never builds or imports it
     from pipeline.detect_splits import SplitDetector
 from repositories import thesis_repo
-from securities import master
+from securities import master, sec_tickers
 
 _log = logging.getLogger(__name__)
 
@@ -193,6 +193,15 @@ class NameResult:
     delisting_filings: tuple[DelistingFiling, ...] = ()
     edgar_tickers: tuple[str, ...] | None = None
     price_symbol: str | None = None
+    # ...and two more inputs to the rename guard (the company-list refresh, 2026-10-24):
+    # - `sec_map_tickers`: the CIK's tickers in SEC's current ticker map (the CACHED
+    #   company_tickers_exchange.json the weekly refresh keeps current — a disk read, memoized per pass, never
+    #   a fetch); `()` = the map lists none, None = not read. The second source when EDGAR's own list is empty
+    #   (the PSKY -> SKYD shape).
+    # - `price_symbol_basis`: who set `price_symbol` — the refresh's PIN to a renamed company's OLD ticker
+    #   (`system:rename-pin`) means the master ticker is SEC's NEW one, which the price leg does not read.
+    sec_map_tickers: tuple[str, ...] | None = None
+    price_symbol_basis: str | None = None
     # O1 — the SAME failures as ``error``, kept STRUCTURED: one ``(leg, message)`` pair per leg that raised
     # (``form4`` / ``form8k`` / ``schedule13`` / ``price`` / ``fund_shares``; ``master`` for an id missing
     # from the tenant master). ``error`` stays the joined string every existing reader uses (and the R2
@@ -735,6 +744,8 @@ def _held_result(
         delisting_filings=stop.delisting,
         edgar_tickers=stop.listed,
         price_symbol=sec.price_symbol,
+        price_symbol_basis=sec.price_symbol_basis,
+        sec_map_tickers=stop.mapped,
         edgar_name=stop.current_name,
         former_names=stop.formers,
         name_change_filings=stop.renames,
@@ -752,6 +763,7 @@ class _StopFacts:
     current_name: str | None = None
     formers: tuple[FormerName, ...] = ()
     renames: tuple[NameChangeFiling, ...] = ()
+    mapped: tuple[str, ...] | None = None
 
 
 def _tape_edge(conn: psycopg.Connection, sec: Security, *, tenant_id: UUID) -> date | None:
@@ -778,9 +790,16 @@ def _stop_facts(client: EdgarClient, sec: Security) -> _StopFacts:
     SAFE default — a name without positive delisting evidence stays the loud "stale — repair", never the
     quiet "closed" (erring toward visible, #7/#9). NOT judged here — ``pipeline.daily`` classifies a stale
     tape from these. T2 — the RENAME EVIDENCE rides the same read (the company's current name, its former
-    names, and its item-5.03 8-Ks): three more walks of the cached doc, display evidence only."""
+    names, and its item-5.03 8-Ks): three more walks of the cached doc, display evidence only. The CIK's
+    tickers in SEC's CACHED ticker map ride along (``mapped`` — the rename guard's second source; a disk read
+    memoized per file version, never a fetch; its own try, so a damaged map costs only that input).
+    """
     if not sec.cik:
         return _StopFacts()
+    try:
+        mapped = sec_tickers.cached_tickers_for_cik(sec.cik)
+    except Exception:  # noqa: BLE001 — a monitor input; "not read" is the safe default
+        mapped = None
     try:
         subs = fetch_submissions(client, sec.cik)
         return _StopFacts(
@@ -789,10 +808,11 @@ def _stop_facts(client: EdgarClient, sec: Security) -> _StopFacts:
             current_name=entity_name(subs),
             formers=former_names(subs),
             renames=name_change_filings(subs),
+            mapped=mapped,
         )
     except Exception as e:  # noqa: BLE001 — a monitor read never costs a name its result
         print(f"  warn: {sec.ticker or sec.id} delisting read failed: {e}")
-        return _StopFacts()
+        return _StopFacts(mapped=mapped)
 
 
 def _fund_edge(
@@ -974,6 +994,8 @@ def _ingest_one(
         delisting_filings=stop.delisting,
         edgar_tickers=stop.listed,
         price_symbol=sec.price_symbol,
+        price_symbol_basis=sec.price_symbol_basis,
+        sec_map_tickers=stop.mapped,
         leg_errors=tuple(leg_errs),
         price_not_found=px_not_found,
         edgar_name=stop.current_name,

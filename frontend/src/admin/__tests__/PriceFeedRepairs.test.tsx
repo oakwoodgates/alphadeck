@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AdminPriceRepairsOut } from "../../api/hooks";
-import { PriceFeedRepairs, repairHandledIds } from "../PriceFeedRepairs";
+import { PriceFeedRepairs, repairHandledIds, repairVerb } from "../PriceFeedRepairs";
 
 // The "Price feed repairs" panel over mocked mutation hooks, on the measured prod night (2026-10-16):
 // HLLK renamed (SDCO splice-verified), BRR renamed (SVIA verified, its warrants SVIAW not), WONDF never
@@ -450,5 +450,14 @@ describe("repairHandledIds", () => {
     const ids = repairHandledIds(NIGHT as unknown as AdminPriceRepairsOut);
     expect([...ids].sort()).toEqual([BRR_ID, GTLS_ID, HLLK_ID, WONDF_ID].sort());
     expect(repairHandledIds(undefined).size).toBe(0);
+  });
+});
+
+describe("repairVerb — the two SYSTEM authors read plainly", () => {
+  it("names the refresh's pin and the probe's automatic adopt; the operator's own verbs are unchanged", () => {
+    expect(repairVerb("set", "system:rename-pin")).toBe("pinned automatically (company renamed) to");
+    expect(repairVerb("adopt", "system:auto-adopt")).toBe("adopted automatically");
+    expect(repairVerb("adopt", "operator:adopt")).toBe("adopted");
+    expect(repairVerb("set", "operator:set")).toBe("set to");
   });
 });
