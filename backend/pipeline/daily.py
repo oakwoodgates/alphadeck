@@ -185,7 +185,7 @@ def env_fingerprint(
     """I2 — the NON-SECRET environment the pass ran under, for the run-of-record artifact. The clock config
     as VALUES (``TZ`` / the market zone / the shell's ``RUN_AT`` / ``Settings.cron_run_at`` — none is a
     secret, and a drift between them is exactly what this exists to show) and every secret or delivery
-    switch as a set/unset BOOLEAN only (the User-Agent, the Slack webhook, the Polygon key, the heartbeat
+    switch as a set/unset BOOLEAN only (the User-Agent, the Slack webhook, the Massive.com key, the heartbeat
     URL) — **a value is never written**. ``notifier`` is the class actually in use: ``LogNotifier`` on a
     live pass means a bad night pages nobody. ``environ`` / ``settings`` are injectable for tests.
     """
@@ -1039,7 +1039,7 @@ class DailyPassOutcome:
     # artifact field — the artifact carries THIS pass's reads (``split_reads``).
     split_reads_prev: dict | None = None
     # S4 — the nightly split detection (``pipeline/detect_splits.py``): the new split-list rows, the filings it
-    # could not place, the Polygon source's status — computed in the pass, so the artifact and the poll agree
+    # could not place, the Massive.com source's status — computed in the pass, so the artifact and the poll agree
     split_detect: SplitDetection = field(default_factory=SplitDetection)
     # S5 — the split-night hold's escalation (``pipeline/split_jumps.py``): released split-shaped jumps no source
     # listed, for one quiet report line (the Admin Splits panel reads them live). Not an artifact field.
@@ -1369,7 +1369,7 @@ def _run_daily_pass_locked(
     )
     if amendment_sweep.error:
         print(f"WARNING: Form 4/A sweep failed: {amendment_sweep.error}")
-    # S4 — THE SPLIT DETECTION (`pipeline/detect_splits.py`): the pass's ONE Polygon split-reference request
+    # S4 — THE SPLIT DETECTION (`pipeline/detect_splits.py`): the pass's ONE Massive.com split-reference request
     # here (fail-open: off / failed / uncached is a status on the outcome), then each company is checked inside
     # its ingest, after its 8-K leg and before its price leg. Its outcome rides the artifact + one report line.
     split_detector = timed("split_detect_start")(SplitDetector.start)(
@@ -2209,7 +2209,8 @@ def main(argv: list[str] | None = None) -> None:
         amendments=outcome.amendments,
         split_reads_prev=outcome.split_reads_prev,
     )  # the per-thesis summary + the errored count, printed either way
-    for line in outcome.split_detect.report_lines():  # S4 — one quiet line (+ Polygon off / faults)
+    # S4 — one quiet line (+ Massive.com off / faults)
+    for line in outcome.split_detect.report_lines():
         print(line)
     for line in jump_report_lines(
         outcome.jumps

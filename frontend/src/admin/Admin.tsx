@@ -716,8 +716,8 @@ export function Admin({ header }: Props) {
               auto-applied corrections and the inert ones quiet. Its own read; renders nothing when empty. */}
           <InsiderAmendments />
 
-          {/* 1d — SPLITS (split plan S1): the split list the backfill filled from Polygon + each company's SEC
-              filing. Loud only for the splits one source cannot settle (the SEC passage and Polygon's row side
+          {/* 1d — SPLITS (split plan S1): the split list the backfill filled from Massive.com + each company's SEC
+              filing. Loud only for the splits one source cannot settle (the SEC passage and Massive.com's row side
               by side, Confirm / Reject); the auto-confirmed, announced and set-aside ones quiet. Its own read;
               renders nothing when the list is empty. */}
           <SplitList />

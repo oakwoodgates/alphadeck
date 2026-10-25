@@ -2,13 +2,13 @@
 filled, every action with a visible inverse (WB#1).
 
 What the system found (``pipeline.backfill_splits``; read, never auto-decided beyond the operator's own rule —
-two independent sources agreeing): each split with Polygon's row and the SEC filing's located passage side by
+two independent sources agreeing): each split with Massive.com's row and the SEC filing's located passage side by
 side. Auto-confirmed and announced splits are QUIET lists; a split one source cannot settle (one source only, a
 disagreement, an extractor abstain) is LOUD — the only loud thing here (WB#3).
 
 What the operator can do, and its inverse:
 
-- **Confirm SEC values** / **Confirm Polygon values** (when they differ), or **Confirm** (when only one source
+- **Confirm SEC values** / **Confirm Massive.com values** (when they differ), or **Confirm** (when only one source
   states both a ratio and a date) a needs-review split -> its values become the list's. Inverse: **Revoke**.
 - **Reject** a needs-review or announced split. Inverse: **Restore** (back to the state before).
 - **Revoke** any confirmed split, auto-confirmed or not. Inverse: **Restore** (back to confirmed).
@@ -89,7 +89,7 @@ class AdminSplitListSecOut(BaseModel):
 
 
 class AdminSplitListPolygonOut(BaseModel):
-    """Polygon's split-reference row: ``split_from`` old shares -> ``split_to`` new shares."""
+    """Massive.com's split-reference row: ``split_from`` old shares -> ``split_to`` new shares."""
 
     id: str
     ticker: str | None = None
@@ -113,7 +113,7 @@ class AdminSplitListEntryOut(BaseModel):
     """One split on the list (its NEWEST version). ``version_id`` names that version — every action posts it,
     and a stale one is refused. ``ratio_from`` -> ``ratio_to`` = old shares -> new shares; ``price_factor`` =
     old / new (prices before the split x it). ``decided_by`` is the source label the panel shows ("auto: SEC +
-    Polygon", "you, 10-20"). ``actions`` = what the status allows; ``restore_to`` = where Restore returns it.
+    Massive.com", "you, 10-20"). ``actions`` = what the status allows; ``restore_to`` = where Restore returns it.
     """
 
     version_id: UUID
@@ -154,7 +154,7 @@ class AdminSplitJumpBarOut(BaseModel):
 class AdminSplitJumpOut(BaseModel):
     """A split-shaped price jump with NO split listed (split plan S5): the close moved x3 or more (or to a third
     or less) between two stored bars with the volume moving the other way, the split-night hold has released it
-    (three sessions on), and no SEC filing or Polygon row on the list sits near it. A real move or a split no
+    (three sessions on), and no SEC filing or Massive.com row on the list sits near it. A real move or a split no
     source has listed yet — the operator's question ("is this real?"). ``step`` = close / prior close.
     """
 
@@ -198,7 +198,7 @@ class AdminSplitListOut(BaseModel):
 
 
 class AdminSplitListConfirmIn(BaseModel):
-    """Whose values to confirm: the SEC filing's or Polygon's."""
+    """Whose values to confirm: the SEC filing's or Massive.com's."""
 
     source: Literal["sec", "polygon"]
 
@@ -213,16 +213,16 @@ def _md(ts: datetime) -> str:
     return ts.astimezone(market_tz()).strftime("%m-%d")
 
 
-# the two-source pairings a split can be auto-confirmed by (S1's SEC + Polygon; S4's tape pairings)
+# the two-source pairings a split can be auto-confirmed by (S1's SEC + Massive.com; S4's tape pairings)
 _AUTO_LABELS = {
-    VIA_AUTO: "auto: SEC + Polygon",
+    VIA_AUTO: "auto: SEC + Massive.com",
     VIA_SEC_TAPE: "auto: SEC + tape",
-    VIA_POLYGON_TAPE: "auto: Polygon + tape",
+    VIA_POLYGON_TAPE: "auto: Massive.com + tape",
 }
 
 
 def _decided_by(v: SplitVersion) -> str:
-    """The source label: "auto: SEC + Polygon" (or "auto: SEC + tape" / "auto: Polygon + tape") for the
+    """The source label: "auto: SEC + Massive.com" (or "auto: SEC + tape" / "auto: Massive.com + tape") for the
     two-source rule, "you, 10-20" for the operator, else who listed it (the backfill / the nightly).
     """
     auto = _AUTO_LABELS.get(v.confirmed_via or "")

@@ -3,7 +3,7 @@
 The adapters are exercised through seeded cache files (the fetchers are cache-first, so a warm cache
 IS the offline path); the composite's policy — primary hit wins / clean miss falls through quietly /
 primary ERROR warns visibly then falls back / both legs failing raises with both stories — is walked
-with stub sources. ``default_fund_source`` composes POLYGON-primary when POLYGON_API_KEY is present
+with stub sources. ``default_fund_source`` composes Massive.com-primary when MASSIVE_API_KEY is present
 (the operator's 2026-07-26 decision) and stays the scraper pair keyless — both shapes pinned here.
 """
 
@@ -122,8 +122,8 @@ def test_both_legs_failing_raises_with_both_stories():
 
 
 def test_default_fund_source_keyless_is_globalx_then_stockanalysis(monkeypatch):
-    """No POLYGON_API_KEY → exactly the pre-polygon behavior (the absence of the key is the off switch)."""
-    monkeypatch.delenv("POLYGON_API_KEY", raising=False)
+    """No MASSIVE_API_KEY → exactly the pre-polygon behavior (the absence of the key is the off switch)."""
+    monkeypatch.delenv("MASSIVE_API_KEY", raising=False)
     get_settings.cache_clear()
     try:
         composite = default_fund_source()
@@ -134,9 +134,9 @@ def test_default_fund_source_keyless_is_globalx_then_stockanalysis(monkeypatch):
 
 
 def test_default_fund_source_goes_polygon_primary_when_the_key_is_present(monkeypatch):
-    """With the key: polygon leads, and its fallback IS the whole scraper composite, nested — a polygon
+    """With the key: Massive.com leads, and its fallback IS the whole scraper composite, nested — a Massive.com
     miss/gap degrades to exactly the keyless chain."""
-    monkeypatch.setenv("POLYGON_API_KEY", "k-test")
+    monkeypatch.setenv("MASSIVE_API_KEY", "k-test")
     get_settings.cache_clear()
     try:
         composite = default_fund_source()

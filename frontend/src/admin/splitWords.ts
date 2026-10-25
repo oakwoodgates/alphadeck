@@ -41,17 +41,17 @@ export function secSays(s: Split): string {
   return `The SEC ${form}${filed} says ${sec.ratio_label}${date}.`;
 }
 
-/** What Polygon says, in a sentence. */
+/** What Massive.com says, in a sentence. */
 export function polygonSays(s: Split): string {
   const p = s.polygon;
-  if (!p) return "Polygon lists no split here.";
+  if (!p) return "Massive.com lists no split here.";
   const what = p.ratio_label ?? `${p.split_from} → ${p.split_to}`;
-  return `Polygon lists ${what}${p.execution_date ? `, first trading ${p.execution_date}` : ""}.`;
+  return `Massive.com lists ${what}${p.execution_date ? `, first trading ${p.execution_date}` : ""}.`;
 }
 
 /** What Confirm does with one source's values. */
 export function confirmLine(s: Split, o: Option, many: boolean): string {
-  const whose = many ? `${o.source === "sec" ? "the SEC filing's" : "Polygon's"} values (${o.label})` : o.label;
+  const whose = many ? `${o.source === "sec" ? "the SEC filing's" : "Massive.com's"} values (${o.label})` : o.label;
   const moved =
     o.effective_date !== s.effective_date ? ` The split moves to ${o.effective_date}.` : "";
   return `Confirm ${whose}: prices before ${md(o.effective_date)} are put on the new scale, and the split-night hold on this company's price triggers lifts.${moved}`;

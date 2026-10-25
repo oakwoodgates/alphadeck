@@ -1898,7 +1898,7 @@ tr.adm-row-bad td { background: color-mix(in srgb, var(--warm) 5%, transparent);
 .adm-flag-lvl { font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.08em; text-transform: uppercase; border: 1px solid var(--line-2); border-radius: 4px; padding: 0 4px; color: var(--txt-3); }
 .adm-flag-lvl.known_wrong { color: color-mix(in srgb, var(--neg) 60%, var(--txt-3)); }
 .adm-flag-lvl.in_doubt { color: color-mix(in srgb, var(--warn, #b8860b) 70%, var(--txt-3)); }
-/* split plan S1 — the Splits panel: the SEC passage and Polygon's row side by side (stacked on a phone);
+/* split plan S1 — the Splits panel: the SEC passage and Massive.com's row side by side (stacked on a phone);
    a rejected / revoked split stays listed, grayed (WB#2) */
 .adm-split-sides { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; margin: 6px 0 4px; }
 @media (max-width: 720px) { .adm-split-sides { grid-template-columns: minmax(0, 1fr); } }

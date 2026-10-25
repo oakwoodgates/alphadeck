@@ -3,7 +3,7 @@ rule — a split is confirmed only when two INDEPENDENT sources agree (operator 
 clock, no settings, no I/O. The SEC side arrives already extracted (``ingest/edgar/split_filing.py``); this
 module never reads a filing and never guesses a value.
 
-**The two sources.** Polygon's split reference (a market-data vendor's row: execution date = the first session
+**The two sources.** Massive.com's split reference (a market-data vendor's row: execution date = the first session
 at the new price, ``split_from`` -> ``split_to``) and an SEC filing (the company's own words: a ratio, and
 either the first trading session — kind ``trading`` — or a legal effective date — kind ``legal``).
 
@@ -11,9 +11,9 @@ either the first trading session — kind ``trading`` — or a legal effective d
 
 1. the ratios are EXACTLY equal (compared as exact fractions: 16 -> 1 equals 16 -> 1, never "close"), AND
 2. the dates agree:
-   - a ``trading`` date (the filing states the first session itself) must EQUAL Polygon's execution date;
+   - a ``trading`` date (the filing states the first session itself) must EQUAL Massive.com's execution date;
    - a ``legal`` effective date may sit up to ``SESSION_TOLERANCE`` sessions from it — a split effective at
-     5:00 p.m. on a Friday first trades on the Monday — and the first session recorded is Polygon's.
+     5:00 p.m. on a Friday first trades on the Monday — and the first session recorded is Massive.com's.
 
 The earliest such filing is the confirming one: its filing date is when the split became public
 (``valid_from``, never later than the execution date itself).
@@ -22,8 +22,8 @@ The earliest such filing is the confirming one: its filing date is when the spli
 effect (a split is never ``confirmed`` before its day — a later slice scales the bars BEFORE a confirmed
 split's first session, and a future one would rescale the whole tape early).
 
-**Needs review** — everything else, with both sources' evidence kept on the row: Polygon alone, an SEC filing
-that disagrees on the ratio or the date, or a filing the extractor abstained on. The row carries Polygon's
+**Needs review** — everything else, with both sources' evidence kept on the row: Massive.com alone, an SEC filing
+that disagrees on the ratio or the date, or a filing the extractor abstained on. The row carries Massive.com's
 values until the operator confirms one source's values or rejects it. Nothing here picks between two
 disagreeing values.
 """
@@ -65,7 +65,7 @@ SOURCE_POLYGON = "polygon"
 SOURCE_BOTH = "both"
 
 # How far (in Mon-Fri sessions; market holidays are not modeled, the ``domain/trading_days`` calendar) a SEC
-# LEGAL effective date may sit from Polygon's execution date and still agree. Two covers the shapes the real
+# LEGAL effective date may sit from Massive.com's execution date and still agree. Two covers the shapes the real
 # filings use — effective 12:01 a.m. the same day (0), 5:00 p.m. the session before (1), a Friday-evening
 # certificate trading on the Monday after a holiday (2). A filing that states the first TRADING session itself
 # must match exactly: a one-session disagreement there is a real disagreement, and it goes to the operator.
@@ -74,7 +74,7 @@ SESSION_TOLERANCE = 2
 
 @dataclass(frozen=True)
 class PolygonEvidence:
-    """One Polygon split-reference row: the first session at the new price and ``split_from`` OLD shares ->
+    """One Massive.com split-reference row: the first session at the new price and ``split_from`` OLD shares ->
     ``split_to`` NEW shares (16 -> 1 for a 1-for-16 reverse split)."""
 
     id: str
@@ -110,7 +110,7 @@ class SecEvidence:
 
 @dataclass(frozen=True)
 class SplitDecision:
-    """The matcher's verdict for one Polygon row (or, S4, one SEC-only candidate — ``polygon`` is then
+    """The matcher's verdict for one Massive.com row (or, S4, one SEC-only candidate — ``polygon`` is then
     ``None``): the values the list carries, its status, and the evidence."""
 
     key_date: date
@@ -349,7 +349,7 @@ def session_distance(a: date, b: date) -> int:
 
 
 def date_agreement(sec: SecEvidence, polygon: PolygonEvidence) -> tuple[bool, str]:
-    """Do the SEC filing's date and Polygon's execution date agree (the rule in the module docstring)?
+    """Do the SEC filing's date and Massive.com's execution date agree (the rule in the module docstring)?
     ``(agree, why)`` — ``why`` names the gap either way."""
     if sec.effective_date is None:
         return False, sec.date_note or "the SEC filing states no date"
@@ -358,7 +358,7 @@ def date_agreement(sec: SecEvidence, polygon: PolygonEvidence) -> tuple[bool, st
         if sec.effective_date == polygon.execution_date:
             return True, ""
         return False, (
-            f"the SEC filing states the first session {sec.effective_date.isoformat()}, Polygon "
+            f"the SEC filing states the first session {sec.effective_date.isoformat()}, Massive.com "
             f"{polygon.execution_date.isoformat()} ({gap:+d} session(s))"
         )
     if abs(gap) <= SESSION_TOLERANCE:
@@ -366,11 +366,11 @@ def date_agreement(sec: SecEvidence, polygon: PolygonEvidence) -> tuple[bool, st
             ""
             if gap == 0
             else f"SEC legal effective date {sec.effective_date.isoformat()}, first session "
-            f"{polygon.execution_date.isoformat()} per Polygon ({gap:+d} session(s))"
+            f"{polygon.execution_date.isoformat()} per Massive.com ({gap:+d} session(s))"
         )
     return False, (
         f"the SEC filing's effective date {sec.effective_date.isoformat()} is {gap:+d} session(s) from "
-        f"Polygon's {polygon.execution_date.isoformat()} (tolerance ±{SESSION_TOLERANCE})"
+        f"Massive.com's {polygon.execution_date.isoformat()} (tolerance ±{SESSION_TOLERANCE})"
     )
 
 
@@ -385,7 +385,7 @@ def _sec_said(s: SecEvidence) -> str:
 
 
 def _poly_said(p: PolygonEvidence) -> str:
-    return f"Polygon: {ratio_label(p.split_from, p.split_to)}, first session {p.execution_date.isoformat()}"
+    return f"Massive.com: {ratio_label(p.split_from, p.split_to)}, first session {p.execution_date.isoformat()}"
 
 
 def decide(
@@ -395,7 +395,7 @@ def decide(
     asof: date,
     unread: int = 0,
 ) -> SplitDecision:
-    """The verdict for one Polygon row given every SEC filing read in its window (the module docstring)."""
+    """The verdict for one Massive.com row given every SEC filing read in its window (the module docstring)."""
     tail = f" {unread} SEC filing(s) in the window could not be read." if unread else ""
     readable = [s for s in sec if s.has_ratio]
     confirming = []
@@ -409,7 +409,7 @@ def decide(
         first, why = min(confirming, key=lambda c: (c[0].filed, c[0].accession))
         effective = polygon.execution_date
         future = effective > asof
-        note = f"{_sec_said(first)} and Polygon agree."
+        note = f"{_sec_said(first)} and Massive.com agree."
         if why:
             note += f" {why}."
         if len(confirming) > 1:
@@ -465,13 +465,13 @@ def decide(
     elif abstained:
         chosen = min(abstained, key=gap)
         note = (
-            f"Polygon only to confirm: SEC {chosen.form} {chosen.accession} (filed {chosen.filed.isoformat()}) "
+            f"Massive.com only to confirm: SEC {chosen.form} {chosen.accession} (filed {chosen.filed.isoformat()}) "
             f"mentions a split but the extractor abstained — {chosen.abstain_reason}."
         )
         valid_from = polygon.execution_date
     else:
         note = (
-            f"Polygon only — no SEC filing read in the window states this split "
+            f"Massive.com only — no SEC filing read in the window states this split "
             f"({len(sec)} filing(s) read)."
         )
         if readable:
@@ -496,8 +496,8 @@ def decide(
 # --- S4 (split plan, 2026-10-22): the SEC-only candidate and the TAPE as a confirming source -------------------
 #
 # The nightly detector (``pipeline/detect_splits.py``) finds splits the S1 rule above cannot settle alone: a
-# split an SEC filing states before (or without) a Polygon row, and a split one documentary source states that
-# the stored price tape can confirm. ``decide`` above stays THE rule for a Polygon row; nothing below changes it.
+# split an SEC filing states before (or without) a Massive.com row, and a split one documentary source states that
+# the stored price tape can confirm. ``decide`` above stays THE rule for a Massive.com row; nothing below changes it.
 
 VIA_SEC_TAPE = "auto:sec+tape"
 VIA_POLYGON_TAPE = "auto:polygon+tape"
@@ -508,7 +508,7 @@ AUTO_VIAS = (VIA_AUTO, VIA_SEC_TAPE, VIA_POLYGON_TAPE)
 # - REAL SPLIT DAYS: the 18 listed reverse splits whose first-served step lands near k on the listed date
 #   (12 with the prior bar served before the split, 6 from a history load the vendor never adjusted) stepped
 #   by ln(step / k) in [-0.464, +0.187] (SMX 2025-11-18 1-for-8: x5.03, the day's real move -37%; MI 1-for-80:
-#   x96.4) — the split-day moves section 16 of the plan measured on Polygon's closes (+26% .. -37%). The volume
+#   x96.4) — the split-day moves section 16 of the plan measured on Massive.com's closes (+26% .. -37%). The volume
 #   fell on every one (beta = -ln(volume ratio) / ln(step) in [0.041 (CMND), 2.19 (DUKR)]); a single bar's
 #   volume is too noisy for T4's flank-median BETA_MIN of 0.5 (CMND's real 1-for-8 day would fail it).
 # - NON-SPLIT DAYS (the null): 331,022 consecutive first-served bar pairs on the basket union, more than 10
@@ -591,7 +591,7 @@ def tape_agreement(
 
 
 def with_tape(d: SplitDecision, tape: TapeEvidence | None) -> SplitDecision:
-    """A needs-review decision that ONE documentary source settles alone — Polygon's row with no SEC filing
+    """A needs-review decision that ONE documentary source settles alone — Massive.com's row with no SEC filing
     disagreeing, or an SEC filing that states the first TRADING session (a legal date leaves the first session
     open by a session or two, and the tape is never asked to pick it) — upgraded to ``confirmed`` when the tape
     agrees on its first session (``tape_agreement``). Any other needs-review decision comes back with the tape
@@ -620,7 +620,7 @@ def with_tape(d: SplitDecision, tape: TapeEvidence | None) -> SplitDecision:
     agree, why = tape_agreement(tape, d.ratio_from, d.ratio_to, d.effective_date)
     if not agree:
         return replace(d, note=f"{note} The tape does not confirm it: {why}.")
-    src = "Polygon's" if via == VIA_POLYGON_TAPE else "the SEC filing's"
+    src = "Massive.com's" if via == VIA_POLYGON_TAPE else "the SEC filing's"
     return replace(
         d,
         status=STATUS_CONFIRMED,
@@ -630,7 +630,7 @@ def with_tape(d: SplitDecision, tape: TapeEvidence | None) -> SplitDecision:
 
 
 def related(s: SecEvidence, polygon: PolygonEvidence) -> bool:
-    """Is a read SEC filing about the same split as a Polygon row — the same ratio, or a date that agrees
+    """Is a read SEC filing about the same split as a Massive.com row — the same ratio, or a date that agrees
     (``decide``'s own test for the filing it shows beside a disagreeing row)?"""
     if not s.has_ratio:
         return False
@@ -670,7 +670,7 @@ def decide_sec_only(group: Sequence[SecEvidence], *, asof: date) -> SplitDecisio
     chosen = min(pool, key=lambda s: (s.filed, s.accession))
     first = min(group, key=lambda s: (s.filed, s.accession))
     dates = sorted({s.effective_date for s in pool if s.effective_date is not None})
-    note = f"SEC only: {_sec_said(chosen)}; no Polygon row lists this split (tonight's pull)."
+    note = f"SEC only: {_sec_said(chosen)}; no Massive.com row lists this split (tonight's pull)."
     if len(group) > 1:
         note += f" {len(group)} SEC filings state it."
     if len(dates) > 1:

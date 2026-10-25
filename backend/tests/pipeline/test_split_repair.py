@@ -1,5 +1,5 @@
 """The split-basis classifier (S2) on REAL stored tapes — the acceptance key is the split-tape diagnosis's
-per-company table (section 2) and its Polygon raw spot checks. Every tape, split row and raw print here is real
+per-company table (section 2) and its Massive.com raw spot checks. Every tape, split row and raw print here is real
 (``tests/split_s2_fixtures``); nothing is synthesized.
 
 Where these labels differ from the diagnosis's simulated date lists, the difference is the diagnosis's own
@@ -107,7 +107,7 @@ def test_opad_misdated_vendor_boundary_two_sessions_early():
 
 def test_pbm_double_adjustment_is_read_only_from_raw_prints():
     """A doubled split is a lone DOWN step on the tape — a genuine crash looks the same — so without raw
-    prints nothing is changed; with Polygon's prints the 344 bars before 01-20 are over-adjusted by 6.25.
+    prints nothing is changed; with Massive.com's prints the 344 bars before 01-20 are over-adjusted by 6.25.
     """
     assert _classify("PBM").to_change == []
     c = _classify("PBM", spot=True)
@@ -121,7 +121,7 @@ def test_pbm_double_adjustment_is_read_only_from_raw_prints():
 
 def test_smx_chain_two_missing_splits_among_eight_listed():
     """SMX lists EIGHT confirmed splits; the vendor applied six. Before 2025-11-18 the bars lack 1-for-8 and
-    1-for-20 (x160), from 11-18 to 05-08 only the 1-for-20 — Polygon's prints (the diagnosis's settle) are
+    1-for-20 (x160), from 11-18 to 05-08 only the 1-for-20 — Massive.com's prints (the diagnosis's settle) are
     needed, because the 11-18 step on the tape is x5.03 (a -37% split day against k = 8)."""
     tape_only = _classify("SMX")
     assert not tape_only.ok
@@ -168,7 +168,7 @@ def test_lrhc_chain_only_the_last_of_four_listed_splits_is_missing():
 
 def test_atro_mis_factor_needs_its_confirm_and_its_raw_prints():
     """ATRO's 6:5 distribution still needs review on the list: nothing in force, nothing labeled. Confirmed,
-    the tape alone shows nothing (a 4.2% offset is an ordinary day); Polygon's 30 pre-split prints all say
+    the tape alone shows nothing (a 4.2% offset is an ordinary day); Massive.com's 30 pre-split prints all say
     the vendor applied x0.957701 of the list's factor — a MIS-FACTOR, corrected by x1.04417."""
     assert _classify("ATRO").labels == []
     assert _classify("ATRO", confirmed=("ATRO",)).to_change == []

@@ -47,7 +47,7 @@ filings write a 1-for-16 reverse split as "1-for-16" and a 25-for-1 consolidatio
 "subdivision" a forward one. A ratio is only ever read inside a sentence that talks about a split (a "business
 combination" is a merger, not shares combined), and "1-for-1" (a share exchange) is not a split. An ADS RATIO
 CHANGE counts as a split of the ADS — "the same effect
-as a one-for-thirty reverse ADS split" (NIPG) — because it moves the ADS price exactly like one, and Polygon
+as a one-for-thirty reverse ADS split" (NIPG) — because it moves the ADS price exactly like one, and Massive.com
 lists it as one.
 
 **What does NOT count as the split's ratio** — the refinement of "more than one distinct ratio abstains" that
@@ -117,7 +117,7 @@ from domain.splits import PAST_RATIO_ONLY
 
 # a ratio's sentence must have this much of a split in it, or the "N for M" is something else
 # (an ADS RATIO CHANGE is a split of the ADS — "the same effect as a one-for-thirty reverse ADS split" (NIPG),
-# and Polygon lists it as one). A "business combination" is a merger, not shares combined: "SAFE investors will
+# and Massive.com lists it as one). A "business combination" is a merger, not shares combined: "SAFE investors will
 # receive one warrant for every two shares acquired, … if the business combination is consummated" (ENHA's
 # Item 8.01 8-K of 2026-08-26) states no split.
 _SPLIT_CUE = re.compile(
@@ -1075,7 +1075,7 @@ def extract_split_screened(
 
     - **A current date** (at most ``HISTORICAL_GAP_DAYS`` before the filing) — the reading stands exactly as
       ``extract_split`` reads it. Every split auto-confirmed from such a filing has one (its window is
-      ``[first session - 120, first session + 10]`` days and its date agrees with Polygon's), so none changes.
+      ``[first session - 120, first session + 10]`` days and its date agrees with Massive.com's), so none changes.
     - **A past date** (more than ``HISTORICAL_GAP_DAYS`` before the filing) — never the filing's split date: a
       restated old split (WSHP's 6-K of 2026-08-24 restating its pre-IPO 1-for-4 of 2025-10-22) or a mistyped
       date (MEDS's 8-K: "will become effective … on May 26, 2025", filed 2026-05-21). The date is dropped and

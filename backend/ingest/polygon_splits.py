@@ -1,4 +1,4 @@
-"""Polygon's split reference — the SECOND source the split list confirms against (split plan S1).
+"""Massive.com's split reference — the SECOND source the split list confirms against (split plan S1).
 
 ``GET {polygon_base}/v3/reference/splits?execution_date.gte=YYYY-MM-DD&limit=1000&order=asc&sort=execution_date``
 returns the whole market's splits (``{id, ticker, execution_date, split_from, split_to}``), paged by a
@@ -9,7 +9,7 @@ fractional values included (PBM 6.25 -> 1; a 121.6 -> 122.6 stock-dividend row),
 reference lists announced splits).
 
 - **The key's ABSENCE is the off switch.** ``default_split_source`` returns ``None`` with no
-  ``POLYGON_API_KEY`` and the caller does nothing — never a keyless request.
+  ``MASSIVE_API_KEY`` and the caller does nothing — never a keyless request.
 - **Politeness.** The free tier is ~5 requests/min: every live page waits on the SAME module-shared limiter
   the fund-shares adapter uses (``ingest.funds.polygon.LIMITER``, >= 13 s apart), and a 429 waits the minute
   out before the retry.
@@ -89,7 +89,7 @@ def parse_splits_page(text: str) -> tuple[list[PolygonEvidence], str | None, int
     non-positive ratio, is skipped and counted."""
     payload = json.loads(text, parse_float=Decimal)
     if not isinstance(payload, dict):
-        raise ValueError("polygon splits: the page is not a JSON object")
+        raise ValueError("Massive.com splits: the page is not a JSON object")
     rows: list[PolygonEvidence] = []
     skipped = 0
     for r in payload.get("results") or []:
@@ -149,7 +149,7 @@ class PolygonSplitSource:
             resp = polite_get(
                 f"{clean_url}{sep}apiKey={self._api_key}",
                 timeout=get_settings().http_timeout_s,
-                pre=_funds_polygon.LIMITER.acquire,  # the ONE Polygon budget (shared with fund shares)
+                pre=_funds_polygon.LIMITER.acquire,  # the ONE Massive.com budget (shared with fund shares)
                 backoff_base=_funds_polygon.RETRY_WAIT_S,
                 backoff_cap=_funds_polygon.RETRY_WAIT_S,
             )
@@ -157,10 +157,10 @@ class PolygonSplitSource:
             # `from None` throughout: an httpx message embeds the full URL, apiKey included
             if httpx is not None and isinstance(e, httpx.HTTPStatusError):
                 raise PolygonSplitsError(
-                    f"polygon splits: HTTP {e.response.status_code} for {clean_url}"
+                    f"Massive.com splits: HTTP {e.response.status_code} for {clean_url}"
                 ) from None
             raise PolygonSplitsError(
-                f"polygon splits: {clean_url} failed: {self._scrub(str(e))}"
+                f"Massive.com splits: {clean_url} failed: {self._scrub(str(e))}"
             ) from None
         return resp.text
 
@@ -172,7 +172,7 @@ class PolygonSplitSource:
             return path.read_text(encoding="utf-8"), False
         if not allow_live:
             raise CacheMiss(
-                f"no cached polygon splits page for {clean_url!r} (live pulls disabled)"
+                f"no cached Massive.com splits page for {clean_url!r} (live pulls disabled)"
             )
         text = self._fetch(clean_url)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -186,7 +186,7 @@ class PolygonSplitSource:
         while url is not None:
             if out.pages >= MAX_PAGES:
                 raise PolygonSplitsError(
-                    f"polygon splits: more than {MAX_PAGES} pages from {since.isoformat()} — refusing a "
+                    f"Massive.com splits: more than {MAX_PAGES} pages from {since.isoformat()} — refusing a "
                     "runaway cursor"
                 )
             clean = self._scrub(url)
@@ -194,7 +194,9 @@ class PolygonSplitSource:
             try:
                 rows, nxt, skipped = parse_splits_page(text)
             except ValueError as e:
-                raise PolygonSplitsError(f"polygon splits: unreadable page {clean}: {e}") from None
+                raise PolygonSplitsError(
+                    f"Massive.com splits: unreadable page {clean}: {e}"
+                ) from None
             out.rows.extend(rows)
             out.skipped += skipped
             out.pages += 1
@@ -204,7 +206,7 @@ class PolygonSplitSource:
 
 
 def default_split_source(**kw: object) -> PolygonSplitSource | None:
-    """The configured source, or ``None`` when no ``POLYGON_API_KEY`` is set (the off switch)."""
+    """The configured source, or ``None`` when no ``MASSIVE_API_KEY`` is set (the off switch)."""
     key = get_settings().polygon_api_key
     if not key:
         return None

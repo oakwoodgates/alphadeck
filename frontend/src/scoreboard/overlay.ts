@@ -848,7 +848,7 @@ function splitTooltip(e: SplitChipEvent): TooltipContent {
       : `first session ${s.effective_date} · first loaded bar ${e.date}`,
   );
   if (s.sec_filed) lines.push(`SEC ${s.sec_form ?? "filing"} filed ${s.sec_filed}`);
-  else if (s.polygon) lines.push("listed by Polygon");
+  else if (s.polygon) lines.push("listed by Massive.com");
   if (s.status === "needs_review") {
     lines.push("needs review — not applied: prices before this day are as the vendor served them");
   } else {

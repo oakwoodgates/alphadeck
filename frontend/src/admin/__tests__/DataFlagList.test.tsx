@@ -15,7 +15,7 @@ const h = vi.hoisted(() => ({
         theses: [{ id: "t1", name: "The Everything Exchange" }],
         flags: [{
           kind: "split_needs_review", label: "split needs review", level: "in_doubt",
-          reason: "Split needs review: a 1-for-100 reverse split listed for 2026-10-13 (only Polygon lists it).",
+          reason: "Split needs review: a 1-for-100 reverse split listed for 2026-10-13 (only Massive.com lists it).",
           clears: "Clears when the split is confirmed or rejected in Admin → Splits.", since: "2026-10-13",
           affects: ["price"], columns: ["ret_7d", "rvol8"], dates: [], evidence: [], call_affected: false,
         }],

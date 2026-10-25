@@ -35,7 +35,7 @@ def test_ONE_line_per_feed_kind_each_with_its_own_count_names_and_REPAIR():
     assert fund.startswith("2 fund-shares tape(s) newly STALE — ETF1, ETF2")
     # each carries ITS OWN repair, and not the other's
     assert "price symbol" in price and "price symbol" not in fund
-    assert "POLYGON_API_KEY" in fund and "POLYGON_API_KEY" not in price
+    assert "MASSIVE_API_KEY" in fund and "MASSIVE_API_KEY" not in price
 
 
 def test_a_single_kind_produces_a_single_line():

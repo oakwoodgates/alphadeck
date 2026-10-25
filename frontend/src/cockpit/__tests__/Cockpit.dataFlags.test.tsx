@@ -56,11 +56,11 @@ const fx = vi.hoisted(() => {
           security_id: "s-mvnc", ticker: "MVNC", marked: true, theses: [],
           flags: [{
             kind: "split_needs_review", label: "split needs review", level: "in_doubt",
-            reason: "Split needs review: a 1-for-100 reverse split listed for 2026-10-13 (only Polygon lists it). It is not applied until it is confirmed, so prices across that day may sit on two scales.",
+            reason: "Split needs review: a 1-for-100 reverse split listed for 2026-10-13 (only Massive.com lists it). It is not applied until it is confirmed, so prices across that day may sit on two scales.",
             clears: "Clears when the split is confirmed or rejected in Admin → Splits.",
             since: "2026-10-13", affects: ["price", "volume", "insider"],
             columns: ["sma", "ret_7d", "ret_30d", "ret_90d", "ret_1y", "path", "rvol8", "rvol20", "ins_30d", "ins_90d"],
-            dates: ["2026-10-13"], evidence: [{ label: "Polygon split reference (first session 2026-10-13)", url: null }],
+            dates: ["2026-10-13"], evidence: [{ label: "Massive.com split reference (first session 2026-10-13)", url: null }],
             call_affected: false,
           }],
           splits: [{
@@ -87,7 +87,7 @@ const fx = vi.hoisted(() => {
           splits: [{
             key_date: "2026-08-31", effective_date: "2026-08-31", label: "1-for-9 reverse split", factor: 9,
             direction: "reverse", status: "confirmed", confirmed_via: "auto:sec+polygon",
-            confirmed_by: "the SEC filing and Polygon agree", value_source: "both", sec_form: "8-K",
+            confirmed_by: "the SEC filing and Massive.com agree", value_source: "both", sec_form: "8-K",
             sec_filed: "2026-08-27", sec_url: "https://www.sec.gov/x", polygon: true, note: null,
             took_effect: true, corrected_on: "2026-10-22",
             corrected_note: "the vendor had not adjusted 1 bar(s) before it; Alpha Deck re-scaled them from the listed ratio",
@@ -184,14 +184,14 @@ describe("Cockpit — the data flags (S3)", () => {
     const panel = screen.getByRole("complementary", { name: /MVNC/i }) as HTMLElement;
     expect(panel.textContent).toContain("Data · this name");
     expect(panel.textContent).toContain("Clears when the split is confirmed or rejected");
-    expect(panel.textContent).toContain("Polygon split reference");
+    expect(panel.textContent).toContain("Massive.com split reference");
     expect(panel.textContent).toContain("needs review — not applied until it is confirmed");
   });
 
   it("the NamePanel lists a clean name's applied split with its sources and the correction", () => {
     renderCockpit("ARTL");
     const panel = screen.getByRole("complementary", { name: /ARTL/i }) as HTMLElement;
-    expect(panel.textContent).toContain("confirmed — the SEC filing and Polygon agree");
+    expect(panel.textContent).toContain("confirmed — the SEC filing and Massive.com agree");
     expect(panel.textContent).toContain("took effect 2026-08-31 (prices before it ×9)");
     expect(panel.textContent).toContain("history corrected 2026-10-22");
     fireEvent.keyDown(window, { key: "Escape" });

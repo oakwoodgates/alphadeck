@@ -403,7 +403,7 @@ replay stays honest.
   A mirror exported before S2 carries no `security_split.parquet` and reads no splits; one whose manifest (or
   run `MirrorInfo.split_table`) records the file but lacks it refuses to open. *Enforced by:*
   `tests/pipeline/test_repair_split_basis.py::test_after_the_repair_every_history_view_reads_its_own_days_scale`
-  (BTOC's real tape vs Polygon's independent raw prints, T4-clean, four views), `tests/signals/test_insider_split_scale.py`
+  (BTOC's real tape vs Massive.com's independent raw prints, T4-clean, four views), `tests/signals/test_insider_split_scale.py`
   (the split from its publication; the CEO's buys kept before and after the split on history views; the public
   mirror row-for-row with Postgres), `tests/db/test_public_clock.py` (public pick == record pick, every version
   visible), `tests/pipeline/test_fetch_ahead.py` (the normalization identical under the concurrent fetch-ahead).

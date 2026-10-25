@@ -116,9 +116,9 @@ REPAIR_REVOKE_KIND = "repair_split_basis_revoke"
 DEFAULT_REPAIRS_DIR = Path(__file__).resolve().parents[2] / "data" / "repairs"
 
 _CONFIRMED_BY = {
-    VIA_AUTO: "the SEC filing and Polygon agree",
+    VIA_AUTO: "the SEC filing and Massive.com agree",
     VIA_SEC_TAPE: "the SEC filing and the price tape agree",
-    VIA_POLYGON_TAPE: "Polygon and the price tape agree",
+    VIA_POLYGON_TAPE: "Massive.com and the price tape agree",
     VIA_OPERATOR: "you confirmed it",
 }
 
@@ -357,7 +357,7 @@ def _sec_evidence(row: Mapping[str, Any]) -> list[Evidence]:
         ex = row.get("polygon_execution_date")
         out.append(
             Evidence(
-                label="Polygon split reference"
+                label="Massive.com split reference"
                 + (f" (first session {_day(ex).isoformat()})" if ex else "")
             )
         )
@@ -368,11 +368,11 @@ def _sources(row: Mapping[str, Any]) -> str:
     sec = bool(row.get("sec_accession") or row.get("sec_filed"))
     poly = bool(row.get("polygon_id"))
     if sec and poly:
-        return "the SEC filing and Polygon disagree"
+        return "the SEC filing and Massive.com disagree"
     if sec:
         return f"only an SEC {row.get('sec_form') or 'filing'} states it"
     if poly:
-        return "only Polygon lists it"
+        return "only Massive.com lists it"
     return "one source only"
 
 

@@ -57,14 +57,14 @@ FUND_SHARES = FeedKind(
     noun="fund-shares tape",
     edge_noun="sample",
     # A DIFFERENT repair from the price tape's, which is the whole reason kinds carry their own advice.
-    # The sampler is a fallback chain (Polygon when keyed -> the issuer page -> the aggregator), and its
+    # The sampler is a fallback chain (Massive.com when keyed -> the issuer page -> the aggregator), and its
     # legs miss independently: the fund may have closed or renamed, an issuer page redesign may have
     # broken the parse (the composite warns visibly when a PRIMARY leg errors, so the run's own output
     # names it), or the key may be absent. `security_master.price_symbol` is NOT the lever here — that is
     # the price leg's.
     advice=(
         "no new samples; check the fund still trades under that ticker, the run's fund-shares warnings "
-        "for a broken source page, and POLYGON_API_KEY"
+        "for a broken source page, and MASSIVE_API_KEY"
     ),
 )
 

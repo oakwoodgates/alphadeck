@@ -1,5 +1,5 @@
 """S4 — the TAPE as a confirming source and the SEC-only candidate (``domain/splits.py``), on REAL inputs only:
-the filings, the 2026-10-22 Polygon rows and the bars as prod stored them (``tests/split_s4_fixtures``). The
+the filings, the 2026-10-22 Massive.com rows and the bars as prod stored them (``tests/split_s4_fixtures``). The
 tolerance itself is MEASURED (the constants' comment); these tests state the rule's contract on real split
 nights, never fit a number to pass."""
 
@@ -56,7 +56,7 @@ def test_the_tape_is_exact_on_the_date():
 
 
 def test_a_vendor_that_re_based_the_session_before_does_not_confirm():
-    # MDCX: the list (SEC legal date + Polygon) says 10-12; the vendor served 10-09 already on the new scale,
+    # MDCX: the list (SEC legal date + Massive.com) says 10-12; the vendor served 10-09 already on the new scale,
     # so the first-served tape steps on 10-09 and reads x0.78 on 10-12 — never a confirmation
     agree, why = tape_agreement(
         first_served("MDCX", date(2026, 10, 12)), Decimal(50), Decimal(1), date(2026, 10, 12)
@@ -74,7 +74,7 @@ def test_the_tape_never_confirms_a_forward_split_or_a_small_one():
 
 def test_polygon_alone_plus_the_tape_confirms():
     poly = polygon_row("GAME")
-    d = decide(poly, [], asof=date(2026, 8, 25))  # no SEC filing read: Polygon only
+    d = decide(poly, [], asof=date(2026, 8, 25))  # no SEC filing read: Massive.com only
     assert d.status == STATUS_NEEDS_REVIEW and d.value_source == SOURCE_POLYGON
     out = with_tape(d, first_served("GAME", date(2026, 8, 24)))
     assert (out.status, out.confirmed_via) == (STATUS_CONFIRMED, VIA_POLYGON_TAPE)
@@ -105,7 +105,7 @@ def test_a_legal_date_is_never_confirmed_by_the_tape():
 
 
 def test_two_sources_that_disagree_are_never_arbitrated_by_the_tape():
-    # GAME's real 8-K against a Polygon row moved a session: S1 sends it to review; the tape must not settle it
+    # GAME's real 8-K against a Massive.com row moved a session: S1 sends it to review; the tape must not settle it
     poly = polygon_row("GAME")
     moved = type(poly)(
         id=poly.id,

@@ -32,7 +32,7 @@ const fx = vi.hoisted(() => {
     dates: [since], evidence: [], call_affected: false,
   });
   const historyOnly = flag("split_needs_review", "in_doubt", [], "2025-03-24",
-    "Split needs review: a 3-for-2 forward split listed for 2025-03-24 (only Polygon lists it). No column on this row reads across it (history only).");
+    "Split needs review: a 3-for-2 forward split listed for 2025-03-24 (only Massive.com lists it). No column on this row reads across it (history only).");
   return {
     displayLoading: false,
     displayPlaceholder: false,

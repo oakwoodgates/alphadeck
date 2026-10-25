@@ -1,10 +1,10 @@
-"""``pipeline.backfill_splits`` — split plan S1: fill the split list from Polygon's split reference, every
+"""``pipeline.backfill_splits`` — split plan S1: fill the split list from Massive.com's split reference, every
 split checked against the company's own SEC filing.
 
 WHAT IT DOES, for the ACTIVE basket union (``pipeline/split_basis.py``'s ``_UNION`` — every resolved member of
 every non-archived thesis):
 
-1. **Polygon** — one whole-market pull of the split reference since ``--since`` (default 2024-10-01, the
+1. **Massive.com** — one whole-market pull of the split reference since ``--since`` (default 2024-10-01, the
    stored two-year tape), paced on the shared free-tier budget (``ingest/polygon_splits.py``). The request
    carries a date only. Rows are matched to members by ticker or vendor price symbol.
 2. **SEC** — for each matched split, the filings in ``[execution - 120 days, execution + 10 days]``:
@@ -35,13 +35,13 @@ SAFETY (the ``pipeline/repair_benchmark_bars.py`` conventions):
 
 - **Dry-run is the DEFAULT**: a READ-ONLY connection, no lock, no DB row. It prints every split with both
   sources, the verdict, a passage snippet and what ``--apply`` would append. (It does fill the shared
-  caches: immutable filing documents, today's Polygon pages — so the ``--apply`` that follows reads the same
+  caches: immutable filing documents, today's Massive.com pages — so the ``--apply`` that follows reads the same
   inputs.)
 - ``--apply`` holds the call-of-record lock (``pipeline/run_lock.py``; exit 75 when held), appends every
   planned version in ONE transaction, and verifies the TABLE grew by exactly the plan (``count(*)`` before
   and after) before it commits.
 - **Idempotent**: a re-run on the same inputs plans 0 appends.
-- **The off switch**: with no ``POLYGON_API_KEY`` it fetches nothing and writes nothing.
+- **The off switch**: with no ``MASSIVE_API_KEY`` it fetches nothing and writes nothing.
 - **The split-history marker**: an ``--apply`` from ``DEFAULT_SINCE`` (or earlier) records every member it
   covered in ``security_split_history`` (migration 0067), so the newcomer fill (``pipeline/split_history.py``,
   which runs this same backfill for a company that joins a basket) never re-fills them.
@@ -118,7 +118,7 @@ _6K_FORMS = frozenset({"6-K", "6-K/A"})
 SEC_FORMS = frozenset({*_6K_FORMS, "1-A", "1-A/A", "1-A POS", "1-U", *_8K_FORMS})
 SEC_RATE_PER_SEC = 4.0
 
-# THE TARGETED WIDE-FORM READER (2026-10-24). A split whose S1 window holds no agreeing filing (Polygon only, or
+# THE TARGETED WIDE-FORM READER (2026-10-24). A split whose S1 window holds no agreeing filing (Massive.com only, or
 # a filing that disagrees) gets ONE more look for its second source, in the company's periodic reports, ADR
 # registrations, prospectuses and information statements filed ``[first session - 60, + 120]`` days: MEASURED on
 # prod's list 2026-10-24, 7 operator-confirmed splits are stated ONLY there (LGHL x3 in F-6 POS / 424B3 filings,
@@ -184,13 +184,13 @@ class Member:
     ticker: str | None
     price_symbol: str | None
     cik: str | None
-    # the security's FORMER tickers (``security_ticker_history``, migration 0066): Polygon lists a split under the
+    # the security's FORMER tickers (``security_ticker_history``, migration 0066): Massive.com lists a split under the
     # ticker the company traded as then (SDCO's 2025 split under HLLK, DFSC's under KWE)
     former_tickers: tuple[str, ...] = ()
 
     @property
     def symbols(self) -> frozenset[str]:
-        """Every symbol a Polygon row about this security can carry: its ticker, its vendor price symbol, and its
+        """Every symbol a Massive.com row about this security can carry: its ticker, its vendor price symbol, and its
         own former tickers (per security, so a ticker another company once used never matches here).
         """
         return frozenset(
@@ -305,8 +305,8 @@ def member_of(r: Any) -> Member:
 def match_polygon(
     rows: Iterable[PolygonEvidence], members: Iterable[Member]
 ) -> dict[Member, list[PolygonEvidence]]:
-    """Polygon rows per member, matched by the member's ticker, its vendor price symbol (GGRP prices as BTLN,
-    and Polygon lists the split under BTLN) or one of ITS OWN former tickers (SDCO, renamed from HLLK: Polygon
+    """Massive.com rows per member, matched by the member's ticker, its vendor price symbol (GGRP prices as BTLN,
+    and Massive.com lists the split under BTLN) or one of ITS OWN former tickers (SDCO, renamed from HLLK: Massive.com
     lists its 2025 split under HLLK) — ``Member.symbols``."""
     by_symbol: dict[str, list[Member]] = defaultdict(list)
     for m in members:
@@ -662,7 +662,7 @@ class SecReader:
 
 @dataclass(frozen=True)
 class GroupDecision:
-    """S1's verdict for one Polygon date (``decide_polygon_group``): the decision, the filings read in the S1
+    """S1's verdict for one Massive.com date (``decide_polygon_group``): the decision, the filings read in the S1
     window (``read`` / ``unread`` — what the tape rule and the counts weigh) and, apart, the WIDE forms the
     targeted reader read (``wide_read`` / ``wide_unread``; empty unless the window held no agreement).
     """
@@ -734,8 +734,8 @@ def decide_polygon_group(
     *,
     asof: date,
 ) -> GroupDecision:
-    """S1's verdict for one member's Polygon rows on one date: every SEC filing in the row's window read,
-    ``domain.splits.decide``, and the notes for a missing index / CIK and for Polygon listing different ratios
+    """S1's verdict for one member's Massive.com rows on one date: every SEC filing in the row's window read,
+    ``domain.splits.decide``, and the notes for a missing index / CIK and for Massive.com listing different ratios
     on the date. When the window holds no agreeing filing, the TARGETED WIDE-FORM READER looks once more
     (``WIDE_FORMS`` filed in ``wide_window``): a wide form that agrees exactly settles it by the same rule;
     otherwise the decision stands and its note names what the wide forms said."""
@@ -761,7 +761,8 @@ def decide_polygon_group(
             status=STATUS_NEEDS_REVIEW,
             confirmed_via=None,
             value_source=SOURCE_POLYGON,
-            note=d.note + f" Polygon lists {len(group)} different ratios on this date ({listed}).",
+            note=d.note
+            + f" Massive.com lists {len(group)} different ratios on this date ({listed}).",
         )
     return GroupDecision(d, read, unread, wide_read, wide_unread)
 
@@ -772,8 +773,8 @@ MATCH_WINDOW_DAYS = 45
 
 def match_stored(d: SplitDecision, stored: Iterable[SplitVersion]) -> SplitVersion | None:
     """The stored split (newest versions of ONE security) a decision is about, or ``None`` for a new split:
-    the same key date; else the same Polygon row; else the same exact ratio within ``MATCH_WINDOW_DAYS``
-    (nearest first) — a split first listed under an SEC filing's date and later under Polygon's, or one whose
+    the same key date; else the same Massive.com row; else the same exact ratio within ``MATCH_WINDOW_DAYS``
+    (nearest first) — a split first listed under an SEC filing's date and later under Massive.com's, or one whose
     sources state dates a few sessions apart, stays ONE logical split; else the same SEC filing."""
     vs = list(stored)
     for v in vs:
@@ -825,7 +826,7 @@ def plan_members(
     *,
     asof: date,
 ) -> list[PlannedSplit]:
-    """S1's decision for every Polygon date of every member in ``matched`` (``decide_polygon_group``), each a
+    """S1's decision for every Massive.com date of every member in ``matched`` (``decide_polygon_group``), each a
     ``PlannedSplit`` still to be planned against the stored list (``plan_against_stored``). Reads only.
     """
     planned: list[PlannedSplit] = []
@@ -855,7 +856,7 @@ def plan_against_stored(
     """Each planned split against the stored list (the newest version of each split): a split not on it is
     APPENDED; one whose newest version the backfill wrote is UNCHANGED or re-versioned when its content
     changed; one the operator (or the nightly detector) wrote is kept. A split is found by ``match_stored`` —
-    its key date, else the same Polygon row / SEC filing / ratio within days — so a split the nightly detector
+    its key date, else the same Massive.com row / SEC filing / ratio within days — so a split the nightly detector
     (S4) listed first under the SEC filing's date is never listed a second time. Sets each plan's ``stored`` /
     ``action`` / ``changed`` in place; returns the stored ``(security, key date)`` pairs it matched. Pure.
     """
@@ -1030,7 +1031,7 @@ def report(result: BackfillResult, *, out: Any = None) -> None:
         )
         poly = d.polygon
         w(
-            f"      Polygon {poly.ticker} {poly.id[:14]}…: {poly.split_from} -> {poly.split_to} on "
+            f"      Massive.com {poly.ticker} {poly.id[:14]}…: {poly.split_from} -> {poly.split_to} on "
             f"{poly.execution_date.isoformat()}\n"
         )
         s = d.sec
@@ -1056,7 +1057,7 @@ def report(result: BackfillResult, *, out: Any = None) -> None:
         w(f"  {who}: SEC filing index unread — {err}\n")
     st = result.by_status()
     w(
-        f"POLYGON: {result.polygon_rows} rows in {result.polygon_pages} page(s) since "
+        f"MASSIVE.COM: {result.polygon_rows} rows in {result.polygon_pages} page(s) since "
         f"{result.since.isoformat()} ({result.polygon_skipped} unreadable) · {result.polygon_matched} on the "
         f"{result.members} union member(s) -> {len(result.planned)} split(s)\n"
     )
@@ -1085,7 +1086,7 @@ def main(argv: list[str] | None = None) -> None:
     from db.session import connect
 
     p = argparse.ArgumentParser(
-        description="Split plan S1: fill the split list from Polygon's split reference, each split checked "
+        description="Split plan S1: fill the split list from Massive.com's split reference, each split checked "
         "against its SEC filing (auto-confirmed only when both agree). Dry-run by default."
     )
     p.add_argument(
@@ -1103,13 +1104,13 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--ticker", action="append", default=None, help="only this member (repeatable)")
     p.add_argument("--apply", action="store_true", help="append (default: dry run, read-only)")
     p.add_argument(
-        "--no-live", action="store_true", help="read the caches only (no SEC / Polygon request)"
+        "--no-live", action="store_true", help="read the caches only (no SEC / Massive.com request)"
     )
     args = p.parse_args(argv)
 
     polygon = default_split_source()
     if polygon is None:
-        print("backfill_splits: OFF — no POLYGON_API_KEY is set, so nothing was fetched or written")
+        print("backfill_splits: OFF — no MASSIVE_API_KEY is set, so nothing was fetched or written")
         return
     if args.since > market_today():
         print(f"REFUSED: --since {args.since.isoformat()} is in the future (nothing was written)")
@@ -1117,7 +1118,7 @@ def main(argv: list[str] | None = None) -> None:
     mode = "APPLY" if args.apply else "DRY-RUN (read-only connection; nothing written)"
     print(
         f"backfill_splits · {mode} · since {args.since.isoformat()} · "
-        f"{'cache only' if args.no_live else 'live SEC + Polygon'}"
+        f"{'cache only' if args.no_live else 'live SEC + Massive.com'}"
     )
     try:
         lock = acquire_pass_lock(holder="backfill_splits") if args.apply else None

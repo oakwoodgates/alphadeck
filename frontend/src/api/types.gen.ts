@@ -3672,7 +3672,7 @@ export interface components {
          * AdminSplitJumpOut
          * @description A split-shaped price jump with NO split listed (split plan S5): the close moved x3 or more (or to a third
          *     or less) between two stored bars with the volume moving the other way, the split-night hold has released it
-         *     (three sessions on), and no SEC filing or Polygon row on the list sits near it. A real move or a split no
+         *     (three sessions on), and no SEC filing or Massive.com row on the list sits near it. A real move or a split no
          *     source has listed yet — the operator's question ("is this real?"). ``step`` = close / prior close.
          */
         AdminSplitJumpOut: {
@@ -3726,7 +3726,7 @@ export interface components {
         };
         /**
          * AdminSplitListConfirmIn
-         * @description Whose values to confirm: the SEC filing's or Polygon's.
+         * @description Whose values to confirm: the SEC filing's or Massive.com's.
          */
         AdminSplitListConfirmIn: {
             /**
@@ -3740,7 +3740,7 @@ export interface components {
          * @description One split on the list (its NEWEST version). ``version_id`` names that version — every action posts it,
          *     and a stale one is refused. ``ratio_from`` -> ``ratio_to`` = old shares -> new shares; ``price_factor`` =
          *     old / new (prices before the split x it). ``decided_by`` is the source label the panel shows ("auto: SEC +
-         *     Polygon", "you, 10-20"). ``actions`` = what the status allows; ``restore_to`` = where Restore returns it.
+         *     Massive.com", "you, 10-20"). ``actions`` = what the status allows; ``restore_to`` = where Restore returns it.
          */
         AdminSplitListEntryOut: {
             /**
@@ -3865,7 +3865,7 @@ export interface components {
         };
         /**
          * AdminSplitListPolygonOut
-         * @description Polygon's split-reference row: ``split_from`` old shares -> ``split_to`` new shares.
+         * @description Massive.com's split-reference row: ``split_from`` old shares -> ``split_to`` new shares.
          */
         AdminSplitListPolygonOut: {
             /** Id */

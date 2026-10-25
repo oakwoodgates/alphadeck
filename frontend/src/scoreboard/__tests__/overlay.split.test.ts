@@ -39,7 +39,7 @@ const btoc: DataFlagSplitOut = {
   direction: "reverse",
   status: "confirmed",
   confirmed_via: "auto:sec+polygon",
-  confirmed_by: "the SEC filing and Polygon agree",
+  confirmed_by: "the SEC filing and Massive.com agree",
   value_source: "both",
   sec_form: "8-K",
   sec_filed: "2026-10-09",
@@ -64,7 +64,7 @@ describe("the split family", () => {
       "first day at the new price 2026-10-15",
       "SEC 8-K filed 2026-10-09",
       "prices before this day ×16",
-      "confirmed: the SEC filing and Polygon agree",
+      "confirmed: the SEC filing and Massive.com agree",
       "history corrected 2026-10-22 — the vendor had not adjusted 527 bar(s) before it; Alpha Deck re-scaled them from the listed ratio",
     ]);
     expect(eventSetAside(s)).toBe(false);
@@ -101,7 +101,7 @@ describe("the split family", () => {
     )!;
     expect(eventSetAside(s)).toBe(true);
     const lines = overlayTooltip(s).lines;
-    expect(lines).toContain("listed by Polygon");
+    expect(lines).toContain("listed by Massive.com");
     expect(lines.some((l) => l.startsWith("needs review — not applied"))).toBe(true);
     expect(lines.some((l) => l.startsWith("prices before this day"))).toBe(false);
   });

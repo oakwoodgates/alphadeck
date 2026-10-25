@@ -252,7 +252,12 @@ def _label(r: Mapping[str, Any]) -> str:
 
 
 def _sources(r: Mapping[str, Any]) -> str:
-    """What a needs-review row stands on, in the operator's words."""
+    """What a needs-review row stands on, in the operator's words.
+
+    "Polygon" below is the vendor's former name (now Massive.com). It stays on purpose: this text is written onto
+    the recorded CallCard's ``missing[]``, so rewording it moves the editions fingerprint and the stored calls —
+    the operator's call to take, with a declared rule-log entry (docs/CALL_LOGIC.md, the hold-line table).
+    """
     sec = None
     if r.get("sec_accession") or r.get("sec_filed"):
         form = r.get("sec_form") or "filing"

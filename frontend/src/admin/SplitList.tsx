@@ -36,7 +36,7 @@ function Header({ s }: { s: Split }) {
   );
 }
 
-/** The SEC filing's located passage and Polygon's row, side by side — the operator's evidence. */
+/** The SEC filing's located passage and Massive.com's row, side by side — the operator's evidence. */
 function Sides({ s }: { s: Split }) {
   const sec = s.sec;
   const poly = s.polygon;
@@ -79,7 +79,7 @@ function Sides({ s }: { s: Split }) {
         )}
       </div>
       <div className="adm-split-side" data-testid="adm-split-polygon">
-        <div className="adm-split-src">Polygon</div>
+        <div className="adm-split-src">Massive.com</div>
         {poly ? (
           <>
             <div>
@@ -89,7 +89,7 @@ function Sides({ s }: { s: Split }) {
             <div className="adm-note adm-mono">{poly.id}</div>
           </>
         ) : (
-          <div className="adm-sub">no Polygon row</div>
+          <div className="adm-sub">no Massive.com row</div>
         )}
       </div>
     </div>
@@ -132,10 +132,10 @@ function Jump({ j, action }: { j: AdminSplitJumpOut; action?: ReactNode }) {
   );
 }
 
-/** The "Splits" panel (split plan S1): the split list the backfill filled from Polygon's split reference and
- *  each company's own SEC filing. LOUD only where one source cannot settle a split (Polygon alone, a
- *  disagreement, or an extractor abstain): there the SEC passage and Polygon's row sit side by side with
- *  Confirm (SEC values / Polygon values when they differ) and Reject. Auto-confirmed splits (two sources
+/** The "Splits" panel (split plan S1): the split list the backfill filled from Massive.com's split reference and
+ *  each company's own SEC filing. LOUD only where one source cannot settle a split (Massive.com alone, a
+ *  disagreement, or an extractor abstain): there the SEC passage and Massive.com's row sit side by side with
+ *  Confirm (SEC values / Massive.com values when they differ) and Reject. Auto-confirmed splits (two sources
  *  agreed), announced ones, and the rejected / revoked ones are QUIET collapsed lists — the set-aside ones
  *  grayed and still listed (WB#2). Every action has its inverse beside it: Confirm ⇄ Revoke, Reject /
  *  Revoke ⇄ Restore (WB#1). S5 adds the operator's other question: a split-shaped price jump the split-night
@@ -215,9 +215,9 @@ export function SplitList() {
           <div className="adm-sub">
             The price moved ×3 or more (or to a third or less) between two sessions with the volume moving the other
             way, the shape of an unadjusted split. The split-night hold kept this name's price triggers on the bars
-            before the jump for three sessions and has released them. No SEC filing or Polygon row on the list sits
+            before the jump for three sessions and has released them. No SEC filing or Massive.com row on the list sits
             near the date: it is a real move (a crash on heavy volume looks like an unadjusted forward split) or a
-            split no source has listed yet. Polygon's adjusted bars are not shown (no Polygon price client exists).
+            split no source has listed yet. Massive.com's adjusted bars are not shown (no Massive.com price client exists).
             Nothing here pages or changes a call.
           </div>
         </div>
@@ -291,7 +291,7 @@ export function SplitList() {
                           title={o.label}
                           onClick={() => confirm.mutate({ ...id(s), source: o.source })}
                         >
-                          {options.length > 1 ? `Confirm ${o.source === "sec" ? "SEC" : "Polygon"} values` : "Confirm"}
+                          {options.length > 1 ? `Confirm ${o.source === "sec" ? "SEC" : "Massive.com"} values` : "Confirm"}
                         </button>
                         <span className="adm-act-line" data-testid="adm-split-effect">
                           {confirmLine(s, o, options.length > 1)}
@@ -314,7 +314,7 @@ export function SplitList() {
           </ul>
           <div className="adm-sub">
             A split is confirmed on its own only when two independent sources agree on it (the SEC filing and
-            Polygon exactly, or either one with the price tape). Confirmed splits are read by the price loader, the
+            Massive.com exactly, or either one with the price tape). Confirmed splits are read by the price loader, the
             insider price screen and the market cap, and a confirmed split lifts the split-night hold on that
             company's price triggers. A confirmed split can be revoked and a rejected one restored.
           </div>

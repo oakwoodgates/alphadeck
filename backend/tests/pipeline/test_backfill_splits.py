@@ -1,4 +1,4 @@
-"""``pipeline.backfill_splits`` end to end on a real DB, over the REAL Polygon pages and the REAL filings and
+"""``pipeline.backfill_splits`` end to end on a real DB, over the REAL Massive.com pages and the REAL filings and
 submissions index in ``tests/fixtures/splits`` (cache-only: no network). Every idempotency claim COUNTS THE
 TABLE (``count(*)``), never the read — the read dedups, so a duplicate append would hide behind it.
 
@@ -61,7 +61,7 @@ def _run(db, tmp_path, *, apply: bool, asof: date = ASOF, tickers=None):
             since=SINCE,
             asof=asof,
             apply=apply,
-            allow_live=True,  # the fake Polygon socket; the EDGAR client is cache-only
+            allow_live=True,  # the fake Massive.com socket; the EDGAR client is cache-only
             tickers=tickers,
         ),
         calls,
@@ -79,7 +79,7 @@ def test_the_dry_run_plans_every_split_and_writes_nothing(db, tmp_path):
     db.rollback()
     assert split_repo.count_rows(db) == before == 0  # a dry run writes NOTHING
     plan = _by(result)
-    # BTOC / OPAD / LRHC 09-08 / GGRP (priced as BTLN): the 8-K and Polygon agree exactly -> auto-confirmed
+    # BTOC / OPAD / LRHC 09-08 / GGRP (priced as BTLN): the 8-K and Massive.com agree exactly -> auto-confirmed
     for key in [
         ("BTOC", date(2026, 10, 15)),
         ("OPAD", date(2026, 6, 9)),
@@ -91,7 +91,7 @@ def test_the_dry_run_plans_every_split_and_writes_nothing(db, tmp_path):
         assert p.action == bf.APPEND
     assert plan[("GGRP", date(2026, 9, 28))].decision.polygon.ticker == "BTLN"
     assert plan[("LRHC", date(2026, 9, 8))].decision.ratio_from == Decimal(6)
-    # LRHC's two earlier Polygon rows: no stored 8-K near them and its index is not cached -> review
+    # LRHC's two earlier Massive.com rows: no stored 8-K near them and its index is not cached -> review
     for d in (date(2026, 1, 26), date(2026, 4, 20)):
         p = plan[("LRHC", d)]
         assert p.decision.status == STATUS_NEEDS_REVIEW and p.decision.sec is None
@@ -102,7 +102,7 @@ def test_the_dry_run_plans_every_split_and_writes_nothing(db, tmp_path):
     assert mi.decision.sec.accession == "0001213900-26-046153"
     assert (mi.filings_read, mi.filings_unread) == (3, 3)
     assert result.count(bf.APPEND) == len(result.planned) == 7
-    # Polygon was asked for dates only
+    # Massive.com was asked for dates only
     assert all("ticker" not in u for u in calls)
 
 
@@ -181,7 +181,7 @@ def test_the_report_names_both_sources_and_the_verdict(db, tmp_path):
 def test_no_polygon_key_is_the_off_switch(monkeypatch, capsys):
     monkeypatch.setattr(bf, "default_split_source", lambda: None)
     bf.main([])
-    assert "OFF — no POLYGON_API_KEY" in capsys.readouterr().out
+    assert "OFF — no MASSIVE_API_KEY" in capsys.readouterr().out
 
 
 def test_a_future_since_is_refused(monkeypatch):
@@ -202,14 +202,14 @@ def _enha_run(db, tmp_path, *, apply: bool, asof: date):
         since=SINCE_8_01,
         asof=asof,
         apply=apply,
-        allow_live=True,  # the fake Polygon socket; the EDGAR client is cache-only
+        allow_live=True,  # the fake Massive.com socket; the EDGAR client is cache-only
         tickers=["ENHA"],
     )
 
 
 def _enha_as_prod_holds_it(db, tmp_path, monkeypatch) -> None:
     """The version prod holds since 2026-10-20: the backfill, reading only items 3.03 / 5.03 (and no wide forms
-    — the targeted reader came on 2026-10-24), saw none of ENHA's 8-Ks — Polygon's 1-for-10 on 10-28, needs
+    — the targeted reader came on 2026-10-24), saw none of ENHA's 8-Ks — Massive.com's 1-for-10 on 10-28, needs
     review, no SEC side."""
     with monkeypatch.context() as m:
         m.setattr(bf, "SPLIT_8K_ITEMS", OLD_ITEMS)
@@ -218,14 +218,14 @@ def _enha_as_prod_holds_it(db, tmp_path, monkeypatch) -> None:
     (p,) = r.planned
     assert (p.decision.status, p.decision.sec, p.filings_read) == (STATUS_NEEDS_REVIEW, None, 0)
     assert p.decision.note == (
-        "Polygon only — no SEC filing read in the window states this split (0 filing(s) read)."
+        "Massive.com only — no SEC filing read in the window states this split (0 filing(s) read)."
     )
 
 
 def test_an_item_8_01_8k_attaches_its_reading_to_the_listed_split(db, tmp_path, monkeypatch):
     """ENHA's Item 8.01 8-K states the 1-for-10 and its first trading session, 2026-10-29. Read now, it
     attaches to the split already listed (the backfill wrote its newest version, still needs review): ONE new
-    version carrying the SEC side, Polygon's values kept until the operator decides — the two sources are one
+    version carrying the SEC side, Massive.com's values kept until the operator decides — the two sources are one
     session apart, so review offers both. A re-run appends nothing (the TABLE is counted)."""
     sid = seed_enha(db)
     _enha_as_prod_holds_it(db, tmp_path, monkeypatch)
@@ -250,8 +250,8 @@ def test_an_item_8_01_8k_attaches_its_reading_to_the_listed_split(db, tmp_path, 
     assert (v.sec_accession, v.sec_form, v.sec_filed) == (ENHA_8K, "8-K", date(2026, 10, 19))
     assert (v.sec_effective_date, v.sec_date_kind) == (ENHA_FIRST_SESSION, "trading")
     assert (v.sec_ratio_from, v.sec_ratio_to) == (Decimal(10), Decimal(1))
-    assert v.valid_from == date(2026, 10, 19)  # public from the 8-K, not from Polygon's date
-    assert "the SEC filing states the first session 2026-10-29, Polygon 2026-10-28" in v.note
+    assert v.valid_from == date(2026, 10, 19)  # public from the 8-K, not from Massive.com's date
+    assert "the SEC filing states the first session 2026-10-29, Massive.com 2026-10-28" in v.note
     assert split_repo.confirm_options(v) == ["sec", "polygon"]
     assert split_repo.confirm_values(v, "sec") == (Decimal(10), Decimal(1), ENHA_FIRST_SESSION)
     # the same inputs again: nothing appended, the TABLE does not grow
@@ -320,7 +320,7 @@ def _list_run(db, tmp_path, cache, *, tickers, apply=False):
         since=date(2025, 3, 1),
         asof=LIST_ASOF,
         apply=apply,
-        allow_live=True,  # the fake Polygon socket; the EDGAR client is cache-only
+        allow_live=True,  # the fake Massive.com socket; the EDGAR client is cache-only
         tickers=tickers,
     )
 
@@ -340,7 +340,7 @@ def _dfns_8ks() -> list[tuple[str, str, date, list]]:
 
 
 def test_dfns_is_confirmed_by_the_8k_that_revised_its_ratio(db, tmp_path):
-    """DFNS: Polygon lists 1-for-125 on 2026-07-20. Its 8-K of 07-13 states 1-for-50 (superseded); the 8-K of
+    """DFNS: Massive.com lists 1-for-125 on 2026-07-20. Its 8-K of 07-13 states 1-for-50 (superseded); the 8-K of
     07-16 raised it to 1-for-125 and restated the 1-for-50 beside it, so the reader abstained ("two ratios") and
     the list carried the 07-13 filing, disagreeing. It now reads the revised ratio: the two sources agree.
     """
@@ -390,9 +390,9 @@ def test_a_wide_form_is_the_second_source_when_the_window_holds_none(db, tmp_pat
 
 
 def test_a_wide_form_that_does_not_agree_is_named_never_attached(db, tmp_path):
-    """OFAL: Polygon lists 1-for-10 on 2026-07-31; no 8-K in its window is readable here. Its 10-K (filed 07-14)
+    """OFAL: Massive.com lists 1-for-10 on 2026-07-31; no 8-K in its window is readable here. Its 10-K (filed 07-14)
     states the 1-for-10 its shareholders approved, undated (through the restatement screen: read bare it is a
-    split on 2024-08-29, a reorganization's date). Not an agreement — the split stays Polygon-only for review,
+    split on 2024-08-29, a reorganization's date). Not an agreement — the split stays Massive.com-only for review,
     and the note names what the 10-K said; the 10-K is not attached as the split's SEC evidence."""
     seed_member(db, "OFAL", "0002036307", [])
     cache = edgar_cache(tmp_path, only={"0001493152-26-033093"}, submissions={"0002036307"})
@@ -437,7 +437,7 @@ def _renamed(db, sid, old: str, new: str) -> None:
 
 
 def test_a_split_listed_under_the_companys_former_ticker_is_matched(db, tmp_path):
-    """SDCO traded as HLLK until its rename, and Polygon lists its 1-for-500 of 2025-04-24 under HLLK (the row
+    """SDCO traded as HLLK until its rename, and Massive.com lists its 1-for-500 of 2025-04-24 under HLLK (the row
     prod's list carries). Matched only by today's ticker, the split was never seen ("stored splits not seen this
     run 1" on dev); with the company's own former ticker it is decided and planned."""
     sid = seed_member(db, "SDCO", SDCO_CIK, [])

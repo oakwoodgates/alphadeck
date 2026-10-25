@@ -7127,7 +7127,7 @@
           "sessions_since"
         ],
         "title": "AdminSplitJumpOut",
-        "description": "A split-shaped price jump with NO split listed (split plan S5): the close moved x3 or more (or to a third\nor less) between two stored bars with the volume moving the other way, the split-night hold has released it\n(three sessions on), and no SEC filing or Polygon row on the list sits near it. A real move or a split no\nsource has listed yet \u2014 the operator's question (\"is this real?\"). ``step`` = close / prior close."
+        "description": "A split-shaped price jump with NO split listed (split plan S5): the close moved x3 or more (or to a third\nor less) between two stored bars with the volume moving the other way, the split-night hold has released it\n(three sessions on), and no SEC filing or Massive.com row on the list sits near it. A real move or a split no\nsource has listed yet \u2014 the operator's question (\"is this real?\"). ``step`` = close / prior close."
       },
       "AdminSplitJumpReasonIn": {
         "properties": {
@@ -7164,7 +7164,7 @@
           "source"
         ],
         "title": "AdminSplitListConfirmIn",
-        "description": "Whose values to confirm: the SEC filing's or Polygon's."
+        "description": "Whose values to confirm: the SEC filing's or Massive.com's."
       },
       "AdminSplitListEntryOut": {
         "properties": {
@@ -7348,7 +7348,7 @@
           "valid_from"
         ],
         "title": "AdminSplitListEntryOut",
-        "description": "One split on the list (its NEWEST version). ``version_id`` names that version \u2014 every action posts it,\nand a stale one is refused. ``ratio_from`` -> ``ratio_to`` = old shares -> new shares; ``price_factor`` =\nold / new (prices before the split x it). ``decided_by`` is the source label the panel shows (\"auto: SEC +\nPolygon\", \"you, 10-20\"). ``actions`` = what the status allows; ``restore_to`` = where Restore returns it."
+        "description": "One split on the list (its NEWEST version). ``version_id`` names that version \u2014 every action posts it,\nand a stale one is refused. ``ratio_from`` -> ``ratio_to`` = old shares -> new shares; ``price_factor`` =\nold / new (prices before the split x it). ``decided_by`` is the source label the panel shows (\"auto: SEC +\nMassive.com\", \"you, 10-20\"). ``actions`` = what the status allows; ``restore_to`` = where Restore returns it."
       },
       "AdminSplitListOptionOut": {
         "properties": {
@@ -7522,7 +7522,7 @@
           "id"
         ],
         "title": "AdminSplitListPolygonOut",
-        "description": "Polygon's split-reference row: ``split_from`` old shares -> ``split_to`` new shares."
+        "description": "Massive.com's split-reference row: ``split_from`` old shares -> ``split_to`` new shares."
       },
       "AdminSplitListSecOut": {
         "properties": {

@@ -9,7 +9,7 @@ Read by `tests/split_s2_fixtures.py`. Nothing here is synthesized, rounded or re
 | `insider.json` | Code-P Form 4 rows: OPAD 2026-06-02 / 06-03 (CEO), BURU 2025-12-31 (co-CEO), YYAI 2025-10-08 (10% owner) | `fact_insider_txn`, newest version per natural key, read-only from DEV. |
 | `shares.json` | 10-Q cover share counts for BTOC and OPTT | `fact_shares_outstanding`, read-only from DEV. |
 
-The raw (unadjusted) Polygon prints the repair tool's `--spot-file` reads live beside the tool:
+The raw (unadjusted) Massive.com prints the repair tool's `--spot-file` reads live beside the tool:
 `backend/pipeline/split_evidence/polygon_raw_2026-10.json` (its `_provenance` names the grouped-daily files).
 
 Split statuses are the list's real ones: MI, WNRS and ATRO still need review. A test that needs one of them in

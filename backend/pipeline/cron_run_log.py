@@ -524,7 +524,7 @@ def build_run_payload(
         # R8-A — the Form 4/A inventory owed an operator decision + what paged (pending; never applied)
         **(amendments or AmendmentScan()).payload(),
         # S4 — the nightly split detection (``pipeline/detect_splits.SplitDetection``): the new split-list rows,
-        # the filings it could not place, the Polygon source's status; absent = not run (readers use ``.get``)
+        # the filings it could not place, the Massive.com source's status; absent = not run (readers use ``.get``)
         **(split_detect.payload() if split_detect is not None else {}),
         # MISSING CLOSES (``pipeline/missing_closes.MissingCloses.payload``) — one block: ``evaluated``,
         # ``error``, ``session``, ``is_session``, ``benchmarks``, ``judged``, ``excluded``, ``missing`` (the

@@ -6,10 +6,10 @@ import { SplitList } from "../SplitList";
 
 // The Splits panel (split plan S1) over mocked hooks. MI, BTOC and LRHC are the rows GET /admin/splits
 // returned for the REAL backfill the backend suite runs (backend/tests/app/test_admin_split_list_api.py, on
-// the real Polygon pages and filings in backend/tests/fixtures/splits): MI needs review (its window holds
-// only the proxy's authorized RANGE), BTOC was auto-confirmed (SEC 8-K + Polygon agree), LRHC 01-26 was
+// the real Massive.com pages and filings in backend/tests/fixtures/splits): MI needs review (its window holds
+// only the proxy's authorized RANGE), BTOC was auto-confirmed (SEC 8-K + Massive.com agree), LRHC 01-26 was
 // rejected by the operator. DISAGREE is the matcher's direct-input contract case (BTOC's real filing
-// against a Polygon row carrying another ratio — backend/tests/domain/test_splits.py), the one shape that
+// against a Massive.com row carrying another ratio — backend/tests/domain/test_splits.py), the one shape that
 // offers two Confirm buttons. The gates: nothing fires on mount, LOUD only for needs-review, set-aside rows
 // stay listed and grayed, and every action has its inverse beside it.
 
@@ -34,7 +34,7 @@ const MI = {
   decided_by: "the backfill",
   valid_from: "2026-05-18",
   note:
-    "Polygon only to confirm: SEC 6-K 0001213900-26-046153 (filed 2026-04-21) mentions a split but the extractor abstained — only an authorized range of ratios (one-for-two hundred, 1:200, one-for-five, 1:5) — no ratio set. 3 SEC filing(s) in the window could not be read.",
+    "Massive.com only to confirm: SEC 6-K 0001213900-26-046153 (filed 2026-04-21) mentions a split but the extractor abstained — only an authorized range of ratios (one-for-two hundred, 1:200, one-for-five, 1:5) — no ratio set. 3 SEC filing(s) in the window could not be read.",
   sec: {
     accession: "0001213900-26-046153",
     form: "6-K",
@@ -100,9 +100,9 @@ const BTOC = {
   status: "confirmed",
   confirmed_via: "auto:sec+polygon",
   value_source: "both",
-  decided_by: "auto: SEC + Polygon",
+  decided_by: "auto: SEC + Massive.com",
   valid_from: "2026-10-09",
-  note: "SEC 8-K 0001213900-26-108468 (filed 2026-10-09): 1-for-16 reverse split, first session 2026-10-15 and Polygon agree.",
+  note: "SEC 8-K 0001213900-26-108468 (filed 2026-10-09): 1-for-16 reverse split, first session 2026-10-15 and Massive.com agree.",
   sec: BTOC_SEC,
   polygon: {
     id: "Eb0d633e7928bc00cc4d81c33249b70882b041aa3065f78b56abc32c72775dc2c",
@@ -131,7 +131,7 @@ const LRHC_REJECTED = {
   action: "reject",
   decided_by: "rejected by you, 10-20",
   valid_from: "2026-01-26",
-  note: "Polygon only — no SEC filing read in the window states this split (0 filing(s) read).",
+  note: "Massive.com only — no SEC filing read in the window states this split (0 filing(s) read).",
   sec: null,
   polygon: {
     id: "E11cfdd1b0c368c198cfac9c6e22b2e78c1de83567e22b906a2a4483afa65677b",
@@ -154,7 +154,7 @@ const DISAGREE = {
   effective_date: "2026-10-15",
   ratio_from: "15",
   label: "1-for-15 reverse split",
-  note: "SEC 8-K 0001213900-26-108468 (filed 2026-10-09): 1-for-16 reverse split, first session 2026-10-15; Polygon: 1-for-15 reverse split, first session 2026-10-15 — the ratios differ.",
+  note: "SEC 8-K 0001213900-26-108468 (filed 2026-10-09): 1-for-16 reverse split, first session 2026-10-15; Massive.com: 1-for-15 reverse split, first session 2026-10-15 — the ratios differ.",
   sec: BTOC_SEC,
   polygon: {
     id: "Ex",
@@ -248,12 +248,12 @@ describe("SplitList", () => {
     expect(confirmed.querySelector(".adm-loud")).toBeNull();
     expect(confirmed).toHaveTextContent("1 confirmed");
     expect(confirmed).toHaveTextContent("BTOC — 1-for-16 reverse split · first session 2026-10-15");
-    expect(confirmed).toHaveTextContent("auto: SEC + Polygon");
+    expect(confirmed).toHaveTextContent("auto: SEC + Massive.com");
     expect(screen.getByTestId("adm-splits-set-aside")).toHaveTextContent("1 rejected or revoked (kept, grayed)");
     for (const mm of [h.confirm, h.reject, h.revoke, h.restore]) expect(fn(mm)).not.toHaveBeenCalled();
   });
 
-  it("shows the SEC passage and Polygon's row side by side, with one Confirm when one source states both", async () => {
+  it("shows the SEC passage and Massive.com's row side by side, with one Confirm when one source states both", async () => {
     render(<SplitList />);
     const row = screen.getByTestId("adm-split-review-row");
     const sec = within(row).getByTestId("adm-split-sec");
@@ -281,7 +281,7 @@ describe("SplitList", () => {
     expect(within(row).getByTestId("adm-split-polygon")).toHaveTextContent("1-for-15 reverse split");
     await userEvent.click(within(row).getByRole("button", { name: "Confirm SEC values" }));
     expect(fn(h.confirm)).toHaveBeenCalledWith({ versionId: DISAGREE.version_id, source: "sec" });
-    await userEvent.click(within(row).getByRole("button", { name: "Confirm Polygon values" }));
+    await userEvent.click(within(row).getByRole("button", { name: "Confirm Massive.com values" }));
     expect(fn(h.confirm)).toHaveBeenCalledWith({ versionId: DISAGREE.version_id, source: "polygon" });
   });
 
@@ -348,7 +348,7 @@ describe("SplitList", () => {
       "The SEC 6-K filed 2026-04-21 was found, but no single ratio could be read from it (only an authorized range of ratios",
     );
     expect(within(row).getByTestId("adm-split-polygon-says")).toHaveTextContent(
-      "Polygon lists 1-for-80 reverse split, first trading 2026-05-18.",
+      "Massive.com lists 1-for-80 reverse split, first trading 2026-05-18.",
     );
     const [confirmLine, rejectLine] = within(row).getAllByTestId("adm-split-effect");
     expect(confirmLine).toHaveTextContent(
@@ -357,7 +357,7 @@ describe("SplitList", () => {
     expect(rejectLine).toHaveTextContent("Reject: no split; prices stay as stored.");
   });
 
-  it("words each source's Confirm when the SEC filing and Polygon differ", () => {
+  it("words each source's Confirm when the SEC filing and Massive.com differ", () => {
     serve({ needs_review: [DISAGREE], announced: [], confirmed: [], set_aside: [], total: 1 });
     render(<SplitList />);
     const row = screen.getByTestId("adm-split-review-row");
@@ -366,7 +366,7 @@ describe("SplitList", () => {
     );
     const lines = within(row).getAllByTestId("adm-split-effect").map((x) => x.textContent);
     expect(lines[0]).toContain("Confirm the SEC filing's values (1-for-16 reverse split, first session 2026-10-15)");
-    expect(lines[1]).toContain("Confirm Polygon's values (1-for-15 reverse split, first session 2026-10-15)");
+    expect(lines[1]).toContain("Confirm Massive.com's values (1-for-15 reverse split, first session 2026-10-15)");
   });
 
   it("shows a failed jump check instead of hiding it", () => {

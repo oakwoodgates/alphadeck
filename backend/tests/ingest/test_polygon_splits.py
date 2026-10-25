@@ -1,4 +1,4 @@
-"""Polygon's split reference (split plan S1) over the REAL response pages (``tests/fixtures/splits/polygon``,
+"""Massive.com's split reference (split plan S1) over the REAL response pages (``tests/fixtures/splits/polygon``,
 the diagnosis's 2025-08 pull filtered to its tickers) — paging, exact decimals, the per-day cache, the off
 switch, and that neither a ticker nor the key ever reaches a URL or a message. No network."""
 

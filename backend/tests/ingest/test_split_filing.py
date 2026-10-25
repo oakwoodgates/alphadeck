@@ -241,7 +241,7 @@ def test_the_real_filing_states_this_split(name, old, new, when, kind, phrase):
 
 def test_wnrs_reg_a_states_the_ratio_but_no_market_date():
     """WNRS's 1-A/A: "completed a 1:300 reverse stock split in the State of Nevada … pending a completed FINRA
-    reverse split corporate action" — a ratio, and NO first session (the diagnosis's market date is Polygon's
+    reverse split corporate action" — a ratio, and NO first session (the diagnosis's market date is Massive.com's
     alone), so the matcher can only send it to review."""
     x = extract_split(documents("WNRS_1aa.htm"))
     assert (x.ratio_from, x.ratio_to) == (Decimal(300), Decimal(1))
@@ -285,7 +285,8 @@ def test_enha_reads_its_first_trading_session_not_its_legal_time():
     """ENHA's Item 8.01 8-K states the split's LEGAL moment ("effective at 12:01 a.m. Central Time on October
     29, 2026") and its first TRADING session ("expected to begin trading on a split-adjusted basis … at the
     opening of trading on October 29, 2026"). The trading sentence wins (kind ``trading``), so the matcher
-    holds it to Polygon's first session EXACTLY — and Polygon lists 10-28, one session early."""
+    holds it to Massive.com's first session EXACTLY — and Massive.com lists 10-28, one session early.
+    """
     x = extract_split(documents("0001628280-26-066196.txt"))
     assert (x.ratio_from, x.ratio_to, x.effective_date, x.date_kind) == (
         Decimal(10),
@@ -484,7 +485,7 @@ def test_znb_reads_with_effect_from_never_the_meeting_date():
     and proposes a second. Its charter exhibit (EX-99.4) opens "Adopted by special resolution passed at
     extraordinary general meeting of shareholders of the Company held on 10 September 2026 … being the opening of
     trading on the Market Effective Date" — read as the first TRADING session until now. A meeting date never
-    dates a split, and "with effect from" is a legal cue: 1-for-8, effective 2026-07-27 (Polygon's date).
+    dates a split, and "with effect from" is a legal cue: 1-for-8, effective 2026-07-27 (Massive.com's date).
     """
     docs = documents("0001213900-26-093515.txt")
     x = extract_split(docs)
@@ -528,7 +529,7 @@ def test_meds_mistyped_date_is_never_a_confident_date():
     """MEDS's 8-K of 2026-05-21: "The Reverse Stock Split will become effective … on May 26, 2025" — the filer's
     typo for 2026 (its press release: "legally take effect … on May 26, 2026"). Read bare it is the first session
     2025-05-26, a year before the filing; through the restatement screen (a charter 8-K) the date is dropped and
-    nothing replaces it — the ratio stands, the date goes to review beside Polygon's."""
+    nothing replaces it — the ratio stands, the date goes to review beside Massive.com's."""
     docs = documents("0001493152-26-024723.txt")
     bare = extract_split(docs)
     assert (bare.ratio_from, bare.effective_date, bare.date_kind) == (
@@ -582,7 +583,7 @@ REGRESSED_BY_THE_CATCH_ALL_SCREEN = [
     # KXIN (2026-09-16): restates 60 -> 1 (2024-10-25, also undated) and 15 -> 1 (2026-03-13) — it read 60 -> 1
     ("0001104659-26-108260.txt", ("60", "1", None), (None, None)),
     # RDY (2024-11-05): a 1:5 sub-division "effective October 28, 2024" (the record date) beside two fiscal
-    # dates — it read 10-28 (Polygon's first session is 11-05)
+    # dates — it read 10-28 (Massive.com's first session is 11-05)
     ("0001575872-24-001124.txt", ("1", "5", "2024-10-28"), ("1->5", None)),
 ]
 
@@ -618,7 +619,7 @@ def test_the_restatement_screen_never_resolves_what_the_bare_reading_left_open(
 def test_cangs_open_card_reads_as_it_did():
     """CANG's 6-K of 2026-09-03 — the open review card — states "a 10-for-1 share consolidation …, which became
     effective on July 20, 2026": 45 days before the filing, inside the 90-day line, so the restatement screen
-    leaves the reading exactly as it was (no Polygon row lists it; the operator decides)."""
+    leaves the reading exactly as it was (no Massive.com row lists it; the operator decides)."""
     docs = documents("0001493152-26-041303.txt")
     x = extract_split_screened(docs, filed=filed_of("0001493152-26-041303.txt"))
     assert x == extract_split(docs)
@@ -661,7 +662,7 @@ def test_a_wide_forms_own_document_is_read_only_on_the_targeted_path():
 
 def test_dfns_10q_states_its_split_and_its_first_session():
     """DFNS's 10-Q (filed 2026-08-18, 29 days after): 1-for-125 and the first session 2026-07-20, which agree
-    with Polygon exactly — the second source the 8-K reader missed."""
+    with Massive.com exactly — the second source the 8-K reader missed."""
     doc = primary_document("0001185185-26-003604")
     x = extract_split_screened([doc], filed=date(2026, 8, 18), wide=True)
     assert (x.ratio_from, x.ratio_to) == (Decimal(125), Decimal(1))

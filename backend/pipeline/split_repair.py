@@ -16,12 +16,12 @@ THE LABELS, relative to the target:
 - **OVER-ADJUSTED** — the bar carries a split twice (offset +log k): PBM's double adjustment (the vendor
   applied 1-for-6.25 at the first announced date, 01-20, and again when it moved to 02-02). Divide by k.
 - **MIS-FACTORED** — the vendor applied a different factor, consistently (ATRO's 20% stock distribution:
-  0.7981 applied where the SEC filing and Polygon give 0.8333). Correct by the measured ratio.
+  0.7981 applied where the SEC filing and Massive.com give 0.8333). Correct by the measured ratio.
 
 The last two are NEVER read off the tape alone: going forward, a doubled split is a lone DOWN step on rising
 volume — exactly what a genuine crash on heavy volume looks like (T4's named blind spot; MEASURED here: YYAI's
 real 2025-10-07 crash, x0.072 on x285 volume, read as a doubled split when it was allowed) — and a few-percent
-mis-factor is invisible. Both enter only from INDEPENDENT raw prints (``spot``, Polygon's unadjusted bars),
+mis-factor is invisible. Both enter only from INDEPENDENT raw prints (``spot``, Massive.com's unadjusted bars),
 which pin the bars they fall on.
 
 WHERE A VENDOR CHANGES SCALE (the model, from every measured case in the split-tape diagnosis):
@@ -86,7 +86,7 @@ INVALID = "invalid"  # internal: an island pass 2 could put on no vendor scale (
 # one noisy volume day decides a label. MEASURED on the dev tapes: charging the volume to every pair (and at
 # 0.5) read genuine crashes on offering volume as basis changes — MI 2026-03-10 (x0.17 on x2,827 volume),
 # SMX 2024-10-28 (x0.345 on x26), YYAI 2025-10-07 (x0.072 on x285); charged only to the hypothesis that moves
-# the basis, each stays the genuine move the Polygon raw prints say it was.
+# the basis, each stays the genuine move the Massive.com raw prints say it was.
 W_VOLUME = 0.25
 # CHANGE_COST — a vendor changing scale at a misdated boundary or its window edge (cases 2 and 4). 1.0 is a
 # x2.7 genuine move: a real edge (step within a few percent of k, the volume inverse) costs ~1 against the
@@ -120,7 +120,7 @@ STEP_BAND = 1.25
 STEP_MIN_VOLUME_SHARE = 0.5
 # SPOT_TOL / the tick — a raw print AGREES with a repaired close within 1% or one tick of the vendor's own
 # rounding: a cent at a dime and up (OPTT 2026-09-11 stored 0.11 vs a raw 0.1065, +3.3%), a tenth of a cent
-# from a cent (BURU 2026-07-29: the vendor's 0.037 vs Polygon's 0.0365), 0.0001 below (WNRS trades at 0.001).
+# from a cent (BURU 2026-07-29: the vendor's 0.037 vs Massive.com's 0.0365), 0.0001 below (WNRS trades at 0.001).
 SPOT_TOL = 0.01
 # SPOT_NOISE_TOL — two vendors' closes for one day differ by up to a few percent on thin names (the data audit,
 # MEASURED: 127 of 26,963 listed bars 1-3% apart; SMX 2025-07-01 / 07-22 here, 1.5% / 1.3%). A print that

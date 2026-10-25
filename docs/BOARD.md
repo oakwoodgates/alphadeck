@@ -265,7 +265,7 @@ Esc / ✕ / re-clicking the row closes it; the rail dims, never hides). Top to b
   role/detail. Then the **thesis-fit** prose with its authorship tag, and the **scoring snapshot**
   (the four meters — already fetched for the mkt-cap bridge).
 - **Data · this name** (S3, only when there is something to say) — each data flag in full: its level, the
-  reason, the evidence (the SEC filing link, the Polygon row), since when, what clears it, and the cells it
+  reason, the evidence (the SEC filing link, the Massive.com row), since when, what clears it, and the cells it
   touches (or "no number on the row is affected"); then the company's **split rows** with their events —
   announced (the SEC filing), confirmed (by which sources), took effect (and the factor the prices before it
   carry), history corrected (only when Alpha Deck re-scaled the vendor's bars — the repair's provenance).

@@ -1,5 +1,5 @@
 """Shared helpers for the S4 split-detection tests — every input is REAL (``tests/fixtures/splits``, see its
-README): the filings, the 2026-10-22 Polygon rows, and every stored version of the bars around five splits.
+README): the filings, the 2026-10-22 Massive.com rows, and every stored version of the bars around five splits.
 
 - ``polygon_row`` — one real row of the 2026-10-22 pull.
 - ``sec`` — a real filing as the extractor reads it (``SecEvidence``).

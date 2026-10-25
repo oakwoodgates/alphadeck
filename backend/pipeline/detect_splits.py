@@ -1,6 +1,6 @@
 """``pipeline.detect_splits`` — split plan S4: find NEW splits every night and write them to the split list.
 
-S1 (``pipeline/backfill_splits.py``) filled the list once from Polygon's split reference, each split checked
+S1 (``pipeline/backfill_splits.py``) filled the list once from Massive.com's split reference, each split checked
 against the company's own SEC filing. This module keeps it filled. ONE rule decides, S1's (``domain/splits.py``):
 a split is auto-confirmed only when two independent sources agree on the ratio (exactly) and the first session
 (exactly); everything else is ``needs_review`` for the operator (the Admin "Splits" panel). Nothing is ever
@@ -15,20 +15,20 @@ THE SOURCES, per basket company:
    (``forms/*``, immutable, cached forever) through the pass's EDGAR client — its declared User-Agent, its rate
    limit and the GLOBAL SEC budget (``ingest/sec_budget.py``) — and read by S1's deterministic extractor
    (``ingest/edgar/split_filing.py``): fixed patterns, the LOCATED passage kept verbatim. No model (#3).
-2. **Polygon's split reference** — ONE date-filtered request a night for the whole market
+2. **Massive.com's split reference** — ONE date-filtered request a night for the whole market
    (``execution_date >= asof - POLYGON_LOOKBACK_DAYS``; announced future splits included), on the free-tier
-   budget the fund-shares leg shares (``ingest/polygon_splits.py``). With no ``POLYGON_API_KEY`` this source is
+   budget the fund-shares leg shares (``ingest/polygon_splits.py``). With no ``MASSIVE_API_KEY`` this source is
    OFF and the report says so in one line; the SEC and tape sources still run.
 3. **The price tape, as a CONFIRMING source only** (``domain.splits.with_tape``): a split ONE documentary source
-   states (Polygon's row with no SEC filing disagreeing, or an SEC filing stating the first trading session)
+   states (Massive.com's row with no SEC filing disagreeing, or an SEC filing stating the first trading session)
    is confirmed when the stored tape steps by about its ratio exactly on that session, the volume moving the
    other way — read on each bar as the vendor FIRST served it. The tolerance is MEASURED (``TAPE_*``). The tape
    never confirms a split alone, never arbitrates two sources that disagree, never confirms a forward split.
 
-THE DECISIONS, per company (``detect_security``): each Polygon row is decided EXACTLY as S1 decides it
+THE DECISIONS, per company (``detect_security``): each Massive.com row is decided EXACTLY as S1 decides it
 (``backfill_splits.decide_polygon_group`` — the targeted wide-form reader included: a row whose window holds no
 agreeing filing gets one look at the company's periodic reports / ADR registrations / prospectuses /
-information statements, each read once ever); an SEC filing read in the window that no Polygon row explains is
+information statements, each read once ever); an SEC filing read in the window that no Massive.com row explains is
 an SEC-only candidate (``domain.splits.decide_sec_only``); then the tape. Each filing is read as S1 reads it
 (``backfill_splits.screen_of``: a 6-K or a charter 8-K through the restatement screen, which only removes — a
 6-K restating an old split never becomes a new candidate at its old date). A filing that mentions a split the
@@ -38,7 +38,7 @@ dropped silently (#9).
 THE PLAN against the stored list (``plan_against``): a split is found by S1's ``match_stored``. A new one is
 appended. A stored one is appended to ONLY when the system wrote its newest version, it is still OPEN
 (``needs_review`` / ``announced``), tonight's evidence covers every source it already carries (a source missing
-tonight — Polygon off, a filing unread — never downgrades it), and the content changed: a second source arrived,
+tonight — Massive.com off, a filing unread — never downgrades it), and the content changed: a second source arrived,
 the tape confirmed it, or an announced split's first session came (announced -> confirmed). A confirmed,
 rejected or revoked split, and anything the operator decided, is never touched; when tonight's evidence
 differs from such a split it is listed on the artifact (``kept``), not written.
@@ -46,7 +46,7 @@ differs from such a split it is listed on the artifact (``kept``), not written.
 WHERE IT RUNS (``pipeline/ingest_thesis._ingest_one``): per company, right after its 8-K and 13D legs and
 BEFORE its price leg — so a split filed today, with a second source, is on the list before that company's
 price leg (S2 applies it on its first night) and before tonight's call. A company held in several theses is
-checked once a pass. The Polygon request is made once, before the per-thesis loop (``SplitDetector.start``).
+checked once a pass. The Massive.com request is made once, before the per-thesis loop (``SplitDetector.start``).
 Fail-open: a fault is rolled back, recorded on the run artifact (``split_detect``) and printed; it never costs a
 name its ingest or the night its record.
 
@@ -113,13 +113,13 @@ from repositories.split_repo import (
 
 _log = logging.getLogger("alphadeck.detect_splits")
 
-# The ONE Polygon request a night: every split with an execution date on/after asof - this (Polygon lists
+# The ONE Massive.com request a night: every split with an execution date on/after asof - this (Massive.com lists
 # announced future splits too). 30 days covers a split whose first session was this month and whose second
 # source (a late 8-K, the tape on the next night) arrives later — MEASURED: 16 of the list's 137 SEC filings
 # came after the split, the latest 7 days after (KULR).
 POLYGON_LOOKBACK_DAYS = 30
 # SEC-only candidates: split filings FILED in the last this many days are re-read every night, so a candidate
-# keeps being re-decided until its second source (Polygon, or the tape the night after its first session)
+# keeps being re-decided until its second source (Massive.com, or the tape the night after its first session)
 # arrives. MEASURED: 103 of the list's 137 SEC filings came at least a day before the split; the earliest
 # confirming one 2026 ran ~6 weeks ahead. Each filing is fetched once ever (immutable cache).
 SEC_LOOKBACK_DAYS = 60
@@ -200,7 +200,7 @@ class Unplaced:
 
 @dataclass
 class SecurityDetection:
-    """What tonight's evidence says about ONE company: its decisions (Polygon-keyed first, then SEC-only),
+    """What tonight's evidence says about ONE company: its decisions (Massive.com-keyed first, then SEC-only),
     the filings it could not place, and the reads."""
 
     member: Member
@@ -230,7 +230,7 @@ def detect_security(
         g = decide_polygon_group(conn, reader, m, group, asof=asof)
         d = g.decision
         absorbed.update(s.accession for s in g.read if related(s, group[0]))
-        # the tape settles a Polygon-only row only when nothing else could disagree: no conflicting Polygon
+        # the tape settles a Massive.com-only row only when nothing else could disagree: no conflicting Massive.com
         # rows, every SEC filing in its window read, and the company's index readable (the targeted reader's
         # wide forms are a confirmation search: one that agrees has already settled the row, one unread is no
         # disagreement)
@@ -247,7 +247,7 @@ def detect_security(
                 ),
             )
         out.decisions.append(d)
-    # the SEC side on its own: the split filings filed in the lookback that no Polygon row explains
+    # the SEC side on its own: the split filings filed in the lookback that no Massive.com row explains
     refs = reader.refs(conn, m, sec_since, asof)
     read, unread = reader.read(m, refs)
     # each filing counted once, whichever window read it
@@ -296,21 +296,21 @@ class Planned:
 
 
 def _sources(d: SplitDecision) -> str:
-    """The evidence a decision rests on, in the operator's words ("8-K + Polygon", "6-K + tape")."""
+    """The evidence a decision rests on, in the operator's words ("8-K + Massive.com", "6-K + tape")."""
     via = d.confirmed_via or ""
     if via.endswith("+tape"):
-        first = d.sec.form if via.startswith("auto:sec") and d.sec else "Polygon"
+        first = d.sec.form if via.startswith("auto:sec") and d.sec else "Massive.com"
         return f"{first} + tape"
     parts = []
     if d.sec is not None and d.sec.has_ratio:
         parts.append(d.sec.form)
     if d.polygon is not None:
-        parts.append("Polygon")
+        parts.append("Massive.com")
     return " + ".join(parts) or "no source"
 
 
 def _stored_polygon(v: SplitVersion) -> PolygonEvidence | None:
-    """The Polygon row a stored version carries, as evidence (``None`` when it carries none)."""
+    """The Massive.com row a stored version carries, as evidence (``None`` when it carries none)."""
     if not (
         v.polygon_id
         and v.polygon_execution_date
@@ -328,7 +328,7 @@ def _stored_polygon(v: SplitVersion) -> PolygonEvidence | None:
 
 
 # What makes a new version of an open split worth appending: its status / values / pairing, or its EVIDENCE
-# (which filing, which Polygon row and what each states) — and a tape reading it did not carry before. A note
+# (which filing, which Massive.com row and what each states) — and a tape reading it did not carry before. A note
 # phrased differently over the same evidence is not news (the S1 path and the late-filing path word it apart).
 _MATERIAL = (
     "effective_date",
@@ -373,9 +373,9 @@ def plan_against(
 ) -> list[Planned]:
     """Each decision against the stored list (the module docstring's rule). Pure: no I/O.
 
-    One refinement of the rule: a filing that arrives AFTER its split's Polygon row left tonight's pull (a late
+    One refinement of the rule: a filing that arrives AFTER its split's Massive.com row left tonight's pull (a late
     8-K, filed weeks after the split — FDCT's came 47 days later, outside S1's window) is decided against the
-    Polygon row the stored split already carries, by S1's own ``decide`` — so the two sources still meet.
+    Massive.com row the stored split already carries, by S1's own ``decide`` — so the two sources still meet.
     """
     vs = list(stored)
     claimed: set[date] = set()
@@ -515,7 +515,7 @@ class SplitDetection:
 
     def report_lines(self) -> list[str]:
         """ONE quiet line on a normal night (nothing at all when nothing ran and nothing is off): the new
-        list rows, the review count, the unplaced count; a separate line when Polygon is off or failed, and
+        list rows, the review count, the unplaced count; a separate line when Massive.com is off or failed, and
         one per fault. Never a page (#7) — a needs-review split shows on the Admin "Splits" panel.
         """
         if not self.evaluated:
@@ -523,7 +523,7 @@ class SplitDetection:
         lines: list[str] = []
         if self.polygon != "on":
             lines.append(
-                f"splits: Polygon {self.polygon} — SEC + tape only, nothing confirms on Polygon"
+                f"splits: Massive.com {self.polygon} — SEC + tape only, nothing confirms on Massive.com"
             )
         parts = []
         if self.appended:
@@ -547,7 +547,7 @@ class SplitDetection:
 
 
 class SplitDetector:
-    """The pass's detector: the Polygon pull (made once, ``start``), the per-company check the ingest calls
+    """The pass's detector: the Massive.com pull (made once, ``start``), the per-company check the ingest calls
     (``check``), and the outcome (``result``). One per pass; a company is checked once."""
 
     def __init__(
@@ -586,14 +586,14 @@ class SplitDetector:
         source: PolygonSplitSource | None = None,
         apply: bool = True,
     ) -> SplitDetector:
-        """The ONE Polygon request of the pass (fail-open: an off / failed / uncached source is a status on
+        """The ONE Massive.com request of the pass (fail-open: an off / failed / uncached source is a status on
         the outcome, and the SEC + tape sources still run)."""
         t0 = perf_counter()
         polygon = source if source is not None else default_split_source()
         rows: list[PolygonEvidence] | None = None
         live_pages = 0
         if polygon is None:
-            status = "off (no POLYGON_API_KEY)"
+            status = "off (no MASSIVE_API_KEY)"
         else:
             try:
                 pull = polygon.splits_since(
@@ -712,7 +712,7 @@ class SplitDetector:
 
 
 def former_tickers(conn: psycopg.Connection) -> dict[UUID, tuple[str, ...]]:
-    """Every security's FORMER tickers (``security_ticker_history``, 0066) — ONE read a pass, so a split Polygon
+    """Every security's FORMER tickers (``security_ticker_history``, 0066) — ONE read a pass, so a split Massive.com
     lists under the ticker a company traded as then still meets it (``Member.symbols``). Read-only.
     """
     with conn.cursor() as cur:
@@ -793,7 +793,7 @@ def print_plan(detector: SplitDetector, *, out: Any = None) -> None:
             w(f"      SEC {d.sec.form} {d.sec.accession} filed {d.sec.filed.isoformat()}\n")
         if d.polygon is not None:
             w(
-                f"      Polygon {d.polygon.ticker} {d.polygon.split_from} -> {d.polygon.split_to} on "
+                f"      Massive.com {d.polygon.ticker} {d.polygon.split_from} -> {d.polygon.split_to} on "
                 f"{d.polygon.execution_date.isoformat()}\n"
             )
         w(f"      note: {' '.join(d.note.split())[:500]}\n")
@@ -823,7 +823,9 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--polygon-days", type=int, default=POLYGON_LOOKBACK_DAYS)
     p.add_argument("--ticker", action="append", default=None, help="only this member (repeatable)")
     p.add_argument("--apply", action="store_true", help="append (default: dry run, read-only)")
-    p.add_argument("--no-live", action="store_true", help="caches only (no SEC / Polygon request)")
+    p.add_argument(
+        "--no-live", action="store_true", help="caches only (no SEC / Massive.com request)"
+    )
     args = p.parse_args(argv)
     asof = args.asof or market_today()
     if asof > market_today():
@@ -831,7 +833,7 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(EXIT_REFUSED)
     mode = "APPLY" if args.apply else "DRY-RUN (read-only connection; nothing written)"
     print(
-        f"detect_splits · {mode} · asof {asof.isoformat()} · SEC {args.sec_days}d · Polygon {args.polygon_days}d"
+        f"detect_splits · {mode} · asof {asof.isoformat()} · SEC {args.sec_days}d · Massive.com {args.polygon_days}d"
     )
     try:
         lock = acquire_pass_lock(holder="detect_splits") if args.apply else None

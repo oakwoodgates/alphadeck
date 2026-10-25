@@ -2,7 +2,7 @@
 ``tests/fixtures/splits`` (see its README); nothing here invents a filing, a ratio or a date.
 
 - ``filing`` / ``documents`` — a real SEC submission (gunzipped), and its documents.
-- ``polygon_pages`` / ``polygon_rows`` / ``polygon_row`` — the real Polygon split-reference pages.
+- ``polygon_pages`` / ``polygon_rows`` / ``polygon_row`` — the real Massive.com split-reference pages.
 - ``edgar_cache`` — a tmp EDGAR cache dir holding the real filings + submissions indexes under the keys the
   EDGAR client reads (``forms/<acc>/<acc>.txt``, ``submissions/CIK<10>.json``).
 - ``polygon_source`` — a ``PolygonSplitSource`` whose socket is a fake serving the real pages (no network).
@@ -48,7 +48,7 @@ DEV_ROWS = FX / "polygon" / "rows_2024-10.json"
 
 
 def polygon_rows() -> list[PolygonEvidence]:
-    """Every real Polygon row in the fixtures: the three 2025-08 pages, then the 2024-10 extract."""
+    """Every real Massive.com row in the fixtures: the three 2025-08 pages, then the 2024-10 extract."""
     out: list[PolygonEvidence] = []
     for text in [*polygon_pages(), DEV_ROWS.read_text(encoding="utf-8")]:
         rows, _, _ = parse_splits_page(text)
@@ -142,7 +142,7 @@ LIST_ROWS = FX / "polygon" / "rows_list_2026-10-24.json"
 
 
 def list_polygon_rows() -> list[PolygonEvidence]:
-    """The Polygon rows prod's split list carries for DFNS / OFAL / ZNB / MEDS / LGHL (README)."""
+    """The Massive.com rows prod's split list carries for DFNS / OFAL / ZNB / MEDS / LGHL (README)."""
     rows, _, _ = parse_splits_page(LIST_ROWS.read_text(encoding="utf-8"))
     return rows
 

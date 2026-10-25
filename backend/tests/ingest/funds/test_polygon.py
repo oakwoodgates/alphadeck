@@ -1,4 +1,4 @@
-"""The Polygon fund-shares adapter — REAL captured responses (2026-07-26, key-stripped), no network.
+"""The Massive.com fund-shares adapter — REAL captured responses (2026-07-26, key-stripped), no network.
 
 The three fixtures pin the three live shapes the adapter must read honestly: a populated date (URA —
 138,771,666, the exact issuer-page count), a null-gap date (URA @ 2026-06-15 — the count field is
@@ -97,7 +97,7 @@ def test_get_snapshot_at_stamps_the_queried_date_and_a_keyless_source_ref(tmp_pa
     _seed(tmp_path, "URA", _D, _URA)
     snap = _src(tmp_path).get_snapshot_at("URA", _D)
     assert snap == {
-        "d": _D,  # the QUERIED date — polygon states no effective date of its own
+        "d": _D,  # the QUERIED date — Massive.com states no effective date of its own
         "shares_out": 138771666.0,
         "source": "polygon",
         "source_ref": "https://api.polygon.io/v3/reference/tickers/URA?date=2026-07-26",
@@ -136,7 +136,7 @@ def test_url_builder_uppercases_and_reads_the_settings_base(monkeypatch):
 
 
 def test_settings_reads_the_unprefixed_env_name(monkeypatch):
-    monkeypatch.setenv("POLYGON_API_KEY", "abc")
+    monkeypatch.setenv("MASSIVE_API_KEY", "abc")
     assert Settings().polygon_api_key == "abc"
 
 
@@ -241,7 +241,7 @@ def test_401_and_403_surface_clearly_without_the_key(tmp_path, monkeypatch, limi
         return f
 
     monkeypatch.setattr(poly_mod, "polite_get", raise_status(401))
-    with pytest.raises(PolygonError, match="HTTP 401.*bad POLYGON_API_KEY") as ei:
+    with pytest.raises(PolygonError, match="HTTP 401.*bad MASSIVE_API_KEY") as ei:
         _src(tmp_path).get_snapshot_at("URA", _D, allow_live=True)
     assert _KEY not in str(ei.value) and ei.value.__cause__ is None  # no key, no chained leak
 
