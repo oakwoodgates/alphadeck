@@ -144,9 +144,11 @@ ratification sees the pending state it actually held. The NEWEST standing verdic
 verdict overrules a standing SYSTEM decision (R8-B) without erasing it: revoke the operator's verdict and the
 system's resolution is the newest standing verdict again — the exact inverse pair (WB#1).
 
-PIT. Every input is gated on ITS OWN ``recorded_at <= known_at`` by the caller (the amendment, the link, each
-decision); ``accepted`` (the SEC acceptance instant) is display + ordering only, never a gate. A read pinned
-before the link's ``recorded_at`` therefore sees the original exactly as it was stored.
+PIT. Every input is gated by the caller on ITS OWN clock: on the record clock (the live read) its
+``recorded_at <= known_at``, so a read pinned before the link's ``recorded_at`` sees the original exactly as it
+was stored; on the PUBLIC clock (a history view, operator decision 2026-10-21) its public instant — the 4/A's
+SEC ``accepted`` for the record, the link and a system decision (``db.public_clock.aux_public_sql``). This pure
+module only ORDERS by ``accepted`` (the linker's ``made_public_after``); it never gates on it.
 
 THE OTHER-ISSUER SCREEN. A Form 4 on a member's tape whose ISSUER (from the XML) is not the member is not that
 security's insider flow — the member was the REPORTING OWNER of another company's stock (Novartis selling

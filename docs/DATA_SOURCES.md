@@ -538,7 +538,10 @@ the filing to the next night.
 **The drift (MEASURED on prod 2026-10-24, read-only).** The time comes from the submissions JSON's
 `acceptanceDateTime`. From ~2026-10-23 04:00 ET that list became inconsistent PER FILING: every capture since
 (onboarding loads, the 10-23 nightly) stored 25–45% of accessions at an hour EDGAR is closed (before 06:00 or
-after 22:00 ET), mostly +4 h / +5 h late; captures 10-20..10-22 were clean. Against SEC's own header
+after 22:00 ET), mostly +4 h / +5 h late; captures 10-20..10-22 were clean. It is inconsistent over TIME
+as well: the same RPD filing listed 5 h late on the morning of 10-24 was listed correctly at 20:30 ET that
+night — so no capture can be trusted wholesale, and the rule judges each listed time on its own (a correct
+one is kept, a drifted one replaced). Against SEC's own header
 (`ACCEPTANCE-DATETIME`, ET wall clock, in `<accession>-index-headers.html`): 0000902664-25-005199 was filed
 2025-12-04, its header says 19:00:20 ET, the list now says 00:00:20 ET on 12-05 — a night late. 5,776 stored
 accessions sat a night late (859 of them buys/sells on basket companies since 2025-03-01). An older writer's

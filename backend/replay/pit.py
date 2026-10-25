@@ -349,8 +349,10 @@ class ReplayPointInTimeData:
 
     def _gate(self, table: str) -> str:
         """The knowability gate — BYTE-IDENTICAL to db.bitemporal._as_of (currently recorded_at for every
-        table: the strict "what we held" no-lookahead axis; accepted is display/metrics only, never a
-        gate). ONE source of truth (knowability_expr), so both engines revert in lockstep."""
+        table: the strict "what we held" axis). On a PUBLIC mirror ``recorded_at`` already IS each version's
+        public instant (an insider fact's ``accepted`` — ``db.public_clock``), so the same gate judges history
+        on the public clock. ONE source of truth (knowability_expr), so both engines revert in lockstep.
+        """
         return knowability_expr(table)
 
     def _read_versions(
