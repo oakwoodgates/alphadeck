@@ -1876,8 +1876,9 @@ export interface paths {
         /**
          * Get Thesis Data Flags
          * @description The data flags on one thesis's resolved basket at ``asof`` — which numbers on each row rest on data the
-         *     platform knows is wrong or cannot vouch for, why, and what clears it — plus each name's split rows. Only
-         *     names with a flag or a split row are listed. Computed on read, never stored; display-only.
+         *     platform knows is wrong or cannot vouch for, why, and what clears it — plus each name's quiet markers
+         *     (information, not a defect) and split rows. Only names with a flag, a marker or a split row are listed.
+         *     Computed on read, never stored; display-only.
          */
         get: operations["get_thesis_data_flags_theses__thesis_id__data_flags_get"];
         put?: never;
@@ -1897,8 +1898,9 @@ export interface paths {
         };
         /**
          * Get Data Flags
-         * @description Every flagged name across the active basket union at ``asof``, each with the theses holding it — the
-         *     Admin list and the Board's marks. Computed on read, never stored; display-only.
+         * @description Every flagged or marked name across the active basket union at ``asof``, each with the theses holding
+         *     it — the Admin list and the Board's marks (a marker never marks a ticker). Computed on read, never stored;
+         *     display-only.
          */
         get: operations["get_data_flags_data_flags_get"];
         put?: never;
@@ -5236,8 +5238,8 @@ export interface components {
         /**
          * DataFlagsResponse
          * @description The data flags as of ``asof`` (computed on read, never stored). ``thesis_id`` is set on the per-thesis
-         *     read (members with a flag or a split row) and null on the union read (flagged members only). ``names`` =
-         *     how many names were judged.
+         *     read (members with a flag, a marker or a split row) and null on the union read (members with a flag or a
+         *     marker). ``names`` = how many names were judged.
          */
         DataFlagsResponse: {
             /** Thesis Id */
@@ -5254,6 +5256,23 @@ export interface components {
             names: number;
             /** Members */
             members?: components["schemas"]["MemberDataFlagsOut"][];
+        };
+        /**
+         * DataNoteOut
+         * @description A quiet marker on one name: information, not a defect (``short_price_history``). It never marks the row
+         *     or grays a cell. ``since`` = when the condition began, ``until`` = when it stops applying.
+         */
+        DataNoteOut: {
+            /** Kind */
+            kind: string;
+            /** Label */
+            label: string;
+            /** Reason */
+            reason: string;
+            /** Since */
+            since?: string | null;
+            /** Until */
+            until?: string | null;
         };
         /**
          * DecisionIn
@@ -6692,7 +6711,8 @@ export interface components {
         };
         /**
          * MemberDataFlagsOut
-         * @description One name's flags and split rows. ``marked`` = some flag reaches a cell on its row (the row mark).
+         * @description One name's flags, quiet markers and split rows. ``marked`` = some flag reaches a cell on its row (the
+         *     row mark); a marker never sets it.
          */
         MemberDataFlagsOut: {
             /**
@@ -6711,6 +6731,8 @@ export interface components {
             flags?: components["schemas"]["DataFlagOut"][];
             /** Splits */
             splits?: components["schemas"]["DataFlagSplitOut"][];
+            /** Notes */
+            notes?: components["schemas"]["DataNoteOut"][];
             /** Theses */
             theses?: components["schemas"]["DataFlagThesisRefOut"][];
         };

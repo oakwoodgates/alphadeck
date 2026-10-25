@@ -331,6 +331,8 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .np-split { margin: 6px 0 8px; font-size: 11px; color: var(--txt-2); }
 .np-split.pending { color: var(--txt-3); }
 .np-split-ev { color: var(--txt-3); font-size: 10.5px; padding-left: 10px; }
+/* a quiet marker (information, not a defect): one muted line, no badge, no border — lower than a flag */
+.np-note { color: var(--txt-4); font-size: 10.5px; line-height: 1.45; margin: 6px 0 8px; }
 .np-fit { font-style: italic; color: var(--txt-2); font-size: 12px; line-height: 1.55; border-left: 2px solid var(--line-2); padding-left: 11px; }
 .np-fit .tag { display: inline-block; margin-left: 7px; font-style: normal; font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--txt-4); border: 1px solid var(--line-2); border-radius: 4px; padding: 1px 5px; }
 .np-meters { border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; background: var(--panel); }
@@ -1892,6 +1894,7 @@ tr.adm-row-bad td { background: color-mix(in srgb, var(--warm) 5%, transparent);
 .adm-flags { margin: 4px 0 0; padding-left: 18px; font-size: 11.5px; color: var(--txt-2); }
 .adm-flags > li { margin: 6px 0; }
 .adm-flag { margin: 3px 0 0 2px; }
+.adm-note { color: var(--txt-4); margin: 3px 0 0 2px; }
 .adm-flag-lvl { font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.08em; text-transform: uppercase; border: 1px solid var(--line-2); border-radius: 4px; padding: 0 4px; color: var(--txt-3); }
 .adm-flag-lvl.known_wrong { color: color-mix(in srgb, var(--neg) 60%, var(--txt-3)); }
 .adm-flag-lvl.in_doubt { color: color-mix(in srgb, var(--warn, #b8860b) 70%, var(--txt-3)); }

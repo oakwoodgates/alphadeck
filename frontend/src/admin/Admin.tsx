@@ -723,8 +723,9 @@ export function Admin({ header }: Props) {
           <SplitList />
 
           {/* 1d' — DATA FLAGS (split plan S3): the full current list of the shared "is this real?" flags across
-              the active baskets — the names whose flags reach a Cockpit number first, the history-only ones in a
-              quiet collapsed list. Computed on read; read-only; renders nothing when nothing is flagged. */}
+              the active baskets — the names whose flags reach a Cockpit number first, the ones no number reads
+              (history only, or fundamentals SEC's data lacks) in a quiet collapsed list, and the quiet markers
+              (a short price history) last. Computed on read; read-only; renders nothing when nothing is flagged. */}
           <DataFlagList />
 
           {/* 1e — ONBOARDING (X1): the staged cold-ingest queue — new names whose filing history loads in

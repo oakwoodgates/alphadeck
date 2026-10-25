@@ -234,6 +234,30 @@ def test_wshp_split_predates_its_tape_so_the_flag_reaches_no_cell():
     assert "SEC 6-K" in f.reason
 
 
+def test_a_fundamentals_lag_rides_beside_the_row_flags_and_never_marks_a_cell():
+    """Data hygiene (2026-10-24): MVNC with a fundamentals reading beside its two real flags — the lag is
+    the last flag (it reaches no cell), the row mark still speaks only for the reaching ones."""
+    from pipeline.fundamentals_lag import FundamentalsLag
+
+    lag = FundamentalsLag(
+        cik="0000000001",
+        form="10-Q",
+        accession="0000000001-26-000001",
+        filed=date(2026, 8, 10),
+        period=date(2026, 6, 30),
+        last_period=date(2026, 3, 31),
+    )
+    mf = flags_of("MVNC", "2026-10-22", fundamentals_lag=lag)
+    assert kinds(mf) == [m.SPLIT_REVIEW, m.MKTCAP_SHARES, m.FUNDAMENTALS_LAG]
+    lagging = mf.flags[-1]
+    assert (
+        lagging.columns == () and lagging.level == m.IN_DOUBT and lagging.since == date(2026, 8, 10)
+    )
+    assert lagging.label == "fundamentals not current"
+    assert "Clears on its own" in lagging.clears
+    assert mf.marked  # by the split's cells, as before
+
+
 def test_zcsh_forward_split_needs_review_on_todays_view():
     mf = flags_of("ZCSH", "2026-10-22")
     assert kinds(mf)[0] == m.SPLIT_REVIEW

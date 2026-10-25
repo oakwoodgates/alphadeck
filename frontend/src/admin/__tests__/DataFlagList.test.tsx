@@ -2,7 +2,8 @@ import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 // S3 — the Admin "Data flags" panel: the full current list across the active baskets — the names whose
-// flags reach a Cockpit number first, the history-only ones in a quiet collapsed list. Read-only.
+// flags reach a Cockpit number first, the ones no number reads in a quiet collapsed list, and (data hygiene)
+// the names with only a quiet marker last, apart, never counted as flagged. Read-only.
 const h = vi.hoisted(() => ({
   data: {
     thesis_id: null,
@@ -31,6 +32,31 @@ const h = vi.hoisted(() => ({
         }],
         splits: [],
       },
+      {
+        // data hygiene: SEC's data behind a filed 10-Q — a flag no Cockpit number reads
+        security_id: "s-pypl", ticker: "PYPL", marked: false,
+        theses: [{ id: "t3", name: "Payments" }],
+        flags: [{
+          kind: "fundamentals_not_current", label: "fundamentals not current", level: "in_doubt",
+          reason: "Fundamentals end at 2026-03-31; the 10-Q filed 2026-07-28 isn't in SEC's data yet.",
+          clears: "Clears on its own when SEC's data carries the 10-Q.", since: "2026-07-28",
+          affects: [], columns: [], dates: [], evidence: [], call_affected: false,
+        }],
+        splits: [],
+        notes: [],
+      },
+      {
+        // a quiet marker only: information, not a defect — never counted as flagged
+        security_id: "s-mplt", ticker: "MPLT", marked: false,
+        theses: [{ id: "t4", name: "New listings" }],
+        flags: [],
+        splits: [],
+        notes: [{
+          kind: "short_price_history", label: "short price history",
+          reason: "Price history starts 2025-10-27; the 52-week checks can't run before 2026-10-27.",
+          since: "2025-10-27", until: "2026-10-27",
+        }],
+      },
     ],
   } as unknown,
 }));
@@ -53,6 +79,27 @@ describe("Admin — the Data flags panel (S3)", () => {
     const quiet = screen.getByTestId("adm-flags-quiet");
     expect(quiet.tagName).toBe("DETAILS");
     expect(within(quiet).getByText("JAGX")).toBeInTheDocument();
-    expect(within(quiet).getByText(/no Cockpit number affected/)).toBeInTheDocument();
+    expect(within(quiet).getAllByText(/no Cockpit number affected/)).toHaveLength(2);
+  });
+
+  it("folds the fundamentals flag with the flags no number reads", () => {
+    render(<DataFlagList />);
+    const quiet = within(screen.getByTestId("adm-flags-quiet"));
+    expect(quiet.getByText("PYPL")).toBeInTheDocument();
+    expect(quiet.getByText(/isn't in SEC's data yet/)).toBeInTheDocument();
+    expect(screen.getByTestId("adm-flags").textContent).toContain(
+      "2 more with flags no Cockpit number reads",
+    );
+  });
+
+  it("lists a marker-only name last and apart, never as flagged", () => {
+    render(<DataFlagList />);
+    const noted = screen.getByTestId("adm-flags-noted");
+    expect(noted.tagName).toBe("DETAILS");
+    expect(noted.textContent).toContain("1 with only a quiet marker (short price history)");
+    expect(within(noted).getByText("MPLT")).toBeInTheDocument();
+    expect(within(noted).getByText(/52-week checks can't run before 2026-10-27/)).toBeInTheDocument();
+    expect(within(screen.getByTestId("adm-flags-quiet")).queryByText("MPLT")).toBeNull();
+    expect(within(screen.getByTestId("adm-flags-marked")).queryByText("MPLT")).toBeNull();
   });
 });
