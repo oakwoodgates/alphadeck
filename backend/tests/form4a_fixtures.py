@@ -613,3 +613,37 @@ def seed(conn: psycopg.Connection, ticker: str, *, amend_at: datetime | None = N
     for acc in amendments_of(ticker):
         ingest_amendment(conn, sid, acc, recorded_at=amend_at)
     return sid
+
+
+# the earliest edition night prod holds (Edition 1, ``edition.first_night`` — MEASURED read-only 2026-10-24)
+PROD_EDITION_NIGHT = date(2026, 6, 10)
+
+
+def seed_edition(conn: psycopg.Connection, first_night: date = PROD_EDITION_NIGHT) -> uuid.UUID:
+    """A published Scoreboard edition whose earliest page is ``first_night`` — what the Form 4/A REVIEW LINE
+    anchors on (``repositories.insider_amendment_repo.earliest_edition_night``). A test-DB fixture step: only the
+    columns the table requires, numbered after any edition already stored."""
+    eid = uuid.uuid4()
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT coalesce(max(number), 0) + 1 AS n FROM edition WHERE tenant_id = %s",
+            (DEFAULT_TENANT_ID,),
+        )
+        number = cur.fetchone()["n"]
+        cur.execute(
+            "INSERT INTO edition (id, tenant_id, number, label, causes, engine_fingerprint, config_hash, "
+            "data_known_by, first_night) VALUES (%s, %s, %s, %s, %s, %s, %s, now(), %s)",
+            (eid, DEFAULT_TENANT_ID, number, "fixture", ["initial"], "fp", "cfg", first_night),
+        )
+    conn.commit()
+    return eid
+
+
+def undo_pick(conn: psycopg.Connection, sid: uuid.UUID, accession: str) -> None:
+    """The operator's "Undo the system's pick" (rule 2b) — the amendment is ambiguous again, and the operator's."""
+    from repositories import insider_amendment_repo  # lazy: the repo imports the detector registry
+
+    insider_amendment_repo.undo_pick(
+        conn, sid, accession, reason="fixture: not that one", basis="operator:revoke"
+    )
+    conn.commit()

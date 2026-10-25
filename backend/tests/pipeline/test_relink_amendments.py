@@ -31,6 +31,7 @@ from tests.form4a_fixtures import (
     ingest_amendment,
     ingest_originals,
     make_security,
+    seed_edition,
     xml,
 )
 
@@ -238,6 +239,10 @@ def test_skyts_stored_ambiguous_link_is_settled_and_applied_by_the_system(db, mo
     """
     sid, out = _store_pre_fix(db, monkeypatch, "SKYT", SKYT_4A, at=db_now(db) - timedelta(days=1))
     assert out.link.disposition == "ambiguous" and _decisions(db, sid) == []
+    assert out.link.pick is None  # rule 2b: neither candidate holds the restated sale's share count
+    seed_edition(
+        db
+    )  # prod's edition: its pages read SKYT's 2026-03-16 sale (sales back to 2026-02-10)
     (owed,) = repo.items(db, security_ids=[sid], asof=date(2026, 10, 20))
     assert owed.review == "owed"
     links0, decs0 = _count(db, "insider_amendment_link"), _count(db, "insider_amendment_decision")

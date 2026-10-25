@@ -48,9 +48,11 @@ disposition         when                                        effect (see ``ef
 ``addition``        more rows than the original                 APPLIED BY THE SYSTEM (as partial)
 ``restatement``     same row count, rows that do not pair 1:1   APPLIED BY THE SYSTEM (as partial)
 ``ambiguous``       several candidate originals that differ,    NONE — it cannot target a specific
-                    and the row tie-break does not settle them  original; OWED the operator when it
-                                                                touches a signal row inside the review
-                                                                horizon, else "unresolved — historical"
+                    and the row tie-break does not settle them  original (unless rule 2b — THE SYSTEM'S
+                                                                PICK below — links it); OWED the operator
+                                                                when it touches a signal row a live call
+                                                                or an edition page reads, else
+                                                                "unresolved — historical"
 ==================  ==========================================  =========================================
 
 "Applied by the system" = an ``apply`` verdict the system writes under its own basis instead of waiting for the
@@ -108,14 +110,29 @@ a link, an Undo) stays the operator's.
 
 ONLY WHAT THE SYSTEM CANNOT RESOLVE IS OWED THE OPERATOR (``review_bucket``) — an AMBIGUOUS link (several
 differing candidate originals: the system cannot know which filing it amends), an UNRESOLVED row match, or a
-HELD void — and only when it MATTERS: it would change a row a call signal reads AND one of those rows is dated
-inside the REVIEW HORIZON (``within_review_horizon``; the dial ``insider_amendment_review_horizon_days``, derived
-by default as the two-year backtest window plus the longest detector read horizon — ``signals.horizons
-.insider_amendment_review_horizon``; 940 days at today's config). Any of them outside that is "unresolved —
-historical": no call reads those rows, the originals stand, it never pages, and the operator can still decide
-it. MEASURED 2026-10-21 (prod, read-only, asof 2026-10-20, after the first sweep): 6 owed (4 ambiguous — CVNA,
-FIS, HROW, SKYT; 1 unresolved match — YYAI; 1 held void — FIGR), none touching a row in tonight's signal
-windows; 60 historical (39 ambiguous, 17 unresolved, 4 held).
+HELD void — and only when it MATTERS: it would change a row a call signal reads AND one of those rows can be read
+by a LIVE call or an EDITION page (``ReviewLine`` — operator decision 2026-10-24, narrowed from the old 940-day
+backtest horizon): a buy dated on/after (the earliest edition night − the buy read window), a sale on/after (the
+earliest edition night − the sale read window), and anything inside today's windows (``review_line``; the read
+windows are the detectors' own, ``signals.horizons.insider_signal_codes``; the dial
+``insider_amendment_review_horizon_days`` still pins a flat window instead). Any of them outside that is
+"unresolved — historical": no live call or edition page reads those rows (a backtest might), the originals
+stand, it never pages, and the operator can still decide it. MEASURED 2026-10-24 (prod, read-only, asof
+2026-10-23, the earliest edition night 2026-06-10): of the 5 owed under the old horizon, AAOI
+0001683168-24-008605, ZS 0001713683-24-000130 and SEI 0001415889-25-007591 move to historical; BCYC
+0002119908-26-000013 and CODI 0001193125-26-355927 stay owed; all 59 historical stay historical.
+
+THE SYSTEM'S PICK (rule "2b", operator decision 2026-10-24 — ``sole_match`` / ``system_pick``). An AMBIGUOUS link
+the row tie-break leaves unsettled is settled when EVERY Table I row of the 4/A matches, one-to-one, a row of
+exactly ONE candidate by shares + price (same reporting owner) — the system then LINKS it to that candidate as a
+SYSTEM decision (``link``, basis ``system:sole-match``) and records its own resolution against it, both
+append-only and undone together by the operator's "Undo the system's pick" (the amendment is ambiguous again,
+every candidate still linkable). Written at ingest (one ``recorded_at`` with the link) and, for a stored ambiguous
+link nothing was ever decided on, by the nightly sweep. MEASURED 2026-10-24 (prod, read-only): it agrees with
+both of the operator's hand picks (CVNA 0001690820-25-000275 -> -000271, 28/28 rows; HROW 0001641172-25-010338 ->
+0001493152-25-011028) and with all 25 system tie-break picks it decides (21 no pick); over 3,359 definite links
+(every stored Form 4 of the owner made public no later than the 4/A as the pool) it disagrees with the linker on
+0.7%. It would pick SEI 0001415889-25-007591 -> 0001415889-25-007343.
 
 THE SIGNAL-EFFECT TEST (operator-approved 2026-10-18; since R8-B it picks the system's BASIS and the ambiguous
 owed test, never whether a resolvable amendment applies). Decided by CONTENT: the "signal rows" are the rows
@@ -248,6 +265,11 @@ RELINK_TIE_BREAK = "row-tie-break"
 # read (``rederive_scope``) — append-only, stamped at the re-derivation. Never written over anything the
 # operator did.
 BASIS_REDERIVE = "system:rederive"
+# rule "2b" (operator decision 2026-10-24) — the basis of the SYSTEM's ``link`` of an AMBIGUOUS amendment to the
+# ONE candidate holding a match (shares + price, same owner) for EVERY row the amendment reports (``sole_match``).
+# Its resolution against that candidate rides beside it under the usual system bases; the operator's "Undo the
+# system's pick" revokes both.
+BASIS_SOLE_MATCH = "system:sole-match"
 _SYSTEM_PREFIX = "system:"
 # the operator's three verdicts on an owed amendment: Use the correction (``apply`` — the whole original replaced),
 # Keep the original (``keep``), Add to the original (an ``apply`` that replaces nothing — ``replaced_rows = []``:
@@ -383,12 +405,11 @@ def auto_resolves(disposition: str, signal_effect: bool) -> bool:
 def within_review_horizon(
     changed: Iterable[Mapping[str, Any]], asof: date, days: int | None
 ) -> bool:
-    """R8-B — does any CHANGED signal row sit inside the review horizon at ``asof`` (dated on/after ``asof -
-    days``; ``None`` = unbounded)? The horizon is the dial ``insider_amendment_review_horizon_days`` (derived:
-    the backtest window plus the longest detector read horizon — ``signals.horizons
-    .insider_amendment_review_horizon``): a row older than it is read by no call, live or replayed. A row dated
-    after ``asof`` is inside (over-include: tomorrow's call reads it). Empty ``changed`` = no signal effect =
-    outside."""
+    """R8-B — does any CHANGED signal row sit inside a FLAT review horizon at ``asof`` (dated on/after ``asof -
+    days``; ``None`` = unbounded)? The flat form of the line — what the dial ``insider_amendment_review_horizon_days``
+    pins when set; the default line is the derived, per-code ``ReviewLine`` (``review_line``). A row dated after
+    ``asof`` is inside (over-include: tomorrow's call reads it). Empty ``changed`` = no signal effect = outside.
+    """
     rows = [r for r in changed if _row_date(r) is not None]
     if not rows:
         return False
@@ -398,6 +419,72 @@ def within_review_horizon(
     return any(_row_date(r) >= edge for r in rows)  # type: ignore[operator]
 
 
+@dataclass(frozen=True)
+class ReviewLine:
+    """Where an unresolvable Form 4/A stops being OWED the operator (operator decision 2026-10-24): it is owed
+    only when a buy/sell row it changes can be read by a LIVE call or an EDITION page. ``edges`` = per signal
+    code, the OLDEST row date a call can read (``None`` = any date: that code's read is unbounded); a row dated
+    on/after its code's edge is inside — so is one dated after ``asof`` (tomorrow's call reads it), an undated
+    one and one of a code with no edge (never provable as unread: over-include, #9). ``anchor`` = the earliest
+    edition night the edges were derived from (``None`` = no edition published: today's windows alone).
+    ``pinned_days`` = the dial ``insider_amendment_review_horizon_days`` when it pins a FLAT window instead (every
+    code, ``asof - days``); ``unbounded`` = nothing is ever outside (the sweep's time-free plan)."""
+
+    asof: date
+    edges: Mapping[str, date | None] = field(default_factory=dict)
+    anchor: date | None = None
+    pinned_days: int | None = None
+    unbounded: bool = False
+
+    @classmethod
+    def flat(cls, asof: date, days: int | None) -> ReviewLine:
+        """The old flat horizon: every code ``asof - days`` (``None`` = unbounded)."""
+        if days is None:
+            return cls(asof=asof, unbounded=True)
+        return cls(asof=asof, pinned_days=max(0, int(days)))
+
+    def inside(self, rows: Iterable[Mapping[str, Any]]) -> bool:
+        """Does any of ``rows`` (changed signal rows) sit where a live call or an edition page reads?"""
+        for r in rows:
+            d = _row_date(r)
+            if d is None or self.unbounded:
+                return True
+            if self.pinned_days is not None:
+                if d >= self.asof - timedelta(days=self.pinned_days):
+                    return True
+                continue
+            code = r.get("txn_code")
+            if code not in self.edges:
+                return True
+            edge = self.edges[code]
+            if edge is None or d >= edge:
+                return True
+        return False
+
+
+def review_line(
+    asof: date,
+    horizons: Mapping[str, int | None],
+    *,
+    first_edition_night: date | None,
+    pinned_days: int | None = None,
+) -> ReviewLine:
+    """PURE — the review line in force at ``asof`` (operator decision 2026-10-24). DERIVED: per signal code ``c``
+    (``horizons`` = ``{code: read days}`` — the detectors' own declarations, ``signals.horizons
+    .insider_signal_codes``; today ``P`` 210, ``S`` 120) the edge is ``min(asof, first_edition_night) -
+    horizons[c]``: the earliest edition night's own read window, which also covers every live call since (today's
+    windows start later). With no edition published, ``asof - horizons[c]`` (today's windows alone). A code read
+    unbounded (``None``) has no edge. ``pinned_days`` (the dial, when set) pins a FLAT window instead — every code
+    ``asof - days``, a negative value reading as 0."""
+    if pinned_days is not None:
+        return ReviewLine.flat(asof, pinned_days)
+    base = min(asof, first_edition_night) if first_edition_night is not None else asof
+    edges = {
+        str(c): (None if h is None else base - timedelta(days=int(h))) for c, h in horizons.items()
+    }
+    return ReviewLine(asof=asof, edges=edges, anchor=first_edition_night)
+
+
 def review_bucket(
     eff: Effective,
     *,
@@ -405,6 +492,7 @@ def review_bucket(
     ever_decided: bool,
     in_review: bool,
     unresolved: bool = False,
+    system_link: bool = False,
 ) -> str:
     """R8-B — PURE: where one amendment sits in the operator's review, from its effective state.
 
@@ -420,9 +508,13 @@ def review_bucket(
       resolvable one with no decision at all is ``queued``: a pre-R8-B link the next pass's sweep applies (a
       void suppresses meanwhile, as pending always did). A void the system HELD (``system:held`` — retraction
       language, several trades on the original) is ``owed`` / ``historical`` the same way, its original
-      standing."""
+      standing.
+    - ``system_link`` (rule 2b — the standing link decision is the SYSTEM's pick, ``system:sole-match``): the
+      pick is a resolution, so an inert disposition against the picked original reads ``auto`` (listed with its
+      Undo, never lost among the inert ones), and the pick alone never makes it owed — an unresolved match
+      against it is owed / historical by the review line like any other."""
     if eff.status == STATUS_INERT:
-        return REVIEW_INERT
+        return REVIEW_AUTO if system_link else REVIEW_INERT
     if eff.verdict is not None:
         if verdict_basis == BASIS_HELD:  # the system kept the original for the operator to decide
             return REVIEW_OWED if in_review else REVIEW_HISTORICAL
@@ -431,7 +523,7 @@ def review_bucket(
         return REVIEW_AUTO
     if eff.disposition == AMBIGUOUS and eff.link_decision_id is None:
         return REVIEW_OWED if in_review else REVIEW_HISTORICAL
-    if eff.link_decision_id is not None or ever_decided:
+    if (eff.link_decision_id is not None and not system_link) or ever_decided:
         return REVIEW_OWED
     if unresolved:
         return REVIEW_OWED if in_review else REVIEW_HISTORICAL
@@ -1146,6 +1238,10 @@ class LinkResult:
     # nothing to do), and a void's reading (``void_reading``)
     system_action: str | None = None
     void_kind: str | None = None
+    # rule 2b (2026-10-24) — an AMBIGUOUS link's SYSTEM pick (``system_pick``): the one candidate every row of the
+    # amendment matches by shares + price, and the system's resolution against it; ``None`` = no pick (the
+    # operator's, or nothing to pick). The link itself stays ambiguous; the pick is recorded as decisions.
+    pick: SystemPick | None = None
 
 
 def originals_rows(
@@ -1278,6 +1374,126 @@ def row_tie_break(
     return hits[0] if len(hits) == 1 else None
 
 
+# rule 2b's equality, exactly as MEASURED (2026-10-24): shares within 1e-6, price within 1e-4 (absolute), a value
+# missing on both sides equal, missing on one side not
+_SOLE_SHARES_TOL = 1e-6
+_SOLE_PRICE_TOL = 1e-4
+
+
+def _same_value(a: object, b: object, tol: float) -> bool:
+    try:
+        x, y = _num(a), _num(b)
+    except (TypeError, ValueError):
+        return False
+    if x is None or y is None:
+        return x is None and y is None
+    return abs(x - y) <= tol
+
+
+def sole_match_coverage(
+    amend_rows: Sequence[Mapping[str, Any]], candidate_rows: Sequence[Mapping[str, Any]]
+) -> int:
+    """How many of the amendment's rows match a row of ONE candidate, one-to-one, by shares + price and the same
+    reporting owner (``_same_owner``) — rule 2b's count. Greedy in filing order (the amendment's rows by
+    ``txn_seq``, each taking the candidate's first unused equal row), exactly as measured."""
+    pool = sorted(candidate_rows, key=lambda r: int(r.get("txn_seq") or 0))
+    hit = 0
+    for r in sorted(amend_rows, key=lambda r: int(r.get("txn_seq") or 0)):
+        for k, c in enumerate(pool):
+            if (
+                _same_value(r.get("shares"), c.get("shares"), _SOLE_SHARES_TOL)
+                and _same_value(r.get("price"), c.get("price"), _SOLE_PRICE_TOL)
+                and _same_owner(r, c)
+            ):
+                hit += 1
+                pool.pop(k)
+                break
+    return hit
+
+
+def sole_match(
+    amend_rows: Sequence[Mapping[str, Any]],
+    candidates: Sequence[str],
+    stored: Mapping[str, Sequence[Mapping[str, Any]]],
+) -> str | None:
+    """PURE — rule 2b (operator decision 2026-10-24): the ONE candidate that holds a match (shares + price, same
+    owner — ``sole_match_coverage``) for EVERY row the amendment reports; ``None`` when no candidate, or several,
+    covers them all — and always for a zero-row amendment (it reports nothing to match).
+
+    Why beside the row tie-break (``row_tie_break``): that rule settles a set when exactly one candidate holds ANY
+    row the amendment accounts for, so it fails when the loser also accounts for one by coincidence — CVNA's
+    96-share line equals ``-000273``'s two 48-share lines (a SUM), HROW's sale sits on ``-000741`` at another
+    price (a price-fix shape). Full coverage by one candidate is the stricter test, and it settles both the way
+    the operator did (``-000271``, 28/28; ``0001493152-25-011028``)."""
+    if not amend_rows:
+        return None
+    n = len(amend_rows)
+    full = [acc for acc in candidates if sole_match_coverage(amend_rows, stored.get(acc, ())) == n]
+    return full[0] if len(full) == 1 else None
+
+
+@dataclass(frozen=True)
+class SystemPick:
+    """Rule 2b's pick for one AMBIGUOUS amendment: the candidate it links to (``target``), the disposition
+    against it (``classify`` — what the link decision stores), how many of the amendment's ``rows`` each
+    candidate matches (``coverage``), and the system's resolution against the target (``system_resolution`` —
+    ``None`` when the row match against it is unresolved: the pick still stands, the verdict is the
+    operator's)."""
+
+    target: str
+    disposition: str
+    rows: int
+    coverage: Mapping[str, int]
+    resolution: SystemResolution | None
+    signal_effect: bool = True
+    unresolved: bool = False
+
+    @property
+    def originals(self) -> tuple[str, ...]:
+        return (self.target,)
+
+
+def system_pick(
+    amend_rows: Sequence[Mapping[str, Any]],
+    candidates: Sequence[str],
+    stored: Mapping[str, Sequence[Mapping[str, Any]]],
+    signal_codes: Collection[str],
+    text: str = "",
+) -> SystemPick | None:
+    """PURE — rule 2b for an AMBIGUOUS amendment: the pick (``sole_match``) and, against it, exactly what the
+    linker computes for a definite link (``link_amendment``): the disposition, the row match with the filer's
+    words, the signal effect and the system's resolution. ``None`` when ``sole_match`` picks nothing.
+    """
+    pool = {acc: rows for acc, rows in stored.items() if rows}
+    target = sole_match(amend_rows, candidates, pool)
+    if target is None:
+        return None
+    disposition, originals = link_to_candidate(
+        amend_rows, target, pool.get(target, []), signal_codes
+    )
+    match = match_for(disposition, originals, pool, list(amend_rows), signal_codes, text)
+    void = void_for(disposition, originals, pool, signal_codes, text)
+    before, after = before_after(
+        disposition,
+        original_accessions=originals,
+        voided_accessions=(),
+        candidate_accessions=originals,
+        stored=pool,
+        amend_rows=list(amend_rows),
+        replaced=match.replaced if match is not None else None,
+    )
+    effect = bool(changed_signal_rows(disposition, before, after, signal_codes))
+    return SystemPick(
+        target=target,
+        disposition=disposition,
+        rows=len(amend_rows),
+        coverage={acc: sole_match_coverage(amend_rows, pool.get(acc, ())) for acc in candidates},
+        resolution=system_resolution(disposition, signal_effect=effect, match=match, void=void),
+        signal_effect=effect,
+        unresolved=match is not None and match.unresolved,
+    )
+
+
 def link_amendment(
     amendment: AmendmentFacts,
     stored: Mapping[str, Sequence[Mapping[str, Any]]],
@@ -1315,6 +1531,13 @@ def link_amendment(
     effect = bool(changed_signal_rows(base.disposition, before, after, signal_codes))
     unresolved = match is not None and match.unresolved
     res = system_resolution(base.disposition, signal_effect=effect, match=match, void=void)
+    pick = (
+        system_pick(
+            list(amendment.rows), base.candidate_accessions, pool, signal_codes, amendment.text
+        )
+        if base.disposition == AMBIGUOUS
+        else None
+    )
     return replace(
         base,
         signal_effect=effect,
@@ -1325,6 +1548,7 @@ def link_amendment(
         unresolved=unresolved,
         system_action=res.action if res is not None else None,
         void_kind=void.kind if void is not None else None,
+        pick=pick,
     )
 
 
@@ -1665,10 +1889,14 @@ def effect_of(
     else:  # an unknown disposition (a newer writer) — inert, never a guess
         status = STATUS_INERT
         v = None
+    if link_decision is None:
+        method = str(link["method"])
+    else:  # a link DECISION: the operator's pick, or the system's (rule 2b, ``system:sole-match``)
+        method = "system" if is_system_basis(link_decision.get("basis")) else "operator"
     return Effective(
         accession=str(link["amendment_accession"]),
         disposition=disp,
-        method="operator" if link_decision is not None else str(link["method"]),
+        method=method,
         original_accessions=originals,
         voided_accessions=voided,
         candidate_accessions=_list(link.get("candidate_accessions")),

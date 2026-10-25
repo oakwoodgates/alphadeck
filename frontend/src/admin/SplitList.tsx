@@ -1,12 +1,17 @@
+import { type ReactNode, useState } from "react";
+
 import type { AdminSplitJumpOut, AdminSplitListEntryOut, AdminSplitListOut } from "../api/hooks";
 import {
   useConfirmSplit,
+  useDismissJump,
   useRejectSplit,
   useRestoreSplit,
   useRevokeSplit,
   useSplitList,
+  useUndoJumpDismissal,
 } from "../api/hooks";
 import { errText } from "../workbench/format";
+import { confirmLine, polygonSays, rejectLine, secSays, splitSentence } from "./splitWords";
 
 type Split = AdminSplitListEntryOut;
 
@@ -96,14 +101,14 @@ const px = (x: number | null | undefined) => (x == null ? "—" : String(Number(
 const vol = (x: number | null | undefined) => (x == null ? "—" : Math.round(x).toLocaleString("en-US"));
 
 /** S5 — a split-shaped price jump the split-night hold released (three sessions on) that no source listed: the
- *  step itself (the two bars, close and volume) and what the price did next. A question for the operator, no
- *  action of its own (nothing to undo) and never a page. */
-function Jump({ j }: { j: AdminSplitJumpOut }) {
+ *  step itself (the two bars, close and volume) and what the price did next. A question for the operator, never
+ *  a page. Its one action (2026-10-24): Dismiss ("this was a real move") — display only, its inverse is Undo. */
+function Jump({ j, action }: { j: AdminSplitJumpOut; action?: ReactNode }) {
   const who = j.ticker ?? j.security_id;
   const what = j.label.startsWith(`${who} `) ? j.label.slice(who.length + 1) : j.label;
   const after = j.after ?? [];
   return (
-    <li data-testid="adm-split-jump-row">
+    <li data-testid={j.dismissal_id ? "adm-split-jump-dismissed-row" : "adm-split-jump-row"}>
       <div>
         <b>{who}</b> — {what} · {j.sessions_since} sessions ago
       </div>
@@ -116,6 +121,13 @@ function Jump({ j }: { j: AdminSplitJumpOut }) {
           then {after.map((b) => `${md(b.d)} ${px(b.close)}`).join(" · ")}
         </div>
       ) : null}
+      {j.dismissal_id ? (
+        <div className="adm-sub">
+          dismissed by you as a real move{j.dismissed_at ? `, ${md(j.dismissed_at.slice(0, 10))}` : ""}
+          {j.dismissed_reason ? ` — “${j.dismissed_reason}”` : ""}
+        </div>
+      ) : null}
+      {action}
     </li>
   );
 }
@@ -127,16 +139,27 @@ function Jump({ j }: { j: AdminSplitJumpOut }) {
  *  agreed), announced ones, and the rejected / revoked ones are QUIET collapsed lists — the set-aside ones
  *  grayed and still listed (WB#2). Every action has its inverse beside it: Confirm ⇄ Revoke, Reject /
  *  Revoke ⇄ Restore (WB#1). S5 adds the operator's other question: a split-shaped price jump the split-night
- *  hold released with no split listed ("is this real?") — loud while it stands, an item to look at, never an
- *  action. Renders nothing when the list and that question are both empty. */
+ *  hold released with no split listed ("is this real?") — loud while it stands; its Dismiss ("this was a real
+ *  move", 2026-10-24) takes it off the list into the "dismissed" filter, its Undo puts it back, and neither
+ *  changes a call. Each review card says in plain words what the split is, what each source says, and what each
+ *  button does. Renders nothing when the list and that question are both empty. */
 export function SplitList() {
   const q = useSplitList();
   const confirm = useConfirmSplit();
   const reject = useRejectSplit();
   const revoke = useRevokeSplit();
   const restore = useRestoreSplit();
-  const busy = confirm.isPending || reject.isPending || revoke.isPending || restore.isPending;
-  const failed = [confirm, reject, revoke, restore].find((m) => m.isError);
+  const dismiss = useDismissJump();
+  const undoDismiss = useUndoJumpDismissal();
+  const [showDismissed, setShowDismissed] = useState(false);
+  const busy =
+    confirm.isPending ||
+    reject.isPending ||
+    revoke.isPending ||
+    restore.isPending ||
+    dismiss.isPending ||
+    undoDismiss.isPending;
+  const failed = [confirm, reject, revoke, restore, dismiss, undoDismiss].find((m) => m.isError);
 
   if (q.isError) {
     return (
@@ -147,8 +170,9 @@ export function SplitList() {
     );
   }
   const jumps = q.data?.unlisted_jumps ?? [];
+  const dismissed = q.data?.dismissed_jumps ?? [];
   const jumpsError = q.data?.unlisted_jumps_error ?? null;
-  if (!q.data || (!q.data.total && !jumps.length && !jumpsError)) return null;
+  if (!q.data || (!q.data.total && !jumps.length && !dismissed.length && !jumpsError)) return null;
   const review = bucket(q.data, "needs_review");
   const announced = bucket(q.data, "announced");
   const confirmed = bucket(q.data, "confirmed");
@@ -166,7 +190,26 @@ export function SplitList() {
           </div>
           <ul className="adm-repairs">
             {jumps.map((j) => (
-              <Jump key={`${j.security_id}:${j.step_date}`} j={j} />
+              <Jump
+                key={`${j.security_id}:${j.step_date}`}
+                j={j}
+                action={
+                  <div className="adm-act">
+                    <button
+                      type="button"
+                      className="adm-minibtn"
+                      disabled={busy}
+                      onClick={() => dismiss.mutate({ securityId: j.security_id, stepDate: j.step_date })}
+                    >
+                      Dismiss
+                    </button>
+                    <span className="adm-act-line" data-testid="adm-split-jump-effect">
+                      This was a real move: the card leaves this list (it stays under “dismissed”, with an Undo). No
+                      call changes — the split-night hold already released it.
+                    </span>
+                  </div>
+                }
+              />
             ))}
           </ul>
           <div className="adm-sub">
@@ -184,6 +227,42 @@ export function SplitList() {
           The split-shaped jump check failed: {jumpsError}
         </div>
       ) : null}
+      {dismissed.length > 0 && (
+        <div className="adm-quietlist" data-testid="adm-splits-jumps-dismissed">
+          <button
+            type="button"
+            className="adm-minibtn"
+            aria-pressed={showDismissed}
+            onClick={() => setShowDismissed((v) => !v)}
+          >
+            {showDismissed ? "Hide" : "Show"} dismissed ({dismissed.length})
+          </button>{" "}
+          <span className="adm-sub">split-shaped jump(s) you dismissed as real moves</span>
+          {showDismissed && (
+            <ul className="adm-problems adm-quietrows adm-grayed">
+              {dismissed.map((j) => (
+                <Jump
+                  key={`${j.security_id}:${j.step_date}`}
+                  j={j}
+                  action={
+                    <div className="adm-act">
+                      <button
+                        type="button"
+                        className="adm-minibtn"
+                        disabled={busy}
+                        onClick={() => undoDismiss.mutate({ dismissalId: j.dismissal_id! })}
+                      >
+                        Undo
+                      </button>
+                      <span className="adm-act-line">Back on the “is this real?” list. No call changes.</span>
+                    </div>
+                  }
+                />
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       {review.length > 0 && (
         <div className="adm-stale" data-testid="adm-splits-review">
@@ -196,25 +275,39 @@ export function SplitList() {
               return (
                 <li key={s.version_id} data-testid="adm-split-review-row">
                   <Header s={s} />
-                  <Sides s={s} />
-                  {s.note ? <div className="adm-sub">{s.note}</div> : null}
-                  <div className="adm-repair-act">
-                    {options.map((o) => (
-                      <button
-                        key={o.source}
-                        type="button"
-                        className="adm-minibtn primary"
-                        disabled={busy}
-                        title={o.label}
-                        onClick={() => confirm.mutate({ ...id(s), source: o.source })}
-                      >
-                        {options.length > 1 ? `Confirm ${o.source === "sec" ? "SEC" : "Polygon"} values` : "Confirm"}
-                      </button>
-                    ))}
-                    <button type="button" className="adm-minibtn" disabled={busy} onClick={() => reject.mutate(id(s))}>
-                      Reject
-                    </button>
+                  <div className="adm-plain" data-testid="adm-split-plain">
+                    <div data-testid="adm-split-what">{splitSentence(s)}</div>
+                    <div data-testid="adm-split-sec-says">{secSays(s)}</div>
+                    <div data-testid="adm-split-polygon-says">{polygonSays(s)}</div>
                   </div>
+                  {s.note ? <div className="adm-sub">{s.note}</div> : null}
+                  <div className="adm-acts">
+                    {options.map((o) => (
+                      <div className="adm-act" key={o.source}>
+                        <button
+                          type="button"
+                          className="adm-minibtn primary"
+                          disabled={busy}
+                          title={o.label}
+                          onClick={() => confirm.mutate({ ...id(s), source: o.source })}
+                        >
+                          {options.length > 1 ? `Confirm ${o.source === "sec" ? "SEC" : "Polygon"} values` : "Confirm"}
+                        </button>
+                        <span className="adm-act-line" data-testid="adm-split-effect">
+                          {confirmLine(s, o, options.length > 1)}
+                        </span>
+                      </div>
+                    ))}
+                    <div className="adm-act">
+                      <button type="button" className="adm-minibtn" disabled={busy} onClick={() => reject.mutate(id(s))}>
+                        Reject
+                      </button>
+                      <span className="adm-act-line" data-testid="adm-split-effect">
+                        {rejectLine()}
+                      </span>
+                    </div>
+                  </div>
+                  <Sides s={s} />
                 </li>
               );
             })}

@@ -281,9 +281,19 @@ each with its **Undo**: **Use the correction** (the amendment's rows replace the
 not offered on a zero-row 4/A, which has nothing to add). Where the filer's words settled it, the evidence
 shows them: "Read as: the filer's words FIX the trade it re-reports — “…”".
 
-- **Owed your decision** (loud, on top) — what the system cannot resolve, when its buy/sell rows sit inside
-  the review horizon (`insider_amendment_review_horizon_days`, 940 days derived — the backtest window plus the
-  longest signal read): an **ambiguous** amendment (several Form 4s it could amend), with one **Link to
+- **Plain English (2026-10-24)** — every card says, first, **"This changes no call."** when no answer on it can
+  change a row a live call or an edition page reads (the review line's own test), then ONE sentence on what the
+  filer did (who, in what role, bought / sold how many shares at what price on what date, the dollar total; for
+  a zero-row 4/A, what the Form 4 it amends reported), then one short line per button saying what it does to the
+  calls (the resolver's own answer: which buys / sales the read loses and gains). Candidates are named by their
+  filing date and how many of the 4/A's trades match them; accession numbers stay on a secondary line.
+- **The system's pick (rule 2b)** — an ambiguous amendment whose every trade matches ONE candidate by shares +
+  price is linked by the system (`system:sole-match`) and resolved against it; it is listed under "Resolved
+  automatically" with **Undo the system's pick** (the amendment is ambiguous again, yours to link).
+- **Owed your decision** (loud, on top) — what the system cannot resolve, when its buy/sell rows are read by a
+  live call or an edition page (the review line: buys on/after the earliest edition night − 210 days, sales
+  on/after it − 120 days, or inside today's windows; `insider_amendment_review_horizon_days` pins a flat window
+  instead): an **ambiguous** amendment (several Form 4s it could amend), with one **Link to
   <accession>** per candidate (linking computes its disposition against that original; it then waits for your
   verdict, with **Undo link**); an **unresolved row match** — a buy or sale it re-reports matches no original
   row and the filer's words neither fix nor add (YYAI): Use the correction if it restates the original, Add to
@@ -311,7 +321,7 @@ shows them: "Read as: the filer's words FIX the trade it re-reports — “…�
   you", "added to the original by you") with its **Undo** (over a system decision it says "Undo restores the
   system's resolution").
 - **Unresolved — historical (no call reads these rows)** (quiet, collapsed, grayed) — an ambiguous amendment,
-  an unresolved row match or a held void older than the review horizon (or touching no buy or sale): the
+  an unresolved row match or a held void outside the review line (or touching no buy or sale): the
   originals stand, it never pages, and it stays decidable — **Link to <accession>** on an ambiguous one, the
   three verdicts on the others (MEASURED 2026-10-21: 60 — 39 ambiguous, 17 unresolved, 4 held).
 - **Awaiting the nightly sweep** (quiet) — a pre-R8-B link with no decision yet (a void suppresses meanwhile);
@@ -785,7 +795,8 @@ the freeze it is adjacent to: `POSTMORTEM_CRON_FREEZE_2026-07.md`.
 | `POST /admin/price-feed/limitations/{mark_id}/revoke` | → the mark as it now stands (`active: false`) | Undo; 404 when no active mark has that id (an acknowledgment revokes at `/acks/…`) |
 | `POST /admin/price-feed/{security_id}/adopt-cik` | `{cik}` → the CIK change row | the detector's recommended successor only (409 otherwise / master moved / CIK held by another row); no network |
 | `POST /admin/price-feed/cik-changes/{change_id}/undo` | → the undo row | exact restore; 409 already undone / a later change stands / the master moved |
-| `GET /admin/insider-amendments` | the Form 4/A panel (R8-B): `owed` (in-window first) / `auto` / `decided` / `historical` / `queued` / `inert`, plus `asof` and `review_horizon_days`; each item carries `review`, `system_basis`, `in_review`, `unresolved`, `held`, `kept_rows`, `reading`, `passage` | read-only, live from the 0050 tables |
+| `GET /admin/insider-amendments` | the Form 4/A panel (R8-B): `owed` (in-window first) / `auto` / `decided` / `historical` / `queued` / `inert`, plus `asof`, `review_edges` / `review_anchor` (the review line) and `review_horizon_days` (the pinned dial, else null); each item carries `review`, `system_basis`, `in_review`, `unresolved`, `held`, `kept_rows`, `reading`, `passage`, and the plain-English card's `owner_name` / `owner_role` / `trades` / `usd_total` / `changes_no_call` / `actions` (each button's removes / adds) / `pick` (rule 2b) | read-only, live from the 0050 tables |
+| `POST /admin/insider-amendments/{security_id}/{accession}/undo-pick` | Undo the system's pick (rule 2b): revokes the system's verdict and its link — the amendment is ambiguous again | operator write, append-only |
 | `POST /admin/insider-amendments/{security_id}/{accession}/apply` | `{reason?}` → the amendment | **Use the correction** — the amendment's rows replace the whole original (a void hides it); allowed over a system decision; 409 nothing to ratify / a correction (it applies) / an operator verdict stands / ambiguous and unlinked |
 | `POST /admin/insider-amendments/{security_id}/{accession}/keep` | `{reason?}` → the amendment | **Keep the original** — the amendment changes nothing (lifts a pending void; the Undo of a system application — stacked over it); 409 an operator verdict stands |
 | `POST /admin/insider-amendments/{security_id}/{accession}/add` | `{reason?}` → the amendment | **Add to the original** — every original row stands, the amendment's rows are added (stored as an `apply` with `replaced_rows = []`); partial / consolidation / addition / restatement / field change only; 409 a zero-row or correction amendment / an operator verdict stands |

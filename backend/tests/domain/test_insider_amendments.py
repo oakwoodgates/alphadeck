@@ -308,12 +308,14 @@ def test_fis_tie_break_links_the_withholding_and_leaves_the_buy_alone():
 def test_hrow_stays_ambiguous_when_both_candidates_hold_an_accounted_row():
     """HROW: no Form 4 on the stated date (the transaction date); two of the owner's share it — the identical sale
     and the same sale at another price (a price-fix shape). The tie-break needs EXACTLY one candidate holding an
-    accounted row; both do -> it stays the operator's (its remarks name the March 20 filing, but words never pick
-    a filing)."""
+    accounted row; both do -> the LINK stays ambiguous (its remarks name the March 20 filing, but words never pick
+    a filing). Rule 2b then picks the one holding the sale at its shares AND price (the operator's own pick) —
+    recorded as decisions beside the link, never as a new link."""
     link = _link("0001641172-25-010338")
     assert (link.disposition, link.status, link.tie_break) == (AMBIGUOUS, STATUS_PENDING, False)
     assert link.candidate_accessions == ("0001493152-25-011028", "0001641172-25-000741")
-    assert (link.auto_resolved, link.basis) == (False, None)  # no definite original: never applied
+    assert (link.auto_resolved, link.basis) == (False, None)  # the link itself applies nothing
+    assert link.pick is not None and link.pick.target == "0001493152-25-011028"
 
 
 def test_mram_and_iehc_restate_their_sales_in_fix_language_so_the_system_applies_them():

@@ -6,7 +6,9 @@ listed — is this real?" item on the Admin Splits panel, plus one quiet line in
 can tell them apart.
 
 **A read, never a write, never a call input.** It changes no card (the hold itself is the call's — ``signals/
-split_hold.py``); it lists what the operator may want to look at. The read is the hold's own: one
+split_hold.py``); it lists what the operator may want to look at. The operator can DISMISS a card ("this was a
+real move" — ``repositories.split_jump_repo``, migration 0068, undoable): it then leaves the list and the nightly
+line, and stays visible under the panel's "dismissed" filter; the hold never reads a dismissal. The read is the hold's own: one
 ``PointInTimeData`` on the PUBLIC clock over the active basket union (``price_history`` + ``split_events``, the
 same accessors and the same pure rule), so the panel judges a step exactly as the cards did. For today's asof
 the public clock IS the live read (``known_at_for_asof(today)`` = now).
@@ -18,7 +20,7 @@ free-tier budget on a read the operator did not ask for (the cost thread). Named
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any
@@ -126,14 +128,27 @@ def scan_unlisted_jumps(
     return tuple(out)
 
 
+def split_dismissed(
+    jumps: tuple[UnlistedJump, ...], dismissed: Mapping[tuple[UUID, date], Any]
+) -> tuple[tuple[UnlistedJump, ...], tuple[UnlistedJump, ...]]:
+    """PURE — ``(the jumps still asking "is this real?", the ones the operator dismissed as a real move)`` by the
+    standing dismissals (``repositories.split_jump_repo.standing_dismissals``, keyed ``(security_id,
+    step_date)``). Display only: the split-night hold never reads a dismissal."""
+    keep = tuple(j for j in jumps if (j.security_id, j.step.d) not in dismissed)
+    gone = tuple(j for j in jumps if (j.security_id, j.step.d) in dismissed)
+    return keep, gone
+
+
 @dataclass
 class JumpScan:
-    """One nightly pass's escalation read: ``jumps`` when it ran, ``error`` when it could not (fail-open for the
-    pass — a fault is one report line, never a failed night)."""
+    """One nightly pass's escalation read: ``jumps`` when it ran (the ones still asking — a jump the operator
+    dismissed as a real move is counted in ``dismissed``, never re-printed), ``error`` when it could not
+    (fail-open for the pass — a fault is one report line, never a failed night)."""
 
     evaluated: bool = False
     jumps: tuple[UnlistedJump, ...] = field(default_factory=tuple)
     error: str | None = None
+    dismissed: int = 0
 
 
 def run_jump_scan(
@@ -144,14 +159,18 @@ def run_jump_scan(
     connect: Callable[[], psycopg.Connection],
 ) -> JumpScan:
     """The nightly unit: its own read-only connection; a ``--no-live`` pass does not scan (it re-pulled no
-    tapes). Never raises."""
+    tapes). A jump the operator dismissed as a real move (``repositories.split_jump_repo``) is left out of the
+    line. Never raises."""
     if not allow_live:
         return JumpScan()
+    from repositories.split_jump_repo import standing_dismissals  # lazy: a read of the log
+
     try:
         conn = connect()
         try:
             conn.read_only = True
             jumps = scan_unlisted_jumps(conn, asof=asof, tenant_id=tenant_id)
+            keep, gone = split_dismissed(jumps, standing_dismissals(conn, tenant_id=tenant_id))
             conn.rollback()
         finally:
             conn.close()
@@ -160,7 +179,7 @@ def run_jump_scan(
     ) as e:  # noqa: BLE001 — an escalation read fault is reported, never a failed pass
         msg = " ".join(str(e).split())[:200]
         return JumpScan(error=f"{type(e).__name__}: {msg}" if msg else type(e).__name__)
-    return JumpScan(evaluated=True, jumps=jumps)
+    return JumpScan(evaluated=True, jumps=keep, dismissed=len(gone))
 
 
 def report_lines(scan: JumpScan) -> list[str]:

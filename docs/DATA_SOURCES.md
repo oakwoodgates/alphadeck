@@ -602,10 +602,12 @@ Depth: the submissions `recent` window, the same accepted depth as Form 4.
   `FEED_LOOP.md` §R8-B). A Form 4/A is the filer's legal correction of their own filing — deterministic data,
   not a model's recommendation — so the operator rules only on what the system cannot resolve: an
   **ambiguous** link, an **unresolved row match** (its words neither fix nor add), or a **held void**
-  (retraction words against several trades), that touches a `P`/`S` row inside the review horizon
-  (`insider_amendment_review_horizon_days`, derived 940 days = the 730-day backtest window + the 210-day `P`
-  read) — with three verdicts: Use the correction, Keep the original, Add to the original. An older one is
-  listed as "unresolved — historical", the originals standing. MEASURED 2026-10-21 on prod, asof 2026-10-20
+  (retraction words against several trades), that touches a `P`/`S` row a live call or an edition page reads
+  (the review line, 2026-10-24: buys on/after the earliest edition night − 210 days, sales on/after it − 120
+  days, or inside today's windows — it replaced the 940-day backtest horizon) — with three verdicts: Use the
+  correction, Keep the original, Add to the original. An older one is listed as "unresolved — historical", the
+  originals standing. An ambiguous one whose every trade matches ONE candidate by shares + price is linked by
+  the system (rule 2b), undoable. MEASURED 2026-10-21 on prod, asof 2026-10-20
   (2,988 linked pairs — the live leg pulled the full history back to 2003, not the two-year research corpus),
   after the first sweep: **6 owed** (4 ambiguous, 1 unresolved match, 1 held void), **60 historical**, **1,693
   resolved by the system**, **1,229 inert** (`FEED_LOOP.md` §R8-B). (R8-A's figures, 2026-10-18, two-year
