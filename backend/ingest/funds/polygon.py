@@ -1,4 +1,4 @@
-"""Polygon.io fund shares-outstanding — the PRIMARY source when a key is present (ETF net flow).
+"""Massive.com fund shares-outstanding — the PRIMARY source when a key is present (ETF net flow).
 
 ``GET {polygon_base}/v3/reference/tickers/{TICKER}?date={YYYY-MM-DD}&apiKey={KEY}`` returns the fund's
 reference row *as of the queried date*: ``results.share_class_shares_outstanding`` (an integer) and
@@ -49,19 +49,19 @@ _RETRY_WAIT_S = 61.0
 _LIMITER = RateLimiter(max_per_sec=1.0 / _MIN_INTERVAL_S)
 _SLEEP = time.sleep  # the 429-wait sleeper (polite_get's `sleep=` seam), injectable for tests
 
-# The ONE Polygon request budget, public: the split reference (``ingest/polygon_splits.py``) paces against
+# The ONE Massive.com request budget, public: the split reference (``ingest/polygon_splits.py``) paces against
 # this same limiter, so a split backfill and the fund-shares leg never spend the free tier twice.
 LIMITER = _LIMITER
 RETRY_WAIT_S = _RETRY_WAIT_S
 
 _STATUS_HINTS = {
-    401: " — bad POLYGON_API_KEY",
+    401: " — bad MASSIVE_API_KEY",
     403: " — the key's plan does not cover this endpoint",
 }
 
 
 class PolygonError(Exception):
-    """A Polygon fetch failed for real (auth / plan / server / network) — message ALWAYS key-scrubbed.
+    """A Massive.com fetch failed for real (auth / plan / server / network) — message ALWAYS key-scrubbed.
     Distinct from a miss (``None``): a miss falls back / is skipped-and-counted; this surfaces
     fail-visible (the composite warns, the backfill captures it on the member)."""
 
@@ -97,7 +97,7 @@ def parse_polygon(text: str) -> float | None:
 
 
 class PolygonFundSource:
-    """The keyed Polygon adapter — ``FundSharesSource`` for the forward daily sample, plus the dated
+    """The keyed Massive.com adapter — ``FundSharesSource`` for the forward daily sample, plus the dated
     ``get_snapshot_at`` the historical backfill walks. Constructed only when a key exists
     (``default_fund_source`` composes it in; a keyless deploy never builds one)."""
 
@@ -112,7 +112,7 @@ class PolygonFundSource:
     def get_snapshot(
         self, ticker: str, *, allow_live: bool = False, force_refresh: bool = False
     ) -> dict | None:
-        """The forward daily sample: query TODAY and stamp ``d`` = today (the queried date — Polygon
+        """The forward daily sample: query TODAY and stamp ``d`` = today (the queried date — Massive.com
         states no effective date of its own)."""
         return self.get_snapshot_at(
             ticker, market_today(), allow_live=allow_live, force_refresh=force_refresh
@@ -126,7 +126,7 @@ class PolygonFundSource:
         clean_url = polygon_ticker_url(ticker, d)
         text = self._fetch(clean_url, ticker, d, allow_live=allow_live, force_refresh=force_refresh)
         if text is None:
-            return None  # 404 — Polygon does not know the ticker (a clean miss)
+            return None  # 404 — Massive.com does not know the ticker (a clean miss)
         count = parse_polygon(text)
         if count is None:
             return None
@@ -145,7 +145,9 @@ class PolygonFundSource:
         if cache_path.exists() and not (force_refresh and allow_live):
             return cache_path.read_text(encoding="utf-8")
         if not allow_live:
-            raise CacheMiss(f"no cached polygon response for {clean_url!r} (live pulls disabled)")
+            raise CacheMiss(
+                f"no cached Massive.com response for {clean_url!r} (live pulls disabled)"
+            )
         try:
             import httpx  # lazy, mirroring the other clients
         except ImportError:  # pragma: no cover — polite_get itself needs httpx; surfaced below
@@ -165,11 +167,11 @@ class PolygonFundSource:
             if httpx is not None and isinstance(e, httpx.HTTPStatusError):
                 code = e.response.status_code
                 if code == 404:
-                    return None  # Polygon does not know this ticker — a miss, not an error
+                    return None  # Massive.com does not know this ticker — a miss, not an error
                 raise PolygonError(
-                    f"polygon: HTTP {code} for {clean_url}{_STATUS_HINTS.get(code, '')}"
+                    f"Massive.com: HTTP {code} for {clean_url}{_STATUS_HINTS.get(code, '')}"
                 ) from None
-            raise PolygonError(f"polygon: {clean_url} failed: {self._scrub(str(e))}") from None
+            raise PolygonError(f"Massive.com: {clean_url} failed: {self._scrub(str(e))}") from None
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         cache_path.write_text(resp.text, encoding="utf-8")
         return resp.text

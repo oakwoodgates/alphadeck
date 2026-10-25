@@ -13,8 +13,8 @@ ONLY thing a golden varies is whether the company's split row is on the list:
   is no step, and nothing is held.
 - **Never held** — PTIX 2025-05-19 (x3.7 on x1,239 volume) and JAGX 2026-09-22 / 09-23 (x12.9 on x383 volume,
   then a fall on falling volume): genuine big moves, the volume moving WITH the price.
-- **A forward split** — ZCSH's real 3-for-1 (Polygon lists it, still needs review): the tape steps down to a
-  third on rising volume and the hold names Polygon's row.
+- **A forward split** — ZCSH's real 3-for-1 (Massive.com lists it, still needs review): the tape steps down to a
+  third on rising volume and the hold names Massive.com's row.
 - **The escalation** — three sessions on, the hold has released GAME's step; with no split listed it is on the
   operator's "is this real?" list, and with the split listed it is not.
 """
@@ -106,7 +106,7 @@ def test_held_on_a_real_split_night_when_the_split_is_not_on_the_list(
 def test_not_held_when_the_split_was_already_confirmed_on_the_list(db, night, tk, prior, step_day):
     sid, tid = _seeded(db, tk, listed=True)
     (row,) = fx.split_rows(tk)
-    assert row["status"] == "confirmed"  # the list's own status (auto: SEC + Polygon)
+    assert row["status"] == "confirmed"  # the list's own status (auto: SEC + Massive.com)
     thesis, pit = _view(db, tid, night)
     assert split_hold.find_holds(pit, thesis, night) == {}
     card = assemble_from_pit(pit, thesis, night)
@@ -135,10 +135,10 @@ def test_never_held_on_a_genuine_big_move(db, night, tk, listed):
 
 
 def test_a_real_forward_split_is_held_and_names_polygons_row_once_it_is_public(db):
-    """ZCSH's 3-for-1 (Polygon: first session 09-30; the vendor stepped on 09-29) — still needs review, so never
+    """ZCSH's 3-for-1 (Massive.com: first session 09-30; the vendor stepped on 09-29) — still needs review, so never
     in force: the step down to a third on rising volume holds both nights. On 09-29 the list's row is not yet
-    PUBLIC (its first source is Polygon's 09-30 first session — the public clock, #1), so the card says no
-    filing was found; on 09-30 it names Polygon's row."""
+    PUBLIC (its first source is Massive.com's 09-30 first session — the public clock, #1), so the card says no
+    filing was found; on 09-30 it names Massive.com's row."""
     sid, tid = _seeded(db, "ZCSH", listed=True)
     reasons = {}
     for night in (date(2026, 9, 29), date(2026, 9, 30)):

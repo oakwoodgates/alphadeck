@@ -1,5 +1,5 @@
 """The split list's auto-confirm rule (split plan S1) — two independent sources must agree (operator
-decision 2026-10-20). Each verdict below pairs a REAL Polygon row with what the REAL SEC filing states
+decision 2026-10-20). Each verdict below pairs a REAL Massive.com row with what the REAL SEC filing states
 (``tests/fixtures/splits``); the rule's edges with no real instance are stated on direct inputs."""
 
 from __future__ import annotations
@@ -76,7 +76,7 @@ def test_the_same_agreement_before_its_day_is_announced_not_confirmed():
 
 
 def test_pbm_the_moved_date_agrees_with_polygon():
-    """PBM moved its consolidation from 01-20 to 02-02; the 6-K states 02-02 and Polygon executes 02-02."""
+    """PBM moved its consolidation from 01-20 to 02-02; the 6-K states 02-02 and Massive.com executes 02-02."""
     d = decide(
         polygon_row("PBM", "2026-02-02"),
         [sec("0001213900-26-009093.txt", form="6-K", filed="2026-01-29")],
@@ -104,7 +104,7 @@ def test_mi_a_legal_effective_date_on_the_session_confirms():
 
 
 def test_wnrs_one_source_for_the_date_needs_review():
-    """WNRS's 1-A/A states 1:300 but no market date; Polygon alone dates it 05-13 — one source, so the
+    """WNRS's 1-A/A states 1:300 but no market date; Massive.com alone dates it 05-13 — one source, so the
     operator decides (both sides kept on the row)."""
     d = decide(
         polygon_row("WNRS", "2026-05-13"),
@@ -113,7 +113,10 @@ def test_wnrs_one_source_for_the_date_needs_review():
     )
     assert d.status == STATUS_NEEDS_REVIEW and d.confirmed_via is None
     assert d.sec is not None and d.sec.ratio_from == Decimal(300)
-    assert (d.ratio_from, d.effective_date) == (Decimal(300), date(2026, 5, 13))  # Polygon's values
+    assert (d.ratio_from, d.effective_date) == (
+        Decimal(300),
+        date(2026, 5, 13),
+    )  # Massive.com's values
     assert "no first-session or effective date stated" in d.note
 
 
@@ -132,7 +135,7 @@ def test_mi_window_holds_only_the_proxy_range_so_it_needs_review():
 
 
 def test_smx_a_polygon_row_no_filing_states_stays_polygon_only():
-    """Polygon lists SMX 2.285 -> 1 on 2026-06-01; the only split filing nearby is SMX's 1-for-20 of 05-11 — a
+    """Massive.com lists SMX 2.285 -> 1 on 2026-06-01; the only split filing nearby is SMX's 1-for-20 of 05-11 — a
     different split, named in the note but never attached as this one's evidence."""
     d = decide(
         polygon_row("SMX", "2026-06-01"),
@@ -140,24 +143,24 @@ def test_smx_a_polygon_row_no_filing_states_stays_polygon_only():
         asof=ASOF,
     )
     assert d.status == STATUS_NEEDS_REVIEW and d.sec is None
-    assert d.note.startswith("Polygon only")
+    assert d.note.startswith("Massive.com only")
     assert "a different split?" in d.note
     assert d.valid_from == date(2026, 6, 1)
 
 
 def test_a_ratio_disagreement_keeps_both_sides():
-    """BTOC's real filing against a Polygon row carrying a different ratio on the same day."""
+    """BTOC's real filing against a Massive.com row carrying a different ratio on the same day."""
     other = PolygonEvidence("Ex", "BTOC", date(2026, 10, 15), Decimal(15), Decimal(1))
     d = decide(other, [sec("0001213900-26-108468.txt", form="8-K", filed="2026-10-09")], asof=ASOF)
     assert d.status == STATUS_NEEDS_REVIEW and d.sec.ratio_from == Decimal(16)
     assert "the ratios differ" in d.note and d.ratio_from == Decimal(15)
 
 
-# --- found by the dev backfill (2026-10-20): real filings, real Polygon rows (fixtures/splits/polygon) ----------
+# --- found by the dev backfill (2026-10-20): real filings, real Massive.com rows (fixtures/splits/polygon) ----------
 
 
 def test_the_dev_run_fixes_confirm_against_polygon():
-    """Each was "needs review" before the extractor learned the phrasing; each now agrees with Polygon."""
+    """Each was "needs review" before the extractor learned the phrasing; each now agrees with Massive.com."""
     cases = [
         ("ELBM", "2025-01-02", "0001171843-24-007098.txt", "6-K", "2024-12-30"),
         ("CMND", "2026-10-05", "0001213900-26-105269.txt", "6-K", "2026-09-30"),
@@ -172,7 +175,7 @@ def test_the_dev_run_fixes_confirm_against_polygon():
 
 
 def test_a_restated_old_ads_change_never_confirms_a_later_split():
-    """LGHL: Polygon lists a 1-for-50 on 2025-03-26; the only filing nearby restates the 2023 ADS change at the
+    """LGHL: Massive.com lists a 1-for-50 on 2025-03-26; the only filing nearby restates the 2023 ADS change at the
     same ratio — the dates are years apart, so it is review, never auto-confirmed."""
     d = decide(
         polygon_row("LGHL", "2025-03-26"),
@@ -186,7 +189,7 @@ def test_a_restated_old_ads_change_never_confirms_a_later_split():
 def test_a_filing_that_only_restates_past_splits_is_never_a_splits_evidence():
     """The same LGHL filing as the backfill now reads a 6-K (the restatement screen, 2026-10-24): every ratio it
     states is a past split's, so it abstains — and an abstain of that kind is never shown as THIS split's
-    evidence (filed at most 10 days after a split, a filing can only restate OLDER ones). The card says Polygon
+    evidence (filed at most 10 days after a split, a filing can only restate OLDER ones). The card says Massive.com
     only, with no 2023 reading attached."""
     x = extract_split_screened(documents("0001213900-24-111258.txt"), filed=date(2024, 12, 20))
     assert x.abstain_reason == PAST_RATIO_ONLY
@@ -201,7 +204,9 @@ def test_a_filing_that_only_restates_past_splits_is_never_a_splits_evidence():
     )
     d = decide(polygon_row("LGHL", "2025-03-26"), [s], asof=ASOF)
     assert (d.status, d.sec) == (STATUS_NEEDS_REVIEW, None)
-    assert d.note.startswith("Polygon only — no SEC filing read in the window states this split")
+    assert d.note.startswith(
+        "Massive.com only — no SEC filing read in the window states this split"
+    )
 
 
 # --- the date rule's edges, on direct inputs -------------------------------------------------------------------

@@ -825,7 +825,7 @@ make the overlap routine, which is why the guard is per company rather than per 
 
 **What the pass now leaves behind (Phase 1B).** Beyond the counts, the run-of-record artifact carries:
 the **run identity** (`code_sha`, `config_hash`, `run_kind`) and a **non-secret env fingerprint** (`TZ`, the
-market zone, `RUN_AT` / `cron_at` as values; the User-Agent, Slack webhook, Polygon key and heartbeat URL as
+market zone, `RUN_AT` / `cron_at` as values; the User-Agent, Slack webhook, Massive.com key and heartbeat URL as
 **set/unset booleans only**; the notifier class) — the Admin page alarms on an unknown or mismatched sha, the
 LOG notifier and an unset UA; **per-name ingest errors** by leg (`name_errors`), diffed against the last-known
 inventory (each thesis as the newest live pass that covered it saw it — the per-thesis carry-forward, G5a
@@ -1321,7 +1321,7 @@ split, already adjusted, so the old rule read them on the post-split scale befor
 newest is read and the VIEW puts it on its own day's scale (`domain.splits.on_view_scale`, both engines):
 x the splits in force by the view's day, / the splits the store carries (the store is on the list's scale
 through its edge — the price leg's job, the repair's, the `splits_applied` audit's). MEASURED on the dev copy
-after the repair: 3,360 of 3,360 independent raw prints (Polygon, unadjusted) read raw x the splits in force by
+after the repair: 3,360 of 3,360 independent raw prints (Massive.com, unadjusted) read raw x the splits in force by
 the view across 120 history views of 20 companies (main's rule: 2,047 of 3,360), and T4 finds no island or
 cliff on any of them. Named residuals: a non-split vendor correction to such a bar counts from the settle; a
 store that does not carry a listed split (the audit names it RAW) reads wrong in history until repaired; the 5
@@ -1340,8 +1340,8 @@ split still showing its step, names the older backlog quietly, and names as NOT 
 split the tape cannot read and an announced split not yet confirmed (a flat tape is equally a postponed one).
 
 **A joining company's split history (2026-10-24)** `[BUILT]`. The list was filled ONCE (S1, 2026-10-20, over
-that day's basket) and the nightly (S4) looks back only 30 days (Polygon) / 60 days (SEC filings), so a company
-that joined a basket later had no split history: MEASURED on prod 2026-10-24, 32 splits Polygon lists since
+that day's basket) and the nightly (S4) looks back only 30 days (Massive.com) / 60 days (SEC filings), so a company
+that joined a basket later had no split history: MEASURED on prod 2026-10-24, 32 splits Massive.com lists since
 2025-03 on 29 companies were missing (CRWD 4-for-1, POWL 3-for-1, LHSW 1-for-16, ABTS 1-for-15 …), all on the
 350 companies that joined after the backfill; companies in a basket at the backfill: 0 missing.
 `pipeline/split_history.py` now runs the S1 backfill scoped to every live basket member with no
@@ -1351,9 +1351,9 @@ its plan against the stored list (a split the nightly or the operator listed is 
 the START of every staged-onboarding batch (`pipeline.onboarding.run_batch`, every 30 min from the cron
 sidecar), so it is outside the nightly window, yields to a running pass, and covers fast-lane promotes and
 hand-adds too (it reads the baskets, not the queue). Per company, under its W1 lock (a held company waits for
-the next run). Polygon: ONE market-wide pull from 2024-10-01 per day (the pages are cached per market day),
+the next run). Massive.com: ONE market-wide pull from 2024-10-01 per day (the pages are cached per market day),
 and only when some member needs a fill. A company whose SEC index or a filing in a split's window could not be
-read is marked INCOMPLETE and retried, at most 3 runs. With no `POLYGON_API_KEY` nothing is filled or marked.
+read is marked INCOMPLETE and retried, at most 3 runs. With no `MASSIVE_API_KEY` nothing is filled or marked.
 The migration SEEDS the S1 backfill's own coverage (the roster of every live thesis's basket snapshot at the
 backfill's apply instant, plus every company with a backfill version), and `backfill_splits --apply` from
 2024-10-01 marks what it covers — so neither is re-filled. `python -m pipeline.split_history` dry-runs it

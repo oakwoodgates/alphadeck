@@ -155,7 +155,7 @@ def test_btoc_split_row_names_its_sources_and_the_repair_that_corrected_its_hist
         "confirmed",
         date(2026, 10, 15),
     )
-    assert s.confirmed_by == "the SEC filing and Polygon agree" and s.took_effect
+    assert s.confirmed_by == "the SEC filing and Massive.com agree" and s.took_effect
     assert s.sec_form == "8-K" and s.sec_filed == date(2026, 10, 9) and s.factor == 16.0
     # 10-15 is the first bar at the new price; the newest bar (10-21) is four bars after it
     assert s.bars_ago == 4
@@ -220,7 +220,7 @@ def test_mvnc_split_needs_review_reaches_the_cells_across_it_and_the_market_cap(
     # the 2026-10-13 step sits inside every window but the 1d return's (the newest bar is 10-21)
     assert "ret_1d" not in review.columns
     assert {"ret_7d", "ret_1y", "sma", "path", "rvol8", "ins_30d"} <= set(review.columns)
-    assert review.evidence and review.evidence[0].label.startswith("Polygon")
+    assert review.evidence and review.evidence[0].label.startswith("Massive.com")
     assert cap.level == m.IN_DOUBT and cap.columns == ("mktcap",)
     assert "share count is from 2026-05-07" in cap.reason
     assert mf.marked

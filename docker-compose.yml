@@ -57,10 +57,10 @@ services:
       # local dev loop only; the container must always reach postgres:5432).
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ALPHADECK_USER_AGENT: ${ALPHADECK_USER_AGENT:-}
-      # Polygon.io key (ETF net flow): with it, ETF sleeve shares-outstanding samples come from Polygon
+      # Massive.com key (ETF net flow): with it, ETF sleeve shares-outstanding samples come from Massive.com
       # FIRST (exact counts + the historical backfill CLI); without it, the free scrapers keep covering
       # the forward sample. Fail-open like the two above.
-      POLYGON_API_KEY: ${POLYGON_API_KEY:-}
+      MASSIVE_API_KEY: ${MASSIVE_API_KEY:-}
       # Optional discovery BACKSTOP caps, PER TIER, exposed for tuning: SIGNAL terms enumerate DEEP (a seed hit
       # places a name; unset -> 5000) and BROAD terms SHALLOW (collision-prone, corroboration only; unset ->
       # 1000). NOT recall limiters — only a pathological-keyword bound; speed comes from the parallel EFTS
@@ -187,9 +187,9 @@ services:
       ALPHADECK_INGEST_FETCH_CONCURRENCY: ${ALPHADECK_INGEST_FETCH_CONCURRENCY:-8}
       ALPHADECK_SEC_GLOBAL_RATE_PER_SEC: ${ALPHADECK_SEC_GLOBAL_RATE_PER_SEC:-8.5}
       ALPHADECK_YAHOO_RATE_PER_SEC: ${ALPHADECK_YAHOO_RATE_PER_SEC:-4.0}
-      # The nightly fund-shares sample rides this ingest — the cron needs the SAME Polygon key as the
+      # The nightly fund-shares sample rides this ingest — the cron needs the SAME Massive.com key as the
       # backend (a deterministic DATA api, #3 — not an LLM seam) or its sample falls back to scrapers.
-      POLYGON_API_KEY: ${POLYGON_API_KEY:-}
+      MASSIVE_API_KEY: ${MASSIVE_API_KEY:-}
       # The SAME one host variable the backend reads (see its block above) — the sidecar's shell fires
       # RUN_AT on this container's TZ while `pipeline.daily` derives the as-of and the guard's cutoff from
       # ALPHADECK_MARKET_TZ, so the two MUST come from one name or the night the shell fires for and the

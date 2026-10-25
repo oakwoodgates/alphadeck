@@ -6,14 +6,14 @@ ticker (or ``None`` = this source does not cover the fund), carrying the ``allow
 snapshot-shaped (a page states ONE current count, not a series). ``ingest_fund_shares_for_security``
 depends on this interface, not on a concrete fetcher, so:
 
-- the Polygon adapter (``ingest.funds.polygon`` — the operator's 2026-07-26 decision: PRIMARY when a
+- the Massive.com adapter (``ingest.funds.polygon`` — the operator's 2026-07-26 decision: PRIMARY when a
   key is present, with the dated read the historical backfill walks) slotted in exactly this way — the
   seam took it without the ingest changing; and
 - a further issuer adapter (VanEck, iShares, …) would slot in front of the aggregator the same way.
 
-``IssuerFirstFundSource`` is the primary-then-fallback composition, used twice: Polygon → the scraper
+``IssuerFirstFundSource`` is the primary-then-fallback composition, used twice: Massive.com → the scraper
 pair (keyed), and issuer → aggregator (the scraper pair itself, and the whole story when keyless). A
-clean primary MISS (a 404 / a page without the fund blob / a Polygon null-count gap) is quiet; a
+clean primary MISS (a 404 / a page without the fund blob / a Massive.com null-count gap) is quiet; a
 primary ERROR (network trouble, a redesign breaking the parse, a bad key) is warned VISIBLY and then
 falls back — the sample still lands (recall over purity) but the breakage never hides. Both legs
 failing raises with both stories, so the ingest leg's NameResult captures a real "no samplable source"
@@ -131,10 +131,10 @@ class StockAnalysisFundSource:
 
 class IssuerFirstFundSource:
     """Primary first, fallback second (the operator's locked source policy — the composition is used
-    for BOTH shapes: polygon → the scraper pair, and issuer → aggregator inside that pair).
+    for BOTH shapes: Massive.com → the scraper pair, and issuer → aggregator inside that pair).
 
     - primary MISS (``None``) → quietly try the fallback (the common case: a non-Global-X fund on the
-      issuer leg, a null-count gap date on the polygon leg);
+      issuer leg, a null-count gap date on the Massive.com leg);
     - primary ERROR → print a visible warning naming the leg, then try the fallback (the sample still
       lands, the breakage never hides);
     - fallback also ``None``/error → ``FundSharesUnavailable`` with both legs' stories (fail-visible
@@ -149,7 +149,7 @@ class IssuerFirstFundSource:
         self, ticker: str, *, allow_live: bool = False, force_refresh: bool = False
     ) -> dict | None:
         # the warn/story label: the adapter's own name when it has one (polygon/globalx/…), so a
-        # polygon failure never masquerades as "issuer" trouble; a nested composite stays generic
+        # a Massive.com failure never masquerades as "issuer" trouble; a nested composite stays generic
         primary = getattr(self._issuer, "name", "issuer")
         stories: list[str] = []
         try:
@@ -177,10 +177,10 @@ class IssuerFirstFundSource:
 
 
 def default_fund_source(*, cache_dir: Path | None = None) -> IssuerFirstFundSource:
-    """The wired default: POLYGON-primary when ``POLYGON_API_KEY`` is set, falling back to the scraper
+    """The wired default: Massive.com-primary when ``MASSIVE_API_KEY`` is set, falling back to the scraper
     pair (Global X issuer-first, stockanalysis.com fallback); the scraper pair alone when keyless.
 
-    Polygon's fallback IS the whole keyless composite, nested — so a Polygon miss (null-count gap /
+    Massive.com's fallback IS the whole keyless composite, nested — so a Massive.com miss (null-count gap /
     unknown ticker) or error degrades to exactly today's scraper behavior, and the absence of the key
     is the off switch (no key → the adapter is never constructed)."""
     scrapers = IssuerFirstFundSource(

@@ -1,5 +1,5 @@
 """S4 — the nightly split detection (``pipeline/detect_splits.py``) on a real DB, over REAL inputs: the 8-Ks
-(and the items the nightly stored for them on prod), the 2026-10-22 Polygon rows, and every stored version of
+(and the items the nightly stored for them on prod), the 2026-10-22 Massive.com rows, and every stored version of
 the bars around each split (``tests/split_s4_fixtures``). Cache-only: no network. Every idempotency claim
 COUNTS THE TABLE — the as-of read dedups, so a duplicate append would hide behind it."""
 
@@ -105,11 +105,11 @@ def _polygon(tmp_path, *, today: date) -> PolygonSplitSource:
 def _run(db, tmp_path, *, asof: date, polygon: bool = True, tickers=None) -> ds.SplitDetector:
     det = ds.SplitDetector.start(
         asof=asof,
-        allow_live=True,  # the fake Polygon socket; the EDGAR client below is cache-only
+        allow_live=True,  # the fake Massive.com socket; the EDGAR client below is cache-only
         source=_polygon(tmp_path, today=asof) if polygon else None,
     )
     if not polygon:
-        det.result.polygon = "off (no POLYGON_API_KEY)"
+        det.result.polygon = "off (no MASSIVE_API_KEY)"
     edgar = EdgarClient(cache_dir=edgar_cache(tmp_path), allow_live=False)
     ds.run_over_union(db, det, edgar, tickers=tickers)
     return det
@@ -130,8 +130,8 @@ def test_a_split_both_sources_state_is_confirmed_and_a_rerun_appends_nothing(db,
         assert (v.author, v.action) == (split_repo.AUTHOR_DETECT, split_repo.ACTION_DETECT)
         assert v.sec_passage and v.polygon_id  # both sources' evidence on the row
     assert [a.line for a in det.result.appended] == [
-        "GAME 1-for-8 reverse split confirmed (8-K + Polygon)",
-        "NXL 1-for-30 reverse split confirmed (8-K + Polygon)",
+        "GAME 1-for-8 reverse split confirmed (8-K + Massive.com)",
+        "NXL 1-for-30 reverse split confirmed (8-K + Massive.com)",
     ]
     # the second night: the TABLE does not grow
     det2 = _run(db, tmp_path, asof=date(2026, 9, 1))
@@ -145,7 +145,7 @@ def test_with_polygon_off_the_sec_filing_and_the_tape_confirm_it(db, tmp_path):
     assert (v.status, v.confirmed_via, v.value_source) == (STATUS_CONFIRMED, VIA_SEC_TAPE, "sec")
     assert v.polygon_id is None and "x7.5" in v.note
     lines = det.result.report_lines()
-    assert lines[0].startswith("splits: Polygon off (no POLYGON_API_KEY)")
+    assert lines[0].startswith("splits: Massive.com off (no MASSIVE_API_KEY)")
     assert "GAME 1-for-8 reverse split confirmed (8-K + tape)" in lines[1]
 
 
@@ -171,10 +171,10 @@ def test_one_source_alone_waits_for_review_and_is_upgraded_when_the_second_arriv
     ids = _seed(db, ["NXL"])
     _run(
         db, tmp_path, asof=date(2026, 8, 28), polygon=False
-    )  # filed 08-27, no Polygon, no tape yet
+    )  # filed 08-27, no Massive.com, no tape yet
     (v,) = _latest(db, ids["NXL"])
     assert (v.status, v.value_source, v.key_date) == (STATUS_NEEDS_REVIEW, "sec", date(2026, 8, 31))
-    _run(db, tmp_path, asof=date(2026, 8, 28))  # Polygon lists it: the two sources agree
+    _run(db, tmp_path, asof=date(2026, 8, 28))  # Massive.com lists it: the two sources agree
     (v,) = _latest(db, ids["NXL"])
     assert (v.status, v.confirmed_via, v.key_date) == (
         STATUS_ANNOUNCED,
@@ -188,7 +188,7 @@ def test_a_missing_source_never_downgrades_a_listed_split(db, tmp_path):
     ids = _seed(db, ["NXL"])
     _run(db, tmp_path, asof=date(2026, 8, 28))
     before = split_repo.count_rows(db)
-    det = _run(db, tmp_path, asof=date(2026, 8, 28), polygon=False)  # Polygon down tonight
+    det = _run(db, tmp_path, asof=date(2026, 8, 28), polygon=False)  # Massive.com down tonight
     assert split_repo.count_rows(db) == before and det.result.appended == []
     (v,) = _latest(db, ids["NXL"])
     assert v.status == STATUS_ANNOUNCED
@@ -207,7 +207,7 @@ def test_the_operators_decision_is_never_touched(db, tmp_path):
 
 
 def test_a_late_filing_meets_the_polygon_row_the_list_already_holds(db, tmp_path):
-    # FDCT: S1 listed Polygon's 07-10 row for review (no SEC filing in its window); the 8-K came 47 days later
+    # FDCT: S1 listed Massive.com's 07-10 row for review (no SEC filing in its window); the 8-K came 47 days later
     ids = _seed(db, ["FDCT"])
     split_repo.append_version(
         db,
@@ -225,14 +225,14 @@ def test_a_late_filing_meets_the_polygon_row_the_list_already_holds(db, tmp_path
             "polygon_execution_date": date(2026, 7, 10),
             "polygon_split_from": Decimal(100),
             "polygon_split_to": Decimal(1),
-            "note": "Polygon only — no SEC filing read in the window states this split (0 filing(s) read).",
+            "note": "Massive.com only — no SEC filing read in the window states this split (0 filing(s) read).",
             "valid_from": date(2026, 7, 10),
         },
         action=split_repo.ACTION_BACKFILL,
         author=split_repo.AUTHOR_BACKFILL,
     )
     db.commit()
-    _run(db, tmp_path, asof=date(2026, 8, 27))  # tonight's Polygon pull no longer carries FDCT
+    _run(db, tmp_path, asof=date(2026, 8, 27))  # tonight's Massive.com pull no longer carries FDCT
     (v,) = _latest(db, ids["FDCT"])
     assert (v.key_date, v.status, v.confirmed_via) == (
         date(2026, 7, 10),
@@ -250,7 +250,7 @@ def test_the_artifact_block_and_a_quiet_night(db, tmp_path):
     assert block["evaluated"] and block["polygon"] == "on" and block["checked"] == 1
     assert (
         block["appended"][0]["ticker"] == "GAME"
-        and block["appended"][0]["sources"] == "8-K + Polygon"
+        and block["appended"][0]["sources"] == "8-K + Massive.com"
     )
     quiet = _run(db, tmp_path, asof=date(2026, 8, 25))
     assert quiet.result.report_lines() == [
@@ -326,9 +326,9 @@ def test_a_detection_fault_never_costs_the_name_its_ingest(db, security_id, monk
 
 
 def test_the_nightly_attaches_an_item_8_01_reading_to_a_listed_split(db, tmp_path, monkeypatch):
-    """ENHA (2026-10-23): the split is listed from Polygon alone (10-28, needs review — the version prod holds,
+    """ENHA (2026-10-23): the split is listed from Massive.com alone (10-28, needs review — the version prod holds,
     written by the backfill when the reader skipped Item 8.01). The nightly reads the 8.01 8-K and appends ONE
-    version carrying its 1-for-10 and its first trading session (10-29), Polygon's values kept for the
+    version carrying its 1-for-10 and its first trading session (10-29), Massive.com's values kept for the
     operator; the next night appends nothing (the TABLE is counted)."""
     sid = seed_enha(db)
     with monkeypatch.context() as m:
@@ -345,7 +345,7 @@ def test_the_nightly_attaches_an_item_8_01_reading_to_a_listed_split(db, tmp_pat
     assert split_repo.count_rows(db) == 1
     det = _run(db, tmp_path, asof=date(2026, 10, 23), tickers=["ENHA"])
     assert [a.line for a in det.result.appended] == [
-        "ENHA 1-for-10 reverse split needs review (8-K + Polygon; updated)"
+        "ENHA 1-for-10 reverse split needs review (8-K + Massive.com; updated)"
     ]
     assert split_repo.count_rows(db) == 2
     (v,) = _latest(db, sid)

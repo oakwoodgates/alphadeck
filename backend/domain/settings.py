@@ -283,7 +283,7 @@ class Settings(BaseSettings):
     tape_closed_after_days: int = 45
     # F1 — the FUND-SHARES RECENCY threshold: the same rule for the OTHER per-name feed (an ETF sleeve's
     # shares-outstanding sample, which the flow read is built on), with its own number because the cadences
-    # differ. MEASURED on dev 2026-09-13 from the stored samples: the primary source (Polygon) states the
+    # differ. MEASURED on dev 2026-09-13 from the stored samples: the primary source (Massive.com) states the
     # PULL date exactly — lag 0 across 28 post-backfill samples — while the aggregator fallback stated a
     # TWO-day-old date, so a healthy sleeve's edge sits 0-2 calendar days behind the pass that sampled it.
     # 7 therefore clears the two-day stated lag PLUS a long weekend PLUS two failed nights before it calls a
@@ -543,9 +543,13 @@ class Settings(BaseSettings):
     # the fallback (operator decision, 2026-07-26). Bases only — the builders append the fund path.
     globalx_funds_base: str = "https://www.globalxetfs.com"
     stockanalysis_base: str = "https://stockanalysis.com"
-    # Polygon.io reference API — the PRIMARY fund shares-outstanding source when POLYGON_API_KEY is set
+    # Massive.com reference API — the PRIMARY fund shares-outstanding source when MASSIVE_API_KEY is set
     # (exact daily counts + real history for `pipeline.backfill_fund_shares`); the scraper pair above is
     # then the keyless fallback chain. Base only — the builder appends /v3/reference/tickers/{T}.
+    # The vendor was Polygon.io (now Massive.com), so the code names (``polygon_*`` fields, the ``ingest/*polygon*``
+    # modules, the ``'polygon'`` values stored in the split list and fund-shares rows, the ``ALPHADECK_POLYGON_BASE``
+    # env name) and this host keep the old name: they cross the DB / wire / env boundary. api.polygon.io is the
+    # host the adapters were MEASURED against; repoint it here (or via ALPHADECK_POLYGON_BASE) only after a live check.
     polygon_base: str = "https://api.polygon.io"
     openfigi_url: str = "https://api.openfigi.com/v3/mapping"  # the fixed POST endpoint
     usaspending_api_base: str = "https://api.usaspending.gov/api/v2"
@@ -627,13 +631,13 @@ class Settings(BaseSettings):
     openfigi_api_key: str | None = Field(
         default=None, validation_alias=AliasChoices("OPENFIGI_API_KEY")
     )
-    # Polygon.io API key (unprefixed, the vendor's own convention — needs the alias like the FIGI key).
-    # Its ABSENCE is the off switch: ingest/funds `default_fund_source()` composes Polygon-primary only
+    # Massive.com API key (unprefixed, the vendor's own convention — needs the alias like the FIGI key).
+    # Its ABSENCE is the off switch: ingest/funds `default_fund_source()` composes Massive.com-primary only
     # when set; keyless deploys keep the scraper-pair behavior exactly. Free tier = 5 requests/min — the
     # adapter paces itself (ingest/funds/polygon.py). Read via the cached get_settings() at its edges
     # (adapter construction / the backfill CLI), the openfigi_api_key idiom.
     polygon_api_key: str | None = Field(
-        default=None, validation_alias=AliasChoices("POLYGON_API_KEY")
+        default=None, validation_alias=AliasChoices("MASSIVE_API_KEY")
     )
     # The notify DELIVERY channel: the Slack incoming-webhook URL. Unprefixed (Slack's own convention), so it
     # needs the alias like openfigi_api_key. Its ABSENCE is the off switch — get_notifier() falls back to the

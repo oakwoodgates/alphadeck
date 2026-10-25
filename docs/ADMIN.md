@@ -342,7 +342,7 @@ change; a replay pinned before it (or before the system's application) reads the
 
 The same silent-end class, one layer over. An ETF sleeve's shares-outstanding sample is what the net-flow
 read is built from (`signals/display/etf_flow.py` — display context, never a call input), and its source is
-a fallback chain (Polygon when a key is set → the issuer page → the aggregator) whose legs miss
+a fallback chain (Massive.com when a key is set → the issuer page → the aggregator) whose legs miss
 independently. **Two ways it stops with no error:** every leg misses (the fund closed or renamed, a source
 page was redesigned), or — the subtler one — a page's own **stated as-of date freezes** while it keeps
 serving the same count, which the incremental compare correctly skips as an unchanged sample. Either way

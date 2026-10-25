@@ -1,10 +1,10 @@
 """``pipeline.split_history`` — a company that JOINS a basket gets its split history (2026-10-24).
 
 THE GAP (MEASURED on prod 2026-10-24, read-only). The split list (``security_split``) was filled once, by the S1
-backfill of 2026-10-20 (``pipeline/backfill_splits.py``: Polygon's split reference since 2024-10-01, every split
+backfill of 2026-10-20 (``pipeline/backfill_splits.py``: Massive.com's split reference since 2024-10-01, every split
 checked against the company's own SEC filing) over the basket union of that day. The nightly (S4,
-``pipeline/detect_splits.py``) looks back only 30 days (Polygon) / 60 days (SEC filings), and nothing filled the
-history of a company that joined a basket later: 32 splits Polygon lists since 2025-03 on 29 companies were missing
+``pipeline/detect_splits.py``) looks back only 30 days (Massive.com) / 60 days (SEC filings), and nothing filled the
+history of a company that joined a basket later: 32 splits Massive.com lists since 2025-03 on 29 companies were missing
 — ALL on companies that joined after the backfill (350 of them: CRWD 4-for-1, POWL 3-for-1, LHSW 1-for-16, ABTS
 1-for-15 …); companies in a basket at the backfill: 0 missing. The list feeds the price basis (S2), the insider
 price screens and the market cap.
@@ -18,9 +18,9 @@ count-verified), the SAME journal (``data_repair``, tool ``backfill_splits``, wh
 fast-lane promote, a hand-added name, a name moved between theses — anything that puts a company in a live
 basket — because it reads the baskets, not the onboarding queue.
 
-THE COST. Polygon: ONE market-wide reference pull (``since`` 2024-10-01, a date and nothing else) per run, served
+THE COST. Massive.com: ONE market-wide reference pull (``since`` 2024-10-01, a date and nothing else) per run, served
 from the day's cache after the first (``ingest/polygon_splits.py`` keys each page by URL + market day), and only
-when some member needs a fill — never one request per company. SEC: only for a company Polygon lists a split
+when some member needs a fill — never one request per company. SEC: only for a company Massive.com lists a split
 for, the filings in each split's windows, each read once ever (the immutable ``forms/`` cache, the extraction
 memo). Most joiners have no split: their fill costs no request at all.
 
@@ -29,7 +29,7 @@ every 30 minutes): after the job's own lock and its window / running-pass checks
 when nothing is queued too) — outside the nightly window, never beside a pass. Per company, under that company's
 W1 write lock (tried once; a held company waits for the next run). FAIL-OPEN: a fault is printed and never costs
 the batch its names; a company whose SEC filing index (or a filing in a split's window) could not be read is
-marked INCOMPLETE and retried, at most ``MAX_ATTEMPTS`` runs; with no ``POLYGON_API_KEY`` nothing is filled or
+marked INCOMPLETE and retried, at most ``MAX_ATTEMPTS`` runs; with no ``MASSIVE_API_KEY`` nothing is filled or
 marked (the next run with a key fills it).
 
     python -m pipeline.split_history              # dry run: the members that need a fill and what it would append
@@ -118,7 +118,7 @@ class CompanyFill:
 
 @dataclass
 class FillOutcome:
-    """One run of the fill. ``status``: ``idle`` (no member needs one), ``off`` (no Polygon key),
+    """One run of the fill. ``status``: ``idle`` (no member needs one), ``off`` (no Massive.com key),
     ``polygon_failed``, ``done``, ``stopped`` (``should_stop`` asked it to yield between companies), ``refused``
     (``onboarding.run_split_history_now`` did not start it: the window, a running pass or batch).
     """
@@ -150,7 +150,9 @@ class FillOutcome:
             if n:
                 parts.append(f"{n} {k}")
         live = (
-            f" · Polygon {self.polygon_live_pages} live page(s)" if self.polygon_live_pages else ""
+            f" · Massive.com {self.polygon_live_pages} live page(s)"
+            if self.polygon_live_pages
+            else ""
         )
         stop = f" · stopped: {self.detail}" if self.status == "stopped" and self.detail else ""
         return "split history: " + " · ".join(parts) + live + stop
@@ -225,7 +227,7 @@ def fill(
     if not todo:
         return out
     if polygon is None:
-        out.status, out.detail = "off", "no POLYGON_API_KEY — nothing filled or marked"
+        out.status, out.detail = "off", "no MASSIVE_API_KEY — nothing filled or marked"
         return out
     try:
         pull = polygon.splits_since(DEFAULT_SINCE, allow_live=allow_live)
@@ -351,7 +353,9 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument(
         "--status", action="store_true", help="list the members that need a fill and exit"
     )
-    p.add_argument("--no-live", action="store_true", help="caches only (no SEC / Polygon request)")
+    p.add_argument(
+        "--no-live", action="store_true", help="caches only (no SEC / Massive.com request)"
+    )
     args = p.parse_args(argv)
     conn = connect()
     try:

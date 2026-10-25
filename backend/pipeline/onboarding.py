@@ -823,7 +823,7 @@ def _edgar_client() -> EdgarClient:
     return EdgarClient(allow_live=True, cache_ttl_s=RECURRING_CACHE_TTL_S)
 
 
-# ``run_batch(split_source=...)`` left at this: the configured Polygon split reference (``None`` with no key)
+# ``run_batch(split_source=...)`` left at this: the configured Massive.com split reference (``None`` with no key)
 _DEFAULT_SPLIT_SOURCE: Any = object()
 
 
@@ -969,7 +969,7 @@ def run_batch(
 
     Before the queue, every run fills the SPLIT HISTORY of any company that joined a live basket without one
     (``pipeline/split_history.py`` — fast-lane promotes included, so it runs when nothing is queued too);
-    ``split_source`` is its Polygon split reference (default: ``default_split_source()``, ``None`` = off).
+    ``split_source`` is its Massive.com split reference (default: ``default_split_source()``, ``None`` = off).
     """
     s = get_settings()
     max_names = s.onboard_batch_max_names if max_names is None else max_names

@@ -1,6 +1,6 @@
 """``pipeline.split_history`` — a company that joins a basket gets its split history (2026-10-24), end to end on
 the real test Postgres over REAL inputs (``tests/fixtures/splits``): ENHA's 8-Ks + submissions index and the
-2026-10-22 Polygon rows behind a fake socket (no network), a cache-only EDGAR client. Every idempotency claim
+2026-10-22 Massive.com rows behind a fake socket (no network), a cache-only EDGAR client. Every idempotency claim
 COUNTS THE TABLES (``security_split``, ``security_split_history``, ``data_repair``)."""
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from tests.split_801_fixtures import ENHA_POLYGON_DAY, enha_polygon, seed_enha, 
 from tests.split_fixtures import edgar_cache
 
 ASOF = date(2026, 10, 23)
-GAME_CIK = "0001714562"  # GAME: Polygon lists its 1-for-8 of 2026-08-24; no submissions index in the fixtures
+GAME_CIK = "0001714562"  # GAME: Massive.com lists its 1-for-8 of 2026-08-24; no submissions index in the fixtures
 _NY = ZoneInfo("America/New_York")
 MIGRATION = (
     Path(__file__).resolve().parents[2] / "db" / "migrations" / "0067_security_split_history.sql"
@@ -48,9 +48,9 @@ def _fill(db, tmp_path, **kw):
 
 
 def test_a_joining_company_gets_its_split_history_once(db, tmp_path):
-    """ENHA joins a basket with no split on the list: the fill decides Polygon's 1-for-10 of 2026-10-28 by S1's
+    """ENHA joins a basket with no split on the list: the fill decides Massive.com's 1-for-10 of 2026-10-28 by S1's
     rule (its 8.01 8-K states the first session 10-29 — a session apart: review), appends it as the backfill's,
-    marks ENHA filled and journals the run. A company Polygon lists no split for is marked too, at no request.
+    marks ENHA filled and journals the run. A company Massive.com lists no split for is marked too, at no request.
     A second run has nothing to do: the TABLES do not grow."""
     enha = seed_enha(db)
     other = seed_member(db, "QUIET", "0000000001", [])
@@ -129,8 +129,8 @@ def test_no_polygon_key_fills_and_marks_nothing(db, tmp_path):
 
 
 def test_an_unreadable_index_is_retried_then_left_marked(db, tmp_path):
-    """GAME: Polygon lists its split, but its SEC filing index cannot be read here. The split is still listed
-    (Polygon only, for review — visible, #9) and the company is marked INCOMPLETE; the next runs retry it, at
+    """GAME: Massive.com lists its split, but its SEC filing index cannot be read here. The split is still listed
+    (Massive.com only, for review — visible, #9) and the company is marked INCOMPLETE; the next runs retry it, at
     most ``MAX_ATTEMPTS`` times — then it is no longer picked up (its note says why)."""
     game = seed_member(db, "GAME", GAME_CIK, [])
     out = _fill(db, tmp_path)

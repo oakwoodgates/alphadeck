@@ -125,7 +125,7 @@ def _evidence() -> dict[str, Any]:
 
 
 def spots(tk: str) -> dict[date, float]:
-    """Polygon's real unadjusted closes for ``tk`` (the committed repair evidence)."""
+    """Massive.com's real unadjusted closes for ``tk`` (the committed repair evidence)."""
     return {date.fromisoformat(d): float(v["close"]) for d, v in _evidence().get(tk, {}).items()}
 
 
@@ -167,7 +167,7 @@ def seed_security(db, tk: str) -> uuid.UUID:
 
 def seed_splits(db, sid: uuid.UUID, tk: str, *, confirmed: tuple[str, ...] = ()) -> None:
     """The company's split-list rows as S1's backfill wrote them (recorded_at = now); a ticker in
-    ``confirmed`` then gets S1's own operator confirm (``split_repo.confirm`` with Polygon's values — the
+    ``confirmed`` then gets S1's own operator confirm (``split_repo.confirm`` with Massive.com's values — the
     path the dev check uses), never a hand-made status."""
     for s in tape(tk)["splits"]:
         values = {

@@ -1360,7 +1360,7 @@ def test_assess_health_pages_EACH_FEED_KIND_on_its_own_line_with_its_own_repair(
     assert "1 fund-shares tape(s) newly STALE — ETF1" in h.label
     price_line, fund_line = h.label.split("1 fund-shares")
     assert "price symbol" in price_line and "price symbol" not in fund_line
-    assert "POLYGON_API_KEY" in fund_line
+    assert "MASSIVE_API_KEY" in fund_line
 
 
 def test_assess_health_is_SILENT_when_no_tape_became_stale():
@@ -2297,14 +2297,14 @@ def test_env_fingerprint_records_SET_or_UNSET_and_NEVER_a_secret_value():
     secrets = {
         "ALPHADECK_USER_AGENT": "Operator Name operator-secret@example.com",
         "SLACK_WEBHOOK_URL": "https://hooks.slack.com/services/T000/B000/SECRETTOKEN",
-        "POLYGON_API_KEY": "pk_live_SECRETKEY",
+        "MASSIVE_API_KEY": "pk_live_SECRETKEY",
         "HEARTBEAT_URL": "https://hc-ping.com/secret-uuid-1234",
     }
     settings = get_settings().model_copy(
         update={
             "user_agent": secrets["ALPHADECK_USER_AGENT"],
             "slack_webhook_url": secrets["SLACK_WEBHOOK_URL"],
-            "polygon_api_key": secrets["POLYGON_API_KEY"],
+            "polygon_api_key": secrets["MASSIVE_API_KEY"],
             "market_tz": "America/New_York",
             "cron_run_at": "22:30",
         }

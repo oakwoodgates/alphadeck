@@ -55,7 +55,7 @@ export function DataFlagMark({ member }: { member: MemberDataFlagsOut | null | u
 export function splitEvents(s: DataFlagSplitOut): string[] {
   const out: string[] = [];
   if (s.sec_filed) out.push(`announced — SEC ${s.sec_form ?? "filing"} filed ${s.sec_filed}`);
-  else if (s.polygon) out.push("listed by Polygon");
+  else if (s.polygon) out.push("listed by Massive.com");
   if (s.status === "needs_review")
     out.push("needs review — not applied until it is confirmed (Admin → Splits)");
   else if (s.confirmed_by) out.push(`confirmed — ${s.confirmed_by}`);

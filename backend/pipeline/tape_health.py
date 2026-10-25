@@ -43,7 +43,7 @@ WHAT THIS MODULE IS, AND IS NOT:
 
 THE FUND-SHARES FEED (F1) — the same silent-end class, one layer over. An ETF sleeve's shares-outstanding
 sample feeds the flow read (``signals/display/etf_flow.py`` — DISPLAY context, never a call input), and its
-source is a fallback chain (Polygon when keyed → the issuer page → the aggregator) whose legs miss
+source is a fallback chain (Massive.com when keyed → the issuer page → the aggregator) whose legs miss
 independently. Two ways it stops without an error: every leg misses (a closed/renamed fund, a redesigned
 page), or — the subtler one — a page's own STATED as-of date freezes while it keeps serving the same count,
 which the incremental compare correctly skips as an unchanged sample. Either way the leg reports success and

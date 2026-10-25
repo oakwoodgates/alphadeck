@@ -13,8 +13,8 @@ line, and stays visible under the panel's "dismissed" filter; the hold never rea
 same accessors and the same pure rule), so the panel judges a step exactly as the cards did. For today's asof
 the public clock IS the live read (``known_at_for_asof(today)`` = now).
 
-What it does NOT show: Polygon's adjusted bars. The split plan proposed them as an independent second view, but
-no Polygon aggregates client exists (only the split reference), and a request per jump would spend the shared
+What it does NOT show: Massive.com's adjusted bars. The split plan proposed them as an independent second view, but
+no Massive.com aggregates client exists (only the split reference), and a request per jump would spend the shared
 free-tier budget on a read the operator did not ask for (the cost thread). Named, not faked.
 """
 

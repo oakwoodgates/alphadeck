@@ -1,7 +1,7 @@
 """The split list's store (migration 0052) — append-only for real, the as-of read on both clocks, and every
 operator verb with its inverse. Every count below is ``count(*)`` of the TABLE, not of the read (the read
 dedups, so a duplicate append would hide behind it). The versions are the matcher's verdicts on REAL
-Polygon rows and REAL filings (``tests/fixtures/splits``). DB-backed."""
+Massive.com rows and REAL filings (``tests/fixtures/splits``). DB-backed."""
 
 from __future__ import annotations
 
@@ -142,7 +142,7 @@ def test_the_as_of_read_honors_both_clocks(db):
     before = v1.recorded_at - timedelta(seconds=1)
     assert split_repo.latest_versions(db, tenant_id=DEFAULT_TENANT_ID, known_at=before) == []
     # valid time: publicly known only from valid_from — the 1-A/A's filing day (it states the 1:300 split,
-    # "pending FINRA", a month before Polygon's market date)
+    # "pending FINRA", a month before Massive.com's market date)
     assert v1.valid_from == date(2026, 4, 14)
     assert split_repo.latest_versions(db, tenant_id=DEFAULT_TENANT_ID, asof=date(2026, 4, 13)) == []
     assert (

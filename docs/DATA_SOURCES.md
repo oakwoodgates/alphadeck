@@ -16,7 +16,7 @@
 | **SEC `company_tickers_exchange.json`** (one file: ticker → CIK → name → exchange) | the full US filer universe | **the company list** (`populate_master`, weekly in the cron sidecar) — seeds and keeps current the security master so the extract → ratify → score loop runs on any name; a rename updates the company's row in place |
 | **USASpending.gov** — federal award API (`spending_by_award` + `awards/{id}`) | DOE contracts, grants, OTAs, loan guarantees + structured terms (obligation, period of performance) | **catalyst-conviction** (the automated DOE feed, §below) — the first automated Key-1 source |
 | **Public ETF holdings** (issuer/fund daily holdings files) | constituents, weights, expense ratio, AUM | **ETF radar** (universe seed + holdings/flows); pure-play scoring |
-| **Polygon.io reference API** (free tier, keyed — `POLYGON_API_KEY`) | ETF shares outstanding **by date** (exact counts + real history; 5 req/min) | **ETF net flow** — the primary `fact_fund_shares` source when keyed (`ingest/funds/polygon.py`; the issuer/aggregator scrapers are the keyless fallback) + the historical backfill (`pipeline.backfill_fund_shares`); and the **split reference** (`/v3/reference/splits`, whole market by date — no ticker sent) — the second source the split list confirms against (`ingest/polygon_splits.py`, `pipeline.backfill_splits`; it shares the fund leg's 5/min pacer) |
+| **Massive.com reference API** (formerly Polygon.io — the `polygon_*` code names, `api.polygon.io` host and `'polygon'` stored values keep the old name; free tier, keyed — `MASSIVE_API_KEY`) | ETF shares outstanding **by date** (exact counts + real history; 5 req/min) | **ETF net flow** — the primary `fact_fund_shares` source when keyed (`ingest/funds/polygon.py`; the issuer/aggregator scrapers are the keyless fallback) + the historical backfill (`pipeline.backfill_fund_shares`); and the **split reference** (`/v3/reference/splits`, whole market by date — no ticker sent) — the second source the split list confirms against (`ingest/polygon_splits.py`, `pipeline.backfill_splits`; it shares the fund leg's 5/min pacer) |
 | **FINRA short interest** (bi-monthly) | SI %, days-to-cover | squeeze radar (context tier) |
 | **OpenFIGI** (free API) | CIK ↔ ticker ↔ CUSIP ↔ FIGI mapping | security master / entity resolution |
 | **Free EOD price/fundamentals** (e.g. Stooq/Tiingo-free tier/equivalent) | daily OHLCV, splits/dividends, market cap | momentum-health, laggard scanner, liquidity/float, corporate actions |
@@ -477,7 +477,7 @@ the ingest cannot tell that from "this name had a quiet year". Two classes, one 
 ### The ETF fund-shares sampler stops the same silent way `[MONITORED, F1; repair is manual]`
 
 An ETF sleeve's shares-outstanding sample (`fact_fund_shares`, the net-flow read's basis) comes from a
-**fallback chain** — Polygon when `POLYGON_API_KEY` is set, then the issuer's fund page, then the
+**fallback chain** — Massive.com when `MASSIVE_API_KEY` is set, then the issuer's fund page, then the
 aggregator — whose legs miss independently. It ends without an error in two ways: every leg misses (the fund
 closed or renamed, a source page was redesigned — the chain warns visibly when a *primary* leg errors, so
 that half is at least loud in the run output), or a page's own **stated as-of date freezes** while it keeps
@@ -725,7 +725,7 @@ READ, so items outside the cut stay stored (#9) and a policy retune needs no re-
 ## SEC split filings — the split list's company-side source `[BUILT — S1 / S4; Items 8.01 / 7.01 since 2026-10-23; the restatement screen + the wide-form reader since 2026-10-24]`
 
 The split list (`security_split`, `FEED_LOOP.md` §The split list) confirms a split only when two independent
-sources agree; the company's own filing is one of them, Polygon's split reference the other (the Polygon row
+sources agree; the company's own filing is one of them, Massive.com's split reference the other (the Massive.com row
 above). The filings read (`pipeline/backfill_splits.py` `SPLIT_8K_ITEMS` / `SEC_FORMS`, the nightly's
 `pipeline/detect_splits.py` too): **8-Ks under Item 3.03 / 5.03** (the charter amendment), **8-Ks under Item
 8.01 / 7.01** (since 2026-10-23 — a split with no charter amendment: one paid as a stock dividend, a trust's share
@@ -761,7 +761,7 @@ submission (`forms/*`, immutable, cached forever) and read by the deterministic 
   cites the old one "as disclosed" reads the revised one (DFNS's 8-K of 2026-07-16: 1-for-125, not "two
   ratios"); a filing that abstained because every ratio it states is a past split's is never shown as a later
   split's evidence.
-- **The targeted wide-form reader (2026-10-24).** A Polygon split whose window holds no agreeing filing gets ONE
+- **The targeted wide-form reader (2026-10-24).** A Massive.com split whose window holds no agreeing filing gets ONE
   more look, in the company's 10-Q / 10-K / 20-F / 40-F (their primary document alone — the full submission is
   5x to 65x larger, MEASURED), F-6 / F-6 POS / F-6EF, 424B3 / 424B4 and DEF / PRE 14C filed
   `[first session - 60, + 120]` days, always through the restatement screen (a periodic report restates old
@@ -775,7 +775,7 @@ submission (`forms/*`, immutable, cached forever) and read by the deterministic 
   nightly looks back only 30 / 60 days, so a company that joined a basket later had no split history — MEASURED:
   32 splits on 29 such companies missing. `pipeline/split_history.py` (run by the staged onboarding job, outside
   the nightly window) runs the S1 backfill scoped to every live basket member without a
-  `security_split_history` row (migration 0067), on ONE market-wide Polygon pull per day (the day's cache).
+  `security_split_history` row (migration 0067), on ONE market-wide Massive.com pull per day (the day's cache).
   `FEED_LOOP.md` §The split list.
 
 ## SC 13D/G — the activist-stake ownership tape `[BUILT — Band 03 S5, INERT]`

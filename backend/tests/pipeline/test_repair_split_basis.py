@@ -95,7 +95,7 @@ def test_apply_appends_exactly_the_plan_under_one_stamp_and_a_rerun_appends_noth
 def test_after_the_repair_every_history_view_reads_its_own_days_scale(db, asof):
     """The public clock (#1): the repair's versions are stamped NOW, yet a history view at any past day reads
     them — a split re-scale is not new market information (``db.public_clock``) — put on THAT day's scale
-    (``domain.splits.on_view_scale``). Checked against Polygon's independent UNADJUSTED prints (the committed
+    (``domain.splits.on_view_scale``). Checked against Massive.com's independent UNADJUSTED prints (the committed
     repair evidence): every print dated on or before the view reads print x the splits in force by the view —
     x1 before BTOC's 1-for-16 (first session 2026-10-15), x16 from it — within 1% or one tick (the repair
     gate's own tolerance); and T4 finds no island or cliff on the view's tape. Under the record-clock rule a

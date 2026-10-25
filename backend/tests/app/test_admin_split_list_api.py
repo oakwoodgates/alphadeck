@@ -1,5 +1,5 @@
 """The Admin "Splits" panel API (split plan S1), end to end over a real DB filled by the REAL backfill
-(``pipeline.backfill_splits`` on the fixture Polygon pages and filings, cache-only). Every action is
+(``pipeline.backfill_splits`` on the fixture Massive.com pages and filings, cache-only). Every action is
 exercised WITH its inverse, and each step COUNTS THE TABLE (one version per action — nothing updated,
 nothing deleted)."""
 
@@ -59,7 +59,7 @@ def test_the_panel_is_loud_only_where_one_source_cannot_settle_it(client, db, tm
     assert body["announced"] == [] and body["set_aside"] == []
     _, btoc = _find(body, "BTOC", "2026-10-15")
     assert btoc["label"] == "1-for-16 reverse split" and btoc["price_factor"] == "16"
-    assert btoc["decided_by"] == "auto: SEC + Polygon"
+    assert btoc["decided_by"] == "auto: SEC + Massive.com"
     assert btoc["sec"]["accession"] == "0001213900-26-108468"
     assert "Beginning with the opening of trading on October 15, 2026" in btoc["sec"]["passage"]
     assert btoc["polygon"]["split_from"] == "16" and btoc["actions"] == ["revoke"]
@@ -121,7 +121,7 @@ def test_an_auto_confirmed_split_can_be_revoked_and_restored(client, db, tmp_pat
     assert rv["status"] == "revoked" and rv["confirmed_via"] == "auto:sec+polygon"
     back = client.post(f"{BASE}/{rv['version_id']}/restore").json()
     assert back["status"] == "confirmed" and back["confirmed_via"] == "auto:sec+polygon"
-    assert back["decided_by"].startswith("auto: SEC + Polygon · restored by you, ")
+    assert back["decided_by"].startswith("auto: SEC + Massive.com · restored by you, ")
 
 
 def test_refusals(client, db, tmp_path):
@@ -158,9 +158,9 @@ def _enha_backfill(db, tmp_path, *, asof: date) -> None:
 def test_enha_offers_its_real_first_session_once_the_8_01_8k_is_read(
     client, db, tmp_path, monkeypatch
 ):
-    """ENHA's card (2026-10-23). As prod holds it, Polygon's 10-28 is the only value: one "Confirm" button,
+    """ENHA's card (2026-10-23). As prod holds it, Massive.com's 10-28 is the only value: one "Confirm" button,
     which would put the 10-28 bar on the wrong scale. Once the reader reads its Item 8.01 8-K, the card offers
-    "Confirm SEC values" for the first session the 8-K states (10-29) beside Polygon's, and confirming it on a
+    "Confirm SEC values" for the first session the 8-K states (10-29) beside Massive.com's, and confirming it on a
     day before 10-29 lists the split ANNOUNCED for 10-29 — one version, the table counted."""
     seed_enha(db)
     with monkeypatch.context() as m:

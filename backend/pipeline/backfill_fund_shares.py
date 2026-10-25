@@ -1,7 +1,7 @@
-"""Polygon HISTORICAL backfill for ``fact_fund_shares`` — flow lands with real history from day one.
+"""Massive.com HISTORICAL backfill for ``fact_fund_shares`` — flow lands with real history from day one.
 
 The forward leg samples one count per sleeve per day, so the etf_flow display windows (1w/1m) would
-otherwise take a month of cron nights to fill. This CLI walks Polygon's dated reference read back over
+otherwise take a month of cron nights to fill. This CLI walks Massive.com's dated reference read back over
 a range (daily across the last 90 days by default — both windows fully populated with margin) and
 appends the historical samples. An EXPLICIT operator-run command, never ambient — the cost thread: the
 free tier is 5 requests/min, so a full 90-day daily walk is ~91 spaced calls ≈ 20 minutes per sleeve
@@ -17,11 +17,11 @@ Rules:
   none of it; the range end is capped at today (no future-dated samples).
 - **Idempotent (count-the-table).** The write is the SAME ``ingest_fund_shares_for_security`` leg the
   forward path uses: an already-stored ``(d, count)`` appends nothing; a changed count re-versions.
-- **Gaps skipped visibly (#9).** A null-count date (Polygon carries occasional holes — URA 2026-06-15,
+- **Gaps skipped visibly (#9).** A null-count date (Massive.com carries occasional holes — URA 2026-06-15,
   measured) is skipped and COUNTED: no row, no fake zero, no error. A real failure (bad key / plan /
   network) is a captured, visible error that stops that member's walk — no point spending ninety more
   spaced calls into a 401 — while the run continues to the next sleeve.
-- **Polygon-only.** History is the one thing the scraper pair cannot give; without a key this refuses
+- **Massive.com-only.** History is the one thing the scraper pair cannot give; without a key this refuses
   loudly at start.
 - **Display-only (#5).** The rows feed the etf_flow display read; nothing here touches the call path.
 """
@@ -62,7 +62,7 @@ class BackfillResult:
 
 
 class _PinnedDateSource:
-    """Adapts the dated polygon read onto the ``FundSharesSource`` shape the shared ingest leg takes,
+    """Adapts the dated Massive.com read onto the ``FundSharesSource`` shape the shared ingest leg takes,
     so the backfill reuses the ONE idempotent write (the same-(d, count) skip / re-version / provenance
     discipline — never a forked second writer)."""
 
@@ -108,7 +108,7 @@ def backfill_thesis(
 ) -> list[BackfillResult]:
     """Walk every ETF sleeve member of ``thesis_id`` across the date range (see the module docstring
     for the rules). ``ticker`` restricts to one sleeve; ``polygon`` is injectable for tests (defaults
-    to the keyed adapter — no key raises loudly: the backfill is Polygon-only)."""
+    to the keyed adapter — no key raises loudly: the backfill is Massive.com-only)."""
     thesis = thesis_repo.get(conn, thesis_id)
     if thesis is None:
         raise LookupError(f"thesis {thesis_id} not found")
@@ -116,7 +116,7 @@ def backfill_thesis(
         key = get_settings().polygon_api_key
         if not key:
             raise RuntimeError(
-                "POLYGON_API_KEY is not set — the backfill is Polygon-only (the scraper pair has no "
+                "MASSIVE_API_KEY is not set — the backfill is Massive.com-only (the scraper pair has no "
                 "history). Put the key in .env / the environment and re-run."
             )
         polygon = PolygonFundSource(api_key=key)
@@ -204,7 +204,7 @@ def _report(results: list[BackfillResult]) -> int:
 
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(
-        description="Backfill historical ETF fund shares outstanding from Polygon (explicit operator "
+        description="Backfill historical ETF fund shares outstanding from Massive.com (explicit operator "
         "spend: the free tier is 5 req/min, ~13s per uncached date; a re-run is free)."
     )
     p.add_argument("--thesis", required=True, help="thesis id (uuid)")

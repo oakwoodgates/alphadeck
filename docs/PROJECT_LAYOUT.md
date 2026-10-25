@@ -33,7 +33,7 @@ alphadeck/
 ├── README.md                       # what it is, the stack table, v1 scope
 ├── docker-compose.yml              # full stack: Postgres + backend + SPA/nginx; + the `cron` sidecar (M2; ON by default, `--scale cron=0` to skip)
 ├── docker-compose.dev.yml          # the DEV override: base + `-p alphadeck_dev` (namespaced project · cron OFF · ports +1) — DEV_PROD.md
-├── .env.example                    # env template → copy to .env (gitignored): ANTHROPIC_API_KEY, UA, POLYGON_API_KEY, ...
+├── .env.example                    # env template → copy to .env (gitignored): ANTHROPIC_API_KEY, UA, MASSIVE_API_KEY, ...
 ├── .github/workflows/ci.yml        # CI: backend ruff/black/pytest + openapi-diff · frontend tsc/build/vitest + types-diff
 ├── infra/docker-compose.yml        # DB-only slice for the local backend dev loop (shares the pgdata volume)
 ├── scripts/refresh-dev.sh          # ops: the ONE-WAY prod→dev data refresh (pg_dump READ; never writes prod) — DEV_PROD.md
@@ -131,7 +131,7 @@ alphadeck/
     │   ├── edgar/{annual_shares,annual_runway,statement_sources}.py         # the "dark" FPI retrieval (FLAG-only): 20-F/40-F cover shares (+ADS ratio) · statement cash/runway · the primary-doc-vs-EX-99 seam
     │   ├── edgar/nport.py                                        # locate / fetch / parse one fund series' N-PORT holdings (the ETF sleeve)
     │   ├── edgar/companyfacts_gate.py                            # Q17: when a RECURRING pass re-pulls companyfacts (new XBRL filing / weekly backstop) + the measured form set
-    │   ├── funds/{source,polygon,snapshot_loader,ingest_security}.py        # the fund shares-out sampler: the source seam (Polygon primary when keyed → Global X / stockanalysis fallback) · the one incremental, re-versioning, no-lookahead leg
+    │   ├── funds/{source,polygon,snapshot_loader,ingest_security}.py        # the fund shares-out sampler: the source seam (Massive.com primary when keyed → Global X / stockanalysis fallback) · the one incremental, re-versioning, no-lookahead leg
     │   ├── doe/{client,entities,feed}.py                          # the USASpending/DOE automated catalyst feed
     │   ├── prices/{eod_loader,source,ingest_security}.py          # EOD bars (+ latest_bar_date, stored_bars, force_refresh) · the PriceSource seam (Yahoo/Stooq) · the ONE price leg (incremental tail + the RE-VERSION pass)
     │   └── {cash_burn,revenue_mix,shares,catalyst,theme_conviction}.py   # the ratify bridges (write fact_*)
@@ -154,7 +154,7 @@ alphadeck/
     │   ├── backup.py · backup_job.py   #   the pg_dump snapshots (unlabeled keep-N; labeled 90 days or the newest 20, Q16) + the admin "create snapshot" job (#215)
     │   ├── ingest_skips.py             #   Q18: the cross-pass diff of skipped filings (known = a count, new = loud), the O1 twin
     │   ├── annotate_phantom_arms.py    #   D3b CLI: re-assemble each honest row D3a-off vs D3a-on at its own known_at; annotate phantom arms (exclude) / composition changes (note), dry-run default
-    │   ├── backfill_fund_shares.py     #   CLI: backfill historical ETF fund-shares from Polygon over a range (#237)
+    │   ├── backfill_fund_shares.py     #   CLI: backfill historical ETF fund-shares from Massive.com over a range (#237)
     │   ├── populate_master.py      #   the company-list refresh CLI (SEC universe -> master; dry-run default, weekly)
     │   ├── enrich_identity.py      #   re-enrich master identity from EDGAR submissions (--thesis/--baskets/--universe; the standing backfill for submissions-sourced fields)
     │   ├── audit_identity.py · repoint_canonical.py   #   the shown-vs-bound identity audit CLI + the one-time canonical re-point (#172–#175)
@@ -195,7 +195,7 @@ alphadeck/
 
 ## Local-only (gitignored — present in the working dir, not in git)
 
-- `.env` — the real secrets (`ANTHROPIC_API_KEY`, `ALPHADECK_USER_AGENT`, `POLYGON_API_KEY`, …). Copy from
+- `.env` — the real secrets (`ANTHROPIC_API_KEY`, `ALPHADECK_USER_AGENT`, `MASSIVE_API_KEY`, …). Copy from
   `.env.example`. Docker Compose injects it into the backend container; the local dev loop reads the same names
   from the shell. `.env.dev` is the dev-stack twin (also gitignored) — see `DEV_PROD.md`.
 - `backend/.venv/` — the project venv (stdlib venv + pip; `scripts/ensure-venv.ps1` / `.sh` provisions it PER CHECKOUT with
@@ -239,7 +239,7 @@ alphadeck/
   #222–#226); the local **dev/prod Docker split** + the `/health` boot-visibility guard (#232, `DEV_PROD.md`);
   the **ETF sleeve** (the instrument-kind foundation + a `fund` safe-exposure member with N-PORT holdings /
   basket overlap + fund internals — #233–#236) and its **net-flow** display signal (the shares-outstanding
-  sampler → `etf_flow`, Polygon-primary + backfill — #237); and the per-name **origin chip** (derive-on-read
+  sampler → `etf_flow`, Massive.com-primary + backfill — #237); and the per-name **origin chip** (derive-on-read
   SURFACE identity over the raw 0028 locators — #238).
 - **Not built yet:** the record's **forward validation** (the Scoreboard now tracks the record, which began
   2026-07-10 and is still accruing — the aggregate metrics stay honestly empty until clean-data arms mature,

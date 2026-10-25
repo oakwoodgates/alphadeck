@@ -1,4 +1,4 @@
-"""The Polygon historical backfill — real DB (the ``db`` fixture), stubbed polygon. The headline is
+"""The Massive.com historical backfill — real DB (the ``db`` fixture), stubbed Massive.com. The headline is
 the COUNT-THE-TABLE idempotency gate (a re-run appends ZERO rows — the table count is the assertion,
 because the bitemporal read dedups and a duplicate append would hide behind a correct read), plus the
 no-lookahead stamping (``valid_from`` = the historical queried ``d``, ``recorded_at`` = now) and the
@@ -22,7 +22,7 @@ _END = date(2026, 7, 25)
 
 
 class _StubPolygon:
-    """A dated polygon stub: ``counts[d]`` -> the count (``None``/absent = the null-gap date);
+    """A dated Massive.com stub: ``counts[d]`` -> the count (``None``/absent = the null-gap date);
     ``raise_on`` simulates a real failure (401-class) at one date. Records every dated call."""
 
     def __init__(self, counts, raise_on=None):
@@ -33,7 +33,7 @@ class _StubPolygon:
         self.calls.append((ticker, d))
         if self.raise_on is not None and d == self.raise_on:
             raise PolygonError(
-                "polygon: HTTP 401 for https://api.polygon.io/... — bad POLYGON_API_KEY"
+                "Massive.com: HTTP 401 for https://api.polygon.io/... — bad MASSIVE_API_KEY"
             )
         count = self.counts.get(d)
         if count is None:
@@ -176,7 +176,7 @@ def test_restated_count_reversions_not_duplicates(db):
     before = _count(db)
 
     restated = _flat_counts(dates)
-    restated[_END] = 139_000_000.0  # polygon restated the newest date
+    restated[_END] = 139_000_000.0  # Massive.com restated the newest date
     results = backfill_thesis(db, tid, days=2, cadence=1, end=_END, polygon=_StubPolygon(restated))
 
     assert results[0].appended == 0 and results[0].reversioned == 1
@@ -232,10 +232,10 @@ def test_end_is_capped_at_today_never_future_dated(db):
 def test_without_a_key_the_backfill_refuses_loudly(db, monkeypatch):
     sid = _add_master(db, ticker="URA")
     tid = _make_thesis(db, [("URA", sid)])
-    monkeypatch.delenv("POLYGON_API_KEY", raising=False)
+    monkeypatch.delenv("MASSIVE_API_KEY", raising=False)
     get_settings.cache_clear()
     try:
-        with pytest.raises(RuntimeError, match="POLYGON_API_KEY is not set"):
+        with pytest.raises(RuntimeError, match="MASSIVE_API_KEY is not set"):
             backfill_thesis(db, tid, days=3, cadence=1, end=_END)
     finally:
         get_settings.cache_clear()

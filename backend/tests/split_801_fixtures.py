@@ -1,6 +1,6 @@
 """Shared helpers for the Item 8.01 / 7.01 split-reader tests (2026-10-23) — every input is REAL
 (``tests/fixtures/splits``, see its README): ENHA's 8-Ks, its submissions index as data.sec.gov served it, and
-the 2026-10-22 Polygon rows (which list ENHA's 1-for-10 on 2026-10-28, one session before the first session
+the 2026-10-22 Massive.com rows (which list ENHA's 1-for-10 on 2026-10-28, one session before the first session
 its 8-K states).
 
 - ``seed_enha`` — ENHA in one live thesis, with the 8-K rows the nightly stores for it (each filing's REAL
@@ -36,7 +36,7 @@ def enha_8ks(
     lo: date = date(2026, 6, 30), hi: date = date(2026, 11, 7)
 ) -> list[tuple[str, date, list]]:
     """``(accession, filed, items)`` of every 8-K ENHA's REAL submissions index lists in ``[lo, hi]`` (the
-    backfill window of the 2026-10-28 Polygon row)."""
+    backfill window of the 2026-10-28 Massive.com row)."""
     subs = json.loads((FX / "submissions" / f"CIK{ENHA_CIK}.json").read_text(encoding="utf-8"))
     r = subs["filings"]["recent"]
     out = []

@@ -221,6 +221,8 @@ field), after its own entries — so the counter-case lists it too — every nig
 | no trigger withheld | "Price triggers on AXG held: …" |
 | co-members cued by a held price | "Laggard confirmation on ARM held: it reads the price of SMTK, held for a possible unconfirmed split" |
 
+**Vendor name in the first row.** The two phrases that name the market-data vendor still read "Polygon" (`domain/split_hold._sources`). The vendor is now Massive.com, but this line is written onto the recorded CallCard's `missing[]` and `domain/` is inside the editions engine fingerprint, so rewording it changes the fingerprint AND makes tonight's call differ from the stored one wherever a Massive.com-backed hold is open. It is left as is until the operator decides to take that (a deliberate, declared change).
+
 The line names a trigger only when one was WITHHELD (its identity — role, kind, grade, de-arm grade, fire
 date — is not what the held view reads); a trigger re-read on the bars before the step (another close in its
 label) is the reading held, not a trigger withheld. A co-member appears only when its laggard confirmation was
@@ -243,8 +245,8 @@ appearing, or the vendor re-scaling a bar so the step moves a session).
 - **Released.** After three sessions the hold lifts on its own. A step that NO list row of any status sits near
   then goes to the operator: the Admin Splits panel lists it as a "split-shaped jump with no split listed — is
   this real?" (the step's two bars and the bars after it; `pipeline.split_jumps`, the hold's own read on the
-  public clock, last 30 days) and the nightly report prints ONE quiet line. **Never a page (#7).** Polygon's
-  adjusted bars are not shown (no Polygon price client exists). **Named residual:** an unlisted real split,
+  public clock, last 30 days) and the nightly report prints ONE quiet line. **Never a page (#7).** Massive.com's
+  adjusted bars are not shown (no Massive.com price client exists). **Named residual:** an unlisted real split,
   once released, reads across the step again until it is listed (T4 flags an up-step as a cliff from bar 3).
 
 **Invariants.** #1 — computed from the view's own bars and split list (`price_history` / `split_events`): a
@@ -258,7 +260,7 @@ path, `pipeline.backfill`, D3b and the replay mirror all assemble through `assem
 read-only copy of prod; the split row is the only variable): GAME 08-25, NXL 09-01, MDCX 10-09 and VRME 10-01
 are held with the split unlisted (and fire the +several-hundred-percent breakout without the hold) and not held
 with it confirmed; PTIX 2025-05-19 and JAGX 09-22 / 09-23 are never held; ZCSH's real 3-for-1 forward split
-(Polygon only, needs review) holds its fast breakdown and names Polygon's row once it is public; GAME's step is
+(Massive.com only, needs review) holds its fast breakdown and names Massive.com's row once it is public; GAME's step is
 on the operator's list three sessions on, and is not once listed.
 
 **MEASURED on prod (a read-only copy, 2026-10-22; each card assembled with and without the hold over one

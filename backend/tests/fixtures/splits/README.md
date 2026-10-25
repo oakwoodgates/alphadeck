@@ -1,6 +1,6 @@
 # Split-list fixtures (split plan S1) — real data, trimmed
 
-Every file here is a real SEC or Polygon response downloaded for the 2026-10-20 split-tape diagnosis
+Every file here is a real SEC or Massive.com response downloaded for the 2026-10-20 split-tape diagnosis
 (`docs/temp/split-tape-diagnosis-2026-10-20.md`, §2's per-company table is the acceptance key). Nothing is
 hand-written or edited; the only change is TRIMMING, and the source's spelling is kept byte-for-byte.
 
@@ -14,7 +14,7 @@ hand-written or edited; the only change is TRIMMING, and the source's spelling i
   (`PART II AND III`). Byte-exact.
 - `submissions/CIK<10>.json` — the submissions indexes of NFT Ltd (MI), Pop Culture Group (CPOP) and Mega
   Matrix (MPU), as `data.sec.gov` served them. Byte-exact.
-- `polygon/page{1,2,3}.json` — Polygon `/v3/reference/splits?execution_date.gte=2025-08-01` (3 pages, 2,219 rows),
+- `polygon/page{1,2,3}.json` — Massive.com `/v3/reference/splits?execution_date.gte=2025-08-01` (3 pages, 2,219 rows),
   with `results` filtered to the diagnosis tickers (32 rows); `status`, `request_id` and `next_url` as served
   (the request carried no API key, so none is stored).
 - `polygon/rows_2024-10.json` — the 7 real rows, from the DEV backfill's 2024-10-01 pull (2026-10-20, the
@@ -77,7 +77,7 @@ extracts identically to its full submission — checked when trimmed). Items as 
 
 | accession | filer | items | what it states |
 |---|---|---|---|
-| 0001628280-26-066196 | ENHA | 8.01 | 1-for-10, "effective at 12:01 a.m. Central Time on October 29, 2026" AND split-adjusted trading from the 10-29 open (Polygon lists 10-28) |
+| 0001628280-26-066196 | ENHA | 8.01 | 1-for-10, "effective at 12:01 a.m. Central Time on October 29, 2026" AND split-adjusted trading from the 10-29 open (Massive.com lists 10-28) |
 | 0001628280-26-063260 | ENHA | 5.02, 7.01, 9.01 | no split |
 | 0001628280-26-058985 | ENHA | 8.01, 9.01 | "one warrant for every two shares acquired … if the business combination is consummated" — no split |
 | 0000913760-26-000034 | SNEX | 8.01, 9.01 | three-for-two as a stock dividend ("one additional share … for every two"), trading 2026-07-20 |
@@ -89,7 +89,7 @@ extracts identically to its full submission — checked when trimmed). Items as 
 | 0001213900-26-102384 | AIRE | 7.01, 9.01 (8-K/A) | "as adjusted for the Company's 1-for-25 reverse stock split"; the only date a cue reaches is 2025-12-31, in a tax table |
 
 - `submissions/CIK0001956439.json` — Enhanced Group (ENHA)'s submissions index as data.sec.gov served it on
-  2026-10-23. Byte-exact. Its 8-Ks in the backfill window of the 10-28 Polygon row are the three above, plus
+  2026-10-23. Byte-exact. Its 8-Ks in the backfill window of the 10-28 Massive.com row are the three above, plus
   three under other items (5.07 / 5.02 / 2.02) the reader never opens.
 
 The data-hygiene pass (2026-10-24: the restatement screen, the reading fixes, the targeted wide-form reader) added
@@ -120,6 +120,6 @@ screen, the restatement screen; `wide=True` for a primary document) AND the 2026
   approved 1-for-10, undated, beside a 2024 reorganization's "Effective on August 29, 2024").
 - `submissions/CIK0001787518.json` (DFNS) and `submissions/CIK0002036307.json` (OFAL) — their submissions indexes,
   copied byte-exact from prod's cache (2026-10-24): the targeted reader selects their wide forms from them.
-- `polygon/rows_list_2026-10-24.json` — the Polygon rows prod's split list CARRIES for LGHL 2025-03-26, MEDS,
-  DFNS, ZNB, OFAL and SDCO (its 1-for-500 of 2025-04-24, listed under its FORMER ticker HLLK) (its stored `polygon_*` columns: Polygon's own id, ticker, execution date and ratio, as the
-  backfill stored them from the 2026-10-20/22 pulls), copied — not typed — into Polygon's page shape.
+- `polygon/rows_list_2026-10-24.json` — the Massive.com rows prod's split list CARRIES for LGHL 2025-03-26, MEDS,
+  DFNS, ZNB, OFAL and SDCO (its 1-for-500 of 2025-04-24, listed under its FORMER ticker HLLK) (its stored `polygon_*` columns: Massive.com's own id, ticker, execution date and ratio, as the
+  backfill stored them from the 2026-10-20/22 pulls), copied — not typed — into Massive.com's page shape.

@@ -160,7 +160,7 @@ def content_of(values: dict[str, Any]) -> tuple[Any, ...]:
 
 
 def decision_values(d: SplitDecision) -> dict[str, Any]:
-    """A matcher decision as the columns a system version carries (an SEC-only decision has no Polygon side:
+    """A matcher decision as the columns a system version carries (an SEC-only decision has no Massive.com side:
     its ``polygon_*`` columns are NULL)."""
     s, p = d.sec, d.polygon
     return {
@@ -423,7 +423,8 @@ def confirm_values(v: SplitVersion, source: str) -> tuple[Decimal, Decimal, date
 
 def confirm_options(v: SplitVersion) -> list[str]:
     """The sources a needs-review split can be confirmed from, ONE per distinct value: two when SEC and
-    Polygon state different values, one when only one source states both, or both state the same."""
+    Massive.com state different values, one when only one source states both, or both state the same.
+    """
     if v.status != STATUS_NEEDS_REVIEW:
         return []
     out: list[str] = []
@@ -471,7 +472,7 @@ def confirm(
     vals = confirm_values(v, source)
     if vals is None:
         raise SplitConflict(
-            f"{'SEC' if source == SOURCE_SEC else 'Polygon'} states no complete ratio and date for this "
+            f"{'SEC' if source == SOURCE_SEC else 'Massive.com'} states no complete ratio and date for this "
             "split — confirm the other source, or reject it"
         )
     ratio_from, ratio_to, first_session = vals
