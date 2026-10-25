@@ -252,6 +252,7 @@ export type DataFlagsResponse = components["schemas"]["DataFlagsResponse"];
 export type MemberDataFlagsOut = components["schemas"]["MemberDataFlagsOut"];
 export type DataFlagOut = components["schemas"]["DataFlagOut"];
 export type DataFlagSplitOut = components["schemas"]["DataFlagSplitOut"];
+export type DataNoteOut = components["schemas"]["DataNoteOut"];
 
 /** One thesis's flags at `asof` (the Cockpit table, the NamePanel, the Scoreboard drawer chart). The same
  *  policy as the display read: cached for the window, keep the previous marks up through a scrub. */

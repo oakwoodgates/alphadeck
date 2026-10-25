@@ -9,7 +9,8 @@ Given a company's SEC ``companyfacts`` + its latest 10-Q/10-K text, produce cand
   on the latest cover date, or >=2 per-class counts parsed from the cover — the A+B sum offered),
   ``stale-cover`` (a single count older than the period — offered, dated by its own as-of date), or
   ``no-companyfacts`` (nothing observed — located-only). One condition, one label; never a catch-all.
-- **cash_burn** (runway): cash = cash+equiv (+ marketable securities); a clean ~quarter of operating cash
+- **cash_burn** (runway): cash = cash+equiv (+ same-dated marketable securities), each read under its most
+  current label (the restricted-cash total says so in the note); a clean ~quarter of operating cash
   flow -> ``AUTO``; a year-to-date column -> ``FLAG`` (derive the quarter); a large one-time reconciliation
   line, or marketable-securities present (filer-specific tag basis) -> ``FLAG`` (raw + locate).
 - **revenue_mix** (purity): ALWAYS ``HUMAN`` — locate the segment footnote (revenue names) or Item-1
@@ -46,7 +47,9 @@ def _rows(facts: dict, tax: str, concept: str, unit: str) -> list[dict]:
 
 
 def _first(facts: dict, candidates: list[tuple[str, str]], unit: str) -> list[dict]:
-    """The first candidate concept that has any rows (us-gaap tags vary by filer)."""
+    """The first candidate concept that has any rows — the OLD label rule. No reader uses it any more (the
+    revenue readers moved off it 2026-10-20, the cash reader 2026-10-24: ``_newest``); kept because the
+    label-switch regression tests replay the old rule against the new one."""
     for tax, concept in candidates:
         r = _rows(facts, tax, concept, unit)
         if r:
@@ -54,22 +57,53 @@ def _first(facts: dict, candidates: list[tuple[str, str]], unit: str) -> list[di
     return []
 
 
+def _newest(
+    facts: dict, candidates: list[tuple[str, str]], unit: str
+) -> tuple[str, list[dict]] | None:
+    """The candidate concept whose NEWEST row ends latest, with its rows; two concepts whose newest rows end
+    on the same date go to the one listed first. ``None`` when no candidate has a row.
+
+    The first-present rule kept a company's FIRST label forever: a filer that moved its cash from
+    ``CashAndCashEquivalentsAtCarryingValue`` to the restricted-cash total (or to plain ``Cash``) read the
+    old label's last balance (MEASURED 2026-10-24 over prod's cached companyfacts: GE's cash stopped at 2017,
+    TNC 2018, PLPC 2022; 2 companies picked an older known label over a current one, 80 were stale under a
+    label the reader didn't know, and 13 left their current marketable securities out under an older one).
+    """
+    best: tuple[str, str, list[dict]] | None = None
+    for tax, concept in candidates:
+        rows = _rows(facts, tax, concept, unit)
+        if not rows:
+            continue
+        end = max(r["end"] for r in rows)
+        if best is None or end > best[0]:  # strictly newer: a tie keeps the earlier-listed concept
+            best = (end, concept, rows)
+    return None if best is None else (best[1], best[2])
+
+
 def _days(row: dict) -> int:
     s, e = date.fromisoformat(row["start"]), date.fromisoformat(row["end"])
     return (e - s).days
 
 
-def _latest_instant(facts: dict, candidates: list[tuple[str, str]]) -> tuple[float, str] | None:
-    """The latest balance-sheet (value, as-of end date) for the first present concept (instant fact = no
-    span). The DATE rides along so the cash composer can STATE every input's as-of and detect a lagging
-    companyfacts (the shares ``stale-cover`` rule, applied to cash) — the bare-value version silently
-    composed instants of unknown, possibly mixed dates."""
-    rows = _first(facts, candidates, "USD")
-    if not rows:
+def _pick_instant(facts: dict, candidates: list[tuple[str, str]]) -> tuple[float, str, str] | None:
+    """The latest balance-sheet (value, as-of end date, concept) over the candidate concept that is the most
+    CURRENT (``_newest``; instant fact = no span). The DATE rides along so the cash composer can STATE every
+    input's as-of and detect a lagging companyfacts (the shares ``stale-cover`` rule, applied to cash) — the
+    bare-value version silently composed instants of unknown, possibly mixed dates. The CONCEPT rides along
+    so the note can say what the value includes (the restricted-cash total)."""
+    picked = _newest(facts, candidates, "USD")
+    if picked is None:
         return None
+    concept, rows = picked
     end = max(r["end"] for r in rows)
     at = [r for r in rows if r["end"] == end]
-    return float(max(at, key=lambda r: r.get("filed", ""))["val"]), end
+    return float(max(at, key=lambda r: r.get("filed", ""))["val"]), end, concept
+
+
+def _latest_instant(facts: dict, candidates: list[tuple[str, str]]) -> tuple[float, str] | None:
+    """``_pick_instant`` without the concept: (value, as-of end date)."""
+    picked = _pick_instant(facts, candidates)
+    return None if picked is None else (picked[0], picked[1])
 
 
 def _value_for_period(facts: dict, concept: str, start: str, end: str) -> float | None:
@@ -245,10 +279,22 @@ def _shares(facts: dict, tenq_text: str, ref: str, period_end: date) -> Extracte
 # cash + burn (runway)
 # ---------------------------------------------------------------------------------------------------------
 
+# Every candidate list below is read by ``_pick_instant``: the most CURRENT label wins, the listed order only
+# breaks a tie (the same newest date). The cash order puts the BALANCE-SHEET lines first, so a company that
+# reports its balance-sheet cash as currently as the restricted-cash total reads the balance-sheet line.
 _CASH = [
     ("us-gaap", "CashAndCashEquivalentsAtCarryingValue"),
     ("us-gaap", "CashAndCashEquivalentsAtCarryingValueIncludingDiscontinuedOperations"),
+    # 2026-10-24 — two labels current cash sits under that the reader didn't know. MEASURED over 937 basket
+    # companies with US-GAAP data: 120 had their current cash only under these (80 read an older label's stale
+    # balance, 40 read none); the new rule reads 61 from the restricted-cash total, 60 from plain ``Cash``. ``Cash``
+    # is a balance-sheet line; the restricted-cash total is the cash-flow statement's, so it is LAST and the
+    # note says it includes restricted cash (``_RESTRICTED``).
+    ("us-gaap", "Cash"),
+    ("us-gaap", "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents"),
 ]
+# The cash concept whose value INCLUDES restricted cash — stated in the note whenever it is the source.
+_RESTRICTED = "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents"
 _STI = [
     ("us-gaap", "ShortTermInvestments"),
     ("us-gaap", "MarketableSecuritiesCurrent"),
@@ -369,8 +415,14 @@ def _cash_burn(
     quarter (YTD − prior YTD — reproducible arithmetic on two filed columns, the market-cap trust class)
     and the marketable-securities basis (same-dated included / off-date excluded, which errs CONSERVATIVE —
     understated cash reads runway shorter) ride the NOTE and stay AUTO. Every input's as-of rides the note.
+
+    Each input reads its most CURRENT label (``_pick_instant``), so a filer that moved its cash to plain
+    ``Cash`` or the restricted-cash total, or its securities to a newer tag, is read where it reports today;
+    the note names a non-default cash tag and says when the value includes restricted cash.
     """
-    cash_at = _latest_instant(facts, _CASH)
+    cash_pick = _pick_instant(facts, _CASH)
+    cash_at = None if cash_pick is None else (cash_pick[0], cash_pick[1])
+    restricted = cash_pick is not None and cash_pick[2] == _RESTRICTED
     sti_at = _latest_instant(facts, _STI)
     lti_at = _latest_instant(facts, _LTI)
     q = _quarter(facts, cfg)
@@ -413,8 +465,11 @@ def _cash_burn(
     marketable = sum(x[0] for x in mk_included)
     cash_usd = (cash_at[0] + marketable) if cash_at else None
     asofs: list[str] = []
-    if cash_at:
-        asofs.append(f"cash as of {cash_at[1]}")
+    if cash_pick is not None:
+        # the label is named whenever it is not the plain balance-sheet cash line (show the work: which tag
+        # the number came from — the reader now follows a filer that switched labels)
+        tag = "" if cash_pick[2] == _CASH[0][1] else f" (tagged {cash_pick[2]})"
+        asofs.append(f"cash as of {cash_pick[1]}{tag}")
     if mk_included:
         asofs.append(f"marketable as of {mk_included[0][1]}")
     if mk_offdate:
@@ -489,8 +544,9 @@ def _cash_burn(
                 passages.append(p)
 
     tier = Tier.FLAG if flags else Tier.AUTO
+    cash_label = "cash+equivalents, includes restricted cash" if restricted else "cash+equivalents"
     cash_part = (
-        f"cash_usd = cash+equivalents (${cash_at[0] / 1e6:.1f}M) + marketable securities "
+        f"cash_usd = {cash_label} (${cash_at[0] / 1e6:.1f}M) + marketable securities "
         f"(${marketable / 1e6:.1f}M)"
         if cash_at
         else "cash: NOT FOUND in companyfacts (author it from the located balance sheet)"

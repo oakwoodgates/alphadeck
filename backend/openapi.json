@@ -3419,7 +3419,7 @@
           "data-flags"
         ],
         "summary": "Get Thesis Data Flags",
-        "description": "The data flags on one thesis's resolved basket at ``asof`` \u2014 which numbers on each row rest on data the\nplatform knows is wrong or cannot vouch for, why, and what clears it \u2014 plus each name's split rows. Only\nnames with a flag or a split row are listed. Computed on read, never stored; display-only.",
+        "description": "The data flags on one thesis's resolved basket at ``asof`` \u2014 which numbers on each row rest on data the\nplatform knows is wrong or cannot vouch for, why, and what clears it \u2014 plus each name's quiet markers\n(information, not a defect) and split rows. Only names with a flag, a marker or a split row are listed.\nComputed on read, never stored; display-only.",
         "operationId": "get_thesis_data_flags_theses__thesis_id__data_flags_get",
         "parameters": [
           {
@@ -3475,7 +3475,7 @@
           "data-flags"
         ],
         "summary": "Get Data Flags",
-        "description": "Every flagged name across the active basket union at ``asof``, each with the theses holding it \u2014 the\nAdmin list and the Board's marks. Computed on read, never stored; display-only.",
+        "description": "Every flagged or marked name across the active basket union at ``asof``, each with the theses holding\nit \u2014 the Admin list and the Board's marks (a marker never marks a ticker). Computed on read, never stored;\ndisplay-only.",
         "operationId": "get_data_flags_data_flags_get",
         "parameters": [
           {
@@ -9680,7 +9680,55 @@
           "asof"
         ],
         "title": "DataFlagsResponse",
-        "description": "The data flags as of ``asof`` (computed on read, never stored). ``thesis_id`` is set on the per-thesis\nread (members with a flag or a split row) and null on the union read (flagged members only). ``names`` =\nhow many names were judged."
+        "description": "The data flags as of ``asof`` (computed on read, never stored). ``thesis_id`` is set on the per-thesis\nread (members with a flag, a marker or a split row) and null on the union read (members with a flag or a\nmarker). ``names`` = how many names were judged."
+      },
+      "DataNoteOut": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "since": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since"
+          },
+          "until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Until"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "label",
+          "reason"
+        ],
+        "title": "DataNoteOut",
+        "description": "A quiet marker on one name: information, not a defect (``short_price_history``). It never marks the row\nor grays a cell. ``since`` = when the condition began, ``until`` = when it stops applying."
       },
       "DecisionIn": {
         "properties": {
@@ -12557,6 +12605,13 @@
             "type": "array",
             "title": "Splits"
           },
+          "notes": {
+            "items": {
+              "$ref": "#/components/schemas/DataNoteOut"
+            },
+            "type": "array",
+            "title": "Notes"
+          },
           "theses": {
             "items": {
               "$ref": "#/components/schemas/DataFlagThesisRefOut"
@@ -12570,7 +12625,7 @@
           "security_id"
         ],
         "title": "MemberDataFlagsOut",
-        "description": "One name's flags and split rows. ``marked`` = some flag reaches a cell on its row (the row mark)."
+        "description": "One name's flags, quiet markers and split rows. ``marked`` = some flag reaches a cell on its row (the\nrow mark); a marker never sets it."
       },
       "MemberDisplaySignalsOut": {
         "properties": {

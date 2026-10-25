@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import type { DataFlagSplitOut, MemberDataFlagsOut } from "../api/hooks";
+import type { DataFlagSplitOut, DataNoteOut, MemberDataFlagsOut } from "../api/hooks";
 import { fmtDate } from "../util/format";
 import {
   CELL_LABEL,
@@ -66,13 +66,25 @@ export function splitEvents(s: DataFlagSplitOut): string[] {
   return out;
 }
 
+/** A quiet marker's line (data hygiene): information about the name, not a defect in its data — muted,
+ *  no level badge, no border, never a row mark. */
+export function DataNoteLine({ note }: { note: DataNoteOut }) {
+  return (
+    <div className="np-note" data-testid="np-note">
+      {note.reason}
+    </div>
+  );
+}
+
 /** The NamePanel's "Data · this name" section: every flag on the name (the full reason, the evidence,
- *  since when, what clears it, the cells it touches — or that it touches none) and the company's split
- *  rows with their events. Renders nothing for a name with neither (the common case). */
+ *  since when, what clears it, the cells it touches — or that it touches none), the company's split
+ *  rows with their events, and last, quietest, its markers (a short price history). Renders nothing for
+ *  a name with none of them (the common case). */
 export function DataFlagsSection({ member }: { member: MemberDataFlagsOut | null | undefined }) {
   const flags = member?.flags ?? [];
   const splits = member?.splits ?? [];
-  if (flags.length === 0 && splits.length === 0) return null;
+  const notes = member?.notes ?? [];
+  if (flags.length === 0 && splits.length === 0 && notes.length === 0) return null;
   return (
     <>
       <div className="np-h">Data · this name</div>
@@ -130,6 +142,9 @@ export function DataFlagsSection({ member }: { member: MemberDataFlagsOut | null
             </div>
           ))}
         </div>
+      ))}
+      {notes.map((n) => (
+        <DataNoteLine note={n} key={n.kind} />
       ))}
     </>
   );

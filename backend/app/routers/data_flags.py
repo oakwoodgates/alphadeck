@@ -6,6 +6,9 @@
 - ``GET /data-flags?asof=`` — every flagged name across the active basket union, each with the theses that
   hold it: the Admin list and the Board's ticker marks.
 
+Each member also carries its quiet MARKERS (``notes`` — information, not a defect: a price history under a year,
+so the 52-week checks cannot run yet), which never mark a row or a ticker.
+
 Display-only (``domain/data_flags.py``): computed on read on the view's clock (``serve_view`` — a past as-of
 reads what was public by then, #1), never stored, never on the call card, never an input to it, and never a
 push alert (#7). The rules are ``pipeline/data_flags.py``.
@@ -87,26 +90,39 @@ class DataFlagSplitOut(BaseModel):
     bars_ago: int | None = None
 
 
+class DataNoteOut(BaseModel):
+    """A quiet marker on one name: information, not a defect (``short_price_history``). It never marks the row
+    or grays a cell. ``since`` = when the condition began, ``until`` = when it stops applying."""
+
+    kind: str
+    label: str
+    reason: str
+    since: date | None = None
+    until: date | None = None
+
+
 class DataFlagThesisRefOut(BaseModel):
     id: UUID
     name: str
 
 
 class MemberDataFlagsOut(BaseModel):
-    """One name's flags and split rows. ``marked`` = some flag reaches a cell on its row (the row mark)."""
+    """One name's flags, quiet markers and split rows. ``marked`` = some flag reaches a cell on its row (the
+    row mark); a marker never sets it."""
 
     security_id: UUID
     ticker: str | None = None
     marked: bool = False
     flags: list[DataFlagOut] = Field(default_factory=list)
     splits: list[DataFlagSplitOut] = Field(default_factory=list)
+    notes: list[DataNoteOut] = Field(default_factory=list)
     theses: list[DataFlagThesisRefOut] = Field(default_factory=list)
 
 
 class DataFlagsResponse(BaseModel):
     """The data flags as of ``asof`` (computed on read, never stored). ``thesis_id`` is set on the per-thesis
-    read (members with a flag or a split row) and null on the union read (flagged members only). ``names`` =
-    how many names were judged."""
+    read (members with a flag, a marker or a split row) and null on the union read (members with a flag or a
+    marker). ``names`` = how many names were judged."""
 
     thesis_id: UUID | None = None
     asof: date
@@ -162,6 +178,10 @@ def _member_out(
         marked=m.marked,
         flags=[_flag_out(f) for f in m.flags],
         splits=[_split_out(s) for s in m.splits],
+        notes=[
+            DataNoteOut(kind=n.kind, label=n.label, reason=n.reason, since=n.since, until=n.until)
+            for n in m.notes
+        ],
         theses=theses or [],
     )
 
@@ -210,8 +230,9 @@ def get_thesis_data_flags(
     thesis: Thesis = Depends(get_thesis_or_404),
 ) -> DataFlagsResponse:
     """The data flags on one thesis's resolved basket at ``asof`` — which numbers on each row rest on data the
-    platform knows is wrong or cannot vouch for, why, and what clears it — plus each name's split rows. Only
-    names with a flag or a split row are listed. Computed on read, never stored; display-only."""
+    platform knows is wrong or cannot vouch for, why, and what clears it — plus each name's quiet markers
+    (information, not a defect) and split rows. Only names with a flag, a marker or a split row are listed.
+    Computed on read, never stored; display-only."""
     ids: list[UUID] = []
     for m in thesis.basket:
         if m.security_id is not None and m.security_id not in ids:
@@ -221,7 +242,7 @@ def get_thesis_data_flags(
         thesis_id=thesis.id,
         asof=asof,
         names=len(ids),
-        members=[_member_out(out[s]) for s in ids if out[s].flags or out[s].splits],
+        members=[_member_out(out[s]) for s in ids if out[s].flags or out[s].splits or out[s].notes],
     )
 
 
@@ -231,8 +252,9 @@ def get_data_flags(
     conn: psycopg.Connection = Depends(get_conn),
     tenant_id: UUID = Depends(get_current_tenant),
 ) -> DataFlagsResponse:
-    """Every flagged name across the active basket union at ``asof``, each with the theses holding it — the
-    Admin list and the Board's marks. Computed on read, never stored; display-only."""
+    """Every flagged or marked name across the active basket union at ``asof``, each with the theses holding
+    it — the Admin list and the Board's marks (a marker never marks a ticker). Computed on read, never stored;
+    display-only."""
     with conn.cursor() as cur:
         cur.execute(
             "SELECT bm.security_id, t.id, t.name FROM basket_member bm JOIN thesis t ON t.id = bm.thesis_id "
@@ -248,6 +270,6 @@ def get_data_flags(
             refs.append(DataFlagThesisRefOut(id=r["id"], name=r["name"]))
     ids = list(held)
     out = _read(conn, tenant_id=tenant_id, ids=ids, asof=asof)
-    members = [_member_out(out[s], held[s]) for s in ids if out[s].flags]
+    members = [_member_out(out[s], held[s]) for s in ids if out[s].flags or out[s].notes]
     members.sort(key=lambda m: (not m.marked, m.ticker or str(m.security_id)))
     return DataFlagsResponse(asof=asof, names=len(ids), members=members)
