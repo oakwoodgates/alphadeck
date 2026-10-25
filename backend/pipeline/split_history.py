@@ -57,10 +57,12 @@ from ingest.polygon_splits import PolygonSplitsError, PolygonSplitSource, defaul
 from pipeline.backfill_splits import (
     APPEND,
     DEFAULT_SINCE,
+    FORMER_TICKERS_SQL,
     Member,
     SecReader,
     append_planned,
     match_polygon,
+    member_of,
     plan_against_stored,
     plan_members,
 )
@@ -75,7 +77,7 @@ MAX_ATTEMPTS = 3
 
 _NEEDING_SQL = f"""
     WITH u AS ({_UNION})
-    SELECT u.tenant_id, u.security_id, sm.ticker, sm.price_symbol, sm.cik
+    SELECT u.tenant_id, u.security_id, sm.ticker, sm.price_symbol, sm.cik, {FORMER_TICKERS_SQL}
       FROM u
       JOIN security_master sm ON sm.id = u.security_id
       LEFT JOIN security_split_history h
@@ -91,16 +93,7 @@ def needing(conn: psycopg.Connection) -> list[Member]:
     with conn.cursor() as cur:
         cur.execute(_NEEDING_SQL, (MAX_ATTEMPTS,))
         rows = cur.fetchall()
-    return [
-        Member(
-            tenant_id=r["tenant_id"],
-            security_id=r["security_id"],
-            ticker=r["ticker"],
-            price_symbol=r["price_symbol"],
-            cik=r["cik"],
-        )
-        for r in rows
-    ]
+    return [member_of(r) for r in rows]
 
 
 @dataclass

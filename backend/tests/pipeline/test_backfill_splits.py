@@ -40,6 +40,7 @@ from tests.split_801_fixtures import SINCE as SINCE_8_01
 from tests.split_fixtures import (
     FX,
     edgar_cache,
+    list_polygon_rows,
     list_polygon_source,
     polygon_source,
     seed_union,
@@ -419,6 +420,55 @@ def test_mi_its_20f_restates_an_old_split_and_is_named_as_such(db, tmp_path):
         "Wide forms read: 1 (1 unread), none agrees — 20-F 0001213900-26-050939 (filed 2026-05-01): no ratio "
         "(only a past split's ratio is stated), no date." in mi.decision.note
     )
+
+
+SDCO_CIK = "0001331421"
+
+
+def _renamed(db, sid, old: str, new: str) -> None:
+    """The rename the weekly company-list refresh records (``security_ticker_history``, 0066)."""
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO security_ticker_history (tenant_id, security_id, old_ticker, new_ticker, source) "
+            "VALUES (%s, %s, %s, %s, 'test')",
+            (DEFAULT_TENANT_ID, sid, old, new),
+        )
+    db.commit()
+
+
+def test_a_split_listed_under_the_companys_former_ticker_is_matched(db, tmp_path):
+    """SDCO traded as HLLK until its rename, and Polygon lists its 1-for-500 of 2025-04-24 under HLLK (the row
+    prod's list carries). Matched only by today's ticker, the split was never seen ("stored splits not seen this
+    run 1" on dev); with the company's own former ticker it is decided and planned."""
+    sid = seed_member(db, "SDCO", SDCO_CIK, [])
+    cache = edgar_cache(tmp_path, only=set(), submissions=set())
+    assert (
+        _list_run(db, tmp_path, cache, tickers=["SDCO"]).planned == []
+    )  # the control: no history row
+    _renamed(db, sid, "HLLK", "SDCO")
+    (m,) = bf.union_members(db, tickers=["SDCO"])
+    assert m.former_tickers == ("HLLK",) and "HLLK" in m.symbols
+    r = _list_run(db, tmp_path, cache, tickers=["SDCO"])
+    (p,) = r.planned
+    assert p.member.security_id == sid
+    assert (p.decision.polygon.ticker, p.decision.key_date) == ("HLLK", date(2025, 4, 24))
+    assert (p.decision.ratio_from, p.decision.ratio_to) == (Decimal(500), Decimal(1))
+    assert p.action == bf.APPEND
+
+
+def test_a_former_ticker_matches_only_its_own_company(db, tmp_path):
+    """The former tickers are read PER SECURITY: SDCO's HLLK never reaches another company, even one with its own
+    rename history — a ticker a different company once used (or uses) is never this company's."""
+    sdco = seed_member(db, "SDCO", SDCO_CIK, [])
+    other = seed_member(db, "OTHR", "0000000009", [])
+    _renamed(db, sdco, "HLLK", "SDCO")
+    _renamed(db, other, "OLDX", "OTHR")
+    members = bf.union_members(db)
+    by_sid = {m.security_id: m for m in members}
+    assert by_sid[other].former_tickers == ("OLDX",)
+    matched = bf.match_polygon(list_polygon_rows(), members)
+    assert [r.ticker for r in matched[by_sid[sdco]]] == ["HLLK"]
+    assert by_sid[other] not in matched
 
 
 def test_an_apply_from_the_full_history_marks_the_members_it_covered(db, tmp_path):
