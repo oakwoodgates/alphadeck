@@ -22,18 +22,20 @@ confirmed split covers — so a confirm here lifts that hold the next night. Aut
 
 **Split-shaped jumps with no split listed (S5)** — the panel also lists the price jumps the split-night hold
 has released (three sessions on) that no source ever listed (``pipeline.split_jumps``): the operator's "is this
-real?". A list, never an action and never a page (#7).
+real?". Never a page (#7). Since 2026-10-24 the operator can **Dismiss** one ("this was a real move" —
+``repositories.split_jump_repo``, append-only): it leaves the list and is listed under ``dismissed_jumps`` (WB#2);
+inverse: **Undo**. A dismissal is display only — the split-night hold never reads it.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import date, datetime
-from typing import Literal
+from typing import Any, Literal, TypeVar
 from uuid import UUID
 
 import psycopg
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.deps import get_conn, get_current_tenant
@@ -52,8 +54,9 @@ from domain.splits import (
     direction,
     ratio_label,
 )
-from pipeline.split_jumps import UnlistedJump, scan_unlisted_jumps
-from repositories import split_repo
+from pipeline.split_jumps import UnlistedJump, scan_unlisted_jumps, split_dismissed
+from repositories import split_jump_repo, split_repo
+from repositories.split_jump_repo import JumpDismissalConflict
 from repositories.split_repo import SplitConflict, SplitVersion
 
 router = APIRouter(prefix="/admin/splits", tags=["admin"])
@@ -167,6 +170,11 @@ class AdminSplitJumpOut(BaseModel):
     label: str
     sessions_since: int
     after: list[AdminSplitJumpBarOut] = Field(default_factory=list)
+    # the operator's standing dismissal ("this was a real move"), when one stands — undo it with
+    # POST /admin/splits/jumps/dismissals/{dismissal_id}/undo
+    dismissal_id: UUID | None = None
+    dismissed_at: datetime | None = None
+    dismissed_reason: str | None = None
 
 
 class AdminSplitListOut(BaseModel):
@@ -175,6 +183,8 @@ class AdminSplitListOut(BaseModel):
     (rejected / revoked — kept, grayed) are QUIET lists. ``total`` = every split on the list. Read live.
     ``unlisted_jumps`` (S5) — split-shaped jumps on basket names that the split-night hold has released and no
     source ever listed, the last 30 days; ``unlisted_jumps_error`` when that read failed (shown, never hidden).
+    ``dismissed_jumps`` — the ones the operator dismissed as a real move (still listed, behind the panel's
+    "dismissed" filter; each undoable).
     """
 
     needs_review: list[AdminSplitListEntryOut] = Field(default_factory=list)
@@ -184,12 +194,19 @@ class AdminSplitListOut(BaseModel):
     total: int = 0
     unlisted_jumps: list[AdminSplitJumpOut] = Field(default_factory=list)
     unlisted_jumps_error: str | None = None
+    dismissed_jumps: list[AdminSplitJumpOut] = Field(default_factory=list)
 
 
 class AdminSplitListConfirmIn(BaseModel):
     """Whose values to confirm: the SEC filing's or Polygon's."""
 
     source: Literal["sec", "polygon"]
+
+
+class AdminSplitJumpReasonIn(BaseModel):
+    """Why (optional — a default reason is stored)."""
+
+    reason: str | None = Field(default=None, max_length=500)
 
 
 def _md(ts: datetime) -> str:
@@ -303,7 +320,7 @@ def split_out(v: SplitVersion, *, restore_to: str | None = None) -> AdminSplitLi
     )
 
 
-def jump_out(j: UnlistedJump) -> AdminSplitJumpOut:
+def jump_out(j: UnlistedJump, dismissal: Mapping[str, Any] | None = None) -> AdminSplitJumpOut:
     s = j.step
     return AdminSplitJumpOut(
         security_id=j.security_id,
@@ -318,6 +335,22 @@ def jump_out(j: UnlistedJump) -> AdminSplitJumpOut:
         label=j.label,
         sessions_since=j.sessions_since,
         after=[AdminSplitJumpBarOut(d=d, close=c, volume=v) for d, c, v in j.after],
+        dismissal_id=dismissal["id"] if dismissal is not None else None,
+        dismissed_at=dismissal["recorded_at"] if dismissal is not None else None,
+        dismissed_reason=dismissal["reason"] if dismissal is not None else None,
+    )
+
+
+def _jumps(
+    conn: psycopg.Connection, *, tenant_id: UUID, asof: date
+) -> tuple[list[AdminSplitJumpOut], list[AdminSplitJumpOut]]:
+    """``(the jumps still asking "is this real?", the ones the operator dismissed)`` as of ``asof``."""
+    jumps = scan_unlisted_jumps(conn, asof=asof, tenant_id=tenant_id)
+    dismissed = split_jump_repo.standing_dismissals(conn, tenant_id=tenant_id)
+    keep, gone = split_dismissed(jumps, dismissed)
+    return (
+        [jump_out(j) for j in keep],
+        [jump_out(j, dismissed[(j.security_id, j.step.d)]) for j in gone],
     )
 
 
@@ -329,8 +362,9 @@ def splits_out(
     versions = split_repo.latest_versions(conn, tenant_id=tenant_id)
     out = AdminSplitListOut(total=len(versions))
     try:
-        jumps = scan_unlisted_jumps(conn, asof=asof or market_today(), tenant_id=tenant_id)
-        out.unlisted_jumps = [jump_out(j) for j in jumps]
+        out.unlisted_jumps, out.dismissed_jumps = _jumps(
+            conn, tenant_id=tenant_id, asof=asof or market_today()
+        )
     except (
         Exception
     ) as e:  # noqa: BLE001 — a failed jump read is shown on the panel, never a failed panel
@@ -458,6 +492,100 @@ def revoke_split(
     not confirmed."""
     v = _commit(conn, lambda: split_repo.revoke(conn, version_id, tenant_id=tenant_id))
     return _out(conn, v)
+
+
+_T = TypeVar("_T")
+
+
+def _commit_jump(conn: psycopg.Connection, fn: Callable[[], _T]) -> _T:
+    """One dismissal (or its Undo) in its own transaction — the errors mapped like every split action."""
+    try:
+        out = fn()
+        conn.commit()
+        return out
+    except LookupError as e:
+        conn.rollback()
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except JumpDismissalConflict as e:
+        conn.rollback()
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    except ValueError as e:
+        conn.rollback()
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    except BaseException:
+        conn.rollback()
+        raise
+
+
+def _jump_now(
+    conn: psycopg.Connection, *, tenant_id: UUID, security_id: UUID, step_date: date
+) -> AdminSplitJumpOut:
+    """The jump as the panel lists it now (with its standing dismissal, if any); 404 when it is not listed."""
+    try:
+        keep, gone = _jumps(conn, tenant_id=tenant_id, asof=market_today())
+    finally:
+        conn.rollback()  # a read: hold no snapshot
+    for j in (*keep, *gone):
+        if j.security_id == security_id and j.step_date == step_date:
+            return j
+    raise HTTPException(
+        status_code=404,
+        detail=f"no split-shaped jump on {step_date.isoformat()} is listed for security {security_id}",
+    )
+
+
+@router.post("/jumps/{security_id}/{step_date}/dismiss", response_model=AdminSplitJumpOut)
+def dismiss_jump(
+    security_id: UUID,
+    step_date: date,
+    body: AdminSplitJumpReasonIn | None = Body(default=None),
+    conn: psycopg.Connection = Depends(get_conn),
+    tenant_id: UUID = Depends(get_current_tenant),
+) -> AdminSplitJumpOut:
+    """DISMISS an "is this real?" card — the operator says the split-shaped jump was a REAL MOVE (author
+    ``operator:dismiss``, append-only). It leaves the list and is listed under ``dismissed_jumps``; the
+    split-night hold never reads it (display only — no call changes). Undo with ``POST
+    /admin/splits/jumps/dismissals/{dismissal_id}/undo``. **404** no such jump on the list, **409** already
+    dismissed."""
+    jump = _jump_now(conn, tenant_id=tenant_id, security_id=security_id, step_date=step_date)
+    reason = (body.reason if body and body.reason else None) or "a real move, said the operator"
+    _commit_jump(
+        conn,
+        lambda: split_jump_repo.dismiss(
+            conn,
+            tenant_id=tenant_id,
+            security_id=security_id,
+            step_date=step_date,
+            reason=reason,
+            detail={
+                "prior_date": jump.prior_date.isoformat(),
+                "prior_close": jump.prior_close,
+                "close": jump.close,
+                "step": jump.step,
+                "label": jump.label,
+            },
+        ),
+    )
+    return _jump_now(conn, tenant_id=tenant_id, security_id=security_id, step_date=step_date)
+
+
+@router.post("/jumps/dismissals/{dismissal_id}/undo", response_model=AdminSplitJumpOut)
+def undo_jump_dismissal(
+    dismissal_id: UUID,
+    body: AdminSplitJumpReasonIn | None = Body(default=None),
+    conn: psycopg.Connection = Depends(get_conn),
+    tenant_id: UUID = Depends(get_current_tenant),
+) -> AdminSplitJumpOut:
+    """UNDO a dismissal (author ``operator:undo``, append-only): the card is back on the "is this real?" list.
+    **404** unknown dismissal (or its jump no longer listed), **409** already undone."""
+    reason = (body.reason if body and body.reason else None) or "undone by the operator"
+    row = _commit_jump(
+        conn,
+        lambda: split_jump_repo.undo(conn, dismissal_id, tenant_id=tenant_id, reason=reason),
+    )
+    return _jump_now(
+        conn, tenant_id=tenant_id, security_id=row["security_id"], step_date=row["step_date"]
+    )
 
 
 @router.post("/{version_id}/restore", response_model=AdminSplitListEntryOut)

@@ -259,13 +259,14 @@ class Settings(BaseSettings):
     # deliberately NOT injected by docker-compose — one fewer always-present fallback to keep in step with
     # this default.
     tape_stale_days: int = 5
-    # R8-B — the Form 4/A REVIEW HORIZON (calendar days): an AMBIGUOUS amendment (several candidate originals —
-    # the only kind the system cannot apply itself) is OWED the operator only when one of the buy/sell rows it
-    # would change is dated within this many days of the read's asof; older, it is listed quietly as
-    # "unresolved — historical" (no call reads those rows; the originals stand; it never pages). UNSET (the
-    # default) = DERIVED: the backtest window plus the longest insider read horizon a call detector declares
-    # (``signals.horizons.insider_amendment_review_horizon`` — 730 + 210 = 940 at today's config), so a widened
-    # detector widens it with no edit here. A number pins it (a negative one reads as 0). Read via the
+    # The Form 4/A REVIEW LINE: an amendment the system cannot resolve (an ambiguous link rule 2b does not settle,
+    # an unresolved row match, a held void) is OWED the operator only when a buy/sell row it would change can be
+    # read by a LIVE call or an EDITION page; otherwise it is listed quietly as "unresolved — historical" (the
+    # originals stand; it never pages). UNSET (the default) = DERIVED (operator decision 2026-10-24): per code,
+    # rows dated on/after (the earliest edition night − that code's read window) or inside today's window
+    # (``domain.insider_amendments.review_line`` — P 210 / S 120 days, the detectors' own declarations), so a
+    # widened detector or an earlier edition widens it with no edit here. A number pins a FLAT window instead —
+    # every code, this many calendar days back from the read's asof (a negative one reads as 0). Read via the
     # env_prefix (ALPHADECK_INSIDER_AMENDMENT_REVIEW_HORIZON_DAYS); NOT injected by docker-compose.
     insider_amendment_review_horizon_days: int | None = None
     # T1 — the CLOSED-TAPE PROXIMITY window: a stopped price tape reads "closed — stopped trading" (quiet,

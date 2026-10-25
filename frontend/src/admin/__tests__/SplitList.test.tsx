@@ -199,6 +199,8 @@ const h = vi.hoisted(() => ({
   reject: {} as Record<string, unknown>,
   revoke: {} as Record<string, unknown>,
   restore: {} as Record<string, unknown>,
+  dismiss: {} as Record<string, unknown>,
+  undoDismiss: {} as Record<string, unknown>,
 }));
 
 vi.mock("../../api/hooks", () => ({
@@ -207,6 +209,8 @@ vi.mock("../../api/hooks", () => ({
   useRejectSplit: () => h.reject,
   useRevokeSplit: () => h.revoke,
   useRestoreSplit: () => h.restore,
+  useDismissJump: () => h.dismiss,
+  useUndoJumpDismissal: () => h.undoDismiss,
 }));
 
 const m = () => ({ mutate: vi.fn(), isPending: false, isError: false, error: null });
@@ -221,6 +225,8 @@ beforeEach(() => {
   h.reject = m();
   h.revoke = m();
   h.restore = m();
+  h.dismiss = m();
+  h.undoDismiss = m();
   serve({ needs_review: [MI], announced: [], confirmed: [BTOC], set_aside: [LRHC_REJECTED], total: 3 });
 });
 
@@ -292,7 +298,7 @@ describe("SplitList", () => {
     expect(fn(h.restore)).toHaveBeenCalledWith({ versionId: LRHC_REJECTED.version_id });
   });
 
-  it("asks 'is this real?' about a released split-shaped jump no source listed — loud, no action", () => {
+  it("asks 'is this real?' about a released split-shaped jump no source listed — loud, one Dismiss", async () => {
     serve({ needs_review: [], announced: [], confirmed: [], set_aside: [], total: 0, unlisted_jumps: [GAME_JUMP] });
     render(<SplitList />);
     const box = screen.getByTestId("adm-splits-jumps");
@@ -301,8 +307,66 @@ describe("SplitList", () => {
     expect(row).toHaveTextContent("GAME — stepped x7.5 on 08-24 · 4 sessions ago");
     expect(row).toHaveTextContent("08-21 close 0.422 · vol 1,486,400 → 08-24 close 3.165 · vol 553,700");
     expect(row).toHaveTextContent("then 08-25 3.65 · 08-26 3.43 · 08-27 3.22 · 08-28 3");
-    expect(within(box).queryByRole("button")).toBeNull(); // a question, never an action (nothing to undo)
-    for (const mm of [h.confirm, h.reject, h.revoke, h.restore]) expect(fn(mm)).not.toHaveBeenCalled();
+    for (const mm of [h.confirm, h.reject, h.revoke, h.restore, h.dismiss]) expect(fn(mm)).not.toHaveBeenCalled();
+    // its one action says what it does — and that no call changes
+    expect(within(row).getByTestId("adm-split-jump-effect")).toHaveTextContent(
+      "This was a real move: the card leaves this list (it stays under “dismissed”, with an Undo). No call changes",
+    );
+    await userEvent.click(within(row).getByRole("button", { name: "Dismiss" }));
+    expect(fn(h.dismiss)).toHaveBeenCalledWith({ securityId: GAME_JUMP.security_id, stepDate: "2026-08-24" });
+    expect(screen.queryByTestId("adm-splits-jumps-dismissed")).toBeNull(); // nothing dismissed yet
+  });
+
+  it("keeps a dismissed jump behind the 'dismissed' filter, with its Undo — hidden, never gone", async () => {
+    const DISMISSED = {
+      ...GAME_JUMP,
+      dismissal_id: "5d1b2c3e-0000-4000-8000-0000000000aa",
+      dismissed_at: "2026-08-28T15:02:00Z",
+      dismissed_reason: "a real squeeze",
+    };
+    serve({ needs_review: [], announced: [], confirmed: [], set_aside: [], total: 0, dismissed_jumps: [DISMISSED] });
+    render(<SplitList />);
+    expect(screen.queryByTestId("adm-splits-jumps")).toBeNull(); // off the loud list
+    const filter = screen.getByTestId("adm-splits-jumps-dismissed");
+    expect(within(filter).queryByTestId("adm-split-jump-dismissed-row")).toBeNull(); // the filter starts closed
+    await userEvent.click(within(filter).getByRole("button", { name: "Show dismissed (1)" }));
+    const row = within(filter).getByTestId("adm-split-jump-dismissed-row");
+    expect(row).toHaveTextContent("dismissed by you as a real move, 08-28 — “a real squeeze”");
+    await userEvent.click(within(row).getByRole("button", { name: "Undo" }));
+    expect(fn(h.undoDismiss)).toHaveBeenCalledWith({ dismissalId: DISMISSED.dismissal_id });
+    await userEvent.click(within(filter).getByRole("button", { name: "Hide dismissed (1)" }));
+    expect(within(filter).queryByTestId("adm-split-jump-dismissed-row")).toBeNull();
+  });
+
+  it("says in plain words what the split is, what each source says and what each button does", () => {
+    render(<SplitList />);
+    const row = screen.getByTestId("adm-split-review-row");
+    expect(within(row).getByTestId("adm-split-what")).toHaveTextContent(
+      "1-for-80 reverse split: every 80 shares became 1; first traded on the new basis 2026-05-18.",
+    );
+    expect(within(row).getByTestId("adm-split-sec-says")).toHaveTextContent(
+      "The SEC 6-K filed 2026-04-21 was found, but no single ratio could be read from it (only an authorized range of ratios",
+    );
+    expect(within(row).getByTestId("adm-split-polygon-says")).toHaveTextContent(
+      "Polygon lists 1-for-80 reverse split, first trading 2026-05-18.",
+    );
+    const [confirmLine, rejectLine] = within(row).getAllByTestId("adm-split-effect");
+    expect(confirmLine).toHaveTextContent(
+      "Confirm 1-for-80 reverse split, first session 2026-05-18: prices before 05-18 are put on the new scale",
+    );
+    expect(rejectLine).toHaveTextContent("Reject: no split; prices stay as stored.");
+  });
+
+  it("words each source's Confirm when the SEC filing and Polygon differ", () => {
+    serve({ needs_review: [DISAGREE], announced: [], confirmed: [], set_aside: [], total: 1 });
+    render(<SplitList />);
+    const row = screen.getByTestId("adm-split-review-row");
+    expect(within(row).getByTestId("adm-split-sec-says")).toHaveTextContent(
+      "The SEC 8-K filed 2026-10-09 says 1-for-16 reverse split, first trading on the new basis 2026-10-15.",
+    );
+    const lines = within(row).getAllByTestId("adm-split-effect").map((x) => x.textContent);
+    expect(lines[0]).toContain("Confirm the SEC filing's values (1-for-16 reverse split, first session 2026-10-15)");
+    expect(lines[1]).toContain("Confirm Polygon's values (1-for-15 reverse split, first session 2026-10-15)");
   });
 
   it("shows a failed jump check instead of hiding it", () => {

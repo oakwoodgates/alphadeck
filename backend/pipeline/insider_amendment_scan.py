@@ -8,13 +8,16 @@ ingest left pending, by the idempotent SWEEP the pass runs BEFORE its per-thesis
 (``run_amendment_sweep`` -> ``repositories.insider_amendment_repo.sweep``, so tonight's calls already read the
 applied state). Neither pages: the cron report gets ONE quiet line, "Form 4/A: N applied automatically (filer
 corrections), M owed your decision". What is OWED is only what the system cannot resolve AND a call can read:
-an AMBIGUOUS link (several differing candidate originals) whose changed signal rows sit inside the review
-horizon (``insider_amendment_review_horizon_days`` — derived: backtest window + the longest detector read
-horizon, an UNRESOLVED row match (a buy/sell a partial / addition / restatement re-reports that matches no
-original by shape and whose filer's words neither fix nor add — ``domain.insider_amendments.match_rows``) or a
-HELD void (retraction language against an original of several trades — ``void_reading``) inside the horizon,
-plus an operator-linked one awaiting its verdict and one the operator took back with an Undo. Either
-kind outside the horizon is "unresolved — historical" on Admin: no call reads those rows, never paged.
+an AMBIGUOUS link (several differing candidate originals) rule 2b does not settle (the system picks the original
+when every trade the 4/A reports matches one candidate by shares + price, and no other) whose changed signal rows
+a live call or an edition page reads (the REVIEW LINE — ``domain.insider_amendments.review_line``: per code, the
+earliest edition night less that code's read window, or today's window; the dial
+``insider_amendment_review_horizon_days`` pins a flat one), an UNRESOLVED row match (a buy/sell a partial /
+addition / restatement re-reports that matches no original by shape and whose filer's words neither fix nor add —
+``domain.insider_amendments.match_rows``) or a HELD void (retraction language against an original of several
+trades — ``void_reading``) inside that line, plus an operator-linked one awaiting its verdict and one the
+operator took back with an Undo. Either kind outside the line is "unresolved — historical" on Admin: no live call
+or edition page reads those rows, never paged.
 
 URGENCY. An owed item whose changed signal rows sit inside a signal's live read horizon at the pass's asof (the
 detectors' own declared horizons — ``signals.horizons.insider_signal_codes``) can move TONIGHT's call: it is
@@ -166,6 +169,12 @@ class AmendmentScan:
     def kept_total(self) -> int:
         """Zero-row 4/As the system kept as filed this pass (their text retracts nothing)."""
         return self.applied.get("system:no-retraction", 0)
+
+    @property
+    def picked_total(self) -> int:
+        """Ambiguous 4/As whose original the SYSTEM picked this pass (rule 2b — every trade they report matches
+        one candidate by shares + price, and no other)."""
+        return self.applied.get("system:sole-match", 0)
 
     @property
     def _named(self) -> set[str]:
@@ -402,15 +411,20 @@ def count_line(scan: AmendmentScan) -> str | None:
     """R8-B — the ONE quiet count line: the system applications recorded this pass and the owed inventory
     (``None`` when both are zero — nothing at all on a clean night)."""
     owed = len(scan.pending)
-    if not scan.applied_total and not scan.kept_total and not owed:
+    if not scan.applied_total and not scan.kept_total and not scan.picked_total and not owed:
         return None
+    picked = (
+        f", {scan.picked_total} matched to their original by the system (every trade matches one filing)"
+        if scan.picked_total
+        else ""
+    )
     kept = (
         f", {scan.kept_total} kept as filed (their text retracts nothing)"
         if scan.kept_total
         else ""
     )
     return (
-        f"Form 4/A: {scan.applied_total} applied automatically (filer corrections){kept}, "
+        f"Form 4/A: {scan.applied_total} applied automatically (filer corrections){picked}{kept}, "
         f"{owed} owed your decision (quiet)"
     )
 

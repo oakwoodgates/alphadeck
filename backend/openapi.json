@@ -2785,7 +2785,7 @@
           "admin"
         ],
         "summary": "List Amendments",
-        "description": "Every stored Form 4/A with its link, disposition, effective status and evidence, bucketed for the\npanel: owed loud (an ambiguous amendment only you can resolve that touches a buy or sale a call can read \u2014\nthe ones inside today's signal windows first); applied automatically / decided / unresolved \u2014 historical /\nqueued / inert quiet. Read-only.",
+        "description": "Every stored Form 4/A with its link, disposition, effective status and evidence, bucketed for the\npanel: owed loud (one only you can resolve that touches a buy or sale a live call or an edition page reads \u2014\nthe ones inside today's signal windows first); applied automatically / decided / unresolved \u2014 historical /\nqueued / inert quiet. Each card says what the filer did, whether any answer changes a call, and what each\nbutton does to the rows a call reads. Read-only.",
         "operationId": "list_amendments_admin_insider_amendments_get",
         "responses": {
           "200": {
@@ -3078,6 +3078,77 @@
         }
       }
     },
+    "/admin/insider-amendments/{security_id}/{accession}/undo-pick": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Undo System Pick",
+        "description": "UNDO THE SYSTEM'S PICK (rule 2b \u2014 the system linked an ambiguous amendment to the one candidate every\ntrade it reports matches by shares + price): append ``revoke`` rows (basis ``operator:revoke``) naming the\nsystem's verdict under the pick and its link. The amendment is ambiguous again \u2014 its candidates' rows stand,\nany candidate can be linked \u2014 and it is yours: the nightly sweep never picks it again. **404** no standing\nsystem pick, **409** your own decision stands over the pick (undo it first).",
+        "operationId": "undo_system_pick_admin_insider_amendments__security_id___accession__undo_pick_post",
+        "parameters": [
+          {
+            "name": "security_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Security Id"
+            }
+          },
+          {
+            "name": "accession",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{10}-\\d{2}-\\d{6}$",
+              "title": "Accession"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/AdminInsiderReasonIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminInsiderAmendmentOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/admin/insider-amendments/decisions/{decision_id}/revoke": {
       "post": {
         "tags": [
@@ -3286,6 +3357,138 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AdminSplitListEntryOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/splits/jumps/{security_id}/{step_date}/dismiss": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Dismiss Jump",
+        "description": "DISMISS an \"is this real?\" card \u2014 the operator says the split-shaped jump was a REAL MOVE (author\n``operator:dismiss``, append-only). It leaves the list and is listed under ``dismissed_jumps``; the\nsplit-night hold never reads it (display only \u2014 no call changes). Undo with ``POST\n/admin/splits/jumps/dismissals/{dismissal_id}/undo``. **404** no such jump on the list, **409** already\ndismissed.",
+        "operationId": "dismiss_jump_admin_splits_jumps__security_id___step_date__dismiss_post",
+        "parameters": [
+          {
+            "name": "security_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Security Id"
+            }
+          },
+          {
+            "name": "step_date",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "title": "Step Date"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/AdminSplitJumpReasonIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminSplitJumpOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/splits/jumps/dismissals/{dismissal_id}/undo": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Undo Jump Dismissal",
+        "description": "UNDO a dismissal (author ``operator:undo``, append-only): the card is back on the \"is this real?\" list.\n**404** unknown dismissal (or its jump no longer listed), **409** already undone.",
+        "operationId": "undo_jump_dismissal_admin_splits_jumps_dismissals__dismissal_id__undo_post",
+        "parameters": [
+          {
+            "name": "dismissal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Dismissal Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/AdminSplitJumpReasonIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminSplitJumpOut"
                 }
               }
             }
@@ -4423,6 +4626,61 @@
         "title": "AdminFormerNameOut",
         "description": "One of EDGAR's ``formerNames`` for the filer (``since`` / ``until`` as ``YYYY-MM-DD``, ``\"\"`` when\nEDGAR omits them) \u2014 evidence that the company EDGAR lists under a new symbol is the same filer."
       },
+      "AdminInsiderActionOut": {
+        "properties": {
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target"
+          },
+          "disposition": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disposition"
+          },
+          "removes": {
+            "items": {
+              "$ref": "#/components/schemas/AdminInsiderTxnOut"
+            },
+            "type": "array",
+            "title": "Removes"
+          },
+          "adds": {
+            "items": {
+              "$ref": "#/components/schemas/AdminInsiderTxnOut"
+            },
+            "type": "array",
+            "title": "Adds"
+          },
+          "changes_call": {
+            "type": "boolean",
+            "title": "Changes Call",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "title": "AdminInsiderActionOut",
+        "description": "One button on the card and what it does to the rows a call reads, relative to the read NOW: ``action`` =\n``apply`` (Use the correction) / ``keep`` (Keep the original) / ``add`` (Add to the original) / ``link`` (pick\nthe candidate ``target``; ``disposition`` = how the 4/A reads against it) / ``undo`` (Undo your decision) /\n``undo_pick`` (Undo the system's pick). ``removes`` / ``adds`` = the buy / sell rows the read loses / gains;\n``changes_call`` = one of them can be read by a live call or an edition page (the review line)."
+      },
       "AdminInsiderAmendmentOut": {
         "properties": {
           "security_id": {
@@ -4697,6 +4955,68 @@
               }
             ],
             "title": "Passage"
+          },
+          "owner_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Name"
+          },
+          "owner_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Role"
+          },
+          "trades": {
+            "items": {
+              "$ref": "#/components/schemas/AdminInsiderTradeGroupOut"
+            },
+            "type": "array",
+            "title": "Trades"
+          },
+          "usd_total": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Usd Total"
+          },
+          "changes_no_call": {
+            "type": "boolean",
+            "title": "Changes No Call",
+            "default": true
+          },
+          "actions": {
+            "items": {
+              "$ref": "#/components/schemas/AdminInsiderActionOut"
+            },
+            "type": "array",
+            "title": "Actions"
+          },
+          "pick": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdminInsiderPickOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -4709,7 +5029,7 @@
           "status"
         ],
         "title": "AdminInsiderAmendmentOut",
-        "description": "One Form 4/A and everything the operator needs to ratify it.\n\n``disposition`` is what it changed (``domain.insider_amendments``); ``status`` its EFFECTIVE state \u2014\n``pending`` (not applied: an ambiguous link, an operator-linked one awaiting a verdict, one the operator\ntook back, or a pre-R8-B link awaiting the nightly sweep; a pending void/duplicates SUPPRESSES its target\nmeanwhile), ``applied`` (by the system, or ratified), ``kept`` (the original stands) or ``inert``.\n``review`` (R8-B) is where it sits for the operator: ``owed`` / ``auto`` (applied automatically) /\n``decided`` (a standing operator verdict) / ``historical`` (ambiguous, but no call reads the rows it\ntouches) / ``queued`` (the next nightly sweep applies it) / ``inert``. ``suppressing`` = the original\naccession(s) it currently removes from every read; ``undo_id`` = the standing OPERATOR decision an Undo\nrevokes (the verdict first, else the link) \u2014 ``None`` on an applied-automatically one, whose Undo is\n``keep`` (\"keep the original\"). ``system_basis`` = the basis of the standing system application\n(``system:filer-correction`` / ``system:no-signal-effect``; ``None`` for a correction applied by its link\nalone). ``touches_buy`` = a code-P row on either side. ``filing_url`` = the 4/A's EDGAR filing index.\n\n``signal_effect`` = its effect changes a row a call signal reads (a code a registered detector declares,\ncompared with the owner's role / name and the 10b5-1 flag); ``auto_resolved`` = applied by the system\n(``review == \"auto\"``); ``in_window`` = the signal codes whose changed rows sit inside a signal's live read\nhorizon today (it can move tonight's call); ``in_review`` = a changed signal row sits inside the review\nhorizon today (an ambiguous link is owed only then). R8-B's row match (a partial / consolidation / addition\n/ restatement / field change): ``kept_rows`` = the original rows (``\"<accession>#<seq>\"``) the amendment does\nNOT account for \u2014 they stand, the filer never retracted them; ``unresolved`` = a buy/sell whose date AND\nshare count both changed (restated, or an added trade? \u2014 owed to the operator, the original standing)."
+        "description": "One Form 4/A and everything the operator needs to ratify it.\n\n``disposition`` is what it changed (``domain.insider_amendments``); ``status`` its EFFECTIVE state \u2014\n``pending`` (not applied: an ambiguous link, an operator-linked one awaiting a verdict, one the operator\ntook back, or a pre-R8-B link awaiting the nightly sweep; a pending void/duplicates SUPPRESSES its target\nmeanwhile), ``applied`` (by the system, or ratified), ``kept`` (the original stands) or ``inert``.\n``review`` (R8-B) is where it sits for the operator: ``owed`` / ``auto`` (applied automatically) /\n``decided`` (a standing operator verdict) / ``historical`` (ambiguous, but no call reads the rows it\ntouches) / ``queued`` (the next nightly sweep applies it) / ``inert``. ``suppressing`` = the original\naccession(s) it currently removes from every read; ``undo_id`` = the standing OPERATOR decision an Undo\nrevokes (the verdict first, else the link) \u2014 ``None`` on an applied-automatically one, whose Undo is\n``keep`` (\"keep the original\"). ``system_basis`` = the basis of the standing system application\n(``system:filer-correction`` / ``system:no-signal-effect``; ``None`` for a correction applied by its link\nalone). ``touches_buy`` = a code-P row on either side. ``filing_url`` = the 4/A's EDGAR filing index.\n\n``signal_effect`` = its effect changes a row a call signal reads (a code a registered detector declares,\ncompared with the owner's role / name and the 10b5-1 flag); ``auto_resolved`` = applied by the system\n(``review == \"auto\"``); ``in_window`` = the signal codes whose changed rows sit inside a signal's live read\nhorizon today (it can move tonight's call); ``in_review`` = a changed signal row sits inside the review\nhorizon today (an ambiguous link is owed only then). R8-B's row match (a partial / consolidation / addition\n/ restatement / field change): ``kept_rows`` = the original rows (``\"<accession>#<seq>\"``) the amendment does\nNOT account for \u2014 they stand, the filer never retracted them; ``unresolved`` = a buy/sell whose date AND\nshare count both changed (restated, or an added trade? \u2014 owed to the operator, the original standing).\n\nThe plain-English card (2026-10-24): ``owner_name`` / ``owner_role`` as filed; ``trades`` = the 4/A's own rows\nby code, summed; ``usd_total`` = the dollar total of its buys / sells; ``changes_no_call`` = NO answer on this\ncard can change a row a live call or an edition page reads (the review line \u2014 the same test as owed);\n``actions`` = each button's effect on those rows; ``pick`` = the system's pick of the original (rule 2b), when\nit made or will make one."
       },
       "AdminInsiderAmendmentsOut": {
         "properties": {
@@ -4782,11 +5102,38 @@
               }
             ],
             "title": "Review Horizon Days"
+          },
+          "review_edges": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "object",
+            "title": "Review Edges"
+          },
+          "review_anchor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Anchor"
           }
         },
         "type": "object",
         "title": "AdminInsiderAmendmentsOut",
-        "description": "The \"Insider amendments\" panel (R8-B). ``owed`` is LOUD \u2014 only what the system cannot resolve and a call\ncan read: an AMBIGUOUS link or an UNRESOLVED row match touching a buy/sell row inside the review horizon\n(plus an operator-linked one awaiting its verdict, or one the operator took back), the IN-WINDOW ones first. The rest are QUIET lists,\nstill visible (#9 / WB#2): ``auto`` (applied automatically \u2014 the filer's own correction resolved to its\noriginal, or one that changes no signal row; each with its evidence and its Undo, Keep original),\n``decided`` (a standing operator verdict, each undoable), ``historical`` (ambiguous or unresolved, but no\ncall reads the rows it touches \u2014 the originals stand; an ambiguous one still linkable), ``queued`` (a pre-R8-B link the next nightly sweep\napplies; a void suppresses meanwhile) and ``inert`` (clerical / no Table I rows / no stored original).\n``asof`` is the market day urgency and the review horizon were judged at; ``review_horizon_days`` the\nhorizon in force (``None`` = unbounded). Read live from the tables."
+        "description": "The \"Insider amendments\" panel (R8-B). ``owed`` is LOUD \u2014 only what the system cannot resolve and a call\ncan read: an AMBIGUOUS link or an UNRESOLVED row match touching a buy/sell row inside the review horizon\n(plus an operator-linked one awaiting its verdict, or one the operator took back), the IN-WINDOW ones first. The rest are QUIET lists,\nstill visible (#9 / WB#2): ``auto`` (applied automatically \u2014 the filer's own correction resolved to its\noriginal, or one that changes no signal row; each with its evidence and its Undo, Keep original),\n``decided`` (a standing operator verdict, each undoable), ``historical`` (ambiguous or unresolved, but no\ncall reads the rows it touches \u2014 the originals stand; an ambiguous one still linkable), ``queued`` (a pre-R8-B link the next nightly sweep\napplies; a void suppresses meanwhile) and ``inert`` (clerical / no Table I rows / no stored original).\n``asof`` is the market day urgency and the review line were judged at. THE REVIEW LINE (what is owed vs\nhistorical): ``review_edges`` = per signal code, the oldest row date a live call or an edition page reads\n(``null`` = that code's read is unbounded); ``review_anchor`` = the earliest edition night it was derived from\n(``null`` = no edition published: today's windows alone); ``review_horizon_days`` = the pinned dial when it\nsets a FLAT window instead (``null`` = derived). Read live from the tables."
       },
       "AdminInsiderDecisionOut": {
         "properties": {
@@ -4900,12 +5247,42 @@
             "type": "string",
             "title": "Role"
           },
+          "filed": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filed"
+          },
           "rows": {
             "items": {
               "$ref": "#/components/schemas/AdminInsiderTxnOut"
             },
             "type": "array",
             "title": "Rows"
+          },
+          "trades": {
+            "items": {
+              "$ref": "#/components/schemas/AdminInsiderTradeGroupOut"
+            },
+            "type": "array",
+            "title": "Trades"
+          },
+          "matched_rows": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Matched Rows"
           }
         },
         "type": "object",
@@ -4914,7 +5291,53 @@
           "role"
         ],
         "title": "AdminInsiderOriginalOut",
-        "description": "A stored Form 4 the amendment touches, with its rows: ``role`` = ``original`` (what it amends),\n``voided`` (a duplicate a 1->N void suppresses) or ``candidate`` (an ambiguous link's option)."
+        "description": "A stored Form 4 the amendment touches, with its rows: ``role`` = ``original`` (what it amends),\n``voided`` (a duplicate a 1->N void suppresses) or ``candidate`` (an ambiguous link's option). ``filed`` =\nits EDGAR filing date (the submissions index, or what the link itself proves; ``None`` = not on file);\n``trades`` = its rows by code, summed; ``matched_rows`` = for a candidate, how many of the 4/A's rows it\nmatches one-to-one by shares + price (rule 2b's count; ``None`` when not judged)."
+      },
+      "AdminInsiderPickOut": {
+        "properties": {
+          "target": {
+            "type": "string",
+            "title": "Target"
+          },
+          "filed": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filed"
+          },
+          "disposition": {
+            "type": "string",
+            "title": "Disposition"
+          },
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          },
+          "matched_rows": {
+            "type": "integer",
+            "title": "Matched Rows"
+          },
+          "standing": {
+            "type": "boolean",
+            "title": "Standing",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "target",
+          "disposition",
+          "rows",
+          "matched_rows"
+        ],
+        "title": "AdminInsiderPickOut",
+        "description": "Rule 2b \u2014 the SYSTEM's pick of an ambiguous amendment's original: the candidate (``target``, with its\n``filed`` date), the disposition against it, and the evidence (``matched_rows`` of the 4/A's ``rows`` match\nit by shares + price; no other candidate matches them all). ``standing`` = recorded (undo with ``POST\n.../undo-pick``); False = the next nightly pass records it."
       },
       "AdminInsiderReasonIn": {
         "properties": {
@@ -4934,6 +5357,97 @@
         "type": "object",
         "title": "AdminInsiderReasonIn",
         "description": "Why (optional \u2014 a default reason is stored)."
+      },
+      "AdminInsiderTradeGroupOut": {
+        "properties": {
+          "txn_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Txn Code"
+          },
+          "trades": {
+            "type": "integer",
+            "title": "Trades",
+            "default": 0
+          },
+          "shares": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shares"
+          },
+          "price_low": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Low"
+          },
+          "price_high": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price High"
+          },
+          "first_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Date"
+          },
+          "last_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Date"
+          },
+          "usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Usd"
+          }
+        },
+        "type": "object",
+        "title": "AdminInsiderTradeGroupOut",
+        "description": "Every Table I row of ONE transaction code in a filing, summed (the card's \"what the filer did\"):\n``trades`` rows, ``shares`` in all, the price range, the date range, the dollar total (``None`` = no row\nstates one)."
       },
       "AdminInsiderTxnOut": {
         "properties": {
@@ -4958,6 +5472,17 @@
               }
             ],
             "title": "Insider Name"
+          },
+          "insider_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Insider Role"
           },
           "txn_code": {
             "anyOf": [
@@ -6551,6 +7076,41 @@
             },
             "type": "array",
             "title": "After"
+          },
+          "dismissal_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dismissal Id"
+          },
+          "dismissed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dismissed At"
+          },
+          "dismissed_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dismissed Reason"
           }
         },
         "type": "object",
@@ -6568,6 +7128,25 @@
         ],
         "title": "AdminSplitJumpOut",
         "description": "A split-shaped price jump with NO split listed (split plan S5): the close moved x3 or more (or to a third\nor less) between two stored bars with the volume moving the other way, the split-night hold has released it\n(three sessions on), and no SEC filing or Polygon row on the list sits near it. A real move or a split no\nsource has listed yet \u2014 the operator's question (\"is this real?\"). ``step`` = close / prior close."
+      },
+      "AdminSplitJumpReasonIn": {
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "title": "AdminSplitJumpReasonIn",
+        "description": "Why (optional \u2014 a default reason is stored)."
       },
       "AdminSplitListConfirmIn": {
         "properties": {
@@ -6862,11 +7441,18 @@
               }
             ],
             "title": "Unlisted Jumps Error"
+          },
+          "dismissed_jumps": {
+            "items": {
+              "$ref": "#/components/schemas/AdminSplitJumpOut"
+            },
+            "type": "array",
+            "title": "Dismissed Jumps"
           }
         },
         "type": "object",
         "title": "AdminSplitListOut",
-        "description": "The \"Splits\" panel. ``needs_review`` is the one LOUD list (one source could not settle it);\n``announced`` (both sources agree, the first session is still ahead), ``confirmed`` and ``set_aside``\n(rejected / revoked \u2014 kept, grayed) are QUIET lists. ``total`` = every split on the list. Read live.\n``unlisted_jumps`` (S5) \u2014 split-shaped jumps on basket names that the split-night hold has released and no\nsource ever listed, the last 30 days; ``unlisted_jumps_error`` when that read failed (shown, never hidden)."
+        "description": "The \"Splits\" panel. ``needs_review`` is the one LOUD list (one source could not settle it);\n``announced`` (both sources agree, the first session is still ahead), ``confirmed`` and ``set_aside``\n(rejected / revoked \u2014 kept, grayed) are QUIET lists. ``total`` = every split on the list. Read live.\n``unlisted_jumps`` (S5) \u2014 split-shaped jumps on basket names that the split-night hold has released and no\nsource ever listed, the last 30 days; ``unlisted_jumps_error`` when that read failed (shown, never hidden).\n``dismissed_jumps`` \u2014 the ones the operator dismissed as a real move (still listed, behind the panel's\n\"dismissed\" filter; each undoable)."
       },
       "AdminSplitListPolygonOut": {
         "properties": {

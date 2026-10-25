@@ -9,13 +9,42 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 
+import pytest
+
 from db.bitemporal import as_of
 from db.session import DEFAULT_TENANT_ID
-from tests.form4a_fixtures import ingest_amendment, ingest_originals, make_security, seed
+from tests.form4a_fixtures import (
+    filed_by_accession,
+    ingest_amendment,
+    ingest_originals,
+    make_security,
+    seed,
+    seed_edition,
+    undo_pick,
+)
 
 FAR = datetime(2100, 1, 1, tzinfo=timezone.utc)
 BASE = "/admin/insider-amendments"
 BUCKETS = ("owed", "auto", "decided", "historical", "queued", "inert")
+
+
+@pytest.fixture(autouse=True)
+def _no_cached_index(monkeypatch):
+    """The panel reads the candidates' filing dates from the CACHED submissions index; none here unless a test
+    supplies the fixture's real one (``_index``) — so no developer's local cache can leak into an assertion.
+    """
+    from app.routers import admin_insider_amendments as router_mod
+
+    monkeypatch.setattr(router_mod, "_filing_dates", lambda: (lambda _sid, _cik: None))
+
+
+def _index(monkeypatch, key: str) -> None:
+    """Serve the fixture group's REAL submissions-index filing dates as the panel's index."""
+    from app.routers import admin_insider_amendments as router_mod
+
+    monkeypatch.setattr(
+        router_mod, "_filing_dates", lambda: (lambda _sid, _cik: filed_by_accession(key))
+    )
 
 
 def _accessions(db, sid, asof):
@@ -58,6 +87,7 @@ def _pin_today(monkeypatch, day: date) -> None:
 
 def test_the_panel_buckets_by_what_the_operator_owes(client, db, monkeypatch):
     _pin_today(monkeypatch, date(2026, 10, 20))
+    seed_edition(db)  # prod's earliest edition night, 2026-06-10
     for t in ("FLS", "ATCH", "RPAY", "TDG", "HROW"):
         seed(db, t)
     asth = make_security(db, "ASTH")
@@ -65,13 +95,16 @@ def test_the_panel_buckets_by_what_the_operator_owes(client, db, monkeypatch):
     ingest_amendment(db, asth, "0001134366-13-000009")
     body = client.get(BASE).json()
     got = _by_acc(body)
-    assert body["total"] == 10 and body["review_horizon_days"] == 940
+    assert body["total"] == 10
+    # the review line: derived from the earliest edition night (no pinned dial)
+    assert body["review_horizon_days"] is None and body["review_anchor"] == "2026-06-10"
+    assert body["review_edges"] == {"P": "2025-11-12", "S": "2026-02-10"}
     assert set(BUCKETS) <= set(body) and "pending" not in body and "applied" not in body
-    # owed: ONLY the HROW ambiguous link (its candidates' sales sit inside the review horizon)
-    assert {a for a, (b, _) in got.items() if b == "owed"} == {"0001641172-25-010338"}
-    # applied automatically: the FLS void, the TDG duplicates, ATCH's five corrections
+    # owed: nothing — HROW's ambiguous link is settled by the system's pick (rule 2b)
+    assert {a for a, (b, _) in got.items() if b == "owed"} == set()
+    # applied automatically: the FLS void, the TDG duplicates, ATCH's five corrections, HROW's pick
     auto = {a for a, (b, _) in got.items() if b == "auto"}
-    assert auto == {"0001628280-26-037326", "0001352573-26-000011"} | {
+    assert auto == {"0001628280-26-037326", "0001352573-26-000011", "0001641172-25-010338"} | {
         a for a in got if a.startswith("0001493152-26-0446")
     }
     assert got["0001134366-13-000009"][0] == "historical"  # ASTH: 2008 / 2012 buys no call reads
@@ -99,10 +132,26 @@ def test_the_panel_buckets_by_what_the_operator_owes(client, db, monkeypatch):
     assert tdg["disposition"] == "duplicates" and tdg["review"] == "auto"
     assert tdg["suppressing"] == ["0001352573-26-000009", "0001352573-26-000010"]
     hrow = got["0001641172-25-010338"][1]
-    assert (hrow["disposition"], hrow["suppressing"], hrow["in_review"]) == ("ambiguous", [], True)
+    assert (hrow["disposition"], hrow["method"], hrow["suppressing"]) == ("clerical", "system", [])
     assert hrow["candidate_accessions"] == ["0001493152-25-011028", "0001641172-25-000741"]
+    assert hrow["pick"] == {
+        "target": "0001493152-25-011028",
+        "filed": None,  # a step-2 link proves no filing date, and no index is cached here
+        "disposition": "clerical",
+        "rows": 1,
+        "matched_rows": 1,
+        "standing": True,
+    }
+    assert {o["accession"]: o["matched_rows"] for o in hrow["originals"]} == {
+        "0001493152-25-011028": 1,
+        "0001641172-25-000741": 0,
+    }
+    assert [a["action"] for a in hrow["actions"]] == ["undo_pick"]
+    assert hrow["changes_no_call"] is True  # a 2025-03 sale: no live call or edition page reads it
     asth_item = got["0001134366-13-000009"][1]
     assert asth_item["in_review"] is False and asth_item["signal_effect"] is True
+    assert asth_item["changes_no_call"] is True
+    assert {a["action"] for a in asth_item["actions"]} == {"link"}
 
 
 def test_keep_original_is_the_undo_of_a_system_application_and_undo_restores_it(client, db):
@@ -156,14 +205,26 @@ def test_azta_void_is_kept_as_filed_and_use_the_correction_hides_the_buy(client,
     assert "0000950170-25-107291" in _accessions(db, sid, asof)
 
 
-def test_an_owed_amendment_offers_three_verdicts_each_undoable(client, db):
-    """YYAI is owed (its words neither fix nor add): Add to the original keeps the original buys and adds the
-    amendment's rows; Use the correction replaces the whole original; Keep the original changes nothing.
-    """
+def test_an_owed_amendment_offers_three_verdicts_each_undoable(client, db, monkeypatch):
+    """YYAI is owed at 2025-10-31 (its words neither fix nor add; its buys sit in the live window): Add to the
+    original keeps the original buys and adds the amendment's rows; Use the correction replaces the whole
+    original; Keep the original changes nothing. The card says, per button, exactly that."""
+    _pin_today(monkeypatch, date(2025, 10, 31))
     sid = seed(db, "YYAI")
     acc, asof = "0002091629-25-000011", date(2025, 10, 31)
     bucket, it = _by_acc(client.get(BASE).json())[acc]
     assert (bucket, it["unresolved"], it["reading"]) == ("owed", True, "unresolved")
+    assert it["changes_no_call"] is False
+    effects = {a["action"]: a for a in it["actions"]}
+    assert set(effects) == {"apply", "keep", "add"}
+    assert (
+        effects["keep"]["removes"] == [] and effects["keep"]["adds"] == []
+    )  # the original stands now
+    assert effects["keep"]["changes_call"] is False
+    assert [r["txn_code"] for r in effects["add"]["adds"]] == ["P"] and effects["add"][
+        "removes"
+    ] == []
+    assert len(effects["apply"]["removes"]) == 2 and effects["apply"]["changes_call"] is True
     add = client.post(f"{BASE}/{sid}/{acc}/add").json()
     assert add["review"] == "decided" and _accessions(db, sid, asof) == {
         "0002091629-25-000003",
@@ -251,11 +312,14 @@ def test_a_no_signal_effect_amendment_is_applied_automatically_under_its_own_bas
 
 def test_owed_lists_the_in_window_items_first(client, db, monkeypatch):
     """The panel judges urgency at today's market day — pinned to 2026-10-16. FLS's void handed back to the
-    operator (its system application revoked) sits in tonight's P window; HROW's ambiguous link is outside the
-    window but inside the review horizon: FLS leads."""
+    operator (its system application revoked) sits in tonight's P window; HROW's ambiguous link (its system
+    pick undone) is outside tonight's window but read by an edition page (an edition from 2025-06-01): FLS
+    leads."""
     _pin_today(monkeypatch, date(2026, 10, 16))
+    seed_edition(db, date(2025, 6, 1))
     fls = seed(db, "FLS")
-    seed(db, "HROW")
+    hrow = seed(db, "HROW")
+    undo_pick(db, hrow, "0001641172-25-010338")
     system = next(
         d
         for d in _by_acc(client.get(BASE).json())["0001628280-26-037326"][1]["decisions"]
@@ -269,3 +333,84 @@ def test_owed_lists_the_in_window_items_first(client, db, monkeypatch):
     assert _accessions(db, fls, date(2026, 6, 15)).isdisjoint(
         {"0001628280-26-035913"}
     )  # still suppressed
+
+
+# --- the plain-English card + rule 2b's Undo (2026-10-24) ------------------------------------------------------
+
+
+def test_the_card_says_who_did_what_and_each_candidates_filing_date(client, db, monkeypatch):
+    """HROW's real 4/A: Opaleye Management (a 10% owner) sold 5,000 shares at $29.64 on 2025-03-18, $148,200. Its
+    two candidates were filed 2025-03-20 and 2025-03-26 (the submissions index — a step-2 link proves no date);
+    the system picked the one filed 2025-03-20 (the identical sale). The accession numbers stay on the card.
+    """
+    _pin_today(monkeypatch, date(2026, 10, 20))
+    _index(monkeypatch, "HROW")
+    seed(db, "HROW")
+    _, it = _by_acc(client.get(BASE).json())["0001641172-25-010338"]
+    assert (it["owner_name"], it["owner_role"], it["usd_total"]) == (
+        "Opaleye Management Inc.",
+        "10% owner",
+        148200.0,
+    )
+    assert it["trades"] == [
+        {
+            "txn_code": "S",
+            "trades": 1,
+            "shares": 5000.0,
+            "price_low": 29.64,
+            "price_high": 29.64,
+            "first_date": "2025-03-18",
+            "last_date": "2025-03-18",
+            "usd": 148200.0,
+        }
+    ]
+    filed = {o["accession"]: o["filed"] for o in it["originals"]}
+    assert filed == {"0001493152-25-011028": "2025-03-20", "0001641172-25-000741": "2025-03-26"}
+    assert it["pick"]["filed"] == "2025-03-20" and it["accession"] == "0001641172-25-010338"
+    prices = {o["accession"]: o["trades"][0]["price_low"] for o in it["originals"]}
+    assert prices == {"0001493152-25-011028": 29.64, "0001641172-25-000741": 30.011}
+
+
+def test_undo_the_systems_pick_through_the_api(client, db, monkeypatch):
+    """CVNA: the system's pick (-000271, a correction the system applied) is undone by the operator — the card
+    is ambiguous again, owed while its July 2025 sales are read (pinned 2025-07-31), linkable to either filing;
+    a second Undo is a 404. Its card said beforehand exactly what the Undo does: the 4/A's re-dated sales leave
+    the read and -000271's come back."""
+    _pin_today(monkeypatch, date(2025, 7, 31))
+    sid = seed(db, "CVNA")
+    acc = "0001690820-25-000275"
+    bucket, it = _by_acc(client.get(BASE).json())[acc]
+    assert (bucket, it["method"], it["disposition"], it["pick"]["standing"]) == (
+        "auto",
+        "system",
+        "correction",
+        True,
+    )
+    assert (it["pick"]["matched_rows"], it["pick"]["rows"]) == (28, 28)
+    effects = {a["action"]: a for a in it["actions"]}
+    assert set(effects) == {"keep", "undo_pick"}
+    undo = effects["undo_pick"]
+    assert undo["changes_call"] is True and it["changes_no_call"] is False
+    assert (
+        len(undo["removes"]) == len(undo["adds"]) == 2
+    )  # the two re-dated sales, back to their dates
+    assert {r["txn_code"] for r in (*undo["removes"], *undo["adds"])} == {"S"}
+    r = client.post(f"{BASE}/{sid}/{acc}/undo-pick", json={"reason": "not that one"})
+    assert r.status_code == 200
+    back = r.json()
+    assert (back["disposition"], back["review"], back["status"], back["pick"]) == (
+        "ambiguous",
+        "owed",
+        "pending",
+        None,
+    )
+    assert {a["action"] for a in back["actions"]} == {"link"}
+    assert _accessions(db, sid, date(2025, 7, 31)) == {
+        "0001690820-25-000271",
+        "0001690820-25-000273",
+    }
+    assert client.post(f"{BASE}/{sid}/{acc}/undo-pick").status_code == 404
+    linked = client.post(
+        f"{BASE}/{sid}/{acc}/link", json={"target_accession": "0001690820-25-000271"}
+    )
+    assert linked.status_code == 200 and linked.json()["method"] == "operator"

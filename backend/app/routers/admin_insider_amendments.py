@@ -27,16 +27,26 @@ What the operator can do here, and its inverse:
   operator's (an operator-linked one, or one the operator took back with an Undo).
 - **Undo** -> a ``revoke`` row naming the operator's decision. A link is undone only after the verdict under it.
 
+- **Undo the system's pick** (rule 2b — the system linked an ambiguous amendment to the ONE candidate every
+  trade it reports matches by shares + price) -> ``revoke`` rows naming the system's verdict and its link: the
+  amendment is ambiguous again, every candidate linkable.
+
 Owed items are ordered by URGENCY: the ones whose changed signal rows sit inside a signal's live read horizon
 today come first. Every write is append-only, names its author (``basis``), and runs in one transaction under
 a lock on the amendment. The change reaches calls at the next read (a live call reads ``known_at = now``) and
 re-records a card only where the resolved rows actually changed. Auth stays deferred project-wide.
+
+PLAIN ENGLISH (operator ask, 2026-10-24): each card carries what it needs to say what the filer did (the owner,
+their role, each Table I group — bought / sold, shares, prices, dates, dollars — and each original's filing date),
+whether ANY answer can change a call (``changes_no_call``, the review line's own test), and per button the
+buy / sell rows it changes (``actions`` — the resolver's answer, never a paraphrase). Accession numbers stay
+available, secondary.
 """
 
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import date, datetime
 from typing import Any
 from uuid import UUID
@@ -46,6 +56,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Path
 from pydantic import BaseModel, Field
 
 from app.deps import get_conn
+from domain.insider_amendment_cards import CardAction, TradeGroup
 from domain.insider_amendments import (
     ACTION_ADD,
     ACTION_APPLY,
@@ -57,11 +68,12 @@ from domain.insider_amendments import (
     REVIEW_HISTORICAL,
     REVIEW_OWED,
     REVIEW_QUEUED,
+    ReviewLine,
 )
 from domain.market_time import market_today
 from domain.settings import get_settings
 from repositories import insider_amendment_repo
-from repositories.insider_amendment_repo import AmendmentConflict, AmendmentItem
+from repositories.insider_amendment_repo import AmendmentConflict, AmendmentItem, FilingDates
 
 router = APIRouter(prefix="/admin/insider-amendments", tags=["admin"])
 
@@ -75,6 +87,7 @@ _DEFAULT_REASON = {
     ACTION_KEEP: "original kept by the operator",
     ACTION_LINK: "original picked by the operator",
     "revoke": "undone by the operator",
+    "undo_pick": "the system's pick undone by the operator",
 }
 _ACCESSION = r"^\d{10}-\d{2}-\d{6}$"
 
@@ -84,6 +97,7 @@ class AdminInsiderTxnOut(BaseModel):
 
     seq: int | None = None
     insider_name: str | None = None
+    insider_role: str | None = None
     txn_code: str | None = None
     txn_date: date | None = None
     shares: float | None = None
@@ -91,14 +105,64 @@ class AdminInsiderTxnOut(BaseModel):
     usd: float | None = None
 
 
+class AdminInsiderTradeGroupOut(BaseModel):
+    """Every Table I row of ONE transaction code in a filing, summed (the card's "what the filer did"):
+    ``trades`` rows, ``shares`` in all, the price range, the date range, the dollar total (``None`` = no row
+    states one)."""
+
+    txn_code: str | None = None
+    trades: int = 0
+    shares: float | None = None
+    price_low: float | None = None
+    price_high: float | None = None
+    first_date: date | None = None
+    last_date: date | None = None
+    usd: float | None = None
+
+
 class AdminInsiderOriginalOut(BaseModel):
     """A stored Form 4 the amendment touches, with its rows: ``role`` = ``original`` (what it amends),
-    ``voided`` (a duplicate a 1->N void suppresses) or ``candidate`` (an ambiguous link's option).
-    """
+    ``voided`` (a duplicate a 1->N void suppresses) or ``candidate`` (an ambiguous link's option). ``filed`` =
+    its EDGAR filing date (the submissions index, or what the link itself proves; ``None`` = not on file);
+    ``trades`` = its rows by code, summed; ``matched_rows`` = for a candidate, how many of the 4/A's rows it
+    matches one-to-one by shares + price (rule 2b's count; ``None`` when not judged)."""
 
     accession: str
     role: str
+    filed: date | None = None
     rows: list[AdminInsiderTxnOut] = Field(default_factory=list)
+    trades: list[AdminInsiderTradeGroupOut] = Field(default_factory=list)
+    matched_rows: int | None = None
+
+
+class AdminInsiderActionOut(BaseModel):
+    """One button on the card and what it does to the rows a call reads, relative to the read NOW: ``action`` =
+    ``apply`` (Use the correction) / ``keep`` (Keep the original) / ``add`` (Add to the original) / ``link`` (pick
+    the candidate ``target``; ``disposition`` = how the 4/A reads against it) / ``undo`` (Undo your decision) /
+    ``undo_pick`` (Undo the system's pick). ``removes`` / ``adds`` = the buy / sell rows the read loses / gains;
+    ``changes_call`` = one of them can be read by a live call or an edition page (the review line).
+    """
+
+    action: str
+    target: str | None = None
+    disposition: str | None = None
+    removes: list[AdminInsiderTxnOut] = Field(default_factory=list)
+    adds: list[AdminInsiderTxnOut] = Field(default_factory=list)
+    changes_call: bool = False
+
+
+class AdminInsiderPickOut(BaseModel):
+    """Rule 2b — the SYSTEM's pick of an ambiguous amendment's original: the candidate (``target``, with its
+    ``filed`` date), the disposition against it, and the evidence (``matched_rows`` of the 4/A's ``rows`` match
+    it by shares + price; no other candidate matches them all). ``standing`` = recorded (undo with ``POST
+    .../undo-pick``); False = the next nightly pass records it."""
+
+    target: str
+    filed: date | None = None
+    disposition: str
+    rows: int
+    matched_rows: int
+    standing: bool = False
 
 
 class AdminInsiderDecisionOut(BaseModel):
@@ -139,6 +203,12 @@ class AdminInsiderAmendmentOut(BaseModel):
     / restatement / field change): ``kept_rows`` = the original rows (``"<accession>#<seq>"``) the amendment does
     NOT account for — they stand, the filer never retracted them; ``unresolved`` = a buy/sell whose date AND
     share count both changed (restated, or an added trade? — owed to the operator, the original standing).
+
+    The plain-English card (2026-10-24): ``owner_name`` / ``owner_role`` as filed; ``trades`` = the 4/A's own rows
+    by code, summed; ``usd_total`` = the dollar total of its buys / sells; ``changes_no_call`` = NO answer on this
+    card can change a row a live call or an edition page reads (the review line — the same test as owed);
+    ``actions`` = each button's effect on those rows; ``pick`` = the system's pick of the original (rule 2b), when
+    it made or will make one.
     """
 
     security_id: UUID
@@ -178,6 +248,13 @@ class AdminInsiderAmendmentOut(BaseModel):
     held: bool = False
     reading: str | None = None
     passage: str | None = None
+    owner_name: str | None = None
+    owner_role: str | None = None
+    trades: list[AdminInsiderTradeGroupOut] = Field(default_factory=list)
+    usd_total: float | None = None
+    changes_no_call: bool = True
+    actions: list[AdminInsiderActionOut] = Field(default_factory=list)
+    pick: AdminInsiderPickOut | None = None
 
 
 class AdminInsiderAmendmentsOut(BaseModel):
@@ -189,8 +266,11 @@ class AdminInsiderAmendmentsOut(BaseModel):
     ``decided`` (a standing operator verdict, each undoable), ``historical`` (ambiguous or unresolved, but no
     call reads the rows it touches — the originals stand; an ambiguous one still linkable), ``queued`` (a pre-R8-B link the next nightly sweep
     applies; a void suppresses meanwhile) and ``inert`` (clerical / no Table I rows / no stored original).
-    ``asof`` is the market day urgency and the review horizon were judged at; ``review_horizon_days`` the
-    horizon in force (``None`` = unbounded). Read live from the tables."""
+    ``asof`` is the market day urgency and the review line were judged at. THE REVIEW LINE (what is owed vs
+    historical): ``review_edges`` = per signal code, the oldest row date a live call or an edition page reads
+    (``null`` = that code's read is unbounded); ``review_anchor`` = the earliest edition night it was derived from
+    (``null`` = no edition published: today's windows alone); ``review_horizon_days`` = the pinned dial when it
+    sets a FLAT window instead (``null`` = derived). Read live from the tables."""
 
     owed: list[AdminInsiderAmendmentOut] = Field(default_factory=list)
     auto: list[AdminInsiderAmendmentOut] = Field(default_factory=list)
@@ -201,6 +281,8 @@ class AdminInsiderAmendmentsOut(BaseModel):
     total: int = 0
     asof: date | None = None
     review_horizon_days: int | None = None
+    review_edges: dict[str, date | None] = Field(default_factory=dict)
+    review_anchor: date | None = None
 
 
 class AdminInsiderReasonIn(BaseModel):
@@ -227,6 +309,7 @@ def _txn(r: dict[str, Any]) -> AdminInsiderTxnOut:
     return AdminInsiderTxnOut(
         seq=r.get("txn_seq"),
         insider_name=r.get("insider_name"),
+        insider_role=r.get("insider_role"),
         txn_code=r.get("txn_code"),
         txn_date=d,
         shares=_f(r.get("shares")),
@@ -245,8 +328,56 @@ def _filing_url(issuer_cik: str | None, accession: str) -> str | None:
     return f"{get_settings().sec_archives_base}/{int(issuer_cik)}/{accession.replace('-', '')}/"
 
 
-def item_out(item: AmendmentItem) -> AdminInsiderAmendmentOut:
-    """One repository item as the panel renders it."""
+def _group(g: TradeGroup) -> AdminInsiderTradeGroupOut:
+    return AdminInsiderTradeGroupOut(
+        txn_code=g.code,
+        trades=g.trades,
+        shares=g.shares,
+        price_low=g.price_low,
+        price_high=g.price_high,
+        first_date=g.first_date,
+        last_date=g.last_date,
+        usd=g.usd,
+    )
+
+
+def _action(a: CardAction, line: ReviewLine | None) -> AdminInsiderActionOut:
+    return AdminInsiderActionOut(
+        action=a.action,
+        target=a.target,
+        disposition=a.disposition,
+        removes=[_txn(dict(r)) for r in a.removes],
+        adds=[_txn(dict(r)) for r in a.adds],
+        changes_call=bool(line is not None and a.rows and line.inside(a.rows)),
+    )
+
+
+def _filing_dates() -> FilingDates:
+    """The candidates' EDGAR filing dates from the CACHED submissions index (cache-only: never an SEC request
+    from a panel read) — the document the nightly Form 4 / 4/A legs fetched. ``None`` for a security with no CIK
+    or no cached index (the card then shows what the link itself proves)."""
+    from ingest import CacheMiss
+    from ingest.edgar.client import EdgarClient
+    from ingest.edgar.form4a import filed_dates
+    from ingest.edgar.submissions import fetch_submissions, filings_of
+
+    client = EdgarClient(allow_live=False)
+
+    def get(_sid: UUID, cik: str | None) -> Mapping[str, date] | None:
+        if not cik:
+            return None
+        try:
+            subs = fetch_submissions(client, cik)
+        except (CacheMiss, OSError, ValueError):
+            return None
+        return filed_dates(filings_of(subs, "4"))
+
+    return get
+
+
+def item_out(item: AmendmentItem, line: ReviewLine | None = None) -> AdminInsiderAmendmentOut:
+    """One repository item as the panel renders it (``line`` = the review line it was judged by — each button's
+    ``changes_call``)."""
     eff = item.effective
     revoked = {
         str(d["revokes"]) for d in item.decisions if d["action"] == "revoke" and d["revokes"]
@@ -274,10 +405,28 @@ def item_out(item: AmendmentItem) -> AdminInsiderAmendmentOut:
         roles[a] = "original"
     originals = [
         AdminInsiderOriginalOut(
-            accession=a, role=roles.get(a, "candidate"), rows=[_txn(r) for r in rows]
+            accession=a,
+            role=roles.get(a, "candidate"),
+            filed=item.original_filed.get(a),
+            rows=[_txn(r) for r in rows],
+            trades=[_group(g) for g in item.original_trades.get(a, [])],
+            matched_rows=item.coverage.get(a),
         )
         for a, rows in item.originals.items()
     ]
+    pick = item.pick
+    pick_out = (
+        AdminInsiderPickOut(
+            target=pick.target,
+            filed=item.original_filed.get(pick.target),
+            disposition=pick.disposition,
+            rows=pick.rows,
+            matched_rows=int(pick.coverage.get(pick.target, 0)),
+            standing=item.pick_standing,
+        )
+        if pick is not None
+        else None
+    )
     return AdminInsiderAmendmentOut(
         security_id=item.security_id,
         ticker=item.ticker,
@@ -305,10 +454,11 @@ def item_out(item: AmendmentItem) -> AdminInsiderAmendmentOut:
         decisions=decisions,
         # the Undo of a SYSTEM application is Keep original (a keep stacked over it), never a revoke of the
         # system's record — so no revoke target is advertised for it (R8-B)
+        # (the system's PICK — rule 2b — has its own Undo, ``undo-pick``; never this revoke target)
         undo_id=(
             None
             if item.review == REVIEW_AUTO or item.system_basis is not None
-            else (eff.verdict_id or eff.link_decision_id)
+            else (eff.verdict_id or (None if item.system_link else eff.link_decision_id))
         ),
         touches_buy=item.touches_buy,
         signal_effect=item.signal_effect,
@@ -322,6 +472,13 @@ def item_out(item: AmendmentItem) -> AdminInsiderAmendmentOut:
         held=item.held,
         reading=item.reading,
         passage=item.passage,
+        owner_name=item.owner_name,
+        owner_role=item.owner_role,
+        trades=[_group(g) for g in item.trades],
+        usd_total=item.usd_total,
+        changes_no_call=item.changes_no_call,
+        actions=[_action(a, line) for a in item.actions],
+        pick=pick_out,
     )
 
 
@@ -338,15 +495,20 @@ def amendments_out(
     items: list[AmendmentItem],
     *,
     asof: date | None = None,
-    review_horizon_days: int | None = None,
+    line: ReviewLine | None = None,
 ) -> AdminInsiderAmendmentsOut:
     """Bucket the items for the panel by their R8-B ``review``: owed (loud, in-window first — ``items`` already
-    orders by urgency) / auto / decided / historical / queued / inert (quiet)."""
+    orders by urgency) / auto / decided / historical / queued / inert (quiet) — with the review line they were
+    judged by."""
     out = AdminInsiderAmendmentsOut(
-        total=len(items), asof=asof, review_horizon_days=review_horizon_days
+        total=len(items),
+        asof=asof,
+        review_horizon_days=line.pinned_days if line is not None else None,
+        review_edges=dict(line.edges) if line is not None else {},
+        review_anchor=line.anchor if line is not None else None,
     )
     for it in items:
-        getattr(out, _BUCKETS.get(it.review, "inert")).append(item_out(it))
+        getattr(out, _BUCKETS.get(it.review, "inert")).append(item_out(it, line))
     return out
 
 
@@ -372,9 +534,13 @@ def _commit(conn: psycopg.Connection, fn: Callable[[], object]) -> object:
 
 
 def _one(conn: psycopg.Connection, security_id: UUID, accession: str) -> AdminInsiderAmendmentOut:
-    for it in insider_amendment_repo.items(conn, security_ids=[security_id], asof=market_today()):
+    asof = market_today()
+    line = insider_amendment_repo.review_line_in_force(conn, asof=asof)
+    for it in insider_amendment_repo.items(
+        conn, security_ids=[security_id], asof=asof, line=line, filing_dates=_filing_dates()
+    ):
         if it.accession == accession:
-            return item_out(it)
+            return item_out(it, line)
     raise HTTPException(
         status_code=404, detail=f"no Form 4/A {accession} for security {security_id}"
     )
@@ -383,16 +549,17 @@ def _one(conn: psycopg.Connection, security_id: UUID, accession: str) -> AdminIn
 @router.get("", response_model=AdminInsiderAmendmentsOut)
 def list_amendments(conn: psycopg.Connection = Depends(get_conn)) -> AdminInsiderAmendmentsOut:
     """Every stored Form 4/A with its link, disposition, effective status and evidence, bucketed for the
-    panel: owed loud (an ambiguous amendment only you can resolve that touches a buy or sale a call can read —
+    panel: owed loud (one only you can resolve that touches a buy or sale a live call or an edition page reads —
     the ones inside today's signal windows first); applied automatically / decided / unresolved — historical /
-    queued / inert quiet. Read-only."""
+    queued / inert quiet. Each card says what the filer did, whether any answer changes a call, and what each
+    button does to the rows a call reads. Read-only."""
     asof = market_today()
-    horizon = insider_amendment_repo.review_horizon_days()
     try:
+        line = insider_amendment_repo.review_line_in_force(conn, asof=asof)
         return amendments_out(
-            insider_amendment_repo.items(conn, asof=asof, review_days=horizon),
+            insider_amendment_repo.items(conn, asof=asof, line=line, filing_dates=_filing_dates()),
             asof=asof,
-            review_horizon_days=horizon,
+            line=line,
         )
     finally:
         conn.rollback()  # a read: end the transaction, hold no snapshot
@@ -477,6 +644,28 @@ def link_amendment_to_candidate(
         conn,
         lambda: insider_amendment_repo.link_candidate(
             conn, security_id, accession, body.target_accession, reason=reason, basis=BASIS_LINK
+        ),
+    )
+    return _one(conn, security_id, accession)
+
+
+@router.post("/{security_id}/{accession}/undo-pick", response_model=AdminInsiderAmendmentOut)
+def undo_system_pick(
+    security_id: UUID,
+    accession: str = Path(pattern=_ACCESSION),
+    body: AdminInsiderReasonIn | None = Body(default=None),
+    conn: psycopg.Connection = Depends(get_conn),
+) -> AdminInsiderAmendmentOut:
+    """UNDO THE SYSTEM'S PICK (rule 2b — the system linked an ambiguous amendment to the one candidate every
+    trade it reports matches by shares + price): append ``revoke`` rows (basis ``operator:revoke``) naming the
+    system's verdict under the pick and its link. The amendment is ambiguous again — its candidates' rows stand,
+    any candidate can be linked — and it is yours: the nightly sweep never picks it again. **404** no standing
+    system pick, **409** your own decision stands over the pick (undo it first)."""
+    reason = (body.reason if body and body.reason else None) or _DEFAULT_REASON["undo_pick"]
+    _commit(
+        conn,
+        lambda: insider_amendment_repo.undo_pick(
+            conn, security_id, accession, reason=reason, basis=BASIS_REVOKE
         ),
     )
     return _one(conn, security_id, accession)

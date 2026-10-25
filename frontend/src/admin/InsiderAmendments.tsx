@@ -11,8 +11,10 @@ import {
   useKeepOriginal,
   useLinkAmendment,
   useRevokeAmendmentDecision,
+  useUndoSystemPick,
 } from "../api/hooks";
 import { errText } from "../workbench/format";
+import { actionLine, filerSentence, pickSentence } from "./amendmentWords";
 
 type Decision = NonNullable<AdminInsiderAmendmentOut["decisions"]>[number];
 type Original = Omit<AdminInsiderOriginalOut, "rows"> & { rows: AdminInsiderTxnOut[] };
@@ -58,20 +60,36 @@ type BucketKey = "owed" | "auto" | "decided" | "historical" | "queued" | "inert"
 
 const bucket = (d: AdminInsiderAmendmentsOut, k: BucketKey) => (d[k] ?? []).map(norm);
 
-/** What each disposition means, in the operator's words (backend: domain/insider_amendments.py). */
+/** What each disposition IS, in plain words (backend: domain/insider_amendments.py) — the card's headline. */
+const WHAT: Record<string, string> = {
+  void: "a correction that reports no trades",
+  duplicates: "the same trades filed more than once",
+  partial: "a correction that re-reports fewer trades than the original",
+  consolidation: "a correction that merges the original's trades into fewer lines",
+  addition: "a correction that reports more trades than the original",
+  restatement: "a correction that re-reports the trades differently",
+  ambiguous: "a correction that could belong to more than one Form 4",
+  field_change: "a correction to the owner's title or name, or the trading-plan flag, on a buy or sale",
+  correction: "a correction of the original, trade for trade",
+  clerical: "a correction that changes none of the trades",
+  no_rows: "a correction with no trades on either side",
+  unlinked: "a correction whose original Form 4 is not stored",
+};
+
+/** The legal label, kept for the secondary filing line (backend: domain/insider_amendments.py). */
 const DISPOSITION: Record<string, string> = {
-  void: "VOID — the amendment reports no transactions",
-  duplicates: "DUPLICATE filings — the earliest stands, the rest are copies",
-  partial: "PARTIAL restatement — fewer rows than the original",
-  consolidation: "CONSOLIDATION — the original's rows merged into fewer",
-  addition: "ADDITION — more rows than the original",
-  restatement: "RESTATEMENT — rows that do not pair 1:1 with the original's",
-  ambiguous: "AMBIGUOUS — more than one original it could amend",
-  field_change: "FIELD CHANGE — Table I unchanged, but the owner's role / name or the 10b5-1 flag on a buy or sale changed",
-  correction: "CORRECTION — 1:1 rows",
-  clerical: "clerical — Table I unchanged",
-  no_rows: "no Table I rows on either side",
-  unlinked: "no stored original found",
+  void: "void",
+  duplicates: "duplicates",
+  partial: "partial",
+  consolidation: "consolidation",
+  addition: "addition",
+  restatement: "restatement",
+  ambiguous: "ambiguous",
+  field_change: "field change",
+  correction: "correction",
+  clerical: "clerical",
+  no_rows: "no rows",
+  unlinked: "unlinked",
 };
 
 /** Why the system applied it, per basis (backend: SYSTEM_BASES in domain/insider_amendments.py). */
@@ -146,6 +164,7 @@ function Evidence({ a }: { a: Amendment }) {
         <div key={o.accession}>
           <div>
             {o.role === "voided" ? "Duplicate" : o.role === "candidate" ? "Candidate" : "Original"} {o.accession}
+            {o.filed ? ` (filed ${o.filed})` : ""}
             {a.suppressing.includes(o.accession) ? " — suppressed now" : ""}:
           </div>
           <TxnLines rows={o.rows} standing={standingOf(a, o.accession)} />
@@ -160,16 +179,7 @@ function Evidence({ a }: { a: Amendment }) {
 function Header({ a, owed = false }: { a: Amendment; owed?: boolean }) {
   return (
     <div>
-      <b>{a.ticker ?? a.security_id}</b> — Form 4/A{" "}
-      {a.filing_url ? (
-        <a className="adm-link" href={a.filing_url} target="_blank" rel="noreferrer">
-          {a.accession}
-        </a>
-      ) : (
-        a.accession
-      )}{" "}
-      filed {a.filed ?? "—"} by {a.owners.join(", ") || "—"} · {DISPOSITION[a.disposition] ?? a.disposition}
-      {a.touches_buy ? " · touches a code-P buy" : ""}
+      <b>{a.ticker ?? a.security_id}</b> — {WHAT[a.disposition] ?? a.disposition}
       {owed && a.in_window.length > 0 && (
         <span className="adm-loud" data-testid="adm-amend-in-window">
           {" "}
@@ -180,17 +190,55 @@ function Header({ a, owed = false }: { a: Amendment; owed?: boolean }) {
   );
 }
 
-/** The "Insider amendments" panel (R8-A / R8-B). A Form 4/A the linker resolves to the Form 4 it amends is
- *  the filer's own legal correction: the SYSTEM resolves it — applies it, replacing only the original rows it
- *  accounts for (basis `system:filer-correction`, or `system:no-signal-effect`), or, for a zero-row 4/A that
- *  retracts nothing, keeps the original as filed (`system:no-retraction`) — and lists it quietly as "Applied
- *  automatically" with its evidence and its exact Undo, never paged. LOUD only where the operator is truly owed
- *  a decision — what the system cannot resolve, touching a buy or sale a call can read: an AMBIGUOUS
- *  amendment (pick the original), an UNRESOLVED row match (the filer's words neither fix nor add), a HELD void
- *  (retraction words against several trades) — with three verdicts: Use the correction, Keep the original,
- *  Add to the original. Older ones are "Unresolved — historical", grayed and collapsed, still decidable.
- *  Every quiet list opens (still visible, never dropped — #9/WB#2) and every action has its inverse beside it
- *  (WB#1). Renders nothing when no amendment is stored. */
+/** What the filer did, first — "This changes no call." BEFORE it when no answer can (the review line's test). */
+function Plain({ a, withPick = true }: { a: Amendment; withPick?: boolean }) {
+  const pick = withPick ? pickSentence(a) : null;
+  return (
+    <div className="adm-plain" data-testid="adm-amend-plain">
+      {a.changes_no_call ? (
+        <span className="adm-plain-nocall" data-testid="adm-amend-no-call">
+          This changes no call.{" "}
+        </span>
+      ) : null}
+      <span data-testid="adm-amend-sentence">{filerSentence(a)}</span>
+      {pick ? (
+        <span data-testid="adm-amend-pick">
+          {" "}
+          {pick}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+/** The accession numbers and the legal label — available, secondary. */
+function FilingRef({ a }: { a: Amendment }) {
+  return (
+    <div className="adm-filing-ref" data-testid="adm-amend-ref">
+      Form 4/A{" "}
+      {a.filing_url ? (
+        <a className="adm-link" href={a.filing_url} target="_blank" rel="noreferrer">
+          {a.accession}
+        </a>
+      ) : (
+        a.accession
+      )}{" "}
+      · filed {a.filed ?? "—"} by {a.owners.join(", ") || "—"} · {DISPOSITION[a.disposition] ?? a.disposition}
+      {a.touches_buy ? " · touches a code-P buy" : ""}
+    </div>
+  );
+}
+
+/** The "Insider amendments" panel (R8-A / R8-B), in PLAIN ENGLISH (2026-10-24). A Form 4/A the linker resolves to
+ *  the Form 4 it amends is the filer's own legal correction: the SYSTEM resolves it — applies it, replacing only
+ *  the original rows it accounts for, or keeps the original of a zero-row 4/A that retracts nothing — and, for an
+ *  ambiguous one whose every trade matches ONE candidate by shares and price, picks that original (rule 2b) — and
+ *  lists it quietly as "resolved automatically" with its exact Undo, never paged. LOUD only where the operator
+ *  is truly owed a decision and a live call or an edition page reads the rows it touches. Each card says, first,
+ *  whether any answer can change a call ("This changes no call."), then what the filer did (who, bought or sold,
+ *  shares, price, date, dollars), then one line per button on what it does to the calls; the accession numbers
+ *  ride a secondary line. Every quiet list opens (still visible, never dropped — #9/WB#2) and every action has
+ *  its inverse beside it (WB#1). Renders nothing when no amendment is stored. */
 export function InsiderAmendments() {
   const q = useInsiderAmendments();
   const apply = useApplyAmendment();
@@ -198,8 +246,10 @@ export function InsiderAmendments() {
   const add = useAddToOriginal();
   const link = useLinkAmendment();
   const revoke = useRevokeAmendmentDecision();
-  const busy = apply.isPending || keep.isPending || add.isPending || link.isPending || revoke.isPending;
-  const failed = [apply, keep, add, link, revoke].find((m) => m.isError);
+  const undoPick = useUndoSystemPick();
+  const busy =
+    apply.isPending || keep.isPending || add.isPending || link.isPending || revoke.isPending || undoPick.isPending;
+  const failed = [apply, keep, add, link, revoke, undoPick].find((m) => m.isError);
 
   if (q.isError) {
     return (
@@ -218,37 +268,43 @@ export function InsiderAmendments() {
     queued: bucket(q.data, "queued"),
     inert: bucket(q.data, "inert"),
   };
-  const horizon = q.data.review_horizon_days;
+  const pinned = q.data.review_horizon_days;
+  const edges = q.data.review_edges ?? {};
   const ref = (a: Amendment) => ({ securityId: a.security_id, accession: a.accession });
   const zeroRow = (a: Amendment) => SUPPRESSES_WHILE_PENDING.has(a.disposition);
+
+  /** One button and its line: what it is, and what it does to the calls. */
+  const act = (a: Amendment, key: string, label: string, onClick: () => void, opts: { primary?: boolean; target?: string } = {}) => (
+    <div className="adm-act" key={`${key}:${opts.target ?? ""}`}>
+      <button type="button" className={`adm-minibtn${opts.primary ? " primary" : ""}`} disabled={busy} onClick={onClick}>
+        {label}
+      </button>
+      <span className="adm-act-line" data-testid="adm-amend-effect">
+        {actionLine(a, key, opts.target)}
+      </span>
+    </div>
+  );
   /** The operator's three verdicts on an amendment that is theirs (Add only where it has rows to add). */
   const verdictButtons = (a: Amendment) => (
     <>
-      <button type="button" className="adm-minibtn primary" disabled={busy} onClick={() => apply.mutate(ref(a))}>
-        Use the correction
-      </button>
-      <button type="button" className="adm-minibtn" disabled={busy} onClick={() => keep.mutate(ref(a))}>
-        Keep the original
-      </button>
-      {!zeroRow(a) && (
-        <button type="button" className="adm-minibtn" disabled={busy} onClick={() => add.mutate(ref(a))}>
-          Add to the original
-        </button>
-      )}
+      {act(a, "apply", "Use the correction", () => apply.mutate(ref(a)), { primary: true })}
+      {act(a, "keep", "Keep the original", () => keep.mutate(ref(a)))}
+      {!zeroRow(a) && act(a, "add", "Add to the original", () => add.mutate(ref(a)))}
     </>
   );
   const linkButtons = (a: Amendment) =>
-    a.candidate_accessions.map((c) => (
-      <button
-        key={c}
-        type="button"
-        className="adm-minibtn"
-        disabled={busy}
-        onClick={() => link.mutate({ ...ref(a), target: c })}
-      >
-        Link to {c}
-      </button>
-    ));
+    a.candidate_accessions.map((c) => act(a, "link", `Link to ${c}`, () => link.mutate({ ...ref(a), target: c }), { target: c }));
+  const undoPickButton = (a: Amendment) =>
+    a.pick?.standing ? act(a, "undo_pick", "Undo the system's pick", () => undoPick.mutate(ref(a))) : null;
+
+  const edgeText =
+    pinned != null
+      ? `older than the ${pinned}-day review horizon`
+      : edges.P || edges.S
+        ? `older than any live call or edition page reads (buys before ${edges.P ?? "—"}, sales before ${edges.S ?? "—"}${
+            q.data.review_anchor ? `: the earliest edition night, ${q.data.review_anchor}, less each signal's read window` : ": today's signal windows"
+          })`
+        : "older than any call reads";
 
   return (
     <section className="adm-card" data-testid="adm-insider-amendments">
@@ -263,9 +319,11 @@ export function InsiderAmendments() {
             {data.owed.map((a) => {
               const linkDecision = a.decisions.find((d) => d.standing && d.action === "link");
               const ambiguous = a.disposition === "ambiguous" && !linkDecision;
+              const byYou = linkDecision && !linkDecision.basis.startsWith("system:");
               return (
                 <li key={`${a.security_id}:${a.accession}`} data-testid="adm-amend-row">
                   <Header a={a} owed />
+                  <Plain a={a} />
                   <div className="adm-sub">
                     {ambiguous
                       ? "Several Form 4s could be the one this amends, so the system cannot apply it — pick the original. Nothing changes until you do."
@@ -278,14 +336,13 @@ export function InsiderAmendments() {
                             : "No effect until you decide."}
                     {a.why ? ` ${a.why}.` : ""}
                   </div>
-                  <Evidence a={a} />
-                  <div className="adm-repair-act">
+                  <div className="adm-acts">
                     {ambiguous ? (
                       linkButtons(a)
                     ) : (
                       <>
-                        {linkDecision && (
-                          <>
+                        {byYou && (
+                          <div className="adm-act">
                             <span className="adm-sub">linked by you to {linkDecision.target_accession}</span>
                             <button
                               type="button"
@@ -295,19 +352,22 @@ export function InsiderAmendments() {
                             >
                               Undo link
                             </button>
-                          </>
+                          </div>
                         )}
                         {verdictButtons(a)}
+                        {undoPickButton(a)}
                       </>
                     )}
                   </div>
+                  <FilingRef a={a} />
+                  <Evidence a={a} />
                 </li>
               );
             })}
           </ul>
           <div className="adm-sub">
-            Each one touches a buy or sale a call can read; every decision has an Undo. A 4/A the system applies
-            replaces only the rows it accounts for — a buy or sale it never mentions stands.
+            Each one touches a buy or sale a live call or an edition page reads; every decision has an Undo. A 4/A the
+            system applies replaces only the rows it accounts for — a buy or sale it never mentions stands.
           </div>
         </div>
       )}
@@ -315,27 +375,31 @@ export function InsiderAmendments() {
       {data.auto.length > 0 && (
         <details className="adm-quietlist" data-testid="adm-amend-auto">
           <summary className="adm-line adm-quiet">
-            {data.auto.length} resolved automatically — the filer's own correction applied, or a zero-row 4/A kept
-            as filed (never paged; each undoable)
+            {data.auto.length} resolved automatically — the filer's own correction applied, its original picked, or a
+            zero-row 4/A kept as filed (never paged; each undoable)
           </summary>
           <ul className="adm-problems adm-quietrows">
             {data.auto.map((a) => (
               <li key={`${a.security_id}:${a.accession}`} data-testid="adm-amend-auto-row">
                 <Header a={a} />
+                <Plain a={a} />
                 <span className="adm-sub">
                   {(a.system_basis && SYSTEM_WHY[a.system_basis]) ??
-                    "applied by the system — a 1:1 correction, applied by its link"}
+                    (a.pick?.standing
+                      ? "the system picked the Form 4 it amends; there is nothing to apply"
+                      : "applied by the system — a 1:1 correction, applied by its link")}
                   {a.suppressing.length ? ` · suppressing ${a.suppressing.join(", ")}` : ""}
-                </span>{" "}
-                {a.system_basis === "system:no-retraction" ? (
-                  <button type="button" className="adm-minibtn" disabled={busy} onClick={() => apply.mutate(ref(a))}>
-                    Use the correction
-                  </button>
-                ) : (
-                  <button type="button" className="adm-minibtn" disabled={busy} onClick={() => keep.mutate(ref(a))}>
-                    Keep the original
-                  </button>
-                )}
+                </span>
+                <div className="adm-acts">
+                  {a.system_basis === "system:no-retraction"
+                    ? act(a, "apply", "Use the correction", () => apply.mutate(ref(a)))
+                    : // Keep the original is the Undo of an application — never offered where nothing applies
+                      // (a system pick against an identical filing: its Undo is the pick's own)
+                      (!a.actions || a.actions.some((x) => x.action === "keep")) &&
+                      act(a, "keep", "Keep the original", () => keep.mutate(ref(a)))}
+                  {undoPickButton(a)}
+                </div>
+                <FilingRef a={a} />
                 <Evidence a={a} />
               </li>
             ))}
@@ -353,6 +417,7 @@ export function InsiderAmendments() {
               return (
                 <li key={`${a.security_id}:${a.accession}`}>
                   <Header a={a} />
+                  <Plain a={a} withPick={false} />
                   <span className="adm-sub">
                     {a.status === "kept"
                       ? "original kept by you"
@@ -361,17 +426,9 @@ export function InsiderAmendments() {
                         : "correction used by you"}
                     {overSystem ? " — Undo restores the system's resolution" : ""}
                     {a.suppressing.length ? ` · suppressing ${a.suppressing.join(", ")}` : ""}
-                  </span>{" "}
-                  {a.undo_id && (
-                    <button
-                      type="button"
-                      className="adm-minibtn"
-                      disabled={busy}
-                      onClick={() => revoke.mutate({ decisionId: a.undo_id! })}
-                    >
-                      Undo
-                    </button>
-                  )}
+                  </span>
+                  {a.undo_id && <div className="adm-acts">{act(a, "undo", "Undo", () => revoke.mutate({ decisionId: a.undo_id! }))}</div>}
+                  <FilingRef a={a} />
                 </li>
               );
             })}
@@ -386,18 +443,16 @@ export function InsiderAmendments() {
           </summary>
           <div className="adm-sub">
             The system could not resolve these (several possible originals, the filer's words neither fixing nor
-            adding, or retraction words against several trades), but every buy or sale they touch is older than
-            the{" "}
-            {horizon == null ? "review horizon" : `${horizon}-day review horizon`} (the backtest window plus the
-            longest signal read), or they touch none. The originals stand; you can still decide any one.
+            adding, or retraction words against several trades), but every buy or sale they touch is {edgeText}, or
+            they touch none. The originals stand; you can still decide any one.
           </div>
           <ul className="adm-problems adm-quietrows">
             {data.historical.map((a) => (
               <li key={`${a.security_id}:${a.accession}`} data-testid="adm-amend-historical-row">
                 <Header a={a} />
-                <div className="adm-repair-act">
-                  {a.disposition === "ambiguous" ? linkButtons(a) : verdictButtons(a)}
-                </div>
+                <Plain a={a} />
+                <div className="adm-acts">{a.disposition === "ambiguous" ? linkButtons(a) : verdictButtons(a)}</div>
+                <FilingRef a={a} />
               </li>
             ))}
           </ul>
@@ -414,6 +469,7 @@ export function InsiderAmendments() {
             {data.queued.map((a) => (
               <li key={`${a.security_id}:${a.accession}`}>
                 <Header a={a} />
+                <FilingRef a={a} />
               </li>
             ))}
           </ul>
@@ -429,6 +485,7 @@ export function InsiderAmendments() {
             {data.inert.map((a) => (
               <li key={`${a.security_id}:${a.accession}`}>
                 <Header a={a} />
+                <FilingRef a={a} />
               </li>
             ))}
           </ul>

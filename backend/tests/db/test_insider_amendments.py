@@ -31,6 +31,8 @@ from tests.form4a_fixtures import (
     ingest_originals,
     make_security,
     seed,
+    seed_edition,
+    undo_pick,
     xml,
 )
 
@@ -296,7 +298,9 @@ def test_tdg_duplicates_are_counted_once(db):
 
 def test_an_ambiguous_link_suppresses_nothing_until_the_operator_links_it(db):
     """HROW: both candidates hold a row the 4/A accounts for (the identical sale; the same sale at another
-    price), so it stays ambiguous — nothing changes until the operator links one; the link's Undo restores it.
+    price), so the row tie-break leaves it ambiguous — and rule 2b picks the identical one (the only one holding
+    the sale at its shares AND price): clerical, so the read is unchanged. With that pick undone it is ambiguous
+    again and nothing changes until the operator links one; the link's Undo restores it.
     """
     sid = make_security(db, "HROW")
     ingest_originals(db, sid, "HROW")
@@ -305,8 +309,12 @@ def test_an_ambiguous_link_suppresses_nothing_until_the_operator_links_it(db):
     assert sorted(float(r["price"]) for r in original) == [29.64, 30.011]
     out = ingest_amendment(db, sid, "0001641172-25-010338")
     assert out.link.disposition == "ambiguous" and not out.link.tie_break
+    assert out.link.pick is not None and out.link.pick.target == "0001493152-25-011028"
+    assert out.link.pick.disposition == "clerical" and out.link.pick.resolution is None
+    assert _rows(db, sid, asof) == original  # a clerical pick changes nothing
+    assert _count(db, "insider_amendment_decision", sid) == 1  # the system's link, no verdict
+    undo_pick(db, sid, "0001641172-25-010338")
     assert _rows(db, sid, asof) == original  # flagged, never applied
-    assert _count(db, "insider_amendment_decision", sid) == 0  # the operator's, not the system's
     link = insider_amendment_repo.link_candidate(
         db,
         sid,
@@ -366,9 +374,11 @@ def _decisions(db, sid) -> list[dict]:
         return cur.fetchall()
 
 
-def _item(db, sid, accession):
+def _item(db, sid, accession, asof: date | None = None):
     return next(
-        i for i in insider_amendment_repo.items(db, security_ids=[sid]) if i.accession == accession
+        i
+        for i in insider_amendment_repo.items(db, security_ids=[sid], asof=asof)
+        if i.accession == accession
     )
 
 
@@ -461,15 +471,16 @@ def test_the_urgency_marks_what_sits_inside_tonights_signal_windows(db):
 
 def test_an_unresolved_match_is_owed_and_each_of_the_three_verdicts_has_its_undo(db):
     """YYAI's 4/A re-reports its buys after a reverse split in words that neither fix nor add: no system
-    decision, OWED (inside the review horizon), the original standing. The operator's three verdicts:
-    Use the correction (the whole original replaced), Keep the original, Add to the original (every original
-    stands and the amendment's rows are added) — each with its Undo."""
+    decision, OWED (judged at 2025-10-31, its buys sit inside the live P window), the original standing. The
+    operator's three verdicts: Use the correction (the whole original replaced), Keep the original, Add to the
+    original (every original stands and the amendment's rows are added) — each with its Undo."""
     sid = seed(db, "YYAI")
     acc, asof = "0002091629-25-000011", date(2025, 10, 31)
     original = {r["accession"] for r in _rows(db, sid, asof)}
     assert original == {"0002091629-25-000003"} and _decisions(db, sid) == []
-    it = _item(db, sid, acc)
+    it = _item(db, sid, acc, asof)
     assert (it.review, it.unresolved, it.in_review) == ("owed", True, True)
+    assert not it.changes_no_call  # a buy a live call reads changes with the answer
     add = insider_amendment_repo.decide(db, sid, acc, "add", reason="new buy", basis="operator:add")
     db.commit()
     assert add["action"] == "apply" and add["replaced_rows"] == []
@@ -523,40 +534,144 @@ def test_an_omitted_line_amendment_keeps_the_sales_it_never_mentions(db):
     )
 
 
-def test_a_recent_ambiguous_amendment_is_owed_and_an_old_one_is_historical(db):
-    """HROW (its candidates' sales dated 2025-03-18, inside the 940-day review horizon at 2026-10-20) is OWED
-    the operator; ASTH (code-P rows of 2008 / 2012) is "unresolved — historical": no call reads those rows, the
-    originals stand exactly as stored, nothing is decided for anyone."""
+def test_an_ambiguous_amendment_is_owed_only_while_a_live_call_or_an_edition_page_reads_it(db):
+    """The REVIEW LINE (operator decision 2026-10-24). HROW (its pick undone, so ambiguous again — its
+    candidates' sales dated 2025-03-18): OWED at 2025-06-01 (inside the live 120-day sale window); at
+    2026-10-20 with no edition published "unresolved — historical" (no live call reads a 2025-03 sale); and owed
+    again once an edition whose first night is 2025-06-01 exists (its pages read sales back to 2025-02-01). ASTH
+    (code-P rows of 2008 / 2012) is historical throughout — the originals stand exactly as stored, nothing is
+    decided for anyone; only an unbounded line would owe it."""
     hrow, asth = seed(db, "HROW"), make_security(db, "ASTH")
+    undo_pick(db, hrow, "0001641172-25-010338")
     ingest_originals(db, asth, "ASTH")
     asof = date(2013, 8, 31)
     original = _rows(db, asth, asof)
     assert {r["txn_code"] for r in original} == {"P"}
     ingest_amendment(db, asth, "0001134366-13-000009")
     assert _rows(db, asth, asof) == original  # the originals stand
-    found = {
-        i.ticker: i
-        for i in insider_amendment_repo.items(
-            db, security_ids=[hrow, asth], asof=date(2026, 10, 20)
-        )
-    }
-    assert (found["HROW"].review, found["HROW"].in_review, found["HROW"].needs_operator) == (
-        "owed",
-        True,
-        True,
-    )
-    assert (found["ASTH"].review, found["ASTH"].in_review, found["ASTH"].needs_operator) == (
+
+    def found(day):
+        return {
+            i.ticker: i
+            for i in insider_amendment_repo.items(db, security_ids=[hrow, asth], asof=day)
+        }
+
+    early = found(date(2025, 6, 1))["HROW"]
+    assert (early.review, early.in_review, early.needs_operator) == ("owed", True, True)
+    assert not early.changes_no_call
+    late = found(date(2026, 10, 20))
+    assert (late["HROW"].review, late["HROW"].in_review) == ("historical", False)
+    assert late[
+        "HROW"
+    ].changes_no_call  # whatever the operator picks, no live call reads a 2025-03 sale
+    seed_edition(db, date(2025, 6, 1))
+    paged = found(date(2026, 10, 20))
+    assert (paged["HROW"].review, paged["HROW"].in_review) == ("owed", True)
+    assert (paged["ASTH"].review, paged["ASTH"].in_review, paged["ASTH"].needs_operator) == (
         "historical",
         False,
         False,
     )
-    assert found["ASTH"].signal_effect  # it does touch code-P rows — just ones no call reads
-    assert _decisions(db, hrow) == [] and _decisions(db, asth) == []
-    # the horizon is the dial: unbounded, ASTH would be owed too
+    assert paged["ASTH"].signal_effect  # it does touch code-P rows — just ones no call reads
+    assert _decisions(db, asth) == []
+    # the line is the dial: unbounded, ASTH would be owed too
     again = insider_amendment_repo.items(
         db, security_ids=[asth], asof=date(2026, 10, 20), review_days=None
     )
     assert again[0].review == "owed"
+
+
+# --- rule 2b: the SYSTEM's pick of an ambiguous amendment's original (operator decision 2026-10-24) ----------
+
+
+def test_the_system_picks_cvnas_and_hrows_original_as_the_operator_did_and_undo_restores_ambiguity(
+    db,
+):
+    """The two 4/As the operator linked by hand on prod (2026-10-23), on their REAL filings: rule 2b picks the
+    same originals at ingest — CVNA ``-000275`` -> ``-000271`` (all 28 sales match it by shares + price, none
+    match ``-000273``) and HROW ``0001641172-25-010338`` -> ``0001493152-25-011028`` (1/1; ``-000741`` holds
+    the sale at another price) — each as a SYSTEM link decision plus the system's resolution against the pick,
+    in the link's transaction. CVNA's pick is a correction, so its 4/A's sales replace ``-000271``'s; HROW's is
+    clerical (Table I identical), so the read is unchanged. The operator's Undo of the pick revokes both
+    decisions (append-only — COUNT THE TABLE): CVNA reads ambiguous again, both originals standing, the operator
+    can link either, and the sweep never picks it again."""
+    cvna, hrow = seed(db, "CVNA"), seed(db, "HROW")
+    acc = "0001690820-25-000275"
+    links = [d for d in _decisions(db, cvna) if d["action"] == "link"]
+    (pick,) = links
+    assert (pick["basis"], pick["target_accession"], pick["disposition"]) == (
+        "system:sole-match",
+        "0001690820-25-000271",
+        "correction",
+    )
+    assert pick["detail"]["coverage"] == {"0001690820-25-000271": 28, "0001690820-25-000273": 0}
+    assert pick["detail"]["via"] == "ingest"
+    (verdict,) = [d for d in _decisions(db, cvna) if d["action"] == "apply"]
+    assert (verdict["basis"], verdict["recorded_at"]) == (
+        "system:filer-correction",
+        pick["recorded_at"],
+    )
+    it = _item(db, cvna, acc, date(2025, 7, 31))
+    assert (it.review, it.system_link, it.pick_standing, it.pick.target) == (
+        "auto",
+        True,
+        True,
+        "0001690820-25-000271",
+    )
+    assert it.effective.method == "system"
+    july = date(2025, 7, 31)
+    assert {r["accession"] for r in _rows(db, cvna, july)} == {acc, "0001690820-25-000273"}
+    (hpick,) = _decisions(db, hrow)  # clerical against the pick: nothing to apply
+    assert (hpick["action"], hpick["basis"], hpick["target_accession"], hpick["disposition"]) == (
+        "link",
+        "system:sole-match",
+        "0001493152-25-011028",
+        "clerical",
+    )
+    assert _item(db, hrow, "0001641172-25-010338").review == "auto"  # listed with its Undo
+    # the Undo of the pick: two revokes, the amendment ambiguous again, both CVNA originals standing
+    before = _count(db, "insider_amendment_decision", cvna)
+    undo_pick(db, cvna, acc)
+    assert _count(db, "insider_amendment_decision", cvna) == before + 2
+    back = _item(db, cvna, acc, july)
+    assert (back.effective.disposition, back.effective.link_decision_id, back.system_link) == (
+        "ambiguous",
+        None,
+        False,
+    )
+    assert back.review == "owed"  # the operator took it back, and its sales sit in July's S window
+    assert {r["accession"] for r in _rows(db, cvna, july)} == {
+        "0001690820-25-000271",
+        "0001690820-25-000273",
+    }
+    with pytest.raises(LookupError):
+        insider_amendment_repo.undo_pick(db, cvna, acc, reason="x", basis="operator:revoke")
+    db.rollback()
+    res = insider_amendment_repo.sweep(db, security_ids=[cvna])
+    db.commit()
+    assert res.picked == () and _count(db, "insider_amendment_decision", cvna) == before + 2
+    insider_amendment_repo.link_candidate(
+        db, cvna, acc, "0001690820-25-000273", reason="mine", basis="operator:link"
+    )
+    db.commit()
+    assert _item(db, cvna, acc, july).effective.method == "operator"
+
+
+def test_an_operator_verdict_over_the_pick_must_be_undone_before_the_pick(db):
+    """CVNA: the operator keeps the original over the system's pick-and-apply (allowed — a verdict over a
+    system decision); Undo the system's pick is then refused (409) until that verdict is undone."""
+    cvna = seed(db, "CVNA")
+    acc = "0001690820-25-000275"
+    keep = insider_amendment_repo.decide(db, cvna, acc, "keep", reason="x", basis="operator:keep")
+    db.commit()
+    assert _item(db, cvna, acc).review == "decided"
+    with pytest.raises(insider_amendment_repo.AmendmentConflict):
+        insider_amendment_repo.undo_pick(db, cvna, acc, reason="x", basis="operator:revoke")
+    db.rollback()
+    insider_amendment_repo.revoke(db, keep["id"], reason="undo", basis="operator:revoke")
+    db.commit()
+    undo_pick(db, cvna, acc)
+    assert _item(db, cvna, acc).effective.disposition == "ambiguous"
 
 
 # --- R8-B: the SWEEP of what a pre-R8-B ingest left pending -------------------------------------------------
@@ -597,7 +712,7 @@ def test_the_sweep_applies_the_backlog_once_and_rerunning_appends_nothing(db):
         "0001174947-26-000849",  # IEHC addition (FIX words)
         "0001922054-26-000007",  # SMR void (no retraction)
         "0001493152-25-024508",  # FIGR void (held)
-    }  # the ATCH corrections read applied by their links (auto); HROW / YYAI are owed
+    }  # the ATCH corrections read applied by their links (auto); HROW ambiguous, YYAI unresolved
     res = insider_amendment_repo.sweep(db, security_ids=list(sids.values()))
     db.commit()
     assert len(res.applied) == 10  # FLS, MRCY, IEHC, SMR, FIGR + ATCH's five corrections
@@ -612,11 +727,15 @@ def test_the_sweep_applies_the_backlog_once_and_rerunning_appends_nothing(db):
         "system:no-signal-effect": 1,
         "system:no-retraction": 1,
         "system:held": 1,
+        "system:sole-match": 1,  # rule 2b: HROW's stored ambiguous link, its original picked
     }
-    assert _table_count(db) == before + 10  # COUNT THE TABLE
+    # HROW's pick is clerical against -011028 (nothing to apply): one link decision, no verdict
+    assert res.picked == (f"{sids['HROW']}:0001641172-25-010338",)
+    assert _table_count(db) == before + 11  # COUNT THE TABLE
     again = insider_amendment_repo.sweep(db, security_ids=list(sids.values()))
     db.commit()
-    assert again.applied == () and _table_count(db) == before + 10  # idempotent: nothing appended
+    assert again.applied == () and again.picked == ()
+    assert _table_count(db) == before + 11  # idempotent: nothing appended
     (fls,) = _decisions(db, sids["FLS"])
     assert (fls["action"], fls["basis"], fls["detail"]["via"], fls["replaced_rows"]) == (
         "apply",
@@ -628,13 +747,22 @@ def test_the_sweep_applies_the_backlog_once_and_rerunning_appends_nothing(db):
     assert (smr["action"], smr["basis"]) == ("keep", "system:no-retraction")
     (mrcy,) = _decisions(db, sids["MRCY"])
     assert mrcy["replaced_rows"] == []  # the sweep stores the row match: the sales stand
-    assert _decisions(db, sids["HROW"]) == [] and _decisions(db, sids["YYAI"]) == []
+    (hrow,) = _decisions(db, sids["HROW"])
+    assert (hrow["action"], hrow["basis"], hrow["detail"]["via"]) == (
+        "link",
+        "system:sole-match",
+        "sweep",
+    )
+    assert _decisions(db, sids["YYAI"]) == []
+    # judged at 2025-12-01, inside YYAI's buys' and FIGR's sale's live windows
     owed = {
         i.ticker
-        for i in insider_amendment_repo.items(db, security_ids=list(sids.values()))
+        for i in insider_amendment_repo.items(
+            db, security_ids=list(sids.values()), asof=date(2025, 12, 1)
+        )
         if i.needs_operator
     }
-    assert owed == {"HROW", "YYAI", "FIGR"}
+    assert owed == {"YYAI", "FIGR"}
 
 
 def test_the_sweep_never_touches_what_the_operator_decided_or_linked(db):
@@ -649,6 +777,10 @@ def test_the_sweep_never_touches_what_the_operator_decided_or_linked(db):
         db, azta, "0001193125-25-282945", "apply", reason="x", basis="operator:apply"
     )
     insider_amendment_repo.revoke(db, d["id"], reason="undo", basis="operator:revoke")
+    db.commit()
+    undo_pick(
+        db, hrow, "0001641172-25-010338"
+    )  # the operator takes HROW's pick back, then links it
     insider_amendment_repo.link_candidate(
         db, hrow, "0001641172-25-010338", "0001493152-25-011028", reason="x", basis="operator:link"
     )
@@ -735,12 +867,14 @@ def test_the_real_row_check_table(db):
     def codes(sid, accession, day=asof):
         return sorted(r["txn_code"] for r in _rows(db, sid, day) if r["accession"] == accession)
 
-    def review(sid, accession):
+    def review(sid, accession, day=asof):
         return next(
             i.review
-            for i in insider_amendment_repo.items(db, security_ids=[sid], asof=asof)
+            for i in insider_amendment_repo.items(db, security_ids=[sid], asof=day)
             if i.accession == accession
         )
+
+    late_2025 = date(2025, 12, 1)  # inside FIGR's sale's and YYAI's buys' live windows
 
     # zero-row 4/As: no retraction -> the original stands (inert, quiet)
     smr = seed(db, "SMR")
@@ -753,10 +887,12 @@ def test_the_real_row_check_table(db):
         len(codes(vwav, "0002105221-26-000001")) == 2
         and review(vwav, "0002105221-26-000002") == "auto"
     )
-    # retraction words against several trades -> held, owed, the original standing
+    # retraction words against several trades -> held: owed while a call reads its sale, the original standing;
+    # at 2026-10-20 no live call reads a 2025-09 sale (no edition here) -> historical
     figr = seed(db, "FIGR")
     assert codes(figr, "0002079716-25-000008") == ["C", "F", "S"]
-    assert review(figr, "0001493152-25-024508") == "owed"
+    assert review(figr, "0001493152-25-024508", late_2025) == "owed"
+    assert review(figr, "0001493152-25-024508") == "historical"
     # a retraction of a single-trade original -> hidden
     for t, originals in (
         ("FLS", ("0001628280-26-035913",)),
@@ -794,10 +930,11 @@ def test_the_real_row_check_table(db):
         codes(iehc, "0001174947-26-000817") == []
         and codes(iehc, "0001174947-26-000849") == ["S"] * 4
     )
-    # neither -> owed, the original standing
+    # neither -> owed while a call reads its buys, the original standing; historical once none does
     yyai = seed(db, "YYAI")
     assert codes(yyai, "0002091629-25-000003") == ["P", "P"]
-    assert review(yyai, "0002091629-25-000011") == "owed"
+    assert review(yyai, "0002091629-25-000011", late_2025) == "owed"
+    assert review(yyai, "0002091629-25-000011") == "historical"
     # shape: BAH's eight recodes (S -> F; the grant stands); MRCY's grant added beside its sales; sums
     bah = seed(db, "BAH")
     assert {r["txn_code"] for r in _rows(db, bah, date(2024, 6, 30))} == {"A", "F"}

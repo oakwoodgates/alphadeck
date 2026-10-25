@@ -39,9 +39,12 @@ from domain.insider_amendments import (
     BASIS_HELD,
     BASIS_NO_RETRACTION,
     BASIS_NO_SIGNAL_EFFECT,
+    BASIS_SOLE_MATCH,
+    INERT_DISPOSITIONS,
     STATUS_PENDING,
     AmendmentFacts,
     LinkResult,
+    SystemPick,
     filer_text,
     link_amendment,
     norm_cik,
@@ -123,7 +126,123 @@ SYSTEM_REASONS: dict[str, str] = {
         "a zero-row 4/A that retracts a trade, against an original with several — the original stands until "
         "the operator decides"
     ),
+    BASIS_SOLE_MATCH: (
+        "every trade this 4/A reports matches one candidate Form 4 by shares and price, and no other — the "
+        "system linked it to that filing (rule 2b)"
+    ),
 }
+
+
+def pick_decision_values(
+    *,
+    tenant_id: UUID,
+    security_id: UUID,
+    accession: str,
+    pick: SystemPick,
+    candidates: Collection[str],
+    signal_codes: Collection[str],
+    via: str,
+) -> dict[str, Any]:
+    """Rule 2b — the SYSTEM's ``link`` decision for an ambiguous amendment (basis ``system:sole-match``): the
+    candidate it picked, the disposition against it (stored on the decision, exactly like the operator's link —
+    a read never recomputes it), and the evidence (each candidate's matched-row count)."""
+    return {
+        "tenant_id": tenant_id,
+        "security_id": security_id,
+        "amendment_accession": accession,
+        "action": "link",
+        "target_accession": pick.target,
+        "disposition": pick.disposition,
+        "original_accessions": list(pick.originals),
+        "reason": SYSTEM_REASONS[BASIS_SOLE_MATCH],
+        "basis": BASIS_SOLE_MATCH,
+        "detail": {
+            "rule": "sole-match",
+            "candidates": list(candidates),
+            "rows": pick.rows,
+            "coverage": dict(pick.coverage),
+            "signal_codes": sorted(signal_codes),
+            "via": via,
+        },
+    }
+
+
+def pick_settles(pick: SystemPick | None) -> bool:
+    """Does the system's pick leave nothing owed by itself — a resolution against the picked filing, or an inert
+    disposition against it (nothing to apply)? ``False`` for no pick, or an unresolved match (still the
+    operator's, owed or historical by the review line)."""
+    return pick is not None and (
+        pick.resolution is not None or pick.disposition in INERT_DISPOSITIONS
+    )
+
+
+def _insert_decision(
+    cur: psycopg.Cursor[Any], values: Mapping[str, Any], stamp: str, common: Mapping[str, Any]
+) -> None:
+    cols = [c for c in values if c not in ("tenant_id", "security_id", "amendment_accession")]
+    cur.execute(
+        "INSERT INTO insider_amendment_decision (tenant_id, security_id, amendment_accession, "
+        + ", ".join(cols)
+        + ", recorded_at) VALUES (%(tenant)s, %(sid)s, %(acc)s, "
+        + ", ".join(f"%(v_{c})s" for c in cols)
+        + f", {stamp})",  # noqa: S608 — fixed column names, stamp is one of two literals
+        {
+            **common,
+            **{
+                f"v_{c}": (Json(values[c]) if isinstance(values[c], dict) else values[c])
+                for c in cols
+            },
+        },
+    )
+
+
+def write_pick(
+    cur: psycopg.Cursor[Any],
+    *,
+    tenant_id: UUID,
+    security_id: UUID,
+    accession: str,
+    pick: SystemPick,
+    candidates: Collection[str],
+    signal_codes: Collection[str],
+    via: str,
+    recorded_at: datetime | None = None,
+) -> int:
+    """Rule 2b — append the SYSTEM's pick (its ``link`` decision) and, when it resolves one, the system's decision
+    against the picked filing (``system_decision_values`` — the ingest's own shape), both at ONE ``recorded_at``
+    (``now()`` unless given). The ingest's write (in the link's transaction) and the nightly sweep's. Returns
+    the decisions appended (1 or 2)."""
+    common: dict[str, Any] = {"tenant": tenant_id, "sid": security_id, "acc": accession}
+    stamp = "%(rec)s" if recorded_at is not None else "now()"
+    if recorded_at is not None:
+        common["rec"] = recorded_at
+    link_v = pick_decision_values(
+        tenant_id=tenant_id,
+        security_id=security_id,
+        accession=accession,
+        pick=pick,
+        candidates=candidates,
+        signal_codes=signal_codes,
+        via=via,
+    )
+    _insert_decision(cur, link_v, stamp, common)
+    res = pick.resolution
+    if res is None:
+        return 1
+    v = system_decision_values(
+        tenant_id=tenant_id,
+        security_id=security_id,
+        accession=accession,
+        basis=res.basis,
+        disposition=pick.disposition,
+        signal_codes=signal_codes,
+        via=via,
+        replaced_rows=res.replaced_rows if res.action == "apply" else None,
+        action=res.action,
+    )
+    v["detail"] = {**v["detail"], "picked": pick.target}
+    _insert_decision(cur, v, stamp, common)
+    return 2
 
 
 def system_decision_values(
@@ -175,6 +294,12 @@ def link_detail(
         "signal_codes": sorted(signal_codes),
         "excluded_later": list(link.excluded_later),
         "tie_break": link.tie_break,
+        # rule 2b — the system's pick for an ambiguous link (recorded as decisions beside it — ``write_pick``)
+        **(
+            {"sole_match": {"target": link.pick.target, "coverage": dict(link.pick.coverage)}}
+            if link.pick is not None
+            else {}
+        ),
         **(dict(extra) if extra else {}),
     }
 
@@ -194,9 +319,11 @@ def write_link(
     extra_detail: Mapping[str, Any] | None = None,
 ) -> int:
     """Append one amendment's LINK and — when the system resolves it (R8-B) — the system's decision, in the
-    caller's transaction, both at ONE ``recorded_at`` (``now()`` unless given). The ingest's write and the
-    re-link's (``repositories.insider_amendment_repo.relink``) — one shape. Returns the decisions appended
-    (0 or 1)."""
+    caller's transaction, all at ONE ``recorded_at`` (``now()`` unless given). An AMBIGUOUS link rule 2b settles
+    (``link.pick``) carries the system's pick instead (``write_pick`` — its ``link`` decision and its resolution
+    against the picked filing), so a new 4/A it settles is never owed, not even for a night. The ingest's write
+    and the re-link's (``repositories.insider_amendment_repo.relink``) — one shape. Returns the decisions
+    appended (0, 1 or 2)."""
     common: dict[str, Any] = {"tenant": tenant_id, "sid": security_id, "acc": accession}
     stamp = "%(rec)s" if recorded_at is not None else "now()"
     if recorded_at is not None:
@@ -220,6 +347,18 @@ def write_link(
             "accepted": accepted,
         },
     )
+    if link.pick is not None:
+        return write_pick(
+            cur,
+            tenant_id=tenant_id,
+            security_id=security_id,
+            accession=accession,
+            pick=link.pick,
+            candidates=link.candidate_accessions,
+            signal_codes=signal_codes,
+            via=via,
+            recorded_at=recorded_at,
+        )
     if link.basis is None:
         return 0
     # the system's application, recorded exactly like an operator's verdict (append-only, undoable)
@@ -377,7 +516,10 @@ def ingest_form4a(
     every other original row stands). A zero-row 4/A is read by the filer's words (``void_reading``): it is
     applied only when it retracts a single-trade original; otherwise the system records a ``keep`` (basis
     ``system:no-retraction`` — the original stands — or ``system:held`` — owed to the operator). Undoable on
-    Admin. An ambiguous link, and a match neither shape nor words resolve, write no decision — they wait for the
+    Admin. An ambiguous link rule 2b settles (every row the 4/A reports matches one candidate by shares + price,
+    and no other — ``domain.insider_amendments.system_pick``) records the SYSTEM's pick: a ``link`` decision
+    (``system:sole-match``) and the system's decision against the picked filing, undone together on Admin. Any
+    other ambiguous link, and a match neither shape nor words resolve, write no decision — they wait for the
     operator (or read as historical).
 
     ``accepted_by_accession`` (the R8 linker fix) = each Form 4's SEC acceptance from the SAME submissions index
@@ -480,8 +622,15 @@ class AmendmentLegResult:
 
     @property
     def pending(self) -> int:
-        """Stored tonight and NOT applied by the system (an ambiguous link, or an unresolved row match — R8-B)."""
-        return sum(1 for a in self.stored if a.link is not None and a.link.status == STATUS_PENDING)
+        """Stored tonight and NOT settled by the system (an ambiguous link rule 2b does not settle, or an
+        unresolved row match — R8-B)."""
+        return sum(
+            1
+            for a in self.stored
+            if a.link is not None
+            and a.link.status == STATUS_PENDING
+            and not pick_settles(a.link.pick)
+        )
 
 
 def accepted_times(filings: Collection[Mapping[str, str]]) -> dict[str, datetime]:

@@ -1510,9 +1510,10 @@ export interface paths {
         /**
          * List Amendments
          * @description Every stored Form 4/A with its link, disposition, effective status and evidence, bucketed for the
-         *     panel: owed loud (an ambiguous amendment only you can resolve that touches a buy or sale a call can read —
+         *     panel: owed loud (one only you can resolve that touches a buy or sale a live call or an edition page reads —
          *     the ones inside today's signal windows first); applied automatically / decided / unresolved — historical /
-         *     queued / inert quiet. Read-only.
+         *     queued / inert quiet. Each card says what the filer did, whether any answer changes a call, and what each
+         *     button does to the rows a call reads. Read-only.
          */
         get: operations["list_amendments_admin_insider_amendments_get"];
         put?: never;
@@ -1609,6 +1610,30 @@ export interface paths {
          *     ambiguous / already linked / not a candidate.
          */
         post: operations["link_amendment_to_candidate_admin_insider_amendments__security_id___accession__link_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/insider-amendments/{security_id}/{accession}/undo-pick": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Undo System Pick
+         * @description UNDO THE SYSTEM'S PICK (rule 2b — the system linked an ambiguous amendment to the one candidate every
+         *     trade it reports matches by shares + price): append ``revoke`` rows (basis ``operator:revoke``) naming the
+         *     system's verdict under the pick and its link. The amendment is ambiguous again — its candidates' rows stand,
+         *     any candidate can be linked — and it is yours: the nightly sweep never picks it again. **404** no standing
+         *     system pick, **409** your own decision stands over the pick (undo it first).
+         */
+        post: operations["undo_system_pick_admin_insider_amendments__security_id___accession__undo_pick_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1724,6 +1749,51 @@ export interface paths {
          *     not confirmed.
          */
         post: operations["revoke_split_admin_splits__version_id__revoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/splits/jumps/{security_id}/{step_date}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dismiss Jump
+         * @description DISMISS an "is this real?" card — the operator says the split-shaped jump was a REAL MOVE (author
+         *     ``operator:dismiss``, append-only). It leaves the list and is listed under ``dismissed_jumps``; the
+         *     split-night hold never reads it (display only — no call changes). Undo with ``POST
+         *     /admin/splits/jumps/dismissals/{dismissal_id}/undo``. **404** no such jump on the list, **409** already
+         *     dismissed.
+         */
+        post: operations["dismiss_jump_admin_splits_jumps__security_id___step_date__dismiss_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/splits/jumps/dismissals/{dismissal_id}/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Undo Jump Dismissal
+         * @description UNDO a dismissal (author ``operator:undo``, append-only): the card is back on the "is this real?" list.
+         *     **404** unknown dismissal (or its jump no longer listed), **409** already undone.
+         */
+        post: operations["undo_jump_dismissal_admin_splits_jumps_dismissals__dismissal_id__undo_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2364,6 +2434,31 @@ export interface components {
             until: string;
         };
         /**
+         * AdminInsiderActionOut
+         * @description One button on the card and what it does to the rows a call reads, relative to the read NOW: ``action`` =
+         *     ``apply`` (Use the correction) / ``keep`` (Keep the original) / ``add`` (Add to the original) / ``link`` (pick
+         *     the candidate ``target``; ``disposition`` = how the 4/A reads against it) / ``undo`` (Undo your decision) /
+         *     ``undo_pick`` (Undo the system's pick). ``removes`` / ``adds`` = the buy / sell rows the read loses / gains;
+         *     ``changes_call`` = one of them can be read by a live call or an edition page (the review line).
+         */
+        AdminInsiderActionOut: {
+            /** Action */
+            action: string;
+            /** Target */
+            target?: string | null;
+            /** Disposition */
+            disposition?: string | null;
+            /** Removes */
+            removes?: components["schemas"]["AdminInsiderTxnOut"][];
+            /** Adds */
+            adds?: components["schemas"]["AdminInsiderTxnOut"][];
+            /**
+             * Changes Call
+             * @default false
+             */
+            changes_call: boolean;
+        };
+        /**
          * AdminInsiderAmendmentOut
          * @description One Form 4/A and everything the operator needs to ratify it.
          *
@@ -2388,6 +2483,12 @@ export interface components {
          *     / restatement / field change): ``kept_rows`` = the original rows (``"<accession>#<seq>"``) the amendment does
          *     NOT account for — they stand, the filer never retracted them; ``unresolved`` = a buy/sell whose date AND
          *     share count both changed (restated, or an added trade? — owed to the operator, the original standing).
+         *
+         *     The plain-English card (2026-10-24): ``owner_name`` / ``owner_role`` as filed; ``trades`` = the 4/A's own rows
+         *     by code, summed; ``usd_total`` = the dollar total of its buys / sells; ``changes_no_call`` = NO answer on this
+         *     card can change a row a live call or an edition page reads (the review line — the same test as owed);
+         *     ``actions`` = each button's effect on those rows; ``pick`` = the system's pick of the original (rule 2b), when
+         *     it made or will make one.
          */
         AdminInsiderAmendmentOut: {
             /**
@@ -2497,6 +2598,22 @@ export interface components {
             reading?: string | null;
             /** Passage */
             passage?: string | null;
+            /** Owner Name */
+            owner_name?: string | null;
+            /** Owner Role */
+            owner_role?: string | null;
+            /** Trades */
+            trades?: components["schemas"]["AdminInsiderTradeGroupOut"][];
+            /** Usd Total */
+            usd_total?: number | null;
+            /**
+             * Changes No Call
+             * @default true
+             */
+            changes_no_call: boolean;
+            /** Actions */
+            actions?: components["schemas"]["AdminInsiderActionOut"][];
+            pick?: components["schemas"]["AdminInsiderPickOut"] | null;
         };
         /**
          * AdminInsiderAmendmentsOut
@@ -2508,8 +2625,11 @@ export interface components {
          *     ``decided`` (a standing operator verdict, each undoable), ``historical`` (ambiguous or unresolved, but no
          *     call reads the rows it touches — the originals stand; an ambiguous one still linkable), ``queued`` (a pre-R8-B link the next nightly sweep
          *     applies; a void suppresses meanwhile) and ``inert`` (clerical / no Table I rows / no stored original).
-         *     ``asof`` is the market day urgency and the review horizon were judged at; ``review_horizon_days`` the
-         *     horizon in force (``None`` = unbounded). Read live from the tables.
+         *     ``asof`` is the market day urgency and the review line were judged at. THE REVIEW LINE (what is owed vs
+         *     historical): ``review_edges`` = per signal code, the oldest row date a live call or an edition page reads
+         *     (``null`` = that code's read is unbounded); ``review_anchor`` = the earliest edition night it was derived from
+         *     (``null`` = no edition published: today's windows alone); ``review_horizon_days`` = the pinned dial when it
+         *     sets a FLAT window instead (``null`` = derived). Read live from the tables.
          */
         AdminInsiderAmendmentsOut: {
             /** Owed */
@@ -2533,6 +2653,12 @@ export interface components {
             asof?: string | null;
             /** Review Horizon Days */
             review_horizon_days?: number | null;
+            /** Review Edges */
+            review_edges?: {
+                [key: string]: string | null;
+            };
+            /** Review Anchor */
+            review_anchor?: string | null;
         };
         /**
          * AdminInsiderDecisionOut
@@ -2580,15 +2706,48 @@ export interface components {
         /**
          * AdminInsiderOriginalOut
          * @description A stored Form 4 the amendment touches, with its rows: ``role`` = ``original`` (what it amends),
-         *     ``voided`` (a duplicate a 1->N void suppresses) or ``candidate`` (an ambiguous link's option).
+         *     ``voided`` (a duplicate a 1->N void suppresses) or ``candidate`` (an ambiguous link's option). ``filed`` =
+         *     its EDGAR filing date (the submissions index, or what the link itself proves; ``None`` = not on file);
+         *     ``trades`` = its rows by code, summed; ``matched_rows`` = for a candidate, how many of the 4/A's rows it
+         *     matches one-to-one by shares + price (rule 2b's count; ``None`` when not judged).
          */
         AdminInsiderOriginalOut: {
             /** Accession */
             accession: string;
             /** Role */
             role: string;
+            /** Filed */
+            filed?: string | null;
             /** Rows */
             rows?: components["schemas"]["AdminInsiderTxnOut"][];
+            /** Trades */
+            trades?: components["schemas"]["AdminInsiderTradeGroupOut"][];
+            /** Matched Rows */
+            matched_rows?: number | null;
+        };
+        /**
+         * AdminInsiderPickOut
+         * @description Rule 2b — the SYSTEM's pick of an ambiguous amendment's original: the candidate (``target``, with its
+         *     ``filed`` date), the disposition against it, and the evidence (``matched_rows`` of the 4/A's ``rows`` match
+         *     it by shares + price; no other candidate matches them all). ``standing`` = recorded (undo with ``POST
+         *     .../undo-pick``); False = the next nightly pass records it.
+         */
+        AdminInsiderPickOut: {
+            /** Target */
+            target: string;
+            /** Filed */
+            filed?: string | null;
+            /** Disposition */
+            disposition: string;
+            /** Rows */
+            rows: number;
+            /** Matched Rows */
+            matched_rows: number;
+            /**
+             * Standing
+             * @default false
+             */
+            standing: boolean;
         };
         /**
          * AdminInsiderReasonIn
@@ -2599,6 +2758,33 @@ export interface components {
             reason?: string | null;
         };
         /**
+         * AdminInsiderTradeGroupOut
+         * @description Every Table I row of ONE transaction code in a filing, summed (the card's "what the filer did"):
+         *     ``trades`` rows, ``shares`` in all, the price range, the date range, the dollar total (``None`` = no row
+         *     states one).
+         */
+        AdminInsiderTradeGroupOut: {
+            /** Txn Code */
+            txn_code?: string | null;
+            /**
+             * Trades
+             * @default 0
+             */
+            trades: number;
+            /** Shares */
+            shares?: number | null;
+            /** Price Low */
+            price_low?: number | null;
+            /** Price High */
+            price_high?: number | null;
+            /** First Date */
+            first_date?: string | null;
+            /** Last Date */
+            last_date?: string | null;
+            /** Usd */
+            usd?: number | null;
+        };
+        /**
          * AdminInsiderTxnOut
          * @description One Table I row — an amendment's as filed, or a stored original's.
          */
@@ -2607,6 +2793,8 @@ export interface components {
             seq?: number | null;
             /** Insider Name */
             insider_name?: string | null;
+            /** Insider Role */
+            insider_role?: string | null;
             /** Txn Code */
             txn_code?: string | null;
             /** Txn Date */
@@ -3519,6 +3707,20 @@ export interface components {
             sessions_since: number;
             /** After */
             after?: components["schemas"]["AdminSplitJumpBarOut"][];
+            /** Dismissal Id */
+            dismissal_id?: string | null;
+            /** Dismissed At */
+            dismissed_at?: string | null;
+            /** Dismissed Reason */
+            dismissed_reason?: string | null;
+        };
+        /**
+         * AdminSplitJumpReasonIn
+         * @description Why (optional — a default reason is stored).
+         */
+        AdminSplitJumpReasonIn: {
+            /** Reason */
+            reason?: string | null;
         };
         /**
          * AdminSplitListConfirmIn
@@ -3635,6 +3837,8 @@ export interface components {
          *     (rejected / revoked — kept, grayed) are QUIET lists. ``total`` = every split on the list. Read live.
          *     ``unlisted_jumps`` (S5) — split-shaped jumps on basket names that the split-night hold has released and no
          *     source ever listed, the last 30 days; ``unlisted_jumps_error`` when that read failed (shown, never hidden).
+         *     ``dismissed_jumps`` — the ones the operator dismissed as a real move (still listed, behind the panel's
+         *     "dismissed" filter; each undoable).
          */
         AdminSplitListOut: {
             /** Needs Review */
@@ -3654,6 +3858,8 @@ export interface components {
             unlisted_jumps?: components["schemas"]["AdminSplitJumpOut"][];
             /** Unlisted Jumps Error */
             unlisted_jumps_error?: string | null;
+            /** Dismissed Jumps */
+            dismissed_jumps?: components["schemas"]["AdminSplitJumpOut"][];
         };
         /**
          * AdminSplitListPolygonOut
@@ -10445,6 +10651,42 @@ export interface operations {
             };
         };
     };
+    undo_system_pick_admin_insider_amendments__security_id___accession__undo_pick_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                security_id: string;
+                accession: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["AdminInsiderReasonIn"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminInsiderAmendmentOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     revoke_decision_admin_insider_amendments_decisions__decision_id__revoke_post: {
         parameters: {
             query?: never;
@@ -10584,6 +10826,77 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdminSplitListEntryOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    dismiss_jump_admin_splits_jumps__security_id___step_date__dismiss_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                security_id: string;
+                step_date: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["AdminSplitJumpReasonIn"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminSplitJumpOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    undo_jump_dismissal_admin_splits_jumps_dismissals__dismissal_id__undo_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dismissal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["AdminSplitJumpReasonIn"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminSplitJumpOut"];
                 };
             };
             /** @description Validation Error */

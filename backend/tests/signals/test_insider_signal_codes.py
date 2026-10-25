@@ -185,35 +185,42 @@ def test_a_reader_without_declared_codes_is_a_registry_error(monkeypatch):
         horizons.insider_signal_codes(DEFAULT_CONFIG)
 
 
-# --- R8-B — the review horizon's DERIVATION GUARD ----------------------------------------------------------
+# --- the Form 4/A REVIEW LINE's DERIVATION GUARD (operator decision 2026-10-24) ------------------------------
 
 
-def test_the_review_horizon_is_the_backtest_window_plus_the_longest_insider_read():
-    """The dial's default is DERIVED, never hand-typed: the backtest window plus the longest horizon any call
-    detector declares on fact_insider_txn. Pinned at today's config (730 + P's 210 = 940) so a dial change is
-    review-visible, and stated as the formula so a widened detector widens it with no edit."""
-    from signals.horizons import BACKTEST_WINDOW_DAYS, insider_amendment_review_horizon
+def test_the_review_line_is_the_earliest_edition_night_less_each_codes_read_window():
+    """The line is DERIVED, never hand-typed: per signal code, min(asof, the earliest edition night) minus the
+    read window the call detectors declare for that code. Pinned at today's config (P 210 -> 2025-11-12, S 120 ->
+    2026-02-10 from the 2026-06-10 edition night prod holds) so a dial change is review-visible, and stated as the
+    formula so a widened detector widens it with no edit."""
+    from datetime import date, timedelta
+
+    from domain.insider_amendments import review_line
 
     reads = insider_signal_codes(DEFAULT_CONFIG)
-    assert reads and all(v is not None for v in reads.values())
-    assert insider_amendment_review_horizon(DEFAULT_CONFIG) == BACKTEST_WINDOW_DAYS + max(
-        reads.values()
-    )
-    assert insider_amendment_review_horizon(DEFAULT_CONFIG) == 940
+    assert reads == {"P": 210, "S": 120}
+    night, asof = date(2026, 6, 10), date(2026, 10, 23)
+    line = review_line(asof, reads, first_edition_night=night)
+    assert dict(line.edges) == {c: night - timedelta(days=d) for c, d in reads.items()}
+    assert dict(line.edges) == {"P": date(2025, 11, 12), "S": date(2026, 2, 10)}
+    assert line.anchor == night and line.pinned_days is None
+    # no edition published: today's windows alone
+    assert dict(review_line(asof, reads, first_edition_night=None).edges) == {
+        "P": date(2026, 3, 27),
+        "S": date(2026, 6, 25),
+    }
+    # an edition night AFTER asof cannot narrow today's windows (min(asof, night))
+    assert dict(review_line(night, reads, first_edition_night=asof).edges) == {
+        "P": night - timedelta(days=210),
+        "S": night - timedelta(days=120),
+    }
 
 
-def test_the_backtest_window_is_the_price_tapes_two_year_range():
-    """BACKTEST_WINDOW_DAYS states the member price tape's window (no bars -> no call before it). A wider tape
-    (a new DEFAULT_RANGE) must widen the review horizon too — this fails until both move together.
-    """
-    from ingest.prices.source import DEFAULT_RANGE
-    from signals.horizons import BACKTEST_WINDOW_DAYS
+def test_the_review_line_tracks_the_detectors_and_an_unbounded_read_has_no_edge(monkeypatch):
+    from datetime import date
 
-    assert (DEFAULT_RANGE, BACKTEST_WINDOW_DAYS) == ("2y", 730)
-
-
-def test_the_review_horizon_tracks_the_detectors_and_an_unbounded_read_unbounds_it(monkeypatch):
     import signals.horizons as horizons
+    from domain.insider_amendments import review_line
 
     wide = Detector(
         name="wide_reader",
@@ -221,8 +228,6 @@ def test_the_review_horizon_tracks_the_detectors_and_an_unbounded_read_unbounds_
         horizons=lambda cfg: {INSIDER_TABLE: 400},
         txn_codes=frozenset({"P"}),
     )
-    monkeypatch.setattr(horizons, "registered_detectors", lambda: (wide,))
-    assert horizons.insider_amendment_review_horizon(DEFAULT_CONFIG) == 730 + 400
     forever = Detector(
         name="forever_reader",
         detect=lambda pit, sid, asof, cfg: None,
@@ -230,10 +235,15 @@ def test_the_review_horizon_tracks_the_detectors_and_an_unbounded_read_unbounds_
         txn_codes=frozenset({"S"}),
     )
     monkeypatch.setattr(horizons, "registered_detectors", lambda: (wide, forever))
-    assert horizons.insider_amendment_review_horizon(DEFAULT_CONFIG) is None
+    reads = horizons.insider_signal_codes(DEFAULT_CONFIG)
+    line = review_line(date(2026, 10, 23), reads, first_edition_night=date(2026, 6, 10))
+    assert dict(line.edges) == {"P": date(2025, 5, 6), "S": None}
+    # an unbounded code: any of its rows is inside, however old
+    assert line.inside([{"txn_code": "S", "valid_from": date(1999, 1, 4)}])
+    assert not line.inside([{"txn_code": "P", "valid_from": date(2025, 5, 5)}])
 
 
-def test_the_setting_pins_the_review_horizon_else_it_is_derived(monkeypatch):
+def test_the_setting_pins_a_flat_review_horizon_else_the_line_is_derived(monkeypatch):
     from domain import settings as settings_mod
     from repositories import insider_amendment_repo
 
@@ -244,8 +254,8 @@ def test_the_setting_pins_the_review_horizon_else_it_is_derived(monkeypatch):
         monkeypatch.setattr(settings_mod, "get_settings", lambda: pinned)
 
     _with(None)
-    assert insider_amendment_repo.review_horizon_days() == 940  # unset: derived
+    assert insider_amendment_repo.pinned_review_days() is None  # unset: derived
     _with(365)
-    assert insider_amendment_repo.review_horizon_days() == 365
+    assert insider_amendment_repo.pinned_review_days() == 365
     _with(-5)
-    assert insider_amendment_repo.review_horizon_days() == 0
+    assert insider_amendment_repo.pinned_review_days() == 0

@@ -379,13 +379,14 @@ only *coincide* for insider buys, which is exactly why the two conviction source
   for a code-`P` buy). Duplicates keep their handling (the later copies suppressed).
   **Only what the system cannot resolve is owed the operator** — an **AMBIGUOUS link** (several differing
   candidate originals — the system cannot know which filing it amends), an **unresolved** row match, or a
-  **held** void — and only when it matters: it would change a code-`P`/`S` row (the content test) dated inside
-  the **review horizon** — the dial `insider_amendment_review_horizon_days`, derived by default as the two-year
-  backtest window (730 days — the member price tape's range, so no call is computed before it) plus the longest
-  insider read horizon a detector declares (`P` 210) = **940 days** (`signals.horizons
-  .insider_amendment_review_horizon`), because a row older than that is read by no call, live or replayed. Any
-  of them outside it is listed quietly as "unresolved — historical (no call reads these rows)": the originals
-  stand, it never pages, and the operator can still decide it. The operator has **three verdicts**, each with
+  **held** void — and only when it matters: it would change a code-`P`/`S` row (the content test) that a **live
+  call or an edition page** reads — the **review line** (operator decision 2026-10-24): a buy dated on/after
+  the earliest edition night − 210 days, a sale on/after the earliest edition night − 120 days, or anything
+  inside today's windows (`domain.insider_amendments.review_line`; the windows are the detectors' own; the dial
+  `insider_amendment_review_horizon_days` pins a flat window instead). Any of them outside it is listed quietly
+  as "unresolved — historical (no call reads these rows)": the originals stand, it never pages, and the operator
+  can still decide it. An ambiguous link whose every trade matches ONE candidate by shares + price is settled by
+  the system's pick (rule 2b, `system:sole-match` — `FEED_LOOP.md` §the system's pick), undoable by the operator. The operator has **three verdicts**, each with
   its exact Undo: *Use the correction* (the amendment's rows replace the whole original; for a void, it is
   hidden), *Keep the original*, *Add to the original* (every original row stays and the amendment's rows are
   added — `replaced_rows = []`, basis `operator:add`). The signal code set is derived in ONE place from the

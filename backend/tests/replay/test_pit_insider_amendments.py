@@ -37,7 +37,9 @@ _KEY = ("accession", "insider_name", "valid_from", "txn_seq")
 
 def _seed(db) -> dict[str, object]:
     """Every disposition the resolver acts on, from the real filings: ATCH corrections, the FLS void, the TDG
-    duplicates, the SKYT pair the row tie-break settles (a system-applied partial), the CVNA ambiguous pair, the
+    duplicates, the SKYT pair the row tie-break settles (a system-applied partial), the CVNA ambiguous pair (rule
+    2b's system pick and its resolution at ingest — both decisions ride the mirror; the operator later undoes the
+    pick and links the other filing), the
     IEHC 4/A whose same-day later filing the order test refuses, COIN / LFST / AMSC (several applied amendments
     of one original, composed), ONTO (a later 4/A whose own words SUPERSEDE the earlier amendment — the
     composition reads its remarks + footnotes, so both engines must carry them), ASTH-COMPOSE (a correction and
@@ -89,6 +91,10 @@ def _decide(db, sids) -> datetime:
         )
         (system,) = cur.fetchall()
     insider_amendment_repo.revoke(db, system["id"], reason="mine", basis="operator:revoke")
+    # CVNA: the system picked -000271 at ingest (rule 2b); the operator undoes that pick, links -000273
+    insider_amendment_repo.undo_pick(
+        db, sids["CVNA"], "0001690820-25-000275", reason="not that one", basis="operator:revoke"
+    )
     insider_amendment_repo.link_candidate(
         db,
         sids["CVNA"],

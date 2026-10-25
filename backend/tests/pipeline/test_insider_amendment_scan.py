@@ -32,9 +32,27 @@ from pipeline.insider_amendment_scan import (
     run_amendment_sweep,
 )
 from repositories import insider_amendment_repo
-from tests.form4a_fixtures import ingest_amendment, ingest_originals, make_security, seed
+from tests.form4a_fixtures import (
+    ingest_amendment,
+    ingest_originals,
+    make_security,
+    seed,
+    seed_edition,
+    undo_pick,
+)
 
 CVNA_4A = "0001690820-25-000275"
+# an edition whose pages read CVNA's July 2025 sales (sales back to 2025-04-03) — so an ambiguous CVNA is owed
+EDITION_NIGHT = date(2025, 8, 1)
+
+
+def _cvna_owed(db):
+    """CVNA, its system pick (rule 2b: -000271 holds every trade) undone by the operator — ambiguous again, and
+    owed while an edition page reads its sales (``EDITION_NIGHT``)."""
+    sid = seed(db, "CVNA")
+    undo_pick(db, sid, CVNA_4A)
+    seed_edition(db, EDITION_NIGHT)
+    return sid
 
 
 def _place(db, sids) -> None:
@@ -98,10 +116,14 @@ def _hand_over(db, sid) -> None:
 
 def test_only_what_the_system_cannot_resolve_and_a_call_can_read_is_owed(db):
     """FLS's void, TDG's duplicates, ATCH's corrections: applied by the system. RPAY: clerical. ASTH: ambiguous
-    but its rows are from 2008 / 2012 (historical). Only CVNA — ambiguous, its candidates' sales inside the review
-    horizon — is owed, and the whole inventory pages ONCE without a baseline."""
+    but its rows are from 2008 / 2012 (historical). CVNA: ambiguous, but the system PICKED its original (rule 2b)
+    — so nothing is owed. Once the operator undoes that pick, CVNA (its candidates' sales read by an edition page)
+    is the only owed item, and the whole inventory pages ONCE without a baseline."""
+    seed_edition(db, EDITION_NIGHT)
     sids = [seed(db, t) for t in ("FLS", "ATCH", "RPAY", "TDG", "CVNA")] + [_asth(db)]
     _place(db, sids)
+    assert _scan(None).pending == ()  # every one resolved by the system, or historical
+    undo_pick(db, sids[4], CVNA_4A)
     scan = _scan(None)
     assert scan.evaluated and not scan.baseline
     (cvna,) = scan.pending
@@ -119,7 +141,7 @@ def test_only_what_the_system_cannot_resolve_and_a_call_can_read_is_owed(db):
 
 
 def test_a_known_item_stays_quiet_and_a_decision_and_its_undo_move_it(db):
-    sid = seed(db, "CVNA")
+    sid = _cvna_owed(db)
     _place(db, [sid])
     first = _scan(None)
     keys = {p.key for p in first.pending}
@@ -147,7 +169,7 @@ def test_a_known_item_stays_quiet_and_a_decision_and_its_undo_move_it(db):
 
 
 def test_an_amendment_outside_the_active_baskets_is_not_paged(db):
-    seed(db, "CVNA")  # owed, but no thesis holds CVNA
+    _cvna_owed(db)  # owed, but no thesis holds CVNA
     assert _scan(None).pending == ()
 
 
@@ -172,9 +194,10 @@ def test_no_live_neither_sweeps_nor_scans_and_a_fault_is_reported_never_raised()
 
 
 def test_the_baseline_is_the_newest_live_finished_evaluated_pass(db, tmp_path):
-    sid = seed(db, "CVNA")
+    sid = _cvna_owed(db)
     _place(db, [sid])
     scan = _scan(None)
+    assert scan.pending  # a real owed item rides the artifact
     t0 = datetime(2026, 10, 18, 2, 30, tzinfo=timezone.utc)
 
     def _write(i, *, amendments, allow_live=True):
@@ -219,10 +242,11 @@ def test_the_page_is_benign_class():
 def test_the_page_names_owed_items_in_window_first_and_counts_beyond_the_cap(db):
     """Owed items here: three the operator took back from the system (FLS's buy void — tonight's P window;
     TDG's duplicate sells and FRHC's role-restated sales — the S window; AZTA's 2025 buy — outside) and CVNA's
-    ambiguous link (outside tonight's window, inside the review horizon). The page names the in-window ones
-    first, then the rest; nothing the system applied (AVAV) and nothing historical (ASTH) is on it.
+    ambiguous link (its pick undone; outside tonight's window, read by an edition page). The page names the
+    in-window ones first, then the rest; nothing the system applied (AVAV) and nothing historical (ASTH) is on it.
     """
-    sids = {t: seed(db, t) for t in ("FLS", "TDG", "FRHC", "AZTA", "CVNA", "AVAV")}
+    sids = {t: seed(db, t) for t in ("FLS", "TDG", "FRHC", "AZTA", "AVAV")}
+    sids["CVNA"] = _cvna_owed(db)
     sids["ASTH"] = _asth(db)
     for t in ("FLS", "TDG", "FRHC", "AZTA"):
         _hand_over(db, sids[t])
@@ -293,43 +317,49 @@ def test_the_page_cap_never_collapses_an_in_window_item():
 
 def test_the_sweep_applies_the_backlog_and_the_scan_counts_it_quietly(db):
     """The pass's sweep (own connection, committed) resolves what a pre-R8-B ingest left pending; the scan counts
-    the system decisions recorded since the pass began (one quiet line: applications, and the zero-row 4/As kept
-    as filed), and none of them pages. YYAI (words neither fix nor add) and FIGR (retraction words against three
-    trades — held) are owed beside CVNA. Re-running the sweep appends nothing — COUNT THE TABLE."""
+    the system decisions recorded since the pass began (one quiet line: applications, the originals the system
+    picked, and the zero-row 4/As kept as filed), and none of them pages. CVNA's stored ambiguous link is settled
+    by the system's pick (rule 2b: -000271, a correction it then applies). YYAI (words neither fix nor add) and
+    FIGR (retraction words against three trades — held) are owed (an edition page reads their rows). Re-running
+    the sweep appends nothing — COUNT THE TABLE."""
+    seed_edition(db, EDITION_NIGHT)
     sids = {t: seed(db, t) for t in ("FLS", "MRCY", "IEHC", "SMR", "FIGR", "YYAI", "CVNA")}
-    for t in ("FLS", "MRCY", "IEHC", "SMR", "FIGR", "YYAI"):
+    for t in ("FLS", "MRCY", "IEHC", "SMR", "FIGR", "YYAI", "CVNA"):
         _as_r8a_left_it(db, sids[t])
     _place(db, sids.values())
     started = db_now(db)
     db.commit()
     before = _decisions_count(db)
     sweep = run_amendment_sweep(allow_live=True, connect=connect)
-    assert (sweep.ran, sweep.error, sweep.applied) == (True, None, 5)
+    assert (sweep.ran, sweep.error, sweep.applied) == (True, None, 6)
     assert sweep.by_basis == {
-        "system:filer-correction": 2,  # FLS (a retraction), IEHC (FIX words)
+        "system:filer-correction": 3,  # FLS (a retraction), IEHC (FIX words), CVNA (against its pick)
         "system:no-signal-effect": 1,  # MRCY (the grant added)
         "system:no-retraction": 1,  # SMR (a holdings fix)
         "system:held": 1,  # FIGR
+        "system:sole-match": 1,  # CVNA's original, picked
     }
-    assert _decisions_count(db) == before + 5
+    assert _decisions_count(db) == before + 7  # six resolutions + CVNA's pick
+    again = run_amendment_sweep(allow_live=True, connect=connect)
+    assert again.applied == 0 and _decisions_count(db) == before + 7  # idempotent
     scan = _scan(None, since=started, sweep=sweep)
-    assert scan.applied == sweep.by_basis and scan.swept == 5
-    assert {p.ticker for p in scan.pending} == {"CVNA", "YYAI", "FIGR"}
+    assert scan.applied == sweep.by_basis and scan.swept == 6
+    assert {p.ticker for p in scan.pending} == {"YYAI", "FIGR"}
     by = {p.ticker: p for p in scan.pending}
     assert by["YYAI"].unresolved and "neither fix nor add" in by["YYAI"].label
     assert by["FIGR"].held and "which one is your call" in by["FIGR"].label
     assert count_line(scan) == (
-        "Form 4/A: 3 applied automatically (filer corrections), 1 kept as filed (their text retracts "
-        "nothing), 3 owed your decision (quiet)"
+        "Form 4/A: 4 applied automatically (filer corrections), 1 matched to their original by the system "
+        "(every trade matches one filing), 1 kept as filed (their text retracts nothing), 2 owed your "
+        "decision (quiet)"
     )
     assert report_lines(scan)[-1] == count_line(scan)
     assert not any(
-        line.lstrip().startswith(("FLS", "MRCY", "IEHC", "SMR")) for line in report_lines(scan)
+        line.lstrip().startswith(("FLS", "MRCY", "IEHC", "SMR", "CVNA"))
+        for line in report_lines(scan)
     )
     block = scan.payload()["insider_amendments"]
-    assert (block["applied"], block["swept"], block["sweep_error"]) == (sweep.by_basis, 5, None)
-    again = run_amendment_sweep(allow_live=True, connect=connect)
-    assert again.applied == 0 and _decisions_count(db) == before + 5  # idempotent
+    assert (block["applied"], block["swept"], block["sweep_error"]) == (sweep.by_basis, 6, None)
 
 
 def test_a_clean_night_prints_nothing():
