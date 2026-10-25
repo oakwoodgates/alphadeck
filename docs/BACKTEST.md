@@ -107,7 +107,7 @@ registry and still describe the columns):
 | `fundamentals_facts` | `fact_fundamentals` | `valid_from` (= the 10-Q/10-K `filed` date), start of that market day | 0 / 120,626 | 0 |
 | `corporate_event_facts` | `fact_corporate_event` | `filed`, start of that market day | 0 / 62,046 | 0 |
 | `activist_stake_facts` | `fact_activist_stake` | `filed`, start of that market day | 0 / 24,090 | 0 |
-| `insider_txns` | `fact_insider_txn` | `accepted`, filled from the fact's other versions | **280,578 / 595,376 = 47.13 %** | **2,128 / 316,374 = 0.67 %** (prod 2026-10-21: 2,120 / 320,080 facts) |
+| `insider_txns` | `fact_insider_txn` | `accepted` — the FACT's, on every version: its newest stored statement (a re-parse shares it; a re-dated mis-captured time, `backfill_accepted --drift`, moves the older versions with it — 2026-10-24) | **280,578 / 595,376 = 47.13 %** | **2,128 / 316,374 = 0.67 %** (prod 2026-10-21: 2,120 / 320,080 facts) |
 | `catalyst_facts` | `fact_catalyst` | `valid_from` (the announcement date — operator decision) | 0 / 6 | 0 |
 | `dilution_facts` | `fact_dilution` | `valid_from` | 0 / 1 | 0 |
 | `theme_conviction_facts` | `fact_theme_conviction` | `valid_from` | 0 / 1 | 0 |

@@ -518,9 +518,40 @@ def test_a_filing_stored_a_night_late_appears_on_its_filing_night_after_the_repa
     assert just_before < HEADER
     assert _visible(db, security_id, FILED, just_before) == set()
     assert _visible(db, security_id, FILED, HEADER) == {ACC}
-    # the night after, it is still there (every version visible)
+    # the night after, it is still there (every version visible) — dated at the header, on every version
     nxt = date(2026, 6, 3)
     assert _visible(db, security_id, nxt, known_at_for_asof(nxt, now=FAR)) == {ACC}
+    rows = as_of(
+        db,
+        "fact_insider_txn",
+        security_id=security_id,
+        asof=nxt,
+        known_at=known_at_for_asof(nxt, now=FAR),
+        tenant_id=T,
+        clock="public",
+    )
+    assert {r["recorded_at"] for r in rows} == {HEADER}
+
+
+def test_a_filing_stored_a_night_EARLY_is_no_longer_visible_early_after_the_repair(db, security_id):
+    """An old writer's clock stored 22:30 EDT 06-01 for a filing SEC accepted 06:30 EDT 06-02 (its header):
+    a lookahead on every history view. After the repair, nothing is visible before the header."""
+    early = datetime(2026, 6, 2, 2, 30, tzinfo=UTC)  # 22:30 EDT 06-01
+    header = datetime(2026, 6, 2, 10, 30, tzinfo=UTC)  # 06:30 EDT 06-02
+    _plant(db, security_id, accepted=early)
+    client = _DriftClient(
+        {"1234567": _subs([("4", ACC, FILED.isoformat(), "2026-06-02T02:30:00.000Z")])},
+        {ACC: header},
+    )
+    prior = date(2026, 6, 1)
+    assert _visible(db, security_id, prior, known_at_for_asof(prior, now=FAR)) == {
+        ACC
+    }  # the defect
+    res = run_drift(db, client=client, execute=True, log=lambda *_: None)
+    assert [(i.source, i.new) for i in res.items] == [("header", header)]
+    assert _visible(db, security_id, prior, known_at_for_asof(prior, now=FAR)) == set()
+    assert _visible(db, security_id, FILED, header - (header - early) / 2) == set()
+    assert _visible(db, security_id, FILED, header) == {ACC}
 
 
 @pytest.mark.parametrize("header", [True, False])

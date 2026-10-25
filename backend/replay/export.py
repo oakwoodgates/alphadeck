@@ -60,11 +60,6 @@ MANIFEST_NAME = "manifest.json"
 _PUBLIC_CLOCK = PUBLIC_TIME  # the name this module's callers and tests have always read
 
 
-class AmbiguousPublicClock(RuntimeError):
-    """An identity whose public clock cannot be determined from its own versions — see
-    ``_read_table_public``."""
-
-
 # Postgres type OID -> Arrow type, so the Parquet schema is EXPLICIT (correct even for an empty table — a
 # tenant missing one fact kind still gets a date-typed `valid_from`, so the as-of date filter binds). numeric
 # -> float64 (we float() it; every detector floats numerics anyway, so this is lossless for the call); uuid /
@@ -175,14 +170,18 @@ def _read_table_public(
 
     **The resolution.** Per identity:
 
-    1. Each version's public instant (``public_time_sql``): a Form 4's acceptance, NULL-filled from the
-       fact's other versions (a re-parse of one accession shares it — MEASURED on prod 2026-10-21: 0 facts
-       carry two different acceptances); a bar's settle for its FIRST version and its own ``recorded_at``
-       for a re-version (a vendor correction counts from when it was published to us); a filing date for
-       the filing tables; the ratification / sampling instant for the operator-ratified Workbench tables and
-       the fund shares samples.
-    2. The NULL-fill is ASSERTED, not assumed: an identity carrying a NULL acceptance AND two different
-       non-NULL ones cannot be attributed, and raises rather than picking one.
+    1. Each version's public instant (``public_time_sql``): a Form 4's acceptance — the FACT's, on every
+       version: the newest stored statement of it (a re-parse of one accession shares it, and a version
+       re-dating a mis-captured time — ``pipeline.backfill_accepted --drift`` — moves the older ones with it);
+       a bar's settle for its FIRST version and its own ``recorded_at`` for a re-version (a vendor correction
+       counts from when it was published to us); a filing date for the filing tables; the ratification /
+       sampling instant for the operator-ratified Workbench tables and the fund shares samples.
+    2. (Retired 2026-10-24.) The NULL-fill used to be the MAX over the fact's versions and so raised on a
+       fact carrying a NULL acceptance AND two different non-NULL ones (it could not tell which to fill). The
+       rule now NAMES the winner — the newest statement, by honest ``recorded_at`` — so there is nothing left
+       to attribute: the acceptance-clock repair writes exactly that shape (a NULL pre-capture version, the
+       backfilled time, then the re-dated one), every correction carrying its ``supersedes`` link and its
+       ``data_repair`` journal row.
     3. Partition by ``(identity, public instant)`` — NOT by identity alone. Including the instant is what
        preserves a genuine re-disclosure (a restated quarter at its own ``filed``; a corrected bar at its own
        publication), while a pure re-parse (the same instant, a later ``recorded_at``) collapses to our best.
@@ -200,21 +199,12 @@ def _read_table_public(
     the tape edge and the split list behind a bar's scale) computed from the rows held then. Not a history
     gate: the public instant still decides what a view at ``T`` sees.
     """
-    spec = PUBLIC_TIME[table]
     part_cols = partition_cols(table)
     part = sql.SQL(", ").join(sql.Identifier(c) for c in part_cols)
-    guard = None
-    if spec.kind == "instant":  # the NULL-fill's attribution check (step 2)
-        col = sql.Identifier("t", spec.column)
-        guard = sql.SQL(
-            "min({c}) OVER pc AS _cmin, max({c}) OVER pc AS _cmax, "
-            "count(*) OVER pc - count({c}) OVER pc AS _nulls"
-        ).format(c=col)
     versions = public_versions_sql(
         table,
         where=sql.SQL("tenant_id = %(tenant_id)s"),
         serve=False,
-        extra=guard,
         ceiling=known_by is not None,
     )
     pub = sql.Identifier(PUBLIC_COL)
@@ -235,16 +225,6 @@ def _read_table_public(
                 if not d.name.startswith("_")
             ]
             + [(INGESTED_COL, pa.timestamp("us", tz="UTC"))]
-        )
-
-    ambiguous = [r for r in raw if r.get("_nulls", 0) > 0 and r.get("_cmin") != r.get("_cmax")]
-    if ambiguous:
-        r = ambiguous[0]
-        raise AmbiguousPublicClock(
-            f"{table}: {len(ambiguous)} row(s) belong to a fact whose versions disagree on "
-            f"{spec.column!r} while some carry none — the disclosure instant cannot be attributed. "
-            f"First: {{{', '.join(f'{c}={r[c]!r}' for c in part_cols)}}} "
-            f"spans {r['_cmin']!r}..{r['_cmax']!r}. This is a FLAG, not a row to guess at."
         )
 
     identities_total = len({tuple(r[c] for c in part_cols) for r in raw})

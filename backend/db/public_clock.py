@@ -30,9 +30,12 @@ fact_price_eod                 settle     the FIRST version: the bar's session s
                                           publication time of its own, so we cannot know it earlier.
                                           EXCEPT a bar a LISTED SPLIT re-scales (split plan S2, below):
                                           every version at the session settle, the newest read.
-fact_insider_txn               instant    SEC ACCEPTANCE (``accepted``), filled from the fact's other
-                                          versions when one lacks it (a re-parse of one filing shares its
-                                          acceptance). A fact with no acceptance on ANY version: the serve
+fact_insider_txn               instant    SEC ACCEPTANCE (``accepted``) — the FACT's, on every version: the
+                                          newest version that carries one (all versions are one filing, so
+                                          one publication: a re-parse shares it, and a version re-dating a
+                                          mis-captured time moves the older ones with it — the
+                                          ``backfill_accepted --drift`` repair, 2026-10-24). A fact with no
+                                          acceptance on ANY version: the serve
                                           path counts it from the FIRST time we held it (``min(recorded_at)``
                                           — an upper bound: a filing we held was public by then, so it is
                                           never early, and never dropped — #9); the backtest export keeps its
@@ -97,7 +100,8 @@ reader of ``recorded_at`` (D3a's knowable date) reads the public clock too.
 
 **Monotone, so the live read is unchanged by construction.** Within one fact, a version's public instant never
 decreases as ``recorded_at`` increases (a re-version's is ``max(settle, recorded_at)``; every other kind is
-constant per fact or IS ``recorded_at``), so with every version visible the public pick IS the record pick.
+constant per fact — an insider fact's acceptance is its newest statement, on every version — or IS
+``recorded_at``), so with every version visible the public pick IS the record pick.
 A split re-scaled bar puts every version at one instant (the settle), so its pick is the newest by
 ``recorded_at`` — the record pick again.
 """
@@ -230,11 +234,16 @@ def public_time_sql(table: str, *, alias: str = "t", serve: bool = True) -> sql.
             "CASE WHEN row_number() OVER (pc ORDER BY {rec}, {id}) = 1 THEN {settle} "
             "ELSE GREATEST({settle}, {rec}) END"
         ).format(rec=rec, id=sql.Identifier(alias, "id"), settle=settle)
-    # instant: the version's own, else the fact's (a re-parse of one filing shares its acceptance)
-    filled = sql.SQL("COALESCE({col}, max({col}) OVER pc)").format(col=col)
+    # instant: the FACT's acceptance, on every version — our NEWEST stored statement of it. Every version of one
+    # fact is one filing, so one publication: a re-parse shares it, and a re-dated version (a mis-captured time
+    # corrected, ``pipeline.backfill_accepted --drift``) moves the older versions with it — so an early capture
+    # stops being visible early, and with every version visible the public pick is still the record pick.
+    newest = sql.SQL(
+        "first_value({col}) OVER (pc ORDER BY ({col} IS NULL), {rec} DESC, {id} DESC)"
+    ).format(col=col, rec=rec, id=sql.Identifier(alias, "id"))
     if not serve:
-        return filled
-    return sql.SQL("COALESCE({filled}, min({rec}) OVER pc)").format(filled=filled, rec=rec)
+        return newest
+    return sql.SQL("COALESCE({newest}, min({rec}) OVER pc)").format(newest=newest, rec=rec)
 
 
 def needs_window(table: str) -> bool:

@@ -172,8 +172,11 @@ replay stays honest.
   threads `domain.market_time.serve_view(asof)` = `(known_at_for_asof(asof), "public")`: each fact VERSION
   counts from its PUBLIC instant (`db/public_clock.py`, the ONE definition, shared with the backtest's
   `clock=public` mirror) up to the end of that **market** day. Per table: a Form 4 from its SEC acceptance
-  (filled across a fact's re-parses; none on any version → from the first time we held it, an upper bound —
-  never early, never dropped, #9); a bar's FIRST version from its session settle (`d` at
+  (the FACT's, on every version: its newest stored statement — a re-parse shares it, and a re-dated
+  mis-captured time moves the older versions with it, 2026-10-24; none on any version → from the first time
+  we held it, an upper bound — never early, never dropped, #9). The stored acceptance is SEC's listed time only
+  when it agrees with the filing date and EDGAR's hours, else the filing's own header, else the end of the
+  filing date (`ingest/edgar/acceptance.py`); a bar's FIRST version from its session settle (`d` at
   `Settings.price_settle_time`), a vendor RE-version from its own `recorded_at` (it carries no publication time
   of its own — we cannot know it earlier); an 8-K / 13D from its `filed` date; fundamentals from `valid_from`
   (= `filed`; a restatement from its own filing); catalyst / dilution / theme conviction from `valid_from` (the
