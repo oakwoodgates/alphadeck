@@ -234,7 +234,12 @@ appearing, or the vendor re-scaling a bar so the step moves a session).
   confirm a needs-review row), S2 puts the history on one scale: no step, nothing held, and the triggers read
   corrected prices — a real move fires (one night late), a split-only jump fires nothing. **A legitimate split
   listed in time is never held** (GAME's, NXL's and VRME's filings came before their split days, and on the
-  public clock a split counts from its own filing or first session).
+  public clock a split counts from its own filing or first session). A company that JOINS a basket gets its
+  older splits listed too (2026-10-24, `pipeline/split_history.py`: the S1 backfill scoped to it, run by the
+  staged onboarding job — before it, a joiner's splits older than S4's 30/60-day look-back were never listed;
+  `FEED_LOOP.md` §The split list). What the SEC side reads changed the same day — the restatement screen on
+  6-Ks and charter 8-Ks, and the targeted wide-form reader for a split with no agreeing filing
+  (`DATA_SOURCES.md` §SEC split filings); the confirm rule (two sources agreeing exactly) is unchanged.
 - **Released.** After three sessions the hold lifts on its own. A step that NO list row of any status sits near
   then goes to the operator: the Admin Splits panel lists it as a "split-shaped jump with no split listed — is
   this real?" (the step's two bars and the bars after it; `pipeline.split_jumps`, the hold's own read on the

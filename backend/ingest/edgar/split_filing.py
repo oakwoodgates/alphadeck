@@ -15,7 +15,10 @@ charter amendment) and — since 2026-10-23 — Item 8.01 / 7.01 (a split announ
 paid as a stock dividend, a trust's share split, a board-set ratio — ENHA, SNEX, ZCSH, ETH, BTC, OFAL), 6-Ks
 and Reg A forms. An 8-K read only for its 8.01 / 7.01 is a CATCH-ALL filing — MEASURED on the basket 2026-10-23,
 47 of 852 mention a split ratio at all — so it is read with its filing date (``extract_split(filed=...)``,
-below).
+below). A 6-K or a charter 8-K is read through the RESTATEMENT SCREEN (``extract_split_screened``, 2026-10-24),
+which only ever removes from the unscreened reading. And — on the TARGETED path only, a split no filing in its
+own window agrees with — the WIDE forms (``WIDE_KEEP_TYPES``: a 10-Q / 10-K / 20-F / 40-F, an F-6 / F-6 POS, a
+424B3 / 424B4, a DEF / PRE 14C), always through that screen (``relevant_documents(wide=True)``).
 
 **The ratio** is read from five phrasings, every one MEASURED on the real filings in
 ``tests/fixtures/splits``:
@@ -62,6 +65,11 @@ the real filings forced (named so the rule stays checkable):
   2026-10-05 restates "the 1-for-20 reverse stock split effected on February 6, 2026", and NAKA's and CURLD's
   restate theirs (MEASURED 2026-10-23: four such 8.01 / 7.01 readings on the basket, 123 to 266 days back).
 
+- a SUPERSEDED ratio (2026-10-24): when a filing states EXACTLY ONE ratio in a sentence that revises one
+  ("has determined to increase the amount of the reverse stock split … at a ratio of 1-for-125") and every
+  other ratio only in sentences citing an earlier disclosure ("… at a ratio of 1-for-50 as disclosed on the
+  Current Report on Form 8-K filed … on July 13, 2026") — DFNS's 8-K of 2026-07-16 — the revised one stands.
+
 After those, **exactly one** distinct ratio must remain, or the extractor ABSTAINS and says why: none found,
 only a range, only a past split, two different ratios, a word and its digit restatement disagreeing, or no
 direction stated. It never picks between two values.
@@ -77,7 +85,18 @@ the winning kind → no date (named in ``date_note``); the ratio still stands. A
 its trading date: ENHA's 8.01 8-K says "effective at 12:01 a.m. Central Time on October 29, 2026" AND "expected
 to begin trading on a split-adjusted basis … at the opening of trading on October 29, 2026" — ``trading``. For a
 CATCH-ALL filing a date more than ``HISTORICAL_GAP_DAYS`` before its filing date dates nothing (AIRE's 7.01
-8-K/A of 2026-09-23 reaches only 2025-12-31, in a tax table): no date, named in ``date_note``.
+8-K/A of 2026-09-23 reaches only 2025-12-31, in a tax table): no date, named in ``date_note``. "With effect
+from 27 July 2026" is a legal cue (ZNB's 6-K of 2026-08-25), and a date a MEETING was held on ("extraordinary
+general meeting of shareholders … held on 10 September 2026", ZNB's charter exhibit) never dates a split — read
+anywhere, as a trading, legal or past date.
+
+**The restatement screen** (``extract_split_screened`` — 6-Ks, charter 8-Ks, the wide forms) only ever
+REMOVES: a reading whose date is current stands exactly as read; a date more than ``HISTORICAL_GAP_DAYS``
+before the filing is dropped and nothing replaces it (a restated old split, or MEDS's mistyped "May 26, 2025"
+in an 8-K filed 2026-05-21); a ratio the text dates in the past (its own sentence, the date sentence beside an
+undated one — LGHL's "… the same effect as a one-for-fifty reverse ADS split. The change in the ADS ratio was
+effective on July 13, 2023." — or, in a filing that dates nothing currently, any mention of it) is a past
+split's; an abstain is never resolved into a reading. Its docstring holds the MEASURED reasons.
 
 **The passage** is the filing's own sentence(s), verbatim after the HTML is stripped (tags removed, entities
 decoded, whitespace collapsed): the sentence that states the ratio and, when it is another one, the sentence
@@ -93,6 +112,8 @@ from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from fractions import Fraction
+
+from domain.splits import PAST_RATIO_ONLY
 
 # a ratio's sentence must have this much of a split in it, or the "N for M" is something else
 # (an ADS RATIO CHANGE is a split of the ADS — "the same effect as a one-for-thirty reverse ADS split" (NIPG),
@@ -255,10 +276,50 @@ _TRADING_CUE = re.compile(
 # "the first date when the Company's ordinary shares will begin trading … after implementation of the reverse
 # split will be Monday, October 5, 2026" (CMND, PLRZ) — a start-of-trading phrase, only in a sentence about a split
 _TRADING_START = re.compile(r"\b(?:begin|commence|start)s?\s+(?:to\s+)?trad(?:e|ing)\b", re.I)
-# "effective as of 5:00 p.m. … on …", "will take effect on …", "Effective June 12, 2025, … filed …" (ERNA)
+# "effective as of 5:00 p.m. … on …", "will take effect on …", "Effective June 12, 2025, … filed …" (ERNA),
+# "… be consolidated into one (1) class A ordinary share …, with effect from 27 July 2026 (the “Effective Date”)"
+# (ZNB's 6-K of 2026-08-25 — the British phrasing; without it the first date after "Effective Date" was read, a
+# board resolution's 1 July 2026)
 _LEGAL_CUE = re.compile(
-    r"\beffective\b|takes?\s+effect|took\s+effect|effected\b[^.;]{0,120}?\bon\b",
+    r"\beffective\b|takes?\s+effect|took\s+effect|with\s+effect\s+from|effected\b[^.;]{0,120}?\bon\b",
     re.I,
+)
+
+# A date a MEETING was held on dates the meeting, never a split: "… adopted by special resolution passed at
+# extraordinary general meeting of shareholders of the Company held on 10 September 2026 … being the opening of
+# trading on the Market Effective Date" (ZNB's charter exhibit, read as the first trading session until
+# 2026-10-24), "Announcement of Notice Convening Extraordinary General Meeting on September 10, 2026". The words
+# between "meeting" and the date never name the split's own event (an effect, trading, the split itself): "at the
+# meeting, … the reverse split, which will become effective on March 2" keeps March 2.
+_MEETING_BEFORE = re.compile(
+    r"\b(?:meeting|EGM|AGM)\b(?:(?!\b(?:effect\w*|trad\w*|split\w*|consolidat\w*)\b)[^.;]){0,80}?"
+    r"\b(?:held\s+|convened\s+)?on\s+(?:the\s+)?$",
+    re.I,
+)
+_MEETING_LOOKBACK = 120
+
+# The SUPERSEDED ratio (DFNS's 8-K of 2026-07-16): a filing that REVISES a ratio it disclosed before restates
+# the old one beside the new — "approved a reverse stock split … at a ratio of 1-for-50 as disclosed on the
+# Current Report on Form 8-K filed … on July 13, 2026" then "has determined to increase the amount of the reverse
+# stock split … at a ratio of 1-for-125". Only when EXACTLY ONE ratio is stated in a sentence that revises one
+# (and cites no earlier disclosure), and EVERY other ratio only in sentences citing an earlier disclosure, is the
+# revised ratio the split's; anything else is still two ratios (abstain).
+_REVISION_CUE = re.compile(
+    r"\b(?:increas|decreas|chang|amend|revis|modif)(?:e|es|ed|ing|y|ies|ied)?\s+(?:the\s+)?"
+    r"(?:(?:amount|ratio|size)\s+of|(?:reverse\s+)?(?:stock\s+|share\s+)?split\s+ratio)\b",
+    re.I,
+)
+_PRIOR_DISCLOSURE = re.compile(
+    r"\b(?:as\s+(?:previously\s+|earlier\s+|initially\s+)?(?:disclosed|reported|announced)|"
+    r"previously\s+(?:disclosed|reported|announced))\b",
+    re.I,
+)
+
+# A sentence that says the split WILL happen cannot be a past split's, whatever date it carries: MEDS's 8-K of
+# 2026-05-21 says "The Reverse Stock Split will become effective … on May 26, 2025" — the filer's typo for 2026
+# (its own press release says May 26, 2026).
+_FUTURE = re.compile(
+    r"\b(?:will|shall)\b|\bexpect(?:s|ed)?\s+to\b|\banticipat\w*\s+to\b|\bintends?\s+to\b", re.I
 )
 
 # sentence ends that are NOT sentence ends: clock times, corporate suffixes, initials, the usual abbreviations
@@ -277,6 +338,23 @@ _WINDOW_AFTER = 280
 # the document types a split is announced in (the form's own document, a 1-A's offering circular, press
 # releases); everything else in a submission is skipped
 _KEEP_TYPES = ("8-K", "6-K", "1-A", "1-U", "PART II", "EX-99")
+# THE WIDE FORMS (the targeted reader, 2026-10-24): the periodic reports, ADR registrations, prospectuses and
+# information statements that state a split no 8-K / 6-K announced (LGHL's ADS ratio changes in F-6 POS
+# filings, OPTH's 424B4, MVNC's DEF 14C, SDCO's 10-K, DFNS's 10-Q). Read ONLY on the targeted path
+# (``relevant_documents(wide=True)``, a split with no agreeing filing) and ALWAYS through the past-date screen
+# (``extract_split_screened``): a periodic report restates old splits — OFAL's 10-K and MI's 20-F read an old
+# split as current without it (MEASURED 2026-10-24).
+WIDE_KEEP_TYPES = (
+    "10-Q",
+    "10-K",
+    "20-F",
+    "40-F",
+    "F-6",
+    "424B3",
+    "424B4",
+    "DEF 14C",
+    "PRE 14C",
+)
 
 # 1:1 character map for MATCHING only (same length, so every position maps back to the verbatim text)
 _MATCH_MAP = str.maketrans(
@@ -355,10 +433,13 @@ def submission_documents(raw: str) -> list[FilingDocument]:
     return docs
 
 
-def relevant_documents(docs: list[FilingDocument]) -> list[FilingDocument]:
+def relevant_documents(docs: list[FilingDocument], *, wide: bool = False) -> list[FilingDocument]:
     """The documents a split is announced in: the form's own (8-K / 6-K / 1-A / 1-U, a 1-A's ``PART II AND
-    III``), the ``EX-99.x`` press releases, and a lone untyped document."""
-    keep = [d for d in docs if d.type.upper().startswith(_KEEP_TYPES) or d.type == "HTML"]
+    III``), the ``EX-99.x`` press releases, and a lone untyped document. ``wide`` (the targeted reader only)
+    also keeps the WIDE forms' own documents (``WIDE_KEEP_TYPES``: a 10-Q, a 20-F, an F-6 POS, a 424B4 …).
+    """
+    types = _KEEP_TYPES + WIDE_KEEP_TYPES if wide else _KEEP_TYPES
+    keep = [d for d in docs if d.type.upper().startswith(types) or d.type == "HTML"]
     return keep
 
 
@@ -443,11 +524,16 @@ def _parse_date(m: re.Match) -> date | None:
 
 
 def _dates(text: str) -> list[tuple[int, date]]:
+    """``(where, date)`` for every date in ``text`` — except a date a MEETING was held on (``_MEETING_BEFORE``),
+    which never dates a split."""
     out = []
     for m in _DATE.finditer(text):
         d = _parse_date(m)
-        if d is not None:
-            out.append((m.start(), d))
+        if d is None:
+            continue
+        if _MEETING_BEFORE.search(text[max(0, m.start() - _MEETING_LOOKBACK) : m.start()]):
+            continue
+        out.append((m.start(), d))
     return out
 
 
@@ -480,7 +566,7 @@ def _sentences(text: str) -> list[tuple[int, int]]:
 class _Mention:
     old: Decimal | None
     new: Decimal | None
-    kind: str  # operative | range | historical | conflict | undirected
+    kind: str  # operative | range | historical | conflict | undirected | superseded
     doc: int
     sentence: tuple[int, int]
     raw: str
@@ -697,10 +783,19 @@ def _passage(
     docs: list[_Doc], parts: list[tuple[int, tuple[int, int], int]]
 ) -> tuple[str, str | None]:
     """The verbatim passage: each part's sentence — or, for a run-on sentence, a window of it around what it
-    states (``pos``) — joined with " … ". The label names the first part's document."""
+    states (``pos``) — joined with " … ". The label names the first part's document. Two parts in the SAME
+    run-on sentence each get their window when they are too far apart for one to show the other (ZNB's 6-K cover:
+    the ratio and "with effect from 27 July 2026" sit ~1,000 characters apart in one sentence)."""
+
+    def same(p: tuple[int, tuple[int, int], int], q: tuple[int, tuple[int, int], int]) -> bool:
+        if (p[0], p[1]) != (q[0], q[1]):
+            return False
+        s, e = p[1]
+        return e - s <= _LONG_SENTENCE or abs(p[2] - q[2]) <= _WINDOW_AFTER
+
     seen: list[tuple[int, tuple[int, int], int]] = []
     for p in parts:
-        if all((p[0], p[1]) != (q[0], q[1]) for q in seen):
+        if not any(same(p, q) for q in seen):
             seen.append(p)
     texts = []
     for di, (s, e), pos in seen:
@@ -721,16 +816,34 @@ def _passage(
     return " … ".join(texts), label
 
 
-def extract_split(documents: list[FilingDocument], *, filed: date | None = None) -> SplitExtraction:
-    """Read one filing's split ratio, effective date and located passage (see the module docstring for every
-    rule). Pure: the documents in, a ``SplitExtraction`` out — an abstain is a result, never a raise.
+# ``PAST_RATIO_ONLY`` (``domain.splits``) is the abstain reason for a filing whose every ratio is a PAST split's
+# (it restates them) — no news to the nightly (``pipeline/detect_splits._NOT_NEWS``), and never a split's
+# evidence (``domain.splits.decide``).
+# the start of the abstain reason for a filing that states only an authorized range
+RANGE_ONLY = "only an authorized range of ratios"
 
-    ``filed`` — the filing date, given for a CATCH-ALL filing (an 8-K read only for its Item 8.01 / 7.01): a
-    date more than ``HISTORICAL_GAP_DAYS`` before it is a PAST split's (the filing restates it), never this
-    filing's first session, and a ratio stated only beside such dates is a past split's too.
+_Part = tuple[
+    int, tuple[int, int], int
+]  # (document, sentence span, where) — one piece of the passage
+
+
+@dataclass
+class _Read:
+    """One reading with what the screen needs to combine two of them: the documents, the passage parts of
+    what it states (the ratio, or what it abstained on) apart from its date's, the date's part, and how many
+    distinct operative ratios were left (0 = every ratio was set aside: past, a range, unreadable).
     """
+
+    x: SplitExtraction
+    docs: list[_Doc]
+    parts: list[_Part]
+    date_at: _Part | None
+    operative: int
+
+
+def _documents(documents: list[FilingDocument], *, wide: bool) -> list[_Doc]:
     docs: list[_Doc] = []
-    for fd in relevant_documents(documents):
+    for fd in relevant_documents(documents, wide=wide):
         text = document_text(fd.raw)
         if not text:
             continue
@@ -743,12 +856,51 @@ def extract_split(documents: list[FilingDocument], *, filed: date | None = None)
                 spans=_sentences(match),
             )
         )
+    return docs
+
+
+def _superseded(docs: list[_Doc], distinct: dict[Fraction, list[_Mention]]) -> Fraction | None:
+    """The one ratio a filing REVISES, when every other ratio it states sits only in sentences citing an
+    earlier disclosure (``_REVISION_CUE`` / ``_PRIOR_DISCLOSURE``) — else ``None`` (still two ratios).
+    """
+
+    def sentence(m: _Mention) -> str:
+        s, e = m.sentence
+        return docs[m.doc].match[s:e]
+
+    revised = [
+        k
+        for k, ms in distinct.items()
+        if any(
+            _REVISION_CUE.search(sentence(m)) and not _PRIOR_DISCLOSURE.search(sentence(m))
+            for m in ms
+        )
+    ]
+    if len(revised) != 1:
+        return None
+    others = [ms for k, ms in distinct.items() if k != revised[0]]
+    if all(_PRIOR_DISCLOSURE.search(sentence(m)) for ms in others for m in ms):
+        return revised[0]
+    return None
+
+
+def _read(
+    documents: list[FilingDocument], *, filed: date | None, wide: bool, strict: bool
+) -> _Read:
+    """The extraction (``extract_split`` / ``extract_split_screened``). ``filed`` screens dates against the
+    filing date; ``strict`` (the restatement screen's second reading) also dates a ratio stated in an undated
+    sentence by the date sentence beside it, and never reads a sentence about what WILL happen as a past
+    split's."""
+    docs = _documents(documents, wide=wide)
     if not docs:
-        return SplitExtraction(abstain_reason="no readable document")
+        return _Read(SplitExtraction(abstain_reason="no readable document"), [], [], None, 0)
 
     # the date first — the past-split screen measures against it
     trading = _cued_dates(docs, _TRADING_CUE, need_trading=True)
     legal = _cued_dates(docs, _LEGAL_CUE, need_trading=False)
+    cued_by_sentence: dict[tuple[int, tuple[int, int]], list[date]] = {}
+    for c in trading + legal:
+        cued_by_sentence.setdefault((c[1], c[2]), []).append(c[0])
     past: list[date] = []
     if filed is not None:
         # a catch-all filing restating a PAST split (AIRE's 8-K/A, filed 2026-09-23: "as adjusted for the
@@ -759,17 +911,17 @@ def extract_split(documents: list[FilingDocument], *, filed: date | None = None)
     effective: date | None = None
     kind: str | None = None
     date_note: str | None = None
-    date_at: tuple[int, tuple[int, int], int] | None = None
+    date_at: _Part | None = None
     for cand, k in ((trading, "trading"), (legal, "legal")):
         if not cand:
             continue
-        distinct = sorted({c[0] for c in cand})
-        if len(distinct) == 1:
-            effective, kind = distinct[0], k
+        distinct_dates = sorted({c[0] for c in cand})
+        if len(distinct_dates) == 1:
+            effective, kind = distinct_dates[0], k
             date_at = (cand[0][1], cand[0][2], cand[0][3])
         else:
-            date_note = f"{len(distinct)} different {k} dates stated: " + ", ".join(
-                x.isoformat() for x in distinct
+            date_note = f"{len(distinct_dates)} different {k} dates stated: " + ", ".join(
+                x.isoformat() for x in distinct_dates
             )
         break
     if effective is None and date_note is None:
@@ -783,13 +935,56 @@ def extract_split(documents: list[FilingDocument], *, filed: date | None = None)
     direction = _doc_direction([d.match for d in docs])
     mentions = _mentions(docs, direction)
     anchors = [a for a in (effective, filed) if a is not None]
+    index = {(di, sp): i for di, d in enumerate(docs) for i, sp in enumerate(d.spans)}
     for mt in mentions:
         if mt.kind != "operative":
             continue
         s, e = mt.sentence
-        ds = [x for _, x in _dates(docs[mt.doc].match[s:e])]
+        own = docs[mt.doc].match[s:e]
+        if strict and _FUTURE.search(own):
+            continue  # what WILL happen is never a past split's
+        ds = [x for _, x in _dates(own)]
+        if not ds and strict:
+            # "… had the same effect as a one-for-fifty reverse ADS split. The change in the ADS ratio was
+            # effective on July 13, 2023." (LGHL's interim results, filed 2024-12-20): the sentence beside an
+            # undated ratio dates it
+            i = index[(mt.doc, mt.sentence)]
+            spans = docs[mt.doc].spans
+            for j in (i - 1, i + 1):
+                if not 0 <= j < len(spans):
+                    continue
+                near = cued_by_sentence.get((mt.doc, spans[j]))
+                if near and not _FUTURE.search(docs[mt.doc].match[spans[j][0] : spans[j][1]]):
+                    ds.extend(near)
         if ds and any(all((a - x).days > HISTORICAL_GAP_DAYS for x in ds) for a in anchors):
             mt.kind = "historical"
+    if strict and past and not trading and not legal:
+        # the filing dates NOTHING currently — every split date it states is a past one — so a ratio it also
+        # dates in the past somewhere is that past split's, wherever else it is restated undated: KXIN's interim
+        # results of 2025-09-12 ("On October 25, 2024, the Group effected a share consolidation at a ratio of
+        # one-for-sixty" beside an undated "(iii) share consolidation at a ratio of one-for-sixty")
+        dated_past = {m.key() for m in mentions if m.kind == "historical"}
+        for mt in mentions:
+            if mt.kind == "operative" and mt.key() in dated_past:
+                mt.kind = "historical"
+
+    conflicts = [m for m in mentions if m.kind == "conflict"]
+    operative = [m for m in mentions if m.kind == "operative"]
+    undirected = [m for m in mentions if m.kind == "undirected"]
+    by_ratio: dict[Fraction, list[_Mention]] = {}
+    for m in operative:
+        k = m.key()
+        if k is not None:
+            by_ratio.setdefault(k, []).append(m)
+    if len(by_ratio) > 1:
+        keep = _superseded(docs, by_ratio)
+        if keep is not None:
+            for k, ms in by_ratio.items():
+                if k != keep:
+                    for m in ms:
+                        m.kind = "superseded"
+            by_ratio = {keep: by_ratio[keep]}
+    distinct: dict[Fraction, _Mention] = {k: ms[0] for k, ms in by_ratio.items()}
 
     seen_labels = tuple(dict.fromkeys(f"{m.kind}:{m.raw}" for m in mentions))
     base = {
@@ -798,21 +993,13 @@ def extract_split(documents: list[FilingDocument], *, filed: date | None = None)
         "date_note": date_note,
         "mentions": seen_labels,
     }
-    conflicts = [m for m in mentions if m.kind == "conflict"]
-    operative = [m for m in mentions if m.kind == "operative"]
-    undirected = [m for m in mentions if m.kind == "undirected"]
-    distinct: dict[Fraction, _Mention] = {}
-    for m in operative:
-        k = m.key()
-        if k is not None:
-            distinct.setdefault(k, m)
 
-    def abstain(reason: str, at: list[_Mention]) -> SplitExtraction:
+    def abstain(reason: str, at: list[_Mention]) -> _Read:
         parts = [(m.doc, m.sentence, m.pos) for m in at[:2]]
-        if date_at is not None:
-            parts.append(date_at)
-        passage, label = _passage(docs, parts) if parts else ("", None)
-        return SplitExtraction(abstain_reason=reason, passage=passage, document=label, **base)
+        all_parts = parts + ([date_at] if date_at is not None else [])
+        passage, label = _passage(docs, all_parts) if all_parts else ("", None)
+        x = SplitExtraction(abstain_reason=reason, passage=passage, document=label, **base)
+        return _Read(x, docs, parts, date_at, len(distinct))
 
     if conflicts:
         return abstain(
@@ -833,14 +1020,14 @@ def extract_split(documents: list[FilingDocument], *, filed: date | None = None)
         ranged = [m for m in mentions if m.kind == "range"]
         if ranged:
             return abstain(
-                "only an authorized range of ratios ("
+                f"{RANGE_ONLY} ("
                 + ", ".join(dict.fromkeys(m.raw for m in ranged))
                 + ") — no ratio set",
                 ranged,
             )
-        past = [m for m in mentions if m.kind == "historical"]
-        if past:
-            return abstain("only a past split's ratio is stated", past)
+        historical = [m for m in mentions if m.kind == "historical"]
+        if historical:
+            return abstain(PAST_RATIO_ONLY, historical)
         return abstain("no split ratio found", [])
     if undirected:
         # a second, unoriented ratio — only harmless when it is the same numbers as the one we read
@@ -854,13 +1041,111 @@ def extract_split(documents: list[FilingDocument], *, filed: date | None = None)
             )
     chosen = next(iter(distinct.values()))
     parts = [(chosen.doc, chosen.sentence, chosen.pos)]
-    if date_at is not None:
-        parts.append(date_at)
-    passage, label = _passage(docs, parts)
-    return SplitExtraction(
+    passage, label = _passage(docs, parts + ([date_at] if date_at is not None else []))
+    x = SplitExtraction(
         ratio_from=chosen.old,
         ratio_to=chosen.new,
         passage=passage,
         document=label,
         **base,
     )
+    return _Read(x, docs, parts, date_at, 1)
+
+
+def extract_split(
+    documents: list[FilingDocument], *, filed: date | None = None, wide: bool = False
+) -> SplitExtraction:
+    """Read one filing's split ratio, effective date and located passage (see the module docstring for every
+    rule). Pure: the documents in, a ``SplitExtraction`` out — an abstain is a result, never a raise.
+
+    ``filed`` — the filing date, given for a CATCH-ALL filing (an 8-K read only for its Item 8.01 / 7.01): a
+    date more than ``HISTORICAL_GAP_DAYS`` before it is a PAST split's (the filing restates it), never this
+    filing's first session, and a ratio stated only beside such dates is a past split's too. ``wide`` keeps the
+    wide forms' own documents (``relevant_documents``).
+    """
+    return _read(documents, filed=filed, wide=wide, strict=False).x
+
+
+def extract_split_screened(
+    documents: list[FilingDocument], *, filed: date, wide: bool = False
+) -> SplitExtraction:
+    """THE RESTATEMENT SCREEN (2026-10-24) — for a filing that may restate OLD splits: a 6-K (interim results
+    restate the company's past consolidations), a charter 8-K, and every wide form (a 10-Q / 10-K / 20-F does it
+    by design). It only ever REMOVES from the unscreened reading, never adds:
+
+    - **A current date** (at most ``HISTORICAL_GAP_DAYS`` before the filing) — the reading stands exactly as
+      ``extract_split`` reads it. Every split auto-confirmed from such a filing has one (its window is
+      ``[first session - 120, first session + 10]`` days and its date agrees with Polygon's), so none changes.
+    - **A past date** (more than ``HISTORICAL_GAP_DAYS`` before the filing) — never the filing's split date: a
+      restated old split (WSHP's 6-K of 2026-08-24 restating its pre-IPO 1-for-4 of 2025-10-22) or a mistyped
+      date (MEDS's 8-K: "will become effective … on May 26, 2025", filed 2026-05-21). The date is dropped and
+      NOTHING replaces it — another date the filing states (MEDS's press release says 2026-05-26) is named in
+      ``date_note``, not taken: dropping a past date must never make a reading more confident (CPOP's 6-K of
+      2026-06-10 and RDY's of 2024-11-05 would otherwise gain a record or proxy date).
+    - **A ratio the text dates in the past** — in its own sentence, or (an undated ratio) in the date sentence
+      beside it, and never in a sentence about what WILL happen — is a past split's, not the filing's: LGHL's
+      6-K of 2024-12-20 ("… the same effect as a one-for-fifty reverse ADS split. The change in the ADS ratio
+      was effective on July 13, 2023.") abstains instead of attaching its 2023 ratio to a 2025 split.
+    - **An abstain stays an abstain**: setting a ratio aside never resolves "more than one ratio" into a single
+      reading (KXIN's 6-K of 2026-09-16 restates 60 -> 1 undated beside the 15 -> 1 of 2026-03-13 — with the 15
+      set aside the 60 would read as its split); the reason becomes ``PAST_RATIO_ONLY`` only when EVERY ratio
+      was set aside.
+    """
+    bare = _read(documents, filed=None, wide=wide, strict=False)
+    b = bare.x
+    if b.effective_date is not None and not _past(b.effective_date, filed):
+        return b
+    scr = _read(documents, filed=filed, wide=wide, strict=True)
+    s = scr.x
+    docs = scr.docs
+    # the date: dropped, never replaced
+    if b.effective_date is not None:
+        gap = (filed - b.effective_date).days
+        if s.effective_date is not None:
+            date_note = (
+                f"the stated {'first session' if b.date_kind == 'trading' else 'effective date'} "
+                f"{b.effective_date.isoformat()} is {gap} days before the filing (a past split's, or a "
+                f"mistyped date); the filing also states {s.effective_date.isoformat()} — no date is taken"
+            )
+        else:
+            date_note = s.date_note or (
+                f"only a past date stated ({b.effective_date.isoformat()}), more than "
+                f"{HISTORICAL_GAP_DAYS} days before the filing"
+            )
+    else:
+        date_note = b.date_note
+    shown_date = [bare.date_at] if bare.date_at is not None else []
+
+    def out(src: _Read, *, ratio: bool, reason: str | None = None) -> SplitExtraction:
+        passage, label = (
+            _passage(docs, src.parts + shown_date) if src.parts or shown_date else ("", None)
+        )
+        return SplitExtraction(
+            ratio_from=src.x.ratio_from if ratio else None,
+            ratio_to=src.x.ratio_to if ratio else None,
+            effective_date=None,
+            date_kind=None,
+            passage=passage,
+            document=label,
+            abstain_reason=None if ratio else (reason or src.x.abstain_reason),
+            date_note=date_note,
+            mentions=s.mentions,
+        )
+
+    if b.has_ratio and s.has_ratio:
+        if Fraction(b.ratio_from) / Fraction(b.ratio_to) != Fraction(s.ratio_from) / Fraction(  # type: ignore[arg-type]
+            s.ratio_to  # type: ignore[arg-type]
+        ):
+            # cannot happen by the rules above (the screen only sets ratios aside); never pick one if it does
+            two = f"{_label(b.ratio_from, b.ratio_to)}, {_label(s.ratio_from, s.ratio_to)}"  # type: ignore[arg-type]
+            return out(scr, ratio=False, reason=f"more than one ratio stated: {two}")
+        return out(scr, ratio=True)  # the same ratio (the screen only sets ratios aside)
+    if b.has_ratio:
+        return out(scr, ratio=False)  # the screen set it aside: a past split's
+    if (
+        not s.has_ratio
+        and scr.operative == 0
+        and (s.abstain_reason == PAST_RATIO_ONLY or (s.abstain_reason or "").startswith(RANGE_ONLY))
+    ):
+        return out(scr, ratio=False)  # every ratio was set aside: past (or only a range left)
+    return out(bare, ratio=False)  # the unscreened abstain stands — never resolved by the screen

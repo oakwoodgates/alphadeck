@@ -372,7 +372,7 @@ def test_a_catch_all_8k_restating_a_past_split_is_never_listed(db, tmp_path, mon
     asof = date(2026, 10, 23)
     edgar = EdgarClient(cache_dir=edgar_cache(tmp_path), allow_live=False)
     with monkeypatch.context() as m:
-        m.setattr(bf, "catch_all", lambda ref: False)  # the reader without the screen
+        m.setattr(bf, "screen_of", lambda ref: bf.SCREEN_NONE)  # the reader without any screen
         bare = ds.SplitDetector.start(
             asof=asof, allow_live=True, source=_polygon(tmp_path, today=asof), apply=False
         )

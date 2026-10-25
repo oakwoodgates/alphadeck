@@ -26,9 +26,13 @@ THE SOURCES, per basket company:
    never confirms a split alone, never arbitrates two sources that disagree, never confirms a forward split.
 
 THE DECISIONS, per company (``detect_security``): each Polygon row is decided EXACTLY as S1 decides it
-(``backfill_splits.decide_polygon_group``); an SEC filing read in the window that no Polygon row explains is an
-SEC-only candidate (``domain.splits.decide_sec_only``); then the tape. A filing that mentions a split the list
-cannot place (no ratio, no date, an extractor abstain) is listed on the run artifact (``unplaced``), never
+(``backfill_splits.decide_polygon_group`` — the targeted wide-form reader included: a row whose window holds no
+agreeing filing gets one look at the company's periodic reports / ADR registrations / prospectuses /
+information statements, each read once ever); an SEC filing read in the window that no Polygon row explains is
+an SEC-only candidate (``domain.splits.decide_sec_only``); then the tape. Each filing is read as S1 reads it
+(``backfill_splits.screen_of``: a 6-K or a charter 8-K through the restatement screen, which only removes — a
+6-K restating an old split never becomes a new candidate at its old date). A filing that mentions a split the
+list cannot place (no ratio, no date, an extractor abstain) is listed on the run artifact (``unplaced``), never
 dropped silently (#9).
 
 THE PLAN against the stored list (``plan_against``): a split is found by S1's ``match_stored``. A new one is
@@ -69,6 +73,7 @@ import psycopg
 
 from domain.market_time import market_today, market_tz
 from domain.splits import (
+    PAST_RATIO_ONLY,
     STATUS_ANNOUNCED,
     STATUS_NEEDS_REVIEW,
     PolygonEvidence,
@@ -206,7 +211,7 @@ class SecurityDetection:
 
 
 # an abstain that is no news: a filing restating a PAST split (LGHL's interim results) or with no ratio at all
-_NOT_NEWS = ("only a past split's ratio is stated",)
+_NOT_NEWS = (PAST_RATIO_ONLY,)
 
 
 def detect_security(
@@ -222,13 +227,16 @@ def detect_security(
     out = SecurityDetection(member=m)
     absorbed: set[str] = set()
     for group in _group(list(polygon_rows)):
-        d, read, unread = decide_polygon_group(conn, reader, m, group, asof=asof)
-        absorbed.update(s.accession for s in read if related(s, group[0]))
+        g = decide_polygon_group(conn, reader, m, group, asof=asof)
+        d = g.decision
+        absorbed.update(s.accession for s in g.read if related(s, group[0]))
         # the tape settles a Polygon-only row only when nothing else could disagree: no conflicting Polygon
-        # rows, every SEC filing in its window read, and the company's index readable
+        # rows, every SEC filing in its window read, and the company's index readable (the targeted reader's
+        # wide forms are a confirmation search: one that agrees has already settled the row, one unread is no
+        # disagreement)
         settled_alone = (
             not (len(group) > 1 and _conflicting(group))
-            and unread == 0
+            and g.unread == 0
             and (not m.cik or reader.submissions.get(m.cik) is not None)
         )
         if d.status == STATUS_NEEDS_REVIEW and settled_alone:

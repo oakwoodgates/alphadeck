@@ -9,6 +9,7 @@ from decimal import Decimal
 from fractions import Fraction
 
 from domain.splits import (
+    PAST_RATIO_ONLY,
     SESSION_TOLERANCE,
     STATUS_ANNOUNCED,
     STATUS_CONFIRMED,
@@ -22,7 +23,7 @@ from domain.splits import (
     ratio_label,
     session_distance,
 )
-from ingest.edgar.split_filing import extract_split
+from ingest.edgar.split_filing import extract_split, extract_split_screened
 from tests.split_fixtures import documents, polygon_row
 
 ASOF = date(2026, 10, 20)
@@ -180,6 +181,27 @@ def test_a_restated_old_ads_change_never_confirms_a_later_split():
     )
     assert d.status == STATUS_NEEDS_REVIEW
     assert "2023-07-13" in d.note and "tolerance" in d.note
+
+
+def test_a_filing_that_only_restates_past_splits_is_never_a_splits_evidence():
+    """The same LGHL filing as the backfill now reads a 6-K (the restatement screen, 2026-10-24): every ratio it
+    states is a past split's, so it abstains — and an abstain of that kind is never shown as THIS split's
+    evidence (filed at most 10 days after a split, a filing can only restate OLDER ones). The card says Polygon
+    only, with no 2023 reading attached."""
+    x = extract_split_screened(documents("0001213900-24-111258.txt"), filed=date(2024, 12, 20))
+    assert x.abstain_reason == PAST_RATIO_ONLY
+    s = SecEvidence(
+        accession="0001213900-24-111258",
+        form="6-K",
+        filed=date(2024, 12, 20),
+        url="u",
+        abstain_reason=x.abstain_reason,
+        date_note=x.date_note,
+        about_a_split=x.about_a_split,
+    )
+    d = decide(polygon_row("LGHL", "2025-03-26"), [s], asof=ASOF)
+    assert (d.status, d.sec) == (STATUS_NEEDS_REVIEW, None)
+    assert d.note.startswith("Polygon only — no SEC filing read in the window states this split")
 
 
 # --- the date rule's edges, on direct inputs -------------------------------------------------------------------

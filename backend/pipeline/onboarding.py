@@ -780,6 +780,9 @@ class BatchOutcome:
     finished_at: datetime | None = None
     log_path: Path | None = None
     timings: dict | None = None
+    # the split-history fill this run made for joining companies (``pipeline/split_history.py``), or None
+    split_history: dict | None = None
+    split_history_line: str | None = None
 
     def counts(self) -> dict[str, int]:
         out: dict[str, int] = {}
@@ -805,6 +808,7 @@ class BatchOutcome:
             "counts": self.counts(),
             "names": [n.to_json() for n in self.names],
             "timings": self.timings,
+            "split_history": self.split_history,
         }
 
 
@@ -817,6 +821,104 @@ def _edgar_client() -> EdgarClient:
     consumer. Every request also passes the client's own per-process cap (``Settings.edgar_rate_per_sec``).
     """
     return EdgarClient(allow_live=True, cache_ttl_s=RECURRING_CACHE_TTL_S)
+
+
+# ``run_batch(split_source=...)`` left at this: the configured Polygon split reference (``None`` with no key)
+_DEFAULT_SPLIT_SOURCE: Any = object()
+
+
+def _split_history_step(
+    conn: psycopg.Connection,
+    outcome: BatchOutcome,
+    *,
+    client: EdgarClient,
+    source: Any,
+    should_stop: Callable[[], str | None],
+) -> None:
+    """THE SPLIT-HISTORY FILL for joining companies (``pipeline/split_history.fill``), FAIL-OPEN: its outcome
+    rides the batch (``outcome.split_history`` + one printed line); a fault is captured there, rolled back and
+    logged — it never costs the batch its names."""
+    from ingest.polygon_splits import default_split_source
+    from pipeline import (
+        split_history,  # lazy: the split modules are not on the job's import path otherwise
+    )
+    from pipeline.detect_splits import _memo_dir
+
+    try:
+        polygon = default_split_source() if source is _DEFAULT_SPLIT_SOURCE else source
+        res = split_history.fill(
+            conn,
+            edgar=client,
+            polygon=polygon,
+            apply=True,
+            allow_live=True,  # the reference pull (the day's cache first); the EDGAR client has its own dial
+            should_stop=should_stop,
+            memo_dir=_memo_dir(client),
+        )
+        outcome.split_history = res.to_json()
+        outcome.split_history_line = res.summary()
+    except Exception as e:  # noqa: BLE001 — fail-open
+        if not conn.closed:
+            conn.rollback()  # a company's half-done transaction; the companies already committed stay
+        msg = _clip(f"{type(e).__name__}: {e}", 400)
+        outcome.split_history = {"status": "error", "detail": msg}
+        outcome.split_history_line = f"split history: FAILED — {msg} (the batch continues)"
+        _log.exception("onboarding: the split-history fill failed (fail-open)")
+
+
+def run_split_history_now(conn: psycopg.Connection, *, allow_live: bool = True) -> Any:
+    """``python -m pipeline.split_history --apply``: ONE fill now, under the onboarding job's own lock (a batch
+    never runs beside it) and the job's rules — refused inside the nightly window or while a pass holds the
+    call-of-record lock. Returns the ``split_history.FillOutcome`` (status ``refused`` with the reason when it
+    did not run)."""
+    from ingest.polygon_splits import default_split_source
+    from pipeline import split_history
+    from pipeline.detect_splits import _memo_dir
+
+    s = get_settings()
+    run_at = parse_run_at(s.cron_run_at)
+
+    def window_now() -> tuple[datetime, datetime] | None:
+        return window_bounds(
+            market_now(),
+            run_at=run_at,
+            before_min=s.onboard_window_before_min,
+            after_min=s.onboard_window_after_min,
+        )
+
+    def refused(why: str) -> Any:
+        out = split_history.FillOutcome(status="refused", detail=why)
+        return out
+
+    w = window_now()
+    if w is not None:
+        return refused(f"inside the nightly window ({_window_label(*w)})")
+    if not _try_job_lock(conn):
+        return refused("an onboarding batch is running (it fills split history itself)")
+    try:
+        holder = pass_holder(conn)
+        if holder is not None:
+            return refused(f"a pass holds the call-of-record lock ({holder})")
+        client = EdgarClient(allow_live=allow_live, cache_ttl_s=RECURRING_CACHE_TTL_S)
+
+        def should_stop() -> str | None:
+            ww = window_now()
+            if ww is not None:
+                return f"window: entered the nightly window ({_window_label(*ww)})"
+            h = pass_holder(conn)
+            return None if h is None else f"pass_running: {h}"
+
+        return split_history.fill(
+            conn,
+            edgar=client,
+            polygon=default_split_source(),
+            apply=True,
+            allow_live=allow_live,
+            should_stop=should_stop,
+            memo_dir=_memo_dir(client),
+        )
+    finally:
+        _release_job_lock(conn)
 
 
 def _write_atomic(path: Path, payload: dict) -> None:
@@ -859,10 +961,16 @@ def run_batch(
     edgar_client: EdgarClient | None = None,
     price_source: PriceSource | None = None,
     runs_dir: Path | None = None,
+    split_source: Any = _DEFAULT_SPLIT_SOURCE,
 ) -> BatchOutcome:
     """ONE run of the staged cold-ingest job (see the module docstring). Never raises for a name (each is
     captured); a crash escaping the batch marks its artifact ``crashed`` and re-raises. ``now`` is the AWARE
-    market clock the window is judged on; ``clock`` the monotonic one the time budget is."""
+    market clock the window is judged on; ``clock`` the monotonic one the time budget is.
+
+    Before the queue, every run fills the SPLIT HISTORY of any company that joined a live basket without one
+    (``pipeline/split_history.py`` — fast-lane promotes included, so it runs when nothing is queued too);
+    ``split_source`` is its Polygon split reference (default: ``default_split_source()``, ``None`` = off).
+    """
     s = get_settings()
     max_names = s.onboard_batch_max_names if max_names is None else max_names
     budget_s = s.onboard_batch_budget_s if budget_s is None else budget_s
@@ -900,6 +1008,22 @@ def run_batch(
             holder = pass_holder(conn)
             if holder is not None:
                 return refuse("pass_running", f"a pass holds the call-of-record lock ({holder})")
+            client = edgar_client or _edgar_client()
+
+            def fill_should_stop() -> str | None:
+                w = window_now()
+                if w is not None:
+                    return f"window: entered the nightly window ({_window_label(*w)})"
+                h = pass_holder(conn)
+                return (
+                    None
+                    if h is None
+                    else f"pass_running: a pass holds the call-of-record lock ({h})"
+                )
+
+            _split_history_step(
+                conn, outcome, client=client, source=split_source, should_stop=fill_should_stop
+            )
             work = work_list(conn)
             conn.rollback()
             outcome.queued_at_start = len(work)
@@ -922,7 +1046,7 @@ def run_batch(
                 room_today=(daily_max - done_today) if daily_max > 0 else None,
                 window_now=window_now,
                 clock=clock,
-                client=edgar_client or _edgar_client(),
+                client=client,
                 source=price_source or YahooPriceSource(),
                 runs_dir=runs_dir,
                 max_attempts=s.onboard_max_attempts,
@@ -1145,6 +1269,8 @@ def describe_counts(counts: Mapping[str, int]) -> str:
 
 
 def _print_outcome(o: BatchOutcome) -> None:
+    if o.split_history_line and (o.split_history or {}).get("status") != "idle":
+        print(o.split_history_line)
     if o.refused:
         print(f"onboarding: not started — {o.detail}")
         return

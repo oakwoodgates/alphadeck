@@ -211,6 +211,9 @@ def _batch(**kw) -> onboarding.BatchOutcome:
     kw.setdefault("now", lambda: _NOON)
     kw.setdefault("edgar_client", _FakeClient())
     kw.setdefault("price_source", _FakePrices())
+    kw.setdefault(
+        "split_source", None
+    )  # the split-history fill: off here (tests/pipeline/test_split_history.py)
     return onboarding.run_batch(**kw)
 
 
