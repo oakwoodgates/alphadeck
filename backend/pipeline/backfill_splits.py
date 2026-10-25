@@ -184,6 +184,26 @@ class Member:
     ticker: str | None
     price_symbol: str | None
     cik: str | None
+    # the security's FORMER tickers (``security_ticker_history``, migration 0066): Polygon lists a split under the
+    # ticker the company traded as then (SDCO's 2025 split under HLLK, DFSC's under KWE)
+    former_tickers: tuple[str, ...] = ()
+
+    @property
+    def symbols(self) -> frozenset[str]:
+        """Every symbol a Polygon row about this security can carry: its ticker, its vendor price symbol, and its
+        own former tickers (per security, so a ticker another company once used never matches here).
+        """
+        return frozenset(
+            s.upper() for s in (self.ticker, self.price_symbol, *self.former_tickers) if s
+        )
+
+
+# each member's former tickers, read in the SAME query that loads the members (never one query per company)
+FORMER_TICKERS_SQL = (
+    "COALESCE((SELECT array_agg(DISTINCT h.old_ticker ORDER BY h.old_ticker) "
+    "FROM security_ticker_history h "
+    "WHERE h.tenant_id = u.tenant_id AND h.security_id = u.security_id), '{}') AS former_tickers"
+)
 
 
 @dataclass(frozen=True)
@@ -251,40 +271,46 @@ class BackfillResult:
 def union_members(
     conn: psycopg.Connection, *, tickers: Iterable[str] | None = None
 ) -> list[Member]:
-    """The active basket union (the split-basis monitor's own query), with each security's identity."""
+    """The active basket union (the split-basis monitor's own query), with each security's identity (its former
+    tickers included). ``tickers`` matches any of a member's symbols (``Member.symbols``)."""
     with conn.cursor() as cur:
         cur.execute(
-            f"WITH u AS ({_UNION}) "  # noqa: S608 — a module literal
-            "SELECT u.tenant_id, u.security_id, sm.ticker, sm.price_symbol, sm.cik "
+            f"WITH u AS ({_UNION}) "  # noqa: S608 — module literals
+            f"SELECT u.tenant_id, u.security_id, sm.ticker, sm.price_symbol, sm.cik, {FORMER_TICKERS_SQL} "
             "FROM u JOIN security_master sm ON sm.id = u.security_id ORDER BY sm.ticker, u.security_id"
         )
         rows = cur.fetchall()
     want = {t.strip().upper() for t in tickers} if tickers else None
     out = []
     for r in rows:
-        m = Member(
-            tenant_id=r["tenant_id"],
-            security_id=r["security_id"],
-            ticker=r["ticker"],
-            price_symbol=r["price_symbol"],
-            cik=r["cik"],
-        )
-        if want is not None and not (
-            {(m.ticker or "").upper(), (m.price_symbol or "").upper()} & want
-        ):
+        m = member_of(r)
+        if want is not None and not (m.symbols & want):
             continue
         out.append(m)
     return out
 
 
+def member_of(r: Any) -> Member:
+    """A ``Member`` from a row carrying ``tenant_id, security_id, ticker, price_symbol, cik, former_tickers``."""
+    return Member(
+        tenant_id=r["tenant_id"],
+        security_id=r["security_id"],
+        ticker=r["ticker"],
+        price_symbol=r["price_symbol"],
+        cik=r["cik"],
+        former_tickers=tuple(r.get("former_tickers") or ()),
+    )
+
+
 def match_polygon(
     rows: Iterable[PolygonEvidence], members: Iterable[Member]
 ) -> dict[Member, list[PolygonEvidence]]:
-    """Polygon rows per member, matched by the member's ticker OR its vendor price symbol (GGRP prices as
-    BTLN, and Polygon lists the split under BTLN)."""
+    """Polygon rows per member, matched by the member's ticker, its vendor price symbol (GGRP prices as BTLN,
+    and Polygon lists the split under BTLN) or one of ITS OWN former tickers (SDCO, renamed from HLLK: Polygon
+    lists its 2025 split under HLLK) — ``Member.symbols``."""
     by_symbol: dict[str, list[Member]] = defaultdict(list)
     for m in members:
-        for sym in {(m.ticker or "").upper(), (m.price_symbol or "").upper()} - {""}:
+        for sym in m.symbols:
             by_symbol[sym].append(m)
     out: dict[Member, list[PolygonEvidence]] = defaultdict(list)
     for r in rows:

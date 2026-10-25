@@ -8,6 +8,13 @@
    "ticker": "LGHL"
   },
   {
+   "execution_date": "2025-04-24",
+   "id": "E1fe60df39d661180d0fd7a8c8c903eea1e457ba9889cceb4df75b8d84dde3961",
+   "split_from": 500,
+   "split_to": 1,
+   "ticker": "HLLK"
+  },
+  {
    "execution_date": "2026-05-26",
    "id": "E7b2d3d184c618830b46c0be24039e04a6231912d82d0936423ea95ad306056a8",
    "split_from": 50,

@@ -121,5 +121,5 @@ screen, the restatement screen; `wide=True` for a primary document) AND the 2026
 - `submissions/CIK0001787518.json` (DFNS) and `submissions/CIK0002036307.json` (OFAL) — their submissions indexes,
   copied byte-exact from prod's cache (2026-10-24): the targeted reader selects their wide forms from them.
 - `polygon/rows_list_2026-10-24.json` — the Polygon rows prod's split list CARRIES for LGHL 2025-03-26, MEDS,
-  DFNS, ZNB and OFAL (its stored `polygon_*` columns: Polygon's own id, ticker, execution date and ratio, as the
+  DFNS, ZNB, OFAL and SDCO (its 1-for-500 of 2025-04-24, listed under its FORMER ticker HLLK) (its stored `polygon_*` columns: Polygon's own id, ticker, execution date and ratio, as the
   backfill stored them from the 2026-10-20/22 pulls), copied — not typed — into Polygon's page shape.
