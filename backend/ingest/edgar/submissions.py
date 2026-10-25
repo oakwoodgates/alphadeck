@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from typing import Any
@@ -140,8 +141,9 @@ def filings_of(submissions: dict[str, Any], form: str) -> list[dict[str, str]]:
 
 def form4_filings(submissions: dict[str, Any]) -> list[dict[str, str]]:
     """List Form 4 filings from a submissions JSON: ``{accession, primary_doc, filed, accepted}``
-    (``accepted`` = the raw SEC ``acceptanceDateTime`` — the Form 4 leg threads it into the fact's
-    ``accepted`` column, the honest disclosure clock)."""
+    (``accepted`` = the raw SEC ``acceptanceDateTime`` — the Form 4 leg stores it in the fact's ``accepted``
+    column, the public instant on history views, once ``ingest.edgar.acceptance`` has checked it against
+    ``filed``)."""
     return filings_of(submissions, "4")
 
 
@@ -413,7 +415,18 @@ def acceptance_times_deep(
     walk continues: its accessions stay unresolved and therefore NULL and visible (#9), never dropped and
     never guessed. ``recent`` wins a key collision, since it is the freshest statement of the same value.
     """
-    merged: dict[str, str] = {}
+    return _walk_deep(client, submissions, _acceptance_map)
+
+
+def _walk_deep(
+    client: EdgarClient,
+    submissions: dict[str, Any],
+    mapper: Callable[[dict[str, Any]], dict[str, Any]],
+) -> tuple[dict[str, Any], int, int]:
+    """``mapper`` over every paginated older page, then over ``recent`` (which wins any overlap — the freshest
+    statement of the same value): ``(merged map, pages_read, pages_failed)``. An unreadable page is COUNTED
+    and skipped (``_tolerable_page_error``); a systemic fault still raises."""
+    merged: dict[str, Any] = {}
     pages_read = 0
     pages_failed = 0
     for name in submissions_page_names(submissions):
@@ -425,11 +438,39 @@ def acceptance_times_deep(
             pages_failed += 1
             continue
         pages_read += 1
-        merged.update(_acceptance_map(page))
-    merged.update(
-        acceptance_times(submissions)
-    )  # the recent window is authoritative on any overlap
+        merged.update(mapper(page))
+    merged.update(mapper(submissions.get("filings", {}).get("recent", {})))
     return merged, pages_read, pages_failed
+
+
+def _listing_map(arrays: dict[str, Any]) -> dict[str, tuple[str, str]]:
+    """``{accession: (filingDate, acceptanceDateTime)}`` from one block of EDGAR's parallel arrays (either
+    shape — ``_acceptance_map``'s note); a missing entry reads ``""``."""
+    accns = arrays.get("accessionNumber", [])
+    dates = arrays.get("filingDate", [])
+    accepts = arrays.get("acceptanceDateTime", [])
+    return {
+        a: (
+            str(dates[i]) if i < len(dates) and dates[i] else "",
+            str(accepts[i]) if i < len(accepts) and accepts[i] else "",
+        )
+        for i, a in enumerate(accns)
+        if a
+    }
+
+
+def listings(submissions: dict[str, Any]) -> dict[str, tuple[str, str]]:
+    """``{accession: (filingDate, acceptanceDateTime)}`` for the ``recent`` window — what the acceptance
+    clock judges a stored time by (``ingest.edgar.acceptance``; the ``backfill_accepted --drift`` repair).
+    """
+    return _listing_map(submissions.get("filings", {}).get("recent", {}))
+
+
+def listings_deep(
+    client: EdgarClient, submissions: dict[str, Any]
+) -> tuple[dict[str, tuple[str, str]], int, int]:
+    """``listings`` PLUS every paginated older page — ``acceptance_times_deep``'s walk, with filing dates."""
+    return _walk_deep(client, submissions, _listing_map)
 
 
 def _tolerable_page_error(e: Exception) -> bool:
@@ -462,10 +503,15 @@ def parse_acceptance(raw: str | None) -> datetime | None:
     ``None``/empty -> ``None`` (recall-safe: an unresolved acceptance stays NULL, never a guess — #9).
     Tolerates a trailing ``Z`` and fractional seconds; a value with no offset is assumed UTC. A genuinely
     unparseable value -> ``None`` (never raises inside the ingest / backfill loop — the row simply stays
-    NULL and is counted). Stored into the timestamptz ``accepted`` column, so the type matches ``recorded_at``
-    and the disclosure-lag metric's ``COALESCE(accepted, recorded_at)`` (``scoreboard/provenance.py``) needs
-    no coercion — ``accepted`` is a display/metrics column, never the as-of read gate (that keys on
-    ``recorded_at``).
+    NULL and is counted). The type matches the timestamptz ``accepted`` column and ``recorded_at``, so the
+    disclosure-lag metric's ``COALESCE(accepted, recorded_at)`` (``scoreboard/provenance.py``) needs no
+    coercion.
+
+    A PARSE, not a judgment: since the public-clock rule (2026-10-21) the stored ``accepted`` IS an insider
+    fact's public instant on every history view (``db/public_clock.py``; the live read still gates on
+    ``recorded_at``), and SEC's listed time is not always right (MEASURED 2026-10-24: from ~10-23 the list
+    pushed 25-45% of times past EDGAR's hours, some past midnight). A leg that STORES one goes through
+    ``ingest.edgar.acceptance.resolve_acceptance``, which checks it against the filing date first.
     """
     if not raw:
         return None

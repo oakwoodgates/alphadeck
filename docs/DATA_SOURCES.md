@@ -527,6 +527,33 @@ so any sales-derived signal would be dominated by autopilot and be actively misl
   is **unspecified in `CALL_LOGIC.md`** and is the operator's call — a test asserts a buy scores identically
   whether planned, discretionary, or unknown.
 
+## Form 4 / 4/A — the acceptance clock: SEC's listed time vs the filing's own header `[BUILT — 2026-10-24]`
+
+**Why the stored time matters.** `fact_insider_txn.accepted` (and `insider_amendment` / `insider_amendment_link
+.accepted`) is the PUBLIC instant every history view dates an insider filing by (the editions, the drawer, a
+past-asof recompute, the backtest mirror — `db/public_clock.py`); the live nightly reads the record clock. A
+night ends at midnight ET, so an early time on the right date is harmless and a late time across midnight moves
+the filing to the next night.
+
+**The drift (MEASURED on prod 2026-10-24, read-only).** The time comes from the submissions JSON's
+`acceptanceDateTime`. From ~2026-10-23 04:00 ET that list became inconsistent PER FILING: every capture since
+(onboarding loads, the 10-23 nightly) stored 25–45% of accessions at an hour EDGAR is closed (before 06:00 or
+after 22:00 ET), mostly +4 h / +5 h late; captures 10-20..10-22 were clean. Against SEC's own header
+(`ACCEPTANCE-DATETIME`, ET wall clock, in `<accession>-index-headers.html`): 0000902664-25-005199 was filed
+2025-12-04, its header says 19:00:20 ET, the list now says 00:00:20 ET on 12-05 — a night late. 5,776 stored
+accessions sat a night late (859 of them buys/sells on basket companies since 2025-03-01). An older writer's
+clock also left stored times 4–8 h EARLY.
+
+**The rule** (`ingest/edgar/acceptance.py`, one helper for every leg that stores the time): trust the listed
+time when its ET date is the `filingDate` and its ET time is within 06:00–22:00 inclusive (a Form 3/4/5
+accepted until 22:00 is filed that day); otherwise read the filing's header through the client (the global SEC
+budget; the page is immutable, cached forever under `forms/<accession>/`); header unreadable → the END of the
+filing date in ET (23:59:59) — never early, the right night, and never NULL (a NULL dates the fact at our first
+ingest). The companyfacts gate stays request-free: it takes the earlier of the listed time and that bound. The
+4/A linker's order map keeps only a trusted listed time (else the filing dates order the pair). The nightly
+prints one quiet `acceptance · …` line when any listed time was set aside. Stored rows are repaired by
+`python -m pipeline.backfill_accepted --drift` (dry-run by default; `--execute` after a backup).
+
 ## Form 4/A — amendments, stored as filed and resolved at read `[BUILT — R8-A, R8-B]`
 
 **The gap it closes.** The Form 4 leg matched the form type exactly (`filings_of(subs, "4")`), so a **Form 4/A**

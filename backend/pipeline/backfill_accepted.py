@@ -1,5 +1,12 @@
 """Backfill ``fact_insider_txn.accepted`` (the SEC acceptance datetime — the real "disclosed" clock)
-from the per-CIK EDGAR submissions JSON.
+from the per-CIK EDGAR submissions JSON — and, with ``--drift``, re-date the stored acceptance times that
+sit on the WRONG NIGHT.
+
+WHAT ``accepted`` IS NOW. Since the public-clock rule (operator decision 2026-10-21, ``db/public_clock.py``)
+the stored ``accepted`` is an insider fact's PUBLIC instant on every history view (the Scoreboard editions,
+the drawer, a past-asof recompute, the backtest mirror) — and a 4/A record's, its link's and its system
+decision's. The LIVE nightly read still gates on ``recorded_at``. So a NULL (counted from when we first held
+the filing) or a wrong time moves a filing to another night on history; this tool repairs both.
 
 THE GAP: the acceptance capture landed with the MRVL two-clock fix (migration 0040), and the incremental
 Form 4 leg skips already-stored accessions (``existing_accessions``), so every row ingested BEFORE the
@@ -38,10 +45,10 @@ each corrected row: every column copied VERBATIM from the row it supersedes, ONL
 enumeration, ``supersedes`` linking the old row's id, and ``recorded_at`` left to the DB's ``now()`` — NEVER
 backdated (transaction-time honesty; the constraint FORCES a new recorded_at, so the corrected row's
 "ingested" line reflects the backfill time — consistent with the pre-existing "the ingested line shows the
-latest re-ingest" behavior). ``accepted`` is a DISPLAY + metrics column only: once it is set, the Scoreboard
-ledger shows the honest ``disclosed`` (public acceptance) date and the B2 disclosure-lag metric
-(``scoreboard/provenance.py``) measures against it. It does NOT change the as-of read's visibility — that
-transaction-time gate keys on ``recorded_at`` for every fact table (accepted is never the gate).
+latest re-ingest" behavior). Once it is set, the Scoreboard ledger shows the honest ``disclosed`` (public
+acceptance) date, the B2 disclosure-lag metric (``scoreboard/provenance.py``) measures against it, and every
+HISTORY view dates the filing by it (the public clock). The LIVE read is unchanged — it gates on
+``recorded_at``.
 
 The 0037 lesson holds: a batch's appends share one transaction-time ``now()``, so the natural-key constraint
 must carry ``security_id`` — ``--execute`` FAILS LOUD up front on an unmigrated schema.
@@ -64,31 +71,82 @@ RULES:
     python -m pipeline.backfill_accepted --verify --live       # independent cross-check
     python -m pipeline.backfill_accepted --deep --basket-only --live            # the P2 dry-run
     python -m pipeline.backfill_accepted --deep --basket-only --live --execute  # ...and the write
+
+THE ``--drift`` MODE (2026-10-24) — re-date the stored times that sit on the WRONG NIGHT. SEC's listed
+``acceptanceDateTime`` became inconsistent per filing from ~2026-10-23 04:00 ET (MEASURED on prod, read-only:
+every capture since stored 25-45% of accessions at an hour EDGAR is closed, some past midnight — 5,776
+stored accessions sit a night late), and an older writer's clock left rows 4-8 h EARLY. ``--drift`` targets
+the NON-NULL latest versions whose stored ET date differs from SEC's ``filingDate`` (``--off-hours`` also
+takes a stored time outside EDGAR's 06:00-22:00 ET), across ``fact_insider_txn``, ``insider_amendment`` and
+``insider_amendment_link`` (the link's own ``accepted`` dates the link on the public clock). Each accession is
+resolved ONCE by the ingest's own rule (``ingest.edgar.acceptance.resolve_acceptance``): today's listed time
+when it agrees with the filing date, else the filing's header ``ACCEPTANCE-DATETIME`` (cache-first; ``--live``
+fetches, through the global SEC budget, into the immutable ``forms/`` cache), else the END of the filing date
+in ET — never early, always the right night, never NULL.
+
+- **Dry-run by default** (a read-only session), printing one line per accession: ticker, accession, filing
+  date, stored, new, source (``listed`` / ``header`` / ``bound``) and the rows it would version.
+- **``--execute``** holds the REPAIR lock (call-of-record + the fact-writer gate, exit 75 if busy — the same
+  lock every repair takes), appends one version per row (every column verbatim, only ``accepted`` set;
+  ``supersedes`` on the fact rows; ``recorded_at`` = the database ``now()``, never backdated), COUNTS THE
+  THREE TABLES before and after and refuses a mismatch, writes a provenance JSON under ``data/repairs/``, and
+  journals the run in ``data_repair`` (so the editions repair trial sees it).
+- **Idempotent**: a re-dated version's ET date is its filing date, so a re-run targets nothing; a target whose
+  resolution equals the stored value appends nothing (count the table).
+- **Not judged** (counted, left as stored): no CIK, no submissions index (uncached without ``--live``), an
+  accession absent from the index (``--deep`` reaches the paginated older pages).
+
+    python -m pipeline.backfill_accepted --drift                         # dry-run, cache-only (header -> bound)
+    python -m pipeline.backfill_accepted --drift --live --deep           # dry-run, reading headers + old pages
+    python -m pipeline.backfill_accepted --drift --live --deep --execute # the write (after a backup)
 """
 
 from __future__ import annotations
 
 import argparse
+import json
+import logging
 import re
+from collections import Counter
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime, timezone
+from pathlib import Path
+from typing import Any
 from uuid import UUID
 
 import psycopg
 from psycopg.rows import dict_row
+from psycopg.types.json import Json
 
 from db.bitemporal import append_fact
 from db.session import database_url
 from ingest import CacheMiss
+from ingest.edgar.acceptance import (
+    EDGAR_CLOSES,
+    EDGAR_OPENS,
+    EDGAR_TZ,
+    SOURCE_BOUND,
+    SOURCE_HEADER,
+    parse_filing_date,
+    read_header_acceptance,
+    resolve_acceptance,
+)
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.submissions import (
     acceptance_times,
     acceptance_times_deep,
     fetch_submissions,
+    listings,
+    listings_deep,
     parse_acceptance,
 )
 from pipeline.run_lock import repair_lock_or_exit
 from repositories import data_repair_repo
+
+_log = logging.getLogger(__name__)
+
+# The drift repair's provenance lives beside the other repairs' (the repo's gitignored data/ == /data).
+_REPAIRS_DIR = Path(__file__).resolve().parents[2] / "data" / "repairs"
 
 # The latest-version view of the table — the SAME grain the shared as-of read dedups on
 # (db.bitemporal._FACT_IDENTITY['fact_insider_txn'] within its (tenant, security) scope), so "latest is
@@ -451,6 +509,412 @@ def run_verify(
     return res
 
 
+# --- THE --drift MODE: re-date stored acceptance times that sit on the wrong night ----------------------
+
+DRIFT_TABLES = ("fact_insider_txn", "insider_amendment", "insider_amendment_link")
+
+# The newest version of each 4/A record / link (the readers' own pick: recorded_at DESC, id DESC).
+_LATEST_AMENDMENT = (
+    "SELECT DISTINCT ON (tenant_id, security_id, accession) * FROM insider_amendment "
+    "WHERE tenant_id = %s AND security_id = %s "
+    "ORDER BY tenant_id, security_id, accession, recorded_at DESC, id DESC"
+)
+_LATEST_LINK = (
+    "SELECT DISTINCT ON (tenant_id, security_id, amendment_accession) * FROM insider_amendment_link "
+    "WHERE tenant_id = %s AND security_id = %s "
+    "ORDER BY tenant_id, security_id, amendment_accession, recorded_at DESC, id DESC"
+)
+
+
+def _jsonb_columns(conn: psycopg.Connection, table: str) -> frozenset[str]:
+    """The table's jsonb columns — a verbatim copy re-wraps them (psycopg reads them back as Python objects,
+    indistinguishable from a text[] list). Read from the catalog, so a column added later copies too.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = current_schema() AND table_name = %s AND data_type = 'jsonb'",
+            (table,),
+        )
+        return frozenset(r["column_name"] for r in cur.fetchall())
+
+
+@dataclass
+class DriftItem:
+    """One accession a ``--drift`` run re-dates in one table: what is stored, what the acceptance clock says,
+    where that came from, and the row versions it appends (``ids`` — the rows it supersedes)."""
+
+    table: str
+    tenant_id: UUID
+    security_id: UUID
+    ticker: str | None
+    accession: str
+    filed: date
+    stored: datetime
+    new: datetime
+    source: str
+    listed: datetime | None
+    ids: list[UUID] = field(default_factory=list)
+
+    def as_json(self) -> dict[str, Any]:
+        return {
+            "table": self.table,
+            "security_id": str(self.security_id),
+            "ticker": self.ticker,
+            "accession": self.accession,
+            "filed": self.filed.isoformat(),
+            "stored": self.stored.isoformat(),
+            "new": self.new.isoformat(),
+            "source": self.source,
+            "listed": self.listed.isoformat() if self.listed else None,
+            "rows": len(self.ids),
+            "supersedes": [str(i) for i in self.ids],
+        }
+
+
+@dataclass
+class DriftResult:
+    """One ``--drift`` run's full accounting — every table counted before and after (count the TABLE)."""
+
+    executed: bool
+    off_hours: bool = False
+    deep: bool = False
+    before: dict[str, int] = field(default_factory=dict)
+    after: dict[str, int] = field(default_factory=dict)
+    scopes_targeted: int = 0
+    scopes_no_cik: int = 0
+    scopes_no_submissions: int = 0
+    pages_read: int = 0
+    pages_failed: int = 0
+    stored_checked: int = 0  # (table, accession) pairs with a stored time judged against the index
+    not_in_index: int = 0  # ... absent from the index -> not judged, left as stored
+    unchanged: int = (
+        0  # targeted rows the acceptance clock gives the stored time -> nothing to append
+    )
+    items: list[DriftItem] = field(default_factory=list)
+    provenance: str | None = None
+
+    def planned(self, table: str) -> int:
+        return sum(len(i.ids) for i in self.items if i.table == table)
+
+    @property
+    def rows_planned(self) -> int:
+        return sum(len(i.ids) for i in self.items)
+
+    def by_source(self) -> Counter:
+        return Counter(i.source for i in self.items)
+
+
+def _count_table(conn: psycopg.Connection, table: str) -> int:
+    with conn.cursor() as cur:
+        cur.execute(f"SELECT count(*) AS n FROM {table}")  # noqa: S608 — one of DRIFT_TABLES
+        return cur.fetchone()["n"]
+
+
+def _wrong_night(stored: datetime, filed: date, *, off_hours: bool) -> bool:
+    """Is a stored acceptance a ``--drift`` target: its ET date is not the filing date (a night off), or —
+    with ``off_hours`` — its ET time is outside EDGAR's 06:00-22:00?"""
+    et = stored.astimezone(EDGAR_TZ)
+    if et.date() != filed:
+        return True
+    return off_hours and not (EDGAR_OPENS <= et.time() <= EDGAR_CLOSES)
+
+
+def _drift_scopes(
+    conn: psycopg.Connection, *, basket_only: bool, tickers: list[str] | None
+) -> list[tuple[UUID, UUID]]:
+    """Every (tenant, security) holding a stored acceptance in any of the three tables — narrowed to basket
+    members (the (tenant, security) PAIR, ``_target_scopes``'s rule) or to ``tickers`` when asked.
+    """
+    q = (
+        "SELECT DISTINCT s.tenant_id, s.security_id FROM ("
+        " SELECT tenant_id, security_id FROM fact_insider_txn WHERE accepted IS NOT NULL"
+        " UNION SELECT tenant_id, security_id FROM insider_amendment WHERE accepted IS NOT NULL"
+        " UNION SELECT tenant_id, security_id FROM insider_amendment_link WHERE accepted IS NOT NULL"
+        ") s"
+    )
+    where: list[str] = []
+    params: list[Any] = []
+    if basket_only:
+        where.append(
+            "(s.tenant_id, s.security_id) IN "
+            "(SELECT tenant_id, security_id FROM basket_member WHERE security_id IS NOT NULL)"
+        )
+    if tickers:
+        where.append(
+            "(s.tenant_id, s.security_id) IN "
+            "(SELECT tenant_id, id FROM security_master WHERE upper(ticker) = ANY(%s))"
+        )
+        params.append([t.upper() for t in tickers])
+    if where:
+        q += " WHERE " + " AND ".join(where)
+    q += " ORDER BY s.tenant_id, s.security_id"
+    with conn.cursor() as cur:
+        cur.execute(q, params)
+        return [(r["tenant_id"], r["security_id"]) for r in cur.fetchall()]
+
+
+def _ticker_for(conn: psycopg.Connection, tenant_id: UUID, security_id: UUID) -> str | None:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT ticker FROM security_master WHERE tenant_id = %s AND id = %s",
+            (tenant_id, security_id),
+        )
+        row = cur.fetchone()
+    return (row["ticker"] if row else None) or None
+
+
+def _index_for(
+    client: EdgarClient, cik: str, *, deep: bool
+) -> tuple[dict[str, tuple[str, str]], int, int] | None:
+    """The security's ``{accession: (filingDate, acceptanceDateTime)}`` index, or ``None`` when its
+    submissions is uncached (cache-only) or unfetchable — ``_resolved_acceptances``'s tolerance."""
+    try:
+        subs = fetch_submissions(client, cik)
+        if deep:
+            return listings_deep(client, subs)
+        return listings(subs), 0, 0
+    except CacheMiss:
+        return None
+    except Exception as e:  # noqa: BLE001 — a live fetch failure leaves the scope as stored
+        if _is_http_error(e):
+            return None
+        raise
+
+
+def _stored_times(
+    conn: psycopg.Connection, tenant_id: UUID, security_id: UUID
+) -> list[tuple[str, str, dict[str, Any]]]:
+    """``(table, accession, row)`` for every stored acceptance one scope's readers see: each fact natural key's
+    latest version, and the newest version of each 4/A record and link — non-NULL ``accepted`` only.
+    """
+    out: list[tuple[str, str, dict[str, Any]]] = []
+    where = "WHERE tenant_id = %s AND security_id = %s"
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT * FROM (" + _LATEST.format(where=where) + ") latest WHERE accepted IS NOT NULL",
+            (tenant_id, security_id),
+        )
+        out += [("fact_insider_txn", r["accession"], r) for r in cur.fetchall()]
+        cur.execute(_LATEST_AMENDMENT, (tenant_id, security_id))
+        out += [
+            ("insider_amendment", r["accession"], r)
+            for r in cur.fetchall()
+            if r["accepted"] is not None
+        ]
+        cur.execute(_LATEST_LINK, (tenant_id, security_id))
+        out += [
+            ("insider_amendment_link", r["amendment_accession"], r)
+            for r in cur.fetchall()
+            if r["accepted"] is not None
+        ]
+    return out
+
+
+def _append_copy(conn: psycopg.Connection, table: str, row: dict[str, Any], at: datetime) -> None:
+    """One new version of ``row``: every column verbatim, only ``accepted`` set; ``recorded_at`` left to the
+    database ``now()`` (never backdated). A fact row also names the version it supersedes."""
+    if table == "fact_insider_txn":
+        values = {k: v for k, v in row.items() if k not in _NOT_COPIED}
+        values["accepted"] = at
+        values["supersedes"] = row["id"]
+        append_fact(conn, table, values)
+        return
+    jsonb = _jsonb_columns(conn, table)
+    cols = [c for c in row if c not in ("id", "recorded_at")]
+    vals = [
+        at if c == "accepted" else (Json(row[c]) if c in jsonb and row[c] is not None else row[c])
+        for c in cols
+    ]
+    with conn.cursor() as cur:
+        cur.execute(
+            f"INSERT INTO {table} ({', '.join(cols)}) "  # noqa: S608 — the table's own columns
+            f"VALUES ({', '.join(['%s'] * len(cols))})",
+            vals,
+        )
+
+
+def run_drift(
+    conn: psycopg.Connection,
+    *,
+    client: EdgarClient,
+    execute: bool,
+    off_hours: bool = False,
+    deep: bool = False,
+    basket_only: bool = False,
+    tickers: list[str] | None = None,
+    limit: int | None = None,
+    log=print,
+) -> DriftResult:
+    """THE ``--drift`` REPAIR (module docstring): re-date every stored acceptance whose ET date is not its
+    filing date (``off_hours``: or outside EDGAR's hours), each accession resolved ONCE per security by the
+    ingest's rule. ``execute=False`` reads, resolves and reports, appending nothing. ``execute=True`` appends,
+    commits per security, and verifies the three tables grew by exactly the planned rows (``SystemExit`` on a
+    mismatch). The caller holds the repair lock."""
+    if execute:
+        _require_security_scoped_natural_key(conn)
+    res = DriftResult(executed=execute, off_hours=off_hours, deep=deep)
+    res.before = {t: _count_table(conn, t) for t in DRIFT_TABLES}
+    scopes = _drift_scopes(conn, basket_only=basket_only, tickers=tickers)
+    if limit is not None:
+        scopes = scopes[:limit]
+    res.scopes_targeted = len(scopes)
+    log(
+        f"drift: {len(scopes)} securities with a stored acceptance"
+        f"{' (basket members only)' if basket_only else ''}"
+        f"{' · also outside 06:00-22:00 ET' if off_hours else ''}"
+    )
+    for i, (tenant_id, security_id) in enumerate(scopes, start=1):
+        stored = _stored_times(conn, tenant_id, security_id)
+        if not stored:
+            continue
+        cik = _cik_for(conn, tenant_id, security_id)
+        if not cik:
+            res.scopes_no_cik += 1
+            continue
+        index = _index_for(client, cik, deep=deep)
+        if index is None:
+            res.scopes_no_submissions += 1
+            log(f"  warn: security {security_id} (CIK {cik}) submissions unavailable — not judged")
+            continue
+        listing, pages_read, pages_failed = index
+        res.pages_read += pages_read
+        res.pages_failed += pages_failed
+        ticker = _ticker_for(conn, tenant_id, security_id)
+        resolved: dict[str, Any] = {}  # accession -> Acceptance (one resolution per accession)
+        items: dict[tuple[str, str], DriftItem] = {}
+        judged: set[tuple[str, str]] = set()
+        for table, accession, row in stored:
+            entry = listing.get(accession)
+            filed = parse_filing_date(entry[0]) if entry else None
+            first = (table, accession) not in judged
+            judged.add((table, accession))
+            if filed is None:
+                res.not_in_index += int(first)
+                continue
+            res.stored_checked += int(first)
+            if not _wrong_night(row["accepted"], filed, off_hours=off_hours):
+                continue
+            if accession not in resolved:
+                # today's listed time; if the index lists none, the stored one (an earlier listing) — a
+                # target is untrusted by construction, so either way the header, else the bound
+                resolved[accession] = resolve_acceptance(
+                    entry[1] or row["accepted"],
+                    filed,
+                    lambda acc=accession: read_header_acceptance(client, cik, acc),
+                )
+            a = resolved[accession]
+            if a.at is None or a.at == row["accepted"]:
+                res.unchanged += 1
+                continue
+            item = items.get((table, accession))
+            if item is None:
+                item = items[(table, accession)] = DriftItem(
+                    table=table,
+                    tenant_id=tenant_id,
+                    security_id=security_id,
+                    ticker=ticker,
+                    accession=accession,
+                    filed=filed,
+                    stored=row["accepted"],
+                    new=a.at,
+                    source=a.source,
+                    listed=a.listed,
+                )
+            item.ids.append(row["id"])
+            if execute:
+                _append_copy(conn, table, row, a.at)
+        res.items.extend(items.values())
+        if execute:
+            conn.commit()  # per security: a crash keeps progress; a re-run resumes at what is still wrong
+        if i % 200 == 0 or i == len(scopes):
+            log(f"  ... {i}/{len(scopes)} securities checked")
+    res.after = {t: _count_table(conn, t) for t in DRIFT_TABLES}
+    if execute:
+        appended = {t: res.after[t] - res.before[t] for t in DRIFT_TABLES}
+        planned = {t: res.planned(t) for t in DRIFT_TABLES}
+        if appended != planned:
+            raise SystemExit(
+                f"COUNT MISMATCH: appended {appended}, planned {planned} — investigate before re-running"
+            )
+    return res
+
+
+def _et(at: datetime) -> str:
+    return at.astimezone(EDGAR_TZ).strftime("%Y-%m-%d %H:%M:%S %Z")
+
+
+def _print_drift(res: DriftResult) -> None:
+    mode = "EXECUTE" if res.executed else "DRY-RUN (read-only; nothing written)"
+    verb = "re-dated" if res.executed else "WOULD re-date"
+    print(f"\n=== backfill accepted --drift — {mode} ===")
+    for it in sorted(res.items, key=lambda x: (x.ticker or "", x.accession, x.table)):
+        print(
+            f"  {it.ticker or it.security_id} {it.accession} filed {it.filed.isoformat()} · "
+            f"stored {_et(it.stored)} -> new {_et(it.new)} · source {it.source} · "
+            f"{it.table} {len(it.ids)} row(s)"
+        )
+    src = res.by_source()
+    print(f"  securities targeted        : {res.scopes_targeted}")
+    print(f"  securities without a CIK   : {res.scopes_no_cik} (not judged)")
+    print(f"  securities no submissions  : {res.scopes_no_submissions} (uncached/unfetchable)")
+    if res.deep:
+        print(f"  older pages read           : {res.pages_read}")
+        print(f"  older pages unreadable     : {res.pages_failed} (their accessions not judged)")
+    print(f"  stored times judged        : {res.stored_checked}")
+    print(
+        f"  not in the index           : {res.not_in_index} (not judged — --deep reaches older pages)"
+    )
+    print(f"  targeted, already right    : {res.unchanged} row(s)")
+    accessions = len({(i.security_id, i.accession) for i in res.items})
+    print(
+        f"  accessions {verb:14}: {accessions} (listed {src.get('listed', 0)} · "
+        f"header {src.get(SOURCE_HEADER, 0)} · bound {src.get(SOURCE_BOUND, 0)}, per table)"
+    )
+    for t in DRIFT_TABLES:
+        print(
+            f"  {t:24} rows before/after : {res.before.get(t, 0)} -> {res.after.get(t, 0)} "
+            f"(planned +{res.planned(t)})"
+        )
+    if res.provenance:
+        print(f"  provenance                 : {res.provenance}")
+
+
+def drift_payload(res: DriftResult) -> dict[str, Any]:
+    """The ``--drift`` provenance — PURE (no I/O)."""
+    return {
+        "kind": "backfill_accepted_drift",
+        "executed": res.executed,
+        "off_hours": res.off_hours,
+        "deep": res.deep,
+        "rows_before": res.before,
+        "rows_after": res.after,
+        "by_source": dict(res.by_source()),
+        "items": [i.as_json() for i in res.items],
+        "not_judged": {
+            "no_cik": res.scopes_no_cik,
+            "no_submissions": res.scopes_no_submissions,
+            "not_in_index": res.not_in_index,
+            "pages_failed": res.pages_failed,
+        },
+    }
+
+
+def write_drift_payload(payload: dict[str, Any], base_dir: Path | None = None) -> Path | None:
+    """Write the provenance JSON to ``<base>/<utc-timestamp>-backfill-accepted-drift.json``; ``None``
+    fail-open (the committed rows ARE the repair; a provenance fault is logged, never raised)."""
+    try:
+        run_dir = base_dir or _REPAIRS_DIR
+        run_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        path = run_dir / f"{stamp}-backfill-accepted-drift.json"
+        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        return path
+    except Exception:  # noqa: BLE001 — fail-open by contract
+        _log.exception("drift provenance write failed (fail-open — the rows are committed)")
+        return None
+
+
 def _pct(nonnull: int, keys: int) -> str:
     return f"{nonnull}/{keys} ({100.0 * nonnull / keys:.1f}%)" if keys else "0/0 (n/a)"
 
@@ -507,7 +971,8 @@ def _print_verify(res: VerifyResult) -> None:
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(
         description="Backfill fact_insider_txn.accepted from the per-CIK EDGAR submissions JSON "
-        "(append-only re-version; NULL-only; dry-run by default)."
+        "(append-only re-version; NULL-only, or --drift for stored times on the wrong night; dry-run by "
+        "default)."
     )
     p.add_argument("--execute", action="store_true", help="write corrections (default: dry-run)")
     p.add_argument(
@@ -542,7 +1007,29 @@ def main(argv: list[str] | None = None) -> None:
         help="restrict the worklist to securities placed in some thesis's basket (the deep walk's "
         "intended scope: 96 of the 117 securities with a latest-version NULL accepted are basket members)",
     )
+    p.add_argument(
+        "--drift",
+        action="store_true",
+        help="re-date STORED acceptance times whose ET date is not SEC's filingDate (the wrong night) — "
+        "fact_insider_txn + the 4/A record and link — by the ingest's acceptance clock (header, else the "
+        "end of the filing date); dry-run unless --execute",
+    )
+    p.add_argument(
+        "--off-hours",
+        action="store_true",
+        help="with --drift: also re-date a stored time outside EDGAR's 06:00-22:00 ET on the right date",
+    )
+    p.add_argument(
+        "--ticker",
+        action="append",
+        default=None,
+        help="with --drift: only this security (repeatable) — a spot run",
+    )
     args = p.parse_args(argv)
+    if (args.off_hours or args.ticker) and not args.drift:
+        p.error("--off-hours / --ticker only apply to --drift")
+    if args.drift and args.verify:
+        p.error("--drift and --verify are separate runs")
 
     url = args.database_url or database_url()
     print(f"target DB : {_redact(url)}")
@@ -558,11 +1045,46 @@ def main(argv: list[str] | None = None) -> None:
         else None
     )
     conn = psycopg.connect(url, row_factory=dict_row)
+    if args.drift and not args.execute:
+        conn.read_only = True  # the drift dry-run cannot write, by construction
     try:
         with conn.cursor() as cur:
             cur.execute("SELECT current_database() AS db")
             print(f"connected : current_database() = {cur.fetchone()['db']}")
-        if args.verify:
+        if args.drift:
+            dres = run_drift(
+                conn,
+                client=client,
+                execute=args.execute,
+                off_hours=args.off_hours,
+                deep=args.deep,
+                basket_only=args.basket_only,
+                tickers=args.ticker,
+                limit=args.limit,
+            )
+            if args.execute:
+                prov = write_drift_payload(drift_payload(dres))
+                dres.provenance = str(prov) if prov else None
+            _print_drift(dres)
+            if args.execute:  # S7 — the data-repair journal: one row per --execute, under the lock
+                data_repair_repo.journal(
+                    conn,
+                    tool="backfill_accepted",
+                    summary=(
+                        f"re-dated the SEC acceptance time of {len(dres.items)} insider filing "
+                        "record(s) stored on the wrong night"
+                    ),
+                    rows_changed=dres.rows_planned,
+                    counts={
+                        "mode": "drift",
+                        "off_hours": dres.off_hours,
+                        "rows": {t: dres.planned(t) for t in DRIFT_TABLES},
+                        "by_source": dict(dres.by_source()),
+                        "not_in_index": dres.not_in_index,
+                    },
+                    provenance=dres.provenance,
+                )
+        elif args.verify:
             # the SAME depth as the backfill it verifies — see run_verify's docstring
             vres = run_verify(conn, client=client, deep=args.deep)
             _print_verify(vres)

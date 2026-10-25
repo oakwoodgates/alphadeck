@@ -55,6 +55,7 @@ from domain.onboarding import OnboardingWindow
 from domain.security import Security
 from domain.settings import get_settings
 from domain.thesis import BasketMember
+from ingest.edgar.acceptance import AcceptanceTally, resolve_filing_acceptance
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.form4 import existing_accessions, ingest_form4, other_issuer_cik
 from ingest.edgar.form4a import form4_leg_filings, ingest_amendments
@@ -73,7 +74,6 @@ from ingest.edgar.submissions import (
     form8k_filings,
     former_names,
     name_change_filings,
-    parse_acceptance,
     schedule13_filings,
 )
 from ingest.funds.ingest_security import (
@@ -254,6 +254,13 @@ class NameResult:
     # no leg ran, no fetch was made (the job loads it outside the window). Still listed, never dropped (#9);
     # the nightly leaves it out of the feed-recency judgment (no price leg ran, so its edge is not news).
     onboarding_deferred: bool = False
+    # THE ACCEPTANCE CLOCK (``ingest.edgar.acceptance``): how many of this name's NEW Form 4 / 4/A filings had
+    # their listed SEC acceptance time set aside this pass (not on the filing date within EDGAR's hours) —
+    # replaced by the filing's own header (``acceptance_header``) or bounded to the end of the filing
+    # date (``acceptance_bounded``). Facts for ONE quiet nightly line (``print_acceptance_line``), never a page
+    # (#7); 0 when the Form 4 leg failed (its writes rolled back).
+    acceptance_header: int = 0
+    acceptance_bounded: int = 0
 
 
 def _tolerable_filing_error(e: Exception) -> bool:
@@ -295,10 +302,17 @@ def _form4_leg(
     tenant_id: UUID,
     known_skips: Collection[str] | None = None,
     filed_since: date | None = None,
+    acceptance: AcceptanceTally | None = None,
 ) -> tuple[int, int, int, tuple[IngestSkip, ...]]:
     """Ingest only Form 4 accessions not already stored for this security (incremental). Returns
     ``(appended, skipped, txn_rejected, skips)``. Needs the issuer CIK; a name without one contributes no
     insider facts.
+
+    THE ACCEPTANCE CLOCK (``ingest.edgar.acceptance``): each new filing's stored ``accepted`` — the public
+    instant every history view reads — is the listed SEC time only when it agrees with the filing date and
+    EDGAR's hours; otherwise the filing's own header (one immutable, cached read), else the end of the filing
+    date in ET. ``acceptance`` (when given) counts the listed times set aside, Form 4 and 4/A alike, for the
+    nightly's quiet line.
 
     X1 — ``filed_since`` (the nightly's treatment of a name still ONBOARDING, ``pipeline/onboarding.py``): only
     the Form 4s filed on/after that date are read, and the 4/A leg does NOT run — a 4/A links to the original
@@ -351,17 +365,20 @@ def _form4_leg(
                 if not is_known(known_skips, FORM4_OTHER_ISSUER, f["accession"]):
                     print(f"  {sec.ticker or sec.id} form4 {f['accession']} not stored: {why}")
                 continue
-            # thread the SEC acceptance datetime (the honest "disclosed" clock) from the enumeration —
-            # the ownership XML has none; parse_acceptance -> None leaves accepted NULL (#9)
+            # the SEC acceptance (the public instant on history views) — the ownership XML has none, so it
+            # comes from the enumeration, checked against the filing date (``ingest.edgar.acceptance``)
+            resolved = resolve_filing_acceptance(client, sec.cik, f)
             one = ingest_form4(
                 conn,
                 sec.id,
                 xml,
                 f["accession"],
                 tenant_id=tenant_id,
-                accepted=parse_acceptance(f.get("accepted")),
+                accepted=resolved.at,
                 member_cik=sec.cik,
             )
+            if acceptance is not None:
+                acceptance.add(resolved)  # counted once the filing parsed and stored
             appended += one.appended
             txn_rejected += one.rejected
         except Exception as e:
@@ -395,6 +412,7 @@ def _form4_leg(
         tenant_id=tenant_id,
         known_skips=known_skips,
         tolerable=_tolerable_filing_error,
+        acceptance=acceptance,
     )
     skips.extend(amend_skips)
     skipped += len(amend.skipped)
@@ -872,9 +890,16 @@ def _ingest_one(
     f4_skipped = 0
     f4_txn_rejected = 0
     skips: list[IngestSkip] = []
+    acceptance = AcceptanceTally()
     try:
         f4, f4_skipped, f4_txn_rejected, f4_skips = _form4_leg(
-            conn, client, sec, tenant_id=tenant_id, known_skips=known_skips, filed_since=filed_since
+            conn,
+            client,
+            sec,
+            tenant_id=tenant_id,
+            known_skips=known_skips,
+            filed_since=filed_since,
+            acceptance=acceptance,
         )
         skips.extend(f4_skips)
         conn.commit()
@@ -882,6 +907,7 @@ def _ingest_one(
         conn.rollback()
         errs.append(f"form4: {e}")
         leg_errs.append(("form4", str(e)))
+        acceptance = AcceptanceTally()  # nothing it counted was stored
     f8k_appended, f8k_reversioned = 0, 0
     try:
         f8k_appended, f8k_reversioned = _form8k_leg(conn, client, sec, tenant_id=tenant_id)
@@ -1004,6 +1030,8 @@ def _ingest_one(
         ingest_skips=tuple(skips),
         # the EDGAR legs above ran against this CIK (each is gated on it) — the freeze floor's denominator
         edgar_cik=sec.cik or None,
+        acceptance_header=acceptance.header,
+        acceptance_bounded=acceptance.bound,
     )
 
 
@@ -1103,6 +1131,24 @@ def print_withheld_line(results: Iterable[NameResult]) -> None:
         print(
             f"{len(withheld)} name(s): today's in-progress bar withheld — the session settles at "
             f"{get_settings().price_settle_time:%H:%M} market time; the next pass after that stores it"
+        )
+
+
+def print_acceptance_line(results: Iterable[NameResult]) -> None:
+    """THE ACCEPTANCE CLOCK — ONE quiet line when any new Form 4 / 4/A's listed SEC acceptance time was set
+    aside this pass (``ingest.edgar.acceptance``: not on the filing date within EDGAR's hours),
+    with what replaced them; nothing at all when none was. Lowercase, never a page (#7): every such filing was
+    still stored, on the right night — the line exists so the drift in SEC's list is never silent (#9).
+    """
+    header = bounded = 0
+    for r in results:
+        header += getattr(r, "acceptance_header", 0) or 0
+        bounded += getattr(r, "acceptance_bounded", 0) or 0
+    total = header + bounded
+    if total:
+        print(
+            f"acceptance · {total} listed time(s) disagreed with the filing date · {header} read from the "
+            f"header, {bounded} bounded to the filing date"
         )
 
 
