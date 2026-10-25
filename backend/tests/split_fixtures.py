@@ -89,18 +89,73 @@ def polygon_source(
 # --- the EDGAR cache --------------------------------------------------------------------------------------------
 
 
-def edgar_cache(tmp_path: Path) -> Path:
+def edgar_cache(
+    tmp_path: Path, *, only: set[str] | None = None, submissions: set[str] | None = None
+) -> Path:
+    """A tmp EDGAR cache holding the real filings under the keys the client reads: each full submission at
+    ``forms/<acc>/<acc>.txt``, each wide form's PRIMARY document at ``forms/<acc>/<file>`` (the key the targeted
+    reader fetches a periodic report under), each submissions index at ``submissions/CIK<10>.json``. ``only`` /
+    ``submissions`` narrow it to those accessions / CIKs (a reader that cannot read the rest)."""
     root = tmp_path / "edgar_cache"
     for gz in (FX / "sec").glob("*.txt.gz"):
         acc = gz.name[: -len(".txt.gz")]
+        if only is not None and acc not in only:
+            continue
         dest = root / "forms" / acc / f"{acc}.txt"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(gzip.decompress(gz.read_bytes()))
+    for gz in (FX / "primary").glob("*/*.gz"):
+        acc = gz.parent.name
+        if only is not None and acc not in only:
+            continue
+        dest = root / "forms" / acc / gz.name[: -len(".gz")]
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(gzip.decompress(gz.read_bytes()))
     sub = root / "submissions"
     sub.mkdir(parents=True, exist_ok=True)
     for js in (FX / "submissions").glob("*.json"):
+        if submissions is not None and js.stem[len("CIK") :] not in submissions:
+            continue
         (sub / js.name).write_bytes(js.read_bytes())
     return root
+
+
+def primary_document(accession: str) -> FilingDocument:
+    """A wide form's real PRIMARY document (``fixtures/splits/primary/<acc>/<file>.gz``), typed as its form."""
+    (gz,) = (FX / "primary" / accession).glob("*.gz")
+    form = PRIMARY_FORMS[accession]
+    return FilingDocument(
+        type=form,
+        filename=gz.name[: -len(".gz")],
+        raw=gzip.decompress(gz.read_bytes()).decode("utf-8", "replace"),
+    )
+
+
+# the wide forms whose primary documents are in the fixtures (README: "primary/")
+PRIMARY_FORMS = {
+    "0001185185-26-003604": "10-Q",  # DFNS, filed 2026-08-18
+    "0001213900-26-050939": "20-F",  # MI (NFT Ltd), filed 2026-05-01
+    "0001493152-26-033093": "10-K",  # OFAL, filed 2026-07-14
+}
+
+LIST_ROWS = FX / "polygon" / "rows_list_2026-10-24.json"
+
+
+def list_polygon_rows() -> list[PolygonEvidence]:
+    """The Polygon rows prod's split list carries for DFNS / OFAL / ZNB / MEDS / LGHL (README)."""
+    rows, _, _ = parse_splits_page(LIST_ROWS.read_text(encoding="utf-8"))
+    return rows
+
+
+def list_polygon_source(tmp_path: Path, *, today: date) -> PolygonSplitSource:
+    """Those rows behind a fake socket (no network; the request carries a date only)."""
+    body = LIST_ROWS.read_text(encoding="utf-8")
+    return PolygonSplitSource(
+        api_key="test-key-not-real",
+        cache_dir=tmp_path / f"polygon_list_{today.isoformat()}",
+        fetch=lambda url: body,
+        today=lambda: today,
+    )
 
 
 # --- the basket -------------------------------------------------------------------------------------------------

@@ -1336,6 +1336,26 @@ lacks it refuses to open. The self-audit `splits_applied` check pages a recent
 split still showing its step, names the older backlog quietly, and names as NOT VERIFIED (never "applied") a
 split the tape cannot read and an announced split not yet confirmed (a flat tape is equally a postponed one).
 
+**A joining company's split history (2026-10-24)** `[BUILT]`. The list was filled ONCE (S1, 2026-10-20, over
+that day's basket) and the nightly (S4) looks back only 30 days (Polygon) / 60 days (SEC filings), so a company
+that joined a basket later had no split history: MEASURED on prod 2026-10-24, 32 splits Polygon lists since
+2025-03 on 29 companies were missing (CRWD 4-for-1, POWL 3-for-1, LHSW 1-for-16, ABTS 1-for-15 …), all on the
+350 companies that joined after the backfill; companies in a basket at the backfill: 0 missing.
+`pipeline/split_history.py` now runs the S1 backfill scoped to every live basket member with no
+`security_split_history` row (migration 0067) — S1's own decision (the targeted wide-form reader included),
+its plan against the stored list (a split the nightly or the operator listed is never touched), its append
+(author `system:backfill_splits`, count-verified) and its journal (`data_repair`, when it appended). It runs at
+the START of every staged-onboarding batch (`pipeline.onboarding.run_batch`, every 30 min from the cron
+sidecar), so it is outside the nightly window, yields to a running pass, and covers fast-lane promotes and
+hand-adds too (it reads the baskets, not the queue). Per company, under its W1 lock (a held company waits for
+the next run). Polygon: ONE market-wide pull from 2024-10-01 per day (the pages are cached per market day),
+and only when some member needs a fill. A company whose SEC index or a filing in a split's window could not be
+read is marked INCOMPLETE and retried, at most 3 runs. With no `POLYGON_API_KEY` nothing is filled or marked.
+The migration SEEDS the S1 backfill's own coverage (the roster of every live thesis's basket snapshot at the
+backfill's apply instant, plus every company with a backfill version), and `backfill_splits --apply` from
+2024-10-01 marks what it covers — so neither is re-filled. `python -m pipeline.split_history` dry-runs it
+(`--status` lists who needs one, `--apply` runs it under the onboarding job's lock).
+
 ### The tape monitor, part 3 — price-feed repairs: renamed, unpriceable, expected 404s (T2 + Q8 + T3, 2026-10-17)  `[BUILT]`
 
 T1 classifies a stopped price tape **closed**, **renamed** or a **feed gap** (see "Known gaps" below). This

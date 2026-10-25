@@ -16,10 +16,16 @@ every non-archived thesis):
    Each is read ONCE as its full submission (``forms/<accession>/<accession>.txt`` — immutable, cached
    forever) through the existing EDGAR client — its rate limit (``SEC_RATE_PER_SEC``, well under SEC's 10/s),
    its declared User-Agent, its cache — and the pure extractor (``ingest/edgar/split_filing.py``) reads the
-   ratio, the first session and the located passage. The request carries a CIK and an accession only.
+   ratio, the first session and the located passage, as ``screen_of`` says (a 6-K or a charter 8-K through the
+   RESTATEMENT screen, a catch-all 8-K through the catch-all screen). The request carries a CIK and an
+   accession only.
 3. **Match** — ``domain.splits.decide``: confirmed (``auto:sec+polygon``) only when both sources agree
    exactly on the ratio and on the date; announced when that agreement points to a future session; every
-   other case ``needs_review`` with both sources' evidence on the row. Never a guessed value.
+   other case ``needs_review`` with both sources' evidence on the row. Never a guessed value. A split whose
+   window holds no agreeing filing gets ONE more look (the TARGETED WIDE-FORM READER, ``WIDE_FORMS``): the
+   company's periodic reports, ADR registrations, prospectuses and information statements filed
+   ``[first session - 60, + 120]`` days — a periodic report from its primary document alone — each through the
+   restatement screen; one that agrees exactly confirms it by the same rule, otherwise the note names them.
 4. **Plan** against the stored list: a split not on it yet is APPENDED; one whose newest version the
    backfill wrote and whose content is unchanged is left alone (``unchanged``); one whose evidence changed
    gets a new backfill version; one whose newest version the OPERATOR wrote is never touched
@@ -36,6 +42,9 @@ SAFETY (the ``pipeline/repair_benchmark_bars.py`` conventions):
   and after) before it commits.
 - **Idempotent**: a re-run on the same inputs plans 0 appends.
 - **The off switch**: with no ``POLYGON_API_KEY`` it fetches nothing and writes nothing.
+- **The split-history marker**: an ``--apply`` from ``DEFAULT_SINCE`` (or earlier) records every member it
+  covered in ``security_split_history`` (migration 0067), so the newcomer fill (``pipeline/split_history.py``,
+  which runs this same backfill for a company that joins a basket) never re-fills them.
 
     python -m pipeline.backfill_splits                      # dry run (default)
     python -m pipeline.backfill_splits --apply              # append the planned versions
@@ -77,12 +86,18 @@ from ingest import CacheMiss
 from ingest.edgar import split_filing
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.form8k import filing_index_url
-from ingest.edgar.split_filing import SplitExtraction, extract_split, submission_documents
+from ingest.edgar.split_filing import (
+    FilingDocument,
+    SplitExtraction,
+    extract_split,
+    extract_split_screened,
+    submission_documents,
+)
 from ingest.edgar.submissions import fetch_submissions, parse_item_codes
 from ingest.polygon_splits import PolygonSplitsError, PolygonSplitSource, default_split_source
 from pipeline.run_lock import EXIT_ALREADY_RUNNING, PassAlreadyRunning, acquire_pass_lock
 from pipeline.split_basis import _UNION
-from repositories import data_repair_repo, split_repo
+from repositories import data_repair_repo, split_history_repo, split_repo
 from repositories.split_repo import AUTHOR_BACKFILL, SplitVersion, content_of, decision_values
 
 _log = logging.getLogger("alphadeck.backfill_splits")
@@ -99,8 +114,59 @@ CHARTER_8K_ITEMS = frozenset({"3.03", "5.03"})
 CATCH_ALL_8K_ITEMS = frozenset({"7.01", "8.01"})
 SPLIT_8K_ITEMS = CHARTER_8K_ITEMS | CATCH_ALL_8K_ITEMS
 _8K_FORMS = frozenset({"8-K", "8-K/A"})
-SEC_FORMS = frozenset({"6-K", "6-K/A", "1-A", "1-A/A", "1-A POS", "1-U", *_8K_FORMS})
+_6K_FORMS = frozenset({"6-K", "6-K/A"})
+SEC_FORMS = frozenset({*_6K_FORMS, "1-A", "1-A/A", "1-A POS", "1-U", *_8K_FORMS})
 SEC_RATE_PER_SEC = 4.0
+
+# THE TARGETED WIDE-FORM READER (2026-10-24). A split whose S1 window holds no agreeing filing (Polygon only, or
+# a filing that disagrees) gets ONE more look for its second source, in the company's periodic reports, ADR
+# registrations, prospectuses and information statements filed ``[first session - 60, + 120]`` days: MEASURED on
+# prod's list 2026-10-24, 7 operator-confirmed splits are stated ONLY there (LGHL x3 in F-6 POS / 424B3 filings,
+# OPTH's 424B4, HTHIY's F-6, MVNC's DEF 14C, SDCO's 10-K) and DFNS's 10-Q states its 1-for-125 and first session.
+# Only for such a split, never nightly for every company: MEASURED, reading these forms for every company would
+# cost ~1.7 GB of documents a month; targeted, the whole list's 48 splits lacking agreement select 108 filings
+# (``PRIMARY_ONLY_FORMS`` keeps the periodic reports' share small), and a few a month after.
+# A wide form is a CONFIRMATION SEARCH: it settles the split when it agrees exactly (S1's rule, unchanged); when
+# none does, the split's decision stays what its own window gave and the note names what the wide forms state.
+# Every wide form is read through the restatement screen (``split_filing.extract_split_screened``).
+WIDE_FORMS = frozenset(
+    {
+        "10-Q",
+        "10-Q/A",
+        "10-K",
+        "10-K/A",
+        "20-F",
+        "20-F/A",
+        "40-F",
+        "40-F/A",
+        "F-6",
+        "F-6/A",
+        "F-6 POS",
+        "F-6EF",
+        "424B3",
+        "424B4",
+        "DEF 14C",
+        "PRE 14C",
+    }
+)
+WIDE_WINDOW_BEFORE_DAYS = 60
+WIDE_WINDOW_AFTER_DAYS = 120
+# A periodic report is read from its PRIMARY document alone (the notes state a split; the rest of the submission
+# is XBRL and exhibits): MEASURED 2026-10-24 on the 7 cached ones, the full submission is 5x to 65x the primary
+# document (DGNX's 20-F: 224.6 MB vs 3.5 MB). Over the list's 48 splits lacking agreement the reader selects 108
+# wide filings, 952 MB as full submissions — 864 MB of it the 53 periodic reports. The other wide forms (F-6 /
+# F-6 POS, 424B3 / 424B4, DEF / PRE 14C) are small and may state the ratio in an exhibit, so they are read whole.
+PRIMARY_ONLY_FORMS = frozenset(
+    {"10-Q", "10-Q/A", "10-K", "10-K/A", "20-F", "20-F/A", "40-F", "40-F/A"}
+)
+
+# How each filing is read (``screen_of``): the catch-all 8-K screen (8.01 / 7.01 only, 2026-10-23), the
+# RESTATEMENT screen (6-Ks, charter 8-Ks, an 8-K whose items are not resolved, every wide form — 2026-10-24), or
+# no screen (Reg A).
+SCREEN_NONE = "none"
+SCREEN_CATCH_ALL = "catch_all"
+SCREEN_RESTATED = "restated"
+SCREEN_WIDE = "wide"
 
 APPEND = "append"
 UNCHANGED = "unchanged"
@@ -126,6 +192,9 @@ class FilingRef:
     form: str
     filed: date
     items: tuple[str, ...] | None
+    primary: str | None = (
+        None  # the primary document's file name (a wide periodic report reads it alone)
+    )
 
 
 @dataclass
@@ -139,6 +208,8 @@ class PlannedSplit:
     changed: tuple[str, ...] = ()
     filings_read: int = 0
     filings_unread: int = 0
+    wide_read: int = 0
+    wide_unread: int = 0
 
     @property
     def values(self) -> dict[str, Any]:
@@ -231,6 +302,36 @@ def _window(execution: date) -> tuple[date, date]:
     )
 
 
+def wide_window(execution: date) -> tuple[date, date]:
+    """The targeted reader's filing-date window around a split's first session."""
+    return execution - timedelta(days=WIDE_WINDOW_BEFORE_DAYS), execution + timedelta(
+        days=WIDE_WINDOW_AFTER_DAYS
+    )
+
+
+def _wide_filings(submissions: dict[str, Any], lo: date, hi: date) -> list[FilingRef]:
+    """The company's WIDE forms (``WIDE_FORMS``) filed in ``[lo, hi]``, from its submissions index."""
+    recent = submissions.get("filings", {}).get("recent", {})
+    forms = recent.get("form", [])
+    accns = recent.get("accessionNumber", [])
+    dates = recent.get("filingDate", [])
+    primaries = recent.get("primaryDocument", [])
+    out = []
+    for i, f in enumerate(forms):
+        if f not in WIDE_FORMS:
+            continue
+        try:
+            filed = date.fromisoformat(dates[i])
+        except (IndexError, ValueError):
+            continue
+        if lo <= filed <= hi:
+            primary = primaries[i] if i < len(primaries) and primaries[i] else None
+            out.append(
+                FilingRef(accession=accns[i], form=f, filed=filed, items=None, primary=primary)
+            )
+    return out
+
+
 def _corporate_events(conn: psycopg.Connection, m: Member, lo: date, hi: date) -> list[FilingRef]:
     """The 8-Ks the nightly stored for this security in the window, newest version per accession, carrying a
     split item."""
@@ -301,6 +402,11 @@ def _filing_url(cik: str, accession: str) -> str:
     return f"{get_settings().sec_archives_base}/{int(cik)}/{nodash}/{accession}.txt"
 
 
+def _document_url(cik: str, accession: str, filename: str) -> str:
+    nodash = accession.replace("-", "")
+    return f"{get_settings().sec_archives_base}/{int(cik)}/{nodash}/{filename}"
+
+
 # The extractor's identity for the extraction MEMO (``read_filing(memo_dir=...)``): a hash of its source, so any
 # change to the patterns re-reads every filing instead of serving a stale reading.
 EXTRACTOR_VERSION = hashlib.sha1(Path(split_filing.__file__).read_bytes()).hexdigest()[:12]
@@ -358,32 +464,80 @@ def catch_all(ref: FilingRef) -> bool:
     3.03 / 5.03)? Its dates are then screened against its filing date (``extract_split(filed=...)``): MEASURED
     2026-10-23 on the basket, of the 852 such 8-Ks the wider item set reads, 47 mention a split ratio and four
     of those state a PAST split with its old date (AIRE, ASST, NAKA, CURLD — 123 to 266 days before the filing);
-    AIRE's would have been listed as a new split. A 3.03 / 5.03 8-K, a 6-K or a Reg A form is read without
-    this screen, as before (an 8-K whose items are not resolved yet too)."""
+    AIRE's would have been listed as a new split."""
     return (
         ref.form in _8K_FORMS and bool(ref.items) and not (CHARTER_8K_ITEMS & set(ref.items or ()))
     )
 
 
+def screen_of(ref: FilingRef) -> str:
+    """How a filing is read (the ``SCREEN_*`` constants):
+
+    - a WIDE form -> the restatement screen with the wide forms' own documents kept (``SCREEN_WIDE``);
+    - a catch-all 8-K (``catch_all``) -> the catch-all screen, unchanged since 2026-10-23;
+    - a 6-K, a charter 8-K (3.03 / 5.03) or an 8-K whose items are not resolved -> the RESTATEMENT screen
+      (2026-10-24, ``split_filing.extract_split_screened``): it only ever REMOVES — a date more than 90 days
+      before the filing, or a ratio the text dates there — and leaves a reading with a current date exactly as
+      it was. MEASURED over all 1,139 cached basket 6-Ks: applying the catch-all screen to 6-Ks unchanged gave
+      five a wrong date or ratio (CMND, CPOP, PBM, KXIN, RDY); this one changes none of the 39 splits
+      auto-confirmed from a 6-K. It fixes WSHP's and LGHL's restated old splits, and MEDS's mistyped date;
+    - a Reg A form -> no screen (as before)."""
+    if ref.form in WIDE_FORMS:
+        return SCREEN_WIDE
+    if catch_all(ref):
+        return SCREEN_CATCH_ALL
+    if ref.form in _6K_FORMS or ref.form in _8K_FORMS:
+        return SCREEN_RESTATED
+    return SCREEN_NONE
+
+
+def extract_for(documents: list[FilingDocument], ref: FilingRef) -> SplitExtraction:
+    """The extraction of one filing's documents, read as ``screen_of`` says. Pure."""
+    screen = screen_of(ref)
+    if screen == SCREEN_CATCH_ALL:
+        return extract_split(documents, filed=ref.filed)
+    if screen in (SCREEN_RESTATED, SCREEN_WIDE):
+        return extract_split_screened(documents, filed=ref.filed, wide=screen == SCREEN_WIDE)
+    return extract_split(documents)
+
+
+# the extraction memo's tag per screen (a catch-all reading is keyed apart: its items may resolve after a first
+# read without them, and a 6-K read before the restatement screen is never served for one read with it)
+_MEMO_TAG = {
+    SCREEN_NONE: "",
+    SCREEN_CATCH_ALL: ".catchall",
+    SCREEN_RESTATED: ".restated",
+    SCREEN_WIDE: ".wide",
+}
+
+
 def read_filing(
     client: EdgarClient, cik: str, ref: FilingRef, *, memo_dir: Path | None = None
 ) -> SecEvidence:
-    """Fetch one filing's full submission through the EDGAR client and extract its split statement (a
-    catch-all 8-K with its filing date — ``catch_all``).
+    """Fetch one filing's full submission through the EDGAR client and extract its split statement, read as
+    ``screen_of`` says (``extract_for``).
 
     ``memo_dir`` (the nightly, S4): the extraction of an immutable filing by this exact extractor
     (``EXTRACTOR_VERSION``) is kept as a small JSON there and served instead of re-reading the document —
-    MEASURED 2026-10-22: re-reading 953 cached filings took ~150 s of a pass. A catch-all reading is keyed
-    apart (its items may resolve after a first read without them)."""
-    screened = catch_all(ref)
-    tag = ".catchall" if screened else ""
+    MEASURED 2026-10-22: re-reading 953 cached filings took ~150 s of a pass. Each screen's reading is keyed
+    apart (``_MEMO_TAG``)."""
+    tag = _MEMO_TAG[screen_of(ref)]
     memo = memo_dir / f"{ref.accession}.{EXTRACTOR_VERSION}{tag}.json" if memo_dir else None
     x = _memo_load(memo) if memo is not None and memo.exists() else None
     if x is None:
-        raw = client.get_text(
-            _filing_url(cik, ref.accession), f"forms/{ref.accession}/{ref.accession}.txt"
-        )
-        x = extract_split(submission_documents(raw), filed=ref.filed if screened else None)
+        if ref.form in PRIMARY_ONLY_FORMS and ref.primary:
+            # a wide periodic report: its primary document alone, typed as its form
+            raw = client.get_text(
+                _document_url(cik, ref.accession, ref.primary),
+                f"forms/{ref.accession}/{ref.primary}",
+            )
+            docs = [FilingDocument(type=ref.form, filename=ref.primary, raw=raw)]
+        else:
+            raw = client.get_text(
+                _filing_url(cik, ref.accession), f"forms/{ref.accession}/{ref.accession}.txt"
+            )
+            docs = submission_documents(raw)
+        x = extract_for(docs, ref)
         if memo is not None:
             _memo_save(memo, x)
     return SecEvidence(
@@ -448,6 +602,14 @@ class SecReader:
                 refs.setdefault(r.accession, r)
         return refs
 
+    def wide_refs(self, m: Member, lo: date, hi: date) -> dict[str, FilingRef]:
+        """The company's WIDE forms filed in ``[lo, hi]`` (the targeted reader, ``WIDE_FORMS``), from its
+        submissions index (``{}`` with no CIK or no readable index)."""
+        subs = self.index(m) if m.cik else None
+        if subs is None:
+            return {}
+        return {r.accession: r for r in _wide_filings(subs, lo, hi)}
+
     def read(self, m: Member, refs: dict[str, FilingRef]) -> tuple[list[SecEvidence], int]:
         """``(read, unread)`` over ``refs`` in accession order."""
         read: list[SecEvidence] = []
@@ -472,6 +634,72 @@ class SecReader:
         return read, unread
 
 
+@dataclass(frozen=True)
+class GroupDecision:
+    """S1's verdict for one Polygon date (``decide_polygon_group``): the decision, the filings read in the S1
+    window (``read`` / ``unread`` — what the tape rule and the counts weigh) and, apart, the WIDE forms the
+    targeted reader read (``wide_read`` / ``wide_unread``; empty unless the window held no agreement).
+    """
+
+    decision: SplitDecision
+    read: list[SecEvidence]
+    unread: int
+    wide_read: list[SecEvidence] = field(default_factory=list)
+    wide_unread: int = 0
+
+
+def _wide_said(s: SecEvidence) -> str:
+    what = (
+        ratio_label(s.ratio_from, s.ratio_to)  # type: ignore[arg-type]
+        if s.has_ratio
+        else f"no ratio ({s.abstain_reason})"
+    )
+    when = (
+        f"{'first session' if s.date_kind == 'trading' else 'effective'} {s.effective_date.isoformat()}"
+        if s.effective_date
+        else "no date"
+    )
+    return f"{s.form} {s.accession} (filed {s.filed.isoformat()}): {what}, {when}"
+
+
+def _wide_note(read: list[SecEvidence], unread: int) -> str:
+    """What the wide forms stated when none agreed — the located evidence for the operator, in the note only
+    (the decision keeps its own window's evidence: a restated or undated wide reading is never attached).
+    """
+    if not read:
+        return f" Wide forms: {unread} could not be read."
+    talk = [s for s in read if s.about_a_split]
+    parts = [f" Wide forms read: {len(read)}" + (f" ({unread} unread)" if unread else "")]
+    if talk:
+        shown = "; ".join(_wide_said(s) for s in talk[:3])
+        more = f"; +{len(talk) - 3} more" if len(talk) > 3 else ""
+        parts.append(f", none agrees — {shown}{more}.")
+    else:
+        parts.append(", none states a split.")
+    return "".join(parts)
+
+
+def with_wide(
+    d: SplitDecision,
+    poly: PolygonEvidence,
+    read: list[SecEvidence],
+    unread: int,
+    wide_read: list[SecEvidence],
+    wide_unread: int,
+    *,
+    asof: date,
+) -> SplitDecision:
+    """THE CONFIRMATION SEARCH (pure): a needs-review decision re-decided with the wide forms added — kept when
+    a wide form now agrees exactly (confirmed / announced by S1's own ``decide``); otherwise the decision its
+    own window gave, with the wide forms' readings named in the note."""
+    if d.status != STATUS_NEEDS_REVIEW or not (wide_read or wide_unread):
+        return d
+    settled = decide(poly, read + wide_read, asof=asof, unread=unread)
+    if settled.status != STATUS_NEEDS_REVIEW:
+        return settled
+    return replace(d, note=d.note + _wide_note(wide_read, wide_unread))
+
+
 def decide_polygon_group(
     conn: psycopg.Connection,
     reader: SecReader,
@@ -479,14 +707,23 @@ def decide_polygon_group(
     group: list[PolygonEvidence],
     *,
     asof: date,
-) -> tuple[SplitDecision, list[SecEvidence], int]:
+) -> GroupDecision:
     """S1's verdict for one member's Polygon rows on one date: every SEC filing in the row's window read,
     ``domain.splits.decide``, and the notes for a missing index / CIK and for Polygon listing different ratios
-    on the date. ``(decision, filings read, unread count)``."""
+    on the date. When the window holds no agreeing filing, the TARGETED WIDE-FORM READER looks once more
+    (``WIDE_FORMS`` filed in ``wide_window``): a wide form that agrees exactly settles it by the same rule;
+    otherwise the decision stands and its note names what the wide forms said."""
     poly = group[0]
     lo, hi = _window(poly.execution_date)
     read, unread = reader.read(m, reader.refs(conn, m, lo, hi))
     d = decide(poly, read, asof=asof, unread=unread)
+    wide_read: list[SecEvidence] = []
+    wide_unread = 0
+    if d.status == STATUS_NEEDS_REVIEW and m.cik:
+        wide = reader.wide_refs(m, *wide_window(poly.execution_date))
+        if wide:
+            wide_read, wide_unread = reader.read(m, wide)
+            d = with_wide(d, poly, read, unread, wide_read, wide_unread, asof=asof)
     if m.cik and reader.submissions.get(m.cik) is None:
         d = replace(d, note=d.note + " The company's SEC filing index could not be read.")
     if not m.cik:
@@ -500,7 +737,7 @@ def decide_polygon_group(
             value_source=SOURCE_POLYGON,
             note=d.note + f" Polygon lists {len(group)} different ratios on this date ({listed}).",
         )
-    return d, read, unread
+    return GroupDecision(d, read, unread, wide_read, wide_unread)
 
 
 # how far apart (calendar days) two listings of the same ratio on one security are still ONE split
@@ -555,61 +792,47 @@ def _conflicting(group: list[PolygonEvidence]) -> bool:
     )
 
 
-def backfill_splits(
+def plan_members(
     conn: psycopg.Connection,
+    reader: SecReader,
+    matched: dict[Member, list[PolygonEvidence]],
     *,
-    polygon: PolygonSplitSource,
-    edgar: EdgarClient,
-    since: date = DEFAULT_SINCE,
-    asof: date | None = None,
-    apply: bool = False,
-    allow_live: bool = True,
-    tickers: Iterable[str] | None = None,
-) -> BackfillResult:
-    """Plan (and with ``apply`` append) the split list — the module docstring. With ``apply`` the caller
-    holds the run lock; this function commits its one transaction (or rolls it back and raises)."""
-    asof = asof or market_today()
-    result = BackfillResult(since=since, asof=asof)
-    members = union_members(conn, tickers=tickers)
-    result.members = len(members)
-    pull = polygon.splits_since(since, allow_live=allow_live)
-    result.polygon_rows, result.polygon_pages, result.polygon_skipped = (
-        len(pull.rows),
-        pull.pages,
-        pull.skipped,
-    )
-    matched = match_polygon(pull.rows, members)
-    result.polygon_matched = sum(len(v) for v in matched.values())
-
-    fetches_before = edgar.live_fetches
-    reader = SecReader(edgar)
+    asof: date,
+) -> list[PlannedSplit]:
+    """S1's decision for every Polygon date of every member in ``matched`` (``decide_polygon_group``), each a
+    ``PlannedSplit`` still to be planned against the stored list (``plan_against_stored``). Reads only.
+    """
     planned: list[PlannedSplit] = []
     for m in sorted(matched, key=lambda m: ((m.ticker or ""), str(m.security_id))):
         if m.cik:
             reader.index(m)
         for group in _group(matched[m]):
-            d, read, unread = decide_polygon_group(conn, reader, m, group, asof=asof)
+            g = decide_polygon_group(conn, reader, m, group, asof=asof)
             planned.append(
                 PlannedSplit(
                     member=m,
-                    decision=d,
+                    decision=g.decision,
                     stored=None,
                     action=APPEND,
-                    filings_read=len(read),
-                    filings_unread=unread,
+                    filings_read=len(g.read),
+                    filings_unread=g.unread,
+                    wide_read=len(g.wide_read),
+                    wide_unread=g.wide_unread,
                 )
             )
-    result.submissions_failed = dict(reader.submissions_failed)
-    result.sec_live_fetches = edgar.live_fetches - fetches_before
+    return planned
 
-    # plan against the stored list (the newest version of each split, per tenant). A split is found by
-    # ``match_stored`` — its key date, else the same Polygon row / SEC filing / ratio within days — so a split
-    # the nightly detector (S4) listed first under the SEC filing's date is never listed a second time here.
-    stored_by_sec: dict[UUID, list[SplitVersion]] = defaultdict(list)
-    for tenant in {m.tenant_id for m in members}:
-        for v in split_repo.latest_versions(conn, tenant_id=tenant):
-            stored_by_sec[v.security_id].append(v)
-    member_ids = {m.security_id for m in members}
+
+def plan_against_stored(
+    planned: list[PlannedSplit], stored_by_sec: dict[UUID, list[SplitVersion]]
+) -> set[tuple[UUID, date]]:
+    """Each planned split against the stored list (the newest version of each split): a split not on it is
+    APPENDED; one whose newest version the backfill wrote is UNCHANGED or re-versioned when its content
+    changed; one the operator (or the nightly detector) wrote is kept. A split is found by ``match_stored`` —
+    its key date, else the same Polygon row / SEC filing / ratio within days — so a split the nightly detector
+    (S4) listed first under the SEC filing's date is never listed a second time. Sets each plan's ``stored`` /
+    ``action`` / ``changed`` in place; returns the stored ``(security, key date)`` pairs it matched. Pure.
+    """
     seen: set[tuple[UUID, date]] = set()
     for p in planned:
         v = match_stored(p.decision, stored_by_sec.get(p.member.security_id, []))
@@ -633,6 +856,78 @@ def backfill_splits(
                     for c, a, b in zip(split_repo.CONTENT_COLUMNS, new, old, strict=True)
                     if a != b
                 )
+    return seen
+
+
+def append_planned(
+    conn: psycopg.Connection, todo: list[PlannedSplit], *, count_of: Any = None
+) -> tuple[int, int, datetime | None]:
+    """Append every planned version as the backfill's (``split_repo.append_version``) and verify the TABLE
+    grew by exactly the plan — ``count_of(conn)`` before and after (default: the whole table). Raises (the
+    caller rolls back) on a mismatch; the CALLER commits. ``(rows before, rows after, recorded_at)``.
+    """
+    count = count_of or split_repo.count_rows
+    before = count(conn)
+    stamp: datetime | None = None
+    for p in todo:
+        v = split_repo.append_version(
+            conn,
+            tenant_id=p.member.tenant_id,
+            security_id=p.member.security_id,
+            key_date=p.decision.key_date,
+            values=p.values,
+            action=split_repo.ACTION_BACKFILL,
+            author=AUTHOR_BACKFILL,
+        )
+        stamp = v.recorded_at
+    after = count(conn)
+    if after - before != len(todo):
+        raise RuntimeError(
+            f"the split list grew by {after - before} rows, the plan was {len(todo)} — rolled back"
+        )
+    return before, after, stamp
+
+
+def backfill_splits(
+    conn: psycopg.Connection,
+    *,
+    polygon: PolygonSplitSource,
+    edgar: EdgarClient,
+    since: date = DEFAULT_SINCE,
+    asof: date | None = None,
+    apply: bool = False,
+    allow_live: bool = True,
+    tickers: Iterable[str] | None = None,
+) -> BackfillResult:
+    """Plan (and with ``apply`` append) the split list — the module docstring. With ``apply`` the caller
+    holds the run lock; this function commits its one transaction (or rolls it back and raises) and, in it,
+    records the split history of every member it covered as filled (``security_split_history``, source
+    ``cli`` — a run from ``DEFAULT_SINCE`` or earlier only)."""
+    asof = asof or market_today()
+    result = BackfillResult(since=since, asof=asof)
+    members = union_members(conn, tickers=tickers)
+    result.members = len(members)
+    pull = polygon.splits_since(since, allow_live=allow_live)
+    result.polygon_rows, result.polygon_pages, result.polygon_skipped = (
+        len(pull.rows),
+        pull.pages,
+        pull.skipped,
+    )
+    matched = match_polygon(pull.rows, members)
+    result.polygon_matched = sum(len(v) for v in matched.values())
+
+    fetches_before = edgar.live_fetches
+    reader = SecReader(edgar)
+    planned = plan_members(conn, reader, matched, asof=asof)
+    result.submissions_failed = dict(reader.submissions_failed)
+    result.sec_live_fetches = edgar.live_fetches - fetches_before
+
+    stored_by_sec: dict[UUID, list[SplitVersion]] = defaultdict(list)
+    for tenant in {m.tenant_id for m in members}:
+        for v in split_repo.latest_versions(conn, tenant_id=tenant):
+            stored_by_sec[v.security_id].append(v)
+    member_ids = {m.security_id for m in members}
+    seen = plan_against_stored(planned, stored_by_sec)
     stored = {(v.security_id, v.key_date): v for vs in stored_by_sec.values() for v in vs}
     result.stored_not_seen = sum(
         1 for k in stored if k not in seen and (tickers is None or k[0] in member_ids)
@@ -643,23 +938,17 @@ def backfill_splits(
         return result
     todo = [p for p in planned if p.action == APPEND]
     try:
-        before = split_repo.count_rows(conn)
-        stamp: datetime | None = None
-        for p in todo:
-            v = split_repo.append_version(
+        before, after, stamp = append_planned(conn, todo)
+        if since <= DEFAULT_SINCE:
+            # the split history of every member this run covered is filled (``pipeline/split_history.py``
+            # never re-fills it); a run from a later ``--since`` is a partial history and marks nothing
+            split_history_repo.mark_many(
                 conn,
-                tenant_id=p.member.tenant_id,
-                security_id=p.member.security_id,
-                key_date=p.decision.key_date,
-                values=p.values,
-                action=split_repo.ACTION_BACKFILL,
-                author=AUTHOR_BACKFILL,
-            )
-            stamp = v.recorded_at
-        after = split_repo.count_rows(conn)
-        if after - before != len(todo):
-            raise RuntimeError(
-                f"the split list grew by {after - before} rows, the plan was {len(todo)} — rolled back"
+                ((m.tenant_id, m.security_id) for m in members),
+                since=since,
+                source=split_history_repo.SOURCE_CLI,
+                polygon_splits=_count_by_member(planned),
+                appended=_count_by_member(todo),
             )
         conn.commit()
     except BaseException:
@@ -670,6 +959,13 @@ def backfill_splits(
     result.rows_before, result.rows_after = before, after
     result.recorded_at = stamp
     return result
+
+
+def _count_by_member(planned: Iterable[PlannedSplit]) -> dict[UUID, int]:
+    out: dict[UUID, int] = defaultdict(int)
+    for p in planned:
+        out[p.member.security_id] += 1
+    return dict(out)
 
 
 # --- the report ----------------------------------------------------------------------------------------------

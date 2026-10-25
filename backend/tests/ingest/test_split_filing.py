@@ -7,6 +7,7 @@ different first sessions give no date."""
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from decimal import Decimal
 
@@ -15,10 +16,11 @@ import pytest
 from ingest.edgar.split_filing import (
     FilingDocument,
     extract_split,
+    extract_split_screened,
     relevant_documents,
     submission_documents,
 )
-from tests.split_fixtures import documents
+from tests.split_fixtures import FX, documents, filing, primary_document
 
 # (fixture, old shares, new shares, first session / effective date, date kind, a phrase of the passage)
 REAL = [
@@ -462,3 +464,243 @@ def test_a_run_on_cover_sentence_is_cut_to_a_verbatim_window():
     date_part = x.passage.split(" … ")[-1]
     assert date_part.startswith("[…] ") and "Effective on July 6, 2026" in date_part
     assert len(date_part) < 560
+
+
+# --- 2026-10-24: the readings the split list got wrong, the restatement screen, the wide forms ----------------
+#
+# Every filing below is REAL (``tests/fixtures/splits/README.md``), trimmed so that it extracts identically to
+# the full submission under every reading — this branch's AND the 2026-10-23 reader's — checked when trimmed.
+
+
+def filed_of(name: str) -> date:
+    """The filing's own date (its SGML header's FILED AS OF DATE)."""
+    m = re.search(r"FILED AS OF DATE:\s*(\d{4})(\d\d)(\d\d)", filing(name))
+    assert m, name
+    return date(int(m[1]), int(m[2]), int(m[3]))
+
+
+def test_znb_reads_with_effect_from_never_the_meeting_date():
+    """ZNB's 6-K of 2026-08-25 (an EGM notice) ratifies a 1-for-8 consolidation "with effect from 27 July 2026"
+    and proposes a second. Its charter exhibit (EX-99.4) opens "Adopted by special resolution passed at
+    extraordinary general meeting of shareholders of the Company held on 10 September 2026 … being the opening of
+    trading on the Market Effective Date" — read as the first TRADING session until now. A meeting date never
+    dates a split, and "with effect from" is a legal cue: 1-for-8, effective 2026-07-27 (Polygon's date).
+    """
+    docs = documents("0001213900-26-093515.txt")
+    x = extract_split(docs)
+    assert (x.ratio_from, x.ratio_to) == (Decimal(8), Decimal(1))
+    assert (x.effective_date, x.date_kind) == (date(2026, 7, 27), "legal")
+    assert "with effect from 27 July 2026" in x.passage
+    # the restatement screen leaves it (the date is 29 days before the filing — current)
+    assert extract_split_screened(docs, filed=filed_of("0001213900-26-093515.txt")) == x
+
+
+def test_dfns_reads_the_ratio_its_8k_revises_to():
+    """DFNS's 8-K of 2026-07-16 restates the 1-for-50 "as disclosed on the Current Report on Form 8-K filed …
+    on July 13, 2026" and then "has determined to increase the amount of the reverse stock split … at a ratio of
+    1-for-125": the revised ratio is the split's (it abstained on "two ratios" until now); the superseded 8-K
+    of 07-13 still reads its own 1-for-50."""
+    x = extract_split(documents("0001213900-26-078551.txt"))
+    assert (x.ratio_from, x.ratio_to) == (Decimal(125), Decimal(1))
+    assert (x.effective_date, x.date_kind) == (date(2026, 7, 20), "trading")
+    assert "superseded:1-for-50" in x.mentions
+    assert "increase the amount of the reverse stock split" in x.passage
+    old = extract_split(documents("0001213900-26-077658.txt"))
+    assert (old.ratio_from, old.ratio_to, old.effective_date) == (
+        Decimal(50),
+        Decimal(1),
+        date(2026, 7, 20),
+    )
+
+
+def test_a_ratio_restated_beside_a_new_one_without_a_revision_still_abstains():
+    """The supersession rule needs BOTH words: a revision AND an earlier disclosure cited for every other ratio.
+    Two ratios with neither stay two ratios (never a pick)."""
+    x = _x(
+        "As previously disclosed, the Board approved a 1-for-10 reverse stock split. The Company effected a "
+        "1-for-20 reverse stock split. The Common Stock will begin trading on a split-adjusted basis on March 2, "
+        "2026."
+    )
+    assert x.abstain_reason.startswith("more than one ratio stated")
+
+
+def test_meds_mistyped_date_is_never_a_confident_date():
+    """MEDS's 8-K of 2026-05-21: "The Reverse Stock Split will become effective … on May 26, 2025" — the filer's
+    typo for 2026 (its press release: "legally take effect … on May 26, 2026"). Read bare it is the first session
+    2025-05-26, a year before the filing; through the restatement screen (a charter 8-K) the date is dropped and
+    nothing replaces it — the ratio stands, the date goes to review beside Polygon's."""
+    docs = documents("0001493152-26-024723.txt")
+    bare = extract_split(docs)
+    assert (bare.ratio_from, bare.effective_date, bare.date_kind) == (
+        Decimal(50),
+        date(2025, 5, 26),
+        "trading",
+    )
+    x = extract_split_screened(docs, filed=filed_of("0001493152-26-024723.txt"))
+    assert (x.ratio_from, x.ratio_to) == (Decimal(50), Decimal(1))
+    assert x.effective_date is None and x.date_kind is None
+    assert x.date_note == (
+        "the stated first session 2025-05-26 is 360 days before the filing (a past split's, or a mistyped "
+        "date); the filing also states 2026-05-26 — no date is taken"
+    )
+    assert "May 26, 2025" in x.passage  # the date set aside is shown, verbatim
+
+
+@pytest.mark.parametrize(
+    ("name", "old"),
+    [("0001493152-26-039876.txt", "4"), ("0001213900-24-111258.txt", "50")],
+    ids=["WSHP", "LGHL"],
+)
+def test_a_6k_restating_an_old_split_never_attaches_its_ratio(name, old):
+    """WSHP's interim results (filed 2026-08-24) restate the pre-IPO 1-for-4 of 2025-10-22 (306 days back) — its
+    own sentence dates it. LGHL's (filed 2024-12-20) state "… the same effect as a one-for-fifty reverse ADS
+    split" with NO date, and the NEXT sentence: "The change in the ADS ratio was effective on July 13, 2023."
+    Read bare each is a split with an old date; through the restatement screen neither date nor ratio stands
+    (the filing-date screen alone kept LGHL's 1-for-50, undated, to attach as "related" to a 2025 split).
+    """
+    docs = documents(name)
+    bare = extract_split(docs)
+    assert bare.ratio_from == Decimal(old) and bare.effective_date is not None
+    x = extract_split_screened(docs, filed=filed_of(name))
+    assert not x.has_ratio and x.effective_date is None
+    assert x.abstain_reason == "only a past split's ratio is stated"
+    assert x.about_a_split  # shown as a filing that talks about a (past) split
+    assert bare.effective_date.isoformat() in x.date_note
+
+
+# MEASURED over all 1,139 cached basket 6-Ks (2026-10-24): applying the catch-all 8-K screen to 6-Ks unchanged
+# gave these five a wrong or stale date / ratio. The restatement screen never makes a reading more confident.
+REGRESSED_BY_THE_CATCH_ALL_SCREEN = [
+    # CMND (filed 2026-03-12): restates its 1-for-40 of 2025-12-15 and an investee's 1-for-6; the one legal date
+    # is an accounting-standards boilerplate's 2026-01-31 — the catch-all screen read 40 -> 1 on 01-31
+    ("0001213900-26-026965.txt", ("40", "1", "2026-01-31"), (None, "2026-01-31")),
+    # CPOP (2026-06-10): a 2023 consolidation and a proxy dated 2026-04-24 — the catch-all screen read 10 -> 1 on
+    # the proxy date (the split's first session is 07-13)
+    ("0001213900-26-067098.txt", ("10", "1", "2026-04-24"), ("10->1", None)),
+    # PBM (2026-01-08): a past 1-for-7.97 and the "250:1 is not exceeded" ceiling — it read the ceiling
+    ("0001213900-26-002516.txt", ("250", "1", None), (None, None)),
+    # KXIN (2026-09-16): restates 60 -> 1 (2024-10-25, also undated) and 15 -> 1 (2026-03-13) — it read 60 -> 1
+    ("0001104659-26-108260.txt", ("60", "1", None), (None, None)),
+    # RDY (2024-11-05): a 1:5 sub-division "effective October 28, 2024" (the record date) beside two fiscal
+    # dates — it read 10-28 (Polygon's first session is 11-05)
+    ("0001575872-24-001124.txt", ("1", "5", "2024-10-28"), ("1->5", None)),
+]
+
+
+def _ratio(x) -> str | None:
+    return f"{x.ratio_from}->{x.ratio_to}" if x.has_ratio else None
+
+
+@pytest.mark.parametrize(
+    ("name", "catch_all", "screened"),
+    REGRESSED_BY_THE_CATCH_ALL_SCREEN,
+    ids=["CMND", "CPOP", "PBM", "KXIN", "RDY"],
+)
+def test_the_restatement_screen_never_resolves_what_the_bare_reading_left_open(
+    name, catch_all, screened
+):
+    docs = documents(name)
+    filed = filed_of(name)
+    bare = extract_split(docs)
+    c = extract_split(docs, filed=filed)  # the catch-all screen, applied to a 6-K: the regression
+    assert (
+        None if c.ratio_from is None else str(c.ratio_from),
+        None if c.ratio_to is None else str(c.ratio_to),
+        c.effective_date.isoformat() if c.effective_date else None,
+    ) == catch_all
+    x = extract_split_screened(docs, filed=filed)
+    assert (_ratio(x), x.effective_date.isoformat() if x.effective_date else None) == screened
+    # never MORE confident than the bare reading: no ratio it lacked, no date it lacked
+    assert not (x.has_ratio and not bare.has_ratio)
+    assert x.effective_date is None or x.effective_date == bare.effective_date
+
+
+def test_cangs_open_card_reads_as_it_did():
+    """CANG's 6-K of 2026-09-03 — the open review card — states "a 10-for-1 share consolidation …, which became
+    effective on July 20, 2026": 45 days before the filing, inside the 90-day line, so the restatement screen
+    leaves the reading exactly as it was (no Polygon row lists it; the operator decides)."""
+    docs = documents("0001493152-26-041303.txt")
+    x = extract_split_screened(docs, filed=filed_of("0001493152-26-041303.txt"))
+    assert x == extract_split(docs)
+    assert (x.ratio_from, x.ratio_to, x.effective_date, x.date_kind) == (
+        Decimal(10),
+        Decimal(1),
+        date(2026, 7, 20),
+        "legal",
+    )
+
+
+def test_every_6k_with_a_current_date_reads_exactly_as_before():
+    """The screen's guarantee, on every 6-K in the fixtures: a reading whose date is at most 90 days before the
+    filing is never touched (every split auto-confirmed from a 6-K has one — MEASURED 2026-10-24: 39 of 39 cached
+    unchanged)."""
+    checked = 0
+    for gz in sorted((FX / "sec").glob("*.txt.gz")):
+        name = gz.name[: -len(".gz")]
+        docs = documents(name)
+        if not docs or not docs[0].type.startswith("6-K"):
+            continue
+        bare = extract_split(docs)
+        filed = filed_of(name)
+        if bare.effective_date is None or (filed - bare.effective_date).days > 90:
+            continue
+        assert extract_split_screened(docs, filed=filed) == bare, name
+        checked += 1
+    assert checked >= 10
+
+
+# --- the wide forms (the targeted reader only) ----------------------------------------------------------------
+
+
+def test_a_wide_forms_own_document_is_read_only_on_the_targeted_path():
+    doc = primary_document("0001185185-26-003604")
+    assert relevant_documents([doc]) == []
+    assert relevant_documents([doc], wide=True) == [doc]
+    assert extract_split([doc]).abstain_reason == "no readable document"
+
+
+def test_dfns_10q_states_its_split_and_its_first_session():
+    """DFNS's 10-Q (filed 2026-08-18, 29 days after): 1-for-125 and the first session 2026-07-20, which agree
+    with Polygon exactly — the second source the 8-K reader missed."""
+    doc = primary_document("0001185185-26-003604")
+    x = extract_split_screened([doc], filed=date(2026, 8, 18), wide=True)
+    assert (x.ratio_from, x.ratio_to) == (Decimal(125), Decimal(1))
+    assert (x.effective_date, x.date_kind) == (date(2026, 7, 20), "trading")
+    assert "1-for-125 Reverse Stock Split" in x.passage
+
+
+@pytest.mark.parametrize(
+    ("acc", "filed", "bare", "screened"),
+    [
+        # MI's 20-F (filed 2026-05-01) restates its 2024 one-for-fifty: read bare, a split effective 2024-04-12
+        ("0001213900-26-050939", date(2026, 5, 1), ("50->1", "2024-04-12"), (None, None)),
+        # OFAL's 10-K (filed 2026-07-14): the 1-for-10 its shareholders approved (no date) beside a 2024
+        # reorganization "Effective on August 29, 2024" — read bare, a split on 2024-08-29
+        ("0001493152-26-033093", date(2026, 7, 14), ("10->1", "2024-08-29"), ("10->1", None)),
+    ],
+    ids=["MI-20F", "OFAL-10K"],
+)
+def test_a_periodic_report_always_goes_through_the_restatement_screen(acc, filed, bare, screened):
+    doc = primary_document(acc)
+    b = extract_split([doc], wide=True)
+    assert (_ratio(b), b.effective_date.isoformat()) == bare
+    x = extract_split_screened([doc], filed=filed, wide=True)
+    assert (_ratio(x), x.effective_date) == screened
+
+
+# --- the meeting date, on a direct input -----------------------------------------------------------------------
+
+
+def test_a_meeting_date_never_makes_its_ratio_a_past_one():
+    """ "approved … at the annual meeting held on January 5, 2026" dates the MEETING: the ratio set there is this
+    filing's split, read with its own first session (it read as a past split's — the meeting is 147 days before
+    the split)."""
+    x = _x(
+        "The 1-for-20 reverse stock split was approved by stockholders at the annual meeting held on January 5, "
+        "2026. The Common Stock will begin trading on a split-adjusted basis at the market open on June 1, 2026."
+    )
+    assert (x.ratio_from, x.ratio_to, x.effective_date) == (
+        Decimal(20),
+        Decimal(1),
+        date(2026, 6, 1),
+    )

@@ -53,6 +53,10 @@ STATUSES = (
 # the statuses an operator has set aside (kept on the list, grayed — WB#2)
 SET_ASIDE = (STATUS_REJECTED, STATUS_REVOKED)
 
+# The extractor's abstain reason for a filing whose every ratio is a PAST split's (``ingest/edgar/split_filing``
+# ``PAST_RATIO_ONLY`` — the same words; this module reads no filing and imports nothing from ingest/).
+PAST_RATIO_ONLY = "only a past split's ratio is stated"
+
 VIA_AUTO = "auto:sec+polygon"
 VIA_OPERATOR = "operator"
 
@@ -438,7 +442,15 @@ def decide(
         if same_ratio(s.ratio_from, s.ratio_to, polygon.split_from, polygon.split_to)  # type: ignore[arg-type]
         or (s.effective_date is not None and date_agreement(s, polygon)[0])
     ]
-    abstained = [s for s in sec if not s.has_ratio and s.about_a_split]
+    # a filing that abstained because every ratio it states is a PAST split's (``PAST_RATIO_ONLY``) restates
+    # older splits: in this split's window (filed at most ``WINDOW_AFTER_DAYS`` after it) it can never be about
+    # this one, so it is never shown as this split's evidence (LGHL's 6-K/A of 2025-03-07 restating its 2023 ADS
+    # change beside the 2025 split)
+    abstained = [
+        s
+        for s in sec
+        if not s.has_ratio and s.about_a_split and s.abstain_reason != PAST_RATIO_ONLY
+    ]
     chosen: SecEvidence | None = None
     if related:
         chosen = min(related, key=gap)
