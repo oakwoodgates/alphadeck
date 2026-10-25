@@ -46,13 +46,13 @@ from domain.insider_amendments import (
     link_amendment,
     norm_cik,
 )
+from ingest.edgar.acceptance import AcceptanceTally, resolve_filing_acceptance, trusted_listed
 from ingest.edgar.form4 import _txn_date, implausible_txn_date, parse_form4
 from ingest.edgar.submissions import (
     filed_on_or_after,
     filings_of,
     form4_doc_url,
     form4_filings,
-    parse_acceptance,
 )
 from ingest.skips import (
     FORM4_OTHER_ISSUER,
@@ -487,11 +487,14 @@ class AmendmentLegResult:
 def accepted_times(filings: Collection[Mapping[str, str]]) -> dict[str, datetime]:
     """``accession -> SEC acceptance`` from enumerated submissions rows (``filings_of``'s shape) — the SAME
     source as the amendment's own ``accepted`` (the R8 linker fix's order test,
-    ``domain.insider_amendments.made_public_after``); an unparseable one is left out (unknown, never a guess).
+    ``domain.insider_amendments.made_public_after``). Request-free: only a listed time the acceptance clock
+    TRUSTS (on its filing date, within EDGAR's hours — ``ingest.edgar.acceptance.trusted_listed``) is kept; an
+    unparseable or untrusted one is left out, so the order test falls back to the filing dates (unknown = keep
+    the candidate, #9) rather than refusing a real original on a time SEC's list pushed past midnight.
     """
     out: dict[str, datetime] = {}
     for f in filings:
-        at = parse_acceptance(f.get("accepted"))
+        at = trusted_listed(f.get("accepted"), f.get("filed"))
         if at is not None:
             out[f["accession"]] = at
     return out
@@ -520,6 +523,7 @@ def ingest_amendments(
     known_skips: Collection[str] | None = None,
     tolerable: Callable[[Exception], bool] | None = None,
     signal_codes: Collection[str] | None = None,
+    acceptance: AcceptanceTally | None = None,
 ) -> tuple[AmendmentLegResult, tuple[IngestSkip, ...]]:
     """The 4/A leg for one security: every 4/A in its submissions feed not already stored is fetched (the
     immutable ``forms/`` cache — a re-run costs no request), parsed, screened, linked and stored. Returns the
@@ -530,7 +534,12 @@ def ingest_amendments(
     Runs AFTER the Form 4 leg, so a 4/A and the original it amends that arrive the same night link against
     each other. The original's filing date comes from the SAME submissions document (``filings_of(subs,
     "4")`` — what ``dateOfOriginalSubmission`` names). Oldest first, so an amendment of an amendment is
-    linked in filing order."""
+    linked in filing order.
+
+    Each 4/A's own ``accepted`` (the record's, its link's, and so its system decision's public instant) is the
+    acceptance clock's (``ingest.edgar.acceptance``): the listed time when it agrees with the filing date,
+    else the filing's header, else the end of the filing date — counted on ``acceptance`` when given.
+    """
     result = AmendmentLegResult()
     skips: list[IngestSkip] = []
     amendments = filings_of(dict(submissions), AMENDMENT_FORM)
@@ -556,6 +565,7 @@ def ingest_amendments(
                 filed: date | None = date.fromisoformat(str(f.get("filed")))
             except ValueError:
                 filed = None
+            resolved = resolve_filing_acceptance(client, cik, f)
             one = ingest_form4a(
                 conn,
                 security_id,
@@ -565,7 +575,7 @@ def ingest_amendments(
                 filed_by_accession=filed_by,
                 accepted_by_accession=accepted_by,
                 filed=filed,
-                accepted=parse_acceptance(f.get("accepted")),
+                accepted=resolved.at,
                 tenant_id=tenant_id,
                 stored=held,
                 signal_codes=codes,
@@ -592,4 +602,6 @@ def ingest_amendments(
                 print(f"  {ticker or security_id} form 4/A {acc} not stored: {why}")
             continue
         result.stored.append(one)
+        if acceptance is not None:
+            acceptance.add(resolved)  # counted once the 4/A is stored
     return result, tuple(skips)

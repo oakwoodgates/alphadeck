@@ -216,6 +216,21 @@ def _accepted(monkeypatch, tmp_path):
     return m, [], ["--execute"], ("backfill_accepted", 5)
 
 
+def _accepted_drift(monkeypatch, tmp_path):
+    """The ``--drift`` mode of the same tool: its rows changed = every version it appended, in all three
+    tables; the provenance path rides on the journal row."""
+    from pipeline import backfill_accepted as m
+
+    item = SimpleNamespace(table="fact_insider_txn", ids=[1, 2], source="header")
+    res = m.DriftResult(executed=True)
+    res.items = [item, SimpleNamespace(table="insider_amendment", ids=[3], source="bound")]
+    monkeypatch.setattr(m, "run_drift", lambda conn, **k: res)
+    monkeypatch.setattr(m, "drift_payload", lambda r: {})
+    monkeypatch.setattr(m, "write_drift_payload", lambda p: tmp_path / "drift.json")
+    _quiet(monkeypatch, m, "_print_drift")
+    return m, ["--drift"], ["--drift", "--execute"], ("backfill_accepted", 3)
+
+
 def _aff10b5_1(monkeypatch, tmp_path):
     from pipeline import backfill_aff10b5_1 as m
 
@@ -241,6 +256,7 @@ TOOLS = {
     "repair_adr_insider_misattribution": _adr,
     "repair_impossible_txn_dates": _impossible,
     "backfill_accepted": _accepted,
+    "backfill_accepted_drift": _accepted_drift,
     "backfill_aff10b5_1": _aff10b5_1,
 }
 DELETES = {

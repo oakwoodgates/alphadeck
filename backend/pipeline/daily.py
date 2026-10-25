@@ -101,6 +101,7 @@ from pipeline.ingest_thesis import (
     NameResult,
     OnboardingWindow,
     ingest_thesis,
+    print_acceptance_line,
     print_held_lines,
     print_split_lines,
     print_withheld_line,
@@ -1993,6 +1994,8 @@ def _report(
     # S2 — the split list's reads (one quiet totals line; a line per divide-back that CHANGED since the last
     # live pass, and per first night), deduped
     print_split_lines((x for r in results for x in r.ingested), previous=split_reads_prev)
+    # the acceptance clock — the new Form 4 / 4/A filings whose listed SEC time was set aside (ONE quiet line)
+    print_acceptance_line(x for r in results for x in r.ingested)
     if skipped:
         # M2 — one quiet line (lowercase, the known-errors convention): the catch-up left these alone
         print(

@@ -343,6 +343,135 @@ def test_with_every_version_visible_the_public_pick_IS_the_record_pick(db, secur
         assert pub and _strip(pub) == _strip(rec), table
 
 
+# --- a re-dated acceptance: the fact's ONE clock, on every version (2026-10-24) -----------------------------
+
+
+def _redated(db, sid, *, stored: datetime, right: datetime, accession: str = "rd-1") -> None:
+    """A Form 4 captured at a WRONG acceptance (v1), then re-dated by the acceptance-clock repair (v2: the
+    filing's own header time, recorded later, same content)."""
+    for rec, acc in [
+        (datetime(2026, 6, 4, tzinfo=timezone.utc), stored),
+        (datetime(2026, 10, 24, tzinfo=timezone.utc), right),
+    ]:
+        append_fact(
+            db,
+            "fact_insider_txn",
+            _insider(
+                sid, accession=accession, valid_from=date(2026, 6, 1), recorded_at=rec, accepted=acc
+            ),
+        )
+    db.commit()
+
+
+def test_a_re_dated_acceptance_moves_every_version_and_the_public_pick_stays_the_record_pick(
+    db, security_id
+):
+    """Captured a night LATE (00:00:20 EDT 06-04 — SEC's drifted list), re-dated to the header (19:00:20 EDT
+    06-03): the fact is visible on 06-03's night, and on every later night the read carries the re-dated
+    instant — the newest statement is the fact's clock on every version, so with every version visible the
+    public pick is still the record pick (v2), never the late v1."""
+    right = _et(date(2026, 6, 3), 19, 0) + timedelta(seconds=20)
+    late = _et(date(2026, 6, 4), 0, 0) + timedelta(seconds=20)
+    _redated(db, security_id, stored=late, right=right)
+    assert (
+        _read(
+            db, "fact_insider_txn", security_id, date(2026, 6, 2), _eod(date(2026, 6, 2)), "public"
+        )
+        == []
+    )
+    (on,) = _read(
+        db, "fact_insider_txn", security_id, date(2026, 6, 3), _eod(date(2026, 6, 3)), "public"
+    )
+    assert on["recorded_at"] == right
+    (after,) = _read(
+        db, "fact_insider_txn", security_id, date(2026, 6, 9), _eod(date(2026, 6, 9)), "public"
+    )
+    assert after["recorded_at"] == right and after["accepted"] == right
+    pub = _read(db, "fact_insider_txn", security_id, date(2026, 10, 1), FAR, "public")
+    rec = _read(db, "fact_insider_txn", security_id, date(2026, 10, 1), FAR, "record")
+    assert _strip(pub) == _strip(rec) and pub[0]["accepted"] == right
+
+
+def test_an_early_capture_is_no_longer_visible_early_once_re_dated(db, security_id):
+    """An old writer's clock stored an acceptance 8 h EARLY — across midnight (22:30 EDT 06-02 for a filing
+    SEC accepted 06:30 EDT 06-03): a LOOKAHEAD on every history view. Once re-dated, NO version is visible
+    before the header's instant — the early v1 carries the fact's (re-dated) clock too."""
+    early = _et(date(2026, 6, 2), 22, 30)
+    right = _et(date(2026, 6, 3), 6, 30)
+    append_fact(
+        db,
+        "fact_insider_txn",
+        _insider(
+            security_id,
+            accession="rd-early",
+            valid_from=date(2026, 6, 1),
+            recorded_at=datetime(2026, 6, 4, tzinfo=timezone.utc),
+            accepted=early,
+        ),
+    )
+    db.commit()
+    night_before = date(2026, 6, 2)
+    # the defect, before the repair: visible the night BEFORE SEC accepted it
+    assert (
+        len(_read(db, "fact_insider_txn", security_id, night_before, _eod(night_before), "public"))
+        == 1
+    )
+    append_fact(
+        db,
+        "fact_insider_txn",
+        _insider(
+            security_id,
+            accession="rd-early",
+            valid_from=date(2026, 6, 1),
+            recorded_at=datetime(2026, 10, 24, tzinfo=timezone.utc),
+            accepted=right,
+        ),
+    )
+    db.commit()
+    assert (
+        _read(db, "fact_insider_txn", security_id, night_before, _eod(night_before), "public") == []
+    )
+    assert (
+        _read(
+            db,
+            "fact_insider_txn",
+            security_id,
+            date(2026, 6, 3),
+            right - timedelta(seconds=1),
+            "public",
+        )
+        == []
+    )
+    (row,) = _read(db, "fact_insider_txn", security_id, date(2026, 6, 3), right, "public")
+    assert row["recorded_at"] == right
+
+
+def test_the_freeze_ceiling_reads_the_acceptance_as_it_stood_at_the_cut(db, security_id):
+    """An edition cut BEFORE the re-dating recomputes on exactly the rows it saw: under the freeze ceiling the
+    newest statement is the newest one HELD at the cut (v1's), so the edition is reproducible."""
+    from psycopg import sql
+
+    from db.public_clock import PUBLIC_COL, public_params, public_versions_sql
+
+    right = _et(date(2026, 6, 3), 19, 0)
+    late = _et(date(2026, 6, 4), 0, 0) + timedelta(seconds=20)
+    _redated(db, security_id, stored=late, right=right)
+
+    def instants(cut: datetime | None) -> set[datetime]:
+        q = public_versions_sql(
+            "fact_insider_txn",
+            where=sql.SQL("tenant_id = %(t)s AND security_id = %(s)s"),
+            ceiling=cut is not None,
+        )
+        with db.cursor() as cur:
+            cur.execute(q, {"t": T, "s": security_id, **public_params(cut)})
+            return {r[PUBLIC_COL] for r in cur.fetchall()}
+
+    assert instants(datetime(2026, 7, 1, tzinfo=timezone.utc)) == {late}  # the cut held v1 only
+    assert instants(None) == {right}  # today: every version at the re-dated instant
+    db.commit()
+
+
 def test_the_basket_read_equals_the_per_security_read_on_the_public_clock(db, security_id):
     _mixed_history(db, security_id)
     for asof in (date(2026, 6, 1), date(2026, 6, 3), date(2026, 6, 5), date(2026, 9, 2)):

@@ -12,7 +12,6 @@ from domain.market_time import known_at_for_asof, market_tz
 from replay import export as export_mod
 from replay.export import (
     _PUBLIC_CLOCK,
-    AmbiguousPublicClock,
     export_snapshot,
 )
 from replay.pit import ReplayPointInTimeData, connect_mirror
@@ -336,14 +335,20 @@ def test_the_scoring_reader_is_not_corrupted_by_the_collapse(db, security_id, tm
         con.close()
 
 
-def test_an_ambiguous_clock_raises_rather_than_guessing(db, security_id, tmp_path):
-    """The assertion behind the NULL-fill. A fact whose versions disagree on the disclosure instant AND
-    include one with none cannot be attributed, so the export FAILS rather than picking. MEASURED: zero
-    such identities exist on the dev copy today — this is the guard for when one appears."""
+def test_a_re_dated_acceptance_is_the_facts_clock_on_every_version(db, security_id, tmp_path):
+    """The NULL-fill NAMES its winner (2026-10-24): the newest stored statement of the acceptance, on every
+    version. The shape the acceptance-clock repair writes — a NULL pre-capture version, the backfilled time
+    (a night late: SEC's list drifted), then the re-dated one — used to raise (two different non-NULL times
+    beside a NULL); now the export keeps ONE row, dated at the re-dated time, and the mirror sees the fact on
+    that night and not before."""
+    right = datetime(2026, 6, 3, 23, 0, 20, tzinfo=timezone.utc)  # 19:00:20 EDT 06-03 (the header)
+    late = datetime(
+        2026, 6, 4, 4, 0, 20, tzinfo=timezone.utc
+    )  # 00:00:20 EDT 06-04 (the drifted list)
     for rec, acc in [
-        (datetime(2026, 6, 4, tzinfo=timezone.utc), datetime(2026, 6, 3, tzinfo=timezone.utc)),
-        (datetime(2026, 6, 5, tzinfo=timezone.utc), datetime(2026, 6, 4, tzinfo=timezone.utc)),
-        (datetime(2026, 6, 6, tzinfo=timezone.utc), None),
+        (datetime(2026, 6, 4, tzinfo=timezone.utc), None),
+        (datetime(2026, 6, 5, tzinfo=timezone.utc), late),
+        (datetime(2026, 10, 24, tzinfo=timezone.utc), right),
     ]:
         append_fact(
             db,
@@ -358,8 +363,24 @@ def test_an_ambiguous_clock_raises_rather_than_guessing(db, security_id, tmp_pat
             ),
         )
     db.commit()
-    with pytest.raises(AmbiguousPublicClock, match="cannot be attributed"):
-        export_snapshot(db, tmp_path, clock="public")
+    m = export_snapshot(db, tmp_path, clock="public")
+    counts = m["tables"]["fact_insider_txn"]
+    assert (counts["rows_out"], counts["identities_lost"]) == (1, 0)
+    con = connect_mirror(tmp_path)
+    try:
+
+        def seen(d: date) -> list:
+            return ReplayPointInTimeData(
+                con, asof=d, known_at=known_at_for_asof(d, now=_PIN)
+            ).insider_txns(security_id)
+
+        assert seen(date(2026, 6, 2)) == []
+        (row,) = seen(date(2026, 6, 3))  # the filing's own night (it was a night late before)
+        assert row["recorded_at"] == right
+        (later,) = seen(date(2026, 6, 10))
+        assert later["recorded_at"] == right  # every version carries the fact's one clock
+    finally:
+        con.close()
 
 
 # --- clock=record is untouched ----------------------------------------------------------------------

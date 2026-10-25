@@ -45,10 +45,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import date, datetime, time, timezone
+from datetime import datetime
 from typing import Any
 
-from ingest.edgar.submissions import parse_acceptance
+from ingest.edgar.acceptance import request_free_acceptance
 
 _MEASURED_FORMS = (
     "10-Q",
@@ -135,17 +135,13 @@ class GateDecision:
 
 
 def _row_instant(accepted: str | None, filing_date: str | None) -> datetime | None:
-    """The instant a submissions row became public: its ``acceptanceDateTime`` (UTC), else the END of its
-    ``filingDate`` (the latest instant the date allows, so a row with no acceptance errs toward DUE), else
-    ``None`` (unknowable)."""
-    at = parse_acceptance(accepted)
-    if at is not None:
-        return at
-    try:
-        d = date.fromisoformat((filing_date or "").strip())
-    except ValueError:
-        return None
-    return datetime.combine(d, time.max, tzinfo=timezone.utc)
+    """The instant a submissions row became public, with NO request (this gate reads the index from disk by
+    design): the acceptance clock's request-free reading (``ingest.edgar.acceptance.request_free_acceptance``)
+    — the earlier of the listed ``acceptanceDateTime`` and the END of the ``filingDate`` in ET, so a listed
+    time SEC's list pushed past its filing date is bounded back to that date, and a row with no acceptance is
+    dated at the latest instant its date allows (errs toward DUE); ``None`` when neither is readable.
+    """
+    return request_free_acceptance(accepted, filing_date)
 
 
 def companyfacts_due(

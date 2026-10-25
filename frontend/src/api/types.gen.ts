@@ -6212,8 +6212,9 @@ export interface components {
          *     honest, where the old single ``disclosed=recorded_at`` field lied "disclosed 326d". ``aff_10b5_1``
          *     (TRUE/FALSE/NULL) flags a Rule 10b5-1 pre-scheduled plan (a note rendered only on an explicit TRUE,
          *     never a different number). Every field traces to a real ``fact_insider_txn`` row; both time axes are
-         *     asof-capped (no-lookahead, #1 — the transaction-time gate keys on ``recorded_at`` like every fact table;
-         *     ``accepted`` is a display/metrics column, never a gate).
+         *     asof-capped (no-lookahead, #1). A LIVE read gates on ``recorded_at``; a past-asof view reads the PUBLIC
+         *     clock (operator decision 2026-10-21), where ``accepted`` IS the row's gate — so a buy shows only once it
+         *     was public, and ``ingested`` stays bookkeeping.
          *
          *     ``character`` is the buy's server-side classification (deterministic field predicates — #3, the same
          *     predicates the NamePanel's open-market screen composes): ``open_market`` means "passed the available

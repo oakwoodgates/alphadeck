@@ -367,11 +367,13 @@ def ingest_form4(
     """Parse a Form 4 and append its transactions to ``fact_insider_txn`` (append-only); the caller
     owns the transaction (no commit here). Returns ``(appended, rejected)``.
 
-    ``accepted`` is the SEC acceptance datetime (the real "disclosed" clock) threaded from the
-    enumeration (``submissions.acceptanceDateTime``, parsed via ``parse_acceptance``) — the ownership XML
-    itself carries no acceptance datetime, so ``parse_form4`` is UNCHANGED and this rides as a per-filing
-    kwarg like ``recorded_at``. ``None`` leaves the column NULL (the read gate/display fall back to
-    ``recorded_at``/"ingested" — recall-safe #9). It is FILING-level, stamped identically on every row.
+    ``accepted`` is the SEC acceptance datetime (the real "disclosed" clock — and, since 2026-10-21, the
+    fact's PUBLIC instant on every history view) threaded from the enumeration
+    (``submissions.acceptanceDateTime``, checked against the filing date by the leg's
+    ``ingest.edgar.acceptance.resolve_acceptance``) — the ownership XML itself carries no acceptance
+    datetime, so ``parse_form4`` is UNCHANGED and this rides as a per-filing kwarg like ``recorded_at``.
+    ``None`` leaves the column NULL (a history view then counts the fact from when we first held it, the
+    display falls back to "ingested" — recall-safe #9). It is FILING-level, stamped identically on every row.
 
     THE SANITY BOUND (P1): a transaction whose date cannot be true (``implausible_txn_date``) is REJECTED —
     never stored, never clamped to a guessed date (#3: a clamp fabricates a fact). Each rejection PRINTS the

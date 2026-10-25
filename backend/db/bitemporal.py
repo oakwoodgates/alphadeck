@@ -346,8 +346,9 @@ def _as_of(
             rows = inputs.resolve(scope_id, rows, asof=asof, lower=None)
         return rows
     ident = sql.SQL(", ").join(sql.Identifier(c) for c in _FACT_IDENTITY[table])
-    # the knowability gate — recorded_at for every table (the strict "what we held" no-lookahead axis;
-    # accepted is a display/metrics column, never a gate); the version-pick ORDER BY is unchanged
+    # the RECORD-clock knowability gate — recorded_at for every table (the strict "what we held" axis; the
+    # live read). A public-clock history read took the branch above, where an insider fact's gate is its
+    # ``accepted`` (``db.public_clock``); the version-pick ORDER BY is unchanged
     knowability = sql.SQL(knowability_expr(table))  # noqa: S608 — hardcoded map, never caller input
     first_knowable = has_first_knowability(table)
     template = (
