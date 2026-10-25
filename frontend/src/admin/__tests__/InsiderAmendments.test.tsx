@@ -193,6 +193,7 @@ const h = vi.hoisted(() => ({
   add: {} as Record<string, unknown>,
   link: {} as Record<string, unknown>,
   revoke: {} as Record<string, unknown>,
+  undoPick: {} as Record<string, unknown>,
 }));
 
 vi.mock("../../api/hooks", () => ({
@@ -202,6 +203,7 @@ vi.mock("../../api/hooks", () => ({
   useAddToOriginal: () => h.add,
   useLinkAmendment: () => h.link,
   useRevokeAmendmentDecision: () => h.revoke,
+  useUndoSystemPick: () => h.undoPick,
 }));
 
 const m = () => ({ mutate: vi.fn(), isPending: false, isError: false, error: null });
@@ -209,8 +211,11 @@ const mutate = (x: Record<string, unknown>) => x.mutate as ReturnType<typeof vi.
 
 const EMPTY = { owed: [], auto: [], decided: [], historical: [], queued: [], inert: [], total: 0 };
 
+// the review line prod holds (backend/tests/app/test_admin_insider_amendments_api.py, the 2026-06-10 edition)
+const LINE = { review_horizon_days: null, review_edges: { P: "2025-11-12", S: "2026-02-10" }, review_anchor: "2026-06-10" };
+
 function serve(data: Record<string, unknown>) {
-  h.q = { data: { ...EMPTY, review_horizon_days: 940, ...data }, isError: false, error: null };
+  h.q = { data: { ...EMPTY, ...LINE, ...data }, isError: false, error: null };
 }
 
 beforeEach(() => {
@@ -219,6 +224,7 @@ beforeEach(() => {
   h.add = m();
   h.link = m();
   h.revoke = m();
+  h.undoPick = m();
   serve({
     owed: [SKYT],
     auto: [FLS, AVAV_AUTO],
@@ -305,7 +311,9 @@ describe("InsiderAmendments", () => {
     const hist = screen.getByTestId("adm-amend-historical");
     expect(hist).toHaveClass("adm-grayed");
     expect(hist).toHaveTextContent("1 unresolved — historical (no call reads these rows)");
-    expect(hist).toHaveTextContent("940-day review horizon");
+    expect(hist).toHaveTextContent(
+      "older than any live call or edition page reads (buys before 2025-11-12, sales before 2026-02-10: the earliest edition night, 2026-06-10, less each signal's read window)",
+    );
     const row = within(hist).getByTestId("adm-amend-historical-row");
     await userEvent.click(within(row).getByRole("button", { name: "Link to 0001465825-12-000005" }));
     expect(mutate(h.link)).toHaveBeenCalledWith({
@@ -461,6 +469,166 @@ describe("InsiderAmendments", () => {
     expect(within(hist).queryByRole("button", { name: /Link to/ })).toBeNull();
     await userEvent.click(within(hist).getByRole("button", { name: "Keep the original" }));
     expect(mutate(h.keep)).toHaveBeenCalledWith({ securityId: MRAM.security_id, accession: "0001628280-26-047720" });
+  });
+
+  // --- the plain-English card (2026-10-24) — the shapes the backend returns for the REAL filings
+  // (backend/tests/app/test_admin_insider_amendments_api.py: HROW's pick, YYAI's three verdicts)
+
+  const HROW_ID = "7c0e3a31-2b5e-4f5c-9d61-0f3f6d0e1a77";
+  const HROW_PICKED = {
+    ...base,
+    security_id: HROW_ID,
+    ticker: "HROW",
+    accession: "0001641172-25-010338",
+    filed: "2025-05-14",
+    owners: ["Opaleye Management Inc."],
+    owner_name: "Opaleye Management Inc.",
+    owner_role: "10% owner",
+    disposition: "clerical",
+    method: "system",
+    status: "inert",
+    review: "auto",
+    candidate_accessions: ["0001493152-25-011028", "0001641172-25-000741"],
+    trades: [
+      {
+        txn_code: "S",
+        trades: 1,
+        shares: 5000,
+        price_low: 29.64,
+        price_high: 29.64,
+        first_date: "2025-03-18",
+        last_date: "2025-03-18",
+        usd: 148200,
+      },
+    ],
+    usd_total: 148200,
+    changes_no_call: true,
+    pick: {
+      target: "0001493152-25-011028",
+      filed: "2025-03-20",
+      disposition: "clerical",
+      rows: 1,
+      matched_rows: 1,
+      standing: true,
+    },
+    actions: [{ action: "undo_pick", target: null, disposition: null, removes: [], adds: [], changes_call: false }],
+  };
+
+  it("says what the filer did, with 'This changes no call.' first, and the system's pick with its Undo", async () => {
+    serve({ auto: [HROW_PICKED], total: 1 });
+    render(<InsiderAmendments />);
+    const row = within(screen.getByTestId("adm-amend-auto")).getByTestId("adm-amend-auto-row");
+    const plain = within(row).getByTestId("adm-amend-plain");
+    expect(plain.firstElementChild).toHaveAttribute("data-testid", "adm-amend-no-call"); // FIRST
+    expect(plain).toHaveTextContent(
+      "This changes no call. Opaleye Management Inc. (10% owner) sold 5,000 shares at $29.64 on 2025-03-18 ($148,200), per this correction filed 2025-05-14.",
+    );
+    expect(within(row).getByTestId("adm-amend-pick")).toHaveTextContent(
+      "The system picked the Form 4 filed 2025-03-20: every one of this 4/A's 1 trade(s) matches it by shares and price, and no other filing's do.",
+    );
+    // nothing applies against an identical filing: no Keep the original, only the pick's own Undo
+    expect(within(row).queryByRole("button", { name: "Keep the original" })).toBeNull();
+    expect(within(row).getByTestId("adm-amend-effect")).toHaveTextContent(
+      "Back to undecided: no filing is picked, and every candidate's trades stand as filed. No buy or sale the calls read changes.",
+    );
+    // the accession numbers stay on the card, secondary
+    expect(within(row).getByTestId("adm-amend-ref")).toHaveTextContent("Form 4/A 0001641172-25-010338");
+    await userEvent.click(within(row).getByRole("button", { name: "Undo the system's pick" }));
+    expect(mutate(h.undoPick)).toHaveBeenCalledWith({ securityId: HROW_ID, accession: HROW_PICKED.accession });
+  });
+
+  it("says, per button, what each verdict does to the calls (YYAI)", () => {
+    const P_ORIG = [
+      { seq: 0, insider_name: "Belfiore Michael Anthony", txn_code: "P", txn_date: "2025-10-08", shares: 3192905, price: 0.3205, usd: 1023326 },
+      { seq: 1, insider_name: "Belfiore Michael Anthony", txn_code: "P", txn_date: "2025-10-10", shares: 20190, price: 0.188, usd: 3796 },
+    ];
+    const P_NEW = { seq: 1, insider_name: "Belfiore Michael Anthony", txn_code: "P", txn_date: "2025-10-27", shares: 6133, price: 2.91, usd: 17847 };
+    const YYAI = {
+      ...base,
+      security_id: "f0a5b2c1-0000-4000-8000-00000000yyai",
+      ticker: "YYAI",
+      accession: "0002091629-25-000011",
+      filed: "2025-10-30",
+      owners: ["Belfiore Michael Anthony"],
+      owner_name: "Belfiore Michael Anthony",
+      owner_role: "10% owner",
+      disposition: "addition",
+      method: "orig_date_owner",
+      status: "pending",
+      review: "owed",
+      unresolved: true,
+      in_review: true,
+      changes_no_call: false,
+      trades: [
+        { txn_code: "P", trades: 1, shares: 6133, price_low: 2.91, price_high: 2.91, first_date: "2025-10-27", last_date: "2025-10-27", usd: 17847.03 },
+        { txn_code: "A", trades: 1, shares: 64642, price_low: 0, price_high: 0, first_date: "2025-10-27", last_date: "2025-10-27", usd: 0 },
+      ],
+      usd_total: 17847.03,
+      actions: [
+        { action: "apply", removes: P_ORIG, adds: [P_NEW], changes_call: true },
+        { action: "keep", removes: [], adds: [], changes_call: false },
+        { action: "add", removes: [], adds: [P_NEW], changes_call: true },
+      ],
+    };
+    serve({ owed: [YYAI], total: 1 });
+    render(<InsiderAmendments />);
+    const row = screen.getAllByTestId("adm-amend-row")[0];
+    expect(within(row).queryByTestId("adm-amend-no-call")).toBeNull(); // an answer here can change a call
+    expect(within(row).getByTestId("adm-amend-sentence")).toHaveTextContent(
+      "Belfiore Michael Anthony (10% owner) bought 6,133 shares at $2.91 on 2025-10-27 ($17,847); received 64,642 shares as a grant or award on 2025-10-27, per this correction filed 2025-10-30.",
+    );
+    const [use, keepLine, addLine] = within(row).getAllByTestId("adm-amend-effect");
+    expect(use).toHaveTextContent(
+      "Use the 4/A's trades in place of the whole original. The calls stop reading 2 buys (3,213,095 shares, 2025-10-08 to 2025-10-10) and read a buy of 6,133 shares at $2.91 on 2025-10-27 instead. This can change a call.",
+    );
+    expect(keepLine).toHaveTextContent("Ignore the 4/A; the original stands as filed. No buy or sale the calls read changes.");
+    expect(addLine).toHaveTextContent(
+      "Keep every original trade and add the 4/A's trades beside them. The calls read a buy of 6,133 shares at $2.91 on 2025-10-27. This can change a call.",
+    );
+  });
+
+  it("words each candidate of an ambiguous amendment by its filing date and how many trades match it", () => {
+    const CVNA_ID = "a1b2c3d4-0000-4000-8000-00000000cvna";
+    const CVNA = {
+      ...base,
+      security_id: CVNA_ID,
+      ticker: "CVNA",
+      accession: "0001690820-25-000275",
+      filed: "2025-07-10",
+      owners: ["GARCIA ERNEST C. III"],
+      owner_name: "GARCIA ERNEST C. III",
+      disposition: "ambiguous",
+      method: "orig_date_owner",
+      status: "pending",
+      review: "owed",
+      in_review: true,
+      changes_no_call: false,
+      candidate_accessions: ["0001690820-25-000271", "0001690820-25-000273"],
+      // the real 4/A's 28 sales, summed (backend domain.insider_amendment_cards.trade_groups on the fixture)
+      trades: [
+        { txn_code: "S", trades: 28, shares: 9904, price_low: 343.43, price_high: 359.73, first_date: "2025-07-08", last_date: "2025-07-08", usd: 3453874.42 },
+      ],
+      usd_total: 3453874.42,
+      originals: [
+        { accession: "0001690820-25-000271", role: "candidate", filed: "2025-07-10", rows: [], trades: [], matched_rows: 28 },
+        { accession: "0001690820-25-000273", role: "candidate", filed: "2025-07-10", rows: [], trades: [], matched_rows: 0 },
+      ],
+      actions: [
+        { action: "link", target: "0001690820-25-000271", disposition: "correction", removes: [], adds: [], changes_call: false },
+        { action: "link", target: "0001690820-25-000273", disposition: "addition", removes: [], adds: [], changes_call: false },
+      ],
+    };
+    serve({ owed: [CVNA], total: 1 });
+    render(<InsiderAmendments />);
+    const row = screen.getAllByTestId("adm-amend-row")[0];
+    expect(within(row).getByTestId("adm-amend-sentence")).toHaveTextContent(
+      "GARCIA ERNEST C. III sold 9,904 shares in 28 trades at $343.43–$359.73 on 2025-07-08 ($3,453,874), per this correction filed 2025-07-10.",
+    );
+    const [first, second] = within(row).getAllByTestId("adm-amend-effect");
+    expect(first).toHaveTextContent(
+      "The Form 4 filed 2025-07-10. 28 of the 4/A's 28 trade(s) match it by shares and price. Picking it changes nothing until you then choose what to do with it.",
+    );
+    expect(second).toHaveTextContent("0 of the 4/A's 28 trade(s) match it by shares and price.");
   });
 
   it("shows a queued backlog quietly until the nightly sweep applies it", () => {

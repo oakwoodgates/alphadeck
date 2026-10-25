@@ -147,11 +147,45 @@ def test_nothing_on_the_call_path_reads_a_flag():
     """The flag is display-only (#3/#4): no module under ``calls/`` or ``signals/`` (the detectors AND the
     display seam) imports the flag model or its reader, and the recorded CallCard has no flag field — a
     day-varying field there would re-record every card nightly."""
-    forbidden = ("domain.data_flags", "pipeline.data_flags", "app.routers.data_flags")
+    forbidden = (
+        "domain.data_flags",
+        "pipeline.data_flags",
+        "pipeline.fundamentals_lag",  # the fundamentals reading (data hygiene, 2026-10-24)
+        "app.routers.data_flags",
+    )
     for pkg in ("calls", "signals"):
         for src in sorted((BACKEND / pkg).rglob("*.py")):
             for mod in _imports(src):
                 assert not any(
                     mod == f or mod.startswith(f + ".") for f in forbidden
                 ), f"{src} imports {mod!r} — a data flag is never a call input"
-    assert not {f for f in CallCard.model_fields if "flag" in f}
+    assert not {f for f in CallCard.model_fields if "flag" in f or "note" in f}
+
+
+# --- the quiet marker (data hygiene, 2026-10-24): a price history under a year -----------------------------
+
+
+def test_a_tape_under_a_year_carries_the_short_history_marker_and_says_when_it_ends():
+    first = date(2026, 2, 11)  # GSUI's first stored bar (MEASURED, prod 2026-10-24)
+    note = m.short_history_note([first, date(2026, 10, 23)], date(2026, 10, 24))
+    assert note is not None and note.kind == m.SHORT_HISTORY and note.label == "short price history"
+    assert note.reason == (
+        "Price history starts 2026-02-11; the 52-week checks can't run before 2027-02-11."
+    )
+    assert (note.since, note.until) == (first, date(2027, 2, 11))
+
+
+def test_a_year_of_tape_or_none_at_all_carries_no_marker():
+    asof = date(2026, 10, 24)
+    year_ago = asof - timedelta(days=m.SHORT_HISTORY_DAYS)
+    assert m.short_history_note([year_ago, asof], asof) is None
+    assert m.short_history_note([year_ago + timedelta(days=1), asof], asof) is not None
+    assert (
+        m.short_history_note([], asof) is None
+    )  # no tape at all is the stopped-feed flag's to say
+    assert m.plus_one_year(date(2024, 2, 29)) == date(2025, 3, 1)
+
+
+def test_a_marker_never_marks_the_row():
+    note = m.short_history_note([date(2026, 6, 1)], date(2026, 10, 24))
+    assert not m.MemberFlags(security_id="s", ticker="NEW", notes=(note,)).marked

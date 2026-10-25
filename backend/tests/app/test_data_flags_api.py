@@ -5,10 +5,14 @@ stopped 2026-08-07). Display-only: the endpoints write nothing, and the call car
 
 from __future__ import annotations
 
+import os
+import shutil
 import uuid
-from datetime import date
+from datetime import date, timedelta
+from pathlib import Path
 
 from db.session import DEFAULT_TENANT_ID
+from pipeline import fundamentals_lag
 from repositories import split_repo
 from tests.pipeline.test_data_flags import view
 
@@ -109,6 +113,77 @@ def test_the_union_read_lists_flagged_names_with_their_theses(client, db):
     assert [mm["ticker"] for mm in body["members"]] == ["MVNC", "SKYT"]
     assert all(
         mm["theses"] == [{"id": str(tid), "name": "data flags test"}] for mm in body["members"]
+    )
+
+
+def test_todays_view_says_secs_data_is_behind_and_marks_a_short_history_quietly(
+    client, db, tmp_path, monkeypatch, pinned_today
+):
+    """Data hygiene (2026-10-24), end to end on TODAY's view: PYPL with its REAL cached filing index and
+    companyfacts (``tests/fixtures/edgar/fundamentals_lag``: SEC's data lacks its Q2 10-Q) and a tape that
+    starts 120 days back. The flag and the marker both reach no cell: the row is NOT marked; the per-thesis
+    read and the union read list the name; nothing is written and the call card is unchanged."""
+    fx = Path(__file__).resolve().parents[1] / "fixtures" / "edgar" / "fundamentals_lag"
+    for sub in ("submissions", "companyfacts"):
+        (tmp_path / sub).mkdir()
+        shutil.copy(fx / sub / "CIK0001633917.json", tmp_path / sub / "CIK0001633917.json")
+    os.utime(tmp_path / "companyfacts" / "CIK0001633917.json", (1792872246, 1792872246))
+    monkeypatch.setattr(fundamentals_lag, "DEFAULT_EDGAR_CACHE", tmp_path)
+
+    tid, sid = uuid.uuid4(), uuid.uuid4()
+    first = pinned_today - timedelta(days=120)
+    days = [first + timedelta(days=i) for i in range(121)]
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO thesis (id, tenant_id, name, narrative) VALUES (%s, %s, %s, %s)",
+            (tid, DEFAULT_TENANT_ID, "hygiene test", "n"),
+        )
+        cur.execute(
+            "INSERT INTO security_master (id, tenant_id, ticker, cik, valid_from) "
+            "VALUES (%s, %s, %s, %s, %s)",
+            (sid, DEFAULT_TENANT_ID, "PYPL", "0001633917", "2020-01-01"),
+        )
+        cur.execute(
+            "INSERT INTO basket_member (id, tenant_id, thesis_id, ordinal, ticker, role, security_id) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            (uuid.uuid4(), DEFAULT_TENANT_ID, tid, 0, "PYPL", "—", sid),
+        )
+        cur.executemany(
+            "INSERT INTO fact_price_eod (tenant_id, security_id, d, close, volume, valid_from) "
+            "VALUES (%s, %s, %s, %s, %s, %s)",
+            [(DEFAULT_TENANT_ID, sid, d, 70.0, 1_000_000, d) for d in days if d.weekday() < 5],
+        )
+    db.commit()
+    first_bar = min(d for d in days if d.weekday() < 5)
+    before = _count(db)
+    card_before = client.get(f"/theses/{tid}/call", params={"asof": str(pinned_today)}).json()
+
+    r = client.get(f"/theses/{tid}/data-flags", params={"asof": str(pinned_today)})
+    assert r.status_code == 200, r.text
+    (mm,) = r.json()["members"]
+    assert not mm["marked"]  # neither reaches a Cockpit number: no row mark, no ticker mark
+    (flag,) = mm["flags"]
+    assert flag["kind"] == "fundamentals_not_current" and flag["columns"] == []
+    assert flag["reason"] == (
+        "Fundamentals end at 2026-03-31; the 10-Q filed 2026-07-28 isn't in SEC's data yet."
+    )
+    (note,) = mm["notes"]
+    assert note["kind"] == "short_price_history" and note["since"] == first_bar.isoformat()
+    assert note["reason"].startswith(f"Price history starts {first_bar.isoformat()};")
+
+    union = client.get("/data-flags", params={"asof": str(pinned_today)}).json()
+    assert [u["ticker"] for u in union["members"]] == ["PYPL"] and not union["members"][0]["marked"]
+
+    # a history view never borrows today's cached copy: the flag is today's only (the marker is not)
+    past = client.get(
+        f"/theses/{tid}/data-flags", params={"asof": str(pinned_today - timedelta(days=1))}
+    ).json()
+    (pm,) = past["members"]
+    assert pm["flags"] == [] and [n["kind"] for n in pm["notes"]] == ["short_price_history"]
+
+    assert _count(db) == before
+    assert (
+        client.get(f"/theses/{tid}/call", params={"asof": str(pinned_today)}).json() == card_before
     )
 
 

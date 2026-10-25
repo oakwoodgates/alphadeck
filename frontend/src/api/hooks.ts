@@ -252,6 +252,7 @@ export type DataFlagsResponse = components["schemas"]["DataFlagsResponse"];
 export type MemberDataFlagsOut = components["schemas"]["MemberDataFlagsOut"];
 export type DataFlagOut = components["schemas"]["DataFlagOut"];
 export type DataFlagSplitOut = components["schemas"]["DataFlagSplitOut"];
+export type DataNoteOut = components["schemas"]["DataNoteOut"];
 
 /** One thesis's flags at `asof` (the Cockpit table, the NamePanel, the Scoreboard drawer chart). The same
  *  policy as the display read: cached for the window, keep the previous marks up through a scrub. */
@@ -1521,6 +1522,10 @@ export type AdminInsiderAmendmentsOut = components["schemas"]["AdminInsiderAmend
 export type AdminInsiderAmendmentOut = components["schemas"]["AdminInsiderAmendmentOut"];
 export type AdminInsiderTxnOut = components["schemas"]["AdminInsiderTxnOut"];
 export type AdminInsiderOriginalOut = components["schemas"]["AdminInsiderOriginalOut"];
+// the plain-English card (2026-10-24): each Table I group summed, each button's effect, the system's pick
+export type AdminInsiderTradeGroupOut = components["schemas"]["AdminInsiderTradeGroupOut"];
+export type AdminInsiderActionOut = components["schemas"]["AdminInsiderActionOut"];
+export type AdminInsiderPickOut = components["schemas"]["AdminInsiderPickOut"];
 
 export function useInsiderAmendments() {
   return useQuery({
@@ -1591,6 +1596,18 @@ export function useLinkAmendment() {
     const { data, error } = await api.POST("/admin/insider-amendments/{security_id}/{accession}/link", {
       params: { path: { security_id: vars.securityId, accession: vars.accession } },
       body: { target_accession: vars.target, ...reasonBody(vars.reason) },
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
+// UNDO THE SYSTEM'S PICK (rule 2b): revokes the system's link and its verdict — the amendment is ambiguous again.
+export function useUndoSystemPick() {
+  return useAmendmentDecision(async (vars: AmendmentRef) => {
+    const { data, error } = await api.POST("/admin/insider-amendments/{security_id}/{accession}/undo-pick", {
+      params: { path: { security_id: vars.securityId, accession: vars.accession } },
+      body: reasonBody(vars.reason),
     });
     if (error) throw error;
     return data;
@@ -1718,6 +1735,31 @@ export function useRestoreSplit() {
   return useSplitAction(async (vars: { versionId: string }) => {
     const { data, error } = await api.POST("/admin/splits/{version_id}/restore", {
       params: { path: { version_id: vars.versionId } },
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
+// DISMISS an "is this real?" card (2026-10-24): the operator says the split-shaped jump was a real move. Display
+// only — the split-night hold never reads it. Inverse: useUndoJumpDismissal.
+export function useDismissJump() {
+  return useSplitAction(async (vars: { securityId: string; stepDate: string; reason?: string }) => {
+    const { data, error } = await api.POST("/admin/splits/jumps/{security_id}/{step_date}/dismiss", {
+      params: { path: { security_id: vars.securityId, step_date: vars.stepDate } },
+      body: vars.reason?.trim() ? { reason: vars.reason.trim() } : {},
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
+// UNDO a jump's dismissal — the card is back on the "is this real?" list.
+export function useUndoJumpDismissal() {
+  return useSplitAction(async (vars: { dismissalId: string }) => {
+    const { data, error } = await api.POST("/admin/splits/jumps/dismissals/{dismissal_id}/undo", {
+      params: { path: { dismissal_id: vars.dismissalId } },
+      body: {},
     });
     if (error) throw error;
     return data;

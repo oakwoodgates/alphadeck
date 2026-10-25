@@ -1,7 +1,7 @@
 """The data flags' READER (split plan S3): one function per security, as of the view's day, on the view's clock.
 
-The model and its pure rules are ``domain/data_flags.py``; this module reads the view and composes the five
-kinds from the monitors that already exist — it adds no detector of its own:
+The model and its pure rules are ``domain/data_flags.py``; this module reads the view and composes the six
+kinds (and the one quiet marker) from the monitors that already exist — it adds no detector of its own:
 
 - ``possible_unconfirmed_split`` — the S5 split-night hold's own rule (``domain/split_hold.py``: ``hold_for``
   over the view's last bars and the split list as the view knows it — what ``signals.split_hold.find_holds``
@@ -20,6 +20,11 @@ kinds from the monitors that already exist — it adds no detector of its own:
   view never borrows today's EDGAR reading — no lookahead, #1).
 - ``market_cap_share_count`` — the market cap's own inputs (``workbench.scoring._market_cap``): the newest
   share count and the newest bar, against the splits the list has NOT applied.
+- ``fundamentals_not_current`` — ``pipeline.fundamentals_lag`` over the EDGAR cache on disk (the company's
+  cached submissions index and companyfacts; no request), on the LIVE view only: the cached copy is today's,
+  so a history view cannot say when SEC's data caught up (no lookahead, #1). A company still onboarding is
+  not judged.
+- the ``short_price_history`` marker — ``domain.data_flags.short_history_note`` over the view's tape.
 
 Nothing here writes, and nothing on the call path imports it (``tests/domain/test_data_flags.py``).
 """
@@ -39,6 +44,7 @@ from uuid import UUID
 from domain.data_flags import (
     BAR,
     FEED_STOPPED,
+    FUNDAMENTALS_LAG,
     IN_DOUBT,
     INSIDER,
     KNOWN_WRONG,
@@ -57,6 +63,8 @@ from domain.data_flags import (
     SplitLabel,
     all_cells,
     cells_for,
+    md,
+    short_history_note,
     sort_flags,
 )
 from domain.market_time import market_tz
@@ -77,6 +85,7 @@ from domain.splits import (
     session_distance,
 )
 from ingest.prices.split_normalize import VENDOR_NOISE
+from pipeline.fundamentals_lag import FundamentalsLag, read_lag
 from pipeline.split_basis import (
     CLIFF,
     FLAP,
@@ -696,6 +705,36 @@ def market_cap_flag(
     )
 
 
+def fundamentals_flag(lag: FundamentalsLag | None) -> DataFlag | None:
+    """SEC's data is behind a filed report (``pipeline.fundamentals_lag.judge``): in doubt, reaching no Cockpit
+    cell (no column reads fundamentals) — the NamePanel and Admin's quiet list say it. It clears on its own:
+    the reading is the cached copy the nightly re-pulls once SEC's data carries the report."""
+    if lag is None:
+        return None
+    filed = f"the {lag.form} filed {md(lag.filed)}"
+    if lag.last_period is not None:
+        reason = f"Fundamentals end at {md(lag.last_period)}; {filed} isn't in SEC's data yet."
+    else:
+        reason = (
+            "SEC's data carries none of this company's recent 10-Q / 10-K reports; "
+            f"{filed} isn't in it yet."
+        )
+    return DataFlag(
+        kind=FUNDAMENTALS_LAG,
+        level=IN_DOUBT,
+        reason=reason,
+        clears=(
+            f"Clears on its own when SEC's data carries the {lag.form} for the period ending "
+            f"{md(lag.period)} (read from the cached copy the nightly refreshes; no request)."
+        ),
+        since=lag.filed,
+        evidence=(
+            Evidence(label=f"SEC {lag.form} filed {md(lag.filed)}", url=lag.filing_url),
+            Evidence(label="SEC's data (companyfacts)", url=lag.companyfacts_url),
+        ),
+    )
+
+
 def split_labels(
     security_id: UUID,
     split_rows: Sequence[Mapping[str, Any]],
@@ -779,8 +818,9 @@ def member_flags(
     reading: StopReading | None = None,
     corrections: Mapping[tuple[str, date], Correction] | None = None,
     flaps_settled: bool = False,
+    fundamentals_lag: FundamentalsLag | None = None,
 ) -> MemberFlags:
-    """Every flag on ONE security as of ``asof`` — pure over the view's reads.
+    """Every flag and quiet marker on ONE security as of ``asof`` — pure over the view's reads.
 
     ``bars`` = the view's whole price tape through ``asof`` (ascending); ``split_rows`` = the split list as
     the view knows it; ``versions`` = the bar version history for the flap test (the LIVE view only; ``None``
@@ -788,6 +828,7 @@ def member_flags(
     of a stopped tape (today's view only); ``flaps_settled`` = T4's name-level settle check found no reader
     sees this name's flapping history on two bases (``split_basis.settle_flap``, run by ``read_flags``) — the
     same rule that moves it to Admin's quiet settled line, so a flap Admin calls settled draws no ⚑ here.
+    ``fundamentals_lag`` = SEC's data behind a filed report (``pipeline.fundamentals_lag``, today's view only).
     """
     bar_dates = _bar_dates(bars)
     flags: list[DataFlag] = []
@@ -853,6 +894,14 @@ def member_flags(
         if cap is not None:
             flags.append(cap)
 
+    # 6. SEC's data behind a filed report (no Cockpit cell reads fundamentals: panel + Admin only)
+    lagging = fundamentals_flag(fundamentals_lag)
+    if lagging is not None:
+        flags.append(lagging)
+
+    # the quiet marker: information, not a defect (never a row mark)
+    note = short_history_note(bar_dates, asof)
+
     return MemberFlags(
         security_id=security_id,
         ticker=ticker,
@@ -862,6 +911,7 @@ def member_flags(
                 security_id, split_rows, asof=asof, corrections=corrections, bar_dates=bar_dates
             )
         ),
+        notes=(note,) if note is not None else (),
     )
 
 
@@ -895,10 +945,13 @@ def read_flags(
     stale_days: int,
     readings: Mapping[UUID, StopReading] | None = None,
     corrections: Mapping[tuple[str, date], Correction] | None = None,
+    edgar_cache_dir: Path | None = None,
 ) -> dict[UUID, MemberFlags]:
     """Every requested security's ``MemberFlags`` as of ``asof`` on the view's clock (``serve_view``): ONE
     point-in-time view over the whole scope (each fact table read in one batched query), plus — on the live
-    view only — one query for the recently re-versioned bars the flap test reads. SELECTs only."""
+    view only — one query for the recently re-versioned bars the flap test reads and one for the identities
+    the fundamentals reading needs (``fundamentals_lags``, over the EDGAR cache on disk). SELECTs only.
+    """
     from signals.base import (
         PointInTimeData,
     )  # the concrete PIT (the read path's, never the call's view)
@@ -931,6 +984,11 @@ def read_flags(
                     BarVersion(r["recorded_at"], _num(r["close"]))
                 )
     settled_names = _settled_flap_names(conn, pit, versions, tenant_id=tenant_id, asof=asof)
+    lags = (
+        fundamentals_lags(conn, tenant_id=tenant_id, ids=ids, asof=asof, cache_dir=edgar_cache_dir)
+        if live
+        else {}
+    )
     out: dict[UUID, MemberFlags] = {}
     for sid in ids:
         shares_facts = pit.shares_outstanding_facts(sid)
@@ -948,7 +1006,55 @@ def read_flags(
             reading=reading,
             corrections=corrections,
             flaps_settled=sid in settled_names,
+            fundamentals_lag=lags.get(sid),
         )
+    return out
+
+
+# A company still loading its history (X1, ``security_onboarding``) is not judged: MEASURED 2026-10-24, 65 of the
+# 73 basket companies missing their latest report from OUR store were queued there. ``pipeline.onboarding``'s
+# own constant, copied so this read path does not import the onboarding job's graph; pinned equal by test.
+ONBOARDING_DONE = "done"
+
+_IDENTITY_SQL = """
+    SELECT sm.id, sm.cik, sm.instrument_kind,
+           (SELECT so.status FROM security_onboarding so
+             WHERE so.tenant_id = sm.tenant_id AND so.security_id = sm.id) AS onboarding
+      FROM security_master sm
+     WHERE sm.tenant_id = %(tenant_id)s AND sm.id = ANY(%(ids)s)
+"""
+
+
+def fundamentals_lags(
+    conn: Any,
+    *,
+    tenant_id: UUID,
+    ids: Sequence[UUID],
+    asof: date,
+    cache_dir: Path | None = None,
+) -> dict[UUID, FundamentalsLag]:
+    """``security_id -> FundamentalsLag`` for the companies SEC's data is behind (``pipeline.fundamentals_lag``),
+    read from the EDGAR cache on disk — never a request. Judged: a company with a CIK, not a fund
+    (``instrument_kind = 'etf'``), and not still onboarding (a ``security_onboarding`` row that is not done;
+    no row = a legacy name, judged). Fail-open per company: an unreadable file is no flag."""
+    if not ids:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute(_IDENTITY_SQL, {"tenant_id": tenant_id, "ids": list(ids)})
+        rows = cur.fetchall()
+    out: dict[UUID, FundamentalsLag] = {}
+    for r in rows:
+        cik = r["cik"]
+        if not cik or r["instrument_kind"] == "etf":
+            continue
+        if r["onboarding"] is not None and r["onboarding"] != ONBOARDING_DONE:
+            continue
+        try:
+            lag = read_lag(cik, asof=asof, cache_dir=cache_dir)
+        except Exception:  # noqa: BLE001 — a bad file is no flag, never a failed read of every flag
+            continue
+        if lag is not None:
+            out[r["id"]] = lag
     return out
 
 

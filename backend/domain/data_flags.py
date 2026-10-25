@@ -40,6 +40,20 @@ THE KINDS AT LAUNCH (``KINDS``):
   read as renamed / closed / a plain feed gap by the nightly classifier where the view is today's.
 - ``market_cap_share_count`` — the market cap multiplies a share count from BEFORE a split the list has not
   applied (or one the tape shows unlisted), or the ADS ratio could not be read (the cap is withheld).
+- ``fundamentals_not_current`` (data hygiene, 2026-10-24) — the company's latest 10-Q / 10-K, filed a week or
+  more ago, is not in SEC's own companyfacts yet, although our cached copy is newer than the filing: SEC's data
+  is behind, not ours (``pipeline/fundamentals_lag.py``; MEASURED 36 companies on prod's cached copy). In
+  doubt, and it reaches no Cockpit cell (no column reads fundamentals), so it shows in the NamePanel and Admin's
+  quiet list only. Today's view only: the cached copy is today's, so a history view cannot say when SEC caught
+  up.
+
+A QUIET MARKER (``DataNote``) sits one step below a flag: INFORMATION about a name, not a defect in its data. It
+never marks a row, never grays a cell, and is listed apart from the flags. One kind at launch:
+
+- ``short_price_history`` — the stored tape starts less than a year before the view's day, so the 52-week
+  checks (``signals/breakout_52w.py``, ``signals/breakdown.py``) cannot run yet: they already decline on
+  less than a year of bars; the marker says why such a name never shows one (MEASURED on prod 2026-10-24: 72
+  basket companies, ~7%, mostly recent listings).
 """
 
 from __future__ import annotations
@@ -59,7 +73,8 @@ SPLIT_REVIEW = "split_needs_review"
 MIXED_SCALE = "mixed_scale_history"
 FEED_STOPPED = "price_feed_stopped"
 MKTCAP_SHARES = "market_cap_share_count"
-KINDS = (SPLIT_HOLD, SPLIT_REVIEW, MIXED_SCALE, FEED_STOPPED, MKTCAP_SHARES)
+FUNDAMENTALS_LAG = "fundamentals_not_current"
+KINDS = (SPLIT_HOLD, SPLIT_REVIEW, MIXED_SCALE, FEED_STOPPED, MKTCAP_SHARES, FUNDAMENTALS_LAG)
 
 KIND_LABEL = {
     SPLIT_HOLD: "possible unconfirmed split",
@@ -67,7 +82,15 @@ KIND_LABEL = {
     MIXED_SCALE: "mixed-scale price history",
     FEED_STOPPED: "price feed stopped",
     MKTCAP_SHARES: "market cap on a pre-split or unreadable share count",
+    FUNDAMENTALS_LAG: "fundamentals not current",
 }
+
+# --- quiet markers (information, not a defect — never a row mark) -----------------------------------------
+SHORT_HISTORY = "short_price_history"
+NOTE_KINDS = (SHORT_HISTORY,)
+NOTE_LABEL = {SHORT_HISTORY: "short price history"}
+# Under this many days of stored tape the 52-week checks cannot run (a year: the 52-week window).
+SHORT_HISTORY_DAYS = 365
 
 # --- what a flag can reach: four column GROUPS, and the Cockpit CELLS in each ------------------------------
 PRICE = "price"
@@ -155,6 +178,50 @@ class DataFlag:
 
 
 @dataclass(frozen=True)
+class DataNote:
+    """A quiet MARKER on one security: information, not a defect (``short_price_history``). It reaches no
+    cell and never marks a row; ``since`` = when the condition began, ``until`` = when it stops applying.
+    """
+
+    kind: str
+    reason: str
+    since: date | None = None
+    until: date | None = None
+
+    @property
+    def label(self) -> str:
+        return NOTE_LABEL.get(self.kind, self.kind)
+
+
+def plus_one_year(d: date) -> date:
+    """The same day a year later (Feb 29 -> Mar 1)."""
+    try:
+        return d.replace(year=d.year + 1)
+    except ValueError:
+        return date(d.year + 1, 3, 1)
+
+
+def short_history_note(bar_dates: Sequence[date], asof: date) -> DataNote | None:
+    """The ``short_price_history`` marker: the view's tape starts less than ``SHORT_HISTORY_DAYS`` before
+    ``asof``. None when it is longer, or when there is no tape at all (a stopped or missing feed is a flag).
+    """
+    if not bar_dates:
+        return None
+    first = bar_dates[0]
+    if first <= asof - timedelta(days=SHORT_HISTORY_DAYS):
+        return None
+    until = plus_one_year(first)
+    return DataNote(
+        kind=SHORT_HISTORY,
+        reason=(
+            f"Price history starts {md(first)}; the 52-week checks can't run before {md(until)}."
+        ),
+        since=first,
+        until=until,
+    )
+
+
+@dataclass(frozen=True)
 class SplitLabel:
     """One split on the list as the NamePanel and the Scoreboard chart label it (its newest version as the view
     reads it). The events the panel prints come from these fields: announced (``filed``), confirmed
@@ -187,12 +254,13 @@ class SplitLabel:
 
 @dataclass(frozen=True)
 class MemberFlags:
-    """One security's flags and split labels as of the view's day."""
+    """One security's flags, quiet markers and split labels as of the view's day."""
 
     security_id: object
     ticker: str | None
     flags: tuple[DataFlag, ...] = ()
     splits: tuple[SplitLabel, ...] = field(default_factory=tuple)
+    notes: tuple[DataNote, ...] = ()
 
     @property
     def marked(self) -> bool:

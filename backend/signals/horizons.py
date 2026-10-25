@@ -120,26 +120,8 @@ def insider_signal_codes(cfg: CallConfig) -> dict[str, int | None]:
     return out
 
 
-# R8-B — how far back any call over OUR stored data can sit: the member price tape is a fixed TWO-YEAR window
-# (``ingest.prices.source.DEFAULT_RANGE = "2y"`` — no bars, no replay/backtest asof, before it), so the oldest
-# asof a live call, a scrub-back or a backtest pass can be computed at is ~730 calendar days back. Pinned against
-# ``DEFAULT_RANGE`` by ``tests/signals/test_insider_signal_codes.py`` (a wider tape must widen this too).
-BACKTEST_WINDOW_DAYS = 730
-
-
-def insider_amendment_review_horizon(cfg: CallConfig) -> int | None:
-    """R8-B — the DERIVED default of the ``insider_amendment_review_horizon_days`` dial: how old an insider row
-    can be and still be read by SOME call — the backtest window (``BACKTEST_WINDOW_DAYS``, the oldest asof any
-    call is computed at) plus the longest read horizon a call detector declares on ``fact_insider_txn``
-    (``insider_signal_codes`` — the oldest row a call at that asof reads; today ``P`` 210 -> 940 days). An
-    AMBIGUOUS Form 4/A whose changed signal rows are all older than this touches nothing a call reads, so it is
-    listed as "unresolved — historical" instead of owed the operator (``domain.insider_amendments
-    .review_bucket``). ``None`` (unbounded) when any detector's insider horizon is unbounded — then every
-    signal-touching ambiguous amendment is owed. Derived, never hand-typed: a widened detector horizon widens
-    the review horizon with it."""
-    horizons = insider_signal_codes(cfg)
-    if not horizons:
-        return BACKTEST_WINDOW_DAYS
-    if any(v is None for v in horizons.values()):
-        return None
-    return BACKTEST_WINDOW_DAYS + max(int(v) for v in horizons.values() if v is not None)
+# The Form 4/A REVIEW LINE (what an unresolvable amendment is owed the operator for) reads these per-code windows:
+# a row of code ``c`` is owed only when a LIVE call or an EDITION page can read it — dated on/after (the earliest
+# edition night − ``insider_signal_codes(cfg)[c]``), or inside today's window (operator decision 2026-10-24,
+# ``domain.insider_amendments.review_line``). It replaced R8-B's flat 940-day horizon (the two-year backtest window
+# + the longest read): a row only a backtest reads is "unresolved — historical", never owed.

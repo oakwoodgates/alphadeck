@@ -343,6 +343,14 @@ replay stays honest.
   *Enforced by:* `tests/db/test_insider_amendments.py::
   test_a_replay_pinned_before_the_sweep_reads_the_pending_state_it_held`,
   `tests/replay/test_pit_insider_amendments.py::test_the_mirror_reads_the_sweep_exactly_like_postgres_before_and_after_it`.
+- *Also honored by (rule 2b — the system's pick, 2026-10-24):* the system's pick of an ambiguous 4/A's original
+  (a `link` decision, basis `system:sole-match`, plus its resolution against that filing) is an append-only SYSTEM
+  decision like the others — in the link's transaction at ingest, or `now` when the sweep picks a stored ambiguous
+  link — so on the record clock a read pinned before it reads the ambiguous state, and on the public clock it
+  counts from the 4/A's acceptance like every system decision. The link row itself is never rewritten; the
+  operator's Undo appends revokes. *Enforced by:* `tests/db/test_insider_amendments.py::
+  test_the_system_picks_cvnas_and_hrows_original_as_the_operator_did_and_undo_restores_ambiguity`,
+  `tests/replay/test_pit_insider_amendments.py` (the CVNA pick rides the mirror).
 - *Also honored by (the R8 linker fix, 2026-10-21):* a stored link the fixed cascade moves is RE-LINKED forward,
   never rewritten — a new link version, the system's `revoke` (`system:relink`) of its stale decision and its new
   one, all stamped `recorded_at = now` (`pipeline.relink_amendments`); a read pinned before the re-link reads the

@@ -602,10 +602,12 @@ Depth: the submissions `recent` window, the same accepted depth as Form 4.
   `FEED_LOOP.md` §R8-B). A Form 4/A is the filer's legal correction of their own filing — deterministic data,
   not a model's recommendation — so the operator rules only on what the system cannot resolve: an
   **ambiguous** link, an **unresolved row match** (its words neither fix nor add), or a **held void**
-  (retraction words against several trades), that touches a `P`/`S` row inside the review horizon
-  (`insider_amendment_review_horizon_days`, derived 940 days = the 730-day backtest window + the 210-day `P`
-  read) — with three verdicts: Use the correction, Keep the original, Add to the original. An older one is
-  listed as "unresolved — historical", the originals standing. MEASURED 2026-10-21 on prod, asof 2026-10-20
+  (retraction words against several trades), that touches a `P`/`S` row a live call or an edition page reads
+  (the review line, 2026-10-24: buys on/after the earliest edition night − 210 days, sales on/after it − 120
+  days, or inside today's windows — it replaced the 940-day backtest horizon) — with three verdicts: Use the
+  correction, Keep the original, Add to the original. An older one is listed as "unresolved — historical", the
+  originals standing. An ambiguous one whose every trade matches ONE candidate by shares + price is linked by
+  the system (rule 2b), undoable. MEASURED 2026-10-21 on prod, asof 2026-10-20
   (2,988 linked pairs — the live leg pulled the full history back to 2003, not the two-year research corpus),
   after the first sweep: **6 owed** (4 ambiguous, 1 unresolved match, 1 held void), **60 historical**, **1,693
   resolved by the system**, **1,229 inert** (`FEED_LOOP.md` §R8-B). (R8-A's figures, 2026-10-18, two-year
@@ -720,7 +722,7 @@ READ, so items outside the cut stay stored (#9) and a policy retune needs no re-
   parked (switch OFF, 5.02-only since the 2026-08-20 `1.01` decision). Full family doc:
   `docs/CORPORATE_EVENTS.md`.
 
-## SEC split filings — the split list's company-side source `[BUILT — S1 / S4; Items 8.01 / 7.01 since 2026-10-23]`
+## SEC split filings — the split list's company-side source `[BUILT — S1 / S4; Items 8.01 / 7.01 since 2026-10-23; the restatement screen + the wide-form reader since 2026-10-24]`
 
 The split list (`security_split`, `FEED_LOOP.md` §The split list) confirms a split only when two independent
 sources agree; the company's own filing is one of them, Polygon's split reference the other (the Polygon row
@@ -742,6 +744,39 @@ submission (`forms/*`, immutable, cached forever) and read by the deterministic 
   (~871 MB, median 270 KB; each once, ever — the cache is immutable); after that ~7 a night (50 were filed
   10-16..10-22). No extra request for the item codes — they come from the submissions JSON the 8-K leg already
   reads.
+- **The restatement screen (2026-10-24) — 6-Ks and charter 8-Ks.** Interim results restate a company's past
+  consolidations, so a 6-K (and a 3.03 / 5.03 8-K) is read through `extract_split_screened`, which only ever
+  REMOVES from the unscreened reading: a reading with a current date (at most 90 days before the filing) stands
+  exactly as read; a past date is dropped and nothing replaces it; a ratio the text dates in the past is a
+  past split's. MEASURED over all 1,139 cached basket 6-Ks: the catch-all screen applied unchanged would have
+  given five a wrong date or ratio (CMND, CPOP, PBM, KXIN, RDY). Over the 1,160 cached basket filings (those
+  6-Ks, 19 8-Ks, 2 Reg A) the whole change alters 31 readings — 28 removals (a past date or a restated ratio set
+  aside, MEDS's among them) and 3 corrections (DFNS's revised ratio, ZNB's two 6-Ks re-dated to 2026-07-27) —
+  and none of the 39 cached filings behind a split auto-confirmed from a 6-K. By
+  construction it never touches a confirmation: a filing in a split's window is filed at most 10 days after it,
+  so this split's own date is never "past". It fixes WSHP's and LGHL's restated old splits (they no longer
+  attach to a later split) and MEDS's mistyped "May 26, 2025" (an 8-K of 2026-05-21: no date, to review).
+- **Reading fixes (2026-10-24):** "with effect from" is a legal cue and a date a MEETING was held on never dates
+  a split (ZNB's 6-K: 1-for-8 effective 2026-07-27, not the EGM's 09-10); a filing that REVISES its ratio and
+  cites the old one "as disclosed" reads the revised one (DFNS's 8-K of 2026-07-16: 1-for-125, not "two
+  ratios"); a filing that abstained because every ratio it states is a past split's is never shown as a later
+  split's evidence.
+- **The targeted wide-form reader (2026-10-24).** A Polygon split whose window holds no agreeing filing gets ONE
+  more look, in the company's 10-Q / 10-K / 20-F / 40-F (their primary document alone — the full submission is
+  5x to 65x larger, MEASURED), F-6 / F-6 POS / F-6EF, 424B3 / 424B4 and DEF / PRE 14C filed
+  `[first session - 60, + 120]` days, always through the restatement screen (a periodic report restates old
+  splits: MI's 20-F and OFAL's 10-K read a 2024 split as current without it). It is a CONFIRMATION SEARCH: a
+  wide form that agrees exactly confirms the split by S1's rule (DFNS's 10-Q states its 1-for-125 and first
+  session); otherwise the split stays as its window left it and the note names what the wide forms said. Never
+  nightly for every company (MEASURED ~1.7 GB of documents a month that way); over the list's 48 splits lacking
+  agreement it selects 104 filings (LGHL's F-6 POS filings, OPTH's 424B4, HTHIY's F-6, MVNC's DEF 14C, SDCO's
+  10-K among them), a few a month after.
+- **A joining company gets its split history (2026-10-24).** The S1 backfill ran once (2026-10-20) and the
+  nightly looks back only 30 / 60 days, so a company that joined a basket later had no split history — MEASURED:
+  32 splits on 29 such companies missing. `pipeline/split_history.py` (run by the staged onboarding job, outside
+  the nightly window) runs the S1 backfill scoped to every live basket member without a
+  `security_split_history` row (migration 0067), on ONE market-wide Polygon pull per day (the day's cache).
+  `FEED_LOOP.md` §The split list.
 
 ## SC 13D/G — the activist-stake ownership tape `[BUILT — Band 03 S5, INERT]`
 

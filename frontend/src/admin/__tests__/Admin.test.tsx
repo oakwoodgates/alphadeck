@@ -348,6 +348,7 @@ vi.mock("../../api/hooks", () => ({
   useAddToOriginal: () => h.repair,
   useLinkAmendment: () => h.repair,
   useRevokeAmendmentDecision: () => h.repair,
+  useUndoSystemPick: () => h.repair,
   // split plan S1 — the Splits panel (its own behavior is in SplitList.test.tsx): empty here
   useDataFlags: () => ({ data: undefined, isError: false }),
   useSplitList: () => ({
@@ -359,6 +360,8 @@ vi.mock("../../api/hooks", () => ({
   useRejectSplit: () => h.repair,
   useRevokeSplit: () => h.repair,
   useRestoreSplit: () => h.repair,
+  useDismissJump: () => h.repair,
+  useUndoJumpDismissal: () => h.repair,
   // X1 — the Onboarding panel (its own behavior is in Onboarding.test.tsx): an empty queue here
   useOnboarding: () => ({
     data: {

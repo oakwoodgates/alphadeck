@@ -91,3 +91,35 @@ extracts identically to its full submission — checked when trimmed). Items as 
 - `submissions/CIK0001956439.json` — Enhanced Group (ENHA)'s submissions index as data.sec.gov served it on
   2026-10-23. Byte-exact. Its 8-Ks in the backfill window of the 10-28 Polygon row are the three above, plus
   three under other items (5.07 / 5.02 / 2.02) the reader never opens.
+
+The data-hygiene pass (2026-10-24: the restatement screen, the reading fixes, the targeted wide-form reader) added
+ten full submissions and three wide-form PRIMARY documents, copied read-only from prod's EDGAR cache
+(`/data/edgar_cache/forms/`) and trimmed. A full submission keeps its SGML header and the documents the
+extractor reads, as above; inside them — and inside a primary document — whole `<table>`, `<tr>` and `<p>`
+elements that no reading needs were dropped too (the 6-K interim reports are 4–9 MB). EVERY trimmed file was
+CHECKED to extract identically to its full source under every reading: this branch's (bare, the catch-all
+screen, the restatement screen; `wide=True` for a primary document) AND the 2026-10-23 reader's (origin/main
+16c201d), so each still reproduces the wrong reading its test names.
+
+| accession | filer | form | what it states / why it is here |
+|---|---|---|---|
+| 0001213900-26-093515 | ZNB | 6-K | 1-for-8 "with effect from 27 July 2026"; a charter exhibit dated by the EGM "held on 10 September 2026" (read as the first session until 10-24) |
+| 0001213900-26-078551 | DFNS | 8-K (3.03, 5.03) | raises the 1-for-50 "as disclosed on the … Form 8-K filed … July 13" to 1-for-125, split-adjusted open 2026-07-20 |
+| 0001213900-26-077658 | DFNS | 8-K (3.03, 5.03) | the superseded 1-for-50, 2026-07-20 |
+| 0001493152-26-024723 | MEDS | 8-K (3.03, 5.02, 5.03) | "will become effective … on May 26, 2025" (a typo; its EX-99.1 says May 26, 2026) |
+| 0001213900-26-026965 | CMND | 6-K | interim results: 1-for-40 of 2025-12-15, an investee's 1-for-6, a boilerplate 2026-01-31 |
+| 0001213900-26-067098 | CPOP | 6-K | meeting results: 10 -> 1 resolution, a 2023 consolidation, a proxy dated 2026-04-24 |
+| 0001213900-26-002516 | PBM | 6-K | a past 1-for-7.97 and a "250:1 is not exceeded" ceiling |
+| 0001104659-26-108260 | KXIN | 6-K | interim results restating 60 -> 1 (2024-10-25, also undated) and 15 -> 1 (2026-03-13) |
+| 0001575872-24-001124 | RDY | 6-K | a 1:5 sub-division "effective October 28, 2024" (the record date) beside fiscal dates |
+| 0001493152-26-041303 | CANG | 6-K | "a 10-for-1 share consolidation …, which became effective on July 20, 2026" (45 days back — the open review card) |
+
+- `primary/<accession>/<file>.gz` — a wide form's primary document, under the name the targeted reader fetches it
+  by (`forms/<accession>/<file>`): DFNS's 10-Q `0001185185-26-003604` (1-for-125, first session 2026-07-20),
+  MI's 20-F `0001213900-26-050939` (restates its 2024 one-for-fifty), OFAL's 10-K `0001493152-26-033093` (the
+  approved 1-for-10, undated, beside a 2024 reorganization's "Effective on August 29, 2024").
+- `submissions/CIK0001787518.json` (DFNS) and `submissions/CIK0002036307.json` (OFAL) — their submissions indexes,
+  copied byte-exact from prod's cache (2026-10-24): the targeted reader selects their wide forms from them.
+- `polygon/rows_list_2026-10-24.json` — the Polygon rows prod's split list CARRIES for LGHL 2025-03-26, MEDS,
+  DFNS, ZNB, OFAL and SDCO (its 1-for-500 of 2025-04-24, listed under its FORMER ticker HLLK) (its stored `polygon_*` columns: Polygon's own id, ticker, execution date and ratio, as the
+  backfill stored them from the 2026-10-20/22 pulls), copied — not typed — into Polygon's page shape.

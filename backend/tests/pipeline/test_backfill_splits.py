@@ -8,6 +8,7 @@ nightly stores) and MI (a 6-K filer, read from its submissions index)."""
 from __future__ import annotations
 
 import io
+import json
 from datetime import date
 from decimal import Decimal
 
@@ -23,8 +24,9 @@ from domain.splits import (
     is_applicable,
 )
 from ingest.edgar.client import EdgarClient
+from ingest.edgar.submissions import parse_item_codes
 from pipeline import backfill_splits as bf
-from repositories import split_repo
+from repositories import split_history_repo, split_repo
 from tests.split_801_fixtures import (
     ENHA_8K,
     ENHA_FIRST_SESSION,
@@ -32,9 +34,17 @@ from tests.split_801_fixtures import (
     OLD_ITEMS,
     enha_polygon,
     seed_enha,
+    seed_member,
 )
 from tests.split_801_fixtures import SINCE as SINCE_8_01
-from tests.split_fixtures import edgar_cache, polygon_source, seed_union
+from tests.split_fixtures import (
+    FX,
+    edgar_cache,
+    list_polygon_rows,
+    list_polygon_source,
+    polygon_source,
+    seed_union,
+)
 
 SINCE = date(2025, 8, 1)  # the fixture pages' own query
 ASOF = date(2026, 10, 20)
@@ -198,10 +208,12 @@ def _enha_run(db, tmp_path, *, apply: bool, asof: date):
 
 
 def _enha_as_prod_holds_it(db, tmp_path, monkeypatch) -> None:
-    """The version prod holds since 2026-10-20: the backfill, reading only items 3.03 / 5.03, saw none of
-    ENHA's 8-Ks — Polygon's 1-for-10 on 10-28, needs review, no SEC side."""
+    """The version prod holds since 2026-10-20: the backfill, reading only items 3.03 / 5.03 (and no wide forms
+    — the targeted reader came on 2026-10-24), saw none of ENHA's 8-Ks — Polygon's 1-for-10 on 10-28, needs
+    review, no SEC side."""
     with monkeypatch.context() as m:
         m.setattr(bf, "SPLIT_8K_ITEMS", OLD_ITEMS)
+        m.setattr(bf, "WIDE_FORMS", frozenset())
         r = _enha_run(db, tmp_path, apply=True, asof=date(2026, 10, 20))
     (p,) = r.planned
     assert (p.decision.status, p.decision.sec, p.filings_read) == (STATUS_NEEDS_REVIEW, None, 0)
@@ -271,3 +283,206 @@ def test_confirming_the_sec_values_lists_enha_announced_for_its_real_first_sessi
     n = split_repo.count_rows(db)
     again = _enha_run(db, tmp_path, apply=True, asof=today)
     assert (again.appended, again.count(bf.OPERATOR_KEPT), split_repo.count_rows(db)) == (0, 1, n)
+
+
+# --- 2026-10-24: how each filing is read, and the targeted wide-form reader ---------------------------------
+
+
+@pytest.mark.parametrize(
+    ("form", "items", "screen"),
+    [
+        ("6-K", None, bf.SCREEN_RESTATED),
+        ("6-K/A", None, bf.SCREEN_RESTATED),
+        ("8-K", ("3.03", "5.03", "9.01"), bf.SCREEN_RESTATED),  # a charter 8-K (MEDS's)
+        ("8-K", None, bf.SCREEN_RESTATED),  # items not resolved yet
+        ("8-K", ("8.01", "9.01"), bf.SCREEN_CATCH_ALL),  # unchanged since 2026-10-23
+        ("8-K/A", ("7.01", "9.01"), bf.SCREEN_CATCH_ALL),
+        ("1-A/A", None, bf.SCREEN_NONE),
+        ("10-Q", None, bf.SCREEN_WIDE),
+        ("F-6 POS", None, bf.SCREEN_WIDE),
+        ("DEF 14C", None, bf.SCREEN_WIDE),
+    ],
+)
+def test_each_filing_is_read_its_way(form, items, screen):
+    assert bf.screen_of(bf.FilingRef("a", form, date(2026, 1, 1), items)) == screen
+
+
+DFNS_CIK = "0001787518"
+DFNS_10Q = "0001185185-26-003604"  # filed 2026-08-18: 1-for-125, first session 2026-07-20
+LIST_ASOF = date(2026, 10, 24)
+
+
+def _list_run(db, tmp_path, cache, *, tickers, apply=False):
+    return bf.backfill_splits(
+        db,
+        polygon=list_polygon_source(tmp_path, today=LIST_ASOF),
+        edgar=EdgarClient(cache_dir=cache, allow_live=False),
+        since=date(2025, 3, 1),
+        asof=LIST_ASOF,
+        apply=apply,
+        allow_live=True,  # the fake Polygon socket; the EDGAR client is cache-only
+        tickers=tickers,
+    )
+
+
+def _dfns_8ks() -> list[tuple[str, str, date, list]]:
+    """DFNS's 8-Ks in the S1 window of its 2026-07-20 split, as its REAL submissions index lists them."""
+    subs = json.loads((FX / "submissions" / f"CIK{DFNS_CIK}.json").read_text(encoding="utf-8"))
+    r = subs["filings"]["recent"]
+    out = []
+    for i, form in enumerate(r["form"]):
+        filed = date.fromisoformat(r["filingDate"][i])
+        if form == "8-K" and date(2026, 3, 22) <= filed <= date(2026, 7, 30):
+            out.append(
+                (r["accessionNumber"][i], form, filed, parse_item_codes(r["items"][i]) or [])
+            )
+    return out
+
+
+def test_dfns_is_confirmed_by_the_8k_that_revised_its_ratio(db, tmp_path):
+    """DFNS: Polygon lists 1-for-125 on 2026-07-20. Its 8-K of 07-13 states 1-for-50 (superseded); the 8-K of
+    07-16 raised it to 1-for-125 and restated the 1-for-50 beside it, so the reader abstained ("two ratios") and
+    the list carried the 07-13 filing, disagreeing. It now reads the revised ratio: the two sources agree.
+    """
+    seed_member(db, "DFNS", DFNS_CIK, _dfns_8ks())
+    r = _list_run(db, tmp_path, edgar_cache(tmp_path), tickers=["DFNS"])
+    (p,) = r.planned
+    d = p.decision
+    assert (d.status, d.confirmed_via) == (STATUS_CONFIRMED, VIA_AUTO)
+    assert (d.ratio_from, d.ratio_to, d.effective_date) == (
+        Decimal(125),
+        Decimal(1),
+        date(2026, 7, 20),
+    )
+    assert (d.sec.accession, d.sec.form) == ("0001213900-26-078551", "8-K")
+    assert d.valid_from == date(2026, 7, 16)  # public from the filing
+    assert p.wide_read == 0  # its own window agreed: the wide forms are never read
+
+
+def test_a_wide_form_is_the_second_source_when_the_window_holds_none(db, tmp_path):
+    """The targeted reader: with none of DFNS's 8-Ks readable (a reader that never saw them), its S1 window holds
+    no agreement — so the company's wide forms filed [first session - 60, + 120] are read once, and its 10-Q
+    (filed 08-18: "The Reverse Stock Split became effective …", 1-for-125, first session 07-20) agrees exactly:
+    auto-confirmed by S1's own rule. The periodic report is read from its PRIMARY document alone."""
+    seed_member(db, "DFNS", DFNS_CIK, [])
+    cache = edgar_cache(tmp_path, only={DFNS_10Q}, submissions={DFNS_CIK})
+    r = _list_run(db, tmp_path, cache, tickers=["DFNS"], apply=True)
+    (p,) = r.planned
+    d = p.decision
+    assert (d.status, d.confirmed_via, d.sec.accession, d.sec.form) == (
+        STATUS_CONFIRMED,
+        VIA_AUTO,
+        DFNS_10Q,
+        "10-Q",
+    )
+    assert d.valid_from == date(
+        2026, 7, 20
+    )  # the 10-Q came after the first session: public from it
+    assert "could not be read" in d.note  # the window's unread 8-Ks are named, never hidden
+    assert (
+        p.wide_read == 1 and p.wide_unread == 3
+    )  # its three 424B3s in the window are not cached here
+    assert (cache / "forms" / DFNS_10Q / "t3def10q063026.htm").exists()
+    (v,) = split_repo.latest_versions(db, tenant_id=DEFAULT_TENANT_ID)
+    assert (v.status, v.sec_form, v.sec_effective_date) == ("confirmed", "10-Q", date(2026, 7, 20))
+    again = _list_run(db, tmp_path, cache, tickers=["DFNS"], apply=True)
+    assert (again.appended, split_repo.count_rows(db)) == (0, 1)  # COUNT THE TABLE
+
+
+def test_a_wide_form_that_does_not_agree_is_named_never_attached(db, tmp_path):
+    """OFAL: Polygon lists 1-for-10 on 2026-07-31; no 8-K in its window is readable here. Its 10-K (filed 07-14)
+    states the 1-for-10 its shareholders approved, undated (through the restatement screen: read bare it is a
+    split on 2024-08-29, a reorganization's date). Not an agreement — the split stays Polygon-only for review,
+    and the note names what the 10-K said; the 10-K is not attached as the split's SEC evidence."""
+    seed_member(db, "OFAL", "0002036307", [])
+    cache = edgar_cache(tmp_path, only={"0001493152-26-033093"}, submissions={"0002036307"})
+    r = _list_run(db, tmp_path, cache, tickers=["OFAL"])
+    (p,) = r.planned
+    d = p.decision
+    assert (d.status, d.sec, d.value_source) == (STATUS_NEEDS_REVIEW, None, "polygon")
+    assert (
+        "none agrees — 10-K 0001493152-26-033093 (filed 2026-07-14): 1-for-10 reverse split, no date"
+        in d.note
+    )
+
+
+def test_mi_its_20f_restates_an_old_split_and_is_named_as_such(db, tmp_path):
+    """MI (the S1 basket): its window holds only the range-only proxy. The targeted reader reads its 20-F
+    (filed 2026-05-01), which restates the 2024 one-for-fifty — through the restatement screen a past split's
+    ratio, so the review card keeps the proxy as its evidence and names the 20-F."""
+    seed_union(db)
+    result, _ = _run(db, tmp_path, apply=False, tickers=["MI"])
+    (mi,) = result.planned
+    assert mi.decision.status == STATUS_NEEDS_REVIEW
+    assert mi.decision.sec.accession == "0001213900-26-046153"
+    assert (mi.filings_read, mi.filings_unread, mi.wide_read, mi.wide_unread) == (3, 3, 1, 1)
+    assert (
+        "Wide forms read: 1 (1 unread), none agrees — 20-F 0001213900-26-050939 (filed 2026-05-01): no ratio "
+        "(only a past split's ratio is stated), no date." in mi.decision.note
+    )
+
+
+SDCO_CIK = "0001331421"
+
+
+def _renamed(db, sid, old: str, new: str) -> None:
+    """The rename the weekly company-list refresh records (``security_ticker_history``, 0066)."""
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO security_ticker_history (tenant_id, security_id, old_ticker, new_ticker, source) "
+            "VALUES (%s, %s, %s, %s, 'test')",
+            (DEFAULT_TENANT_ID, sid, old, new),
+        )
+    db.commit()
+
+
+def test_a_split_listed_under_the_companys_former_ticker_is_matched(db, tmp_path):
+    """SDCO traded as HLLK until its rename, and Polygon lists its 1-for-500 of 2025-04-24 under HLLK (the row
+    prod's list carries). Matched only by today's ticker, the split was never seen ("stored splits not seen this
+    run 1" on dev); with the company's own former ticker it is decided and planned."""
+    sid = seed_member(db, "SDCO", SDCO_CIK, [])
+    cache = edgar_cache(tmp_path, only=set(), submissions=set())
+    assert (
+        _list_run(db, tmp_path, cache, tickers=["SDCO"]).planned == []
+    )  # the control: no history row
+    _renamed(db, sid, "HLLK", "SDCO")
+    (m,) = bf.union_members(db, tickers=["SDCO"])
+    assert m.former_tickers == ("HLLK",) and "HLLK" in m.symbols
+    r = _list_run(db, tmp_path, cache, tickers=["SDCO"])
+    (p,) = r.planned
+    assert p.member.security_id == sid
+    assert (p.decision.polygon.ticker, p.decision.key_date) == ("HLLK", date(2025, 4, 24))
+    assert (p.decision.ratio_from, p.decision.ratio_to) == (Decimal(500), Decimal(1))
+    assert p.action == bf.APPEND
+
+
+def test_a_former_ticker_matches_only_its_own_company(db, tmp_path):
+    """The former tickers are read PER SECURITY: SDCO's HLLK never reaches another company, even one with its own
+    rename history — a ticker a different company once used (or uses) is never this company's."""
+    sdco = seed_member(db, "SDCO", SDCO_CIK, [])
+    other = seed_member(db, "OTHR", "0000000009", [])
+    _renamed(db, sdco, "HLLK", "SDCO")
+    _renamed(db, other, "OLDX", "OTHR")
+    members = bf.union_members(db)
+    by_sid = {m.security_id: m for m in members}
+    assert by_sid[other].former_tickers == ("OLDX",)
+    matched = bf.match_polygon(list_polygon_rows(), members)
+    assert [r.ticker for r in matched[by_sid[sdco]]] == ["HLLK"]
+    assert by_sid[other] not in matched
+
+
+def test_an_apply_from_the_full_history_marks_the_members_it_covered(db, tmp_path):
+    """``backfill_splits --apply`` from 2024-10-01 (or earlier) records each member it covered as filled, so the
+    newcomer job (``pipeline/split_history.py``) never re-fills them; a run from a later ``--since`` marks
+    nothing (a partial history)."""
+    ids = seed_union(db)
+    polygon, _ = polygon_source(tmp_path)
+    edgar = EdgarClient(cache_dir=edgar_cache(tmp_path), allow_live=False)
+    kw = {"polygon": polygon, "edgar": edgar, "asof": ASOF, "apply": True, "allow_live": True}
+    bf.backfill_splits(db, since=SINCE, **kw)
+    assert split_history_repo.count(db) == 0
+    bf.backfill_splits(db, since=bf.DEFAULT_SINCE, **kw)
+    marks = split_history_repo.get(db, tenant_id=DEFAULT_TENANT_ID, security_ids=ids.values())
+    assert set(marks) == set(ids.values())
+    assert {m.source for m in marks.values()} == {split_history_repo.SOURCE_CLI}
+    assert all(m.complete for m in marks.values())

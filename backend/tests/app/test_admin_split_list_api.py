@@ -214,6 +214,7 @@ def test_an_empty_list_reads_empty(client, db):
         "total": 0,
         "unlisted_jumps": [],  # S5 — no basket, no jump
         "unlisted_jumps_error": None,
+        "dismissed_jumps": [],
     }
     assert client.get("/admin/status").json()["splits_needs_review"] == 0
     assert split_repo.count_needs_review(db, tenant_id=DEFAULT_TENANT_ID) == 0
@@ -255,3 +256,79 @@ def test_the_panel_lists_a_released_split_shaped_jump_no_source_listed(db):
         (date(2026, 8, 27), 3.22000002861023, 497773.0),
         (date(2026, 8, 28), 3.0, 212900.0),
     ]
+
+
+# --- the operator's Dismiss of an "is this real?" card (2026-10-24) ---------------------------------------
+
+
+def _dismissals(db) -> int:
+    db.rollback()  # a fresh snapshot: the route committed on its own connection
+    with db.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM split_jump_dismissal")
+        return cur.fetchone()["n"]
+
+
+def test_dismiss_hides_the_card_behind_the_dismissed_filter_and_undo_brings_it_back(
+    client, db, monkeypatch
+):
+    """GAME's released 08-24 jump (asof 2026-08-28): Dismiss ("this was a real move") takes it off the list and
+    lists it under ``dismissed_jumps`` with its reason — never deleted (WB#2); a second Dismiss is refused (409);
+    Undo puts it back on the list (WB#1); a second Undo is refused (409). Each action appends ONE row — COUNT THE
+    TABLE. The nightly line leaves a dismissed jump out (counted), and the split-night hold never reads it.
+    """
+    from db.session import connect
+    from pipeline import split_jumps as sj
+    from tests import split_s5_fixtures as s5
+
+    monkeypatch.setattr(admin_splits, "market_today", lambda: date(2026, 8, 28))
+    sid = s5.seed(db, "GAME", listed=False)
+    s5.seed_thesis(db, [("GAME", sid)])
+    body = client.get(BASE).json()
+    assert [j["ticker"] for j in body["unlisted_jumps"]] == ["GAME"] and body[
+        "dismissed_jumps"
+    ] == []
+    assert body["unlisted_jumps"][0]["dismissal_id"] is None
+    assert _dismissals(db) == 0
+    r = client.post(f"{BASE}/jumps/{sid}/2026-08-24/dismiss", json={"reason": "a real squeeze"})
+    assert r.status_code == 200
+    gone = r.json()
+    assert gone["dismissed_reason"] == "a real squeeze" and gone["dismissal_id"]
+    assert _dismissals(db) == 1
+    body = client.get(BASE).json()
+    assert body["unlisted_jumps"] == []
+    assert [(j["ticker"], j["step_date"]) for j in body["dismissed_jumps"]] == [
+        ("GAME", "2026-08-24")
+    ]
+    again = client.post(f"{BASE}/jumps/{sid}/2026-08-24/dismiss")
+    assert again.status_code == 409 and _dismissals(db) == 1
+    assert (
+        client.post(f"{BASE}/jumps/{sid}/2026-08-21/dismiss").status_code == 404
+    )  # not a listed jump
+    scan = sj.run_jump_scan(
+        asof=date(2026, 8, 28), allow_live=True, tenant_id=DEFAULT_TENANT_ID, connect=connect
+    )
+    assert scan.evaluated and scan.jumps == () and scan.dismissed == 1
+    assert sj.report_lines(scan) == []  # the operator said it was real: no nightly line
+    undo = client.post(f"{BASE}/jumps/dismissals/{gone['dismissal_id']}/undo")
+    assert undo.status_code == 200 and undo.json()["dismissal_id"] is None
+    assert _dismissals(db) == 2
+    body = client.get(BASE).json()
+    assert [j["ticker"] for j in body["unlisted_jumps"]] == ["GAME"] and body[
+        "dismissed_jumps"
+    ] == []
+    assert client.post(f"{BASE}/jumps/dismissals/{gone['dismissal_id']}/undo").status_code == 409
+    assert client.post(f"{BASE}/jumps/dismissals/{uuid.uuid4()}/undo").status_code == 404
+    assert _dismissals(db) == 2
+
+
+def test_a_dismissal_never_reaches_the_split_night_hold():
+    """STRUCTURAL: the split-night hold (the signal and its pure rules) never names the dismissal log or its
+    repository — the card's Dismiss is display, never a call input."""
+    import inspect
+
+    from domain import split_hold as hold_rules
+    from signals import split_hold
+
+    for mod in (split_hold, hold_rules):
+        assert "split_jump_dismissal" not in inspect.getsource(mod)
+        assert "split_jump_repo" not in inspect.getsource(mod)

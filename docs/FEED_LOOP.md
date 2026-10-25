@@ -1248,7 +1248,10 @@ rule with its OWN first-night step test (bar to bar, from bar 1), not this monit
 a split-shaped jump the hold released (three sessions on) that no list row sits near — prints ONE quiet line
 in the nightly report ("N split-shaped jump(s) past the split-night hold with no split listed — is this real?
 (Admin → Splits): …", `pipeline/split_jumps.py`; a failed read is one line too, never a failed pass) and is
-listed on the Admin Splits panel; it never pages. The two-agreeing-pulls
+listed on the Admin Splits panel; it never pages. The operator can **Dismiss** a card ("this was a real move",
+2026-10-24 — append-only `split_jump_dismissal`, migration 0068, with its Undo): it leaves the list and the
+nightly line and stays listed under the panel's "dismissed" filter; the hold never reads a dismissal (display
+only, never a call input). The two-agreeing-pulls
 hysteresis on a vendor REVERT (T5) is built in the price leg itself — see "Price restatements" above; it does
 not read this monitor.
 
@@ -1335,6 +1338,26 @@ splits, while one whose manifest — the exporter's, or a run's `MirrorInfo.spli
 lacks it refuses to open. The self-audit `splits_applied` check pages a recent
 split still showing its step, names the older backlog quietly, and names as NOT VERIFIED (never "applied") a
 split the tape cannot read and an announced split not yet confirmed (a flat tape is equally a postponed one).
+
+**A joining company's split history (2026-10-24)** `[BUILT]`. The list was filled ONCE (S1, 2026-10-20, over
+that day's basket) and the nightly (S4) looks back only 30 days (Polygon) / 60 days (SEC filings), so a company
+that joined a basket later had no split history: MEASURED on prod 2026-10-24, 32 splits Polygon lists since
+2025-03 on 29 companies were missing (CRWD 4-for-1, POWL 3-for-1, LHSW 1-for-16, ABTS 1-for-15 …), all on the
+350 companies that joined after the backfill; companies in a basket at the backfill: 0 missing.
+`pipeline/split_history.py` now runs the S1 backfill scoped to every live basket member with no
+`security_split_history` row (migration 0067) — S1's own decision (the targeted wide-form reader included),
+its plan against the stored list (a split the nightly or the operator listed is never touched), its append
+(author `system:backfill_splits`, count-verified) and its journal (`data_repair`, when it appended). It runs at
+the START of every staged-onboarding batch (`pipeline.onboarding.run_batch`, every 30 min from the cron
+sidecar), so it is outside the nightly window, yields to a running pass, and covers fast-lane promotes and
+hand-adds too (it reads the baskets, not the queue). Per company, under its W1 lock (a held company waits for
+the next run). Polygon: ONE market-wide pull from 2024-10-01 per day (the pages are cached per market day),
+and only when some member needs a fill. A company whose SEC index or a filing in a split's window could not be
+read is marked INCOMPLETE and retried, at most 3 runs. With no `POLYGON_API_KEY` nothing is filled or marked.
+The migration SEEDS the S1 backfill's own coverage (the roster of every live thesis's basket snapshot at the
+backfill's apply instant, plus every company with a backfill version), and `backfill_splits --apply` from
+2024-10-01 marks what it covers — so neither is re-filled. `python -m pipeline.split_history` dry-runs it
+(`--status` lists who needs one, `--apply` runs it under the onboarding job's lock).
 
 ### The tape monitor, part 3 — price-feed repairs: renamed, unpriceable, expected 404s (T2 + Q8 + T3, 2026-10-17)  `[BUILT]`
 
@@ -1646,8 +1669,8 @@ basket union OWED the operator's decision and diffs it against the newest live, 
 it; a NEW one pages ONCE through the run's health event (benign-class: it never makes the Admin cron verdict
 unhealthy). **What is owed — since R8-B (2026-10-20, §below) only what the system cannot resolve and a call can
 read:** an AMBIGUOUS link, an UNRESOLVED row match (the filer's words neither fix nor add) or a HELD void
-(retraction words against several trades) whose changed `P`/`S` rows sit inside the review horizon (940 days at
-today's config), plus an operator-linked one awaiting its verdict and one the operator took back. Everything else
+(retraction words against several trades) whose changed `P`/`S` rows a live call or an edition page reads (the
+review line, below), plus an operator-linked one awaiting its verdict and one the operator took back. Everything else
 resolved to a definite original is RESOLVED BY THE SYSTEM and never pages; the report carries ONE quiet line,
 "Form 4/A: N applied automatically (filer corrections), K kept as filed (their text retracts nothing), M owed
 your decision (quiet)" (the "kept as filed" clause only when K > 0). (R8-A's 2026-10-18 signal-effect rule —
@@ -1817,12 +1840,34 @@ whole original; for a void, the original is hidden), **Keep the original** (`kee
 added; not offered for a zero-row 4/A, which has nothing to add). An operator verdict may stand over any system
 decision; one over another operator verdict is refused ("undo it first").
 
-**The review horizon** is the dial `insider_amendment_review_horizon_days` (`Settings`; unset = derived by
-`signals.horizons.insider_amendment_review_horizon`): the two-year backtest window (730 days — the member price
-tape's `DEFAULT_RANGE = "2y"`, so no live call, scrub-back or backtest is computed before it) plus the longest
-insider read horizon a call detector declares (`P` 210) = **940 days**. An ambiguous amendment whose changed
-signal rows are all older is read by no call — owing the operator a decision about it would be loudness that
-marks nothing (WB#3). A widened detector widens the horizon with no edit; an unbounded one unbounds it.
+**The review line** (operator decision 2026-10-24 — it replaced the flat 940-day horizon, the two-year backtest
+window plus the longest read): an unresolvable 4/A is owed only when a changed `P`/`S` row can be read by a
+**live call or an edition page** — a buy dated on/after (the earliest edition night − 210 days), a sale on/after
+(the earliest edition night − 120 days), or anything inside today's windows (`domain.insider_amendments
+.review_line`; the per-code windows are the detectors' own, `signals.horizons.insider_signal_codes`; the earliest
+edition night is read live, `min(edition.first_night)`, never hand-typed). A row only a backtest reads is
+"unresolved — historical" — owing the operator a decision about it would be loudness that marks nothing (WB#3);
+it stays decidable. No system decision is written for this: a pending item already reads as "the original
+stands". The dial `insider_amendment_review_horizon_days` still pins a FLAT window (every code, N days back from
+asof) when set. MEASURED 2026-10-24 (prod, read-only, asof 2026-10-23, earliest edition night 2026-06-10): of the 5
+owed under the old horizon, AAOI `0001683168-24-008605`, ZS `0001713683-24-000130` and SEI `0001415889-25-007591`
+move to historical; BCYC `0002119908-26-000013` and CODI `0001193125-26-355927` stay owed; all 59 historical stay
+historical (`tests/domain/test_insider_amendment_rule2b.py`, on their real rows).
+
+**The system's pick (rule 2b, operator decision 2026-10-24)** — an ambiguous link the row tie-break leaves
+unsettled is settled when EVERY Table I row of the 4/A matches, one-to-one, a row of exactly ONE candidate by
+shares + price (same reporting owner; shares within 1e-6, price within 1e-4 — `domain.insider_amendments
+.sole_match`). The system then records a `link` decision (basis `system:sole-match`, with each candidate's
+matched-row count) and its own resolution against that filing — at ingest, in the link's transaction, and by
+the nightly sweep for a stored ambiguous link nothing was ever decided on. The link row itself stays ambiguous;
+the operator's **Undo the system's pick** revokes both decisions (the amendment is ambiguous again, every
+candidate linkable, and the sweep never picks it again). The row tie-break is unchanged and runs first. MEASURED
+2026-10-24 (prod, read-only): it agrees with both of the operator's hand picks (CVNA `-000275` → `-000271`, 28/28;
+HROW `0001641172-25-010338` → `0001493152-25-011028`) and with all 25 system tie-break picks it decides (21 no
+pick); over 3,359 definite links (every stored Form 4 of the owner made public no later than the 4/A as the pool)
+it disagrees with the linker on 0.7% (9). It picks SEI `0001415889-25-007591` → `-007343`. The filer's-date rule
+("2a" — the 4/A's remark names the original's filing date) was measured and NOT built (it fires rarely and
+disagreed 2.4%).
 
 **MEASURED on prod, read-only, asof 2026-10-20** (the branch's own reads over the stored links on 2026-10-21 —
 the revised rule; the sweep's plan computed without writing):

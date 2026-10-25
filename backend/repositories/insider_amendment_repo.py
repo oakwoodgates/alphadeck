@@ -18,9 +18,12 @@ THE VERBS, each with its visible inverse (WB#1):
   cascade found; the disposition against it is computed HERE (against the full stored rows) and STORED on the
   decision, so a read never recomputes it from a windowed row set.
 - ``revoke`` — the Undo of any standing decision: appends a ``revoke`` row naming it.
+- ``undo_pick`` — the Undo of the SYSTEM's pick (rule 2b): revokes the system's verdict under it, then its link —
+  the amendment is ambiguous again, every candidate linkable by the operator (who now owns it: the sweep never
+  picks again).
 - ``sweep`` (R8-B, a SYSTEM write) — appends a system ``apply`` for every resolvable amendment that has NO
-  decision at all (a pre-R8-B link left pending). Idempotent by construction: it never touches an amendment
-  anything was ever decided on.
+  decision at all (a pre-R8-B link left pending), and the system's PICK (rule 2b) for every ambiguous one it
+  settles. Idempotent by construction: it never touches an amendment anything was ever decided on.
 - ``relink`` (the R8 linker fix, a SYSTEM write — ``pipeline.relink_amendments``) — appends a new link version
   for a stored link the fixed cascade moves (an original made public after its amendment; an ambiguous set the
   row tie-break settles), the system's ``revoke`` (``system:relink``) of its stale decision and its decision
@@ -58,6 +61,16 @@ import psycopg
 from psycopg.types.json import Json
 
 from db.insider_resolution import load_inputs
+from domain.insider_amendment_cards import (
+    CardAction,
+    TradeGroup,
+    card_actions,
+    changes_no_call,
+    filed_date,
+    owner_role,
+    signal_usd,
+    trade_groups,
+)
 from domain.insider_amendments import (
     ACTION_ADD,
     ACTION_APPLY,
@@ -68,9 +81,15 @@ from domain.insider_amendments import (
     BASIS_HELD,
     BASIS_REDERIVE,
     BASIS_RELINK,
+    BASIS_SOLE_MATCH,
     INERT_DISPOSITIONS,
+    METHOD_ORIG_DATE_OWNER,
     REVIEW_AUTO,
+    REVIEW_DECIDED,
+    REVIEW_HISTORICAL,
+    REVIEW_INERT,
     REVIEW_OWED,
+    REVIEW_QUEUED,
     ROUTED_DISPOSITIONS,
     ROUTED_NO_PROVISIONAL,
     STATUS_APPLIED,
@@ -78,7 +97,9 @@ from domain.insider_amendments import (
     AmendmentFacts,
     Effective,
     LinkResult,
+    ReviewLine,
     RowMatch,
+    SystemPick,
     SystemResolution,
     VoidReading,
     before_after,
@@ -97,13 +118,20 @@ from domain.insider_amendments import (
     rederive_scope,
     relink_rule,
     review_bucket,
+    review_line,
+    sole_match_coverage,
     standing_decisions,
     sweep_resolution,
+    system_pick,
     system_resolution,
     void_for,
-    within_review_horizon,
 )
-from ingest.edgar.form4a import stored_rows_by_accession, system_decision_values, write_link
+from ingest.edgar.form4a import (
+    stored_rows_by_accession,
+    system_decision_values,
+    write_link,
+    write_pick,
+)
 
 
 class AmendmentConflict(Exception):
@@ -159,6 +187,25 @@ class AmendmentItem:
     # input; ``None`` = nothing — the operator's, or inert)
     void: VoidReading | None = None
     resolution: SystemResolution | None = None
+    # rule 2b (2026-10-24) — the SYSTEM's pick: ``system_link`` = the standing link decision is the system's
+    # (``system:sole-match``); ``pick`` = that pick's evidence, or — for an ambiguous amendment nothing was ever
+    # decided on — the pick the next sweep records (``pick_standing`` False); ``coverage`` = per candidate, how
+    # many of the 4/A's rows it matches by shares + price (same owner)
+    system_link: bool = False
+    pick: SystemPick | None = None
+    pick_standing: bool = False
+    coverage: dict[str, int] = field(default_factory=dict)
+    # the plain-English card (2026-10-24): who filed it, in what role; what each Table I group says; each
+    # original's filing date (``None`` = not on file); each button's effect on the read; the dollar total of the
+    # 4/A's buys / sells; and whether ANY answer on the card can change a call (the review line's test)
+    owner_name: str | None = None
+    owner_role: str | None = None
+    trades: list[TradeGroup] = field(default_factory=list)
+    original_trades: dict[str, list[TradeGroup]] = field(default_factory=dict)
+    original_filed: dict[str, date | None] = field(default_factory=dict)
+    actions: list[CardAction] = field(default_factory=list)
+    usd_total: float | None = None
+    changes_no_call: bool = True
 
     @property
     def unresolved(self) -> bool:
@@ -411,10 +458,73 @@ def revoke(
     )
 
 
+def undo_pick(
+    conn: psycopg.Connection, security_id: UUID, accession: str, *, reason: str, basis: str
+) -> dict[str, Any]:
+    """Undo the SYSTEM's pick of an ambiguous amendment's original (rule 2b): append a ``revoke`` of the system's
+    standing verdict under the pick (if any), then of its ``link`` decision — so the amendment reads ambiguous
+    again, its candidates' rows standing, and the operator can link any candidate (the inverse — WB#1). Both
+    revokes name the operator (``basis``), so the sweep never picks it again: anything the operator did stays
+    the operator's. ``LookupError`` when no standing SYSTEM pick exists; ``AmendmentConflict`` when an OPERATOR
+    verdict stands over the pick (undo that one first). Returns the link's revoke."""
+    if not reason.strip() or not basis.strip():
+        raise ValueError("an undo needs a reason and a basis")
+    links = _lock(conn, security_id, accession)
+    decisions = _decisions(conn, security_id, accession)
+    _, link_d, verdict = _state(links, decisions, accession)
+    if link_d is None or not is_system_basis(link_d.get("basis")):
+        raise LookupError(f"{accession}: no standing system pick to undo")
+    if verdict is not None and not is_system_basis(verdict.get("basis")):
+        raise AmendmentConflict(
+            f"{accession}: your '{verdict['action']}' decision stands over the system's pick — undo it first"
+        )
+    common = {
+        "tenant_id": link_d["tenant_id"],
+        "security_id": security_id,
+        "amendment_accession": accession,
+        "action": "revoke",
+        "reason": reason.strip(),
+        "basis": basis,
+    }
+    if verdict is not None:
+        _insert(conn, {**common, "revokes": verdict["id"]})
+    return _insert(conn, {**common, "revokes": link_d["id"]})
+
+
 # --- the reads ---------------------------------------------------------------------------------------------
 
 
 _UNSET: Any = object()
+
+# a card's "who / what" reads these buckets' originals' FILING dates from the submissions index (``filing_dates``):
+# the ones that ask the operator something, plus any system pick (its Undo names the filing it picked)
+_DATED_REVIEWS = frozenset({REVIEW_OWED, REVIEW_DECIDED, REVIEW_HISTORICAL, REVIEW_QUEUED})
+
+# ``(security_id, member cik) -> {accession: EDGAR filing date}`` — the submissions index a card reads its
+# candidates' filing dates from; ``None`` = not available (the card falls back to what the link itself proves)
+FilingDates = Callable[[UUID, str | None], Mapping[str, date] | None]
+
+
+def _owner_name(owners: Iterable[Mapping[str, Any]]) -> str | None:
+    names = [str(o.get("name") or "").strip() for o in owners or ()]
+    names = [n for n in names if n]
+    return " and ".join(names) if names else None
+
+
+def _known_filed(
+    link: Mapping[str, Any], filing: Mapping[str, Any], accessions: Iterable[str]
+) -> dict[str, date | None]:
+    """What the LINK itself proves about its filings' dates: a step-1 link (``orig_date_owner``) matched every
+    original / candidate / duplicate on the 4/A's ``dateOfOriginalSubmission`` against the submissions index — so
+    that IS each one's filing date. Anything else is unknown here (``None``)."""
+    dos = filed_date(filing.get("date_of_original_submission"))
+    proven = (
+        set(link.get("original_accessions") or [])
+        | set(link.get("candidate_accessions") or [])
+        | set(link.get("voided_accessions") or [])
+    )
+    step1 = str(link.get("method")) == METHOD_ORIG_DATE_OWNER and dos is not None
+    return {a: (dos if step1 and a in proven else None) for a in accessions}
 
 
 def items(
@@ -424,26 +534,41 @@ def items(
     asof: date | None = None,
     horizons: Mapping[str, int | None] | None = None,
     review_days: int | None = _UNSET,
+    line: ReviewLine | None = None,
+    filing_dates: FilingDates | None = None,
+    cards: bool = True,
 ) -> list[AmendmentItem]:
     """Every linked amendment (optionally of these securities) with its CURRENT effective state and where it
     sits in the operator's review (R8-B ``review``) — the Admin panel's whole read, the nightly scan's and the
     sweep's. Ordered by URGENCY: owed a decision AND changing a signal row inside a signal's live read horizon
     at ``asof`` first (``in_window``), then the rest by ticker and acceptance (newest first). ``horizons`` is
     ``{code: days}`` from the detectors' own declarations (``signals.horizons.insider_signal_codes``; its keys
-    are the signal codes) — derived when omitted; without ``asof`` nothing is in-window. ``review_days`` is the
-    review horizon (``review_horizon_days()`` when omitted; ``None`` = unbounded) — without ``asof`` an
-    ambiguous amendment is judged against today's market day. Read-only."""
+    are the signal codes) — derived when omitted; without ``asof`` nothing is in-window.
+
+    THE REVIEW LINE (what is owed vs "unresolved — historical", and the cards' "This changes no call."):
+    ``line`` when given; else a FLAT ``review_days`` horizon when one is passed (``None`` = unbounded — the
+    sweep's time-free plan); else the line IN FORCE (``review_line_in_force`` — derived from the earliest edition
+    night and the detectors' read windows, or the pinned dial) — judged at ``asof``, else today's market day.
+
+    THE CARD (2026-10-24, plain English): each item carries who filed it, what each Table I group says, each
+    original's filing date (``filing_dates`` — the submissions index, for the cards that ask something; else
+    what the link proves), each button's effect on the read (``domain.insider_amendment_cards.card_actions``),
+    and ``changes_no_call`` — skipped with ``cards=False`` (the sweep and the nightly scan never render one).
+    Read-only."""
     if horizons is None:
         horizons = default_horizons()
-    if review_days is _UNSET:
-        review_days = review_horizon_days()
     codes = frozenset(horizons)
     if asof is None:
-        from domain.market_time import market_today  # lazy: the review horizon needs SOME asof
+        from domain.market_time import market_today  # lazy: the review line needs SOME asof
 
         review_asof = market_today()
     else:
         review_asof = asof
+    if line is None:
+        if review_days is _UNSET:
+            line = review_line_in_force(conn, asof=review_asof, horizons=horizons)
+        else:
+            line = ReviewLine.flat(review_asof, review_days)
     sid_filter = list(security_ids) if security_ids is not None else None
     where = "" if sid_filter is None else " WHERE x.security_id = ANY(%(ids)s)"
     p: dict[str, Any] = {"ids": sid_filter}
@@ -453,8 +578,8 @@ def items(
         cur.execute("SELECT * FROM insider_amendment_decision x" + where, p)  # noqa: S608
         decisions = cur.fetchall()
         cur.execute(
-            "SELECT DISTINCT ON (x.security_id, x.accession) x.*, sm.ticker FROM insider_amendment x "
-            "JOIN security_master sm ON sm.id = x.security_id"
+            "SELECT DISTINCT ON (x.security_id, x.accession) x.*, sm.ticker, sm.cik AS member_cik "
+            "FROM insider_amendment x JOIN security_master sm ON sm.id = x.security_id"
             + where
             + " ORDER BY x.security_id, x.accession, x.recorded_at DESC, x.id DESC",  # noqa: S608
             p,
@@ -468,6 +593,20 @@ def items(
         by_sid_dec.setdefault(d["security_id"], []).append(d)
     out: list[AmendmentItem] = []
     held_cache: dict[UUID, dict[str, list[dict[str, Any]]]] = {}
+    index_cache: dict[UUID, Mapping[str, date] | None] = {}
+
+    def index_of(sid: UUID, cik: str | None) -> Mapping[str, date] | None:
+        if filing_dates is None:
+            return None
+        if sid not in index_cache:
+            try:
+                index_cache[sid] = filing_dates(sid, cik)
+            except (
+                Exception
+            ):  # noqa: BLE001 — a card date is display; an unreadable index is "not on file"
+                index_cache[sid] = None
+        return index_cache[sid]
+
     for sid, sid_links in by_sid_links.items():
         latest = latest_by_accession(sid_links, "amendment_accession")
         standing = standing_decisions(by_sid_dec.get(sid, []))
@@ -479,6 +618,7 @@ def items(
             eff = effect_of(link, link_d, verdict)
             if sid not in held_cache:
                 held_cache[sid] = stored_rows_by_accession(conn, sid, tenant_id=link["tenant_id"])
+            held = held_cache[sid]
             wanted = (
                 set(eff.candidate_accessions)
                 | set(eff.original_accessions)
@@ -489,9 +629,9 @@ def items(
             # decision stored (whole originals for a pre-R8-B decision), else what the match accounts for
             text = filer_text(f.get("remarks"), f.get("footnotes"))
             match = match_for(
-                eff.disposition, eff.original_accessions, held_cache[sid], amend_rows, codes, text
+                eff.disposition, eff.original_accessions, held, amend_rows, codes, text
             )
-            void = void_for(eff.disposition, eff.original_accessions, held_cache[sid], codes, text)
+            void = void_for(eff.disposition, eff.original_accessions, held, codes, text)
             replaced: tuple[str, ...] | None
             kept: tuple[str, ...] = ()
             if match is None:
@@ -509,16 +649,15 @@ def items(
                 original_accessions=eff.original_accessions,
                 voided_accessions=eff.voided_accessions,
                 candidate_accessions=eff.candidate_accessions,
-                stored=held_cache[sid],
+                stored=held,
                 amend_rows=amend_rows,
                 replaced=replaced,
             )
             changed = changed_signal_rows(eff.disposition, before, after, codes)
             own = [d for d in by_sid_dec.get(sid, []) if d["amendment_accession"] == acc]
             unresolved = match is not None and match.unresolved
-            in_review = within_review_horizon(
-                match.conflicts if unresolved else changed, review_asof, review_days
-            )
+            in_review = line.inside(match.conflicts if unresolved else changed)
+            system_link = link_d is not None and is_system_basis(link_d.get("basis"))
             review = review_bucket(
                 eff,
                 verdict_basis=verdict.get("basis") if verdict is not None else None,
@@ -527,10 +666,47 @@ def items(
                 ever_decided=any(not is_system_basis(d.get("basis")) for d in own),
                 in_review=in_review,
                 unresolved=unresolved,
+                system_link=system_link,
             )
             resolution = system_resolution(
                 eff.disposition, signal_effect=bool(changed), match=match, void=void
             )
+            # rule 2b — the standing system pick, or the one the next sweep records (nothing ever decided)
+            pick: SystemPick | None = None
+            pick_standing = False
+            coverage: dict[str, int] = {}
+            ambiguous_open = eff.disposition == AMBIGUOUS and link_d is None
+            if ambiguous_open or system_link:
+                cands = list(link.get("candidate_accessions") or [])
+                coverage = {c: sole_match_coverage(amend_rows, held.get(c, ())) for c in cands}
+            if system_link and link_d is not None:
+                pick_standing = True
+                pick = system_pick(
+                    amend_rows, list(link.get("candidate_accessions") or []), held, codes, text
+                )
+            elif ambiguous_open and not own:
+                pick = system_pick(amend_rows, eff.candidate_accessions, held, codes, text)
+            # the card: who, what, each button's effect, and whether ANY answer can change a call
+            originals = {a: held.get(a, []) for a in sorted(wanted)}
+            actions = (
+                []
+                if review == REVIEW_INERT or not cards
+                else card_actions(
+                    amendment=f,
+                    link=link,
+                    decisions=own,
+                    stored=originals,
+                    eff=eff,
+                    signal_codes=codes,
+                )
+            )
+            ambiguous_rows = changed if ambiguous_open else []
+            filed = _known_filed(link, f, wanted)
+            if cards and (review in _DATED_REVIEWS or system_link or ambiguous_open):
+                idx = index_of(sid, f.get("member_cik"))
+                if idx:
+                    filed = {a: (idx.get(a) or filed.get(a)) for a in wanted}
+            first_original = [r for a in sorted(wanted) for r in held.get(a, [])]
             out.append(
                 AmendmentItem(
                     security_id=sid,
@@ -550,7 +726,7 @@ def items(
                     why=str((link.get("detail") or {}).get("why") or ""),
                     link_recorded_at=link["recorded_at"],
                     decisions=sorted(own, key=lambda d: (d["recorded_at"], str(d["id"]))),
-                    originals={a: held_cache[sid].get(a, []) for a in sorted(wanted)},
+                    originals=originals,
                     signal_effect=bool(changed),
                     auto_resolved=review == REVIEW_AUTO,
                     in_window=(
@@ -568,6 +744,20 @@ def items(
                     kept_rows=kept,
                     void=void,
                     resolution=resolution,
+                    system_link=system_link,
+                    pick=pick,
+                    pick_standing=pick_standing,
+                    coverage=coverage,
+                    owner_name=_owner_name(f.get("owners") or []),
+                    owner_role=owner_role(amend_rows, f.get("remarks"), first_original),
+                    trades=trade_groups(amend_rows),
+                    original_trades={a: trade_groups(rs) for a, rs in originals.items()},
+                    original_filed=filed,
+                    actions=actions,
+                    usd_total=signal_usd(amend_rows, codes),
+                    changes_no_call=changes_no_call(
+                        actions, line, eff=eff, ambiguous_rows=ambiguous_rows
+                    ),
                 )
             )
     out.sort(
@@ -591,19 +781,53 @@ def default_horizons() -> dict[str, int | None]:
     return insider_signal_codes(DEFAULT_CONFIG)
 
 
-def review_horizon_days() -> int | None:
-    """R8-B — the review horizon in force: the ``insider_amendment_review_horizon_days`` setting when set (a
-    negative value reads as 0), else the DERIVED default — the backtest window plus the longest detector read
-    horizon on ``fact_insider_txn`` (``signals.horizons.insider_amendment_review_horizon``; ``None`` =
-    unbounded). Lazy imports: the detector registry sits above the repository."""
-    from domain.config import DEFAULT_CONFIG
+def pinned_review_days() -> int | None:
+    """The dial ``insider_amendment_review_horizon_days`` when SET — it pins a FLAT review horizon (every code
+    ``asof - days``; a negative value reads as 0) — else ``None``: the line is DERIVED (``review_line_in_force``).
+    """
     from domain.settings import get_settings
-    from signals.horizons import insider_amendment_review_horizon
 
     pinned = get_settings().insider_amendment_review_horizon_days
-    if pinned is not None:
-        return max(0, int(pinned))
-    return insider_amendment_review_horizon(DEFAULT_CONFIG)
+    return None if pinned is None else max(0, int(pinned))
+
+
+def earliest_edition_night(
+    conn: psycopg.Connection, *, tenant_id: UUID | None = None
+) -> date | None:
+    """The earliest night any published Scoreboard edition re-ran (``edition.first_night``, the minimum over the
+    tenant's editions) — the oldest night an edition PAGE reads; ``None`` when no edition is published. A read,
+    never cached: a new edition with an earlier first night moves the line with it."""
+    from db.session import current_tenant_id  # lazy: the session module reads settings
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT min(first_night) AS n FROM edition WHERE tenant_id = %s",
+            (tenant_id or current_tenant_id(),),
+        )
+        row = cur.fetchone()
+    return (row or {}).get("n")
+
+
+def review_line_in_force(
+    conn: psycopg.Connection,
+    *,
+    asof: date,
+    horizons: Mapping[str, int | None] | None = None,
+    tenant_id: UUID | None = None,
+) -> ReviewLine:
+    """The review line at ``asof`` (operator decision 2026-10-24): the pinned dial's flat horizon when set
+    (``pinned_review_days``), else DERIVED — per signal code, ``min(asof, the earliest edition night) - its read
+    window`` (``domain.insider_amendments.review_line``; the windows are the detectors' own,
+    ``default_horizons``). Read-only."""
+    pinned = pinned_review_days()
+    return review_line(
+        asof,
+        horizons if horizons is not None else default_horizons(),
+        first_edition_night=(
+            None if pinned is not None else earliest_edition_night(conn, tenant_id=tenant_id)
+        ),
+        pinned_days=pinned,
+    )
 
 
 def pending_keys(
@@ -622,7 +846,12 @@ def pending_keys(
     return {
         f"{i.security_id}:{i.accession}": i
         for i in items(
-            conn, security_ids=security_ids, asof=asof, horizons=horizons, review_days=review_days
+            conn,
+            security_ids=security_ids,
+            asof=asof,
+            horizons=horizons,
+            review_days=review_days,
+            cards=False,
         )
         if i.needs_operator
     }
@@ -634,19 +863,23 @@ def pending_keys(
 @dataclass(frozen=True)
 class SweepResult:
     """One sweep's outcome: the decisions it appended, by basis and by disposition (``applied`` = keys
-    ``"<security_id>:<accession>"``), and how many it considered."""
+    ``"<security_id>:<accession>"``), and how many it considered. ``picked`` (rule 2b) = the ambiguous amendments
+    whose original the system picked — their resolution against the pick is counted in ``applied`` /
+    ``by_basis`` too."""
 
     considered: int = 0
     applied: tuple[str, ...] = ()
     by_basis: dict[str, int] = field(default_factory=dict)
     by_disposition: dict[str, int] = field(default_factory=dict)
+    picked: tuple[str, ...] = ()
 
 
 def sweep_plan(found: Iterable[AmendmentItem]) -> list[tuple[AmendmentItem, SystemResolution]]:
     """PURE over ``items`` output — ``(item, resolution)`` for every amendment the system resolves now: no
     decision ever recorded on it, and a system resolution (``domain.insider_amendments.system_resolution`` —
     an ``apply`` carrying its row match, or a void's ``keep``). An ambiguous link, an unresolved row match, an
-    inert one, and anything the operator (or the system) ever decided are left exactly as they are.
+    inert one, and anything the operator (or the system) ever decided are left exactly as they are (an ambiguous
+    one rule 2b settles is ``pick_plan``'s).
     """
     out: list[tuple[AmendmentItem, SystemResolution]] = []
     for it in found:
@@ -655,6 +888,25 @@ def sweep_plan(found: Iterable[AmendmentItem]) -> list[tuple[AmendmentItem, Syst
         )
         if res is not None:
             out.append((it, res))
+    return out
+
+
+def pick_plan(found: Iterable[AmendmentItem]) -> list[tuple[AmendmentItem, SystemPick]]:
+    """PURE over ``items`` output — rule 2b: ``(item, pick)`` for every AMBIGUOUS amendment with NO decision ever
+    recorded on it whose candidates one alone covers (``domain.insider_amendments.system_pick``). Anything the
+    operator (or the system) ever decided — an operator link, an Undo of a pick — is left exactly as it is.
+    """
+    out: list[tuple[AmendmentItem, SystemPick]] = []
+    for it in found:
+        eff = it.effective
+        if (
+            eff.disposition == AMBIGUOUS
+            and eff.link_decision_id is None
+            and not it.decisions
+            and it.pick is not None
+            and not it.pick_standing
+        ):
+            out.append((it, it.pick))
     return out
 
 
@@ -671,6 +923,10 @@ def sweep(
     before tonight still sees the state the system held then (pending; a void suppressing): no rewrite of the
     past. Every security when ``security_ids`` is None (the resolver reads amendments for any security).
 
+    RULE 2b (2026-10-24): every stored AMBIGUOUS amendment with no decision whose rows one candidate alone covers
+    (``pick_plan``) gets the system's pick — its ``link`` decision (``system:sole-match``) and its resolution
+    against the picked filing (``ingest.edgar.form4a.write_pick``, the ingest's own write), at ``now()``.
+
     IDEMPOTENT — re-running appends nothing: an amendment is swept only while it has NO decision row at all,
     re-checked under the amendment's ``FOR UPDATE`` lock (so a click racing the sweep wins or waits, never
     doubles). Never touches an operator decision, an operator link, or an Undo (an amendment the operator took
@@ -679,9 +935,14 @@ def sweep(
     # the plan is time-free (no asof, an unbounded review horizon): WHETHER the system applies an amendment
     # depends on its disposition and decisions only, never on a date window
     found = items(
-        conn, security_ids=security_ids, horizons={c: None for c in codes}, review_days=None
+        conn,
+        security_ids=security_ids,
+        horizons={c: None for c in codes},
+        review_days=None,
+        cards=False,
     )
     applied: list[str] = []
+    picked: list[str] = []
     by_basis: dict[str, int] = {}
     by_disp: dict[str, int] = {}
     for it, res in sweep_plan(found):
@@ -705,11 +966,37 @@ def sweep(
         applied.append(f"{it.security_id}:{it.accession}")
         by_basis[res.basis] = by_basis.get(res.basis, 0) + 1
         by_disp[eff.disposition] = by_disp.get(eff.disposition, 0) + 1
+    for it, pick in pick_plan(found):
+        links = _lock(conn, it.security_id, it.accession)
+        decisions = _decisions(conn, it.security_id, it.accession)
+        latest = latest_by_accession(links, "amendment_accession")[it.accession]
+        if decisions or str(latest["disposition"]) != AMBIGUOUS:
+            continue  # decided (or re-linked) since the read: the newer state wins
+        with conn.cursor() as cur:
+            write_pick(
+                cur,
+                tenant_id=latest["tenant_id"],
+                security_id=it.security_id,
+                accession=it.accession,
+                pick=pick,
+                candidates=list(latest.get("candidate_accessions") or []),
+                signal_codes=codes,
+                via="sweep",
+            )
+        key = f"{it.security_id}:{it.accession}"
+        picked.append(key)
+        by_basis[BASIS_SOLE_MATCH] = by_basis.get(BASIS_SOLE_MATCH, 0) + 1
+        if pick.resolution is not None:
+            applied.append(key)
+            basis = pick.resolution.basis
+            by_basis[basis] = by_basis.get(basis, 0) + 1
+            by_disp[pick.disposition] = by_disp.get(pick.disposition, 0) + 1
     return SweepResult(
         considered=len(found),
         applied=tuple(applied),
         by_basis=by_basis,
         by_disposition=by_disp,
+        picked=tuple(picked),
     )
 
 
@@ -724,7 +1011,8 @@ FilingIndex = tuple[Mapping[str, date], Mapping[str, datetime]]
 class RelinkItem:
     """One stored link the fixed cascade moves (``domain.insider_amendments.relink_rule``): the stored link
     row it supersedes, the fresh ``LinkResult``, the rule, and the standing SYSTEM verdict it takes back
-    (computed against the wrong original) — ``None`` when nothing stands."""
+    (computed against the wrong original) — ``None`` when nothing stands. ``revoke_link`` = the standing SYSTEM
+    pick (rule 2b's ``link`` decision, chosen among the old link's candidates) it takes back too."""
 
     security_id: UUID
     ticker: str | None
@@ -734,6 +1022,7 @@ class RelinkItem:
     new: LinkResult
     revoke: Mapping[str, Any] | None
     rejected: int = 0
+    revoke_link: Mapping[str, Any] | None = None
 
 
 @dataclass
@@ -832,7 +1121,7 @@ def relink_plan(
                     )
                 continue
             own = dec_by.get((sid, acc), [])
-            _, verdict = standing_decisions(own).get(acc, (None, None))
+            link_d, verdict = standing_decisions(own).get(acc, (None, None))
             item = RelinkItem(
                 security_id=sid,
                 ticker=f.get("ticker"),
@@ -842,6 +1131,7 @@ def relink_plan(
                 new=fresh,
                 revoke=verdict,
                 rejected=int((link.get("detail") or {}).get("rejected_rows") or 0),
+                revoke_link=link_d,
             )
             if any(not is_system_basis(d.get("basis")) for d in own):
                 plan.operator_held.append(item)  # anything the operator did stays the operator's
@@ -886,12 +1176,17 @@ def relink(
         links = _lock(conn, it.security_id, it.accession)
         decisions = _decisions(conn, it.security_id, it.accession)
         latest = latest_by_accession(links, "amendment_accession")[it.accession]
-        _, verdict = standing_decisions(decisions).get(it.accession, (None, None))
+        link_d, verdict = standing_decisions(decisions).get(it.accession, (None, None))
         stale = (
             str(latest["id"]) != str(it.old["id"])
             or any(not is_system_basis(d.get("basis")) for d in decisions)
             or (verdict is None) != (it.revoke is None)
             or (verdict is not None and str(verdict["id"]) != str(it.revoke["id"]))  # type: ignore[index]
+            or (link_d is None) != (it.revoke_link is None)
+            or (
+                link_d is not None
+                and str(link_d["id"]) != str(it.revoke_link["id"])  # type: ignore[index]
+            )
         )
         if stale:
             skipped.append(key)
@@ -920,6 +1215,23 @@ def relink(
                         f"{', '.join(it.old['original_accessions'] or []) or 'no original'}, which is "
                         "not the filing this amendment amends"
                     ),
+                    "basis": BASIS_RELINK,
+                    "detail": relink_detail,
+                },
+            )
+            n_rev += 1
+        if (
+            link_d is not None
+        ):  # the system's pick among the old candidates (rule 2b) — taken back too
+            _insert(
+                conn,
+                {
+                    "tenant_id": latest["tenant_id"],
+                    "security_id": it.security_id,
+                    "amendment_accession": it.accession,
+                    "action": "revoke",
+                    "revokes": link_d["id"],
+                    "reason": "re-linked by the system: its pick was made among candidates the fixed link replaces",
                     "basis": BASIS_RELINK,
                     "detail": relink_detail,
                 },
@@ -1220,13 +1532,14 @@ def rederive(
 
 
 def system_applied_since(conn: psycopg.Connection, since: datetime) -> dict[str, int]:
-    """``{basis: n}`` of the SYSTEM decisions (applications and keeps) recorded at/after ``since`` (any
-    security) — the cron's quiet count line ("N applied automatically, K kept as filed"). Read-only.
+    """``{basis: n}`` of the SYSTEM decisions (applications, keeps, and rule 2b's picks — ``system:sole-match``
+    links) recorded at/after ``since`` (any security) — the cron's quiet count line ("N applied automatically,
+    P matched to their original, K kept as filed"). Read-only.
     """
     with conn.cursor() as cur:
         cur.execute(
             "SELECT basis, count(*) AS n FROM insider_amendment_decision "
-            "WHERE action IN ('apply', 'keep') AND basis LIKE 'system:%%' AND recorded_at >= %s "
+            "WHERE action IN ('apply', 'keep', 'link') AND basis LIKE 'system:%%' AND recorded_at >= %s "
             "GROUP BY basis",
             (since,),
         )
