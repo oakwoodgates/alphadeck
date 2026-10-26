@@ -523,6 +523,16 @@ export interface paths {
          *     the basket stores the instrument the operator actually trades; the response carries the canonical
          *     ticker.
          *
+         *     THE TWO FIXED LINKS (Context and Bench): every saved thesis carries both as its LAST two links, whatever
+         *     the payload sent. The write drops any segment named "Context" or "Bench" in any case (a missing,
+         *     mid-list, lowercased or wrongly described one is replaced, never a 422) and appends the two with their
+         *     fixed descriptors; a member placed in either one is canonicalized to the exact spelling. A company is
+         *     EITHER silent (Context or Bench) OR in the chain, never both: a company holding a Context / Bench row
+         *     and any other row (a real link, Discovered, none, or the other silent link) is refused with a 422 naming
+         *     it, after the canonicalize and identity passes (sibling listings of one company merge there) and before
+         *     anything is written — a row is never dropped silently. A silent name stays on the card but never counts
+         *     toward the call (``domain.thesis.voting_thesis``).
+         *
          *     ON-PROMOTE INGEST (PR-4): a promote that ADDS members (present in the incoming basket, absent from
          *     the pre-upsert spine — diffed by ``security_id``) kicks their back-half ingest as a BACKGROUND job
          *     after the commit, so a fresh starter basket needn't wait for the nightly cron; the additive

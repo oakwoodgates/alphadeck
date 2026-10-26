@@ -48,6 +48,13 @@ almost certainly a property you should be reading instead.
 
 ## 1. Inputs
 
+**Which names the call reads — the voting roster `[BUILT — Context and Bench, 2026-10-26]`.** Every thesis carries two fixed, protected links as its last two: **Context** and **Bench** (`domain/thesis.py`). A company the *operator* places in either one stays on the card and visible but **never counts toward the call**: `pipeline.core.assemble_from_pit` — the one seam the serve path, the nightly, the backfill, replay, the editions engine and the backtest all share — first removes every row whose `segment` is `Context` or `Bench` (`voting_thesis`), and everything below it sees only the rest: the per-member detectors, the split-night hold and its `missing[]` lines, the theme broadcast, both rotation reads (a silent name can neither lead a rotation nor move the basket median a voting laggard is measured against) and `assemble_call`. **Discovered is a voting link and still counts.** The rules around it:
+- A company is **silent or voting, never both** — the write (`POST /workbench/theses`) refuses a company that holds a Context/Bench row and any other row, so removing silent *rows* never removes a voting company's vote.
+- **Only the operator** puts a name there — the chain drafter never writes either label (`docs/CHAIN_DRAFTER.md`).
+- **No `CallCard` field** records it (a new field would re-record every card; `CallCard.watch_members` already means "confirmation-only members" — nothing here is a "watch"). A card with both links empty — every card at birth — is byte-identical to what it was.
+- **History is honest with no new machinery:** the roster snapshot (`basket_snapshot`) stores each member's `segment`, and a history view hydrates the roster as the operator had it at the view's `known_at` (#1), so a past night is judged on the placement made by then — moving a name into Context changes the nights after it, never the nights before. The change is declared in `domain/rule_log.py` (`2026-10-silent-links`).
+- Out of scope in this change (reported, not built): the ingest/onboarding holds that wait on a basket's names still read the whole roster, and the Scoreboard, backtest and data-flag readers are untouched.
+
 Per `SignalEvent` (see `domain/signal.py`): `detector, security_id, role, kind, type, grade, score, fired, label, alpha_liveness_days, provenance, asof`.
 
 **Signal taxonomy `[SPECIFIED]` (confirmed).** Three orthogonal fields:

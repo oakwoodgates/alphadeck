@@ -56,7 +56,9 @@ discovery, that decision happens TWICE, both in `backend/workbench/chain_draft.p
 
 - **The per-CIK reconciler — `resolve_discovered_chain`** (the live path) places by EXACT CIK membership against
   the discovered universe (PLACED ≥1 signal · VERIFY broad-only · the dropped-but-discovered appended to
-  "Discovered") and owns COMPLETENESS. Full treatment in **`DISCOVERY.md`**.
+  "Discovered") and owns COMPLETENESS. Full treatment in **`DISCOVERY.md`**. It also holds the line on the two
+  fixed silent links: a segment the organizer names **Context** or **Bench** (any case) is never emitted, and its
+  names are filed under "Discovered" instead (logged, none dropped) — those links are the operator's alone.
 - **The master-resolver fallback — `_resolve_one`** (the old `resolve_placements` logic) handles an organizer
   name that matches NO discovered CIK (a tail-sweep / off-universe name): it runs the name through THIS tenant's
   master and classifies it —
@@ -190,6 +192,12 @@ place exact membership is enforced** — relocated there from the (never-built) 
   drafted placement the operator keeps stays `system_drafted`; one they edit lands `operator_edited`; an
   out-of-enum value is a `422` at parse time. *(This replaced the old coerce-to-`operator_set` behavior and its
   test.)*
+- **The two fixed links are normalized here.** Whatever the payload sent, the stored chain ends with **Context**
+  then **Bench** (fixed descriptors; a missing, mid-list, wrong-case or wrongly described one is replaced, never a
+  `422`), and a member naming either in any case is respelled to the canonical label. A company in Context or
+  Bench must have exactly ONE row: a company holding a silent row *and* another row (checked after the
+  canonicalize/identity passes, so sibling listings of one company count as one) is a `422` naming it, with
+  nothing written. See `CALL_LOGIC.md` §1.
 
 ## `thesis_fit` — the drafted prose's home
 
