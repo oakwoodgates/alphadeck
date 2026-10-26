@@ -21,9 +21,11 @@ import {
   ReturnCells,
   RvolCell,
   SparklineCell,
+  TapeCell,
   type SparkTick,
 } from "./DisplaySignalsSection";
 import { groupMoving } from "./groupAggregate";
+import { tapeMarks } from "./tapeMarks";
 import { CatalystEditor, KillCriteriaEditor } from "./SpineListEditors";
 import { MemberMenu } from "../components/MemberMenu";
 import {
@@ -201,15 +203,22 @@ export function Cockpit({
     const sig = (m.signals ?? []).find((s) => s.kind === "price_path");
     if (sig) pathBySid.set(m.security_id, sig);
   }
-  // the 52-week range (the `52w` column) and the volume regime (`ADV 20d`) — the SAME display-signals query,
-  // two more members on the generic payload, bridged by security_id like the cells above
+  // the 52-week range (the `52w` column) and the volume regime (`ADV 20d`), then the two members the Tape
+  // column reads beside the SMA map above (`vcp`, `relative_strength`) — the SAME display-signals query, more
+  // members on the generic payload, bridged by security_id like the cells above
   const rangeBySid = new Map<string, DisplaySignal>();
   const volumeBySid = new Map<string, DisplaySignal>();
+  const vcpBySid = new Map<string, DisplaySignal>();
+  const rsBySid = new Map<string, DisplaySignal>();
   for (const m of displayQ.data?.members ?? []) {
     const range = (m.signals ?? []).find((s) => s.kind === "range_52w");
     if (range) rangeBySid.set(m.security_id, range);
     const volume = (m.signals ?? []).find((s) => s.kind === "volume_regime");
     if (volume) volumeBySid.set(m.security_id, volume);
+    const vcp = (m.signals ?? []).find((s) => s.kind === "vcp");
+    if (vcp) vcpBySid.set(m.security_id, vcp);
+    const rs = (m.signals ?? []).find((s) => s.kind === "relative_strength");
+    if (rs) rsBySid.set(m.security_id, rs);
   }
   // S3 — the shared "is this real?" data flags (compute-on-read, display-only): which cells on a row rest
   // on data the platform cannot vouch for. Bridged by security_id like the display cells; a row with no
@@ -600,6 +609,17 @@ export function Cockpit({
                         {/* how far the last close sits below the 52-week closing high (0.0% = at the high) —
                             the range_52w member's pct_off_52w_high; the high and its bar date ride the hover */}
                         <SortableTh col="off52w" label="Off 52w high" align="right" sort={sort} onSort={onSort} />
+                        {/* the EXCEPTIONAL tape readings only — a coiling base, RS at a 13-week high, a recent
+                            golden / death cross (the vcp / relative_strength / sma_position members). A muted
+                            "—" on most rows; a plain, NON-sortable header like Path: a set of marks is not a
+                            number to rank on. */}
+                        <th
+                          className="tapec"
+                          style={{ textAlign: "right" }}
+                          title="exceptional tape readings only — a coiling base, relative strength at a 13-week high, a golden or death cross in the last 30 days; hover a mark for the member's own statement. A set of marks, not a number, so it is not sortable"
+                        >
+                          Tape
+                        </th>
                         {/* relative volume, two windows off ONE member: RVOL 8D is the as-of bar's volume
                             vs the prior 8-bar average (mirrors the breakout detector — the call-matched
                             read); RVOL 20D is the same idea over 20 bars (the trader "unusually active vs
@@ -628,7 +648,7 @@ export function Cockpit({
                       {sortedGroups.map((g) => (
                         <Fragment key={g.key}>
                           <tr className={`grp ${g.cls}`}>
-                            <td colSpan={20}>
+                            <td colSpan={21}>
                               {/* the To Review heading idiom (chev · label · hint · count · moving
                                   line · hairline), bucket-colored; click-to-collapse, open by default
                                   — the count + the moving line stay visible while closed, so a
@@ -791,6 +811,27 @@ export function Cockpit({
                                     }
                                   />
                                 </FlagWrap>
+                              </td>
+                              <td className="met tapec">
+                                {/* the exception-only tape marks, off the sid-bridged sma / vcp / relative_strength
+                                    members; each chip is flagged on the named cells that read its bars */}
+                                <TapeCell
+                                  marks={tapeMarks(
+                                    {
+                                      sma: r.member.security_id
+                                        ? (smaBySid.get(r.member.security_id) ?? null)
+                                        : null,
+                                      vcp: r.member.security_id
+                                        ? (vcpBySid.get(r.member.security_id) ?? null)
+                                        : null,
+                                      rs: r.member.security_id
+                                        ? (rsBySid.get(r.member.security_id) ?? null)
+                                        : null,
+                                    },
+                                    asof,
+                                  )}
+                                  flagFor={(cell) => derivedCellFlag(flagsFor(r.member.security_id), cell)}
+                                />
                               </td>
                               <td className="met rvolc">
                                 {/* RVOL 8D — the call-matched 8-bar read: a warm 'hot' accent on a

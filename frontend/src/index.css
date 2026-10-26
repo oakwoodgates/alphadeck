@@ -381,6 +381,13 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
    display cells, muted and un-accented — always-present context, no threshold of their own (#7) */
 .basket td.rngc, .basket td.advc { white-space: nowrap; }
 .basket td.rngc .off52w, .basket td.advc .adv { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
+/* the Tape marks: small neutral outlined chips, mono — only the direction glyph carries a tint (the shared
+   .dirg rule), so a mark never reads as the return green/red, the RVOL warm or the insider blue (#7). The
+   default is a muted "—"; a chip is the exception. */
+.basket td.tapec { white-space: nowrap; }
+.tape { display: inline-flex; gap: 5px; vertical-align: middle; }
+.tape-chip { font-family: var(--mono); font-size: 10px; color: var(--txt-3); border: 1px solid var(--line-2); border-radius: 4px; padding: 0 5px; line-height: 1.5; }
+.tape-chip .g { margin-right: 3px; }
 /* the close-path sparkline (the price_path member's fixed-slot series, after the return ladder): a
    NEUTRAL hairline in the muted text gray — no accent, so the shape never conflates with the return
    green/red, the RVOL warm, or the insider blue (#7). A null slot BREAKS the line (never interpolated):

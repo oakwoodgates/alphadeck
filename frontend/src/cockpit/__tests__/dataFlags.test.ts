@@ -110,6 +110,12 @@ describe("dataFlags — derived cells (52w, ADV 20d) borrow the reach of the nam
     const volume = member([flag({ reason: "volume scale", columns: ["rvol20"] })]);
     expect(derivedCellFlag(volume, "adv")).toEqual({ level: "in_doubt", reason: "volume scale" });
 
+    // the Tape marks: a coil / RS read sits inside 90d's window, a cross reads back through 1Y's
+    expect(derivedCellFlag(member([flag({ reason: "r", columns: ["ret_90d"] })]), "tapeShort")).not.toBeNull();
+    expect(derivedCellFlag(member([flag({ reason: "r", columns: ["ret_90d"] })]), "tapeLong")).toBeNull();
+    expect(derivedCellFlag(member([flag({ reason: "r", columns: ["ret_1y"] })]), "tapeLong")).not.toBeNull();
+    expect(derivedCellFlag(member([flag({ reason: "r", columns: ["ret_1y"] })]), "tapeShort")).toBeNull();
+
     // a flag that names only the short windows never reaches either cell
     const short = member([flag({ reason: "island bar", columns: ["ret_1d", "ret_7d", "rvol8"] })]);
     expect(derivedCellFlag(short, "off52w")).toBeNull();

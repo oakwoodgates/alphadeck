@@ -173,6 +173,6 @@ describe("Cockpit — insider-buys columns (Ins 30d + Ins 90d)", () => {
     const { container } = renderCockpit();
     const grpCell = container.querySelector("tr.grp > td") as HTMLTableCellElement;
     expect(grpCell.colSpan).toBe(container.querySelectorAll("thead th").length);
-    expect(grpCell.colSpan).toBe(20);
+    expect(grpCell.colSpan).toBe(21);
   });
 });

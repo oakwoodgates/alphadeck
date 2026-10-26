@@ -7,7 +7,8 @@ import type {
 import { fmtDate } from "../util/format";
 import { insiderNaLabel } from "../workbench/format";
 import { FlagWrap } from "./DataFlagMark";
-import type { CellFlag } from "./dataFlags";
+import type { CellFlag, DerivedCell } from "./dataFlags";
+import type { TapeMark } from "./tapeMarks";
 import { AGG_MIN_PRICED, AGG_RETURN_KEY, type GroupMoving } from "./groupAggregate";
 
 /** One metric chip's value, by wire unit. Handles every unit the payload can carry so a new
@@ -268,6 +269,35 @@ export function AdvCell({ sig }: { sig: DisplaySignal | null }) {
         .join(" · ")}
     >
       {fmtMetricValue(m)}
+    </span>
+  );
+}
+
+/** The basket-table `Tape` cell: one small chip per EXCEPTIONAL tape reading (`tapeMarks`) — a coiling base,
+ *  relative strength at a 13-week high, a recent golden / death cross. The default is a muted "—" (most names
+ *  print none), so a chip marks the exception, never the rule (#7). Each chip stays mono and neutral with only
+ *  its direction glyph tinted (the shared `.dirg` rule); the member's own statement rides the hover (#6). Each
+ *  chip is flagged on its own reach (`flagFor`): in doubt grays it, known wrong replaces it with "—". Not
+ *  sortable — a set of marks is not a number to rank on. */
+export function TapeCell({
+  marks,
+  flagFor,
+}: {
+  marks: readonly TapeMark[];
+  /** the data flag reaching the bars a mark reads, by its derived-cell proxy (or null) */
+  flagFor?: (cell: DerivedCell) => CellFlag | null;
+}) {
+  if (marks.length === 0) return <span className="muted">—</span>;
+  return (
+    <span className="tape">
+      {marks.map((m) => (
+        <FlagWrap key={m.key} flag={flagFor?.(m.reach)}>
+          <span className={`tape-chip ${m.key}`} title={m.title}>
+            <span className={`g dirg ${m.glyph}`}>{GLYPH[m.glyph]}</span>
+            {m.label}
+          </span>
+        </FlagWrap>
+      ))}
     </span>
   );
 }

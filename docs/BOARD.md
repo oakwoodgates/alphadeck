@@ -166,18 +166,18 @@ reaches a cell on it (WB#3 — a split two years back that no column reads marks
 still list it, and a name's flags list the reaching ones first). Flags apply only once this view's display and
 scored reads have landed: the flag read is the faster one, and a mark beside a row of loading "—" (or another
 as-of's placeholder numbers) read as "the flag blanked the row". The header's 7d median **leaves flagged 7d values out** and says so ("· 2 left out", the why on
-hover). The sparkline gets a dashed **tick** at an applied split inside its window, nothing more. The two
-cells the server's flag vocabulary does not name (`Off 52w high`, `ADV 20d`) take their reach from the **named
-cells whose bar window contains their own** (`cockpit/dataFlags.ts` `DERIVED_CELL_REACH`: 52w ← 1Y; ADV ← 30d and
-RVOL 20D), so a flag that could reach them grays or blanks them too; the one named limit is a step in the oldest
+hover). The sparkline gets a dashed **tick** at an applied split inside its window, nothing more. The
+cells the server's flag vocabulary does not name (`Off 52w high`, `ADV 20d`, and each `Tape` chip) take their reach
+from the **named cells whose bar window contains their own** (`cockpit/dataFlags.ts` `DERIVED_CELL_REACH`: 52w ←
+1Y; ADV ← 30d and RVOL 20D; coil and RS lead ← 90d; a cross ← 1Y), so a flag that could reach them grays or blanks them too; the one named limit is a step in the oldest
 ~10 of the 52w window's ~262 bars, which `1Y`'s 252 do not reach — the long-run fix is to name the cells in
 `domain/data_flags.py`, which moves the engine fingerprint, so it rides a deliberate backend change. No alert,
 ever (#7). MEASURED on a read-only copy of prod (2026-10-22): 26 of 688 names carry a mark (3/90 AI Memory,
 1/34 Digital Asset, 4/190 Modern Defense, 2/79 Nuclear, 8/155 Rainbow Rush, 9/159 Everything Exchange), and
 all twelve live call cards were byte-identical with and without the flags read.
 
-**Columns:** `Dot · Ticker · Name · Type · SMA · 1d · 7d · 30d · 90d · 1Y · Path · Off 52w high · RVOL 8D ·
-RVOL 20D · Ins 30d · Ins 90d · Mkt cap · ADV 20d · Entry-by · Exit-by`.
+**Columns:** `Dot · Ticker · Name · Type · SMA · 1d · 7d · 30d · 90d · 1Y · Path · Off 52w high · Tape ·
+RVOL 8D · RVOL 20D · Ins 30d · Ins 90d · Mkt cap · ADV 20d · Entry-by · Exit-by`.
 
 **The table scrolls in its own box** (`.basket-scroll`), because eighteen columns do not fit a laptop's
 main column beside the 380px call rail — before it, the overflow painted *over* the rail and those columns
@@ -213,12 +213,22 @@ one laid out in a flowing document.
   hairline — no accent, so the shape never blurs into the return green/red, the RVOL warm, or the insider
   blue — that **breaks on a gap, never interpolates**: a young name draws a genuinely shorter, right-aligned
   path (its thinness named on hover with the exact bars), and under two closes the cell is "—" (a point is
-  not a path). The one display column that is **not sortable** — a shape with no scalar to rank on.
+  not a path). One of the two display columns that are **not sortable** (the other is Tape) — a shape with no scalar to
+  rank on.
 - **Mkt cap** — bridged from the scoring read ("—" when un-scored).
 - **Off 52w high** — how far the last close sits below the 52-week closing high (`range_52w`'s
   `pct_off_52w_high`; "-23.4%", 0.0% = at the high). Muted mono, no accent — the number itself states "at the
   high" — with the high and the bar it printed on in the hover. Sortable; desc puts the names nearest their high
   first. Sits behind Path, the shape it summarizes.
+- **Tape** — the **exceptional** tape readings only, each a display member's own verdict: **coil** (`vcp`'s
+  `coiling` headline — a tightening base above a rising 50d), **RS lead** (`relative_strength`'s `leading`
+  headline — RS at a 13-week high vs SPY or IWM), and **golden / death** (the `sma_position` member's last 50d/200d
+  cross, while it printed within `TAPE_CROSS_DAYS` = 30 calendar days of the as-of — a display dial in
+  `cockpit/tapeMarks.ts`, never a call input). Small neutral outlined chips with only the direction glyph tinted
+  (a coil is sideways — never a forecast, #4); the member's own statement and the cross's date ride the hover.
+  A muted "—" on most rows: a mark is the exception, never the rule (#7). **Not sortable** (a set of marks is not
+  a number to rank on). Each chip is flagged on its own reach — a coil / RS read through the 90d cell's window, a
+  cross through 1Y's.
 - **ADV 20d** — the 20-bar average **dollar** volume (close × volume; `volume_regime`'s `adv_usd_20d`; "$1.2M"),
   the liquidity read beside the size it qualifies. Muted, with **no threshold of its own**: where "thin" begins
   is the operator's call, not the table's. Sortable; desc is the most liquid first. A name short of 20 volume

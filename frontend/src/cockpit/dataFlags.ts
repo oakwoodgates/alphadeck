@@ -66,10 +66,16 @@ export function cellFlag(
  *             252, so a step in the oldest ~10 bars reaches this cell and no proxy; the long-run fix is to
  *             name the cell server-side.
  *    adv    — the 20-bar mean of close × volume: a price flag (`ret_30d`'s 30 bars) and a volume flag
- *             (`rvol20`'s 20) both reach it. */
+ *             (`rvol20`'s 20) both reach it.
+ *    tapeShort — the Tape marks that read a short window: a coil (60 bars + its 50d line) and RS at a 13-week
+ *             high (~65 bars), both inside `ret_90d`'s 90.
+ *    tapeLong — a golden / death cross, which reads back through the 200d line from the cross date: inside
+ *             `ret_1y`'s 252 for a cross within the Tape's 30-day recency. */
 export const DERIVED_CELL_REACH = {
   off52w: ["ret_1y"],
   adv: ["ret_30d", "rvol20"],
+  tapeShort: ["ret_90d"],
+  tapeLong: ["ret_1y"],
 } as const;
 
 export type DerivedCell = keyof typeof DERIVED_CELL_REACH;
