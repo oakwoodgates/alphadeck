@@ -48,7 +48,46 @@ const mk = vi.hoisted(() => {
       scoredRow("s-oklo", "OKLO", null),
       scoredRow("s-leu", "LEU", null),
     ]);
-  return { grouped, flat };
+  // The two SILENT links as they now always arrive on the wire — fixed descriptors, verbatim.
+  const CTX = {
+    label: "Context",
+    descriptor:
+      "Watched for context: buyers, counter-case names, giants where the theme is a slice. Never counts toward the call.",
+  };
+  const BNC = {
+    label: "Bench",
+    descriptor: "Speculative names: pivots, distressed or thinly traded. Never counts toward the call.",
+  };
+  // silent: the chain + the pair; OKLO in reactors AND fuel (multi-membership), LEU only in fuel, KO in Context
+  const silent = () =>
+    wrap(
+      [{ label: "reactors", descriptor: null }, { label: "fuel", descriptor: null }, CTX, BNC],
+      [
+        bm("OKLO", "s-oklo", "reactors"),
+        bm("OKLO", "s-oklo", "fuel"),
+        bm("LEU", "s-leu", "fuel"),
+        bm("KO", "s-ko", "Context"),
+      ],
+      [
+        scoredRow("s-oklo", "OKLO", "reactors"),
+        scoredRow("s-leu", "LEU", "fuel"),
+        scoredRow("s-ko", "KO", "Context"),
+      ],
+    );
+  // the pair is on the wire but NO name sits in either: both silent tabs must stay hidden
+  const pairEmpty = () =>
+    wrap(
+      [{ label: "reactors", descriptor: null }, { label: "fuel", descriptor: null }, CTX, BNC],
+      [bm("OKLO", "s-oklo", "reactors"), bm("LEU", "s-leu", "fuel")],
+      [scoredRow("s-oklo", "OKLO", "reactors"), scoredRow("s-leu", "LEU", "fuel")],
+    );
+  // flat (no real link, no placement) but the pair rides the wire — it must NOT read as a decomposed chain
+  const flatWithPair = () =>
+    wrap([CTX, BNC], [bm("OKLO", "s-oklo", null), bm("LEU", "s-leu", null)], [
+      scoredRow("s-oklo", "OKLO", null),
+      scoredRow("s-leu", "LEU", null),
+    ]);
+  return { grouped, flat, silent, pairEmpty, flatWithPair };
 });
 
 const state = vi.hoisted(() => ({ thesis: undefined as unknown, scored: undefined as unknown }));
@@ -84,6 +123,8 @@ const enterEditLinks = async (user: ReturnType<typeof userEvent.setup>) =>
   user.click(screen.getByRole("button", { name: /edit links/i }));
 const lastPayload = () => h.promote.mock.calls.at(-1)![0];
 const labels = (segs: { label: string }[]) => segs.map((s) => s.label);
+// every promote now carries the two FIXED silent links, always last (sanitizeBasketForPromote → withSilentLinks)
+const SILENT = ["Context", "Bench"];
 
 beforeEach(() => {
   const g = mk.grouped();
@@ -108,7 +149,7 @@ describe("Workbench — value-chain topology on SCORE (#1–3, chain-editing Pha
     await user.type(input, "reactor builders{Enter}");
 
     const p = lastPayload();
-    expect(labels(p.segments)).toEqual(["reactor builders", "fuel"]);
+    expect(labels(p.segments)).toEqual(["reactor builders", "fuel", ...SILENT]);
     // OKLO's reactors row cascaded; no member is left pointing at the old label (no orphan)
     expect(p.basket.some((b: { security_id: string; segment: string }) => b.security_id === "s-oklo" && b.segment === "reactor builders")).toBe(true);
     expect(p.basket.some((b: { segment: string }) => b.segment === "reactors")).toBe(false);
@@ -119,7 +160,7 @@ describe("Workbench — value-chain topology on SCORE (#1–3, chain-editing Pha
     renderWb();
     await enterEditLinks(user);
     await user.click(screen.getByLabelText("move fuel left"));
-    expect(labels(lastPayload().segments)).toEqual(["fuel", "reactors"]);
+    expect(labels(lastPayload().segments)).toEqual(["fuel", "reactors", ...SILENT]);
   });
 
   it("#3 add appends a new link", async () => {
@@ -128,7 +169,8 @@ describe("Workbench — value-chain topology on SCORE (#1–3, chain-editing Pha
     await enterEditLinks(user);
     await user.type(screen.getByLabelText("new link name"), "supply");
     await user.click(screen.getByRole("button", { name: "+ add link" }));
-    expect(labels(lastPayload().segments)).toEqual(["reactors", "fuel", "supply"]);
+    // the new link lands BEFORE Context / Bench — the pinned pair stays last
+    expect(labels(lastPayload().segments)).toEqual(["reactors", "fuel", "supply", ...SILENT]);
   });
 
   it("#3 remove is multi-safe: a name kept elsewhere loses only its redundant row", async () => {
@@ -138,7 +180,7 @@ describe("Workbench — value-chain topology on SCORE (#1–3, chain-editing Pha
     await user.click(screen.getByLabelText("remove reactors"));
 
     const p = lastPayload();
-    expect(labels(p.segments)).toEqual(["fuel"]);
+    expect(labels(p.segments)).toEqual(["fuel", ...SILENT]);
     const oklo = p.basket.filter((b: { security_id: string }) => b.security_id === "s-oklo");
     expect(oklo).toHaveLength(1);
     expect(oklo[0].segment).toBe("fuel"); // kept placement, not floored
@@ -171,9 +213,205 @@ describe("Workbench — value-chain topology on SCORE (#1–3, chain-editing Pha
     await user.click(screen.getByRole("button", { name: "+ add link" }));
 
     const p = lastPayload();
-    expect(labels(p.segments)).toEqual(["reactors"]);
+    expect(labels(p.segments)).toEqual(["reactors", ...SILENT]);
     // the flat basket rides through untouched (null segments stay valid — the validator only rejects orphans)
     expect(p.basket).toHaveLength(2);
     expect(p.basket.every((b: { segment: string | null }) => b.segment === null)).toBe(true);
+  });
+});
+
+// --- the two SILENT links on the scored view: Context + Bench -------------------------------------------
+// Fixed, last, protected. A company is silent XOR voting — the rail's mover must NEVER send a payload with a
+// silent row beside another row; the checkboxes are the visible inverse (uncheck Context → Discovered, check a
+// real link → out of Context); an empty silent tab stays hidden; the editor lists them as fixed rows.
+describe("Workbench — Context and Bench (the silent links)", () => {
+  const useFixture = (f: { thesis: unknown; scored: unknown }) => {
+    state.thesis = f.thesis;
+    state.scored = f.scored;
+  };
+  const tabs = (root: HTMLElement) =>
+    Array.from(root.querySelectorAll(".chain .seg .sn")).map((e) => e.textContent);
+  const tickers = (root: HTMLElement) =>
+    Array.from(root.querySelectorAll(".nmrow .tk")).map((e) => e.textContent);
+  const rowsFor = (p: { basket: { security_id: string; segment: string | null }[] }, sid: string) =>
+    p.basket.filter((b) => b.security_id === sid);
+
+  it("the rail lists the real links, then Context and Bench", () => {
+    useFixture(mk.silent());
+    renderWb(); // OKLO is the default selection (first name of the first tab)
+    const order = screen.getAllByRole("checkbox").map((b) => b.closest("label")?.textContent);
+    expect(order).toEqual(["reactors", "fuel", "Context", "Bench"]);
+    expect(screen.getByRole("checkbox", { name: "reactors" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "fuel" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Context" })).not.toBeChecked();
+  });
+
+  it("checking Context on a 2-link name promotes ONE row in Context (never a silent row beside another)", async () => {
+    const user = userEvent.setup();
+    useFixture(mk.silent());
+    renderWb();
+    await user.click(screen.getByRole("checkbox", { name: "Context" }));
+
+    expect(h.promote).toHaveBeenCalledTimes(1);
+    const p = lastPayload();
+    expect(rowsFor(p, "s-oklo").map((b) => b.segment)).toEqual(["Context"]);
+    // everyone else rides through untouched
+    expect(rowsFor(p, "s-leu").map((b) => b.segment)).toEqual(["fuel"]);
+    expect(rowsFor(p, "s-ko").map((b) => b.segment)).toEqual(["Context"]);
+    // the payload still ends with the fixed pair, in order
+    expect(labels(p.segments).slice(-2)).toEqual(["Context", "Bench"]);
+  });
+
+  it("checking a real link on a Context name promotes ONE row in that link (it leaves Context)", async () => {
+    const user = userEvent.setup();
+    useFixture(mk.silent());
+    renderWb();
+    await user.click(screen.getByRole("button", { name: /^Context/ })); // the Context tab (KO)
+    expect(screen.getByRole("checkbox", { name: "Context" })).toBeChecked();
+    await user.click(screen.getByRole("checkbox", { name: "fuel" }));
+
+    const p = lastPayload();
+    expect(rowsFor(p, "s-ko").map((b) => b.segment)).toEqual(["fuel"]);
+    expect(rowsFor(p, "s-oklo")).toHaveLength(2); // the other names untouched
+  });
+
+  it("unchecking Context floors the name to a visible Discovered row, the pen BEFORE the pair — the inverse", async () => {
+    const user = userEvent.setup();
+    useFixture(mk.silent());
+    renderWb();
+    await user.click(screen.getByRole("button", { name: /^Context/ }));
+    await user.click(screen.getByRole("checkbox", { name: "Context" }));
+
+    const p = lastPayload();
+    expect(rowsFor(p, "s-ko").map((b) => b.segment)).toEqual(["Discovered"]); // never null, never gone
+    expect(labels(p.segments)).toEqual(["reactors", "fuel", "Discovered", "Context", "Bench"]);
+  });
+
+  it("a silent tab renders only when it has names; both are hidden when empty", () => {
+    useFixture(mk.pairEmpty());
+    const { container, unmount } = renderWb();
+    expect(tabs(container)).toEqual(["reactors", "fuel"]);
+    unmount();
+
+    useFixture(mk.silent()); // KO is in Context, nobody is on the Bench
+    const second = renderWb();
+    expect(tabs(second.container)).toEqual(["reactors", "fuel", "Context"]);
+  });
+
+  // the scored header's "Basket — N names across M links" (the Basket section's own heading)
+  const basketHeader = (root: HTMLElement) =>
+    [...root.querySelectorAll(".sect-h")].find((e) => e.textContent?.startsWith("Basket"))?.textContent ?? "";
+
+  it("the header's 'across M links' counts REAL links only — Context / Bench are not chain links", () => {
+    useFixture(mk.silent()); // OKLO in reactors, LEU in fuel, KO in Context
+    const { container } = renderWb();
+    expect(basketHeader(container)).toContain("3 names across 2 links"); // reactors + fuel — Context excluded
+  });
+
+  it("a flat basket with a name moved into Context reads no link count at all", () => {
+    const f = mk.flatWithPair();
+    f.thesis.basket[0].segment = "Context";
+    f.scored.members[0].segment = "Context";
+    useFixture(f);
+    const { container } = renderWb();
+    expect(basketHeader(container)).toContain("2 names");
+    expect(basketHeader(container)).not.toMatch(/across \d+ links?/); // was "across 1 link"
+  });
+
+  it("the Context tab lists its names and shows the fixed descriptor when active", async () => {
+    const user = userEvent.setup();
+    useFixture(mk.silent());
+    const { container } = renderWb();
+    expect(screen.queryByText(/watched for context/i)).toBeNull(); // not active → no descriptor line
+    await user.click(screen.getByRole("button", { name: /^Context/ }));
+    expect(tickers(container)).toEqual(["KO"]);
+    expect(container.querySelector(".chain-desc")?.textContent).toContain(
+      "Watched for context: buyers, counter-case names, giants where the theme is a slice. Never counts toward the call.",
+    );
+  });
+
+  it("the pair never makes a flat basket read as decomposed — and a name can still be moved INTO Context", async () => {
+    const user = userEvent.setup();
+    useFixture(mk.flatWithPair());
+    const { container } = renderWb();
+    expect(screen.getByText(/no value chain yet/i)).toBeInTheDocument(); // still flat
+    expect(tabs(container)).toEqual([]);
+    await user.click(screen.getByRole("checkbox", { name: "Context" }));
+
+    const p = lastPayload();
+    expect(rowsFor(p, "s-oklo").map((b) => b.segment)).toEqual(["Context"]);
+    expect(rowsFor(p, "s-leu").map((b) => b.segment)).toEqual([null]); // the flat name rides through
+    expect(labels(p.segments)).toEqual(["Context", "Bench"]);
+  });
+
+  describe("✎ edit links", () => {
+    it("lists Context and Bench as FIXED rows — no rename, no arrows, no remove", async () => {
+      const user = userEvent.setup();
+      useFixture(mk.silent());
+      renderWb();
+      await enterEditLinks(user);
+
+      expect(screen.getByText(/^Context · 1/)).toBeInTheDocument(); // KO
+      expect(screen.getByText(/^Bench · 0/)).toBeInTheDocument();
+      for (const l of ["Context", "Bench"]) {
+        expect(screen.queryByLabelText(`rename ${l}`)).toBeNull();
+        expect(screen.queryByLabelText(`move ${l} left`)).toBeNull();
+        expect(screen.queryByLabelText(`move ${l} right`)).toBeNull();
+        expect(screen.queryByLabelText(`remove ${l}`)).toBeNull();
+      }
+      // …but the real links keep every control
+      expect(screen.getByLabelText("rename reactors")).toBeInTheDocument();
+      expect(screen.getByLabelText("remove fuel")).toBeInTheDocument();
+    });
+
+    it("shows both rows even when empty (the editors always list the pair)", async () => {
+      const user = userEvent.setup();
+      useFixture(mk.pairEmpty());
+      renderWb();
+      await enterEditLinks(user);
+      expect(screen.getByText(/^Context · 0/)).toBeInTheDocument();
+      expect(screen.getByText(/^Bench · 0/)).toBeInTheDocument();
+    });
+
+    it("the reorder bounds are the REAL links: the last real link can't move right (past the pair)", async () => {
+      const user = userEvent.setup();
+      useFixture(mk.silent());
+      renderWb();
+      await enterEditLinks(user);
+      expect(screen.getByLabelText("move fuel right")).toBeDisabled();
+      expect(screen.getByLabelText("move reactors left")).toBeDisabled();
+      expect(screen.getByLabelText("move reactors right")).toBeEnabled();
+    });
+
+    it("+ add link lands BEFORE the pair and refuses a reserved name", async () => {
+      const user = userEvent.setup();
+      useFixture(mk.silent());
+      renderWb();
+      await enterEditLinks(user);
+
+      await user.type(screen.getByLabelText("new link name"), "context");
+      expect(screen.getByRole("button", { name: "+ add link" })).toBeDisabled();
+      expect(screen.getByText(/is a fixed link/i)).toBeInTheDocument();
+      await user.type(screen.getByLabelText("new link name"), "{Enter}"); // Enter can't sneak it through
+      expect(h.promote).not.toHaveBeenCalled();
+
+      await user.clear(screen.getByLabelText("new link name"));
+      await user.type(screen.getByLabelText("new link name"), "supply");
+      await user.click(screen.getByRole("button", { name: "+ add link" }));
+      expect(labels(lastPayload().segments)).toEqual(["reactors", "fuel", "supply", "Context", "Bench"]);
+    });
+
+    it("renaming a link INTO a reserved name is refused (the input reverts, nothing is promoted)", async () => {
+      const user = userEvent.setup();
+      useFixture(mk.silent());
+      renderWb();
+      await enterEditLinks(user);
+      const input = screen.getByLabelText("rename fuel");
+      await user.clear(input);
+      await user.type(input, "bench{Enter}");
+      await user.tab(); // blur
+      expect(h.promote).not.toHaveBeenCalled();
+      expect(input).toHaveValue("fuel");
+    });
   });
 });

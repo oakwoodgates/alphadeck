@@ -73,6 +73,7 @@ vi.mock("../../util/exportNames", async (importOriginal) => {
 import { ChainEditor } from "../ChainEditor";
 // the REAL session codec — the seeds-only badge's old-blob cases enter through the same seam the app restores through
 import { clearedRestore, deserialize, SCHEMA_VERSION, serialize } from "../triageSession";
+import { SILENT_DESCRIPTORS } from "../useChainDraft";
 
 const flatThesis = {
   id: "t1",
@@ -180,7 +181,12 @@ describe("ChainEditor — authoring", () => {
       segments: unknown[];
       basket: Record<string, unknown>[];
     };
-    expect(body.segments).toEqual([{ label: "reactors", descriptor: null }]);
+    // the saved draft carries the two FIXED silent links, always last, with their fixed descriptors
+    expect(body.segments).toEqual([
+      { label: "reactors", descriptor: null },
+      { label: "Context", descriptor: SILENT_DESCRIPTORS.Context },
+      { label: "Bench", descriptor: SILENT_DESCRIPTORS.Bench },
+    ]);
     expect(body.basket).toHaveLength(1);
     expect(body.basket[0]).toMatchObject({ ticker: "OKLO" });
     expect(onDone).toHaveBeenCalledTimes(1);
@@ -2830,5 +2836,165 @@ describe("ChainEditor — the seeds-only scope badge (the strip's chosen-state l
     );
     render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} restored={scoped} />);
     expect(screen.getByText(/Seeds-only draft/)).toBeInTheDocument();
+  });
+});
+
+// --- the two SILENT links (Context + Bench) in the first-screen editor --------------------------------------
+// Always shown here (the editors are where the pair is explained), as two FIXED, read-only rows below the
+// Discovered pen: no rename, no arrows, no ×. The real-link controls, bounds and `hasRealLink` exclude them;
+// "+ link" lands before them; the draft never files a name into one. Per-name placement stays on the triage
+// screen (no mover here).
+describe("ChainEditor — Context and Bench (the silent links)", () => {
+  const withSegs = (
+    segments: { label: string; descriptor: string | null }[],
+    segmentOfOkLo: string | null = null,
+  ) => ({
+    ...flatThesis,
+    segments,
+    basket: [{ ...flatThesis.basket[0], segment: segmentOfOkLo }],
+  });
+  const fixedGroup = () => screen.getByRole("group", { name: /fixed links/i });
+
+  it("lists Context and Bench as fixed rows with their descriptors — even on a thesis with no links", () => {
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
+    const g = within(fixedGroup());
+    expect(g.getByText("Context")).toBeInTheDocument();
+    expect(g.getByText("Bench")).toBeInTheDocument();
+    expect(g.getByText(SILENT_DESCRIPTORS.Context)).toBeInTheDocument();
+    expect(g.getByText(SILENT_DESCRIPTORS.Bench)).toBeInTheDocument();
+    // …while the real-link list is still the empty-state (the pair is not "a chain")
+    expect(screen.getByText(/No links yet/)).toBeInTheDocument();
+  });
+
+  it("the fixed rows are read-only: no inputs, no buttons — and no rename / move / remove by label", () => {
+    render(
+      <ChainEditor
+        asof="2026-06-08"
+        thesis={withSegs([{ label: "reactors", descriptor: null }])}
+        onDone={vi.fn()}
+      />,
+    );
+    const g = fixedGroup();
+    expect(g.querySelectorAll("input, textarea, select, button")).toHaveLength(0);
+    for (const l of ["Context", "Bench"]) {
+      expect(screen.queryByLabelText(`remove ${l}`)).toBeNull();
+      expect(screen.queryByLabelText(`move ${l} earlier`)).toBeNull();
+      expect(screen.queryByLabelText(`move ${l} later`)).toBeNull();
+    }
+    // only the REAL link is an editable row
+    expect(screen.getAllByLabelText(/^link \d+ label$/)).toHaveLength(1);
+    expect(screen.getByLabelText("link 1 label")).toHaveValue("reactors");
+  });
+
+  it("the arrow bounds are the REAL links: the last real link can't move later (past the pair)", () => {
+    render(
+      <ChainEditor
+        asof="2026-06-08"
+        thesis={withSegs([
+          { label: "reactors", descriptor: null },
+          { label: "fuel", descriptor: null },
+        ])}
+        onDone={vi.fn()}
+      />,
+    );
+    expect(screen.getByLabelText("move reactors earlier")).toBeDisabled();
+    expect(screen.getByLabelText("move reactors later")).toBeEnabled();
+    expect(screen.getByLabelText("move fuel later")).toBeDisabled();
+  });
+
+  it("sits BELOW the Discovered / Unsorted area", () => {
+    const { container } = render(
+      <ChainEditor
+        asof="2026-06-08"
+        thesis={withSegs(
+          [
+            { label: "reactors", descriptor: null },
+            { label: "Discovered", descriptor: null },
+          ],
+          "Discovered",
+        )}
+        onDone={vi.fn()}
+      />,
+    );
+    const pen = container.querySelector(".wb-seg-pen") as HTMLElement;
+    expect(pen).not.toBeNull();
+    expect(pen.compareDocumentPosition(fixedGroup()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("+ link lands BEFORE Context / Bench in the saved draft", async () => {
+    const user = userEvent.setup();
+    h.mutate.mockImplementation((_body: unknown, opts?: { onSuccess?: () => void }) => opts?.onSuccess?.());
+    render(
+      <ChainEditor
+        asof="2026-06-08"
+        thesis={withSegs([{ label: "reactors", descriptor: null }])}
+        onDone={vi.fn()}
+      />,
+    );
+    await user.type(screen.getByLabelText("new link label"), "supply");
+    await user.click(screen.getByRole("button", { name: "+ link" }));
+    expect(screen.getAllByLabelText(/^link \d+ label$/).map((i) => (i as HTMLInputElement).value)).toEqual([
+      "reactors",
+      "supply",
+    ]);
+    await user.click(screen.getByRole("button", { name: "Save chain" }));
+    const body = h.mutate.mock.calls[0][0] as { segments: { label: string }[] };
+    expect(body.segments.map((s) => s.label)).toEqual(["reactors", "supply", "Context", "Bench"]);
+  });
+
+  it("+ link refuses a reserved name in any case (the button disables, a hint says why)", async () => {
+    const user = userEvent.setup();
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
+    await user.type(screen.getByLabelText("new link label"), " bench ");
+    expect(screen.getByRole("button", { name: "+ link" })).toBeDisabled();
+    expect(screen.getByText(/Bench is a fixed link/)).toBeInTheDocument();
+    expect(screen.queryAllByLabelText(/^link \d+ label$/)).toHaveLength(0); // nothing was added
+  });
+
+  it("a name in Context reads a quiet 'Context' chip (muted pen style — not a loud recommendation)", () => {
+    render(
+      <ChainEditor
+        asof="2026-06-08"
+        thesis={withSegs([{ label: "reactors", descriptor: null }], "Context")}
+        onDone={vi.fn()}
+      />,
+    );
+    expect(chipsOf("OKLO")).toEqual(["Context"]);
+    expect(rowOf("OKLO").querySelector(".recchip")).toHaveClass("pen");
+    // the fixed row carries the count, quietly
+    expect(within(fixedGroup()).getByText("1 name")).toBeInTheDocument();
+  });
+
+  it("a name in a REAL link keeps the loud (non-pen) recommendation chip — only the pair is muted", () => {
+    render(
+      <ChainEditor
+        asof="2026-06-08"
+        thesis={withSegs([{ label: "reactors", descriptor: null }], "reactors")}
+        onDone={vi.fn()}
+      />,
+    );
+    expect(rowOf("OKLO").querySelector(".recchip")).not.toHaveClass("pen");
+  });
+
+  it("the draft never files a name into Context / Bench: a model-proposed 'Context' lands in the unsorted pen", async () => {
+    const user = userEvent.setup();
+    mockDraft(
+      draft(
+        [PLACED_SMR, { ...PLACED_SMR, ticker: "CTX", name: "Ctx Co", security_id: "s-ctx", segment: "Context" }],
+        [
+          { label: "reactors", descriptor: null },
+          { label: "Context", descriptor: "the model's own" },
+        ],
+      ),
+    );
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    await screen.findByLabelText("include SMR");
+
+    expect(chipsOf("SMR")).toEqual(["reactors"]); // the first draft still adopts the drafter's real link
+    expect(chipsOf("CTX")).toEqual(["Discovered (unsorted)"]); // rerouted, not placed in Context
+    // the pair is still exactly the fixed rows (the model's descriptor never replaced the fixed one)
+    expect(within(fixedGroup()).getByText(SILENT_DESCRIPTORS.Context)).toBeInTheDocument();
+    expect(within(fixedGroup()).queryByText("the model's own")).toBeNull();
   });
 });

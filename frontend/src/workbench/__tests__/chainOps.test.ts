@@ -9,8 +9,9 @@ import {
   renameLink,
   reorderLink,
   sanitizeBasketForPromote,
+  toggleMemberLink,
 } from "../chainOps";
-import { DISCOVERED } from "../useChainDraft";
+import { BENCH, CONTEXT, DISCOVERED, SILENT_DESCRIPTORS, withSilentLinks } from "../useChainDraft";
 
 // The pure value-chain transforms behind the SCORE-view #4 mover (chain-editing Phase 1). Load-bearing:
 // moving ONE name leaves every OTHER name's rows byte-identical; clearing floors to exactly one Discovered
@@ -184,7 +185,8 @@ describe("sanitizeBasketForPromote — the write-side orphan self-heal", () => {
     const basket = [mem({ security_id: "s-a", segment: null })];
     const { basket: out, segments } = sanitizeBasketForPromote(basket, CHAIN);
     expect(out[0].segment).toBeNull();
-    expect(segments).toBe(CHAIN); // nothing healed → segments untouched (same ref)
+    // nothing healed → the chain is untouched except that it now ends with the fixed silent pair
+    expect(segments).toEqual(withSilentLinks(CHAIN));
   });
 
   it("is a no-op when every segment is valid", () => {
@@ -194,7 +196,7 @@ describe("sanitizeBasketForPromote — the write-side orphan self-heal", () => {
     ];
     const { basket: out, segments } = sanitizeBasketForPromote(basket, CHAIN);
     expect(out).toEqual(basket);
-    expect(segments).toBe(CHAIN);
+    expect(segments).toEqual(withSilentLinks(CHAIN)); // only the silent pair is added
   });
 });
 
@@ -288,5 +290,257 @@ describe("removeLink — multi-membership-safe, last placement → Discovered", 
     const xs = afterFuel.basket.filter((m) => m.security_id === "s-x");
     expect(xs).toHaveLength(1);
     expect(xs[0].segment).toBe(DISCOVERED);
+  });
+});
+
+
+// --- the two SILENT links (Context / Bench): fixed, last, protected — and a company is silent XOR voting ----
+// Every guard here is the chainOps half of the rule; `useChainDraft.silent.test.ts` pins the hook's mirror.
+describe("silent links — Context and Bench stay fixed, last and untouchable", () => {
+  const labelsOf = (segs: Segment[]) => segs.map((x) => x.label);
+  // the thesis as it now always arrives: the real links, then the fixed pair
+  const SC = withSilentLinks(CHAIN);
+
+  it("the pair carries the operator-approved descriptors, verbatim", () => {
+    expect(SILENT_DESCRIPTORS[CONTEXT]).toBe(
+      "Watched for context: buyers, counter-case names, giants where the theme is a slice. Never counts toward the call.",
+    );
+    expect(SILENT_DESCRIPTORS[BENCH]).toBe(
+      "Speculative names: pivots, distressed or thinly traded. Never counts toward the call.",
+    );
+    expect(SC.slice(-2)).toEqual([
+      { label: "Context", descriptor: SILENT_DESCRIPTORS.Context },
+      { label: "Bench", descriptor: SILENT_DESCRIPTORS.Bench },
+    ]);
+  });
+
+  describe("addLink", () => {
+    it("lands BEFORE Context / Bench (the pinned pair stays last)", () => {
+      const { segments } = addLink([], SC, "supply");
+      expect(labelsOf(segments)).toEqual(["reactors", "fuel", "supply", "Context", "Bench"]);
+    });
+    it("a new link lands after Discovered too — Discovered is NOT pinned", () => {
+      const withPen = [seg("reactors"), seg(DISCOVERED), ...SC.slice(-2)];
+      expect(labelsOf(addLink([], withPen, "supply").segments)).toEqual([
+        "reactors",
+        DISCOVERED,
+        "supply",
+        "Context",
+        "Bench",
+      ]);
+    });
+    it("refuses a reserved name in ANY case (and padded) — no-op, same reference", () => {
+      for (const name of ["Context", "context", "BENCH", "  bench  ", "CoNtExT"]) {
+        expect(addLink([], SC, name).segments).toBe(SC);
+      }
+    });
+    it("still appends at the end when the list carries neither silent link", () => {
+      expect(labelsOf(addLink([], CHAIN, "supply").segments)).toEqual(["reactors", "fuel", "supply"]);
+    });
+  });
+
+  describe("renameLink", () => {
+    it("refuses a silent SOURCE (Context / Bench can't be renamed)", () => {
+      const basket = [mem({ security_id: "s-a", segment: CONTEXT })];
+      expect(renameLink(basket, SC, CONTEXT, "Giants").segments).toBe(SC);
+      expect(renameLink(basket, SC, BENCH, "Reserve").segments).toBe(SC);
+      expect(renameLink(basket, SC, CONTEXT, "Giants").basket).toBe(basket); // no cascade either
+    });
+    it("refuses a reserved TARGET (no link may be renamed INTO Context / Bench, any case)", () => {
+      const basket = [mem({ security_id: "s-a", segment: "fuel" })];
+      for (const name of ["Context", "context", " BENCH "]) {
+        const out = renameLink(basket, SC, "fuel", name);
+        expect(out.segments).toBe(SC);
+        expect(out.basket).toBe(basket);
+      }
+    });
+    it("a normal rename keeps the pair last and untouched", () => {
+      const { segments } = renameLink([], SC, "fuel", "fuels");
+      expect(labelsOf(segments)).toEqual(["reactors", "fuels", "Context", "Bench"]);
+    });
+  });
+
+  describe("reorderLink", () => {
+    it("never moves a silent link — either direction, either link", () => {
+      expect(reorderLink([], SC, CONTEXT, -1).segments).toBe(SC);
+      expect(reorderLink([], SC, CONTEXT, 1).segments).toBe(SC);
+      expect(reorderLink([], SC, BENCH, -1).segments).toBe(SC);
+      expect(reorderLink([], SC, BENCH, 1).segments).toBe(SC);
+    });
+    it("never swaps a real link past or with one (the last real link can't go right)", () => {
+      expect(reorderLink([], SC, "fuel", 1).segments).toBe(SC);
+    });
+    it("real links still reorder among themselves, the pair staying last", () => {
+      expect(labelsOf(reorderLink([], SC, "fuel", -1).segments)).toEqual([
+        "fuel",
+        "reactors",
+        "Context",
+        "Bench",
+      ]);
+    });
+  });
+
+  describe("removeLink", () => {
+    it("is a no-op on a silent link — the link AND its names stay (nothing deleted, WB#2)", () => {
+      const basket = [mem({ security_id: "s-a", segment: CONTEXT })];
+      for (const l of [CONTEXT, BENCH]) {
+        const out = removeLink(basket, SC, l);
+        expect(out.segments).toBe(SC);
+        expect(out.basket).toBe(basket);
+      }
+    });
+    it("a LAST placement still floors to Discovered — inserted BEFORE Context, never to Context/Bench", () => {
+      const basket = [
+        mem({ security_id: "s-y", ticker: "Y", segment: "fuel" }), // ONLY in fuel
+        mem({ security_id: "s-c", ticker: "C", segment: CONTEXT }),
+      ];
+      const { basket: out, segments } = removeLink(basket, SC, "fuel");
+      expect(out.find((m) => m.security_id === "s-y")?.segment).toBe(DISCOVERED);
+      expect(out.find((m) => m.security_id === "s-c")?.segment).toBe(CONTEXT); // untouched
+      expect(labelsOf(segments)).toEqual(["reactors", DISCOVERED, "Context", "Bench"]);
+    });
+  });
+
+  describe("sanitizeBasketForPromote", () => {
+    it("never rewrites a silent label — a Context / Bench row is always valid", () => {
+      const basket = [
+        mem({ security_id: "s-a", segment: CONTEXT }),
+        mem({ security_id: "s-b", segment: BENCH }),
+      ];
+      // even from a chain that LACKED the pair (the payload gets it back)
+      const { basket: out, segments } = sanitizeBasketForPromote(basket, CHAIN);
+      expect(out.map((m) => m.segment)).toEqual([CONTEXT, BENCH]);
+      expect(labelsOf(segments)).toEqual(["reactors", "fuel", "Context", "Bench"]);
+    });
+    it("ensures the pair is present and last (idempotent — an already-normal chain is the same reference)", () => {
+      const once = sanitizeBasketForPromote([], CHAIN).segments;
+      expect(labelsOf(once).slice(-2)).toEqual(["Context", "Bench"]);
+      expect(sanitizeBasketForPromote([], SC).segments).toBe(SC);
+    });
+    it("heals an orphan into Discovered BEFORE the pair", () => {
+      const { basket: out, segments } = sanitizeBasketForPromote(
+        [mem({ security_id: "s-b", segment: "old-link" })],
+        SC,
+      );
+      expect(out[0].segment).toBe(DISCOVERED);
+      expect(labelsOf(segments)).toEqual(["reactors", "fuel", DISCOVERED, "Context", "Bench"]);
+    });
+    it("a case-variant label (\"context\") is not the silent link: its rows heal to Discovered, never lost", () => {
+      const { basket: out } = sanitizeBasketForPromote(
+        [mem({ security_id: "s-b", segment: "context" })],
+        [seg("context"), ...CHAIN],
+      );
+      expect(out[0].segment).toBe(DISCOVERED);
+    });
+  });
+
+  describe("effectiveSegment", () => {
+    it("treats the silent labels as always known — even from a chain that lacks them", () => {
+      expect(effectiveSegment({ segment: CONTEXT }, CHAIN)).toBe(CONTEXT);
+      expect(effectiveSegment({ segment: BENCH }, CHAIN)).toBe(BENCH);
+      expect(effectiveSegment({ segment: CONTEXT }, SC)).toBe(CONTEXT);
+    });
+    it("a lowercase look-alike is NOT a silent link (exact match) → the Discovered floor", () => {
+      expect(effectiveSegment({ segment: "context" }, CHAIN)).toBe(DISCOVERED);
+    });
+  });
+
+  describe("reconcileMemberSegments", () => {
+    const multi = [
+      mem({ security_id: "s-x", ticker: "X", segment: "reactors" }),
+      mem({ security_id: "s-x", ticker: "X", segment: "fuel" }),
+      mem({ security_id: "s-a", ticker: "A", segment: "fuel" }),
+    ];
+    it("a silent label yields exactly ONE row (that link); other names are untouched", () => {
+      const { basket: out } = reconcileMemberSegments(multi, SC, "s-x", [CONTEXT]);
+      const xs = out.filter((m) => m.security_id === "s-x");
+      expect(xs).toHaveLength(1);
+      expect(xs[0].segment).toBe(CONTEXT);
+      expect(out.find((m) => m.security_id === "s-a")).toBe(multi[2]);
+    });
+    it("a silent label beside real ones still collapses to the ONE silent row (defensive)", () => {
+      const { basket: out } = reconcileMemberSegments(multi, SC, "s-x", ["reactors", BENCH]);
+      expect(out.filter((m) => m.security_id === "s-x").map((m) => m.segment)).toEqual([BENCH]);
+    });
+    it("carries every per-name field into the silent row", () => {
+      const rep = mem({ security_id: "s-x", segment: "fuel", conviction: 4, signed_off: true });
+      const { basket: out } = reconcileMemberSegments([rep], SC, "s-x", [CONTEXT]);
+      expect(out[0]).toEqual({ ...rep, segment: CONTEXT });
+    });
+    it("ensures the pair exists when the chain lacked it; leaves a chain that has it untouched", () => {
+      const { segments } = reconcileMemberSegments(multi, CHAIN, "s-x", [CONTEXT]);
+      expect(labelsOf(segments)).toEqual(["reactors", "fuel", "Context", "Bench"]);
+      expect(reconcileMemberSegments(multi, SC, "s-x", [CONTEXT]).segments).toBe(SC);
+    });
+    it("the Discovered floor lands BEFORE the pair", () => {
+      const { segments } = reconcileMemberSegments(multi, SC, "s-x", []);
+      expect(labelsOf(segments)).toEqual(["reactors", "fuel", DISCOVERED, "Context", "Bench"]);
+    });
+  });
+});
+
+describe("toggleMemberLink — the rail's one-row rule (silent XOR voting)", () => {
+  it("checking a SILENT link on a multi-link name → exactly that one link", () => {
+    expect(toggleMemberLink(["reactors", "fuel"], CONTEXT)).toEqual([CONTEXT]);
+    expect(toggleMemberLink(["reactors", "fuel"], BENCH)).toEqual([BENCH]);
+  });
+  it("checking a silent link on a name in none → that one link", () => {
+    expect(toggleMemberLink([], CONTEXT)).toEqual([CONTEXT]);
+  });
+  it("moving a silent name to the OTHER silent link replaces it (never both)", () => {
+    expect(toggleMemberLink([CONTEXT], BENCH)).toEqual([BENCH]);
+  });
+  it("checking a REAL link while the name is silent → that one real link (it leaves Context)", () => {
+    expect(toggleMemberLink([CONTEXT], "fuel")).toEqual(["fuel"]);
+    expect(toggleMemberLink([BENCH], "reactors")).toEqual(["reactors"]);
+  });
+  it("checking a real link otherwise ADDS it (multi-membership as before)", () => {
+    expect(toggleMemberLink(["reactors"], "fuel")).toEqual(["reactors", "fuel"]);
+    expect(toggleMemberLink([], "fuel")).toEqual(["fuel"]);
+  });
+  it("UNCHECKING removes just that label — the empty set is the Discovered floor", () => {
+    expect(toggleMemberLink(["reactors", "fuel"], "fuel")).toEqual(["reactors"]);
+    expect(toggleMemberLink([CONTEXT], CONTEXT)).toEqual([]);
+    expect(toggleMemberLink(["fuel"], "fuel")).toEqual([]);
+  });
+  it("does not mutate its input", () => {
+    const cur = ["reactors"];
+    toggleMemberLink(cur, "fuel");
+    toggleMemberLink(cur, CONTEXT);
+    expect(cur).toEqual(["reactors"]);
+  });
+
+  describe("end to end through reconcileMemberSegments (the rail's payload)", () => {
+    const SC = withSilentLinks(CHAIN);
+    const rowsFor = (basket: BasketMember[], sid: string) => basket.filter((m) => m.security_id === sid);
+    const twoLink = [
+      mem({ security_id: "s-x", ticker: "X", segment: "reactors" }),
+      mem({ security_id: "s-x", ticker: "X", segment: "fuel" }),
+    ];
+
+    it("a 2-link name → Context = ONE row in Context", () => {
+      const labels = toggleMemberLink(["reactors", "fuel"], CONTEXT);
+      const { basket } = reconcileMemberSegments(twoLink, SC, "s-x", labels);
+      expect(rowsFor(basket, "s-x").map((m) => m.segment)).toEqual([CONTEXT]);
+    });
+    it("a Context name → a real link = ONE row in that link", () => {
+      const inCtx = [mem({ security_id: "s-x", ticker: "X", segment: CONTEXT })];
+      const labels = toggleMemberLink([CONTEXT], "fuel");
+      const { basket } = reconcileMemberSegments(inCtx, SC, "s-x", labels);
+      expect(rowsFor(basket, "s-x").map((m) => m.segment)).toEqual(["fuel"]);
+    });
+    it("unchecking Context floors the name to Discovered (the visible inverse — nothing deleted)", () => {
+      const inCtx = [mem({ security_id: "s-x", ticker: "X", segment: CONTEXT })];
+      const labels = toggleMemberLink([CONTEXT], CONTEXT);
+      const { basket, segments } = reconcileMemberSegments(inCtx, SC, "s-x", labels);
+      expect(rowsFor(basket, "s-x").map((m) => m.segment)).toEqual([DISCOVERED]);
+      expect(segments.map((x) => x.label)).toEqual(["reactors", "fuel", DISCOVERED, "Context", "Bench"]);
+    });
+    it("Context → check → uncheck round-trips the name back to a single row each way", () => {
+      const start = twoLink;
+      const toCtx = reconcileMemberSegments(start, SC, "s-x", toggleMemberLink(["reactors", "fuel"], CONTEXT));
+      const back = reconcileMemberSegments(toCtx.basket, toCtx.segments, "s-x", toggleMemberLink([CONTEXT], "reactors"));
+      expect(rowsFor(back.basket, "s-x").map((m) => m.segment)).toEqual(["reactors"]);
+    });
   });
 });

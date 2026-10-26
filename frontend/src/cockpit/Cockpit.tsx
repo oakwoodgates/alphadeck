@@ -56,6 +56,7 @@ import {
   tickerLabel,
 } from "../util/format";
 import { formatMarketCap } from "../workbench/format";
+import { SILENT_DESCRIPTORS, isSilentLink } from "../workbench/useChainDraft";
 
 interface Props {
   thesisId: string;
@@ -747,6 +748,17 @@ export function Cockpit({
                               </td>
                               <td className="tk">
                                 {r.member.ticker}
+                                {/* the business-type lens regroups by what a company DOES, which hides the silent
+                                    link a name sits in — so a Context / Bench name carries a small lowercase tag
+                                    there (the other lenses name the link in the group header). Muted, no badge. */}
+                                {lensMode === "type" && isSilentLink(r.member.segment) && (
+                                  <span
+                                    className="silent-tag"
+                                    title={SILENT_DESCRIPTORS[r.member.segment]}
+                                  >
+                                    {r.member.segment.toLowerCase()}
+                                  </span>
+                                )}
                                 {/* #1 thin-history flag — a quiet amber caret ONLY on a starved row (honest
                                     loudness). A data-health mark, never a call input. */}
                                 {r.scored?.thin_price_history && (

@@ -52,6 +52,9 @@ const STATE_LINE: Partial<Record<BucketKey, string>> = {
   warming: "Conviction fired — awaiting market confirmation.",
   watch: "Moving, no conviction yet — confirmation only.",
   quiet: "No live signals at this as-of.",
+  // the two silent links — the operator's own placement; the name is on the card but not in the call
+  context: "Watched for context — never counts toward the call.",
+  bench: "On the bench — speculative, never counts toward the call.",
 };
 
 // HONEST authorship (Discovery cleanup S1): the tag reads who wrote the thesis-fit DESCRIPTION — a

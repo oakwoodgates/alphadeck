@@ -258,6 +258,39 @@ reversible (re-check / re-add / rename-back — WB#1). The promote round-trip is
 end (`tests/app/test_workbench_api.py` — move / clear→Discovered / rename-cascade / remove-last→Discovered,
 `count(*)` before + after).
 
+## Context and Bench — the two silent links (the scored view's rail)
+
+Every thesis carries two **fixed** value-chain links, **Context** ("Watched for context: buyers, counter-case
+names, giants where the theme is a slice. Never counts toward the call.") and **Bench** ("Speculative names:
+pivots, distressed or thinly traded. Never counts toward the call."). A company in either is **on the card and
+visible but never counts toward the call** — the backend removes those rows at the call seam; the frontend
+computes nothing about the call (#4: a placement is the operator's, never a verdict). The pair is defined once
+in [`useChainDraft.ts`](../frontend/src/workbench/useChainDraft.ts) (`CONTEXT`, `BENCH`, `withSilentLinks`,
+`reservedLinkName`) and mirrored by `chainOps.ts`. **Naming:** never call either link "watch" —
+`CallCard.watch_members` already means the confirmation-only members; the Cockpit's tags read lowercase
+`context` / `bench`.
+
+- **Fixed, last, protected.** Always the **last two links**; can't be renamed, deleted or reordered, and no
+  other link may take either name (any case — the add and rename inputs refuse it). A new link lands *before*
+  them. **Discovered is not pinned** — it keeps its position and behavior (a new link can land after it, it
+  can be reordered).
+- **Silent XOR voting.** A company is one or the other, never both: moving it into Context/Bench collapses
+  **all its rows to ONE row** there; moving it into a real link takes it out (the backend 422s a payload that
+  breaks this, so the pure `toggleMemberLink` never produces one).
+- **Where the operator moves a name:** the scored view's **DD rail**. The links list is the real links, a quiet
+  divider, then Context and Bench (each with its descriptor on the hover) — the same checkboxes as the real
+  links. **Only the operator** puts a name there: the chain drafter never does (a model-proposed
+  "Context"/"Bench" link is rerouted to Discovered — by the backend, and again defensively on the client).
+- **The checkbox IS the visible inverse (WB#1).** Unchecking Context floors the name to the Discovered pen;
+  checking a real link moves it out of Context. No new undo machinery, nothing deleted (WB#2, #9).
+- **Hidden when empty, except in the editors (WB#3).** The first-screen editor and the scored view's
+  **✎ edit links** always show both as **fixed, read-only rows** (no rename, ←/→ or ✕); the scored view's
+  **tabs** and the Cockpit hide an empty one. A silent tab shows its descriptor when active. The pair never
+  makes a flat basket "grouped" on its own (a thesis with no real link and no silent name still reads "No
+  value chain yet").
+- **Quiet by design (#7):** muted rows/tabs/chips, no badges — a name that never counts toward the call is the
+  quietest thing on the page. The Cockpit side (buckets, lenses) is `BOARD.md` "The grouped basket".
+
 ## Mark for data — gate 2's per-name opt-in + the per-SECTION run (the scored view)
 
 **The section button** (`⇣ get data — {section} (N)`): one deliberate click covers the ACTIVE value-chain
