@@ -32,6 +32,7 @@ from db.session import DEFAULT_TENANT_ID
 from domain.base import DomainModel
 from domain.enums import BusinessType
 from domain.security import Security
+from domain.thesis import reserved_label
 from securities import master
 from securities.business_type import resolve_business_type
 from securities.origin import resolve_origin
@@ -396,6 +397,12 @@ def resolve_discovered_chain(
       recorded as EMITTED.
     - A placement that matches NO discovered CIK is a tail-sweep / off-universe name → the existing master
       resolver (``_resolve_one``: PLACED / AMBIGUOUS / ABSENT). The organizer never sources a number (#3).
+    - **The draft never writes Context or Bench.** Those two links are the OPERATOR's silent links (a name there
+      never counts toward the call, so only the operator may put one there). A segment the organizer proposes
+      under a reserved label (any case) is not emitted; its names — the CIK-matched and the off-universe ones
+      alike — are filed under 'Discovered' instead, where they still count and the operator can move them. No
+      name is dropped (#9), the reroute is WARNed with its count (never silent), and the result carries at most
+      ONE 'Discovered' segment (merged with the organizer's own and with the dropped-CIK bucket below).
     - **The completeness guarantee — per-CIK, not a count heuristic:** after the layout pass, EVERY in-master
       discovered CIK NOT emitted is appended to a synthetic 'Discovered' segment by its CIK. A single name the
       organizer silently dropped — invisible to an eyeball among a plausible-looking many — is caught
@@ -406,7 +413,13 @@ def resolve_discovered_chain(
     by_ticker, by_name = _discovered_lookup(universe)
     emitted: set[str] = set()
     placements: list[ResolvedPlacement] = []
+    rerouted = 0  # names the organizer filed under a reserved (Context / Bench) label -> Discovered
     for s in segments:
+        # The segment a name is FILED under: the organizer's own, except a reserved one (the operator's silent
+        # links) which is never written by the draft — those names go to Discovered, none dropped (#9).
+        label = _DISCOVERED_LABEL if reserved_label(s.label) is not None else s.label
+        if label != s.label:
+            rerouted += len(s.placements)
         for p in s.placements:
             cik = _match_discovered_cik(p, by_ticker, by_name)
             if cik is None:
@@ -414,7 +427,7 @@ def resolve_discovered_chain(
                 # Tag it so the master resolver's placement (PLACED / AMBIGUOUS / ABSENT) carries the origin.
                 placements.append(
                     _resolve_one(
-                        conn, p, s.label, tenant_id=tenant_id, discovery_source="off_universe"
+                        conn, p, label, tenant_id=tenant_id, discovery_source="off_universe"
                     )
                 )
                 continue
@@ -428,7 +441,7 @@ def resolve_discovered_chain(
                     # filers carry master identity, and promote persists this field with the security_id)
                     ticker=(f.ticker if f is not None and f.ticker else p.ticker),
                     prose=p.prose,
-                    segment=s.label,
+                    segment=label,
                     status=PlacementStatus.PLACED if in_placed else PlacementStatus.VERIFY,
                     security_id=universe.placed[cik] if in_placed else universe.verify[cik],
                     matched_terms=(
@@ -437,17 +450,34 @@ def resolve_discovered_chain(
                     discovery_source="edgar",  # matched an EDGAR-discovered CIK
                 )
             )
+    if rerouted:
+        _log.warning(
+            "decompose: the organizer proposed %d name(s) under a reserved Context/Bench segment — those "
+            "links are the operator's alone, so the names were filed under %r instead (none dropped).",
+            rerouted,
+            _DISCOVERED_LABEL,
+        )
 
-    out_segments = [ResolvedSegment(label=s.label, descriptor=s.descriptor) for s in segments]
+    # The emitted chain: a reserved segment is never emitted, and 'Discovered' appears AT MOST ONCE (an
+    # organizer that proposes its own keeps the first, in place; the rerouted names and the dropped-CIK bucket
+    # below share it rather than adding a second).
+    out_segments: list[ResolvedSegment] = []
+    for s in segments:
+        if reserved_label(s.label) is not None:
+            continue
+        if s.label == _DISCOVERED_LABEL and any(o.label == _DISCOVERED_LABEL for o in out_segments):
+            continue
+        out_segments.append(ResolvedSegment(label=s.label, descriptor=s.descriptor))
 
     # Per-CIK reconciliation: diff the resolved discovered set against what the organizer emitted. Any dropped
     # CIK (placed OR verify) lands in 'Discovered' by its CIK — completeness is the deterministic layer's, never
     # the organizer's to lose.
     dropped = [cik for cik in (*universe.placed, *universe.verify) if cik not in emitted]
-    if dropped:
+    if (dropped or rerouted) and not any(o.label == _DISCOVERED_LABEL for o in out_segments):
         out_segments.append(
             ResolvedSegment(label=_DISCOVERED_LABEL, descriptor=_DISCOVERED_DESCRIPTOR)
         )
+    if dropped:
         for cik in dropped:
             f = universe.filers.get(cik)
             in_placed = cik in universe.placed

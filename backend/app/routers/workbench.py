@@ -65,7 +65,7 @@ from domain.enums import Authorship, InstrumentKind, TermTier
 from domain.extraction import ExtractedFact, ExtractionResult, Tier
 from domain.market_time import serve_view
 from domain.settings import get_settings
-from domain.thesis import Thesis
+from domain.thesis import Thesis, reserved_label, silent_conflicts, with_silent_links
 from ingest.cash_burn import ingest_cash_burn
 from ingest.catalyst import ingest_catalyst
 from ingest.edgar import nport
@@ -748,6 +748,16 @@ def promote(
     the basket stores the instrument the operator actually trades; the response carries the canonical
     ticker.
 
+    THE TWO FIXED LINKS (Context and Bench): every saved thesis carries both as its LAST two links, whatever
+    the payload sent. The write drops any segment named "Context" or "Bench" in any case (a missing,
+    mid-list, lowercased or wrongly described one is replaced, never a 422) and appends the two with their
+    fixed descriptors; a member placed in either one is canonicalized to the exact spelling. A company is
+    EITHER silent (Context or Bench) OR in the chain, never both: a company holding a Context / Bench row
+    and any other row (a real link, Discovered, none, or the other silent link) is refused with a 422 naming
+    it, after the canonicalize and identity passes (sibling listings of one company merge there) and before
+    anything is written — a row is never dropped silently. A silent name stays on the card but never counts
+    toward the call (``domain.thesis.voting_thesis``).
+
     ON-PROMOTE INGEST (PR-4): a promote that ADDS members (present in the incoming basket, absent from
     the pre-upsert spine — diffed by ``security_id``) kicks their back-half ingest as a BACKGROUND job
     after the commit, so a fresh starter basket needn't wait for the nightly cron; the additive
@@ -755,6 +765,19 @@ def promote(
     (the cost thread: every editor Save promotes, so a whole-basket ingest per Save would be ambient
     cost); a brand-new thesis is all-new (the full starter-basket ingest); no new members → no job and
     ``ingest`` null. The job never blocks or fails the promote."""
+    # THE FIXED LINKS, normalized BEFORE the Thesis is built (so the validator sees the final chain): the
+    # payload's own Context / Bench segments (any case, any position, any descriptor) are replaced by the two
+    # fixed ones appended last, and a member naming either in any case is respelled to the canonical label —
+    # a hand-typed "context" is the link, never a 422 for case. Discovered and the real links pass untouched.
+    segments = with_silent_links(req.segments)
+    members = [
+        (
+            m.model_copy(update={"segment": canon})
+            if (canon := reserved_label(m.segment)) is not None and canon != m.segment
+            else m
+        )
+        for m in req.basket
+    ]
     try:
         thesis = Thesis(  # the Slice-1 segment-consistency validator runs here
             id=req.id or uuid4(),
@@ -766,8 +789,8 @@ def promote(
             # `Authorship` enum (an out-of-enum value is a 422 at parse time), so the field IS the authorship
             # seam. INVARIANT #1 is held by the membership check below + the LLM never writing — never by
             # flattening authorship here.
-            basket=list(req.basket),
-            segments=req.segments,
+            basket=members,
+            segments=segments,
         )
     except ValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -876,6 +899,21 @@ def promote(
                 + "; ".join(blocked)
                 + ". Re-pick the security for each member, or resend listing the member's "
                 "security_id in identity_overrides to bind it deliberately (the override is logged)."
+            ),
+        )
+    # "SILENT OR VOTING, NEVER BOTH": a company in Context / Bench has exactly ONE row. Checked here — after
+    # canonicalize and the coherence pass, where sibling listings of one company have merged into one
+    # security_id — so the same company under two tickers cannot slip past as two. The operator's own
+    # placement is never quietly rewritten (WB#1: no action strands or deletes); a conflict is refused whole
+    # and NOTHING is written, naming each company so the fix is one move.
+    conflicts = silent_conflicts(thesis.basket)
+    if conflicts:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "; ".join(conflicts)
+                + " — a company is either in Context or Bench, or in the chain, never both. "
+                + ("Move it to one." if len(conflicts) == 1 else "Move each to one.")
             ),
         )
     # THE FREEZE PASS (Re-scope S1): ``surfaced_terms`` is frozen-at-entry PROVENANCE, so for a member

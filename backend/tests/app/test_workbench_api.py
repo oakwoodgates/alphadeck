@@ -79,7 +79,11 @@ def test_scored_endpoint_serves_meters_on_real_data(client, db, security_id):
     assert r.status_code == 200
     body = r.json()
     assert body["thesis_id"] == str(tid)
-    assert [s["label"] for s in body["segments"]] == ["reactors"]
+    assert [s["label"] for s in body["segments"]] == [
+        "reactors",
+        "Context",
+        "Bench",
+    ]  # fixed links last
     assert len(body["members"]) == 1
     m = body["members"][0]
     assert m["ticker"] == "DEVCO" and m["segment"] == "reactors"
@@ -183,7 +187,7 @@ def test_promote_creates_incubating_thesis_on_the_board(client, security_id):
     r = client.post("/workbench/theses", json=payload)
     assert r.status_code == 200
     tid = r.json()["id"]
-    assert [s["label"] for s in r.json()["segments"]] == ["reactors"]
+    assert [s["label"] for s in r.json()["segments"]] == ["reactors", "Context", "Bench"]
     # it now shows on the Board (GET /theses) and the chain persisted (GET /theses/{id})
     assert any(t["id"] == tid for t in client.get("/theses").json())
     detail = client.get(f"/theses/{tid}").json()
@@ -3473,7 +3477,7 @@ def test_promote_rename_link_cascades_onto_members(client, db, security_id):
         ],
     )
     detail = client.get(f"/theses/{tid}").json()
-    assert [s["label"] for s in detail["segments"]] == ["reactor builders"]
+    assert [s["label"] for s in detail["segments"]] == ["reactor builders", "Context", "Bench"]
     assert {m["segment"] for m in detail["basket"]} == {
         "reactor builders"
     }  # both cascaded, no orphan
@@ -3520,7 +3524,12 @@ def test_promote_remove_link_routes_last_placement_to_discovered(client, db, sec
         "DEVCO": "reactors",
         "BARE": "Discovered",
     }
-    assert [s["label"] for s in detail["segments"]] == ["reactors", "Discovered"]  # fuel gone
+    assert [s["label"] for s in detail["segments"]] == [
+        "reactors",
+        "Discovered",
+        "Context",
+        "Bench",
+    ]  # fuel gone; the fixed links ride last
     assert (
         _ce_member_count(db, tid) == 2
     )  # DEVCO's redundant fuel row dropped; BARE floored, not gone
@@ -3532,3 +3541,252 @@ def test_promote_remove_link_routes_last_placement_to_discovered(client, db, sec
         basket=[_ce_bm("DEVCO", security_id, "reactors"), _ce_bm("BARE", bare, "Discovered")],
     )
     assert _ce_member_count(db, tid) == 2
+
+
+# --- Context and Bench: the two fixed, silent links -------------------------------------------------------
+
+_CONTEXT_DESC = (
+    "Watched for context: buyers, counter-case names, giants where the theme is a slice. "
+    "Never counts toward the call."
+)
+_BENCH_DESC = (
+    "Speculative names: pivots, distressed or thinly traded. Never counts toward the call."
+)
+
+
+def _sl_promote(client, *, tid=None, segments, basket):
+    return client.post(
+        "/workbench/theses",
+        json={
+            "id": tid,
+            "name": "Silent links",
+            "narrative": "x",
+            "ticker": None,
+            "segments": segments,
+            "basket": basket,
+        },
+    )
+
+
+def _sl_count(db, tid, table="basket_member") -> int:
+    with db.cursor() as cur:
+        cur.execute(f"SELECT count(*) AS n FROM {table} WHERE thesis_id = %s", (tid,))
+        return cur.fetchone()["n"]
+
+
+def _sl_links(segments) -> list[tuple[str, str | None]]:
+    return [(s["label"], s["descriptor"]) for s in segments]
+
+
+_SL_FIXED = [("Context", _CONTEXT_DESC), ("Bench", _BENCH_DESC)]
+
+
+@pytest.mark.parametrize(
+    "sent",
+    [
+        pytest.param([{"label": "reactors"}], id="omitted"),
+        pytest.param(
+            [
+                {"label": "Bench", "descriptor": "mine"},
+                {"label": "reactors"},
+                {"label": "Context", "descriptor": "mine"},
+            ],
+            id="mid-list-and-reversed-with-wrong-descriptors",
+        ),
+        pytest.param(
+            [{"label": "context"}, {"label": "reactors"}, {"label": "BENCH"}], id="wrong-case"
+        ),
+        pytest.param(
+            [
+                {"label": "reactors"},
+                {"label": "Context", "descriptor": _CONTEXT_DESC},
+                {"label": "Bench", "descriptor": _BENCH_DESC},
+            ],
+            id="already-right",
+        ),
+    ],
+)
+def test_promote_always_ends_the_chain_with_context_then_bench_and_get_agrees(client, sent):
+    """However the payload spelled, placed or described the two links, the stored chain ends with Context then
+    Bench carrying the fixed descriptors — on the promote response AND on a later GET. Never a 422 for case.
+    """
+    r = _sl_promote(client, segments=sent, basket=[])
+    assert r.status_code == 200
+    expected = [("reactors", None), *_SL_FIXED]
+    assert _sl_links(r.json()["segments"]) == expected
+    got = client.get(f"/theses/{r.json()['id']}").json()
+    assert _sl_links(got["segments"]) == expected
+
+
+def test_promote_leaves_discovered_where_the_chain_put_it(client):
+    r = _sl_promote(
+        client,
+        segments=[{"label": "Discovered"}, {"label": "reactors"}, {"label": "fuel"}],
+        basket=[],
+    )
+    assert [s["label"] for s in r.json()["segments"]] == [
+        "Discovered",
+        "reactors",
+        "fuel",
+        "Context",
+        "Bench",
+    ]
+
+
+def test_promote_canonicalizes_a_hand_typed_silent_label_on_a_member(client, db, security_id):
+    r = _sl_promote(
+        client,
+        segments=[{"label": "reactors"}],
+        basket=[
+            _s1_member("DEVCO", security_id, segment="context")
+        ],  # lowercased, not in the payload
+    )
+    assert r.status_code == 200
+    assert [m["segment"] for m in r.json()["basket"]] == ["Context"]
+    tid = r.json()["id"]
+    assert [m["segment"] for m in client.get(f"/theses/{tid}").json()["basket"]] == ["Context"]
+    with db.cursor() as cur:
+        cur.execute("SELECT segment FROM basket_member WHERE thesis_id = %s", (tid,))
+        assert [row["segment"] for row in cur.fetchall()] == ["Context"]  # stored spelled right
+
+
+def test_promote_persists_one_silent_row_and_snapshots_its_segment_without_growing(
+    client, db, security_id
+):
+    """A company in Context is ONE basket row; the roster snapshot carries ``segment: "Context"`` (history
+    reads placement off it); and a re-promote of the unchanged roster adds no snapshot row (COUNT the table).
+    """
+    members = [_s1_member("DEVCO", security_id, segment="Context")]
+    r = _sl_promote(client, segments=[{"label": "reactors"}], basket=members)
+    assert r.status_code == 200
+    tid = r.json()["id"]
+    assert _sl_count(db, tid) == 1
+    assert _sl_count(db, tid, "basket_snapshot") == 1
+    with db.cursor() as cur:
+        cur.execute("SELECT members FROM basket_snapshot WHERE thesis_id = %s", (tid,))
+        (snap,) = cur.fetchall()
+    assert [(m["ticker"], m["segment"]) for m in snap["members"]] == [("DEVCO", "Context")]
+
+    again = _sl_promote(client, tid=tid, segments=[{"label": "reactors"}], basket=members)
+    assert again.status_code == 200
+    assert _sl_count(db, tid) == 1  # neither grown nor squashed
+    assert _sl_count(db, tid, "basket_snapshot") == 1  # an unchanged roster appends nothing
+
+    # moving the name into the chain DOES change the roster: exactly one more snapshot, still one row
+    moved = [_s1_member("DEVCO", security_id, segment="reactors")]
+    assert (
+        _sl_promote(client, tid=tid, segments=[{"label": "reactors"}], basket=moved).status_code
+        == 200
+    )
+    assert _sl_count(db, tid) == 1
+    assert _sl_count(db, tid, "basket_snapshot") == 2
+
+
+@pytest.mark.parametrize("silent", ["Context", "Bench", "bench"])
+@pytest.mark.parametrize("other", ["reactors", "Discovered", None])
+def test_promote_refuses_a_company_that_is_silent_and_in_another_link(
+    client, db, security_id, silent, other
+):
+    """A company is either silent or voting, never both: a Context/Bench row beside any other row of the SAME
+    company is a 422 naming it — and NOTHING is written (the stored roster and its snapshots are untouched).
+    """
+    ok = _sl_promote(
+        client,
+        segments=[{"label": "reactors"}, {"label": "Discovered"}],
+        basket=[_s1_member("DEVCO", security_id, segment="reactors")],
+    )
+    tid = ok.json()["id"]
+    before = (_sl_count(db, tid), _sl_count(db, tid, "basket_snapshot"))
+
+    bad = _sl_promote(
+        client,
+        tid=tid,
+        segments=[{"label": "reactors"}, {"label": "Discovered"}],
+        basket=[
+            _s1_member("DEVCO", security_id, segment=silent),
+            _s1_member("DEVCO", security_id, segment=other),
+        ],
+    )
+    assert bad.status_code == 422
+    canonical = silent.capitalize()
+    assert bad.json()["detail"].startswith(f"DEVCO is in {canonical} and also in another link")
+    assert "never both" in bad.json()["detail"]
+    assert (_sl_count(db, tid), _sl_count(db, tid, "basket_snapshot")) == before  # nothing written
+    assert [m["segment"] for m in client.get(f"/theses/{tid}").json()["basket"]] == ["reactors"]
+
+
+def test_promote_refuses_a_company_in_both_context_and_bench(client, db, security_id):
+    ok = _sl_promote(client, segments=[], basket=[])
+    tid = ok.json()["id"]
+    bad = _sl_promote(
+        client,
+        tid=tid,
+        segments=[],
+        basket=[
+            _s1_member("DEVCO", security_id, segment="Context"),
+            _s1_member("DEVCO", security_id, segment="Bench"),
+        ],
+    )
+    assert bad.status_code == 422
+    assert "DEVCO is in both Context and Bench" in bad.json()["detail"]
+    assert _sl_count(db, tid) == 0
+
+
+def test_promote_names_every_offender_and_still_accepts_distinct_companies(client, db, security_id):
+    oklo = _insert_security(db, "OKLO", name="Oklo Inc.", cik="0001849056")
+    leu = _insert_security(db, "LEU", name="Centrus Energy Corp.", cik="0001065059")
+    segs = [{"label": "reactors"}]
+    # two different companies, one silent and one voting: fine
+    fine = _sl_promote(
+        client,
+        segments=segs,
+        basket=[
+            _s1_member("DEVCO", security_id, segment="Context"),
+            _s1_member("OKLO", oklo, segment="reactors"),
+            _s1_member("LEU", leu, segment="Bench"),
+        ],
+    )
+    assert fine.status_code == 200
+    assert {m["ticker"]: m["segment"] for m in fine.json()["basket"]} == {
+        "DEVCO": "Context",
+        "OKLO": "reactors",
+        "LEU": "Bench",
+    }
+    # two offenders at once: both are named, in one refusal
+    bad = _sl_promote(
+        client,
+        segments=segs,
+        basket=[
+            _s1_member("DEVCO", security_id, segment="Context"),
+            _s1_member("DEVCO", security_id, segment="reactors"),
+            _s1_member("OKLO", oklo, segment="Bench"),
+            _s1_member("OKLO", oklo, segment="reactors"),
+        ],
+    )
+    assert bad.status_code == 422
+    assert (
+        "DEVCO is in Context" in bad.json()["detail"] and "OKLO is in Bench" in bad.json()["detail"]
+    )
+    assert bad.json()["detail"].endswith("Move each to one.")
+
+
+def test_promote_sees_two_listings_of_one_company_as_one_company(client, db):
+    """Sibling listings of one company merge into one security_id at the canonicalize pass; the silent-or-voting
+    check runs AFTER it, so putting one listing in Context and its sibling in the chain is still a conflict —
+    it cannot slip past as two companies."""
+    primary = _insert_security(
+        db, "ASML", name="ASML Holding N.V.", cik="0000937966", is_primary=True
+    )
+    sibling = _insert_security(
+        db, "ASMLF", name="ASML Holding N.V.", cik="0000937966", is_primary=False
+    )
+    bad = _sl_promote(
+        client,
+        segments=[{"label": "reactors"}],
+        basket=[
+            _s1_member("ASML", primary, segment="Context"),
+            _s1_member("ASMLF", sibling, segment="reactors"),
+        ],
+    )
+    assert bad.status_code == 422
+    assert "ASML is in Context and also in another link" in bad.json()["detail"]

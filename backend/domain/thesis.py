@@ -37,6 +37,101 @@ class Segment(DomainModel):
     descriptor: str | None = None  # the operator's per-segment tag, e.g. "catalyst-rich"
 
 
+# THE TWO FIXED SILENT LINKS (Context and Bench). Every thesis carries both, always the LAST two links (after
+# every real link and after Discovered, wherever Discovered sits — Discovered is NOT pinned and still counts
+# toward the call). A company the OPERATOR places in either one stays on the card and visible but NEVER
+# counts toward the call: ``voting_thesis`` removes those rows at the one assembly seam
+# (``pipeline.core.assemble_from_pit``), so their signals can never warm, arm, veto or grade the card. That is
+# the same stance as the chain's other quiet context — presence on the page is not a vote (#4: opinionated on
+# timing, deferential on thesis; the operator decides which names the call listens to, never the model).
+# Defined ONCE here; the promote route, the hydrate mapper, the draft reconciler and the validator below all
+# read these, so the spelling and the descriptors cannot drift. NAMING GUARD: never call either one "watch" —
+# ``CallCard.watch_members`` means the confirmation-only members of a call, an unrelated thing.
+CONTEXT_LABEL = "Context"
+BENCH_LABEL = "Bench"
+SILENT_LABELS: tuple[str, str] = (CONTEXT_LABEL, BENCH_LABEL)  # display order
+CONTEXT_DESCRIPTOR = (
+    "Watched for context: buyers, counter-case names, giants where the theme is a slice. "
+    "Never counts toward the call."
+)
+BENCH_DESCRIPTOR = (
+    "Speculative names: pivots, distressed or thinly traded. Never counts toward the call."
+)
+_SILENT_DESCRIPTORS = {CONTEXT_LABEL: CONTEXT_DESCRIPTOR, BENCH_LABEL: BENCH_DESCRIPTOR}
+
+
+def reserved_label(label: str | None) -> str | None:
+    """The canonical spelling ("Context" / "Bench") when ``label`` names a silent link in ANY case or with
+    stray whitespace, else ``None``. The write side canonicalizes through this (a "context" typed by hand is
+    the link, never a 422 for case and never a lookalike second link); ``is_silent`` then compares exactly.
+    """
+    if label is None:
+        return None
+    folded = label.strip().casefold()
+    for canonical in SILENT_LABELS:
+        if folded == canonical.casefold():
+            return canonical
+    return None
+
+
+def is_silent(member: BasketMember) -> bool:
+    """Is this member in Context or Bench (it never counts toward the call)? An EXACT match on the stored
+    label — canonicalization happens at the write (promote), so a stored row is already spelled right.
+    """
+    return member.segment in SILENT_LABELS
+
+
+def with_silent_links(segments: list[Segment]) -> list[Segment]:
+    """The chain with its two protected links in place: any segment whose label is a reserved name (any
+    case — a lookalike or a wrong descriptor is replaced, not kept) is dropped, every other link keeps its
+    given order untouched (Discovered included, wherever it sits), and Context then Bench are appended LAST
+    with their fixed descriptors. Idempotent. The promote route applies it to what the operator sent and the
+    hydrate mapper to what is stored, so both links read back last on every load with no data migration.
+    """
+    kept = [s for s in segments if reserved_label(s.label) is None]
+    return [*kept, *(Segment(label=k, descriptor=d) for k, d in _SILENT_DESCRIPTORS.items())]
+
+
+def silent_conflicts(basket: list[BasketMember]) -> list[str]:
+    """One plain sentence per company that breaks "silent or voting, never both": it holds a Context / Bench row
+    AND another row (a real link, Discovered, no link, or the other silent link). A company is keyed by its
+    ``security_id`` — by its upper-cased ticker only when it has none — so run this AFTER the write's
+    canonicalize and identity-coherence passes (sibling listings of one company merge into one id there). The
+    caller refuses the write with these sentences; a row is never dropped to make the rule hold. Empty list =
+    no conflict. In first-seen order."""
+    rows: dict[tuple[str, object], list[BasketMember]] = {}
+    for m in basket:
+        key: tuple[str, object] = (
+            ("id", m.security_id)
+            if m.security_id is not None
+            else ("ticker", m.ticker.strip().upper())
+        )
+        rows.setdefault(key, []).append(m)
+    out: list[str] = []
+    for group in rows.values():
+        silent = list(dict.fromkeys(m.segment for m in group if is_silent(m)))
+        if not silent or len(group) < 2:
+            continue
+        ticker = group[0].ticker.strip()
+        if len(silent) == 2:
+            out.append(f"{ticker} is in both {silent[0]} and {silent[1]}")
+        elif any(not is_silent(m) for m in group):
+            out.append(f"{ticker} is in {silent[0]} and also in another link")
+        else:
+            out.append(f"{ticker} is listed more than once in {silent[0]}")
+    return out
+
+
+def voting_thesis(thesis: Thesis) -> Thesis:
+    """The same thesis with every silent ROW (Context / Bench) removed from the basket — the only roster the
+    call reads. Per-row is per-company: the write refuses a company that holds a silent row AND another row
+    (a company is silent or voting, never both), so removing silent rows never removes a voting company's
+    vote. A copy; the argument is untouched (history views hydrate the roster from a snapshot and swap it
+    onto the thesis after construction, so the filter must read ``segment`` off the basket as given).
+    """
+    return thesis.model_copy(update={"basket": [m for m in thesis.basket if not is_silent(m)]})
+
+
 class BasketMember(DomainModel):
     ticker: str
     role: str  # the name's role in the thesis (operator/decomposition prose)
@@ -152,8 +247,10 @@ class Thesis(DomainModel):
     @model_validator(mode="after")
     def _segments_consistent(self) -> "Thesis":
         """Every placed ``member.segment`` must name one of the thesis's segments — the chain stays
-        internally consistent (a name can't sit in a link that isn't in the chain)."""
-        labels = {s.label for s in self.segments}
+        internally consistent (a name can't sit in a link that isn't in the chain). Context and Bench always
+        count as present: they are fixed links every hydrated thesis carries, so a roster that names one is
+        consistent even when a hand-built ``segments`` list leaves them out."""
+        labels = {s.label for s in self.segments} | set(SILENT_LABELS)
         for m in self.basket:
             if m.segment is not None and m.segment not in labels:
                 raise ValueError(

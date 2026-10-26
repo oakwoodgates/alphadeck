@@ -41,7 +41,17 @@ class RuleEntry:
 
 
 # Append-only. See the module docstring for how to declare a change.
-RULE_LOG: tuple[RuleEntry, ...] = ()
+RULE_LOG: tuple[RuleEntry, ...] = (
+    RuleEntry(
+        id="2026-10-silent-links",
+        date=date(2026, 10, 26),
+        label="Context and Bench links never count toward the call",
+        description=(
+            "A company the operator places in a thesis's Context or Bench link stays visible but is "
+            "removed from the call's inputs, so its signals never warm, arm or veto the card."
+        ),
+    ),
+)
 
 
 def _log(log: tuple[RuleEntry, ...] | None) -> tuple[RuleEntry, ...]:
