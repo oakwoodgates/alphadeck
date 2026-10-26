@@ -1,4 +1,4 @@
-import { Fragment, useState } from "react";
+import { Fragment, useState, type KeyboardEvent } from "react";
 import { flushSync } from "react-dom";
 
 import type { DisplaySignal, MemberDataFlagsOut } from "../api/hooks";
@@ -406,6 +406,31 @@ export function Cockpit({
     else apply();
   };
 
+  // Keyboard stepping: ↑/↓ on a focused row moves to the previous / next VISIBLE row — the rendered order,
+  // so the active lens and sort count, and a folded group is skipped (it stays mounted, collapsed). Focus
+  // always moves; with the per-name panel OPEN the panel follows it, so a basket is scanned a row at a time
+  // without the mouse. The panel only follows onto the row its key RESOLVES to: a name shown under several
+  // value-chain links resolves to its first row (the click rule), so a later link-row takes focus and leaves
+  // the panel where it is rather than jumping the highlight to a row far above.
+  const navRows = sortedGroups
+    .filter((g) => !closedGroups.has(g.key))
+    .flatMap((g) => g.rows.map(({ row }) => row));
+  const stepRow = (e: KeyboardEvent<HTMLTableRowElement>, from: BucketRow, dir: 1 | -1) => {
+    if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.target !== e.currentTarget) return;
+    e.preventDefault(); // the row owns the arrow: the scroller must not also move
+    const to = navRows[navRows.findIndex((r) => r.ordinal === from.ordinal) + dir];
+    if (!to) return; // the first / last visible row: nothing further that way
+    const el = e.currentTarget
+      .closest("table")
+      ?.querySelector<HTMLElement>(`tr.bkt[data-ordinal="${to.ordinal}"]`);
+    el?.focus({ preventScroll: true });
+    el?.scrollIntoView?.({ block: "nearest" });
+    if (selOrdinal !== null) {
+      const key = nameKeyFor(to, basket);
+      if (resolveNameKey(groups, key)?.row.ordinal === to.ordinal) onSelectName(key);
+    }
+  };
+
   const evidence = thesis?.evidence ?? [];
   const catalysts = thesis?.catalysts ?? [];
   const killCriteria = thesis?.kill_criteria ?? [];
@@ -692,11 +717,14 @@ export function Cockpit({
                               className={`bkt ${def.cls}${closedGroups.has(g.key) ? " folded" : ""}${r.ordinal === selOrdinal ? " sel" : ""}`}
                               tabIndex={0}
                               aria-selected={r.ordinal === selOrdinal}
+                              data-ordinal={r.ordinal}
                               onClick={() => toggleRow(r)}
                               onKeyDown={(e) => {
                                 if (e.key === "Enter" || e.key === " ") {
                                   e.preventDefault();
                                   toggleRow(r);
+                                } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                                  stepRow(e, r, e.key === "ArrowDown" ? 1 : -1);
                                 }
                               }}
                             >

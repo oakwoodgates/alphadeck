@@ -262,14 +262,24 @@ both directions** (#9/#2 — the sort re-orders, never drops), and the insider c
 lens switch** (re-ranking within the new lens's groups). A flat leaderboard *across* groups is deferred,
 not shipped.
 
+**Keyboard stepping.** Every basket row is focusable (Enter / Space toggles its panel). **↑/↓** on a focused row
+moves focus to the previous / next **visible** row — the rendered order, so the active lens and sort count, and
+a **folded group is skipped** (its rows stay mounted, collapsed, but are not stops); it stops at the first and
+last row, and a shift/ctrl/alt/meta-modified arrow is left to the browser. **With the panel open, the panel
+follows focus**, so a basket is scanned a row at a time with the panel showing each name; Enter on the focused
+row then closes it, and stepping with the panel closed only moves focus. The scoping is the row, not the page:
+the arrows never hijack the panel's own scrolling. In the value-chain lens a name shown under several links
+resolves to its **first** row (the click rule), so a later link-row takes focus and leaves the panel where it is
+instead of jumping the highlight to a row far above.
+
 The old Role/Detail columns are gone from the table; the authored text survives on the per-name panel.
 No card yet (loading/error) → everything reads Quiet, honestly.
 
 ### The per-name panel
 
 Clicking a row slides a **read-only, non-modal** panel over the rail (no scrim — the table stays
-clickable, so switching names is one click on the next row; the table never unmounts, and
-Esc / ✕ / re-clicking the row closes it; the rail dims, never hides). Top to bottom:
+clickable, so switching names is one click on the next row — or **↑/↓** on the focused row, above; the table
+never unmounts, and Esc / ✕ / re-clicking the row closes it; the rail dims, never hides). Top to bottom:
 
 - **The call · this name** — its own verdict + grade chips + setup-strength bar (wire field `confidence`), or the honest degrade
   line ("conviction fired — awaiting confirmation" / "moving, no conviction yet" / "no live signals

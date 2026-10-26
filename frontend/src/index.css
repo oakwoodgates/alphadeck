@@ -138,6 +138,8 @@ body {
   border-bottom: none;
   box-shadow: inset 0 -1px 0 var(--line);
 }
+/* keyboard stepping scrolls the next row into view: keep it clear of the sticky column header */
+.basket-scroll table.basket tr.bkt { scroll-margin-top: 40px; }
 /* the two corner cells stick on BOTH axes, so they must out-rank the header row (3) and the
    body's sticky identity columns (1) */
 .basket-scroll table.basket thead th.dotc, .basket-scroll table.basket thead th.tk { z-index: 4; }
