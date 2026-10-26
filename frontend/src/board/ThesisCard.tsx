@@ -35,14 +35,14 @@ export function ThesisCard({
       <div className="foot">
         {armed ? (
           // Lead with the entry verdict (what to DO — e.g. STARTER), colored by the entry grade;
-          // the conviction grade is secondary context ("core thesis"), not the headline. A bare
+          // the conviction grade is secondary context ("core setup"), not the headline. A bare
           // "CORE" badge here reads as "go big" — the over-commit misread this split exists to stop.
           <>
             <span className={`grade ${gradeClass(call.entry_grade)}`}>
               {verdictLabel(call.verdict).toUpperCase()}
             </span>
             {call.conviction_grade && (
-              <span className="conv">{call.conviction_grade} thesis</span>
+              <span className="conv">{call.conviction_grade} setup</span>
             )}
           </>
         ) : managing ? (

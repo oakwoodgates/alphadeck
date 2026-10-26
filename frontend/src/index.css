@@ -679,7 +679,7 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .pip { width: 13px; height: 4px; border-radius: 2px; background: var(--line-2); }
 .pip.on { background: var(--txt-2); }
 .countchip { font-family: var(--mono); font-size: 10px; color: var(--manage); border: 1px solid rgba(52, 194, 160, 0.35); border-radius: 20px; padding: 1px 8px; margin-left: auto; }
-/* the conviction grade as secondary context next to the lead entry verdict ("core thesis") */
+/* the conviction grade as secondary context next to the lead entry verdict ("core setup") */
 .foot .conv { font-family: var(--mono); font-size: 9.5px; color: var(--txt-4); }
 
 .col.incub .card { background: rgba(16, 19, 24, 0.5); border-color: rgba(30, 35, 44, 0.7); }

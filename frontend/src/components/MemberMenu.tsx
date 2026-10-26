@@ -50,7 +50,7 @@ function ArmedRow({ m, headline }: { m: Member; headline: boolean }) {
           theme
         </span>
       ) : (
-        m.conviction_grade && <span className="mm-conv">{m.conviction_grade} thesis</span>
+        m.conviction_grade && <span className="mm-conv">{m.conviction_grade} setup</span>
       )}
       {/* Q14: the ENTRY window's own flag (few trading sessions left through arm_until) — distinct
           from `lapsing` below, which is the HOLD clock. */}

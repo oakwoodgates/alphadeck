@@ -97,7 +97,7 @@ export function CallCard({
         <span>{CALL_HEAD[card.state] ?? "The Call"}</span>
         {card.conviction_grade && (
           <span className={`grade ${gradeClass(card.conviction_grade)}`}>
-            {card.conviction_grade.toUpperCase()} THESIS
+            {card.conviction_grade.toUpperCase()} SETUP
           </span>
         )}
       </div>

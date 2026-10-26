@@ -56,7 +56,9 @@ persisted for display. Change the as-of, and the whole board re-derives — it i
   recall-is-sacred instinct as the basket's Quiet bucket.
 - **The ThesisCard**: ticker (or a basket marker for a theme), name, narrative, and a state-appropriate
   footer — Armed leads with the **entry verdict** (STARTER/CORE — the categorical call-strength posture),
-  with the conviction grade as secondary context ("core setup"); neither label sizes a trade. A bare CORE
+  with the conviction grade as secondary context ("core setup" — the same "core setup" / "flip setup" wording
+  on the rail's head chip and the ranked member menu: it rates the call's strength class, never the idea, so it
+  is never called a "thesis", #4); neither label sizes a trade. A bare CORE
   badge up front read as "go big"; this split exists to stop that over-commit misread. Non-armed cards show
   the two-key **readiness pips** (0–2) — one pip per KEY, conviction left and confirmation right, the hover
   naming which has turned ("Conviction ✓ · Confirmation ○"), so a confirmation-only card never reads as
