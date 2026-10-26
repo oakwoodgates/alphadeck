@@ -834,3 +834,47 @@ operator tunes against real outcomes once the MVP has run. Those are consolidate
 momentum-only-vs-starter split, and the filed refinements). The deferred build items (age-decay of setup
 strength (`confidence` in code), the loans query group) live there too. Nothing here is a guessed number
 presented as decided — the dials are labeled as dials.
+
+### Known defect — a company in N links has its events counted N times  `[OPEN — operator decision, found 2026-10-26]`
+
+**What happens.** A company the operator placed in N value-chain links is N `basket_member` rows sharing one
+`security_id`, and two loops at the seam walk ROWS, not companies:
+- the per-member detector loop in `pipeline/core.py:assemble_from_pit`;
+- `signals/theme_conviction.py:broadcast`.
+
+So every one of that company's events enters the stream N times, as byte-identical copies. `laggard.detect` and
+`split_hold.find_holds` already dedupe (a `seen` set), and the assembler never reads the basket. MEASURED with an
+in-memory golden test over the real seam (11 scenarios: arm, mild risk, severe veto, flip-breakdown de-arm, theme
+broadcast, split-night hold, ties, core-vs-flip ranking, rotation with a multi-link leader or laggard).
+
+**What it does to the card today (cosmetic under the shipped config):**
+- **Repeated once per link:**
+  - `triggers_fired`, `risk_signals`, and each `MemberCall.triggers`;
+  - the blocking-risk "Risk must clear before arming" line in `missing[]`;
+  - the counter-case text;
+  - the Scoreboard's de-arm note, which joins risks undeduped (`scoreboard/record.py` `_dearm_detail`), so one risk reads "X · X";
+  - the CallCard rail, which renders each trigger twice.
+- **Identical to the one-link card:** state, verdict, the three grades, setup strength (`confidence`), `exit_by` /
+  `arm_until`, the armed set and the member ranking. Every rule there takes a max, an any, or a set of security ids.
+  `confidence()` caps and haircuts by KIND, not by event count.
+
+**Where it can change the call.** One rule counts raw events: `len(live_entry) >= cfg.warming_min_entry_triggers`
+in `calls/assembler.py` (§2's "≥ `warming_min_entry_triggers` live entry triggers"). It is inert at today's 1. At 2,
+a company with ONE live trigger sitting in two links warms the card (`incubating`/`watching` → `warming`/`not_yet`),
+which is MEASURED. So any recalibration or backtest-lab sweep that raises that dial is biased by this today
+(`docs/RECALIBRATION.md` §A).
+
+**The proposed fix (not built).** Dedupe the basket by `security_id` once at the seam, first occurrence in basket
+order, right after `voting_thesis`. Then the detector loop, the broadcast, the hold, both rotation reads and the
+notes all read one row per company. The alternative is a `seen` set in the two loops, mirroring the laggard. In the
+probe, every multi-link card then came out byte-identical to its one-link version, the dial case included.
+
+**What the fix would cost (why it waits for the operator):**
+- **Recorded cards change:** on any night where a voting multi-link company had a live trigger or an active risk,
+  the list fields above shrink to one copy each. `record_if_changed` compares the whole card, sorting lists but
+  never deduping, so each affected thesis appends one new call row.
+- **A new edition:** the engine fingerprint moves, so the editions trial would cut one. The fix needs its own
+  `domain/rule_log.py` entry, or the cut reads "unexplained change" and pages.
+- **What stays the same:** state, grades, arms and Scoreboard scoring under the default config.
+
+To do: a separate PR off main, with the count of affected cards measured on the operator's data before merge.
