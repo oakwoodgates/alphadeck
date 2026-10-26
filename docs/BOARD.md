@@ -179,8 +179,9 @@ all twelve live call cards were byte-identical with and without the flags read.
 **Columns:** `Dot · Ticker · Name · Type · SMA · 1d · 7d · 30d · 90d · 1Y · Path · Off 52w high · Tape ·
 RVOL 8D · RVOL 20D · Ins 30d · Ins 90d · Mkt cap · ADV 20d · Entry-by · Exit-by`.
 
-**The table scrolls in its own box** (`.basket-scroll`), because eighteen columns do not fit a laptop's
-main column beside the 380px call rail — before it, the overflow painted *over* the rail and those columns
+**The table scrolls in its own box** (`.basket-scroll`), because twenty-one columns do not fit a laptop's
+main column beside the 380px call rail (the widths MEASURED when this was built — 17 columns, 1025px of
+min-content — predate Off 52w high, Tape and ADV 20d; the table is wider now and has not been re-measured) — before it, the overflow painted *over* the rail and those columns
 were simply unreachable. Three things hold their place inside that box: the **status dot + ticker** stick
 to the left, so scrolling the columns never costs a row its identity; the **column header** sticks to the
 top; and a **bucket heading** ("Armed · act now · 7 names") sticks to the left of its full-width row. The
@@ -391,6 +392,59 @@ fell). A weaker or mixed move while armed is a quiet, honestly worded push ("sti
 arms before the marked re-arms; every name listed, never a count); a de-arm and
 every pre-Armed move are recorded, never pushed — Incubating never nags. The next morning's Board is the
 first thing the platform already checked without the operator.
+
+## Known gaps and limits (this surface)
+
+Documented, not hidden: each is either unmeasured, a deliberate simplification, or a choice the operator has not
+yet confirmed. Nothing here changes a call, and none of it touches the edition engine (all frontend).
+
+**The derived cells — `Off 52w high`, `ADV 20d`, the `Tape` chips (data flags)**
+- **They are not named by the server's flag vocabulary** (`domain/data_flags.py`), so each borrows the flag state
+  of the named cells whose bar window contains its own (`DERIVED_CELL_REACH`, above). The one under-warning gap: a
+  split or step in the oldest ~10 of the 52w window's ~262 bars is not reached by `1Y`'s 252, so `Off 52w high`
+  can show a normal-looking number that rests on mixed-scale bars. Rare (it needs the step in those ~10 sessions
+  *and* the pre-step bars to hold the high), but silent when it happens.
+- **It over-warns elsewhere, on purpose** (the safe direction): `ADV 20d` grays on a `30d` flag even when the step
+  sits outside its 20 bars; a coil / RS lead grays on a `90d` flag though they read ~65 bars.
+- **The containment is reasoned, not enforced.** It rests on the server's *current* window sizes (`BAR_WINDOWS`);
+  `DERIVED_CELL_REACH` is hand-kept in the frontend and nothing fails if the server widens or narrows a window
+  later (the server pins its own windows against the display members; no test crosses the language line).
+- **The row's ⚑ hover lists only the server's cells** ("affects 1Y, SMA"); a grayed 52w / ADV / Tape cell carries
+  its own reason on hover, but the mark does not name it.
+- **On a ⚑ row, an absent Tape mark means "can't tell", not "quiet"** — the detectors ran over data the platform
+  flags, so a missing chip is not evidence of a quiet tape.
+- **Not measured on real data.** These cells are covered by fixture tests only (the cloud session has no
+  database); how often a derived cell grays on prod — and the 26-of-688 mark rate above — is not re-measured for them.
+- **The fix, not built:** name the three cells in `domain/data_flags.py` (moves the engine fingerprint, so it rides
+  one deliberate backend change and its single trial run), or test the 52w window directly against the flags' own
+  `dates` (the affected bar dates, present even on a flag that names no cell) — frontend-only, but not yet
+  verified against a real flag.
+
+**The `Tape` column**
+- **The three marks and the 30-day cross recency (`TAPE_CROSS_DAYS`) were picked by the builder, not specified**:
+  they are display dials awaiting operator confirmation. Only golden / death crosses are marks — the
+  price-vs-50d / price-vs-200d flips stay in the panel.
+- **It does not replace the panel.** The per-name panel's *Indicators* section is unchanged: it still lists every
+  event each member emits (the last flip of each kind, however old). A 12-week-old golden cross is in the panel
+  and is deliberately *not* a Tape chip.
+
+**Keyboard stepping**
+- Arrows act only while a basket **row** has focus: not from inside the panel, no Home / End / PageUp / PageDown,
+  no j / k. The stepped-to row is scrolled clear of the sticky header by a fixed `scroll-margin-top: 40px` — an
+  estimate of that header's height, not a measurement.
+
+**The Decision Queue**
+- **The strip clips, it does not wrap or scroll** (`.dq-items` is `overflow: hidden`, items are no-wrap): more armed
+  items than fit are cut off at the right edge. That predates the act-by clock, but the clock lengthens every item,
+  so fewer fit. Not measured at real widths. A hidden armed item is a visibility risk (#9's instinct applied to
+  the queue); the fix — wrap or scroll — is a design call, not made here.
+- A theme shows only the **headline** name's clock (the card's `arm_until`); the other armed names' clocks are on
+  the rail's ranked menu. The queue's order is deliberately unchanged (it does not rank theses by deadline, #4).
+
+**The CallCard's catalyst panel**
+- It shows the assembler's `catalyst_surface`, which keeps only **dated** catalysts on or before `exit_by` with no
+  lower bound: a fuzzy entry ("~Q3", a label with no date) never reaches the rail (it lives in the Cockpit's
+  calendar), and a past-dated one keeps showing as "passed" until the operator removes it.
 
 ## What the Board never does (decisions, not gaps)
 
