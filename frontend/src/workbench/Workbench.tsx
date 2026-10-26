@@ -198,7 +198,9 @@ export function Workbench({ header, asof }: Props) {
     [...shownMembers, ...sleeveMembers].find((m) => m.security_id === pickedMemberId) ??
     shownMembers[0] ??
     null;
-  const linkCount = new Set(members.map((m) => m.segment).filter(Boolean)).size;
+  // "across M links" counts the REAL links a name sits in — Context / Bench are the fixed silent pair, not
+  // chain links, so a name moved into one must not make a flat basket read "across 1 link".
+  const linkCount = new Set(members.map((m) => m.segment).filter((s) => s && !isSilentLink(s))).size;
   // the authorship seam: who placed each name (operator now; S5's drafter will add "drafted")
   const authoredByFor = (sid: string) =>
     thesis?.basket.find((b) => b.security_id === sid)?.authored_by;

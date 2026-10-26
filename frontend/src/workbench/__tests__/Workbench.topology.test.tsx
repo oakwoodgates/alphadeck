@@ -298,6 +298,26 @@ describe("Workbench — Context and Bench (the silent links)", () => {
     expect(tabs(second.container)).toEqual(["reactors", "fuel", "Context"]);
   });
 
+  // the scored header's "Basket — N names across M links" (the Basket section's own heading)
+  const basketHeader = (root: HTMLElement) =>
+    [...root.querySelectorAll(".sect-h")].find((e) => e.textContent?.startsWith("Basket"))?.textContent ?? "";
+
+  it("the header's 'across M links' counts REAL links only — Context / Bench are not chain links", () => {
+    useFixture(mk.silent()); // OKLO in reactors, LEU in fuel, KO in Context
+    const { container } = renderWb();
+    expect(basketHeader(container)).toContain("3 names across 2 links"); // reactors + fuel — Context excluded
+  });
+
+  it("a flat basket with a name moved into Context reads no link count at all", () => {
+    const f = mk.flatWithPair();
+    f.thesis.basket[0].segment = "Context";
+    f.scored.members[0].segment = "Context";
+    useFixture(f);
+    const { container } = renderWb();
+    expect(basketHeader(container)).toContain("2 names");
+    expect(basketHeader(container)).not.toMatch(/across \d+ links?/); // was "across 1 link"
+  });
+
   it("the Context tab lists its names and shows the fixed descriptor when active", async () => {
     const user = userEvent.setup();
     useFixture(mk.silent());
