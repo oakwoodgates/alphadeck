@@ -55,7 +55,9 @@ persisted for display. Change the as-of, and the whole board re-derives — it i
   footer — Armed leads with the **entry verdict** (STARTER/CORE — the categorical call-strength posture),
   with the conviction grade as secondary context ("core setup"); neither label sizes a trade. A bare CORE
   badge up front read as "go big"; this split exists to stop that over-commit misread. Non-armed cards show
-  the two-key **readiness pips** (0–2). Armed
+  the two-key **readiness pips** (0–2) — one pip per KEY, conviction left and confirmation right, the hover
+  naming which has turned ("Conviction ✓ · Confirmation ○"), so a confirmation-only card never reads as
+  "conviction fired". Armed
   cards carry the `CALL READY` flag.
 - **Archive, never delete** (board hygiene): hover a card → a quiet **✕** appears (a *sibling* of the
   card, top-right). Archiving drops the thesis into the collapsed **Archived (N)** section at the bottom —

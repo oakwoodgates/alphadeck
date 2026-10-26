@@ -17,7 +17,6 @@ export function ThesisCard({
 }) {
   const armed = call.state === "armed";
   const managing = call.state === "managing";
-  const keysOn = (call.key_conviction.turned ? 1 : 0) + (call.key_confirmation.turned ? 1 : 0);
 
   return (
     <button type="button" className="card" onClick={() => onSelect(thesis.id)}>
@@ -49,23 +48,34 @@ export function ThesisCard({
         ) : managing ? (
           <span className="countchip">{verdictLabel(call.verdict)}</span>
         ) : (
-          <Readiness on={keysOn} total={2} />
+          <Readiness
+            conviction={call.key_conviction.turned}
+            confirmation={call.key_confirmation.turned}
+          />
         )}
       </div>
     </button>
   );
 }
 
-// The two keys, as readiness pips.
-function Readiness({ on, total }: { on: number; total: number }) {
+// The two keys, as readiness pips — one pip per KEY, conviction first then confirmation (the CallCard's
+// order), so a lit pip says WHICH key has turned, not just how many. A count-only pip row read a
+// confirmation-only (Watch) card as "conviction fired": the first pip lit either way.
+function Readiness({ conviction, confirmation }: { conviction: boolean; confirmation: boolean }) {
+  const keys = [
+    { name: "Conviction", on: conviction },
+    { name: "Confirmation", on: confirmation },
+  ];
+  const on = keys.filter((k) => k.on).length;
+  const label = keys.map((k) => `${k.name} ${k.on ? "✓" : "○"}`).join(" · ");
   return (
-    <div className="readiness">
+    <div className="readiness" role="img" aria-label={label} title={label}>
       <span style={{ color: "var(--txt-4)", fontSize: 10 }}>
-        {on}/{total}
+        {on}/{keys.length}
       </span>
       <div className="pips">
-        {Array.from({ length: total }, (_, i) => (
-          <span key={i} className={`pip ${i < on ? "on" : ""}`} />
+        {keys.map((k) => (
+          <span key={k.name} className={`pip ${k.on ? "on" : ""}`} />
         ))}
       </div>
     </div>
