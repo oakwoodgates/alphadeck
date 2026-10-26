@@ -34,7 +34,13 @@ import { clearedRestore, deserialize } from "./triageSession";
 import { DDRail } from "./DDRail";
 import { ScoredRow } from "./ScoredRow";
 import { ThesisFields } from "./ThesisFields";
-import { DISCOVERED } from "./useChainDraft";
+import {
+  DISCOVERED,
+  SILENT_DESCRIPTORS,
+  SILENT_LINKS,
+  isSilentLink,
+  reservedLinkName,
+} from "./useChainDraft";
 import { errText, memberHasFundamentals } from "./format";
 
 interface Props {
@@ -149,20 +155,40 @@ export function Workbench({ header, asof }: Props) {
   const chainMembers = members.filter((m) => m.instrument_kind !== "etf");
   // The seeded basket is FLAT until authored — when it has segments, names group under the selected
   // link; until then they render as one flat scored list so the meters always show.
-  const grouped = segments.length > 0;
+  //
+  // The two SILENT links (Context / Bench) ride every thesis, so they never make a flat basket "grouped" on
+  // their own: `realSegments` is the chain minus them. A basket is grouped once it has a real link (or a
+  // Discovered pen) — or once a name has been moved INTO a silent link (that name needs a tab to be seen on).
+  const realSegments = segments.filter((s) => !isSilentLink(s.label));
+  const countFor = (label: string) =>
+    chainMembers.filter((m) => effectiveSegment(m, segments) === label).length;
+  const grouped =
+    realSegments.length > 0 || SILENT_LINKS.some((label) => countFor(label) > 0);
   // Group by the EFFECTIVE segment (chain-editing Phase 1): a NULL or ORPHAN (label not in the chain)
   // name normalizes to Discovered so it surfaces under a synthesized Discovered tab instead of failing
   // the raw `m.segment === activeSeg` filter and vanishing (#9 / WB#2). Only when there IS a real chain
   // (`grouped`) — a flat pre-decompose basket stays one ungrouped list.
   const anyDiscovered =
     grouped && chainMembers.some((m) => effectiveSegment(m, segments) === DISCOVERED);
-  const renderSegments =
-    anyDiscovered && !segments.some((s) => s.label === DISCOVERED)
-      ? [...segments, { label: DISCOVERED, descriptor: null }]
-      : segments;
-  const countFor = (label: string) =>
-    chainMembers.filter((m) => effectiveSegment(m, segments) === label).length;
-  const activeSeg = grouped ? (seg ?? renderSegments[0]?.label ?? null) : null;
+  // the chain as a name can sit in it: the real links (+ the Discovered pen, stored or synthesized)…
+  const chainSegments =
+    anyDiscovered && !realSegments.some((s) => s.label === DISCOVERED)
+      ? [...realSegments, { label: DISCOVERED, descriptor: null }]
+      : realSegments;
+  // …then the silent links, LAST — and a silent tab renders only when it has names (honest loudness: an
+  // empty Context / Bench is true of nearly every thesis, so it says nothing; the editors always show both).
+  const silentTabs = SILENT_LINKS.filter((label) => countFor(label) > 0).map((label) => ({
+    label,
+    descriptor: SILENT_DESCRIPTORS[label] as string | null,
+  }));
+  const renderSegments = [...chainSegments, ...silentTabs];
+  // The selected tab; one that no longer renders (an emptied Context, a renamed/removed link) falls back to
+  // the first — a tab vanishing under the operator must not leave an empty pane.
+  const activeSeg = grouped
+    ? renderSegments.some((s) => s.label === seg)
+      ? seg
+      : (renderSegments[0]?.label ?? null)
+    : null;
   const shownMembers = activeSeg
     ? chainMembers.filter((m) => effectiveSegment(m, segments) === activeSeg)
     : chainMembers;
@@ -182,7 +208,11 @@ export function Workbench({ header, asof }: Props) {
   // memberships read from the SPINE (`thesis.basket`) and normalized through effectiveSegment (a NULL /
   // orphan label → Discovered → dropped), so an unsorted name reads as no checked links → the rail's
   // "Unsorted (Discovered)" line. Deduped: a name never shows the same link twice.
-  const segmentOptions = segments.map((s) => s.label).filter((l) => l !== DISCOVERED);
+  // The two silent links are NOT in `options`: the rail lists Context / Bench itself, always, under the real
+  // links — and `current` may carry one of them (effectiveSegment treats them as always known).
+  const segmentOptions = segments
+    .map((s) => s.label)
+    .filter((l) => l !== DISCOVERED && !isSilentLink(l));
   const selectedSegments = selectedMember
     ? [
         ...new Set(
@@ -402,7 +432,7 @@ export function Workbench({ header, asof }: Props) {
   // blank/dup, so a stray submit is a harmless no-op.
   const commitAddLink = () => {
     const l = newLink.trim();
-    if (!l) return;
+    if (!l || reservedLinkName(l)) return; // Context / Bench are the fixed pair — no link may take the name
     addLinkOnScore(l);
     setNewLink("");
   };
@@ -747,10 +777,10 @@ export function Workbench({ header, asof }: Props) {
                   // bootstrap, which works FLAT (no links yet) so the first link is buildable from SCORE.
                   // The synthesized Discovered floor shows read-only (names leave it via a name's links).
                   <div className="chain chain-edit">
-                    {segments.length === 0 && (
+                    {segments.every((s) => isSilentLink(s.label)) && (
                       <span className="seg-edit-hint">No links yet — name your first one.</span>
                     )}
-                    {renderSegments.map((s) =>
+                    {chainSegments.map((s) =>
                       s.label === DISCOVERED ? (
                         <span
                           key={s.label}
@@ -770,13 +800,13 @@ export function Workbench({ header, asof }: Props) {
                               if (e.key === "Enter") {
                                 e.preventDefault();
                                 const v = (e.target as HTMLInputElement).value.trim();
-                                if (v && v !== s.label) renameLinkOnScore(s.label, v);
+                                if (v && v !== s.label && !reservedLinkName(v)) renameLinkOnScore(s.label, v);
                               }
                             }}
                             onBlur={(e) => {
                               const v = e.target.value.trim();
-                              if (v && v !== s.label) renameLinkOnScore(s.label, v);
-                              else e.target.value = s.label; // revert a blank / unchanged edit
+                              if (v && v !== s.label && !reservedLinkName(v)) renameLinkOnScore(s.label, v);
+                              else e.target.value = s.label; // revert a blank / unchanged / reserved-name edit
                             }}
                           />
                           <button
@@ -784,7 +814,7 @@ export function Workbench({ header, asof }: Props) {
                             className="seg-move"
                             disabled={
                               promote.isPending ||
-                              segments.findIndex((x) => x.label === s.label) <= 0
+                              realSegments.findIndex((x) => x.label === s.label) <= 0
                             }
                             aria-label={`move ${s.label} left`}
                             onClick={() => reorderLinkOnScore(s.label, -1)}
@@ -796,8 +826,8 @@ export function Workbench({ header, asof }: Props) {
                             className="seg-move"
                             disabled={
                               promote.isPending ||
-                              segments.findIndex((x) => x.label === s.label) >=
-                                segments.length - 1
+                              realSegments.findIndex((x) => x.label === s.label) >=
+                                realSegments.length - 1
                             }
                             aria-label={`move ${s.label} right`}
                             onClick={() => reorderLinkOnScore(s.label, 1)}
@@ -816,6 +846,19 @@ export function Workbench({ header, asof }: Props) {
                         </div>
                       ),
                     )}
+                    {/* Context / Bench — the two FIXED silent links, always last and read-only here (no
+                        rename, no ← →, no ✕): a name in either is on the card but never counts toward the
+                        call. Names enter and leave through the name's own links (the rail's checkboxes). */}
+                    {SILENT_LINKS.map((label) => (
+                      <span
+                        key={label}
+                        className="seg-floor seg-silent"
+                        title={SILENT_DESCRIPTORS[label]}
+                      >
+                        {label} · {countFor(label)}
+                        <span className="seg-fixed">fixed</span>
+                      </span>
+                    ))}
                     <div className="seg-add">
                       <input
                         className="seg-add-input"
@@ -834,11 +877,18 @@ export function Workbench({ header, asof }: Props) {
                       <button
                         type="button"
                         className="seg-add-btn"
-                        disabled={promote.isPending || !newLink.trim()}
+                        disabled={
+                          promote.isPending || !newLink.trim() || reservedLinkName(newLink) !== null
+                        }
                         onClick={commitAddLink}
                       >
                         + add link
                       </button>
+                      {reservedLinkName(newLink) && (
+                        <span className="seg-edit-hint">
+                          {reservedLinkName(newLink)} is a fixed link — it can't be added again.
+                        </span>
+                      )}
                     </div>
                   </div>
                 ) : grouped ? (
@@ -850,7 +900,9 @@ export function Workbench({ header, asof }: Props) {
                         <Fragment key={s.label}>
                           <button
                             type="button"
-                            className={`seg${s.label === activeSeg ? " on" : ""}`}
+                            className={`seg${s.label === activeSeg ? " on" : ""}${
+                              isSilentLink(s.label) ? " silent" : ""
+                            }`}
                             onClick={() => {
                               setSeg(s.label);
                               setPickedMemberId(null);
@@ -864,7 +916,8 @@ export function Workbench({ header, asof }: Props) {
                               </span>
                             </div>
                           </button>
-                          {i < renderSegments.length - 1 ? (
+                          {/* the arrow is the chain's flow — the silent links sit outside it */}
+                          {i < renderSegments.length - 1 && !isSilentLink(renderSegments[i + 1].label) ? (
                             <span className="chain-arrow" aria-hidden="true">
                               ›
                             </span>
@@ -872,10 +925,10 @@ export function Workbench({ header, asof }: Props) {
                         </Fragment>
                       ))}
                     </div>
-                    {activeSeg && segments.find((s) => s.label === activeSeg)?.descriptor && (
+                    {activeSeg && renderSegments.find((s) => s.label === activeSeg)?.descriptor && (
                       <div className="chain-desc">
                         <b>{activeSeg}</b> —{" "}
-                        {segments.find((s) => s.label === activeSeg)?.descriptor}
+                        {renderSegments.find((s) => s.label === activeSeg)?.descriptor}
                       </div>
                     )}
                   </>

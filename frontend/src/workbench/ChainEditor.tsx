@@ -63,7 +63,16 @@ import {
   type DeserializeResult,
   type EditorRuntime,
 } from "./triageSession";
-import { DISCOVERED, memberKey, type PlacedMode, useChainDraft } from "./useChainDraft";
+import {
+  DISCOVERED,
+  SILENT_DESCRIPTORS,
+  SILENT_LINKS,
+  isSilentLink,
+  memberKey,
+  type PlacedMode,
+  reservedLinkName,
+  useChainDraft,
+} from "./useChainDraft";
 
 // Stop polling a draft after this long and show "timed out, try again". A real draft floor is the ~300s Opus
 // tail-sweep + EDGAR discovery over the universe + decompose + narrate, so this is generous; it sits BELOW the
@@ -551,7 +560,9 @@ export function ChainEditor({
   // once ≥1 name in the basket has confirmed fundamentals. Before any surfacing it's true of every row (pure
   // noise), so we show a single quiet header hint instead of stamping "needs SURFACE" on all of them.
   const anyFundamentals = d.draft.basket.some((m) => hasFundamentals(m.security_id, scoredById));
-  const hasRealLink = segLabels.some((l) => l !== DISCOVERED);
+  // a REAL link: neither the Discovered pen nor one of the two fixed silent links (Context / Bench are always
+  // present now, so counting them would make every thesis "have a chain")
+  const hasRealLink = segLabels.some((l) => l !== DISCOVERED && !isSilentLink(l));
 
   // --- the per-NAME display grouping (S1 multi-membership) --------------------------------------------
   // The basket holds N ROWS per name (one per LLM-recommended link — real memberships Save persists);
@@ -631,8 +642,12 @@ export function ChainEditor({
   const discoveredCount = nameGroups.filter((g) => g.segments.includes(DISCOVERED)).length;
   // The links editor separates the REAL value-chain links (reorderable) from the "Discovered" holding pen (not a
   // link — no reorder). Rendered as two distinct regions so the editor reads legibly (the arrows apply to links).
-  const realLinks = d.draft.segments.filter((s) => s.label !== DISCOVERED);
+  // The two silent links render in their own fixed, read-only rows below the pen — never in `realLinks`, so
+  // the rename / ← → / × controls and the arrow bounds can't reach them.
+  const realLinks = d.draft.segments.filter((s) => s.label !== DISCOVERED && !isSilentLink(s.label));
   const discoveredSeg = d.draft.segments.find((s) => s.label === DISCOVERED);
+  // how many NAMES sit in each silent link (display only — a quiet count beside the fixed row)
+  const silentCount = (label: string) => nameGroups.filter((g) => g.segments.includes(label)).length;
 
   // --- post-draft results buckets (the IA reorg) ---
   const PLACED_PREVIEW = 12; // a large group (hundreds of names) collapses to a preview + "show more"
@@ -1740,11 +1755,15 @@ export function ChainEditor({
                     {g.segments.map((s) => (
                       <span
                         key={s}
-                        className={`recchip${s === DISCOVERED ? " pen" : ""}`}
+                        // the unsorted pen AND the two silent links read quietly (muted, dashed) — a name
+                        // that never counts toward the call is not a loud recommendation
+                        className={`recchip${s === DISCOVERED || isSilentLink(s) ? " pen" : ""}`}
                         title={
                           s === DISCOVERED
                             ? "the unsorted pen — the draft didn't arrange this name into a link"
-                            : "the draft recommends this link — a real membership row; Save persists each chip"
+                            : isSilentLink(s)
+                              ? "on the card, never counts toward the call — moved on the triage screen"
+                              : "the draft recommends this link — a real membership row; Save persists each chip"
                         }
                       >
                         {s === DISCOVERED ? "Discovered (unsorted)" : s}
@@ -2340,6 +2359,28 @@ export function ChainEditor({
           </div>
         )}
 
+        {/* the two FIXED silent links — Context and Bench, always last, read-only: no rename, no ← →, no ×
+            (they can't be renamed, reordered or removed). A name in either is on the card and visible but
+            NEVER counts toward the call; only the operator puts one there (the triage screen's rail — this
+            surface, like the draft, never does). Always shown here: the editor is where the pair is explained. */}
+        <div className="wb-seg-silent" role="group" aria-label="fixed links: Context and Bench">
+          <span className="wb-seg-pen-lab">Fixed</span>
+          {SILENT_LINKS.map((label) => (
+            <div className="wb-seg-silent-row" key={label}>
+              <div className="wb-seg-chip discovered">
+                <span className="wb-seg-pen-name">{label}</span>
+                <span className="seg-tag">fixed</span>
+                {silentCount(label) > 0 && (
+                  <span className="seg-tag">
+                    {silentCount(label)} {silentCount(label) === 1 ? "name" : "names"}
+                  </span>
+                )}
+              </div>
+              <span className="note wb-seg-silent-desc">{SILENT_DESCRIPTORS[label]}</span>
+            </div>
+          ))}
+        </div>
+
         {/* add a link — its own row, clearly an add affordance (not another link) */}
         <div className="wb-seg-add">
           <input
@@ -2352,6 +2393,7 @@ export function ChainEditor({
           <button
             type="button"
             className="wb-mini"
+            disabled={reservedLinkName(newSeg) !== null}
             onClick={() => {
               d.addSegment(newSeg);
               setNewSeg("");
@@ -2359,6 +2401,11 @@ export function ChainEditor({
           >
             + link
           </button>
+          {reservedLinkName(newSeg) && (
+            <span className="note">
+              {reservedLinkName(newSeg)} is a fixed link — it can't be added again.
+            </span>
+          )}
         </div>
       </div>
 
