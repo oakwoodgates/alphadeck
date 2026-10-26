@@ -57,6 +57,37 @@ export function cellFlag(
   return { level, reason: hits.map(oneLine).join("\n") };
 }
 
+/** Cells the Cockpit draws that the server's flag vocabulary does not name (`domain/data_flags.py`'s
+ *  `CELLS_BY_GROUP`; widening it moves the engine fingerprint, so these ride the frontend instead). Each takes
+ *  the flag state of the NAMED cells whose bar window contains its own, so a flag that could reach the number
+ *  never leaves it ungrayed — and none can be flagged unless a named cell on the row is, so the row mark stays
+ *  truthful. Conservative by construction, with one named limit:
+ *    off52w — the 52-week closing high reads every bar within 380 calendar days (~262 bars). `ret_1y` covers
+ *             252, so a step in the oldest ~10 bars reaches this cell and no proxy; the long-run fix is to
+ *             name the cell server-side.
+ *    adv    — the 20-bar mean of close × volume: a price flag (`ret_30d`'s 30 bars) and a volume flag
+ *             (`rvol20`'s 20) both reach it. */
+export const DERIVED_CELL_REACH = {
+  off52w: ["ret_1y"],
+  adv: ["ret_30d", "rvol20"],
+} as const;
+
+export type DerivedCell = keyof typeof DERIVED_CELL_REACH;
+
+/** The flag state of a derived cell: the worst level among its proxy cells' flags (known wrong beats in
+ *  doubt), every distinct reason on the hover. Null when no proxy cell is flagged. */
+export function derivedCellFlag(
+  member: MemberDataFlagsOut | null | undefined,
+  cell: DerivedCell,
+): CellFlag | null {
+  const hits = DERIVED_CELL_REACH[cell]
+    .map((c) => cellFlag(member, c))
+    .filter((f): f is CellFlag => f != null);
+  if (hits.length === 0) return null;
+  const level: FlagLevel = hits.some((h) => h.level === "known_wrong") ? "known_wrong" : "in_doubt";
+  return { level, reason: [...new Set(hits.flatMap((h) => h.reason.split("\n")))].join("\n") };
+}
+
 /** The flags that reach a cell on the row (the ones the row mark speaks for). */
 export function rowFlags(member: MemberDataFlagsOut | null | undefined): DataFlagOut[] {
   return (member?.flags ?? []).filter((f) => (f.columns ?? []).length > 0);

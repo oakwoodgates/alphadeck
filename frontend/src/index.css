@@ -377,6 +377,10 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .basket td.insc { white-space: nowrap; }
 .basket td.insc .insider { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
 .basket td.insc .insider.cluster { color: var(--leader); font-weight: 600; }
+/* 52w (% off the 52-week closing high) and ADV 20d (20-bar average dollar volume): mono like the other
+   display cells, muted and un-accented — always-present context, no threshold of their own (#7) */
+.basket td.rngc, .basket td.advc { white-space: nowrap; }
+.basket td.rngc .off52w, .basket td.advc .adv { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
 /* the close-path sparkline (the price_path member's fixed-slot series, after the return ladder): a
    NEUTRAL hairline in the muted text gray — no accent, so the shape never conflates with the return
    green/red, the RVOL warm, or the insider blue (#7). A null slot BREAKS the line (never interpolated):

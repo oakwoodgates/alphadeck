@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { DataFlagOut, DisplaySignal, MemberDataFlagsOut } from "../../api/hooks";
 import type { BucketRow } from "../buckets";
-import { cellFlag, factorWords, markTitle, rowLevel } from "../dataFlags";
+import { cellFlag, derivedCellFlag, factorWords, markTitle, rowLevel } from "../dataFlags";
 import { sparkTicks } from "../DisplaySignalsSection";
 import { groupMoving } from "../groupAggregate";
 
@@ -94,5 +94,35 @@ describe("sparkTicks — a split inside the path's window, at most a tick", () =
     expect(sparkTicks([{ barsAgo: 0, label: "a" }], 90)).toEqual([{ x: 72, label: "a" }]);
     expect(sparkTicks([{ barsAgo: 89, label: "b" }], 90)).toEqual([{ x: 0, label: "b" }]);
     expect(sparkTicks([{ barsAgo: 90, label: "c" }], 90)).toEqual([]);
+  });
+});
+
+describe("dataFlags — derived cells (52w, ADV 20d) borrow the reach of the named cells that read their bars", () => {
+  it("52w follows 1Y alone; ADV follows 30d and RVOL 20D; a cell no proxy names is untouched", () => {
+    const oneYear = member([flag({ reason: "split", columns: ["ret_1y"] })]);
+    expect(derivedCellFlag(oneYear, "off52w")).toEqual({ level: "in_doubt", reason: "split" });
+    expect(derivedCellFlag(oneYear, "adv")).toBeNull();
+
+    const thirty = member([flag({ reason: "split", columns: ["ret_30d"] })]);
+    expect(derivedCellFlag(thirty, "adv")).toEqual({ level: "in_doubt", reason: "split" });
+    expect(derivedCellFlag(thirty, "off52w")).toBeNull();
+
+    const volume = member([flag({ reason: "volume scale", columns: ["rvol20"] })]);
+    expect(derivedCellFlag(volume, "adv")).toEqual({ level: "in_doubt", reason: "volume scale" });
+
+    // a flag that names only the short windows never reaches either cell
+    const short = member([flag({ reason: "island bar", columns: ["ret_1d", "ret_7d", "rvol8"] })]);
+    expect(derivedCellFlag(short, "off52w")).toBeNull();
+    expect(derivedCellFlag(short, "adv")).toBeNull();
+    expect(derivedCellFlag(null, "adv")).toBeNull();
+  });
+
+  it("known wrong beats in doubt across the proxies, and each distinct reason rides once", () => {
+    const m = member([
+      flag({ reason: "split", columns: ["ret_30d", "rvol20"] }),
+      flag({ kind: "price_feed_stopped", level: "known_wrong", reason: "stopped", columns: ["rvol20"] }),
+    ]);
+    // ret_30d -> "split"; rvol20 -> "split\nstopped": the merged hover names "split" once
+    expect(derivedCellFlag(m, "adv")).toEqual({ level: "known_wrong", reason: "split\nstopped" });
   });
 });

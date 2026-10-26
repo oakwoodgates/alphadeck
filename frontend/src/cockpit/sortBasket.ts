@@ -22,11 +22,13 @@ export type SortColId =
   | "ret_30d"
   | "ret_90d"
   | "ret_1y"
+  | "off52w"
   | "rvol8"
   | "rvol20"
   | "ins_30d"
   | "ins_90d"
   | "mktcap"
+  | "adv"
   | "entry_by"
   | "exit_by";
 
@@ -44,6 +46,10 @@ export interface RowSignals {
   trail: DisplaySignal | null;
   rvol: DisplaySignal | null;
   insider: DisplaySignal | null;
+  /** the `range_52w` member (the 52w column) — optional so a caller that predates it stays valid */
+  range?: DisplaySignal | null;
+  /** the `volume_regime` member (the ADV column) — likewise optional */
+  volume?: DisplaySignal | null;
 }
 
 export interface RowCtx {
@@ -116,6 +122,9 @@ export function sortKey(col: SortColId, ctx: RowCtx): SortKey | null {
       return numKey(metricValue(signals.trail, "ret_90d"));
     case "ret_1y":
       return numKey(metricValue(signals.trail, "ret_1y"));
+    case "off52w":
+      // distance below the 52-week closing high (<= 0): desc puts the names nearest their high first
+      return numKey(metricValue(signals.range ?? null, "pct_off_52w_high"));
     case "rvol8":
       return numKey(metricValue(signals.rvol, "rvol"));
     case "rvol20":
@@ -128,6 +137,9 @@ export function sortKey(col: SortColId, ctx: RowCtx): SortKey | null {
       const v = row.scored?.market_cap.value;
       return v == null ? null : [v];
     }
+    case "adv":
+      // 20-bar average dollar volume — the most liquid first on desc
+      return numKey(metricValue(signals.volume ?? null, "adv_usd_20d"));
     // ranks what the CELL shows: a watch row's arm_until is on the wire but never rendered, so it
     // must not rank either — the gate is the shared bucket set, not the value's presence
     case "entry_by": {

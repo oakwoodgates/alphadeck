@@ -238,8 +238,9 @@ muted dated lines, and the basis as fine print — inverse loudness (#7): indica
 context, never an alert, and an Incubating name's panel must not get louder because a moving
 average moved. The **Cockpit basket table** now surfaces a subset as columns — the SMA posture,
 the trailing-return ladder (`1d/7d/30d/90d/1Y`), the **`Path`** sparkline (`price_path`'s close
-series — a neutral hairline that BREAKS on a gap, "—" below two closes), `RVOL 8D` / `RVOL 20D`, and
-`Ins 30d` / `Ins 90d` — each bridged onto its row by `security_id` and holding the same discipline: a
+series — a neutral hairline that BREAKS on a gap, "—" below two closes), `Off 52w high` (`range_52w`'s
+`pct_off_52w_high`), `RVOL 8D` / `RVOL 20D`, `Ins 30d` / `Ins 90d`, and `ADV 20d` (`volume_regime`'s
+`adv_usd_20d`, a liquidity read with no threshold of its own) — each bridged onto its row by `security_id` and holding the same discipline: a
 muted "—" is the default, an accent marks the exception (#7). The columns are individually sortable
 **within** each call-state group (nulls-last; the call hierarchy never moves) — except `Path`, a
 shape with no scalar to rank on. Each **group header** (all three lenses) also carries a client-side

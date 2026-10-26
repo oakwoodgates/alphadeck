@@ -11,10 +11,12 @@ import {
 } from "../api/hooks";
 import { CallCard } from "../components/CallCard";
 import { DataFlagMark, FlagWrap } from "./DataFlagMark";
-import { cellFlag, factorWords, flagsBySid } from "./dataFlags";
+import { cellFlag, derivedCellFlag, factorWords, flagsBySid } from "./dataFlags";
 import {
+  AdvCell,
   GroupMovingLine,
   InsiderCell,
+  Off52wCell,
   PostureCell,
   ReturnCells,
   RvolCell,
@@ -199,6 +201,16 @@ export function Cockpit({
     const sig = (m.signals ?? []).find((s) => s.kind === "price_path");
     if (sig) pathBySid.set(m.security_id, sig);
   }
+  // the 52-week range (the `52w` column) and the volume regime (`ADV 20d`) — the SAME display-signals query,
+  // two more members on the generic payload, bridged by security_id like the cells above
+  const rangeBySid = new Map<string, DisplaySignal>();
+  const volumeBySid = new Map<string, DisplaySignal>();
+  for (const m of displayQ.data?.members ?? []) {
+    const range = (m.signals ?? []).find((s) => s.kind === "range_52w");
+    if (range) rangeBySid.set(m.security_id, range);
+    const volume = (m.signals ?? []).find((s) => s.kind === "volume_regime");
+    if (volume) volumeBySid.set(m.security_id, volume);
+  }
   // S3 — the shared "is this real?" data flags (compute-on-read, display-only): which cells on a row rest
   // on data the platform cannot vouch for. Bridged by security_id like the display cells; a row with no
   // entry has no flag (the common case). Only the cells a flag names change (in doubt: grayed + the reason
@@ -350,6 +362,8 @@ export function Cockpit({
       trail: sid ? (trailBySid.get(sid) ?? null) : null,
       rvol: sid ? (rvolBySid.get(sid) ?? null) : null,
       insider: sid ? (insiderBySid.get(sid) ?? null) : null,
+      range: sid ? (rangeBySid.get(sid) ?? null) : null,
+      volume: sid ? (volumeBySid.get(sid) ?? null) : null,
     };
   };
   const sortedGroups = sort
@@ -583,6 +597,9 @@ export function Cockpit({
                         >
                           Path
                         </th>
+                        {/* how far the last close sits below the 52-week closing high (0.0% = at the high) —
+                            the range_52w member's pct_off_52w_high; the high and its bar date ride the hover */}
+                        <SortableTh col="off52w" label="Off 52w high" align="right" sort={sort} onSort={onSort} />
                         {/* relative volume, two windows off ONE member: RVOL 8D is the as-of bar's volume
                             vs the prior 8-bar average (mirrors the breakout detector — the call-matched
                             read); RVOL 20D is the same idea over 20 bars (the trader "unusually active vs
@@ -597,6 +614,9 @@ export function Cockpit({
                         <SortableTh col="ins_30d" label="Ins 30d" align="right" sort={sort} onSort={onSort} />
                         <SortableTh col="ins_90d" label="Ins 90d" align="right" sort={sort} onSort={onSort} />
                         <SortableTh col="mktcap" label="Mkt cap" align="right" sort={sort} onSort={onSort} />
+                        {/* the liquidity read beside the size: 20-bar average DOLLAR volume (close × volume),
+                            off the volume_regime member — no threshold, "thin" is the operator's call */}
+                        <SortableTh col="adv" label="ADV 20d" align="right" sort={sort} onSort={onSort} />
                         {/* the two clocks, each its own sortable column (they were one stacked
                             cell): Entry-by is the CONFIRMATION clock — when the member de-arms —
                             and it closes weeks before Exit-by, the conviction/hold horizon. */}
@@ -608,7 +628,7 @@ export function Cockpit({
                       {sortedGroups.map((g) => (
                         <Fragment key={g.key}>
                           <tr className={`grp ${g.cls}`}>
-                            <td colSpan={18}>
+                            <td colSpan={20}>
                               {/* the To Review heading idiom (chev · label · hint · count · moving
                                   line · hairline), bucket-colored; click-to-collapse, open by default
                                   — the count + the moving line stay visible while closed, so a
@@ -758,6 +778,20 @@ export function Cockpit({
                                   />
                                 </FlagWrap>
                               </td>
+                              <td className="met rngc">
+                                {/* % off the 52-week closing high, off the range_52w member. The server's
+                                    flag vocabulary does not name this cell, so it takes its reach from the
+                                    named cells whose bar window contains its own (derivedCellFlag). */}
+                                <FlagWrap flag={derivedCellFlag(flagsFor(r.member.security_id), "off52w")}>
+                                  <Off52wCell
+                                    sig={
+                                      r.member.security_id
+                                        ? (rangeBySid.get(r.member.security_id) ?? null)
+                                        : null
+                                    }
+                                  />
+                                </FlagWrap>
+                              </td>
                               <td className="met rvolc">
                                 {/* RVOL 8D — the call-matched 8-bar read: a warm 'hot' accent on a
                                     volume-backed move (>= the wire's loud_mult), "—" on a
@@ -825,6 +859,19 @@ export function Cockpit({
                                     S3: a cap on a pre-split or unreadable share count is flagged. */}
                                 <FlagWrap flag={cellFlag(flagsFor(r.member.security_id), "mktcap")}>
                                   {formatMarketCap(r.scored?.market_cap.value)}
+                                </FlagWrap>
+                              </td>
+                              <td className="met advc">
+                                {/* 20-bar average dollar volume, off the volume_regime member; flagged like
+                                    the 52w cell, through the price and volume cells that read its bars */}
+                                <FlagWrap flag={derivedCellFlag(flagsFor(r.member.security_id), "adv")}>
+                                  <AdvCell
+                                    sig={
+                                      r.member.security_id
+                                        ? (volumeBySid.get(r.member.security_id) ?? null)
+                                        : null
+                                    }
+                                  />
                                 </FlagWrap>
                               </td>
                               {/* Armed / Lapsing / Theme-armed only (ENTRY_WINDOW_BUCKETS, shared

@@ -219,6 +219,59 @@ export function InsiderCell({
   );
 }
 
+/** One basket-table `52w` cell from the `range_52w` display member: how far the last close sits BELOW the
+ *  52-week closing high ("-23.4%"; 0.0% = at the high). Muted mono, no accent — it is always-present context,
+ *  and "at the high" is already the exception the number itself states (#7). The hover shows the work: the high
+ *  and the bar it printed on, plus the window's own note when it is shorter than a year (#6). A gap is an
+ *  honest "—" with the why. */
+export function Off52wCell({ sig }: { sig: DisplaySignal | null }) {
+  const m = (sig?.metrics ?? []).find((x) => x.key === "pct_off_52w_high");
+  if (!sig || !m || m.value == null)
+    return (
+      <span className="muted" title={m?.note ?? sig?.basis.note ?? undefined}>
+        —
+      </span>
+    );
+  const high = (sig.metrics ?? []).find((x) => x.key === "high_52w");
+  const title = [
+    high?.value != null
+      ? `52-week closing high ${high.value.toFixed(2)}${high.note ? ` ${high.note}` : ""}`
+      : null,
+    basisLine(sig),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <span className="off52w" title={title}>
+      {fmtMetricValue(m)}
+    </span>
+  );
+}
+
+/** One basket-table `ADV 20d` cell from the `volume_regime` display member: the 20-bar average DOLLAR volume
+ *  (close × volume) — the liquidity read, compact ("$1.2M"). Muted mono, no accent and no threshold: where
+ *  "thin" begins is the operator's call, not the table's. A name short of 20 volume bars, or none, is an
+ *  honest "—" with the why on hover; the basis note (bars without a volume, excluded) rides the title. */
+export function AdvCell({ sig }: { sig: DisplaySignal | null }) {
+  const m = (sig?.metrics ?? []).find((x) => x.key === "adv_usd_20d");
+  if (!sig || !m || m.value == null)
+    return (
+      <span className="muted" title={m?.note ?? sig?.basis.note ?? undefined}>
+        —
+      </span>
+    );
+  return (
+    <span
+      className="adv"
+      title={[`average dollar volume (close × volume) over the last 20 bars`, sig.basis.note]
+        .filter(Boolean)
+        .join(" · ")}
+    >
+      {fmtMetricValue(m)}
+    </span>
+  );
+}
+
 /** The sparkline cell's box (px). The `price_path` member's 90 slots over ~72px is a hairline per
  *  bar; the geometry scales to whatever slot count a series carries — the FE hardcodes no window. */
 export const SPARK_W = 72;
