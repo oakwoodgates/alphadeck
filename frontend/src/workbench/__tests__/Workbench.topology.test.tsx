@@ -87,7 +87,16 @@ const mk = vi.hoisted(() => {
       scoredRow("s-oklo", "OKLO", null),
       scoredRow("s-leu", "LEU", null),
     ]);
-  return { grouped, flat, silent, pairEmpty, flatWithPair };
+  // multi: the REAL scored shape — one scored row per basket ROW (a name in 2 links is 2 scored rows), so a
+  // multi-link name shows under EACH of its links' tabs. OKLO in reactors AND fuel, LEU in fuel.
+  const PAIR = [CTX, BNC];
+  const multi = (oklo: string[]) =>
+    wrap(
+      [{ label: "reactors", descriptor: null }, { label: "fuel", descriptor: null }, ...PAIR],
+      [...oklo.map((l) => bm("OKLO", "s-oklo", l)), bm("LEU", "s-leu", "fuel")],
+      [...oklo.map((l) => scoredRow("s-oklo", "OKLO", l)), scoredRow("s-leu", "LEU", "fuel")],
+    );
+  return { grouped, flat, silent, pairEmpty, flatWithPair, multi };
 });
 
 const state = vi.hoisted(() => ({ thesis: undefined as unknown, scored: undefined as unknown }));
@@ -125,6 +134,7 @@ const lastPayload = () => h.promote.mock.calls.at(-1)![0];
 const labels = (segs: { label: string }[]) => segs.map((s) => s.label);
 // every promote now carries the two FIXED silent links, always last (sanitizeBasketForPromote → withSilentLinks)
 const SILENT = ["Context", "Bench"];
+const DISCOVERED_LABEL = "Discovered";
 
 beforeEach(() => {
   const g = mk.grouped();
@@ -342,6 +352,101 @@ describe("Workbench — Context and Bench (the silent links)", () => {
     expect(rowsFor(p, "s-oklo").map((b) => b.segment)).toEqual(["Context"]);
     expect(rowsFor(p, "s-leu").map((b) => b.segment)).toEqual([null]); // the flat name rides through
     expect(labels(p.segments)).toEqual(["Context", "Bench"]);
+  });
+
+  // B1 (WB#1) — after a rail move the VIEW follows the name: the tab switches to its new home and the rail
+  // keeps showing the same company, so an immediate undo click acts on the name that was just moved. The
+  // (mocked) refetch is simulated by swapping the fixture and re-rendering.
+  describe("the selection follows a moved name", () => {
+    const railTicker = (root: HTMLElement) => root.querySelector(".dd-head .tk")?.textContent;
+    const activeTab = (root: HTMLElement) => root.querySelector(".chain .seg.on .sn")?.textContent;
+    const clickTab = (name: RegExp) => screen.getByRole("button", { name });
+
+    it("into Context: the rail still shows the SAME name, the active tab is Context, and unchecking acts on it", async () => {
+      const user = userEvent.setup();
+      useFixture(mk.multi(["reactors", "fuel"]));
+      const { container, rerender } = renderWb(); // OKLO is the implicit default (first of the reactors tab)
+      expect(railTicker(container)).toBe("OKLO");
+      await user.click(screen.getByRole("checkbox", { name: "Context" }));
+      expect(rowsFor(lastPayload(), "s-oklo").map((b) => b.segment)).toEqual(["Context"]); // ONE row
+
+      useFixture(mk.multi(["Context"])); // the refetch lands: OKLO now lives only in Context
+      rerender(<Workbench asof="2026-06-08" />);
+      // not the next name in the old tab (LEU is not even in reactors; the old fallback would pick shownMembers[0])
+      expect(railTicker(container)).toBe("OKLO");
+      expect(activeTab(container)).toBe("Context");
+      expect(screen.getByRole("checkbox", { name: "Context" })).toBeChecked();
+
+      // the immediate undo acts on OKLO, not on whoever the view fell back to
+      h.promote.mockClear();
+      await user.click(screen.getByRole("checkbox", { name: "Context" }));
+      expect(rowsFor(lastPayload(), "s-oklo").map((b) => b.segment)).toEqual(["Discovered"]);
+      expect(rowsFor(lastPayload(), "s-leu").map((b) => b.segment)).toEqual(["fuel"]); // LEU untouched
+    });
+
+    it("unchecked to Discovered: the tab follows to the synthesized Discovered tab, same name selected", async () => {
+      const user = userEvent.setup();
+      useFixture(mk.multi(["Context"]));
+      // pre-state: OKLO in Context, view on the Context tab
+      const { container, rerender } = renderWb();
+      await user.click(clickTab(/^Context/));
+      expect(railTicker(container)).toBe("OKLO");
+      await user.click(screen.getByRole("checkbox", { name: "Context" }));
+      useFixture(mk.multi([DISCOVERED_LABEL]));
+      rerender(<Workbench asof="2026-06-08" />);
+      expect(activeTab(container)).toBe("Discovered");
+      expect(railTicker(container)).toBe("OKLO");
+    });
+
+    it("a multi-link name losing the viewed link follows to its first REMAINING link", async () => {
+      const user = userEvent.setup();
+      useFixture(mk.multi(["reactors", "fuel"]));
+      const { container, rerender } = renderWb();
+      await user.click(clickTab(/^fuel/)); // the fuel tab: OKLO (also in reactors) + LEU
+      await user.click(container.querySelector(".nmrow .tk")!.closest(".nmrow") as HTMLElement); // pick OKLO
+      expect(railTicker(container)).toBe("OKLO");
+      await user.click(screen.getByRole("checkbox", { name: "fuel" })); // uncheck fuel → [reactors]
+      useFixture(mk.multi(["reactors"]));
+      rerender(<Workbench asof="2026-06-08" />);
+      expect(activeTab(container)).toBe("reactors");
+      expect(railTicker(container)).toBe("OKLO");
+    });
+
+    it("does NOT jump a name that is still shown in the active tab (a multi-link name picked in its 2nd tab)", async () => {
+      const user = userEvent.setup();
+      useFixture(mk.multi(["reactors", "fuel"]));
+      const { container } = renderWb();
+      await user.click(clickTab(/^fuel/));
+      await user.click(container.querySelector(".nmrow .tk")!.closest(".nmrow") as HTMLElement); // OKLO, fuel tab
+      expect(activeTab(container)).toBe("fuel"); // its first scored row is reactors — the view must not snap there
+      expect(railTicker(container)).toBe("OKLO");
+    });
+
+    it("a tab click still navigates (the pick is cleared, never overridden)", async () => {
+      const user = userEvent.setup();
+      useFixture(mk.multi(["reactors", "fuel"]));
+      const { container } = renderWb();
+      await user.click(screen.getByRole("checkbox", { name: "Context" })); // pins OKLO
+      await user.click(clickTab(/^fuel/));
+      expect(activeTab(container)).toBe("fuel");
+    });
+  });
+
+  // C3 — the scored view's rename reverts a reserved name; it now SAYS why.
+  it("renaming a link to a reserved name reverts AND shows the 'is a fixed link' note (cleared on the next edit)", async () => {
+    const user = userEvent.setup();
+    useFixture(mk.silent());
+    renderWb();
+    await enterEditLinks(user);
+    const input = screen.getByLabelText("rename fuel");
+    await user.clear(input);
+    await user.type(input, "bench");
+    await user.tab(); // blur = commit
+    expect(input).toHaveValue("fuel");
+    expect(screen.getByText(/Bench is a fixed link/)).toBeInTheDocument();
+    expect(h.promote).not.toHaveBeenCalled();
+    await user.click(input); // the next edit begins
+    expect(screen.queryByText(/is a fixed link/)).toBeNull();
   });
 
   describe("✎ edit links", () => {

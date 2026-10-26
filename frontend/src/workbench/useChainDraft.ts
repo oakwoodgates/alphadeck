@@ -383,12 +383,42 @@ export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainStat
       };
     });
 
+  // RULE 3 (the draft never puts a name in a silent link) at the ONE seam every add path passes through:
+  // a row carrying a reserved segment label (any case — an old saved draft run, or a pre-deploy session blob
+  // holding a model-proposed "Context"/"bench") is filed to the Discovered pen instead, exactly as `loadDraft`
+  // reroutes a drafted one. Without this the name would display as Discovered but SAVE silent. No operator
+  // path adds INTO a silent link here — moves happen on the scored rail — so nothing legitimate is rerouted.
+  // Returns the rows (pen-filed where needed) and ensures the pen segment exists so Save never orphans it.
+  const fileOutOfSilent = (d: ChainDraft, rows: BasketMember[]): ChainDraft => {
+    const filed = rows.map((r) =>
+      r.segment && reservedLinkName(r.segment) ? { ...r, segment: DISCOVERED } : r,
+    );
+    const rerouted = filed.some((r, i) => r !== rows[i]);
+    // two placements that both collapsed into the pen are ONE row (the same dedup `loadDraft` applies); a
+    // call that rerouted nothing is untouched
+    const seen = new Set<string>();
+    const unique = rerouted
+      ? filed.filter((r) => {
+          const k = r.segment ?? "";
+          if (seen.has(k)) return false;
+          seen.add(k);
+          return true;
+        })
+      : filed;
+    let segments = d.segments;
+    if (rerouted && !segments.some((s) => s.label === DISCOVERED)) {
+      segments = withSilentLinks([
+        ...segments.filter((s) => !isSilentLink(s.label)),
+        { label: DISCOVERED, descriptor: null },
+      ]);
+    }
+    return { ...d, segments, basket: [...d.basket, ...unique] };
+  };
+
   // An EXPLICIT add (hand-add / ETF sleeve / To-Review add / ambiguous pick) is a DECISION: the name is
   // always selected (checked ⇒ collapsed in pick; harmless in research, where the set is dormant).
   const addMember = (m: BasketMember) => {
-    setDraft((d) =>
-      d.basket.some((x) => memberKey(x) === memberKey(m)) ? d : { ...d, basket: [...d.basket, m] },
-    );
+    setDraft((d) => (d.basket.some((x) => memberKey(x) === memberKey(m)) ? d : fileOutOfSilent(d, [m])));
     setSelected((prev) => withAdded(prev, [memberKey(m)]));
   };
 
@@ -403,7 +433,7 @@ export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainStat
     const key = memberKey(rows[0]);
     setDraft((d) => {
       if (d.basket.some((x) => memberKey(x) === key)) return d;
-      return { ...d, basket: [...d.basket, ...rows] };
+      return fileOutOfSilent(d, rows);
     });
     setSelected((prev) => withAdded(prev, [key]));
   };

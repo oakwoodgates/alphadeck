@@ -275,6 +275,73 @@ const NotListedFlag = () => (
   </div>
 );
 
+/** One real link's label input. The rename is LIVE (every keystroke renames, cascading onto placed members, as
+ *  before) EXCEPT that the text exactly equal to a RESERVED name (Context / Bench, any case) is never saved:
+ *  typing passes THROUGH it — "Benchmark providers" and "Contextual AI" type out whole — and a link is never
+ *  SAVED as exactly a reserved name. The check that matters runs on COMMIT (blur / Enter): a field left on a
+ *  reserved name reverts to the label it had when editing began, with the same "is a fixed link" note the add
+ *  uses. Local text is the input's value (the saved label alone would swallow the keystroke that completes a
+ *  reserved name and stick the field one letter short). The parent keys this by position, not label, so a
+ *  live rename does not remount the input out from under the cursor. */
+function LinkLabelInput({
+  label,
+  ariaLabel,
+  onRename,
+}: {
+  label: string;
+  ariaLabel: string;
+  /** rename the link currently named `from` to `to` (the hook refuses a blank / duplicate / reserved one) */
+  onRename: (from: string, to: string) => void;
+}) {
+  const [text, setText] = useState(label);
+  const [refused, setRefused] = useState<string | null>(null);
+  const startLabel = useRef(label); // the saved label when this edit began (focus)
+  // the saved label moved from OUTSIDE this input (a reorder / removal shifted the position, a revert):
+  // follow it. A live rename sets text === label already, so typing never trips this.
+  useEffect(() => {
+    setText(label);
+  }, [label]);
+  const commit = () => {
+    const reserved = reservedLinkName(text);
+    if (reserved) {
+      // refused: never saved. Undo the live prefix renames ("benc") back to where the edit began, and say why.
+      setRefused(reserved);
+      if (startLabel.current !== label) onRename(label, startLabel.current);
+      setText(startLabel.current);
+    } else if (text !== label) {
+      setText(label); // a blank / duplicate edit the hook refused: show the saved label
+    }
+  };
+  return (
+    <>
+      <input
+        className="wb-input"
+        value={text}
+        size={Math.max(text.length, 12)}
+        aria-label={ariaLabel}
+        onFocus={() => {
+          startLabel.current = label;
+          setRefused(null);
+        }}
+        onChange={(e) => {
+          const v = e.target.value;
+          setText(v);
+          setRefused(null);
+          if (!reservedLinkName(v)) onRename(label, v);
+        }}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            commit();
+          }
+        }}
+      />
+      {refused && <span className="note">{refused} is a fixed link — a link can't take its name.</span>}
+    </>
+  );
+}
+
 /** The authoring surface (Slice 4b + the S5 draft/ratify, 5c — reworked by Discovery cleanup S1): build
  *  the value chain by hand — or DRAFT it from the narrative and triage per name on the CONFIDENCE LADDER:
  *  Excluded → Included (system-recommended) → Signed off (excluded wins). Sign-off ENDORSES the NAME —
@@ -2284,13 +2351,13 @@ export function ChainEditor({
         {/* the real value-chain links — reorderable (← → operate among the links; the pen isn't one) */}
         <div className="wb-seg-links">
           {realLinks.map((s, i) => (
-            <div className="wb-seg-chip" key={s.label}>
-              <input
-                className="wb-input"
-                value={s.label}
-                size={Math.max(s.label.length, 12)}
-                aria-label={`link ${i + 1} label`}
-                onChange={(e) => d.renameSegment(s.label, e.target.value)}
+            // keyed by POSITION: a live rename changes the label, and a label key would remount the input
+            // (and drop focus) on every keystroke
+            <div className="wb-seg-chip" key={i}>
+              <LinkLabelInput
+                label={s.label}
+                ariaLabel={`link ${i + 1} label`}
+                onRename={d.renameSegment}
               />
               <button
                 type="button"

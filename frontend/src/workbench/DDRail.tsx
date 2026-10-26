@@ -94,8 +94,9 @@ interface Props {
   // NEXT label set to `onChange` (the parent's immediate-promote). Discovered is excluded from `options`
   // (it's the automatic floor, not a checkbox) and so are the two silent links (the rail lists Context /
   // Bench itself, always, under the real links — `current` may carry one of them); an empty result floors to
-  // Discovered in the reconcile. Mirrors `sleeve`/`onRetag`: omitted (read-only) or on the ETF branch → no control renders. `segment`
-  // is display/structure, never a call input (#4) — this moves labels + rows, never verdict/grade.
+  // Discovered in the reconcile. Mirrors `sleeve`/`onRetag`: omitted (read-only) or on the ETF branch → no control renders. For a
+  // REAL link `segment` is display/structure, never a call input (#4); the exception is Context / Bench, which
+  // take a name OUT of the call's inputs (an operator placement — never a verdict/grade, which stay the call's).
   segmentControl?: {
     options: string[];
     current: string[];

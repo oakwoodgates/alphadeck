@@ -118,12 +118,13 @@ describe("Cockpit — Context and Bench in the call-state lens", () => {
     expect(headers(none.container)).toEqual(["Armed", "Quiet"]);
   });
 
-  it("a silent name never lands in a call bucket — even one the (stale) call lists as armed", () => {
-    // the backend removes silent rows at the call seam; if one slipped through, it still files as Context
+  it("scrub-back: a Context name the (past) card lists as armed reads as the voter it was — Armed, with its call", () => {
+    // the roster is today's, the card a history recompute: CTX voted then and sits in Context now
     fx.state.call = fx.card([fx.mcall("s-ctx", "CTX", "starter_entry")]);
     const { container } = renderCockpit();
-    expect(headers(container)).toEqual(["Quiet", "Context", "Bench"]);
-    expect(rowFor(container, "CTX")?.className).toContain("bkt-context");
+    expect(headers(container)).toEqual(["Armed", "Quiet", "Bench"]); // Context is empty NOW: nobody left in it
+    expect(rowFor(container, "CTX")?.className).toContain("bkt-armed");
+    expect(rowFor(container, "BNC")?.className).toContain("bkt-bench"); // the one the card has nothing on
   });
 
   it("a HELD (managing) name stays in Managing — a held position never leaves the top", () => {

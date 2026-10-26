@@ -252,9 +252,10 @@ link removed, or a NULL / orphan (a label not in the chain) — normalizes to **
 tab, never `null` (a null-segment name drops out of every tab, unreachable to re-select). On **read** the
 scored view groups by an `effectiveSegment` and **synthesizes a Discovered tab** when any name resolves there
 (NULL/orphan names stay visible — #9 / WB#2). On **write** the promote payload self-heals any pre-existing
-orphan → Discovered, so a stale label can't 422 the segment-consistency validator. `segment` is display /
-structure only — these edits touch labels + rows, **never** verdict / grade / exit-by (#4); every action is
-reversible (re-check / re-add / rename-back — WB#1). The promote round-trip is count-the-table–proven end to
+orphan → Discovered, so a stale label can't 422 the segment-consistency validator. For a **real** link
+`segment` is display / structure only — these edits touch labels + rows, **never** verdict / grade / exit-by
+(#4); the one exception is **Context / Bench** (below), which take a name *out of the call's inputs* — still an
+operator placement, never a verdict. Every action is reversible (re-check / re-add / rename-back — WB#1). The promote round-trip is count-the-table–proven end to
 end (`tests/app/test_workbench_api.py` — move / clear→Discovered / rename-cascade / remove-last→Discovered,
 `count(*)` before + after).
 
@@ -281,8 +282,12 @@ in [`useChainDraft.ts`](../frontend/src/workbench/useChainDraft.ts) (`CONTEXT`, 
   divider, then Context and Bench (each with its descriptor on the hover) — the same checkboxes as the real
   links. **Only the operator** puts a name there: the chain drafter never does (a model-proposed
   "Context"/"Bench" link is rerouted to Discovered — by the backend, and again defensively on the client).
-- **The checkbox IS the visible inverse (WB#1).** Unchecking Context floors the name to the Discovered pen;
-  checking a real link moves it out of Context. No new undo machinery, nothing deleted (WB#2, #9).
+- **The checkbox IS the visible inverse (WB#1) — honestly, the MVP.** Unchecking Context floors the name to
+  the Discovered pen; checking a real link moves it out of Context. The way back is *not* always the prior
+  set: a multi-link name checked into Context collapses to that one row, and unchecking Context lands it in
+  Discovered, not back in its earlier links (one click per link restores them). No new undo machinery,
+  nothing deleted (WB#2, #9). After a move the view **follows the name** — the tab switches to its new home
+  and the rail keeps showing the same company, so an immediate undo click acts on the name you just moved.
 - **Hidden when empty, except in the editors (WB#3).** The first-screen editor and the scored view's
   **✎ edit links** always show both as **fixed, read-only rows** (no rename, ←/→ or ✕); the scored view's
   **tabs** and the Cockpit hide an empty one. A silent tab shows its descriptor when active. The pair never

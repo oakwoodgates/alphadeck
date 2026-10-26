@@ -314,11 +314,65 @@ describe("useChainDraft.loadDraft — the drafter never touches the pair", () =>
     expect(labelsOf(segments)).toEqual(["reactors", "fuel", DISCOVERED, "Context", "Bench"]);
   });
 
-  it("an UNESTABLISHED name already in Context (placed this session) is never re-rolled or parked", () => {
+  it("an UNESTABLISHED name already in Context (a restored session) is never re-rolled or parked", () => {
     const t = thesis([member({ ticker: "OKLO", segment: "reactors" })], [seg("reactors")]);
-    const { result } = renderHook(() => useChainDraft(t));
-    act(() => result.current.addMember(member({ ticker: "KO", segment: CONTEXT })));
+    // KO is in the restored working draft but NOT in the saved spine → not established
+    const restored = {
+      draft: {
+        segments: [seg("reactors")],
+        basket: [member({ ticker: "OKLO", segment: "reactors" }), member({ ticker: "KO", segment: CONTEXT })],
+      },
+      excluded: new Set<string>(),
+      reasons: new Map<string, string>(),
+      reasonsDirty: false,
+    };
+    const { result } = renderHook(() => useChainDraft(t, restored));
+    expect(result.current.isEstablished("sid-ko")).toBe(false);
     act(() => result.current.loadDraft(chain([{ sid: "sid-ko", ticker: "KO", segment: "reactors" }])));
     expect(rowsOf(result.current.draft.basket, "sid-ko").map((m) => m.segment)).toEqual([CONTEXT]);
+  });
+});
+
+// RULE 3 at the add seam: an old saved draft run / a pre-deploy session blob can hold a model-proposed
+// "Context"/"bench" pile entry; the three ChainEditor add paths copy `p.segment` raw, so the hook's
+// addMember / addMemberRows file a reserved label to the Discovered pen (it would otherwise DISPLAY as
+// Discovered but SAVE silent). Nothing legitimate adds INTO a silent link through these.
+describe("useChainDraft — the add paths never put a name in a silent link", () => {
+  const mount = () => renderHook(() => useChainDraft(thesis([], [seg("reactors")])));
+
+  it("addMember files a reserved segment (any case) to the Discovered pen — and creates the pen before the pair", () => {
+    for (const reserved of ["Context", "bench", " CONTEXT "]) {
+      const { result } = mount();
+      act(() => result.current.addMember(member({ ticker: "NEW", segment: reserved })));
+      expect(rowsOf(result.current.draft.basket, "sid-new").map((m) => m.segment)).toEqual([DISCOVERED]);
+      expect(labelsOf(result.current.draft.segments)).toEqual(["reactors", DISCOVERED, "Context", "Bench"]);
+    }
+  });
+
+  it("addMember leaves a real link and a null segment exactly as they were (and adds no pen)", () => {
+    const { result } = mount();
+    act(() => result.current.addMember(member({ ticker: "A", segment: "reactors" })));
+    act(() => result.current.addMember(member({ ticker: "B", segment: null })));
+    expect(result.current.draft.basket.map((m) => m.segment)).toEqual(["reactors", null]);
+    expect(labelsOf(result.current.draft.segments)).toEqual(["reactors", "Context", "Bench"]);
+  });
+
+  it("addMemberRows: a multi-link pick with a reserved label collapses the pen row to ONE, real links kept", () => {
+    const { result } = mount();
+    act(() =>
+      result.current.addMemberRows([
+        member({ ticker: "NEW", segment: "reactors" }),
+        member({ ticker: "NEW", segment: "Context" }),
+        member({ ticker: "NEW", segment: "bench" }),
+      ]),
+    );
+    expect(rowsOf(result.current.draft.basket, "sid-new").map((m) => m.segment)).toEqual(["reactors", DISCOVERED]);
+    expect(labelsOf(result.current.draft.segments)).toEqual(["reactors", DISCOVERED, "Context", "Bench"]);
+  });
+
+  it("does not duplicate an existing pen", () => {
+    const { result } = renderHook(() => useChainDraft(thesis([], [seg("reactors"), seg(DISCOVERED)])));
+    act(() => result.current.addMember(member({ ticker: "NEW", segment: "Bench" })));
+    expect(labelsOf(result.current.draft.segments)).toEqual(["reactors", DISCOVERED, "Context", "Bench"]);
   });
 });
