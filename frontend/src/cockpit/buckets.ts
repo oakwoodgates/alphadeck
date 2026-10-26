@@ -101,8 +101,6 @@ export interface BucketGroup {
  *  Bucket precedence (mutually exclusive, evaluated in this order):
  *    verdict === "managing"  →  managing        (render-if-present; a held position never leaves the
  *                               top, even for a name sitting in Context / Bench)
- *    segment is Context/Bench →  context / bench (the operator's silent links — never a call bucket;
- *                               the row carries no member call, it does not count toward the call)
  *    in armed_members        →  lapsing if `lapsing` (the hold clock closing — the clock is the
  *                               urgent fact, so it wins over the theme flag, which stays visible
  *                               as a chip), else theme_armed
@@ -110,7 +108,16 @@ export interface BucketGroup {
  *    in watch_members        →  watch           (checked BEFORE the trigger join — a watch member's
  *                               breakout is itself in triggers_fired)
  *    ticker in triggers_fired →  warming        (conviction-only: live trigger, no member call)
+ *    segment is Context/Bench →  context / bench (the operator's silent links — never a call bucket; the
+ *                               row carries no member call: it does not count toward the call)
  *    otherwise               →  quiet
+ *
+ *  Why the silent link comes LAST among the call-derived tests: the roster is TODAY's, but the card can be
+ *  a history recompute at a PAST as-of. A name that voted last week (armed, watch, or a fired trigger on
+ *  that card) and was moved into Context today must still read as the voter the card's headline names — it
+ *  files under its call bucket WITH its call. Only a name the card has no hit and no fired trigger for
+ *  falls to its silent bucket. On a current card this changes nothing: the backend never puts a silent
+ *  name on one. (A ticker shared with a voting name is the existing over-inclusive warming join.)
  *
  *  Within a bucket the wire's own ranking is preserved for the member lists (the call machinery
  *  already ranked armed/watch — the FE never re-ranks the brain's output); warming/quiet keep the
@@ -139,21 +146,22 @@ export function groupBasket(
     const hit = armed ?? watch;
     let bucket: BucketKey;
     if (hit?.call.verdict === "managing") bucket = "managing";
-    else if (isSilentLink(member.segment)) bucket = member.segment === CONTEXT ? "context" : "bench";
     else if (armed)
       bucket = armed.call.lapsing ? "lapsing" : armed.call.theme_armed ? "theme_armed" : "armed";
     else if (watch) bucket = "watch";
     else if (member.ticker && firedTickers.has(member.ticker)) bucket = "warming";
+    // only a name the card has NOTHING on files under its silent link (see the precedence note above)
+    else if (isSilentLink(member.segment)) bucket = member.segment === CONTEXT ? "context" : "bench";
     else bucket = "quiet";
-    const silentRow = bucket === "context" || bucket === "bench";
     return {
       member,
       ordinal,
-      // a silent name carries no member call here: it never counts toward the call (the panel says so)
-      call: silentRow ? null : (hit?.call ?? null),
+      // a silent row has no hit by construction (a hit would have filed it above), so its call is null; a
+      // past voter keeps its call
+      call: hit?.call ?? null,
       scored: (sid ? scoredBySid.get(sid) : undefined) ?? null,
       bucket,
-      rank: silentRow ? ordinal : (hit?.rank ?? ordinal),
+      rank: hit?.rank ?? ordinal,
     };
   });
 

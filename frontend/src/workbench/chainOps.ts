@@ -12,8 +12,10 @@ import {
 // `useChainDraft`'s LOCAL mutators. This module MIRRORS the hook's algorithm (it does NOT import-and-mutate
 // or edit it) so the SCORE view can rebuild a name's placements / edit the chain topology and hand the whole
 // intended `{ segments, basket }` to the full-replace promote. No React, no side effects:
-// `(basket, segments, …) → { basket, segments }`, fully unit-testable. `segment` is display / structure
-// only — never a call input (#4).
+// `(basket, segments, …) → { basket, segments }`, fully unit-testable. For a REAL link `segment` is display /
+// structure only — never a call input (#4). The ONE exception is the silent pair: a name in Context / Bench is
+// taken out of the call's inputs (the backend removes those rows at the call seam), so moving a name into or
+// out of one is an operator placement that does change what the call is computed from — never a verdict.
 //
 // - Phase 1: the #4 per-name mover (`reconcileMemberSegments`) + the defensive `Discovered` normalization
 //   (`effectiveSegment` on read, `sanitizeBasketForPromote` on write).
@@ -216,7 +218,10 @@ export function removeLink(
  *   - checking a REAL link while the name is silent → `[label]` (it leaves Context/Bench for that link);
  *   - checking a real link otherwise → `current + label` (multi-membership as before);
  *   - UNCHECKING → `current − label` (the empty set floors to Discovered via `reconcileMemberSegments`).
- *  The inverse of every check is its uncheck (WB#1); nothing is ever deleted (WB#2 / #9). Pure. */
+ *  Nothing is ever deleted (WB#2 / #9), and every click has a visible way back — but the way back is NOT
+ *  always the prior set: a multi-link name checked into Context collapses to that one row, and unchecking
+ *  Context floors it to Discovered, not back to its earlier links (the MVP — one click per link restores
+ *  them). Pure. */
 export function toggleMemberLink(current: string[], label: string): string[] {
   if (current.includes(label)) return current.filter((l) => l !== label);
   if (isSilentLink(label)) return [label];

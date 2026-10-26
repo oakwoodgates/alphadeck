@@ -364,20 +364,39 @@ describe("groupBasket — Context and Bench buckets", () => {
     expect(keysOf(groupBasket([member("A", "sa")], card(), []))).toEqual(["quiet"]);
   });
 
-  it("a silent name beats the call-derived buckets — armed, watch AND warming — and carries no member call", () => {
+  // C1 (#6): the roster is TODAY's, but the card can be a history recompute at a PAST as-of. A name that voted
+  // then and sits in Context now must still read as the voter the headline names — its call bucket, WITH its call.
+  it("a Context name the card has an ARMED hit for lands in Armed WITH its call (scrub-back to when it voted)", () => {
+    const basket = [member("C", "sc", { segment: "Context" }), member("B", "sb", { segment: "Bench" })];
+    const c = card({ armed_members: [mcall("sc", { verdict: "starter_entry" }), mcall("sb", { verdict: "starter_entry", lapsing: true })] });
+    const groups = groupBasket(basket, c, []);
+    expect(keysOf(groups)).toEqual(["armed", "lapsing"]);
+    expect(groups[0].rows[0].member.ticker).toBe("C");
+    expect(groups[0].rows[0].call?.verdict).toBe("starter_entry"); // the call is kept, not nulled
+    expect(tickersIn(groups, "lapsing")).toEqual(["B"]); // the armed family's flags still split it
+  });
+
+  it("a silent name with a WATCH hit lands in Watch; one with only a fired trigger lands in Warming", () => {
+    const basket = [member("W", "sw", { segment: "Context" }), member("T", "st", { segment: "Bench" })];
+    const c = card({
+      watch_members: [mcall("sw", { verdict: null })],
+      triggers_fired: [trigger("T")],
+    });
+    const groups = groupBasket(basket, c, []);
+    expect(keysOf(groups)).toEqual(["warming", "watch"]);
+    expect(groups.find((g) => g.def.key === "watch")?.rows[0].call).not.toBeNull();
+  });
+
+  it("a silent name the card has NOTHING on (no hit, no fired trigger) lands in its silent bucket with no call", () => {
     const basket = [
       member("C", "sc", { segment: "Context" }),
       member("B", "sb", { segment: "Bench" }),
-      member("W", "sw", { segment: "Context" }),
+      member("V", "sv"), // a voter, armed — the card is NOT empty
     ];
-    const c = card({
-      armed_members: [mcall("sc", { verdict: "starter_entry" })],
-      watch_members: [mcall("sb", { verdict: null })],
-      triggers_fired: [trigger("W")],
-    });
+    const c = card({ armed_members: [mcall("sv", { verdict: "core_entry" })], triggers_fired: [trigger("V")] });
     const groups = groupBasket(basket, c, []);
-    expect(keysOf(groups)).toEqual(["context", "bench"]);
-    expect(groups.flatMap((g) => g.rows).every((r) => r.call === null)).toBe(true);
+    expect(keysOf(groups)).toEqual(["armed", "context", "bench"]);
+    expect(groups.flatMap((g) => g.rows).filter((r) => r.bucket === "context" || r.bucket === "bench").every((r) => r.call === null)).toBe(true);
   });
 
   it("a HELD (managing) silent name stays in Managing — it never leaves the top", () => {

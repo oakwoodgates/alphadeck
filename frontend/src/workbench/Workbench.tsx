@@ -76,6 +76,9 @@ export function Workbench({ header, asof }: Props) {
   // `newLink` is the add-a-link input. Both reset per thesis (switchThesis) and on entering the editor.
   const [editLinks, setEditLinks] = useState(false);
   const [newLink, setNewLink] = useState("");
+  // the reserved name a link-rename was just refused for (Context / Bench) — shown as a short note so the
+  // input's silent revert is explained; cleared on the next edit / commit
+  const [refusedName, setRefusedName] = useState<string | null>(null);
   // D — Save-Chain re-entry legibility: set when the editor exits via a successful Save, so the scored view
   // SAYS the thesis is re-openable. Honest copy: re-entry restores the saved BASKET — not the draft-time
   // discovery context (matched terms / flags are run state; re-discovering is a re-draft). Cleared on any
@@ -184,11 +187,39 @@ export function Workbench({ header, asof }: Props) {
   const renderSegments = [...chainSegments, ...silentTabs];
   // The selected tab; one that no longer renders (an emptied Context, a renamed/removed link) falls back to
   // the first — a tab vanishing under the operator must not leave an empty pane.
-  const activeSeg = grouped
-    ? renderSegments.some((s) => s.label === seg)
-      ? seg
-      : (renderSegments[0]?.label ?? null)
-    : null;
+  const baseSeg = renderSegments.some((s) => s.label === seg) ? seg : (renderSegments[0]?.label ?? null);
+  // FOLLOW THE MOVED NAME (WB#1): after a rail move the picked name may no longer sit in the active tab — it
+  // went to Context, was unchecked to Discovered, or left this link for another. Without this the selection
+  // would silently fall to `shownMembers[0]` and the rail would show a DIFFERENT company, so an immediate
+  // "undo" click would toggle the wrong name. A tab click clears the pick (so this never overrides a
+  // navigation), and a name still shown in the active tab (multi-link names show under each of their links)
+  // stays put; otherwise the tab switches to the name's first remaining home — a link, Context/Bench, or
+  // Discovered.
+  const pickedHome =
+    grouped && pickedMemberId
+      ? chainMembers.some(
+          (m) => m.security_id === pickedMemberId && effectiveSegment(m, segments) === baseSeg,
+        )
+        ? null
+        : (() => {
+            const home = chainMembers.find((m) => m.security_id === pickedMemberId);
+            return home ? effectiveSegment(home, segments) : null;
+          })()
+      : null;
+  const activeSeg = grouped ? (pickedHome ?? baseSeg) : null;
+  // PERSIST the followed tab into `seg`. `pickedHome` is derived from the pick, so on its own the shown tab
+  // would differ from the stored one (`seg` still the tab the name LEFT) — and the next pick would be judged
+  // against that stale tab: a multi-link name also in the old tab would "still be shown" there and snap the
+  // view back. Writing it makes `baseSeg` the tab actually shown, so later picks are judged against it.
+  // Mirrors a tab click (minus clearing the pick — the pick is the point): the section report belonged to
+  // the tab we left.
+  useEffect(() => {
+    if (pickedHome && pickedHome !== seg) {
+      setSeg(pickedHome);
+      sectionData.reset();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pickedHome, seg]);
   const shownMembers = activeSeg
     ? chainMembers.filter((m) => effectiveSegment(m, segments) === activeSeg)
     : chainMembers;
@@ -388,8 +419,10 @@ export function Workbench({ header, asof }: Props) {
   // orphan so a stale label can't 422 the validator) → the SAME full-replace promote the sibling handlers
   // use. Every mover + topology handler routes through it. Read from the SPINE (`thesis.basket`/
   // `thesis.segments`) — it carries the full BasketMembers (authored_by / signed_off / conviction /
-  // surfaced_terms) the scored read does NOT. `segment` is display/structure, never a call input (#4): these
-  // edits touch labels + rows only, never verdict/grade/exit-by. Reversible by construction (WB#1).
+  // surfaced_terms) the scored read does NOT. For a real link `segment` is display/structure, never a call input
+  // (#4): these edits touch labels + rows only, never verdict/grade/exit-by. The exception is Context / Bench:
+  // a name moved into one leaves the call's inputs (the backend removes those rows at the call seam) — still
+  // an operator placement, never a verdict. Reversible (WB#1): each checkbox is the other's inverse.
   const promoteChain = (next: { basket: BasketMember[]; segments: Segment[] }) => {
     if (!thesis) return;
     const clean = sanitizeBasketForPromote(next.basket, next.segments);
@@ -768,7 +801,10 @@ export function Workbench({ header, asof }: Props) {
                       type="button"
                       className="wb-mini ghost wb-edit-links"
                       aria-pressed={editLinks}
-                      onClick={() => setEditLinks((v) => !v)}
+                      onClick={() => {
+                        setRefusedName(null);
+                        setEditLinks((v) => !v);
+                      }}
                     >
                       {editLinks ? "done" : "✎ edit links"}
                     </button>
@@ -798,17 +834,22 @@ export function Workbench({ header, asof }: Props) {
                             defaultValue={s.label}
                             aria-label={`rename ${s.label}`}
                             disabled={promote.isPending}
+                            onFocus={() => setRefusedName(null)}
                             onKeyDown={(e) => {
                               if (e.key === "Enter") {
                                 e.preventDefault();
                                 const v = (e.target as HTMLInputElement).value.trim();
-                                if (v && v !== s.label && !reservedLinkName(v)) renameLinkOnScore(s.label, v);
+                                if (reservedLinkName(v)) setRefusedName(reservedLinkName(v));
+                                else if (v && v !== s.label) renameLinkOnScore(s.label, v);
                               }
                             }}
                             onBlur={(e) => {
                               const v = e.target.value.trim();
-                              if (v && v !== s.label && !reservedLinkName(v)) renameLinkOnScore(s.label, v);
-                              else e.target.value = s.label; // revert a blank / unchanged / reserved-name edit
+                              if (reservedLinkName(v)) {
+                                setRefusedName(reservedLinkName(v)); // refused — say why, then revert
+                                e.target.value = s.label;
+                              } else if (v && v !== s.label) renameLinkOnScore(s.label, v);
+                              else e.target.value = s.label; // revert a blank / unchanged edit
                             }}
                           />
                           <button
@@ -889,6 +930,11 @@ export function Workbench({ header, asof }: Props) {
                       {reservedLinkName(newLink) && (
                         <span className="seg-edit-hint">
                           {reservedLinkName(newLink)} is a fixed link — it can't be added again.
+                        </span>
+                      )}
+                      {refusedName && (
+                        <span className="seg-edit-hint">
+                          {refusedName} is a fixed link — a link can't take its name.
                         </span>
                       )}
                     </div>
@@ -1211,7 +1257,12 @@ export function Workbench({ header, asof }: Props) {
                     ? {
                         options: segmentOptions,
                         current: selectedSegments,
-                        onChange: (labels) => setMemberSegments(selectedMember.security_id, labels),
+                        onChange: (labels) => {
+                          // pin the selection to THIS name before the move (it may only be the implicit
+                          // first-of-tab default) so the view follows it to its new home
+                          setPickedMemberId(selectedMember.security_id);
+                          setMemberSegments(selectedMember.security_id, labels);
+                        },
                         pending: promote.isPending,
                       }
                     : undefined

@@ -120,11 +120,15 @@ per row:
   (keep-it-visible), grayed rather than gone.
 - **Context** / **Bench** (after Quiet) — the two **silent value-chain links** (`TRIAGE.md` "Context and
   Bench"): a name the operator placed in either is on the card and visible but **never counts toward the
-  call**, so it files under its link's own bucket (header "Context · never counts toward the call") instead
-  of a call-derived one — and carries no member call. Same muted accent as Quiet (hollow dot, gray row), and
-  like every bucket **hidden when empty** (most theses have neither). The one exception is the top: a
-  **held** name (`verdict === "managing"`) stays in **Managing** even from Context/Bench — a held position
-  never leaves the top. Display-only, like the rest: the buckets read the call, the call never reads them.
+  call**, so when the card has nothing on it (no armed/watch hit, no fired trigger) it files under its
+  link's own bucket (header "Context · never counts toward the call") and carries no member call. Same
+  muted accent as Quiet (hollow dot, gray row), and like every bucket **hidden when empty** (most theses
+  have neither). It is the *last* test in the precedence, deliberately: the roster is today's but the card
+  can be a **scrub-back** to a past as-of, and a name that voted then (armed, watch, a fired trigger) and
+  sits in Context now still reads as the voter the headline names — under its call bucket, with its call.
+  On a current card nothing changes (the backend never puts a silent name on one). A **held** name
+  (`verdict === "managing"`) is the top of the order, so it stays in **Managing** even from Context/Bench.
+  Display-only, like the rest: the buckets read the call, the call never reads them.
 
 **The fold** is an explicit, reversible view filter — open by default, one click back, the count
 stays on a closed header (a folded bucket never reads as dropped). Folded rows stay **mounted** with

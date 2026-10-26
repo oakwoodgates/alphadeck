@@ -2997,4 +2997,139 @@ describe("ChainEditor — Context and Bench (the silent links)", () => {
     expect(within(fixedGroup()).getByText(SILENT_DESCRIPTORS.Context)).toBeInTheDocument();
     expect(within(fixedGroup()).queryByText("the model's own")).toBeNull();
   });
+  // C2 — the rename is LIVE per keystroke, but typing must pass THROUGH a reserved name: "Benchmark providers"
+  // and "Contextual AI" are ordinary links whose prefixes spell "Bench" / "Context" on the way.
+  it.each(["Benchmark providers", "Contextual AI"])(
+    "typing %s char by char ends with that whole label (no swallowed keystroke) and saves it",
+    async (typed) => {
+      const user = userEvent.setup();
+      h.mutate.mockImplementation((_body: unknown, opts?: { onSuccess?: () => void }) => opts?.onSuccess?.());
+      render(
+        <ChainEditor
+          asof="2026-06-08"
+          thesis={withSegs([{ label: "reactors", descriptor: null }], "reactors")}
+          onDone={vi.fn()}
+        />,
+      );
+      const input = screen.getByLabelText("link 1 label");
+      await user.clear(input);
+      await user.type(input, typed);
+      expect(screen.getByLabelText("link 1 label")).toHaveValue(typed);
+      expect(screen.queryByText(/is a fixed link/)).toBeNull(); // passing THROUGH a reserved name is silent
+      expect(chipsOf("OKLO")).toEqual([typed]); // the live rename cascaded onto the placed name
+      await user.click(screen.getByRole("button", { name: "Save chain" }));
+      const body = h.mutate.mock.calls[0][0] as { segments: { label: string }[] };
+      expect(body.segments.map((x) => x.label)).toEqual([typed, "Context", "Bench"]);
+    },
+  );
+
+  it("backspacing through a reserved name works too (\"Benchmarks\" → \"Benchmark\" → … → \"Ben\")", async () => {
+    const user = userEvent.setup();
+    render(
+      <ChainEditor
+        asof="2026-06-08"
+        thesis={withSegs([{ label: "Benchmarks", descriptor: null }])}
+        onDone={vi.fn()}
+      />,
+    );
+    const input = screen.getByLabelText("link 1 label");
+    await user.click(input);
+    await user.keyboard("{End}{Backspace}{Backspace}{Backspace}{Backspace}{Backspace}"); // Benchmarks → Bench
+    await user.keyboard("{Backspace}"); // → Benc, through the reserved "Bench"
+    expect(screen.getByLabelText("link 1 label")).toHaveValue("Benc");
+  });
+
+  it("COMMITTING exactly a reserved name (blur) reverts to the label the edit began with, with the note", async () => {
+    const user = userEvent.setup();
+    h.mutate.mockImplementation((_body: unknown, opts?: { onSuccess?: () => void }) => opts?.onSuccess?.());
+    render(
+      <ChainEditor
+        asof="2026-06-08"
+        thesis={withSegs([{ label: "reactors", descriptor: null }], "reactors")}
+        onDone={vi.fn()}
+      />,
+    );
+    const input = screen.getByLabelText("link 1 label");
+    await user.clear(input);
+    await user.type(input, "bench");
+    await user.tab(); // blur = commit
+
+    expect(screen.getByLabelText("link 1 label")).toHaveValue("reactors"); // not the half-typed "benc"
+    expect(screen.getByText(/Bench is a fixed link/)).toBeInTheDocument();
+    expect(chipsOf("OKLO")).toEqual(["reactors"]); // the cascade was undone with it
+    await user.click(screen.getByRole("button", { name: "Save chain" }));
+    const body = h.mutate.mock.calls[0][0] as { segments: { label: string }[] };
+    expect(body.segments.map((x) => x.label)).toEqual(["reactors", "Context", "Bench"]); // never saved as bench
+  });
+
+  it("Enter commits the same way (a reserved name in any case reverts with the note)", async () => {
+    const user = userEvent.setup();
+    render(
+      <ChainEditor
+        asof="2026-06-08"
+        thesis={withSegs([{ label: "reactors", descriptor: null }])}
+        onDone={vi.fn()}
+      />,
+    );
+    const input = screen.getByLabelText("link 1 label");
+    await user.clear(input);
+    await user.type(input, "CONTEXT{Enter}");
+    expect(screen.getByLabelText("link 1 label")).toHaveValue("reactors");
+    expect(screen.getByText(/Context is a fixed link/)).toBeInTheDocument();
+  });
+
+  it("the note clears on the next edit", async () => {
+    const user = userEvent.setup();
+    render(
+      <ChainEditor
+        asof="2026-06-08"
+        thesis={withSegs([{ label: "reactors", descriptor: null }])}
+        onDone={vi.fn()}
+      />,
+    );
+    const input = screen.getByLabelText("link 1 label");
+    await user.clear(input);
+    await user.type(input, "bench");
+    await user.tab();
+    expect(screen.getByText(/Bench is a fixed link/)).toBeInTheDocument();
+    await user.type(screen.getByLabelText("link 1 label"), "x");
+    expect(screen.queryByText(/is a fixed link/)).toBeNull();
+  });
+
+  it("a live rename of one link does not remount its input (focus survives a keystroke)", async () => {
+    const user = userEvent.setup();
+    render(
+      <ChainEditor
+        asof="2026-06-08"
+        thesis={withSegs([{ label: "reactors", descriptor: null }])}
+        onDone={vi.fn()}
+      />,
+    );
+    const input = screen.getByLabelText("link 1 label");
+    await user.click(input);
+    await user.keyboard("s");
+    expect(screen.getByLabelText("link 1 label")).toBe(input); // the same DOM node, still focused
+    expect(input).toHaveFocus();
+  });
+
+  // A3 (rule 3) — an old saved draft run / pre-deploy session blob can hold a model-proposed "Context" entry in
+  // the To-Review pile; the add path copies its segment raw, so it must be filed to the pen, never SAVED silent.
+  it("adding a To-Review name whose model segment is 'Context' files it to Discovered — saved, not silent", async () => {
+    const user = userEvent.setup();
+    h.mutate.mockImplementation((_body: unknown, opts?: { onSuccess?: () => void }) => opts?.onSuccess?.());
+    mockDraft(draft([{ ...VERIFY_ALKS, segment: "Context" }], []));
+    render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
+    expect(await screen.findByText("Alkermes plc")).toBeInTheDocument();
+    await user.click(screen.getByRole("checkbox", { name: "add ALKS" }));
+
+    expect(chipsOf("ALKS")).toEqual(["Discovered (unsorted)"]); // displayed AND saved the same
+    await user.click(screen.getByRole("button", { name: "Save chain" }));
+    const body = h.mutate.mock.calls[0][0] as {
+      segments: { label: string }[];
+      basket: { ticker: string; segment: string | null }[];
+    };
+    expect(body.basket.find((m) => m.ticker === "ALKS")?.segment).toBe("Discovered");
+    expect(body.segments.map((x) => x.label)).toEqual(["Discovered", "Context", "Bench"]); // pen BEFORE the pair
+  });
 });
