@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { CallCardResponse } from "../../api/hooks";
-import { todayISO } from "../../util/format";
+import { SETUP_STRENGTH_TOOLTIP, todayISO } from "../../util/format";
 import { byWhenDateAsc, CallCard, counterCaseSummary } from "../CallCard";
 
 // A minimal armed card: one graded trigger (shows its grade + source link, hit/◉) and one risk signal that
@@ -138,6 +138,24 @@ describe("CallCard — foreign-filer conviction annotation (single-name)", () =>
     expect(container.querySelector(".miss-note")).toBeNull();
     // the missing lines themselves are unchanged
     expect(screen.getByText(/Conviction trigger/)).toBeInTheDocument();
+  });
+});
+
+// --- setup strength -------------------------------------------------------------------------------
+// The wire field `confidence` is SETUP STRENGTH in the product: an experimental relative indicator, never a
+// probability. The Armed rail's bar says so — label and hover — and never reads "Confidence".
+describe("CallCard — the setup-strength bar", () => {
+  it("is labeled 'Setup strength' with the not-a-probability hover", () => {
+    const { container } = render(<CallCard card={{ ...card, confidence: 0.72 }} />);
+    const row = container.querySelector(".conf-row") as HTMLElement;
+    expect(row.textContent).toBe("Setup strength72%");
+    expect(row.querySelector("span")?.getAttribute("title")).toBe(SETUP_STRENGTH_TOOLTIP);
+    expect(container.textContent).not.toMatch(/confidence/i);
+  });
+
+  it("draws no bar at all when the card carries no setup strength (a not-yet card)", () => {
+    const { container } = render(<CallCard card={{ ...card, confidence: null }} />);
+    expect(container.querySelector(".conf")).toBeNull();
   });
 });
 

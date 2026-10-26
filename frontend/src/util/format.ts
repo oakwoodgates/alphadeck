@@ -155,6 +155,11 @@ export function recomputeNote(asof: string): string {
   return `Recomputed as of ${fmtDate(asof)} — today's rules on what was public then, not the recorded call`;
 }
 
+/** The hover behind every "Setup strength" label — the product name for the wire field `confidence`. It is an
+ *  experimental relative indicator, never a success probability, so the label and this caveat travel together
+ *  (CallCard rail, per-name panel, Scoreboard scorecard). */
+export const SETUP_STRENGTH_TOOLTIP = "an experimental relative indicator — not a probability";
+
 /** The tooltip paired with `recomputeNote` everywhere it renders. */
 export const RECOMPUTE_TOOLTIP =
   "Re-derived with today's rules from what was public by the end of this date (each filing from its " +

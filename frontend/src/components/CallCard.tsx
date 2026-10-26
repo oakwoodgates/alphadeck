@@ -9,6 +9,7 @@ import {
   isPastAsof,
   recomputeNote,
   RECOMPUTE_TOOLTIP,
+  SETUP_STRENGTH_TOOLTIP,
   STATE_CLASS,
   verdictLabel,
 } from "../util/format";
@@ -70,8 +71,8 @@ export function CallCard({
   const sc = STATE_CLASS[card.state] ?? "incub";
   const accent = accentVar(sc);
   const armed = card.state === "armed";
-  // Confidence is an Armed-state metric (§7): the backend nulls it for a not-yet card, so the bar
-  // only renders when armed — a Warming card never wears the Armed card's confidence bar.
+  // Setup strength (wire `confidence`) is an Armed-state metric (§7): the backend nulls it for a not-yet
+  // card, so the bar only renders when armed — a Warming card never wears the Armed card's bar.
   const conf = card.confidence == null ? null : Math.round(card.confidence * 100);
   // Newest-first (frontend-only display sort; the backend list order stays stable). Stable sort keeps
   // the per-name / conviction-before-confirmation grouping within an equal date.
@@ -130,7 +131,7 @@ export function CallCard({
         {conf !== null && (
           <div className="conf">
             <div className="conf-row">
-              <span>Confidence</span>
+              <span title={SETUP_STRENGTH_TOOLTIP}>Setup strength</span>
               <span style={{ color: `var(${accent})` }}>{conf}%</span>
             </div>
             <div className="conf-bar">
