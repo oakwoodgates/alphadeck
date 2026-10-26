@@ -39,7 +39,10 @@ const renderBoard = (onSelect: (id: string, name?: string) => void = noop) =>
     />,
   );
 
-const armedCall = (members: { ticker: string | null; security_id: string }[]) => ({
+const armedCall = (
+  members: { ticker: string | null; security_id: string; entry_window_closing?: boolean }[],
+  extra: Record<string, unknown> = {},
+) => ({
   thesis_id: "x",
   state: "armed",
   verdict: "starter_entry",
@@ -49,6 +52,7 @@ const armedCall = (members: { ticker: string | null; security_id: string }[]) =>
   key_confirmation: { turned: true, detail: "" },
   armed_members: members,
   watch_members: [],
+  ...extra,
 });
 
 const incubCall = () => ({
@@ -102,6 +106,63 @@ describe("Board — Decision Queue deep-link (#4)", () => {
     renderBoard(onSelect);
     await userEvent.setup().click(within(dq()).getByRole("button"));
     expect(onSelect).toHaveBeenCalledWith("t-a", "s-oklo");
+  });
+});
+
+// The act-by clock: the queue says WHAT is armed and now for how long. The text and the loud (warm) accent
+// ride the assembler's own `entry_window_closing` flag on the headline name (Q14) — the FE holds no date rule
+// of its own, and never reorders the queue by it.
+describe("Board — Decision Queue act-by clock", () => {
+  const clock = (container: HTMLElement) => container.querySelector(".dq-clock") as HTMLElement | null;
+  const queue = (members: Parameters<typeof armedCall>[0], extra: Record<string, unknown>) => {
+    h.calls = { "t-a": { data: armedCall(members, extra) }, "t-b": { data: incubCall() } };
+    renderBoard();
+    return dq();
+  };
+
+  it("states the days left on the entry window, quietly, when the call does not flag it", () => {
+    const el = clock(
+      queue([{ ticker: "OKLO", security_id: "s-oklo" }], { asof: "2026-10-13", arm_until: "2026-10-18" }),
+    );
+    expect(el?.textContent).toBe("act within 5d");
+    expect(el?.className).not.toContain("closing");
+    expect(el?.getAttribute("title")).toBe("the entry window — this entry signal is valid through Oct 18");
+  });
+
+  it("goes loud and says so only when the HEADLINE name's entry window is flagged closing", () => {
+    const el = clock(
+      queue([{ ticker: "OKLO", security_id: "s-oklo", entry_window_closing: true }], {
+        asof: "2026-10-13",
+        arm_until: "2026-10-15",
+      }),
+    );
+    expect(el?.textContent).toBe("act within 2d · entry window closing");
+    expect(el?.className).toContain("closing");
+  });
+
+  it("reads the headline's flag, not another armed member's", () => {
+    const el = clock(
+      queue(
+        [
+          { ticker: "OKLO", security_id: "s-oklo" },
+          { ticker: "SMR", security_id: "s-smr", entry_window_closing: true },
+        ],
+        { asof: "2026-10-13", arm_until: "2026-10-15" },
+      ),
+    );
+    expect(el?.className).not.toContain("closing");
+    expect(el?.textContent).toBe("act within 2d");
+  });
+
+  it("says the window lapsed when its date is already behind the card's as-of", () => {
+    const el = clock(
+      queue([{ ticker: "OKLO", security_id: "s-oklo" }], { asof: "2026-10-13", arm_until: "2026-10-10" }),
+    );
+    expect(el?.textContent).toBe("entry window lapsed");
+  });
+
+  it("draws no clock at all when the card carries no entry window", () => {
+    expect(clock(queue([{ ticker: "OKLO", security_id: "s-oklo" }], { asof: "2026-10-13" }))).toBeNull();
   });
 });
 

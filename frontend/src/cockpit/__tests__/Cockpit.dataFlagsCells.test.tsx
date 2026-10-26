@@ -19,12 +19,19 @@ const fx = vi.hoisted(() => {
     key, label: key, value, unit: key.startsWith("rvol") ? "ratio" : "pct",
     tone: value == null ? null : value > 0 ? "pos" : value < 0 ? "neg" : null, note: null,
   });
-  const display = (sid: string, ticker: string, rets: (number | null)[], rv: [number, number] | null) => ({
+  const display = (
+    sid: string, ticker: string, rets: (number | null)[], rv: [number, number] | null,
+    off52w: number | null = null,
+  ) => ({
     security_id: sid, ticker,
     signals: [
       { kind: "trailing_returns", label: "t", basis,
         metrics: ["ret_1d", "ret_7d", "ret_30d", "ret_90d", "ret_1y"].map((k, i) => m(k, rets[i])) },
       ...(rv ? [{ kind: "rvol", label: "r", basis, metrics: [m("rvol", rv[0]), m("rvol20", rv[1])] }] : []),
+      // the 52w column reads the range_52w member; the server's flag vocabulary does not name that cell
+      ...(off52w != null
+        ? [{ kind: "range_52w", label: "52w", basis, metrics: [m("pct_off_52w_high", off52w)] }]
+        : []),
     ],
   });
   const flag = (kind: string, level: string, columns: string[], since: string, reason: string) => ({
@@ -53,7 +60,7 @@ const fx = vi.hoisted(() => {
       members: [
         display("s-snex", "SNEX", [0.56, -4.89, -17.18, -34.08, 28.18], [0.76, 0.75]),
         display("s-hist", "HIST", [0.56, -4.89, -17.18, -34.08, 28.18], [0.76, 0.75]),
-        display("s-open", "OPEN", [-5.34, -6.7, -35.0, -56.08, -73.54], [0.68, 0.8]),
+        display("s-open", "OPEN", [-5.34, -6.7, -35.0, -56.08, -73.54], [0.68, 0.8], -61.4),
         display("s-rmax", "RMAX", [-9.25, -0.56, 16.6, 109.49, null], null),
         display("s-gme", "GME", [-0.7, -3.5, 32.2, 20.8, 12.5], [0.54, 0.56]),
       ],
@@ -146,10 +153,11 @@ describe("Cockpit — only the cells a flag names change (S3 fix)", () => {
     expect(rets("HIST").map((td) => td.textContent)).toEqual(["+0.6%", "-4.9%", "-17.2%", "-34.1%", "+28.2%"]);
   });
 
-  it("OPEN: one column (1Y) grays; the rest of the row renders normally", () => {
+  it("OPEN: one named column (1Y) grays — and the 52w cell that reads its bars; the rest renders normally", () => {
     renderCockpit();
     expect(row("OPEN").querySelector(".flag-mark")).toBeTruthy();
-    expect(grayed("OPEN")).toEqual(["-73.5%"]);
+    // 1Y is the server's own; "-61.4%" is the 52w cell, which takes its reach from 1Y (derivedCellFlag)
+    expect(grayed("OPEN")).toEqual(["-73.5%", "-61.4%"]);
     expect(rets("OPEN").slice(0, 4).map((td) => td.textContent)).toEqual(["-5.3%", "-6.7%", "-35.0%", "-56.1%"]);
     expect(row("OPEN").textContent).toContain("$1.9B");
   });
@@ -157,7 +165,8 @@ describe("Cockpit — only the cells a flag names change (S3 fix)", () => {
   it("RMAX (known wrong): its named cells are '—' with the reason; nothing it does not name is touched", () => {
     renderCockpit();
     const wrong = [...row("RMAX").querySelectorAll(".flag-wrong")] as HTMLElement[];
-    expect(wrong.length).toBe(5 + 1 + 2 + 1 + 1); // five returns, SMA, two RVOL, Path, Mkt cap
+    // five returns, SMA, two RVOL, Path, Mkt cap — the server's ten — plus the two derived cells (52w, ADV 20d)
+    expect(wrong.length).toBe(5 + 1 + 2 + 1 + 1 + 2);
     expect(wrong.every((e) => e.textContent === "—" && e.title.startsWith("Stopped trading"))).toBe(true);
     expect(row("RMAX").textContent).not.toContain("+109.5%");
   });

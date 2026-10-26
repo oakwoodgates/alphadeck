@@ -2,6 +2,7 @@ import type { CallCardResponse } from "../api/hooks";
 import {
   accentVar,
   byEventDateDesc,
+  byWhenDateAsc,
   CALL_HEAD,
   daysFrom,
   fmtDate,
@@ -9,6 +10,7 @@ import {
   isPastAsof,
   recomputeNote,
   RECOMPUTE_TOOLTIP,
+  SETUP_STRENGTH_TOOLTIP,
   STATE_CLASS,
   verdictLabel,
 } from "../util/format";
@@ -61,8 +63,8 @@ export function CallCard({
   const sc = STATE_CLASS[card.state] ?? "incub";
   const accent = accentVar(sc);
   const armed = card.state === "armed";
-  // Confidence is an Armed-state metric (§7): the backend nulls it for a not-yet card, so the bar
-  // only renders when armed — a Warming card never wears the Armed card's confidence bar.
+  // Setup strength (wire `confidence`) is an Armed-state metric (§7): the backend nulls it for a not-yet
+  // card, so the bar only renders when armed — a Warming card never wears the Armed card's bar.
   const conf = card.confidence == null ? null : Math.round(card.confidence * 100);
   // Newest-first (frontend-only display sort; the backend list order stays stable). Stable sort keeps
   // the per-name / conviction-before-confirmation grouping within an equal date.
@@ -71,6 +73,11 @@ export function CallCard({
   const risks = [...(card.risk_signals ?? [])].sort(byEventDateDesc);
   const armDays = daysFrom(card.asof, card.arm_until);
   const exitDays = daysFrom(card.asof, card.exit_by);
+  // The catalyst surface — the dated binary events the assembler put inside the exit-by window (it keeps
+  // every dated entry on or before exit_by, so a date already past rides along). Soonest first, a display
+  // sort only (the wire order is the operator's authoring order); `safe_sleeve` is deliberately not read —
+  // the assembler never fills it.
+  const catalysts = [...(card.catalyst_surface ?? [])].sort(byWhenDateAsc);
   // The headline's entry-window flag (Q14). On an Armed card `arm_until` IS the headline member's
   // (armed_members[0]) confirmation clock, so its flag describes exactly the row drawn below. Read,
   // never re-derived: the trading-session count is the assembler's. Armed-only (#7).
@@ -82,7 +89,7 @@ export function CallCard({
         <span>{CALL_HEAD[card.state] ?? "The Call"}</span>
         {card.conviction_grade && (
           <span className={`grade ${gradeClass(card.conviction_grade)}`}>
-            {card.conviction_grade.toUpperCase()} THESIS
+            {card.conviction_grade.toUpperCase()} SETUP
           </span>
         )}
       </div>
@@ -116,7 +123,7 @@ export function CallCard({
         {conf !== null && (
           <div className="conf">
             <div className="conf-row">
-              <span>Confidence</span>
+              <span title={SETUP_STRENGTH_TOOLTIP}>Setup strength</span>
               <span style={{ color: `var(${accent})` }}>{conf}%</span>
             </div>
             <div className="conf-bar">
@@ -174,6 +181,27 @@ export function CallCard({
           <b>Counter-case</b>
           {counterCaseSummary(risks, missing)}
         </div>
+
+        {catalysts.length > 0 && (
+          <RailPanel label="Catalysts through exit-by" count={catalysts.length}>
+            {catalysts.map((c) => {
+              const d = daysFrom(card.asof, c.when_date);
+              return (
+                <div className={`trg-item cal${d !== null && d < 0 ? " passed" : ""}`} key={c.id}>
+                  <span className="ic">◷</span>
+                  <span className="trg-body">
+                    {c.label}
+                    {c.kind && <span className="cal-kind">{c.kind}</span>}
+                  </span>
+                  <span className="trg-date">
+                    {c.when_date ? fmtDate(c.when_date) : (c.when_label ?? "—")}
+                    {d !== null && (d >= 0 ? ` · ${d}d` : " · passed")}
+                  </span>
+                </div>
+              );
+            })}
+          </RailPanel>
+        )}
 
         {(card.arm_until || card.exit_by) && (
           <div className="clocks">

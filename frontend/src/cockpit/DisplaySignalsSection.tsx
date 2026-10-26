@@ -7,7 +7,8 @@ import type {
 import { fmtDate } from "../util/format";
 import { insiderNaLabel } from "../workbench/format";
 import { FlagWrap } from "./DataFlagMark";
-import type { CellFlag } from "./dataFlags";
+import type { CellFlag, DerivedCell } from "./dataFlags";
+import type { TapeMark } from "./tapeMarks";
 import { AGG_MIN_PRICED, AGG_RETURN_KEY, type GroupMoving } from "./groupAggregate";
 
 /** One metric chip's value, by wire unit. Handles every unit the payload can carry so a new
@@ -215,6 +216,140 @@ export function InsiderCell({
       }, last ${window}`}
     >
       {buyN}/{buyerN}
+    </span>
+  );
+}
+
+/** A last-close price: "$27.71", thousands separated, and a name under a dollar gets four decimals (a $0.0431
+ *  stock must not read "$0.04"). */
+export function fmtLastPrice(v: number): string {
+  const digits = v >= 1 ? 2 : 4;
+  return `$${v.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
+}
+
+/** One basket-table `Last close` cell from the `sma_position` display member's `close` metric: the newest
+ *  close at or before the as-of — an END-OF-DAY print, never a live quote (this platform has no intraday). It
+ *  stays on screen even when the tape has stopped (that is what "last known" means), and then says WHEN: a
+ *  muted " · Oct 14" appears when the bar is older than the newest bar anywhere in the basket (`newestBar`),
+ *  when the member itself calls it stale, or when the feed is flagged stopped (`stopped` = the flag's reason,
+ *  which rides the hover). The date marks the exception — most rows print today's bar and carry none (#7). A
+ *  name with no bars is an honest "—". */
+export function LastCell({
+  sig,
+  newestBar,
+  stopped = null,
+}: {
+  sig: DisplaySignal | null;
+  /** the newest last-bar date across the basket's rows (ISO) — a row older than it is lagging */
+  newestBar?: string | null;
+  stopped?: string | null;
+}) {
+  const m = (sig?.metrics ?? []).find((x) => x.key === "close");
+  if (!sig || !m || m.value == null)
+    return (
+      <span className="muted" title={m?.note ?? sig?.basis.note ?? undefined}>
+        —
+      </span>
+    );
+  const end = sig.basis.window_end ?? null;
+  const memberStale = /^stale/.test(sig.basis.note ?? "");
+  const old = memberStale || stopped != null || (end != null && newestBar != null && end < newestBar);
+  const price = fmtLastPrice(m.value);
+  return (
+    <span
+      className={`last${old ? " old" : ""}`}
+      title={[
+        `last close ${price}${end ? ` on ${fmtDate(end)}` : ""} (end of day, not a live quote)`,
+        sig.basis.note,
+        stopped,
+      ]
+        .filter(Boolean)
+        .join(" · ")}
+    >
+      {price}
+      {old && end && <span className="last-date"> · {fmtDate(end)}</span>}
+    </span>
+  );
+}
+
+/** One basket-table `52w` cell from the `range_52w` display member: how far the last close sits BELOW the
+ *  52-week closing high ("-23.4%"; 0.0% = at the high). Muted mono, no accent — it is always-present context,
+ *  and "at the high" is already the exception the number itself states (#7). The hover shows the work: the high
+ *  and the bar it printed on, plus the window's own note when it is shorter than a year (#6). A gap is an
+ *  honest "—" with the why. */
+export function Off52wCell({ sig }: { sig: DisplaySignal | null }) {
+  const m = (sig?.metrics ?? []).find((x) => x.key === "pct_off_52w_high");
+  if (!sig || !m || m.value == null)
+    return (
+      <span className="muted" title={m?.note ?? sig?.basis.note ?? undefined}>
+        —
+      </span>
+    );
+  const high = (sig.metrics ?? []).find((x) => x.key === "high_52w");
+  const title = [
+    high?.value != null
+      ? `52-week closing high ${high.value.toFixed(2)}${high.note ? ` ${high.note}` : ""}`
+      : null,
+    basisLine(sig),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <span className="off52w" title={title}>
+      {fmtMetricValue(m)}
+    </span>
+  );
+}
+
+/** One basket-table `ADV 20d` cell from the `volume_regime` display member: the 20-bar average DOLLAR volume
+ *  (close × volume) — the liquidity read, compact ("$1.2M"). Muted mono, no accent and no threshold: where
+ *  "thin" begins is the operator's call, not the table's. A name short of 20 volume bars, or none, is an
+ *  honest "—" with the why on hover; the basis note (bars without a volume, excluded) rides the title. */
+export function AdvCell({ sig }: { sig: DisplaySignal | null }) {
+  const m = (sig?.metrics ?? []).find((x) => x.key === "adv_usd_20d");
+  if (!sig || !m || m.value == null)
+    return (
+      <span className="muted" title={m?.note ?? sig?.basis.note ?? undefined}>
+        —
+      </span>
+    );
+  return (
+    <span
+      className="adv"
+      title={[`average dollar volume (close × volume) over the last 20 bars`, sig.basis.note]
+        .filter(Boolean)
+        .join(" · ")}
+    >
+      {fmtMetricValue(m)}
+    </span>
+  );
+}
+
+/** The basket-table `Tape` cell: one small chip per EXCEPTIONAL tape reading (`tapeMarks`) — a coiling base,
+ *  relative strength at a 13-week high, a recent golden / death cross. The default is a muted "—" (most names
+ *  print none), so a chip marks the exception, never the rule (#7). Each chip stays mono and neutral with only
+ *  its direction glyph tinted (the shared `.dirg` rule); the member's own statement rides the hover (#6). Each
+ *  chip is flagged on its own reach (`flagFor`): in doubt grays it, known wrong replaces it with "—". Not
+ *  sortable — a set of marks is not a number to rank on. */
+export function TapeCell({
+  marks,
+  flagFor,
+}: {
+  marks: readonly TapeMark[];
+  /** the data flag reaching the bars a mark reads, by its derived-cell proxy (or null) */
+  flagFor?: (cell: DerivedCell) => CellFlag | null;
+}) {
+  if (marks.length === 0) return <span className="muted">—</span>;
+  return (
+    <span className="tape">
+      {marks.map((m) => (
+        <FlagWrap key={m.key} flag={flagFor?.(m.reach)}>
+          <span className={`tape-chip ${m.key}`} title={m.title}>
+            <span className={`g dirg ${m.glyph}`}>{GLYPH[m.glyph]}</span>
+            {m.label}
+          </span>
+        </FlagWrap>
+      ))}
     </span>
   );
 }

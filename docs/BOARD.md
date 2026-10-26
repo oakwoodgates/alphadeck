@@ -44,7 +44,10 @@ persisted for display. Change the as-of, and the whole board re-derives — it i
   that a ranked menu sits behind it (anti-flooding — never every member). Empty state: *"Nothing armed.
   Nothing to do. ✓"* — a calm board is a working board. The headline name — and a single-name card's ticker —
   carries the same quiet **data-flag mark** as its Cockpit row (S3, `GET /data-flags`), only when a flag
-  reaches a number on it.
+  reaches a number on it. Each item also states its **act-by clock** — "act within 3d", the card's
+  `arm_until` (the headline name's entry window) — muted, and warm with "· entry window closing" only when the
+  call's own `entry_window_closing` flag on the headline name is set (Q14; read, never re-derived). It states
+  the clock; it never reorders the queue by it (columns and queue do not rank theses, #4).
 - **"Calls that didn't compute" (keep-it-visible, #216)** — when a thesis's `/call` errors, it lands in a
   **visible strip at the bottom of the Board** ("⚠ Calls that didn't compute (N)") instead of silently
   vanishing from every column, and the Decision Queue **withholds its all-clear** ("Some calls didn't
@@ -53,9 +56,13 @@ persisted for display. Change the as-of, and the whole board re-derives — it i
   recall-is-sacred instinct as the basket's Quiet bucket.
 - **The ThesisCard**: ticker (or a basket marker for a theme), name, narrative, and a state-appropriate
   footer — Armed leads with the **entry verdict** (STARTER/CORE — the categorical call-strength posture),
-  with the conviction grade as secondary context ("core setup"); neither label sizes a trade. A bare CORE
+  with the conviction grade as secondary context ("core setup" — the same "core setup" / "flip setup" wording
+  on the rail's head chip and the ranked member menu: it rates the call's strength class, never the idea, so it
+  is never called a "thesis", #4); neither label sizes a trade. A bare CORE
   badge up front read as "go big"; this split exists to stop that over-commit misread. Non-armed cards show
-  the two-key **readiness pips** (0–2). Armed
+  the two-key **readiness pips** (0–2) — one pip per KEY, conviction left and confirmation right, the hover
+  naming which has turned ("Conviction ✓ · Confirmation ○"), so a confirmation-only card never reads as
+  "conviction fired". Armed
   cards carry the `CALL READY` flag.
 - **Archive, never delete** (board hygiene): hover a card → a quiet **✕** appears (a *sibling* of the
   card, top-right). Archiving drops the thesis into the collapsed **Archived (N)** section at the bottom —
@@ -70,9 +77,11 @@ basket table + the per-name panel** (the next two sections), evidence, and two *
 lists** that render *even at zero* (an empty section used to vanish, which made "there's no way to
 author one" invisible):
 
-- **Catalyst calendar** — the thesis-level *surface* events (label · kind · date or a fuzzy "~Q3").
-  Dated entries within the `exit_by` signal-validity horizon ride the CallCard's catalyst surface; entries ≤ 21 days out
-  highlight as `soon`. Edited in place (`✎ edit` / `+ add catalysts`); saves through the sole-writer
+- **Catalyst calendar** — the thesis-level *surface* events (label · kind · date or a fuzzy "~Q3"), listed in
+  **date order** — soonest first, a fuzzy one last (a display sort of a copy; storage and the editor keep the
+  operator's authoring order, and a save stores exactly that). A date already past reads "Nd ago" and grays — it
+  stays on the calendar, never vanishes. Dated entries within the `exit_by` signal-validity horizon ride the
+  CallCard's catalyst surface; entries ≤ 21 days out highlight as `soon`. Edited in place (`✎ edit` / `+ add catalysts`); saves through the sole-writer
   `PUT /theses/{id}/catalysts` — a promote can never wipe the list. **Distinct from the per-name
   conviction FACTS** (the Key-1 arming inputs), which are authored on the Workbench rail with a required
   citation (`WORKBENCH_EXTRACTION.md`).
@@ -161,16 +170,22 @@ reaches a cell on it (WB#3 — a split two years back that no column reads marks
 still list it, and a name's flags list the reaching ones first). Flags apply only once this view's display and
 scored reads have landed: the flag read is the faster one, and a mark beside a row of loading "—" (or another
 as-of's placeholder numbers) read as "the flag blanked the row". The header's 7d median **leaves flagged 7d values out** and says so ("· 2 left out", the why on
-hover). The sparkline gets a dashed **tick** at an applied split inside its window, nothing more. No alert,
+hover). The sparkline gets a dashed **tick** at an applied split inside its window, nothing more. The
+cells the server's flag vocabulary does not name (`Last close`, `Off 52w high`, `ADV 20d`, and each `Tape` chip) take their reach
+from the **named cells whose bar window contains their own** (`cockpit/dataFlags.ts` `DERIVED_CELL_REACH`: Last close ←
+1D; 52w ← 1Y; ADV ← 30d and RVOL 20D; coil and RS lead ← 90d; a cross ← 1Y), so a flag that could reach them grays or blanks them too; the one named limit is a step in the oldest
+~10 of the 52w window's ~262 bars, which `1Y`'s 252 do not reach — the long-run fix is to name the cells in
+`domain/data_flags.py`, which moves the engine fingerprint, so it rides a deliberate backend change. No alert,
 ever (#7). MEASURED on a read-only copy of prod (2026-10-22): 26 of 688 names carry a mark (3/90 AI Memory,
 1/34 Digital Asset, 4/190 Modern Defense, 2/79 Nuclear, 8/155 Rainbow Rush, 9/159 Everything Exchange), and
 all twelve live call cards were byte-identical with and without the flags read.
 
-**Columns:** `Dot · Ticker · Name · Type · SMA · 1d · 7d · 30d · 90d · 1Y · Path · RVOL 8D · RVOL 20D ·
-Ins 30d · Ins 90d · Mkt cap · Entry-by · Exit-by`.
+**Columns:** `Dot · Ticker · Name · Type · Last close · SMA · 1d · 7d · 30d · 90d · 1Y · Path · Off 52w high · Tape ·
+RVOL 8D · RVOL 20D · Ins 30d · Ins 90d · Mkt cap · ADV 20d · Entry-by · Exit-by`.
 
-**The table scrolls in its own box** (`.basket-scroll`), because eighteen columns do not fit a laptop's
-main column beside the 380px call rail — before it, the overflow painted *over* the rail and those columns
+**The table scrolls in its own box** (`.basket-scroll`), because twenty-two columns do not fit a laptop's
+main column beside the 380px call rail (the widths MEASURED when this was built — 17 columns, 1025px of
+min-content — predate Off 52w high, Tape and ADV 20d; the table is wider now and has not been re-measured) — before it, the overflow painted *over* the rail and those columns
 were simply unreachable. Three things hold their place inside that box: the **status dot + ticker** stick
 to the left, so scrolling the columns never costs a row its identity; the **column header** sticks to the
 top; and a **bucket heading** ("Armed · act now · 7 names") sticks to the left of its full-width row. The
@@ -203,8 +218,38 @@ one laid out in a flowing document.
   hairline — no accent, so the shape never blurs into the return green/red, the RVOL warm, or the insider
   blue — that **breaks on a gap, never interpolates**: a young name draws a genuinely shorter, right-aligned
   path (its thinness named on hover with the exact bars), and under two closes the cell is "—" (a point is
-  not a path). The one display column that is **not sortable** — a shape with no scalar to rank on.
+  not a path). One of the two display columns that are **not sortable** (the other is Tape) — a shape with no scalar to
+  rank on.
 - **Mkt cap** — bridged from the scoring read ("—" when un-scored).
+- **Last close** — the newest **end-of-day** close at or before the as-of (the `sma_position` member's `close`;
+  "$27.71", thousands separated, four decimals under a dollar). It is the *last known* price, not a live quote
+  (this platform has no intraday): the hover says "end of day, not a live quote" and names the bar's date.
+  It stays on screen when the tape has stopped — that is what "last known" means — and then says **when**: a
+  muted " · Oct 14" appears only when the bar is older than the **newest bar anywhere in the basket** (a halt, a
+  delisting, a thin name with no print), when the member itself calls it stale (> 10 days before the as-of), or
+  when the feed is flagged stopped. Relative to the table, so a weekend or holiday — every row's newest bar the
+  same Friday — marks nothing; most rows carry no date (#7). Sortable by price level, highest first on desc.
+  A **stopped feed does not blank it** (a stopped feed makes the *returns* wrong, not the last real print): the
+  cell keeps the number with its date and the flag's reason on hover, while a split flag that reaches the newest
+  bar (`1d`) still grays or blanks it like any price cell.
+- **Off 52w high** — how far the last close sits below the 52-week closing high (`range_52w`'s
+  `pct_off_52w_high`; "-23.4%", 0.0% = at the high). Muted mono, no accent — the number itself states "at the
+  high" — with the high and the bar it printed on in the hover. Sortable; desc puts the names nearest their high
+  first. Sits behind Path, the shape it summarizes.
+- **Tape** — the **exceptional** tape readings only, each a display member's own verdict: **coil** (`vcp`'s
+  `coiling` headline — a tightening base above a rising 50d), **RS lead** (`relative_strength`'s `leading`
+  headline — RS at a 13-week high vs SPY or IWM), and **golden / death** (the `sma_position` member's last 50d/200d
+  cross, while it printed within `TAPE_CROSS_DAYS` = 30 calendar days of the as-of — a display dial in
+  `cockpit/tapeMarks.ts`, never a call input). Small neutral outlined chips with only the direction glyph tinted
+  (a coil is sideways — never a forecast, #4); the member's own statement and the cross's date ride the hover.
+  A muted "—" on most rows: a mark is the exception, never the rule (#7). **Not sortable** (a set of marks is not
+  a number to rank on). Each chip is flagged on its own reach — a coil / RS read through the 90d cell's window, a
+  cross through 1Y's.
+- **ADV 20d** — the 20-bar average **dollar** volume (close × volume; `volume_regime`'s `adv_usd_20d`; "$1.2M"),
+  the liquidity read beside the size it qualifies. Muted, with **no threshold of its own**: where "thin" begins
+  is the operator's call, not the table's. Sortable; desc is the most liquid first. A name short of 20 volume
+  bars is an honest "—" with the why. Both cells are display members already rendered in the panel's
+  Indicators section, surfaced here with no backend change.
 
 **The two clocks are two columns — `Entry-by` then `Exit-by`, in the order they run out.** They were
 one stacked cell until the basket-table containment pass; separating them makes each **independently
@@ -233,14 +278,24 @@ both directions** (#9/#2 — the sort re-orders, never drops), and the insider c
 lens switch** (re-ranking within the new lens's groups). A flat leaderboard *across* groups is deferred,
 not shipped.
 
+**Keyboard stepping.** Every basket row is focusable (Enter / Space toggles its panel). **↑/↓** on a focused row
+moves focus to the previous / next **visible** row — the rendered order, so the active lens and sort count, and
+a **folded group is skipped** (its rows stay mounted, collapsed, but are not stops); it stops at the first and
+last row, and a shift/ctrl/alt/meta-modified arrow is left to the browser. **With the panel open, the panel
+follows focus**, so a basket is scanned a row at a time with the panel showing each name; Enter on the focused
+row then closes it, and stepping with the panel closed only moves focus. The scoping is the row, not the page:
+the arrows never hijack the panel's own scrolling. In the value-chain lens a name shown under several links
+resolves to its **first** row (the click rule), so a later link-row takes focus and leaves the panel where it is
+instead of jumping the highlight to a row far above.
+
 The old Role/Detail columns are gone from the table; the authored text survives on the per-name panel.
 No card yet (loading/error) → everything reads Quiet, honestly.
 
 ### The per-name panel
 
 Clicking a row slides a **read-only, non-modal** panel over the rail (no scrim — the table stays
-clickable, so switching names is one click on the next row; the table never unmounts, and
-Esc / ✕ / re-clicking the row closes it; the rail dims, never hides). Top to bottom:
+clickable, so switching names is one click on the next row — or **↑/↓** on the focused row, above; the table
+never unmounts, and Esc / ✕ / re-clicking the row closes it; the rail dims, never hides). Top to bottom:
 
 - **The call · this name** — its own verdict + grade chips + setup-strength bar (wire field `confidence`), or the honest degrade
   line ("conviction fired — awaiting confirmation" / "moving, no conviction yet" / "no live signals
@@ -300,6 +355,10 @@ State-classed (its accent follows the lifecycle), recomputed at `card.asof`. Top
   warning glyph and no grade.
 - **Counter-case** — deterministic: active risk signals + the authored kill criteria + the missing
   triggers.
+- **Catalysts through exit-by** — the card's `catalyst_surface`: the dated binary events the assembler keeps
+  inside the `exit_by` window (it keeps every dated entry on or before it, so a date already past rides along),
+  listed soonest-first with a day count, a past one grayed and marked "passed". Ambient context beside the clocks
+  it sits between; an empty surface draws no panel. (`safe_sleeve` is not rendered — the assembler never fills it.)
 - **The two clocks** (sticky-on-confirmation, §6): `arm_until` — the **entry window** (confirmation's
   clock; on an Armed card it's an act-by deadline, "act within Nd", plus "· entry window closing" when the
   headline member's `entry_window_closing` is set; informational decay otherwise) — and
@@ -348,6 +407,73 @@ fell). A weaker or mixed move while armed is a quiet, honestly worded push ("sti
 arms before the marked re-arms; every name listed, never a count); a de-arm and
 every pre-Armed move are recorded, never pushed — Incubating never nags. The next morning's Board is the
 first thing the platform already checked without the operator.
+
+## Known gaps and limits (this surface)
+
+Documented, not hidden: each is either unmeasured, a deliberate simplification, or a choice the operator has not
+yet confirmed. Nothing here changes a call, and none of it touches the edition engine (all frontend).
+
+**The derived cells — `Off 52w high`, `ADV 20d`, the `Tape` chips (data flags)**
+- **They are not named by the server's flag vocabulary** (`domain/data_flags.py`), so each borrows the flag state
+  of the named cells whose bar window contains its own (`DERIVED_CELL_REACH`, above). The one under-warning gap: a
+  split or step in the oldest ~10 of the 52w window's ~262 bars is not reached by `1Y`'s 252, so `Off 52w high`
+  can show a normal-looking number that rests on mixed-scale bars. Rare (it needs the step in those ~10 sessions
+  *and* the pre-step bars to hold the high), but silent when it happens.
+- **It over-warns elsewhere, on purpose** (the safe direction): `ADV 20d` grays on a `30d` flag even when the step
+  sits outside its 20 bars; a coil / RS lead grays on a `90d` flag though they read ~65 bars.
+- **The containment is reasoned, not enforced.** It rests on the server's *current* window sizes (`BAR_WINDOWS`);
+  `DERIVED_CELL_REACH` is hand-kept in the frontend and nothing fails if the server widens or narrows a window
+  later (the server pins its own windows against the display members; no test crosses the language line).
+- **The row's ⚑ hover lists only the server's cells** ("affects 1Y, SMA"); a grayed 52w / ADV / Tape cell carries
+  its own reason on hover, but the mark does not name it.
+- **On a ⚑ row, an absent Tape mark means "can't tell", not "quiet"** — the detectors ran over data the platform
+  flags, so a missing chip is not evidence of a quiet tape.
+- **Not measured on real data.** These cells are covered by fixture tests only (the cloud session has no
+  database); how often a derived cell grays on prod — and the 26-of-688 mark rate above — is not re-measured for them.
+- **The fix, not built:** name the three cells in `domain/data_flags.py` (moves the engine fingerprint, so it rides
+  one deliberate backend change and its single trial run), or test the 52w window directly against the flags' own
+  `dates` (the affected bar dates, present even on a flag that names no cell) — frontend-only, but not yet
+  verified against a real flag.
+
+**The `Last close` column**
+- **It is an end-of-day close, never a live price** — a quote that has moved since the last bar is not here, and
+  the platform has no intraday (out of scope for v1).
+- **"Lagging" is relative to the basket's newest bar.** If *every* name's feed is behind (a global stall), no row
+  is older than the newest and no date is shown; the Scoreboard's freshness line and Admin are what say the whole
+  feed is late. A thin OTC name that simply did not trade for a few days will show its date too — informative, but
+  on a basket full of such names the dates are common rather than rare.
+- **It reads the SMA member's `close`**, so a name with no bars inside that member's 600-day lookback reads "—".
+- **A flag-blanked cell still sorts by its underlying price** (as every column here does — the sort reads the
+  member's number, not the flag): a row shown "—" for a known-wrong flag keeps its rank. Pre-existing, now one
+  more column it applies to.
+
+**The `Tape` column**
+- **The three marks and the 30-day cross recency (`TAPE_CROSS_DAYS`) were picked by the builder, not specified**:
+  they are display dials awaiting operator confirmation. Only golden / death crosses are marks — the
+  price-vs-50d / price-vs-200d flips stay in the panel.
+- **It does not replace the panel.** The per-name panel's *Indicators* section is unchanged: it still lists every
+  event each member emits (the last flip of each kind, however old). A 12-week-old golden cross is in the panel
+  and is deliberately *not* a Tape chip.
+
+**Keyboard stepping**
+- Arrows act only while a basket **row** has focus: not from inside the panel, no Home / End / PageUp / PageDown,
+  no j / k. The stepped-to row is scrolled clear of the sticky header by a fixed `scroll-margin-top: 40px` — an
+  estimate of that header's height, not a measurement.
+
+**The Decision Queue**
+- **The strip clips, it does not wrap or scroll** (`.dq-items` is `overflow: hidden`, items are no-wrap): more armed
+  items than fit are cut off at the right edge. That predates the act-by clock, but the clock lengthens every item,
+  so fewer fit. Not measured at real widths. A hidden armed item is a visibility risk (#9's instinct applied to
+  the queue); the fix — wrap or scroll — is a design call, not made here.
+- A theme shows only the **headline** name's clock (the card's `arm_until`); the other armed names' clocks are on
+  the rail's ranked menu. The queue's order is deliberately unchanged (it does not rank theses by deadline, #4).
+
+**The CallCard's catalyst panel**
+- It shows the assembler's `catalyst_surface`, which keeps only **dated** catalysts on or before `exit_by` with no
+  lower bound: a fuzzy entry ("~Q3", a label with no date) never reaches the rail (it lives in the Cockpit's
+  calendar), and a past-dated one keeps showing as "passed" until the operator removes it. The Cockpit calendar has the same
+  property ("Nd ago"): nothing archives a past event, so a long-lived thesis's calendar grows until the operator
+  prunes it in the editor, which lists in authoring order, not the calendar's date order.
 
 ## What the Board never does (decisions, not gaps)
 

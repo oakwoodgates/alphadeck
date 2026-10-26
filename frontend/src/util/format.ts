@@ -128,6 +128,14 @@ export function byEventDateDesc(
   return (b.event_date ?? "").localeCompare(a.event_date ?? "");
 }
 
+/** Soonest-first comparator for catalysts by ISO (`YYYY-MM-DD`) date; an undated entry (a fuzzy "~Q3" label)
+ *  sorts last. String compare == chronological for ISO dates, and the sort is stable, so equal dates and the
+ *  undated keep the operator's authoring order. A DISPLAY sort only — the stored order is never touched. */
+export function byWhenDateAsc(a: { when_date?: string | null }, b: { when_date?: string | null }): number {
+  if (!a.when_date || !b.when_date) return a.when_date ? -1 : b.when_date ? 1 : 0;
+  return a.when_date.localeCompare(b.when_date);
+}
+
 /** Today's date as YYYY-MM-DD in the user's LOCAL timezone — the default as-of on load. Built from the local
  *  Y/M/D (not toISOString(), which is UTC and can land a day off near midnight). */
 export function todayISO(): string {
@@ -154,6 +162,11 @@ export function isPastAsof(asof: string): boolean {
 export function recomputeNote(asof: string): string {
   return `Recomputed as of ${fmtDate(asof)} — today's rules on what was public then, not the recorded call`;
 }
+
+/** The hover behind every "Setup strength" label — the product name for the wire field `confidence`. It is an
+ *  experimental relative indicator, never a success probability, so the label and this caveat travel together
+ *  (CallCard rail, per-name panel, Scoreboard scorecard). */
+export const SETUP_STRENGTH_TOOLTIP = "an experimental relative indicator — not a probability";
 
 /** The tooltip paired with `recomputeNote` everywhere it renders. */
 export const RECOMPUTE_TOOLTIP =

@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { CallCardResponse } from "../../api/hooks";
-import { todayISO } from "../../util/format";
+import { byWhenDateAsc, SETUP_STRENGTH_TOOLTIP, todayISO } from "../../util/format";
 import { CallCard, counterCaseSummary } from "../CallCard";
 
 // A minimal armed card: one graded trigger (shows its grade + source link, hit/◉) and one risk signal that
@@ -138,6 +138,76 @@ describe("CallCard — foreign-filer conviction annotation (single-name)", () =>
     expect(container.querySelector(".miss-note")).toBeNull();
     // the missing lines themselves are unchanged
     expect(screen.getByText(/Conviction trigger/)).toBeInTheDocument();
+  });
+});
+
+// --- setup strength -------------------------------------------------------------------------------
+// The wire field `confidence` is SETUP STRENGTH in the product: an experimental relative indicator, never a
+// probability. The Armed rail's bar says so — label and hover — and never reads "Confidence".
+describe("CallCard — the setup-strength bar", () => {
+  it("is labeled 'Setup strength' with the not-a-probability hover", () => {
+    const { container } = render(<CallCard card={{ ...card, confidence: 0.72 }} />);
+    const row = container.querySelector(".conf-row") as HTMLElement;
+    expect(row.textContent).toBe("Setup strength72%");
+    expect(row.querySelector("span")?.getAttribute("title")).toBe(SETUP_STRENGTH_TOOLTIP);
+    expect(container.textContent).not.toMatch(/confidence/i);
+  });
+
+  it("draws no bar at all when the card carries no setup strength (a not-yet card)", () => {
+    const { container } = render(<CallCard card={{ ...card, confidence: null }} />);
+    expect(container.querySelector(".conf")).toBeNull();
+  });
+});
+
+// --- the catalyst surface ------------------------------------------------------------------------
+// The assembler ships the dated events inside the exit-by window (`catalyst_surface`); the rail renders
+// them soonest-first beside the clocks they sit between. Ambient — an empty surface draws no panel at all,
+// and a date already past grays (it stays visible) instead of vanishing.
+describe("CallCard — the catalyst surface", () => {
+  const withSurface = (surface: unknown[]) =>
+    ({ ...card, catalyst_surface: surface }) as unknown as CallCardResponse;
+  const surface = [
+    { id: "c2", label: "FDA decision", kind: "regulatory", when_date: "2026-07-10", when_label: null },
+    { id: "c3", label: "Investor day", kind: null, when_date: null, when_label: "~Q3" },
+    { id: "c0", label: "Competitor readout", kind: "clinical_readout", when_date: "2026-06-10", when_label: null },
+    { id: "c1", label: "Earnings", kind: null, when_date: "2026-06-25", when_label: null },
+  ];
+
+  it("lists the events soonest-first with their day count, a past date marked, an undated one last", () => {
+    const { container } = render(<CallCard card={withSurface(surface)} />);
+    const rows = [...container.querySelectorAll(".trg-item.cal")] as HTMLElement[];
+    expect(rows.map((r) => r.querySelector(".trg-body")?.textContent)).toEqual([
+      "Competitor readoutclinical_readout",
+      "Earnings",
+      "FDA decisionregulatory",
+      "Investor day",
+    ]);
+    expect(rows.map((r) => r.querySelector(".trg-date")?.textContent)).toEqual([
+      "Jun 10 · passed",
+      "Jun 25 · 5d",
+      "Jul 10 · 20d",
+      "~Q3",
+    ]);
+    // the past one grays, never vanishes
+    expect(rows[0].className).toContain("passed");
+    expect(rows[1].className).not.toContain("passed");
+    // the header carries the count
+    const head = screen.getByText("Catalysts through exit-by").closest(".rpanel-h") as HTMLElement;
+    expect(head.querySelector(".ct")?.textContent).toBe("4");
+  });
+
+  it("draws NO panel when the surface is empty", () => {
+    const { container } = render(<CallCard card={withSurface([])} />);
+    expect(screen.queryByText("Catalysts through exit-by")).toBeNull();
+    expect(container.querySelector(".trg-item.cal")).toBeNull();
+  });
+
+  it("sorts by date alone: equal dates keep the authoring order, an undated entry sinks", () => {
+    const e = (id: string, when_date: string | null) => ({ id, label: id, when_date }) as never;
+    const sorted = [e("u", null), e("b", "2026-07-01"), e("a", "2026-07-01"), e("z", "2026-06-01")].sort(
+      byWhenDateAsc,
+    );
+    expect(sorted.map((c) => c.id)).toEqual(["z", "b", "a", "u"]);
   });
 });
 

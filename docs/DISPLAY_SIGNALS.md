@@ -237,12 +237,15 @@ The NamePanel's **"Indicators · this name"** section (S2) renders metrics as qu
 muted dated lines, and the basis as fine print — inverse loudness (#7): indicators are ambient
 context, never an alert, and an Incubating name's panel must not get louder because a moving
 average moved. The **Cockpit basket table** now surfaces a subset as columns — the SMA posture,
+a **`Last close`** (the `sma_position` member's `close` — an end-of-day price, dated when it lags the basket),
 the trailing-return ladder (`1d/7d/30d/90d/1Y`), the **`Path`** sparkline (`price_path`'s close
-series — a neutral hairline that BREAKS on a gap, "—" below two closes), `RVOL 8D` / `RVOL 20D`, and
-`Ins 30d` / `Ins 90d` — each bridged onto its row by `security_id` and holding the same discipline: a
+series — a neutral hairline that BREAKS on a gap, "—" below two closes), `Off 52w high` (`range_52w`'s
+`pct_off_52w_high`), `RVOL 8D` / `RVOL 20D`, `Ins 30d` / `Ins 90d`, `ADV 20d` (`volume_regime`'s
+`adv_usd_20d`, a liquidity read with no threshold of its own), and **`Tape`** (the exception-only chips: `vcp`'s
+`coiling`, `relative_strength`'s `leading`, a golden/death cross within 30 days) — each bridged onto its row by `security_id` and holding the same discipline: a
 muted "—" is the default, an accent marks the exception (#7). The columns are individually sortable
-**within** each call-state group (nulls-last; the call hierarchy never moves) — except `Path`, a
-shape with no scalar to rank on. Each **group header** (all three lenses) also carries a client-side
+**within** each call-state group (nulls-last; the call hierarchy never moves) — except `Path` and
+`Tape`, a shape and a set of marks with no scalar to rank on. Each **group header** (all three lenses) also carries a client-side
 **7d median** over its priced rows — `· N names · 7d median ±X.X%`, the same `ret_7d` the column
 shows; "—" under three priced; N the full group — a display AGGREGATE that reads the column and
 feeds nothing (#4). The surface detail lives in `docs/BOARD.md`.

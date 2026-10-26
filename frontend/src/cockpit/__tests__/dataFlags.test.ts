@@ -2,7 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import type { DataFlagOut, DisplaySignal, MemberDataFlagsOut } from "../../api/hooks";
 import type { BucketRow } from "../buckets";
-import { cellFlag, factorWords, markTitle, rowLevel } from "../dataFlags";
+import {
+  cellFlag,
+  derivedCellFlag,
+  factorWords,
+  markTitle,
+  rowLevel,
+  stoppedFeedReason,
+} from "../dataFlags";
 import { sparkTicks } from "../DisplaySignalsSection";
 import { groupMoving } from "../groupAggregate";
 
@@ -94,5 +101,71 @@ describe("sparkTicks — a split inside the path's window, at most a tick", () =
     expect(sparkTicks([{ barsAgo: 0, label: "a" }], 90)).toEqual([{ x: 72, label: "a" }]);
     expect(sparkTicks([{ barsAgo: 89, label: "b" }], 90)).toEqual([{ x: 0, label: "b" }]);
     expect(sparkTicks([{ barsAgo: 90, label: "c" }], 90)).toEqual([]);
+  });
+});
+
+describe("dataFlags — derived cells (52w, ADV 20d) borrow the reach of the named cells that read their bars", () => {
+  it("52w follows 1Y alone; ADV follows 30d and RVOL 20D; a cell no proxy names is untouched", () => {
+    const oneYear = member([flag({ reason: "split", columns: ["ret_1y"] })]);
+    expect(derivedCellFlag(oneYear, "off52w")).toEqual({ level: "in_doubt", reason: "split" });
+    expect(derivedCellFlag(oneYear, "adv")).toBeNull();
+
+    const thirty = member([flag({ reason: "split", columns: ["ret_30d"] })]);
+    expect(derivedCellFlag(thirty, "adv")).toEqual({ level: "in_doubt", reason: "split" });
+    expect(derivedCellFlag(thirty, "off52w")).toBeNull();
+
+    const volume = member([flag({ reason: "volume scale", columns: ["rvol20"] })]);
+    expect(derivedCellFlag(volume, "adv")).toEqual({ level: "in_doubt", reason: "volume scale" });
+
+    // the Tape marks: a coil / RS read sits inside 90d's window, a cross reads back through 1Y's
+    expect(derivedCellFlag(member([flag({ reason: "r", columns: ["ret_90d"] })]), "tapeShort")).not.toBeNull();
+    expect(derivedCellFlag(member([flag({ reason: "r", columns: ["ret_90d"] })]), "tapeLong")).toBeNull();
+    expect(derivedCellFlag(member([flag({ reason: "r", columns: ["ret_1y"] })]), "tapeLong")).not.toBeNull();
+    expect(derivedCellFlag(member([flag({ reason: "r", columns: ["ret_1y"] })]), "tapeShort")).toBeNull();
+
+    // a flag that names only the short windows never reaches either cell
+    const short = member([flag({ reason: "island bar", columns: ["ret_1d", "ret_7d", "rvol8"] })]);
+    expect(derivedCellFlag(short, "off52w")).toBeNull();
+    expect(derivedCellFlag(short, "adv")).toBeNull();
+    expect(derivedCellFlag(null, "adv")).toBeNull();
+  });
+
+  it("known wrong beats in doubt across the proxies, and each distinct reason rides once", () => {
+    const m = member([
+      flag({ reason: "split", columns: ["ret_30d", "rvol20"] }),
+      flag({ kind: "price_feed_stopped", level: "known_wrong", reason: "stopped", columns: ["rvol20"] }),
+    ]);
+    // ret_30d -> "split"; rvol20 -> "split\nstopped": the merged hover names "split" once
+    expect(derivedCellFlag(m, "adv")).toEqual({ level: "known_wrong", reason: "split\nstopped" });
+  });
+});
+
+describe("dataFlags — the last close reads the newest bar, and a stopped feed does not blank it", () => {
+  it("follows 1d alone, and inherits every kind EXCEPT a stopped price feed", () => {
+    const split = member([flag({ reason: "split", columns: ["ret_1d"] })]);
+    expect(derivedCellFlag(split, "last")).toEqual({ level: "in_doubt", reason: "split" });
+    // a flag that reaches only the older windows never touches the newest bar
+    expect(derivedCellFlag(member([flag({ reason: "r", columns: ["ret_7d", "ret_30d"] })]), "last")).toBeNull();
+
+    const stopped = member([
+      flag({ kind: "price_feed_stopped", level: "known_wrong", reason: "stopped", columns: ["ret_1d", "ret_7d"] }),
+    ]);
+    // the returns on the row are blanked by it…
+    expect(cellFlag(stopped, "ret_1d")).toEqual({ level: "known_wrong", reason: "stopped" });
+    // …but the last real print is not
+    expect(derivedCellFlag(stopped, "last")).toBeNull();
+    expect(stoppedFeedReason(stopped)).toBe("stopped");
+
+    // another kind on the same row still counts
+    const both = member([
+      flag({ kind: "price_feed_stopped", level: "known_wrong", reason: "stopped", columns: ["ret_1d"] }),
+      flag({ reason: "split", columns: ["ret_1d"] }),
+    ]);
+    expect(derivedCellFlag(both, "last")).toEqual({ level: "in_doubt", reason: "split" });
+  });
+
+  it("stoppedFeedReason is null for a name with no stopped-feed flag", () => {
+    expect(stoppedFeedReason(null)).toBeNull();
+    expect(stoppedFeedReason(member([flag({ columns: ["ret_1d"] })]))).toBeNull();
   });
 });

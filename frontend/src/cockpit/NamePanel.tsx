@@ -20,6 +20,7 @@ import {
   daysFrom,
   fmtDate,
   gradeClass,
+  SETUP_STRENGTH_TOOLTIP,
   supersectorLabel,
   verdictLabel,
 } from "../util/format";
@@ -221,7 +222,7 @@ export function NamePanel({
           {conf !== null && (
             <div className="np-conf">
               <div className="row">
-                <span>Confidence</span>
+                <span title={SETUP_STRENGTH_TOOLTIP}>Setup strength</span>
                 <span>{conf}%</span>
               </div>
               <div className="bar">

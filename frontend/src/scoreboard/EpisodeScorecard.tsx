@@ -7,7 +7,7 @@ import {
   useThesisDataFlags,
   useWorkbenchScored,
 } from "../api/hooks";
-import { fmtDate, gradeClass } from "../util/format";
+import { fmtDate, gradeClass, SETUP_STRENGTH_TOOLTIP } from "../util/format";
 import { isRerun } from "./editions";
 import { EventLedger } from "./EventLedger";
 import { identityCells, signalHeadlines, transitionLines } from "./ledger";
@@ -349,7 +349,7 @@ export function EpisodeScorecard({
                 </span>
               )}
               {strength != null && (
-                <span title="an experimental relative indicator — not a probability">
+                <span title={SETUP_STRENGTH_TOOLTIP}>
                   setup strength {strength}%
                 </span>
               )}

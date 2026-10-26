@@ -138,6 +138,8 @@ body {
   border-bottom: none;
   box-shadow: inset 0 -1px 0 var(--line);
 }
+/* keyboard stepping scrolls the next row into view: keep it clear of the sticky column header */
+.basket-scroll table.basket tr.bkt { scroll-margin-top: 40px; }
 /* the two corner cells stick on BOTH axes, so they must out-rank the header row (3) and the
    body's sticky identity columns (1) */
 .basket-scroll table.basket thead th.dotc, .basket-scroll table.basket thead th.tk { z-index: 4; }
@@ -377,6 +379,23 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .basket td.insc { white-space: nowrap; }
 .basket td.insc .insider { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
 .basket td.insc .insider.cluster { color: var(--leader); font-weight: 600; }
+/* Last close: mono, muted and un-accented like the other level cells; a bar older than the basket's newest
+   (a halt, a delisting, a thin name) adds its date, dimmer still — the exception, never every row (#7) */
+.basket td.lastc { white-space: nowrap; }
+.basket td.lastc .last { font-family: var(--mono); font-size: 10.5px; color: var(--txt-2); }
+.basket td.lastc .last.old { color: var(--txt-3); }
+.basket td.lastc .last-date { color: var(--txt-4); }
+/* 52w (% off the 52-week closing high) and ADV 20d (20-bar average dollar volume): mono like the other
+   display cells, muted and un-accented — always-present context, no threshold of their own (#7) */
+.basket td.rngc, .basket td.advc { white-space: nowrap; }
+.basket td.rngc .off52w, .basket td.advc .adv { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
+/* the Tape marks: small neutral outlined chips, mono — only the direction glyph carries a tint (the shared
+   .dirg rule), so a mark never reads as the return green/red, the RVOL warm or the insider blue (#7). The
+   default is a muted "—"; a chip is the exception. */
+.basket td.tapec { white-space: nowrap; }
+.tape { display: inline-flex; gap: 5px; vertical-align: middle; }
+.tape-chip { font-family: var(--mono); font-size: 10px; color: var(--txt-3); border: 1px solid var(--line-2); border-radius: 4px; padding: 0 5px; line-height: 1.5; }
+.tape-chip .g { margin-right: 3px; }
 /* the close-path sparkline (the price_path member's fixed-slot series, after the return ladder): a
    NEUTRAL hairline in the muted text gray — no accent, so the shape never conflates with the return
    green/red, the RVOL warm, or the insider blue (#7). A null slot BREAKS the line (never interpolated):
@@ -453,8 +472,10 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .ev .typ { font-family: var(--mono); font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em; color: var(--txt); background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 5px; padding: 2px 7px; white-space: nowrap; }
 .ev .lbl, .cat .lbl { flex: 1; font-size: 12px; color: var(--txt-2); }
 .ev .dt, .cat .kind { font-family: var(--mono); font-size: 10.5px; color: var(--txt-4); }
-.cat .when { font-family: var(--mono); font-size: 11px; font-weight: 700; width: 84px; color: var(--txt-2); }
+.cat .when { font-family: var(--mono); font-size: 11px; font-weight: 700; width: 118px; flex-shrink: 0; white-space: nowrap; color: var(--txt-2); }
 .cat.soon .when { color: var(--armed); }
+/* a date already past: grayed, never hidden — "Oct 1 · 21d ago" needs the wider date column above */
+.cat.passed .when, .cat.passed .lbl, .cat.passed .kind { color: var(--txt-4); }
 .kill { font-size: 12px; color: var(--txt-2); line-height: 1.55; display: flex; gap: 9px; margin-bottom: 7px; }
 .kill::before { content: "\2298"; color: var(--neg); font-size: 12px; margin-top: 1px; }
 
@@ -545,6 +566,11 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .trg-item.hit .ic { color: var(--pos); }
 .trg-item.miss .ic { color: var(--txt-4); }
 .trg-item.warn .ic { color: var(--warm); }
+/* the catalyst surface: ambient, never an alert (#7) — a muted glyph and kind, and a date already past
+   grays rather than vanishes */
+.trg-item.cal .ic { color: var(--txt-4); }
+.trg-item.cal .cal-kind { margin-left: 6px; font-size: 10px; color: var(--txt-4); }
+.trg-item.cal.passed { opacity: 0.6; }
 /* the foreign-filer scoped sub-note under a missing conviction line — muted, indented, ambient (#7) */
 .trg-item.miss .miss-note { display: block; margin-top: 4px; font-size: 10px; line-height: 1.45; color: var(--txt-4); font-style: italic; }
 /* the source link is an unbreakable unit — "↗ source" never splits across a wrap */
@@ -621,6 +647,9 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .dq-item:hover { border-color: var(--armed); background: var(--panel-2); }
 .dq-item b { font-family: var(--mono); font-weight: 700; font-size: 12px; }
 .dq-item span { color: var(--txt-2); font-size: 11.5px; }
+/* the act-by clock: muted mono; warm only when the call flags the entry window closing (#7) */
+.dq-item .dq-clock { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
+.dq-item .dq-clock.closing { color: var(--warm); font-weight: 700; }
 .dq-empty { color: var(--txt-3); font-size: 11px; }
 
 .board { flex: 1; display: grid; grid-template-columns: repeat(4, 1fr); overflow: hidden; }
@@ -658,7 +687,7 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .pip { width: 13px; height: 4px; border-radius: 2px; background: var(--line-2); }
 .pip.on { background: var(--txt-2); }
 .countchip { font-family: var(--mono); font-size: 10px; color: var(--manage); border: 1px solid rgba(52, 194, 160, 0.35); border-radius: 20px; padding: 1px 8px; margin-left: auto; }
-/* the conviction grade as secondary context next to the lead entry verdict ("core thesis") */
+/* the conviction grade as secondary context next to the lead entry verdict ("core setup") */
 .foot .conv { font-family: var(--mono); font-size: 9.5px; color: var(--txt-4); }
 
 .col.incub .card { background: rgba(16, 19, 24, 0.5); border-color: rgba(30, 35, 44, 0.7); }

@@ -1,4 +1,4 @@
-import { Fragment, useState } from "react";
+import { Fragment, useState, type KeyboardEvent } from "react";
 import { flushSync } from "react-dom";
 
 import type { DisplaySignal, MemberDataFlagsOut } from "../api/hooks";
@@ -11,17 +11,22 @@ import {
 } from "../api/hooks";
 import { CallCard } from "../components/CallCard";
 import { DataFlagMark, FlagWrap } from "./DataFlagMark";
-import { cellFlag, factorWords, flagsBySid } from "./dataFlags";
+import { cellFlag, derivedCellFlag, factorWords, flagsBySid, stoppedFeedReason } from "./dataFlags";
 import {
+  AdvCell,
   GroupMovingLine,
   InsiderCell,
+  LastCell,
+  Off52wCell,
   PostureCell,
   ReturnCells,
   RvolCell,
   SparklineCell,
+  TapeCell,
   type SparkTick,
 } from "./DisplaySignalsSection";
 import { groupMoving } from "./groupAggregate";
+import { tapeMarks } from "./tapeMarks";
 import { CatalystEditor, KillCriteriaEditor } from "./SpineListEditors";
 import { MemberMenu } from "../components/MemberMenu";
 import {
@@ -42,6 +47,7 @@ import { exportKeptNames, exportWatchlist, toExportedName } from "../util/export
 import {
   accentVar,
   businessTypeLabel,
+  byWhenDateAsc,
   daysFrom,
   fmtDate,
   STATE_CLASS,
@@ -199,6 +205,23 @@ export function Cockpit({
     const sig = (m.signals ?? []).find((s) => s.kind === "price_path");
     if (sig) pathBySid.set(m.security_id, sig);
   }
+  // the 52-week range (the `52w` column) and the volume regime (`ADV 20d`), then the two members the Tape
+  // column reads beside the SMA map above (`vcp`, `relative_strength`) — the SAME display-signals query, more
+  // members on the generic payload, bridged by security_id like the cells above
+  const rangeBySid = new Map<string, DisplaySignal>();
+  const volumeBySid = new Map<string, DisplaySignal>();
+  const vcpBySid = new Map<string, DisplaySignal>();
+  const rsBySid = new Map<string, DisplaySignal>();
+  for (const m of displayQ.data?.members ?? []) {
+    const range = (m.signals ?? []).find((s) => s.kind === "range_52w");
+    if (range) rangeBySid.set(m.security_id, range);
+    const volume = (m.signals ?? []).find((s) => s.kind === "volume_regime");
+    if (volume) volumeBySid.set(m.security_id, volume);
+    const vcp = (m.signals ?? []).find((s) => s.kind === "vcp");
+    if (vcp) vcpBySid.set(m.security_id, vcp);
+    const rs = (m.signals ?? []).find((s) => s.kind === "relative_strength");
+    if (rs) rsBySid.set(m.security_id, rs);
+  }
   // S3 — the shared "is this real?" data flags (compute-on-read, display-only): which cells on a row rest
   // on data the platform cannot vouch for. Bridged by security_id like the display cells; a row with no
   // entry has no flag (the common case). Only the cells a flag names change (in doubt: grayed + the reason
@@ -227,6 +250,13 @@ export function Cockpit({
         barsAgo: s.bars_ago as number,
         label: `${s.label} ${s.effective_date} (prices before it ${factorWords(s.factor)})`,
       }));
+  // the newest last-bar date across the basket: a row whose last close is OLDER than it is lagging (a halt, a
+  // delisting, a thin OTC name with no print) and its Last close cell says when. Relative to the table, so a
+  // weekend or a holiday — when every row's newest bar is the same Friday — marks nothing.
+  const newestBar = [...smaBySid.values()].reduce(
+    (max, s) => ((s.basis.window_end ?? "") > max ? (s.basis.window_end ?? "") : max),
+    "",
+  );
   const thesis = thesisQ.data;
   const card = callQ.data;
   // C2: any of the as-of-keyed reads may still be showing the PREVIOUS date's values
@@ -350,6 +380,8 @@ export function Cockpit({
       trail: sid ? (trailBySid.get(sid) ?? null) : null,
       rvol: sid ? (rvolBySid.get(sid) ?? null) : null,
       insider: sid ? (insiderBySid.get(sid) ?? null) : null,
+      range: sid ? (rangeBySid.get(sid) ?? null) : null,
+      volume: sid ? (volumeBySid.get(sid) ?? null) : null,
     };
   };
   const sortedGroups = sort
@@ -381,6 +413,31 @@ export function Cockpit({
     const doc = document as Document & { startViewTransition?: (cb: () => void) => unknown };
     if (doc.startViewTransition) doc.startViewTransition(() => flushSync(apply));
     else apply();
+  };
+
+  // Keyboard stepping: ↑/↓ on a focused row moves to the previous / next VISIBLE row — the rendered order,
+  // so the active lens and sort count, and a folded group is skipped (it stays mounted, collapsed). Focus
+  // always moves; with the per-name panel OPEN the panel follows it, so a basket is scanned a row at a time
+  // without the mouse. The panel only follows onto the row its key RESOLVES to: a name shown under several
+  // value-chain links resolves to its first row (the click rule), so a later link-row takes focus and leaves
+  // the panel where it is rather than jumping the highlight to a row far above.
+  const navRows = sortedGroups
+    .filter((g) => !closedGroups.has(g.key))
+    .flatMap((g) => g.rows.map(({ row }) => row));
+  const stepRow = (e: KeyboardEvent<HTMLTableRowElement>, from: BucketRow, dir: 1 | -1) => {
+    if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.target !== e.currentTarget) return;
+    e.preventDefault(); // the row owns the arrow: the scroller must not also move
+    const to = navRows[navRows.findIndex((r) => r.ordinal === from.ordinal) + dir];
+    if (!to) return; // the first / last visible row: nothing further that way
+    const el = e.currentTarget
+      .closest("table")
+      ?.querySelector<HTMLElement>(`tr.bkt[data-ordinal="${to.ordinal}"]`);
+    el?.focus({ preventScroll: true });
+    el?.scrollIntoView?.({ block: "nearest" });
+    if (selOrdinal !== null) {
+      const key = nameKeyFor(to, basket);
+      if (resolveNameKey(groups, key)?.row.ordinal === to.ordinal) onSelectName(key);
+    }
   };
 
   const evidence = thesis?.evidence ?? [];
@@ -564,6 +621,9 @@ export function Cockpit({
                         <SortableTh col="ticker" label="Ticker" className="tk" sort={sort} onSort={onSort} />
                         <SortableTh col="name" label="Name" sort={sort} onSort={onSort} />
                         <SortableTh col="type" label="Type" sort={sort} onSort={onSort} />
+                        {/* the newest END-OF-DAY close at or before the as-of (the sma_position member's
+                            `close`) — "last known": it stays when the tape has stopped, with its date */}
+                        <SortableTh col="last" label="Last close" align="right" sort={sort} onSort={onSort} />
                         <SortableTh col="sma" label="SMA" align="right" sort={sort} onSort={onSort} />
                         {/* trailing EOD price returns — 1d is the last close vs the PRIOR close (not a
                             24h/intraday move; this platform is end-of-day) */}
@@ -583,6 +643,20 @@ export function Cockpit({
                         >
                           Path
                         </th>
+                        {/* how far the last close sits below the 52-week closing high (0.0% = at the high) —
+                            the range_52w member's pct_off_52w_high; the high and its bar date ride the hover */}
+                        <SortableTh col="off52w" label="Off 52w high" align="right" sort={sort} onSort={onSort} />
+                        {/* the EXCEPTIONAL tape readings only — a coiling base, RS at a 13-week high, a recent
+                            golden / death cross (the vcp / relative_strength / sma_position members). A muted
+                            "—" on most rows; a plain, NON-sortable header like Path: a set of marks is not a
+                            number to rank on. */}
+                        <th
+                          className="tapec"
+                          style={{ textAlign: "right" }}
+                          title="exceptional tape readings only — a coiling base, relative strength at a 13-week high, a golden or death cross in the last 30 days; hover a mark for the member's own statement. A set of marks, not a number, so it is not sortable"
+                        >
+                          Tape
+                        </th>
                         {/* relative volume, two windows off ONE member: RVOL 8D is the as-of bar's volume
                             vs the prior 8-bar average (mirrors the breakout detector — the call-matched
                             read); RVOL 20D is the same idea over 20 bars (the trader "unusually active vs
@@ -597,6 +671,9 @@ export function Cockpit({
                         <SortableTh col="ins_30d" label="Ins 30d" align="right" sort={sort} onSort={onSort} />
                         <SortableTh col="ins_90d" label="Ins 90d" align="right" sort={sort} onSort={onSort} />
                         <SortableTh col="mktcap" label="Mkt cap" align="right" sort={sort} onSort={onSort} />
+                        {/* the liquidity read beside the size: 20-bar average DOLLAR volume (close × volume),
+                            off the volume_regime member — no threshold, "thin" is the operator's call */}
+                        <SortableTh col="adv" label="ADV 20d" align="right" sort={sort} onSort={onSort} />
                         {/* the two clocks, each its own sortable column (they were one stacked
                             cell): Entry-by is the CONFIRMATION clock — when the member de-arms —
                             and it closes weeks before Exit-by, the conviction/hold horizon. */}
@@ -608,7 +685,7 @@ export function Cockpit({
                       {sortedGroups.map((g) => (
                         <Fragment key={g.key}>
                           <tr className={`grp ${g.cls}`}>
-                            <td colSpan={18}>
+                            <td colSpan={22}>
                               {/* the To Review heading idiom (chev · label · hint · count · moving
                                   line · hairline), bucket-colored; click-to-collapse, open by default
                                   — the count + the moving line stay visible while closed, so a
@@ -652,11 +729,14 @@ export function Cockpit({
                               className={`bkt ${def.cls}${closedGroups.has(g.key) ? " folded" : ""}${r.ordinal === selOrdinal ? " sel" : ""}`}
                               tabIndex={0}
                               aria-selected={r.ordinal === selOrdinal}
+                              data-ordinal={r.ordinal}
                               onClick={() => toggleRow(r)}
                               onKeyDown={(e) => {
                                 if (e.key === "Enter" || e.key === " ") {
                                   e.preventDefault();
                                   toggleRow(r);
+                                } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                                  stepRow(e, r, e.key === "ArrowDown" ? 1 : -1);
                                 }
                               }}
                             >
@@ -716,6 +796,22 @@ export function Cockpit({
                                   <span className="muted">—</span>
                                 )}
                               </td>
+                              <td className="met lastc">
+                                {/* the last close, with its bar date when it lags the basket's newest bar. A
+                                    stopped feed is NOT blanked here (see DERIVED_CELL_SKIPS): the last print is
+                                    the point — it shows with its date and the flag's reason on hover. */}
+                                <FlagWrap flag={derivedCellFlag(flagsFor(r.member.security_id), "last")}>
+                                  <LastCell
+                                    sig={
+                                      r.member.security_id
+                                        ? (smaBySid.get(r.member.security_id) ?? null)
+                                        : null
+                                    }
+                                    newestBar={newestBar || null}
+                                    stopped={stoppedFeedReason(flagsFor(r.member.security_id))}
+                                  />
+                                </FlagWrap>
+                              </td>
                               <td className="met smac">
                                 {/* the tape posture at table grain: the panel headline's glyph + the
                                     distance vs the slow line; the literal statement rides the hover */}
@@ -757,6 +853,41 @@ export function Cockpit({
                                     ticks={splitTicks(r.member.security_id)}
                                   />
                                 </FlagWrap>
+                              </td>
+                              <td className="met rngc">
+                                {/* % off the 52-week closing high, off the range_52w member. The server's
+                                    flag vocabulary does not name this cell, so it takes its reach from the
+                                    named cells whose bar window contains its own (derivedCellFlag). */}
+                                <FlagWrap flag={derivedCellFlag(flagsFor(r.member.security_id), "off52w")}>
+                                  <Off52wCell
+                                    sig={
+                                      r.member.security_id
+                                        ? (rangeBySid.get(r.member.security_id) ?? null)
+                                        : null
+                                    }
+                                  />
+                                </FlagWrap>
+                              </td>
+                              <td className="met tapec">
+                                {/* the exception-only tape marks, off the sid-bridged sma / vcp / relative_strength
+                                    members; each chip is flagged on the named cells that read its bars */}
+                                <TapeCell
+                                  marks={tapeMarks(
+                                    {
+                                      sma: r.member.security_id
+                                        ? (smaBySid.get(r.member.security_id) ?? null)
+                                        : null,
+                                      vcp: r.member.security_id
+                                        ? (vcpBySid.get(r.member.security_id) ?? null)
+                                        : null,
+                                      rs: r.member.security_id
+                                        ? (rsBySid.get(r.member.security_id) ?? null)
+                                        : null,
+                                    },
+                                    asof,
+                                  )}
+                                  flagFor={(cell) => derivedCellFlag(flagsFor(r.member.security_id), cell)}
+                                />
                               </td>
                               <td className="met rvolc">
                                 {/* RVOL 8D — the call-matched 8-bar read: a warm 'hot' accent on a
@@ -827,6 +958,19 @@ export function Cockpit({
                                   {formatMarketCap(r.scored?.market_cap.value)}
                                 </FlagWrap>
                               </td>
+                              <td className="met advc">
+                                {/* 20-bar average dollar volume, off the volume_regime member; flagged like
+                                    the 52w cell, through the price and volume cells that read its bars */}
+                                <FlagWrap flag={derivedCellFlag(flagsFor(r.member.security_id), "adv")}>
+                                  <AdvCell
+                                    sig={
+                                      r.member.security_id
+                                        ? (volumeBySid.get(r.member.security_id) ?? null)
+                                        : null
+                                    }
+                                  />
+                                </FlagWrap>
+                              </td>
                               {/* Armed / Lapsing / Theme-armed only (ENTRY_WINDOW_BUCKETS, shared
                                   with the sort key): a Watch row carries arm_until on the wire too
                                   but must NOT light up — its clock is a confirmation decay, not an
@@ -884,14 +1028,18 @@ export function Cockpit({
                   can never wipe the lists (the structural guard, server-side). */}
               <section className="sect vt-cats">
                 <div className="sect-h">Catalyst calendar</div>
-                {catalysts.map((c) => {
+                {/* a calendar reads in date order: soonest first, a fuzzy "~Q3" last — a DISPLAY sort of a
+                    copy; the editor below still gets the authoring order, which is what a save stores. A
+                    date already past reads "Nd ago" and grays: it stays on the calendar (keep it visible). */}
+                {[...catalysts].sort(byWhenDateAsc).map((c) => {
                   const d = daysFrom(asof, c.when_date);
                   const soon = d !== null && d >= 0 && d <= 21;
+                  const passed = d !== null && d < 0;
                   const when = c.when_date
-                    ? `${fmtDate(c.when_date)}${d !== null && d >= 0 ? ` · ${d}d` : ""}`
+                    ? `${fmtDate(c.when_date)}${d === null ? "" : d >= 0 ? ` · ${d}d` : ` · ${-d}d ago`}`
                     : (c.when_label ?? "—");
                   return (
-                    <div className={`cat ${soon ? "soon" : ""}`} key={c.id}>
+                    <div className={`cat${soon ? " soon" : ""}${passed ? " passed" : ""}`} key={c.id}>
                       <span className="when">{when}</span>
                       <span className="lbl">{c.label}</span>
                       <span className="kind">{c.kind ?? ""}</span>
