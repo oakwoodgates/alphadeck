@@ -2,6 +2,7 @@ import type { CallCardResponse } from "../api/hooks";
 import {
   accentVar,
   byEventDateDesc,
+  byWhenDateAsc,
   CALL_HEAD,
   daysFrom,
   fmtDate,
@@ -17,15 +18,6 @@ import { DecisionActions } from "./DecisionActions";
 import { RailPanel } from "./RailPanel";
 
 type TriggerLike = NonNullable<CallCardResponse["triggers_fired"]>[number];
-type CatalystLike = NonNullable<CallCardResponse["catalyst_surface"]>[number];
-
-/** Soonest-first comparator for the catalyst surface by ISO (`YYYY-MM-DD`) date; an undated entry sorts
- *  last. String compare == chronological for ISO dates, and the sort is stable, so equal dates keep the
- *  operator's authoring order. */
-export function byWhenDateAsc(a: CatalystLike, b: CatalystLike): number {
-  if (!a.when_date || !b.when_date) return a.when_date ? -1 : b.when_date ? 1 : 0;
-  return a.when_date.localeCompare(b.when_date);
-}
 
 /** The counter-case, as a COUNT of the two lists rendered above it rather than a restatement of
  *  them. The wire's `counter_case` string is deliberately NOT read: it is assembled server-side as

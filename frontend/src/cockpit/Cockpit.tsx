@@ -46,6 +46,7 @@ import { exportKeptNames, exportWatchlist, toExportedName } from "../util/export
 import {
   accentVar,
   businessTypeLabel,
+  byWhenDateAsc,
   daysFrom,
   fmtDate,
   STATE_CLASS,
@@ -1000,14 +1001,18 @@ export function Cockpit({
                   can never wipe the lists (the structural guard, server-side). */}
               <section className="sect vt-cats">
                 <div className="sect-h">Catalyst calendar</div>
-                {catalysts.map((c) => {
+                {/* a calendar reads in date order: soonest first, a fuzzy "~Q3" last — a DISPLAY sort of a
+                    copy; the editor below still gets the authoring order, which is what a save stores. A
+                    date already past reads "Nd ago" and grays: it stays on the calendar (keep it visible). */}
+                {[...catalysts].sort(byWhenDateAsc).map((c) => {
                   const d = daysFrom(asof, c.when_date);
                   const soon = d !== null && d >= 0 && d <= 21;
+                  const passed = d !== null && d < 0;
                   const when = c.when_date
-                    ? `${fmtDate(c.when_date)}${d !== null && d >= 0 ? ` · ${d}d` : ""}`
+                    ? `${fmtDate(c.when_date)}${d === null ? "" : d >= 0 ? ` · ${d}d` : ` · ${-d}d ago`}`
                     : (c.when_label ?? "—");
                   return (
-                    <div className={`cat ${soon ? "soon" : ""}`} key={c.id}>
+                    <div className={`cat${soon ? " soon" : ""}${passed ? " passed" : ""}`} key={c.id}>
                       <span className="when">{when}</span>
                       <span className="lbl">{c.label}</span>
                       <span className="kind">{c.kind ?? ""}</span>

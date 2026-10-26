@@ -1,0 +1,106 @@
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+
+// The Cockpit's catalyst calendar reads in DATE order — soonest first, a fuzzy "~Q3" last — with a date
+// already past shown as "Nd ago" and grayed (it stays on the calendar, never vanishes). The order is a DISPLAY
+// sort of a copy: the editor still opens on the operator's AUTHORING order, which is what a save stores.
+const fx = vi.hoisted(() => {
+  const cat = (id: string, label: string, when_date: string | null, when_label: string | null = null) => ({
+    id, label, kind: null, when_date, when_label,
+  });
+  return {
+    thesis: {
+      id: "t-cal", name: "Calendar", narrative: "n", ticker: null, segments: [], basket: [],
+      evidence: [], kill_criteria: [], position: null,
+      // AUTHORING order — deliberately not chronological
+      catalysts: [
+        cat("c1", "Investor day", null, "~Q1"),
+        cat("c2", "Phase 3 readout", "2026-12-15"),
+        cat("c3", "Competitor halted", "2026-10-01"),
+        cat("c4", "FDA decision", "2026-10-30"),
+        cat("c5", "Earnings", "2026-10-22"),
+      ],
+    },
+  };
+});
+
+vi.mock("../../api/hooks", () => ({
+  useThesis: () => ({ data: fx.thesis, isLoading: false, error: null }),
+  useCall: () => ({ data: undefined, isLoading: false, error: null }),
+  useWorkbenchScored: () => ({ data: { members: [] }, isLoading: false, error: null }),
+  useDisplaySignals: () => ({ data: undefined, isLoading: false, error: null }),
+  useThesisDataFlags: () => ({ data: undefined, isLoading: false, error: null }),
+  usePutCatalysts: () => ({ mutate: () => {}, isPending: false, isError: false, error: null }),
+  usePutKillCriteria: () => ({ mutate: () => {}, isPending: false, isError: false, error: null }),
+}));
+
+import { Cockpit } from "../Cockpit";
+
+const renderCockpit = () =>
+  render(
+    <Cockpit
+      thesisId="t-cal"
+      asof="2026-10-22"
+      onAsofChange={() => {}}
+      onBack={() => {}}
+      selectedName={null}
+      onSelectName={() => {}}
+      railOpen
+      onRailChange={() => {}}
+    />,
+  );
+
+const rows = () => [...document.querySelectorAll(".vt-cats .cat")] as HTMLElement[];
+
+describe("Cockpit — the catalyst calendar", () => {
+  it("lists the events soonest first, an undated one last", () => {
+    renderCockpit();
+    expect(rows().map((r) => r.querySelector(".lbl")?.textContent)).toEqual([
+      "Competitor halted",
+      "Earnings",
+      "FDA decision",
+      "Phase 3 readout",
+      "Investor day",
+    ]);
+  });
+
+  it("reads a past date as 'Nd ago', today and ahead as 'Nd', and a fuzzy one as its own label", () => {
+    renderCockpit();
+    expect(rows().map((r) => r.querySelector(".when")?.textContent)).toEqual([
+      "Oct 1 · 21d ago",
+      "Oct 22 · 0d",
+      "Oct 30 · 8d",
+      "Dec 15 · 54d",
+      "~Q1",
+    ]);
+  });
+
+  it("grays a past date (never hides it) and accents only what is within 21 days ahead", () => {
+    renderCockpit();
+    const [past, today, fda, far, fuzzy] = rows();
+    expect(past.className).toContain("passed");
+    expect(past.className).not.toContain("soon");
+    expect(today.className).toContain("soon");
+    expect(fda.className).toContain("soon");
+    for (const r of [far, fuzzy]) {
+      expect(r.className).not.toContain("soon");
+      expect(r.className).not.toContain("passed");
+    }
+    expect(rows()).toHaveLength(5); // nothing dropped
+  });
+
+  it("opens the editor on the AUTHORING order — the display sort never reorders what a save stores", () => {
+    renderCockpit();
+    fireEvent.click(screen.getByRole("button", { name: /edit the calendar/ }));
+    const labels = [1, 2, 3, 4, 5].map(
+      (i) => (screen.getByLabelText(`catalyst label ${i}`) as HTMLInputElement).value,
+    );
+    expect(labels).toEqual([
+      "Investor day",
+      "Phase 3 readout",
+      "Competitor halted",
+      "FDA decision",
+      "Earnings",
+    ]);
+  });
+});

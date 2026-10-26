@@ -2,8 +2,8 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { CallCardResponse } from "../../api/hooks";
-import { SETUP_STRENGTH_TOOLTIP, todayISO } from "../../util/format";
-import { byWhenDateAsc, CallCard, counterCaseSummary } from "../CallCard";
+import { byWhenDateAsc, SETUP_STRENGTH_TOOLTIP, todayISO } from "../../util/format";
+import { CallCard, counterCaseSummary } from "../CallCard";
 
 // A minimal armed card: one graded trigger (shows its grade + source link, hit/◉) and one risk signal that
 // CARRIES a grade which must NOT render (the TriggerRow showGrade=false path, warn/▲). conviction_grade is

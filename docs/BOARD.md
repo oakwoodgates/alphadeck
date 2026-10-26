@@ -77,9 +77,11 @@ basket table + the per-name panel** (the next two sections), evidence, and two *
 lists** that render *even at zero* (an empty section used to vanish, which made "there's no way to
 author one" invisible):
 
-- **Catalyst calendar** — the thesis-level *surface* events (label · kind · date or a fuzzy "~Q3").
-  Dated entries within the `exit_by` signal-validity horizon ride the CallCard's catalyst surface; entries ≤ 21 days out
-  highlight as `soon`. Edited in place (`✎ edit` / `+ add catalysts`); saves through the sole-writer
+- **Catalyst calendar** — the thesis-level *surface* events (label · kind · date or a fuzzy "~Q3"), listed in
+  **date order** — soonest first, a fuzzy one last (a display sort of a copy; storage and the editor keep the
+  operator's authoring order, and a save stores exactly that). A date already past reads "Nd ago" and grays — it
+  stays on the calendar, never vanishes. Dated entries within the `exit_by` signal-validity horizon ride the
+  CallCard's catalyst surface; entries ≤ 21 days out highlight as `soon`. Edited in place (`✎ edit` / `+ add catalysts`); saves through the sole-writer
   `PUT /theses/{id}/catalysts` — a promote can never wipe the list. **Distinct from the per-name
   conviction FACTS** (the Key-1 arming inputs), which are authored on the Workbench rail with a required
   citation (`WORKBENCH_EXTRACTION.md`).
@@ -446,7 +448,9 @@ yet confirmed. Nothing here changes a call, and none of it touches the edition e
 **The CallCard's catalyst panel**
 - It shows the assembler's `catalyst_surface`, which keeps only **dated** catalysts on or before `exit_by` with no
   lower bound: a fuzzy entry ("~Q3", a label with no date) never reaches the rail (it lives in the Cockpit's
-  calendar), and a past-dated one keeps showing as "passed" until the operator removes it.
+  calendar), and a past-dated one keeps showing as "passed" until the operator removes it. The Cockpit calendar has the same
+  property ("Nd ago"): nothing archives a past event, so a long-lived thesis's calendar grows until the operator
+  prunes it in the editor, which lists in authoring order, not the calendar's date order.
 
 ## What the Board never does (decisions, not gaps)
 
