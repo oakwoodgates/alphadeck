@@ -15,7 +15,7 @@
 
 | Dial | Current | Drives | Note |
 |---|---|---|---|
-| `warming_min_entry_triggers` | 1 | Incubating → Warming | |
+| `warming_min_entry_triggers` | 1 | Incubating → Warming | counts raw events, and a company in N links counts N times today — fix before sweeping it above 1 (`CALL_LOGIC.md` "Known defect") |
 | `risk_block_severity` | 0.70 | severe risk blocks the arm (timing veto) | block-vs-penalize is fixed; only the threshold tunes |
 | `risk_penalty_per_signal` | 0.10 | setup-strength cut per active risk signal (`confidence` in code) | scaled by the signal's score |
 | `dilution_overhang_severe_pct` | 25.0 | gross overhang that scales to a block | HIMS ~6% lands well below |

@@ -166,6 +166,8 @@ def test_a_fingerprint_change_with_the_same_output_records_no_change_once(
 ):
     """The deploy changed the fingerprint but no card: no edition, one ``trial_no_change`` carrying the new
     fingerprint — and the next night runs NO trial."""
+    # this scenario is "no rule was declared": pin the log empty so it does not depend on the shipped entries
+    monkeypatch.setattr(rule_log, "RULE_LOG", ())
     _, _, _, ed = _published(db, security_id, monkeypatch, tmp_path)
     changed = _new_fingerprint(monkeypatch)
     trials = _spy_trials(monkeypatch)

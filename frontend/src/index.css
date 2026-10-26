@@ -217,13 +217,16 @@ tr.grp td { padding: 15px 0 5px 9px; border-bottom: none; }
 .bkt-warming { --gc: var(--warm); }
 .bkt-watch { --gc: var(--incub); }
 .bkt-quiet { --gc: var(--txt-4); }
+/* the two silent links (Context / Bench) — the quiet bucket's muted accent: a name that never counts toward the
+   call is the quietest thing on the page (#7) */
+.bkt-context, .bkt-bench { --gc: var(--txt-4); }
 /* the business-type lens's group header (Business-Type M1) — a neutral accent: the CALL keeps the
    color (each row's own state dot); the type grouping is organization, not urgency (inverse loudness) */
 .bkt-type { --gc: var(--txt-3); }
 /* the value-chain (segment) lens header — same neutral accent, same reasoning: it's structure, not
    urgency; each row still shows its own call-state dot */
 .bkt-segment { --gc: var(--txt-3); }
-tr.bkt-theme .rowdot, tr.bkt-warming .rowdot, tr.bkt-quiet .rowdot {
+tr.bkt-theme .rowdot, tr.bkt-warming .rowdot, tr.bkt-quiet .rowdot, tr.bkt-context .rowdot, tr.bkt-bench .rowdot {
   background: transparent; border: 1.5px solid var(--gc);
 }
 
@@ -238,8 +241,10 @@ table.basket { view-transition-name: cp-basket; }
 @media (prefers-reduced-motion: reduce) {
   ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none; }
 }
-tr.bkt-quiet td { color: var(--txt-3); }
-tr.bkt-quiet .tk { color: var(--txt-2); }
+tr.bkt-quiet td, tr.bkt-context td, tr.bkt-bench td { color: var(--txt-3); }
+tr.bkt-quiet .tk, tr.bkt-context .tk, tr.bkt-bench .tk { color: var(--txt-2); }
+/* the business-type lens's "context" / "bench" tag beside a silent name's ticker — small, lowercase, muted */
+.silent-tag { color: var(--txt-4); font-size: 9.5px; margin-left: 6px; letter-spacing: 0.02em; cursor: help; }
 table.basket td.exitby.lapse { color: var(--warm); }
 /* the entry-window (confirmation) clock, its own column beside exit-by — the clock that actually
    governs how long an armed-family member stays armed (arm_until), and the one that closes first.
@@ -786,6 +791,11 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .seg-add-btn:disabled { opacity: 0.4; cursor: default; color: var(--txt-3); border-color: var(--line); }
 .seg-floor { display: inline-flex; align-items: center; font-family: var(--mono); font-size: 11px; color: var(--txt-3); background: var(--panel); border: 1px dashed var(--line-2); border-radius: 9px; padding: 6px 10px; }
 .seg-edit-hint { font-size: 11px; color: var(--txt-3); align-self: center; }
+/* the fixed silent links (Context / Bench) in the link editor — the Discovered floor's muted dashed look, no controls */
+.seg-silent { gap: 7px; }
+.seg-silent .seg-fixed { font-size: 8.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--txt-4); }
+/* a silent tab reads quieter than a real link's (#7) */
+.seg.silent .sn { color: var(--txt-3); font-weight: 500; }
 
 /* the honest authoring gap — this view scores & promotes a SEEDED chain; it cannot yet build one */
 .wb-authoring-gap { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 10px; }
@@ -917,6 +927,11 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .dd-seg-opt { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--txt-2); cursor: pointer; }
 .dd-seg-opt input { cursor: pointer; accent-color: var(--leader); }
 .dd-seg-opt input:disabled { cursor: default; }
+/* the two silent links (Context / Bench) under the real links: a quiet divider, muted rows — never loud (#7) */
+.dd-seg-silent { margin-top: 9px; }
+.dd-seg-divider { font-size: 9px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); margin-bottom: 5px; padding-top: 7px; border-top: 1px solid var(--line); }
+.dd-seg-divider em { font-style: normal; font-weight: 400; letter-spacing: 0.02em; text-transform: none; font-size: 10px; }
+.dd-seg-opt.silent { color: var(--txt-3); }
 .dd-seg-hint, .dd-seg-unsorted { font-size: 10.5px; margin: 4px 0 0; }
 .dd-seg-unsorted { color: var(--txt-4); font-style: italic; }
 .dd-meter { margin-bottom: 12px; }
@@ -973,6 +988,11 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .wb-seg-chip.discovered { border-style: dashed; border-color: var(--line); background: var(--panel); opacity: 0.85; }
 .wb-seg-pen-name { font-size: 12px; color: var(--txt-3); font-style: italic; padding: 0 2px; }
 .wb-seg-pen-nudge { margin: 0; }
+/* the two FIXED silent links (Context / Bench) — below the pen, the pen's muted dashed look, never loud (#7). Each row
+   is the read-only chip + its fixed descriptor; no inputs, no arrows, no remove. */
+.wb-seg-silent { display: flex; flex-direction: column; gap: 6px; }
+.wb-seg-silent-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.wb-seg-silent-desc { margin: 0; font-size: 10.5px; color: var(--txt-4); }
 .wb-seg-chip .seg-tag { font-size: 8.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--txt-4); white-space: nowrap; }
 /* add a link — its own row under a faint divider so it reads as an add affordance, not another link */
 .wb-seg-add { display: flex; gap: 6px; align-items: center; padding-top: 11px; border-top: 1px solid var(--line); }

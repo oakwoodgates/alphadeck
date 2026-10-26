@@ -48,6 +48,14 @@ almost certainly a property you should be reading instead.
 
 ## 1. Inputs
 
+**Which names the call reads — the voting roster `[BUILT — Context and Bench, 2026-10-26]`.** Every thesis carries two fixed, protected links as its last two: **Context** and **Bench** (`domain/thesis.py`). A company the *operator* places in either one stays on the card and visible but **never counts toward the call**: `pipeline.core.assemble_from_pit` — the one seam the serve path, the nightly, the backfill, replay, the editions engine and the backtest all share — first removes every row whose `segment` is `Context` or `Bench` (`voting_thesis`), and everything below it sees only the rest: the per-member detectors, the split-night hold and its `missing[]` lines, the theme broadcast, both rotation reads (a silent name can neither lead a rotation nor move the basket median a voting laggard is measured against) and `assemble_call`. **Discovered is a voting link and still counts.** The rules around it:
+- A company is **silent or voting, never both** — the write (`POST /workbench/theses`) refuses a company that holds a Context/Bench row and any other row, so removing silent *rows* never removes a voting company's vote.
+- **Only the operator** puts a name there — the chain drafter never writes either label (`docs/CHAIN_DRAFTER.md`).
+- **No `CallCard` field** records it (a new field would re-record every card; `CallCard.watch_members` already means "confirmation-only members" — nothing here is a "watch"). A card with both links empty — every card at birth — is byte-identical to what it was.
+- **History is honest with no new machinery:** the roster snapshot (`basket_snapshot`) stores each member's `segment`, and a history view hydrates the roster as the operator had it at the view's `known_at` (#1), so a past night is judged on the placement made by then — moving a name into Context changes the nights after it, never the nights before. The change is declared in `domain/rule_log.py` (`2026-10-silent-links`).
+- Out of scope in this change (reported, not built): the reads AROUND the call still see the whole roster, silent names included — the ingest/onboarding holds (`ingest_fresh`, the editions loading checks), the Scoreboard's roster count and single-name list, the backtest's basket benchmark and name-null rosters, and the data flags. The backtest's CALLS go through the seam above, so a silent name never moves a backtested call; only its basket-level comparisons read the full roster.
+- **A held name moved into Context or Bench** keeps the card Managing (that state comes from the position), but its own events — triggers AND risk signals — no longer reach the card, so its Managing row reads empty. An open question for the operator (exempt a held name, refuse the move, or keep its risk signals), not decided here.
+
 Per `SignalEvent` (see `domain/signal.py`): `detector, security_id, role, kind, type, grade, score, fired, label, alpha_liveness_days, provenance, asof`.
 
 **Signal taxonomy `[SPECIFIED]` (confirmed).** Three orthogonal fields:
@@ -826,3 +834,47 @@ operator tunes against real outcomes once the MVP has run. Those are consolidate
 momentum-only-vs-starter split, and the filed refinements). The deferred build items (age-decay of setup
 strength (`confidence` in code), the loans query group) live there too. Nothing here is a guessed number
 presented as decided — the dials are labeled as dials.
+
+### Known defect — a company in N links has its events counted N times  `[OPEN — operator decision, found 2026-10-26]`
+
+**What happens.** A company the operator placed in N value-chain links is N `basket_member` rows sharing one
+`security_id`, and two loops at the seam walk ROWS, not companies:
+- the per-member detector loop in `pipeline/core.py:assemble_from_pit`;
+- `signals/theme_conviction.py:broadcast`.
+
+So every one of that company's events enters the stream N times, as byte-identical copies. `laggard.detect` and
+`split_hold.find_holds` already dedupe (a `seen` set), and the assembler never reads the basket. MEASURED with an
+in-memory golden test over the real seam (11 scenarios: arm, mild risk, severe veto, flip-breakdown de-arm, theme
+broadcast, split-night hold, ties, core-vs-flip ranking, rotation with a multi-link leader or laggard).
+
+**What it does to the card today (cosmetic under the shipped config):**
+- **Repeated once per link:**
+  - `triggers_fired`, `risk_signals`, and each `MemberCall.triggers`;
+  - the blocking-risk "Risk must clear before arming" line in `missing[]`;
+  - the counter-case text;
+  - the Scoreboard's de-arm note, which joins risks undeduped (`scoreboard/record.py` `_dearm_detail`), so one risk reads "X · X";
+  - the CallCard rail, which renders each trigger twice.
+- **Identical to the one-link card:** state, verdict, the three grades, setup strength (`confidence`), `exit_by` /
+  `arm_until`, the armed set and the member ranking. Every rule there takes a max, an any, or a set of security ids.
+  `confidence()` caps and haircuts by KIND, not by event count.
+
+**Where it can change the call.** One rule counts raw events: `len(live_entry) >= cfg.warming_min_entry_triggers`
+in `calls/assembler.py` (§2's "≥ `warming_min_entry_triggers` live entry triggers"). It is inert at today's 1. At 2,
+a company with ONE live trigger sitting in two links warms the card (`incubating`/`watching` → `warming`/`not_yet`),
+which is MEASURED. So any recalibration or backtest-lab sweep that raises that dial is biased by this today
+(`docs/RECALIBRATION.md` §A).
+
+**The proposed fix (not built).** Dedupe the basket by `security_id` once at the seam, first occurrence in basket
+order, right after `voting_thesis`. Then the detector loop, the broadcast, the hold, both rotation reads and the
+notes all read one row per company. The alternative is a `seen` set in the two loops, mirroring the laggard. In the
+probe, every multi-link card then came out byte-identical to its one-link version, the dial case included.
+
+**What the fix would cost (why it waits for the operator):**
+- **Recorded cards change:** on any night where a voting multi-link company had a live trigger or an active risk,
+  the list fields above shrink to one copy each. `record_if_changed` compares the whole card, sorting lists but
+  never deduping, so each affected thesis appends one new call row.
+- **A new edition:** the engine fingerprint moves, so the editions trial would cut one. The fix needs its own
+  `domain/rule_log.py` entry, or the cut reads "unexplained change" and pages.
+- **What stays the same:** state, grades, arms and Scoreboard scoring under the default config.
+
+To do: a separate PR off main, with the count of affected cards measured on the operator's data before merge.

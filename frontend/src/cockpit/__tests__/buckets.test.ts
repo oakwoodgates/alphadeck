@@ -8,6 +8,7 @@ import type {
   TriggerRefOut,
 } from "../../api/hooks";
 import {
+  BUCKETS,
   dedupeBySecurityId,
   groupBasket,
   groupBySegment,
@@ -327,5 +328,153 @@ describe("resolveNameKey — ?name= back to the display row", () => {
     const c = card({ armed_members: [mcall("sa", { verdict: "core_entry" })] });
     const groups = groupBasket(basket, c, []);
     expect(resolveNameKey(groups, "A")?.def.key).toBe("armed");
+  });
+});
+
+// --- the two SILENT links (Context / Bench): never a call bucket ----------------------------------------
+describe("groupBasket — Context and Bench buckets", () => {
+  it("the buckets run … Quiet, Context, Bench — the silent pair after the quietest call bucket", () => {
+    expect(BUCKETS.map((b) => b.key)).toEqual([
+      "managing", "armed", "lapsing", "theme_armed", "warming", "watch", "quiet", "context", "bench",
+    ]);
+    expect(BUCKETS.slice(-2).map((b) => [b.label, b.hint])).toEqual([
+      ["Context", "never counts toward the call"],
+      ["Bench", "never counts toward the call"],
+    ]);
+  });
+
+  it("files a silent-link name under its link's bucket, after Quiet, instead of a call-derived one", () => {
+    const basket = [
+      member("A", "sa"),
+      member("C", "sc", { segment: "Context" }),
+      member("B", "sb", { segment: "Bench" }),
+      member("Q", "sq", { segment: "Clinics" }),
+    ];
+    const c = card({ armed_members: [mcall("sa", { verdict: "core_entry" })] });
+    const groups = groupBasket(basket, c, []);
+    expect(keysOf(groups)).toEqual(["armed", "quiet", "context", "bench"]);
+    expect(tickersIn(groups, "context")).toEqual(["C"]);
+    expect(tickersIn(groups, "bench")).toEqual(["B"]);
+    expect(tickersIn(groups, "quiet")).toEqual(["Q"]);
+  });
+
+  it("omits an empty silent bucket (a header over nothing is noise)", () => {
+    const basket = [member("A", "sa"), member("C", "sc", { segment: "Context" })];
+    expect(keysOf(groupBasket(basket, card(), []))).toEqual(["quiet", "context"]);
+    expect(keysOf(groupBasket([member("A", "sa")], card(), []))).toEqual(["quiet"]);
+  });
+
+  // C1 (#6): the roster is TODAY's, but the card can be a history recompute at a PAST as-of. A name that voted
+  // then and sits in Context now must still read as the voter the headline names — its call bucket, WITH its call.
+  it("a Context name the card has an ARMED hit for lands in Armed WITH its call (scrub-back to when it voted)", () => {
+    const basket = [member("C", "sc", { segment: "Context" }), member("B", "sb", { segment: "Bench" })];
+    const c = card({ armed_members: [mcall("sc", { verdict: "starter_entry" }), mcall("sb", { verdict: "starter_entry", lapsing: true })] });
+    const groups = groupBasket(basket, c, []);
+    expect(keysOf(groups)).toEqual(["armed", "lapsing"]);
+    expect(groups[0].rows[0].member.ticker).toBe("C");
+    expect(groups[0].rows[0].call?.verdict).toBe("starter_entry"); // the call is kept, not nulled
+    expect(tickersIn(groups, "lapsing")).toEqual(["B"]); // the armed family's flags still split it
+  });
+
+  it("a silent name with a WATCH hit lands in Watch; one with only a fired trigger lands in Warming", () => {
+    const basket = [member("W", "sw", { segment: "Context" }), member("T", "st", { segment: "Bench" })];
+    const c = card({
+      watch_members: [mcall("sw", { verdict: null })],
+      triggers_fired: [trigger("T")],
+    });
+    const groups = groupBasket(basket, c, []);
+    expect(keysOf(groups)).toEqual(["warming", "watch"]);
+    expect(groups.find((g) => g.def.key === "watch")?.rows[0].call).not.toBeNull();
+  });
+
+  it("a silent name the card has NOTHING on (no hit, no fired trigger) lands in its silent bucket with no call", () => {
+    const basket = [
+      member("C", "sc", { segment: "Context" }),
+      member("B", "sb", { segment: "Bench" }),
+      member("V", "sv"), // a voter, armed — the card is NOT empty
+    ];
+    const c = card({ armed_members: [mcall("sv", { verdict: "core_entry" })], triggers_fired: [trigger("V")] });
+    const groups = groupBasket(basket, c, []);
+    expect(keysOf(groups)).toEqual(["armed", "context", "bench"]);
+    expect(groups.flatMap((g) => g.rows).filter((r) => r.bucket === "context" || r.bucket === "bench").every((r) => r.call === null)).toBe(true);
+  });
+
+  it("a HELD (managing) silent name stays in Managing — it never leaves the top", () => {
+    const basket = [member("HELD", "sh", { segment: "Bench" }), member("C", "sc", { segment: "Context" })];
+    const c = card({ armed_members: [mcall("sh", { verdict: "managing" })] });
+    const groups = groupBasket(basket, c, []);
+    expect(keysOf(groups)).toEqual(["managing", "context"]);
+    expect(tickersIn(groups, "managing")).toEqual(["HELD"]);
+    expect(groups[0].rows[0].call?.verdict).toBe("managing"); // its (held) call is kept
+  });
+
+  it("keeps authored basket order within a silent bucket", () => {
+    const basket = [
+      member("C2", "s2", { segment: "Context" }),
+      member("C1", "s1", { segment: "Context" }),
+    ];
+    expect(tickersIn(groupBasket(basket, card(), []), "context")).toEqual(["C2", "C1"]);
+  });
+
+  it("matches the link EXACTLY: a lowercase look-alike is an ordinary (Quiet) name", () => {
+    const groups = groupBasket([member("X", "sx", { segment: "context" })], card(), []);
+    expect(keysOf(groups)).toEqual(["quiet"]);
+  });
+
+  it("dedupes by security_id like any bucket (one silent row per name by construction)", () => {
+    const basket = [member("C", "sc", { segment: "Context" })];
+    const out = dedupeBySecurityId(groupBasket(basket, card(), []));
+    expect(out.flatMap((g) => g.rows)).toHaveLength(1);
+  });
+});
+
+describe("groupBySegment — Context and Bench are the last two groups", () => {
+  const seg = (label: string, descriptor: string | null = null): Segment => ({ label, descriptor });
+  const keys = (out: SegmentGroup[]) => out.map((g) => g.key);
+
+  it("last even when the payload's segments came in another order (or without the pair at all)", () => {
+    const basket = [
+      member("B", "sb", { segment: "Bench" }),
+      member("A", "sa", { segment: "Clinics" }),
+      member("C", "sc", { segment: "Context" }),
+    ];
+    const groups = groupBasket(basket, undefined, []);
+    expect(keys(groupBySegment(groups, [seg("Bench"), seg("Clinics"), seg("Context")]))).toEqual([
+      "Clinics", "Context", "Bench",
+    ]);
+    expect(keys(groupBySegment(groups, [seg("Clinics")]))).toEqual(["Clinics", "Context", "Bench"]);
+  });
+
+  it("comes after the unknown labels AND the Unsegmented tail — literally the last two", () => {
+    const basket = [
+      member("C", "sc", { segment: "Context" }),
+      member("R", "sr", { segment: "Rogue" }),
+      member("U", "su"),
+      member("A", "sa", { segment: "Clinics" }),
+      member("B", "sb", { segment: "Bench" }),
+    ];
+    const out = groupBySegment(groupBasket(basket, undefined, []), [seg("Clinics")]);
+    expect(keys(out)).toEqual(["Clinics", "Rogue", UNSEGMENTED_KEY, "Context", "Bench"]);
+  });
+
+  it("carries the FIXED descriptors as the header hint, whatever the payload said", () => {
+    const basket = [member("C", "sc", { segment: "Context" }), member("B", "sb", { segment: "Bench" })];
+    const out = groupBySegment(groupBasket(basket, undefined, []), [seg("Context", "stale"), seg("Bench")]);
+    expect(out.map((g) => g.descriptor)).toEqual([
+      "Watched for context: buyers, counter-case names, giants where the theme is a slice. Never counts toward the call.",
+      "Speculative names: pivots, distressed or thinly traded. Never counts toward the call.",
+    ]);
+  });
+
+  it("omits an empty silent group", () => {
+    const basket = [member("C", "sc", { segment: "Context" }), member("A", "sa", { segment: "Clinics" })];
+    expect(keys(groupBySegment(groupBasket(basket, undefined, []), [seg("Clinics")]))).toEqual([
+      "Clinics", "Context",
+    ]);
+  });
+
+  it("a case-variant label ('context') is not the silent link — it renders as an ordinary unknown label", () => {
+    const basket = [member("X", "sx", { segment: "context" }), member("C", "sc", { segment: "Context" })];
+    expect(keys(groupBySegment(groupBasket(basket, undefined, []), []))).toEqual(["context", "Context"]);
   });
 });

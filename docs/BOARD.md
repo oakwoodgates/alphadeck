@@ -118,6 +118,17 @@ per row:
 - **Watch** — `watch_members` ("moving, no conviction yet").
 - **Quiet** — the remainder, incl. unresolved rows: every basket row lands somewhere
   (keep-it-visible), grayed rather than gone.
+- **Context** / **Bench** (after Quiet) — the two **silent value-chain links** (`TRIAGE.md` "Context and
+  Bench"): a name the operator placed in either is on the card and visible but **never counts toward the
+  call**, so when the card has nothing on it (no armed/watch hit, no fired trigger) it files under its
+  link's own bucket (header "Context · never counts toward the call") and carries no member call. Same
+  muted accent as Quiet (hollow dot, gray row), and like every bucket **hidden when empty** (most theses
+  have neither). It is the *last* test in the precedence, deliberately: the roster is today's but the card
+  can be a **scrub-back** to a past as-of, and a name that voted then (armed, watch, a fired trigger) and
+  sits in Context now still reads as the voter the headline names — under its call bucket, with its call.
+  On a current card nothing changes (the backend never puts a silent name on one). A **held** name
+  (`verdict === "managing"`) is the top of the order, so it stays in **Managing** even from Context/Bench.
+  Display-only, like the rest: the buckets read the call, the call never reads them.
 
 **The fold** is an explicit, reversible view filter — open by default, one click back, the count
 stays on a closed header (a folded bucket never reads as dropped). Folded rows stay **mounted** with
@@ -137,7 +148,11 @@ un-enriched name still has a row, #9). **Value chain** re-partitions by each mem
 segment** ("which part of the chain is moving?") and renders **only when the basket is decomposed into
 links** (nothing to group by otherwise — honest loudness, #7); unlike the other two it shows **every
 link-row**, so a name placed in N links appears under each of its N headers, and a null/empty-segment
-row lands in the keep-visible `Unsegmented` tail. The two non-segment lenses **dedupe to one row per
+row lands in the keep-visible `Unsegmented` tail. **Context and Bench are always the last two groups**
+(after the unknown labels and the `Unsegmented` tail, whatever order a payload's segments came in), under
+their fixed descriptors, and hidden when empty. In the **business-type** lens a silent name keeps its grayed
+row and carries a small lowercase `context` / `bench` tag (the lens hides which link it sits in; the other two
+name it in the header). The two non-segment lenses **dedupe to one row per
 `security_id`** (a multi-segment name's otherwise-identical duplicate rows collapse — losslessly, since
 same `security_id` ⇒ same call bucket + scored join); the value-chain lens keeps them all (that's the
 point). Whichever lens is active, each row keeps its **own call-state dot and exit-by** — the call never

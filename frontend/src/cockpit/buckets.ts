@@ -5,13 +5,18 @@ import type {
   ScoredMemberOut,
   Segment,
 } from "../api/hooks";
+import { BENCH, CONTEXT, SILENT_LINKS, isSilentLink, withSilentLinks } from "../workbench/useChainDraft";
 
 /** The per-name buckets (strongest → weakest) — the Board's column idiom applied INSIDE a basket.
  *  Five are the spec'd member states; WARMING and QUIET are the coverage groups the wire forces:
  *  a conviction-only name is in NEITHER `armed_members` NOR `watch_members` (watch is
  *  confirmation-only), yet its trigger is live on the rail — filing it under "no signals" would be
  *  dishonest. And every basket row must land somewhere (pruning hides, it never vanishes), so the
- *  remainder is QUIET, not absent. Display-only: the buckets re-read the call, never re-derive it. */
+ *  remainder is QUIET, not absent. Display-only: the buckets re-read the call, never re-derive it.
+ *
+ *  CONTEXT and BENCH are the two SILENT value-chain links (fixed, last): a name the operator placed in
+ *  either is on the card and visible but NEVER counts toward the call, so it files under its link's own
+ *  bucket — after Quiet, the quietest place on the page — instead of a call-derived one. */
 export type BucketKey =
   | "managing"
   | "armed"
@@ -19,7 +24,9 @@ export type BucketKey =
   | "theme_armed"
   | "warming"
   | "watch"
-  | "quiet";
+  | "quiet"
+  | "context"
+  | "bench";
 
 export interface BucketDef {
   key: BucketKey;
@@ -50,6 +57,9 @@ export const BUCKETS: BucketDef[] = [
   { key: "warming", label: "Warming", hint: "conviction in · awaiting confirmation", cls: "bkt-warming" },
   { key: "watch", label: "Watch", hint: "moving · no conviction yet", cls: "bkt-watch" },
   { key: "quiet", label: "Quiet", hint: "no live signals", cls: "bkt-quiet" },
+  // the two silent links — AFTER Quiet, the same muted accent. A held (`managing`) name never lands here.
+  { key: "context", label: CONTEXT, hint: "never counts toward the call", cls: "bkt-context" },
+  { key: "bench", label: BENCH, hint: "never counts toward the call", cls: "bkt-bench" },
 ];
 
 /** The buckets whose members show an ENTRY WINDOW (`arm_until`) — the armed family only.
@@ -89,7 +99,8 @@ export interface BucketGroup {
  *  duplicate-ticker rows both light up (visible over-inclusion, never a silent drop).
  *
  *  Bucket precedence (mutually exclusive, evaluated in this order):
- *    verdict === "managing"  →  managing        (render-if-present)
+ *    verdict === "managing"  →  managing        (render-if-present; a held position never leaves the
+ *                               top, even for a name sitting in Context / Bench)
  *    in armed_members        →  lapsing if `lapsing` (the hold clock closing — the clock is the
  *                               urgent fact, so it wins over the theme flag, which stays visible
  *                               as a chip), else theme_armed
@@ -97,7 +108,16 @@ export interface BucketGroup {
  *    in watch_members        →  watch           (checked BEFORE the trigger join — a watch member's
  *                               breakout is itself in triggers_fired)
  *    ticker in triggers_fired →  warming        (conviction-only: live trigger, no member call)
+ *    segment is Context/Bench →  context / bench (the operator's silent links — never a call bucket; the
+ *                               row carries no member call: it does not count toward the call)
  *    otherwise               →  quiet
+ *
+ *  Why the silent link comes LAST among the call-derived tests: the roster is TODAY's, but the card can be
+ *  a history recompute at a PAST as-of. A name that voted last week (armed, watch, or a fired trigger on
+ *  that card) and was moved into Context today must still read as the voter the card's headline names — it
+ *  files under its call bucket WITH its call. Only a name the card has no hit and no fired trigger for
+ *  falls to its silent bucket. On a current card this changes nothing: the backend never puts a silent
+ *  name on one. (A ticker shared with a voting name is the existing over-inclusive warming join.)
  *
  *  Within a bucket the wire's own ranking is preserved for the member lists (the call machinery
  *  already ranked armed/watch — the FE never re-ranks the brain's output); warming/quiet keep the
@@ -130,10 +150,14 @@ export function groupBasket(
       bucket = armed.call.lapsing ? "lapsing" : armed.call.theme_armed ? "theme_armed" : "armed";
     else if (watch) bucket = "watch";
     else if (member.ticker && firedTickers.has(member.ticker)) bucket = "warming";
+    // only a name the card has NOTHING on files under its silent link (see the precedence note above)
+    else if (isSilentLink(member.segment)) bucket = member.segment === CONTEXT ? "context" : "bench";
     else bucket = "quiet";
     return {
       member,
       ordinal,
+      // a silent row has no hit by construction (a hit would have filed it above), so its call is null; a
+      // past voter keeps its call
       call: hit?.call ?? null,
       scored: (sid ? scoredBySid.get(sid) : undefined) ?? null,
       bucket,
@@ -233,7 +257,9 @@ export function groupByBusinessType(groups: BucketGroup[]): TypeGroup[] {
  *  authored `segments` order; a label present on a row but not in that list still renders (after the
  *  knowns — over-include, never a silent drop); empty links are omitted (a header over nothing is
  *  noise); the keep-visible "Unsegmented" tail collects the null/empty-segment rows (the
- *  business-type "Unclassified" mirror — #9, a name is never dropped). */
+ *  business-type "Unclassified" mirror — #9, a name is never dropped). The two SILENT links (Context,
+ *  Bench) are always the LAST two groups — after the unknown labels and the Unsegmented tail — whatever
+ *  order a payload's segments came in; empty ones are omitted like any other link. */
 export const UNSEGMENTED_KEY = "__unsegmented__";
 
 export interface SegmentGroup {
@@ -257,9 +283,12 @@ export function groupBySegment(groups: BucketGroup[], segments: Segment[]): Segm
       by.set(key, list);
     }
   }
-  const descriptorByLabel = new Map(segments.map((s) => [s.label, s.descriptor ?? null]));
-  const ordered = segments.map((s) => s.label);
-  const known = new Set(ordered);
+  // Context / Bench are pinned last with their fixed descriptors (`withSilentLinks`), so they are taken out
+  // of the authored order here and appended after everything else below.
+  const chain = withSilentLinks(segments);
+  const descriptorByLabel = new Map(chain.map((s) => [s.label, s.descriptor ?? null]));
+  const ordered = chain.map((s) => s.label).filter((l) => !isSilentLink(l));
+  const known = new Set(chain.map((s) => s.label));
   const extras = [...by.keys()].filter((k) => k !== UNSEGMENTED_KEY && !known.has(k)).sort();
 
   const out: SegmentGroup[] = [];
@@ -273,6 +302,12 @@ export function groupBySegment(groups: BucketGroup[], segments: Segment[]): Segm
   const unseg = by.get(UNSEGMENTED_KEY);
   if (unseg && unseg.length > 0) {
     out.push({ key: UNSEGMENTED_KEY, label: "Unsegmented", descriptor: null, rows: unseg });
+  }
+  for (const label of SILENT_LINKS) {
+    const rows = by.get(label);
+    if (rows && rows.length > 0) {
+      out.push({ key: label, label, descriptor: descriptorByLabel.get(label) ?? null, rows });
+    }
   }
   return out;
 }

@@ -63,7 +63,16 @@ import {
   type DeserializeResult,
   type EditorRuntime,
 } from "./triageSession";
-import { DISCOVERED, memberKey, type PlacedMode, useChainDraft } from "./useChainDraft";
+import {
+  DISCOVERED,
+  SILENT_DESCRIPTORS,
+  SILENT_LINKS,
+  isSilentLink,
+  memberKey,
+  type PlacedMode,
+  reservedLinkName,
+  useChainDraft,
+} from "./useChainDraft";
 
 // Stop polling a draft after this long and show "timed out, try again". A real draft floor is the ~300s Opus
 // tail-sweep + EDGAR discovery over the universe + decompose + narrate, so this is generous; it sits BELOW the
@@ -265,6 +274,73 @@ const NotListedFlag = () => (
     ⚑ no current listing found in EDGAR — a guess, not a delisting; pick it to place anyway
   </div>
 );
+
+/** One real link's label input. The rename is LIVE (every keystroke renames, cascading onto placed members, as
+ *  before) EXCEPT that the text exactly equal to a RESERVED name (Context / Bench, any case) is never saved:
+ *  typing passes THROUGH it — "Benchmark providers" and "Contextual AI" type out whole — and a link is never
+ *  SAVED as exactly a reserved name. The check that matters runs on COMMIT (blur / Enter): a field left on a
+ *  reserved name reverts to the label it had when editing began, with the same "is a fixed link" note the add
+ *  uses. Local text is the input's value (the saved label alone would swallow the keystroke that completes a
+ *  reserved name and stick the field one letter short). The parent keys this by position, not label, so a
+ *  live rename does not remount the input out from under the cursor. */
+function LinkLabelInput({
+  label,
+  ariaLabel,
+  onRename,
+}: {
+  label: string;
+  ariaLabel: string;
+  /** rename the link currently named `from` to `to` (the hook refuses a blank / duplicate / reserved one) */
+  onRename: (from: string, to: string) => void;
+}) {
+  const [text, setText] = useState(label);
+  const [refused, setRefused] = useState<string | null>(null);
+  const startLabel = useRef(label); // the saved label when this edit began (focus)
+  // the saved label moved from OUTSIDE this input (a reorder / removal shifted the position, a revert):
+  // follow it. A live rename sets text === label already, so typing never trips this.
+  useEffect(() => {
+    setText(label);
+  }, [label]);
+  const commit = () => {
+    const reserved = reservedLinkName(text);
+    if (reserved) {
+      // refused: never saved. Undo the live prefix renames ("benc") back to where the edit began, and say why.
+      setRefused(reserved);
+      if (startLabel.current !== label) onRename(label, startLabel.current);
+      setText(startLabel.current);
+    } else if (text !== label) {
+      setText(label); // a blank / duplicate edit the hook refused: show the saved label
+    }
+  };
+  return (
+    <>
+      <input
+        className="wb-input"
+        value={text}
+        size={Math.max(text.length, 12)}
+        aria-label={ariaLabel}
+        onFocus={() => {
+          startLabel.current = label;
+          setRefused(null);
+        }}
+        onChange={(e) => {
+          const v = e.target.value;
+          setText(v);
+          setRefused(null);
+          if (!reservedLinkName(v)) onRename(label, v);
+        }}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            commit();
+          }
+        }}
+      />
+      {refused && <span className="note">{refused} is a fixed link — a link can't take its name.</span>}
+    </>
+  );
+}
 
 /** The authoring surface (Slice 4b + the S5 draft/ratify, 5c — reworked by Discovery cleanup S1): build
  *  the value chain by hand — or DRAFT it from the narrative and triage per name on the CONFIDENCE LADDER:
@@ -551,7 +627,9 @@ export function ChainEditor({
   // once ≥1 name in the basket has confirmed fundamentals. Before any surfacing it's true of every row (pure
   // noise), so we show a single quiet header hint instead of stamping "needs SURFACE" on all of them.
   const anyFundamentals = d.draft.basket.some((m) => hasFundamentals(m.security_id, scoredById));
-  const hasRealLink = segLabels.some((l) => l !== DISCOVERED);
+  // a REAL link: neither the Discovered pen nor one of the two fixed silent links (Context / Bench are always
+  // present now, so counting them would make every thesis "have a chain")
+  const hasRealLink = segLabels.some((l) => l !== DISCOVERED && !isSilentLink(l));
 
   // --- the per-NAME display grouping (S1 multi-membership) --------------------------------------------
   // The basket holds N ROWS per name (one per LLM-recommended link — real memberships Save persists);
@@ -631,8 +709,12 @@ export function ChainEditor({
   const discoveredCount = nameGroups.filter((g) => g.segments.includes(DISCOVERED)).length;
   // The links editor separates the REAL value-chain links (reorderable) from the "Discovered" holding pen (not a
   // link — no reorder). Rendered as two distinct regions so the editor reads legibly (the arrows apply to links).
-  const realLinks = d.draft.segments.filter((s) => s.label !== DISCOVERED);
+  // The two silent links render in their own fixed, read-only rows below the pen — never in `realLinks`, so
+  // the rename / ← → / × controls and the arrow bounds can't reach them.
+  const realLinks = d.draft.segments.filter((s) => s.label !== DISCOVERED && !isSilentLink(s.label));
   const discoveredSeg = d.draft.segments.find((s) => s.label === DISCOVERED);
+  // how many NAMES sit in each silent link (display only — a quiet count beside the fixed row)
+  const silentCount = (label: string) => nameGroups.filter((g) => g.segments.includes(label)).length;
 
   // --- post-draft results buckets (the IA reorg) ---
   const PLACED_PREVIEW = 12; // a large group (hundreds of names) collapses to a preview + "show more"
@@ -1740,11 +1822,15 @@ export function ChainEditor({
                     {g.segments.map((s) => (
                       <span
                         key={s}
-                        className={`recchip${s === DISCOVERED ? " pen" : ""}`}
+                        // the unsorted pen AND the two silent links read quietly (muted, dashed) — a name
+                        // that never counts toward the call is not a loud recommendation
+                        className={`recchip${s === DISCOVERED || isSilentLink(s) ? " pen" : ""}`}
                         title={
                           s === DISCOVERED
                             ? "the unsorted pen — the draft didn't arrange this name into a link"
-                            : "the draft recommends this link — a real membership row; Save persists each chip"
+                            : isSilentLink(s)
+                              ? "on the card, never counts toward the call — moved on the triage screen"
+                              : "the draft recommends this link — a real membership row; Save persists each chip"
                         }
                       >
                         {s === DISCOVERED ? "Discovered (unsorted)" : s}
@@ -2265,13 +2351,13 @@ export function ChainEditor({
         {/* the real value-chain links — reorderable (← → operate among the links; the pen isn't one) */}
         <div className="wb-seg-links">
           {realLinks.map((s, i) => (
-            <div className="wb-seg-chip" key={s.label}>
-              <input
-                className="wb-input"
-                value={s.label}
-                size={Math.max(s.label.length, 12)}
-                aria-label={`link ${i + 1} label`}
-                onChange={(e) => d.renameSegment(s.label, e.target.value)}
+            // keyed by POSITION: a live rename changes the label, and a label key would remount the input
+            // (and drop focus) on every keystroke
+            <div className="wb-seg-chip" key={i}>
+              <LinkLabelInput
+                label={s.label}
+                ariaLabel={`link ${i + 1} label`}
+                onRename={d.renameSegment}
               />
               <button
                 type="button"
@@ -2340,6 +2426,28 @@ export function ChainEditor({
           </div>
         )}
 
+        {/* the two FIXED silent links — Context and Bench, always last, read-only: no rename, no ← →, no ×
+            (they can't be renamed, reordered or removed). A name in either is on the card and visible but
+            NEVER counts toward the call; only the operator puts one there (the triage screen's rail — this
+            surface, like the draft, never does). Always shown here: the editor is where the pair is explained. */}
+        <div className="wb-seg-silent" role="group" aria-label="fixed links: Context and Bench">
+          <span className="wb-seg-pen-lab">Fixed</span>
+          {SILENT_LINKS.map((label) => (
+            <div className="wb-seg-silent-row" key={label}>
+              <div className="wb-seg-chip discovered">
+                <span className="wb-seg-pen-name">{label}</span>
+                <span className="seg-tag">fixed</span>
+                {silentCount(label) > 0 && (
+                  <span className="seg-tag">
+                    {silentCount(label)} {silentCount(label) === 1 ? "name" : "names"}
+                  </span>
+                )}
+              </div>
+              <span className="note wb-seg-silent-desc">{SILENT_DESCRIPTORS[label]}</span>
+            </div>
+          ))}
+        </div>
+
         {/* add a link — its own row, clearly an add affordance (not another link) */}
         <div className="wb-seg-add">
           <input
@@ -2352,6 +2460,7 @@ export function ChainEditor({
           <button
             type="button"
             className="wb-mini"
+            disabled={reservedLinkName(newSeg) !== null}
             onClick={() => {
               d.addSegment(newSeg);
               setNewSeg("");
@@ -2359,6 +2468,11 @@ export function ChainEditor({
           >
             + link
           </button>
+          {reservedLinkName(newSeg) && (
+            <span className="note">
+              {reservedLinkName(newSeg)} is a fixed link — it can't be added again.
+            </span>
+          )}
         </div>
       </div>
 

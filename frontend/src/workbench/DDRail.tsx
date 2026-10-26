@@ -2,6 +2,8 @@ import type { BusinessTypeLeaf, ScoredFigureOut, ScoredMemberOut } from "../api/
 import { CatalystFactForm } from "./CatalystFactForm";
 import { FactsPanel } from "./FactsPanel";
 import { SleeveRail } from "./SleeveRail";
+import { toggleMemberLink } from "./chainOps";
+import { SILENT_DESCRIPTORS, SILENT_LINKS, isSilentLink } from "./useChainDraft";
 import {
   BUSINESS_TYPES,
   businessTypeLabel,
@@ -90,15 +92,77 @@ interface Props {
   // The #4 value-chain mover (chain-editing Phase 1) — a FLAT multi-select that REPLACES the read-only
   // segment cell: one checkbox per real link, `current` = the name's live memberships, toggling hands the
   // NEXT label set to `onChange` (the parent's immediate-promote). Discovered is excluded from `options`
-  // (it's the automatic floor, not a checkbox); an empty result floors to Discovered in the reconcile.
-  // Mirrors `sleeve`/`onRetag`: omitted (read-only) or on the ETF branch → no control renders. `segment`
-  // is display/structure, never a call input (#4) — this moves labels + rows, never verdict/grade.
+  // (it's the automatic floor, not a checkbox) and so are the two silent links (the rail lists Context /
+  // Bench itself, always, under the real links — `current` may carry one of them); an empty result floors to
+  // Discovered in the reconcile. Mirrors `sleeve`/`onRetag`: omitted (read-only) or on the ETF branch → no control renders. For a
+  // REAL link `segment` is display/structure, never a call input (#4); the exception is Context / Bench, which
+  // take a name OUT of the call's inputs (an operator placement — never a verdict/grade, which stay the call's).
   segmentControl?: {
     options: string[];
     current: string[];
     onChange: (labels: string[]) => void;
     pending: boolean;
   };
+}
+
+/** The #4 value-chain mover: the REAL links, then a quiet divider, then the two FIXED silent links (Context /
+ *  Bench). One checkbox each; a toggle hands the parent the next label set through `toggleMemberLink`, so the
+ *  payload can never carry a silent row beside another row (a company is silent XOR voting). The checkboxes
+ *  ARE the visible inverse (WB#1): unchecking Context floors the name to Discovered, checking a real link
+ *  moves it out of Context — nothing is ever deleted (WB#2 / #9). Silent rows read muted (#7). */
+function SegmentControl({ control }: { control: NonNullable<Props["segmentControl"]> }) {
+  const { options, current, onChange, pending } = control;
+  const toggle = (label: string) => {
+    const next = toggleMemberLink(current, label);
+    // a real-links-only result keeps the OPTION order (stable payload rows); a silent result is the one row
+    onChange(next.some((l) => isSilentLink(l)) ? next : options.filter((o) => next.includes(o)));
+  };
+  const placed = current.some((l) => options.includes(l) || isSilentLink(l));
+  return (
+    <div className="dd-segctl">
+      <div className="dd-sub">
+        Value-chain links <em>— where this name sits (check any that fit)</em>
+      </div>
+      {options.length === 0 ? (
+        <p className="muted dd-seg-hint">No links yet — build the basket first.</p>
+      ) : (
+        <div className="dd-seg-opts">
+          {options.map((label) => (
+            <label key={label} className="dd-seg-opt">
+              <input
+                type="checkbox"
+                checked={current.includes(label)}
+                disabled={pending}
+                onChange={() => toggle(label)}
+              />
+              <span>{label}</span>
+            </label>
+          ))}
+        </div>
+      )}
+      {/* Context / Bench — always listed (the rail is where a name is moved there), under a quiet divider.
+          Each carries its fixed descriptor as the hover. */}
+      <div className="dd-seg-silent" role="group" aria-label="silent links">
+        <div className="dd-seg-divider">
+          Silent <em>— never counts toward the call</em>
+        </div>
+        <div className="dd-seg-opts">
+          {SILENT_LINKS.map((label) => (
+            <label key={label} className="dd-seg-opt silent" title={SILENT_DESCRIPTORS[label]}>
+              <input
+                type="checkbox"
+                checked={current.includes(label)}
+                disabled={pending}
+                onChange={() => toggle(label)}
+              />
+              <span>{label}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+      {options.length > 0 && !placed && <p className="muted dd-seg-unsorted">Unsorted (Discovered)</p>}
+    </div>
+  );
 }
 
 /** The DD rail — "behind the scores" for the selected name. Deterministic provenance ONLY: every chip
@@ -195,50 +259,10 @@ export function DDRail({
         )}
       </div>
       {/* the #4 value-chain mover (chain-editing Phase 1) — under the business-type re-tag, in place of
-          the old read-only segment cell. One checkbox per real link; toggling hands the next label set to
-          the parent's immediate-promote. No links yet → a quiet hint (never an empty control); in no real
-          link → the "Unsorted (Discovered)" floor line. */}
-      {segmentControl && (
-        <div className="dd-segctl">
-          <div className="dd-sub">
-            Value-chain links <em>— where this name sits (check any that fit)</em>
-          </div>
-          {segmentControl.options.length === 0 ? (
-            <p className="muted dd-seg-hint">No links yet — build the basket first.</p>
-          ) : (
-            <>
-              <div className="dd-seg-opts">
-                {segmentControl.options.map((label) => {
-                  const checked = segmentControl.current.includes(label);
-                  return (
-                    <label key={label} className="dd-seg-opt">
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        disabled={segmentControl.pending}
-                        onChange={() =>
-                          segmentControl.onChange(
-                            // rebuild from the real options (Discovered can't creep in): keep every
-                            // currently-checked link, flip the one just clicked. Empty result → the
-                            // reconcile floors it to Discovered.
-                            segmentControl.options.filter((o) =>
-                              o === label ? !checked : segmentControl.current.includes(o),
-                            ),
-                          )
-                        }
-                      />
-                      <span>{label}</span>
-                    </label>
-                  );
-                })}
-              </div>
-              {!segmentControl.options.some((o) => segmentControl.current.includes(o)) && (
-                <p className="muted dd-seg-unsorted">Unsorted (Discovered)</p>
-              )}
-            </>
-          )}
-        </div>
-      )}
+          the old read-only segment cell. One checkbox per real link, then the two silent links; toggling
+          hands the next label set to the parent's immediate-promote. No real links yet → a quiet hint
+          (the silent pair still lists); in no link at all → the "Unsorted (Discovered)" floor line. */}
+      {segmentControl && <SegmentControl control={segmentControl} />}
       <div className="dd-body">
         {/* WHO this is — the company name + the machine-parsed identity (master enrichment; display-only,
             never promoted, #2). The rail is where the operator decides, so it says who it's deciding about. */}

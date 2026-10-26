@@ -10,6 +10,8 @@ from db.migrate import MIGRATIONS_DIR
 from db.session import DEFAULT_TENANT_ID, connect
 from domain.enums import Authorship, TermTier
 from domain.thesis import (
+    BENCH_DESCRIPTOR,
+    CONTEXT_DESCRIPTOR,
     BasketMember,
     Catalyst,
     Evidence,
@@ -18,6 +20,7 @@ from domain.thesis import (
     Segment,
     TermSetEntry,
     Thesis,
+    with_silent_links,
 )
 from repositories import thesis_repo
 
@@ -68,6 +71,12 @@ def _thesis(security_id) -> Thesis:
     )
 
 
+def _hydrated(t: Thesis) -> Thesis:
+    """What a load returns for ``t``: the same thesis with the two fixed links (Context, Bench) appended last
+    — they are added on every read, so a stored thesis never has to carry them."""
+    return t.model_copy(update={"segments": with_silent_links(t.segments)})
+
+
 def _persist(db, t: Thesis) -> None:
     """Upsert + the sole child-list writers: catalysts / kill criteria left ``upsert`` (the structural
     wipe-guard — the same reason as ``set_term_set``), so a full persist goes through their writers.
@@ -82,7 +91,9 @@ def test_upsert_then_get_roundtrips(db, security_id):
     t = _thesis(security_id)
     _persist(db, t)
     db.commit()
-    assert thesis_repo.get(db, t.id) == t  # full domain round-trip; no raw row escapes the repo
+    assert thesis_repo.get(db, t.id) == _hydrated(
+        t
+    )  # full domain round-trip; no raw row escapes the repo
 
 
 def test_chain_structure_survives_reload(db, security_id):
@@ -101,16 +112,17 @@ def test_chain_structure_survives_reload(db, security_id):
         reloaded.close()
 
     assert got is not None
-    assert [(s.label, s.descriptor) for s in got.segments] == [
+    assert [(s.label, s.descriptor) for s in got.segments[:2]] == [
         ("Telehealth platforms", "catalyst-rich"),
         ("Compounding / supply", None),
     ]
+    assert [s.label for s in got.segments[2:]] == ["Context", "Bench"]  # the fixed links, last
     assert got.basket[0].segment == "Telehealth platforms"
     assert (
         got.basket[0].thesis_fit == "the leading US telehealth platform"
     )  # the prose is durable too
     assert got.basket[0].authored_by is Authorship.OPERATOR_SET
-    assert got == t  # full structural round-trip across the reconnect
+    assert got == _hydrated(t)  # full structural round-trip across the reconnect
 
 
 def test_thesis_rejects_member_in_unknown_segment():
@@ -161,7 +173,12 @@ def test_set_term_set_touches_only_the_term_set(db, security_id):
     thesis_repo.set_term_set(db, t.id, [TermSetEntry(term="ibogaine", tier=TermTier.SIGNAL)])
     db.commit()
     got = thesis_repo.get(db, t.id)
-    assert [s.label for s in got.segments] == ["Telehealth platforms", "Compounding / supply"]
+    assert [s.label for s in got.segments] == [
+        "Telehealth platforms",
+        "Compounding / supply",
+        "Context",
+        "Bench",
+    ]
     assert len(got.basket) == 1 and got.basket[0].ticker == "HIMS"
     assert [e.term for e in got.term_set] == ["ibogaine"]
 
@@ -231,7 +248,7 @@ def test_upsert_updates_mutable_fields_and_is_idempotent(db, security_id):
     assert got.position is not None and got.position.opened_on == date(2026, 6, 2)
     assert got.position.entry_price == 24.0
     # the edited chain round-trips: re-labeled segment, re-placed name, edited authorship
-    assert [s.label for s in got.segments] == ["Reactor developers"]
+    assert [s.label for s in got.segments] == ["Reactor developers", "Context", "Bench"]
     assert got.basket[0].segment == "Reactor developers"
     assert got.basket[0].authored_by is Authorship.OPERATOR_EDITED
     # idempotent: children edited in place by the DELETE-reinsert, never duplicated
@@ -675,3 +692,48 @@ def test_deploy_seed_covers_a_snapshotless_thesis(db, security_id):
         cur.execute(seed_sql)
     db.commit()
     assert _snapshot_count(db, t.id) == 1
+
+
+def test_a_thesis_stored_without_the_fixed_links_reads_back_with_both_appended_last(
+    db, security_id
+):
+    """Context and Bench are added on EVERY load, so a thesis stored before they existed (its ``segments``
+    column holds neither) needs no data migration: ``get``, ``get_asof`` and ``list_all`` all return both,
+    last, with the fixed descriptors — and the stored column is never rewritten by a read."""
+    t = _thesis(security_id)
+    thesis_repo.upsert(db, t)
+    db.commit()
+    with db.cursor() as cur:
+        cur.execute("SELECT segments FROM thesis WHERE id = %s", (t.id,))
+        stored = cur.fetchone()["segments"]
+    assert [s["label"] for s in stored] == ["Telehealth platforms", "Compounding / supply"]
+
+    want = [
+        ("Telehealth platforms", "catalyst-rich"),
+        ("Compounding / supply", None),
+        ("Context", CONTEXT_DESCRIPTOR),
+        ("Bench", BENCH_DESCRIPTOR),
+    ]
+    got = thesis_repo.get(db, t.id)
+    asof = thesis_repo.get_asof(db, t.id, datetime(2100, 1, 1, tzinfo=timezone.utc))
+    listed = next(x for x in thesis_repo.list_all(db) if x.id == t.id)
+    for loaded in (got, asof, listed):
+        assert [(s.label, s.descriptor) for s in loaded.segments] == want
+
+    with db.cursor() as cur:  # reading never wrote the links back
+        cur.execute("SELECT segments FROM thesis WHERE id = %s", (t.id,))
+        assert cur.fetchone()["segments"] == stored
+
+
+def test_upserting_a_hydrated_thesis_stores_each_fixed_link_once(db, security_id):
+    """Round-trip safety: a thesis loaded (links appended) and saved again does not stack a second pair."""
+    t = _thesis(security_id)
+    thesis_repo.upsert(db, t)
+    thesis_repo.upsert(db, thesis_repo.get(db, t.id))
+    db.commit()
+    assert [s.label for s in thesis_repo.get(db, t.id).segments] == [
+        "Telehealth platforms",
+        "Compounding / supply",
+        "Context",
+        "Bench",
+    ]

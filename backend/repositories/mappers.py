@@ -19,6 +19,7 @@ from domain.thesis import (
     Segment,
     TermSetEntry,
     Thesis,
+    with_silent_links,
 )
 
 # This module is the ONLY place raw DB rows become domain objects (and back). Raw rows never escape
@@ -41,7 +42,10 @@ def row_to_thesis(
         narrative=t["narrative"],
         ticker=t["ticker"],
         basket=[_row_to_basket_member(b) for b in basket],
-        segments=[_row_to_segment(s) for s in t["segments"]],
+        # Context and Bench are fixed, always the last two links: appended on EVERY load (get, get_asof,
+        # list_all), so a thesis stored before they existed reads back with both and no data migration is
+        # needed. Idempotent — a stored thesis that already carries them keeps them last, once.
+        segments=with_silent_links([_row_to_segment(s) for s in t["segments"]]),
         term_set=[_row_to_term(e) for e in (t.get("term_set") or [])],
         evidence=[_row_to_evidence(e) for e in evidence],
         catalysts=[_row_to_catalyst(c) for c in catalysts],

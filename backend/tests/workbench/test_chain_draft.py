@@ -525,3 +525,105 @@ def test_prose_less_placement_resolves_with_empty_prose(db):
     (p,) = chain.placements
     assert p.status is PlacementStatus.PLACED and p.security_id == oklo
     assert p.prose == ""  # carried empty — narration authors it downstream
+
+
+# --- Context / Bench: the draft never writes the operator's silent links ---
+
+
+def _reserved_label_text(label: str) -> bool:
+    return label.strip().casefold() in {"context", "bench"}
+
+
+def test_reserved_segments_are_rerouted_to_discovered_and_no_name_is_dropped(db, caplog):
+    """The organizer may propose a segment named Context / Bench (any case). Those links are the operator's
+    alone — a name there never counts toward the call — so the draft must never write one: the segment is NOT
+    emitted and its names (CIK-matched AND off-universe, resolved or not) land in 'Discovered' instead. Recall
+    is sacred (#9): every name is still on the draft, the reroute is WARNed with its count, and the result has
+    exactly ONE Discovered segment."""
+    leu = _insert(
+        db, "LEU", name="Centrus Energy Corp."
+    )  # an off-universe name the master resolves
+    u = _universe(
+        placed=[("0000000001", "OKLO", "Oklo Inc."), ("0000000003", "SMR", "NuScale Power")],
+    )
+    segs = [
+        _seg(ProposedPlacement(name="Oklo Inc.", ticker="OKLO"), label="Context"),
+        _seg(
+            ProposedPlacement(name="NuScale Power", ticker="SMR"),
+            ProposedPlacement(name="Centrus Energy Corp.", ticker="LEU"),
+            ProposedPlacement(name="Nonexistent Holdings", ticker="ZZZZ"),
+            label=" bench ",
+        ),
+    ]
+    with caplog.at_level("WARNING", logger="alphadeck.workbench"):
+        chain = resolve_discovered_chain(db, segs, u, tenant_id=DEFAULT_TENANT_ID)
+
+    assert not [s for s in chain.segments if _reserved_label_text(s.label)]  # never emitted
+    assert [s.label for s in chain.segments] == ["Discovered"]  # exactly one Discovered segment
+    assert not [p for p in chain.placements if _reserved_label_text(p.segment)]
+    assert (
+        len(chain.placements) == 4
+    )  # all four proposed names survive (the CIK path, off-universe, ABSENT)
+    assert {p.segment for p in chain.placements} == {"Discovered"}
+    by_t = {p.ticker: p for p in chain.placements}
+    assert by_t["OKLO"].security_id == u.placed["0000000001"]
+    assert by_t["OKLO"].discovery_source == "edgar"
+    assert by_t["SMR"].security_id == u.placed["0000000003"]
+    assert by_t["LEU"].security_id == leu and by_t["LEU"].discovery_source == "off_universe"
+    assert by_t["ZZZZ"].status is PlacementStatus.ABSENT  # shown-not-placed, but still on the draft
+    warned = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert any(
+        "4 name(s)" in w and "reserved" in w for w in warned
+    )  # never silent: the count is logged
+
+
+def test_rerouted_names_share_one_discovered_segment_with_the_organizers_and_the_dropped_bucket(db):
+    """'Discovered' appears AT MOST ONCE: the organizer's own Discovered segment keeps its place, the rerouted
+    Context names join it, and a CIK the organizer dropped altogether joins it too — never a second bucket.
+    """
+    u = _universe(
+        placed=[
+            ("0000000001", "OKLO", "Oklo Inc."),
+            ("0000000003", "SMR", "NuScale Power"),
+            ("0000000004", "LEU", "Centrus Energy Corp."),
+        ],
+    )
+    segs = [
+        _seg(ProposedPlacement(name="Oklo Inc.", ticker="OKLO"), label="Developers"),
+        _seg(ProposedPlacement(name="NuScale Power", ticker="SMR"), label="Discovered"),
+        _seg(ProposedPlacement(name="Centrus Energy Corp.", ticker="LEU"), label="context"),
+    ]
+    chain = resolve_discovered_chain(db, segs, u, tenant_id=DEFAULT_TENANT_ID)
+    assert [s.label for s in chain.segments] == ["Developers", "Discovered"]
+    by_t = {p.ticker: p.segment for p in chain.placements}
+    assert by_t == {"OKLO": "Developers", "SMR": "Discovered", "LEU": "Discovered"}
+
+    # and when a CIK is ALSO dropped by the organizer, it joins that same single segment
+    u2 = _universe(
+        placed=[("0000000001", "OKLO", "Oklo Inc."), ("0000000009", "DROP", "Dropped Corp")]
+    )
+    chain2 = resolve_discovered_chain(
+        db,
+        [_seg(ProposedPlacement(name="Oklo Inc.", ticker="OKLO"), label="Bench")],
+        u2,
+        tenant_id=DEFAULT_TENANT_ID,
+    )
+    assert [s.label for s in chain2.segments] == ["Discovered"]
+    assert {p.ticker: p.segment for p in chain2.placements} == {
+        "OKLO": "Discovered",
+        "DROP": "Discovered",
+    }
+
+
+def test_an_empty_reserved_segment_is_not_emitted_and_adds_no_discovered_bucket(db):
+    """A reserved segment with no names has nothing to reroute: it is simply not emitted, and no empty
+    'Discovered' segment appears for it."""
+    u = _universe(placed=[("0000000001", "OKLO", "Oklo Inc.")])
+    segs = [
+        _seg(ProposedPlacement(name="Oklo Inc.", ticker="OKLO"), label="Developers"),
+        _seg(label="Context"),
+        _seg(label="Bench"),
+    ]
+    chain = resolve_discovered_chain(db, segs, u, tenant_id=DEFAULT_TENANT_ID)
+    assert [s.label for s in chain.segments] == ["Developers"]
+    assert [p.segment for p in chain.placements] == ["Developers"]

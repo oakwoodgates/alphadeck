@@ -7,7 +7,7 @@ from calls.assembler import assemble_call
 from domain.call import CallCard
 from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.signal import SignalEvent
-from domain.thesis import Thesis
+from domain.thesis import Thesis, voting_thesis
 from signals import laggard, registered_detectors, split_hold, theme_conviction
 from signals.base import SignalPointInTimeData
 
@@ -33,10 +33,21 @@ def assemble_from_pit(
     trigger that reads across the step cannot fire, warm or arm; one wholly before it stands. Every open hold
     goes on the card's ``missing[]`` for as long as it holds, naming the triggers it withheld (held is never
     silent, #6). No hold = the stream and the card are exactly what they were before S5.
+
+    **The call reads only the VOTING names.** A company in the thesis's Context or Bench link is on the card
+    and visible, but it never counts toward the call: ``voting_thesis`` removes those rows HERE, at the one
+    seam, and everything below — the per-member detectors, the split-night hold and its ``missing[]`` lines,
+    the theme broadcast, both rotation reads (so a silent name can neither lead a rotation nor move the basket
+    median a voting laggard is measured against) and ``assemble_call`` — sees only the rest. Discovered is a
+    voting link and still counts. The filter reads each row's ``segment`` as the roster carries it, so a
+    history view (``get_asof`` swaps in the snapshot's roster) judges a past night on the placement the
+    operator had made by then (#1). No ``CallCard`` field records it — a card with both links empty is
+    byte-identical to what it was (``docs/CALL_LOGIC.md`` §1).
     """
     if pit.asof != asof:
         raise ValueError(f"pipeline asof {asof} does not match point-in-time view {pit.asof}")
 
+    thesis = voting_thesis(thesis)  # Context / Bench rows never reach a detector or the assembler
     holds = split_hold.find_holds(pit, thesis, asof)
     held_view = split_hold.HeldPriceView(pit, holds) if holds else pit
     # security -> the price-path triggers the hold WITHHELD there (every held member has a line: [] reads
