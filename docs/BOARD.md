@@ -44,7 +44,10 @@ persisted for display. Change the as-of, and the whole board re-derives — it i
   that a ranked menu sits behind it (anti-flooding — never every member). Empty state: *"Nothing armed.
   Nothing to do. ✓"* — a calm board is a working board. The headline name — and a single-name card's ticker —
   carries the same quiet **data-flag mark** as its Cockpit row (S3, `GET /data-flags`), only when a flag
-  reaches a number on it.
+  reaches a number on it. Each item also states its **act-by clock** — "act within 3d", the card's
+  `arm_until` (the headline name's entry window) — muted, and warm with "· entry window closing" only when the
+  call's own `entry_window_closing` flag on the headline name is set (Q14; read, never re-derived). It states
+  the clock; it never reorders the queue by it (columns and queue do not rank theses, #4).
 - **"Calls that didn't compute" (keep-it-visible, #216)** — when a thesis's `/call` errors, it lands in a
   **visible strip at the bottom of the Board** ("⚠ Calls that didn't compute (N)") instead of silently
   vanishing from every column, and the Decision Queue **withholds its all-clear** ("Some calls didn't

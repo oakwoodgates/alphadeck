@@ -626,6 +626,9 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .dq-item:hover { border-color: var(--armed); background: var(--panel-2); }
 .dq-item b { font-family: var(--mono); font-weight: 700; font-size: 12px; }
 .dq-item span { color: var(--txt-2); font-size: 11.5px; }
+/* the act-by clock: muted mono; warm only when the call flags the entry window closing (#7) */
+.dq-item .dq-clock { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
+.dq-item .dq-clock.closing { color: var(--warm); font-weight: 700; }
 .dq-empty { color: var(--txt-3); font-size: 11px; }
 
 .board { flex: 1; display: grid; grid-template-columns: repeat(4, 1fr); overflow: hidden; }

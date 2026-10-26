@@ -5,6 +5,7 @@ import { useCalls, useDataFlags, useSetArchived, useTheses } from "../api/hooks"
 import { DataFlagMark } from "../cockpit/DataFlagMark";
 import { flagsBySid } from "../cockpit/dataFlags";
 import {
+  daysFrom,
   fmtDate,
   isPastAsof,
   recomputeNote,
@@ -120,6 +121,12 @@ export function Board({ header, asof, onSelect }: Props) {
               // resolveNameKey resolves against); a single-name thesis just carries its own ticker
               const headline = call.armed_members[0];
               const nameKey = headline?.ticker ?? headline?.security_id ?? undefined;
+              // the act-by clock: on an Armed card `arm_until` IS the headline name's entry window, and
+              // `entry_window_closing` is the assembler's own flag for it (Q14) — read, never re-derived
+              // here, and loud (warm) only when set. The queue ORDER is unchanged: this states the clock,
+              // it does not rank the theses by it.
+              const armDays = daysFrom(call.asof, call.arm_until);
+              const closing = Boolean(headline?.entry_window_closing);
               return (
                 <button
                   type="button"
@@ -144,6 +151,19 @@ export function Board({ header, asof, onSelect }: Props) {
                   <span>
                     {verdictLabel(call.verdict)} · {thesis.name}
                   </span>
+                  {armDays !== null && (
+                    <span
+                      className={`dq-clock${closing ? " closing" : ""}`}
+                      title={
+                        closing
+                          ? "entry window closing — the last trading sessions in which this entry signal is valid; it lapses after this date"
+                          : `the entry window — this entry signal is valid through ${fmtDate(call.arm_until)}`
+                      }
+                    >
+                      {armDays < 0 ? "entry window lapsed" : `act within ${armDays}d`}
+                      {closing && " · entry window closing"}
+                    </span>
+                  )}
                 </button>
               );
             })
