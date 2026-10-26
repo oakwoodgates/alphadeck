@@ -96,7 +96,19 @@ const mk = vi.hoisted(() => {
       [...oklo.map((l) => bm("OKLO", "s-oklo", l)), bm("LEU", "s-leu", "fuel")],
       [...oklo.map((l) => scoredRow("s-oklo", "OKLO", l)), scoredRow("s-leu", "LEU", "fuel")],
     );
-  return { grouped, flat, silent, pairEmpty, flatWithPair, multi };
+  // followY: OKLO placed in `oklo`; LEU in reactors AND fuel with its REACTORS row first (so a lookup of "LEU's
+  // first scored row" lands on reactors, not on the fuel tab it is being picked in)
+  const followY = (oklo: string[]) =>
+    wrap(
+      [{ label: "reactors", descriptor: null }, { label: "fuel", descriptor: null }, CTX, BNC],
+      [...oklo.map((l) => bm("OKLO", "s-oklo", l)), bm("LEU", "s-leu", "reactors"), bm("LEU", "s-leu", "fuel")],
+      [
+        ...oklo.map((l) => scoredRow("s-oklo", "OKLO", l)),
+        scoredRow("s-leu", "LEU", "reactors"),
+        scoredRow("s-leu", "LEU", "fuel"),
+      ],
+    );
+  return { grouped, flat, silent, pairEmpty, flatWithPair, multi, followY };
 });
 
 const state = vi.hoisted(() => ({ thesis: undefined as unknown, scored: undefined as unknown }));
@@ -420,6 +432,26 @@ describe("Workbench — Context and Bench (the silent links)", () => {
       await user.click(container.querySelector(".nmrow .tk")!.closest(".nmrow") as HTMLElement); // OKLO, fuel tab
       expect(activeTab(container)).toBe("fuel"); // its first scored row is reactors — the view must not snap there
       expect(railTicker(container)).toBe("OKLO");
+    });
+
+    it("after following X to its new tab, picking a multi-link Y there (first row elsewhere) does NOT jump off it", async () => {
+      const user = userEvent.setup();
+      useFixture(mk.followY(["reactors", "fuel"]));
+      const { container, rerender } = renderWb(); // reactors tab: OKLO (implicit default) + LEU
+      expect(railTicker(container)).toBe("OKLO");
+      await user.click(screen.getByRole("checkbox", { name: "reactors" })); // uncheck reactors → [fuel]
+      useFixture(mk.followY(["fuel"]));
+      rerender(<Workbench asof="2026-06-08" />);
+      expect(activeTab(container)).toBe("fuel"); // the view followed OKLO from reactors to fuel
+      expect(railTicker(container)).toBe("OKLO");
+
+      // LEU is in reactors AND fuel, its first scored row in reactors (the tab the view LEFT)
+      const leuRow = [...container.querySelectorAll(".nmrow")].find(
+        (r) => r.querySelector(".tk")?.textContent === "LEU",
+      ) as HTMLElement;
+      await user.click(leuRow);
+      expect(activeTab(container)).toBe("fuel"); // judged against the tab actually SHOWN, not the stale one
+      expect(railTicker(container)).toBe("LEU");
     });
 
     it("a tab click still navigates (the pick is cleared, never overridden)", async () => {

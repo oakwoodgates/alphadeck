@@ -207,6 +207,19 @@ export function Workbench({ header, asof }: Props) {
           })()
       : null;
   const activeSeg = grouped ? (pickedHome ?? baseSeg) : null;
+  // PERSIST the followed tab into `seg`. `pickedHome` is derived from the pick, so on its own the shown tab
+  // would differ from the stored one (`seg` still the tab the name LEFT) — and the next pick would be judged
+  // against that stale tab: a multi-link name also in the old tab would "still be shown" there and snap the
+  // view back. Writing it makes `baseSeg` the tab actually shown, so later picks are judged against it.
+  // Mirrors a tab click (minus clearing the pick — the pick is the point): the section report belonged to
+  // the tab we left.
+  useEffect(() => {
+    if (pickedHome && pickedHome !== seg) {
+      setSeg(pickedHome);
+      sectionData.reset();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pickedHome, seg]);
   const shownMembers = activeSeg
     ? chainMembers.filter((m) => effectiveSegment(m, segments) === activeSeg)
     : chainMembers;
