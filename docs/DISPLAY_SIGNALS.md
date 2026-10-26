@@ -237,6 +237,7 @@ The NamePanel's **"Indicators · this name"** section (S2) renders metrics as qu
 muted dated lines, and the basis as fine print — inverse loudness (#7): indicators are ambient
 context, never an alert, and an Incubating name's panel must not get louder because a moving
 average moved. The **Cockpit basket table** now surfaces a subset as columns — the SMA posture,
+a **`Last close`** (the `sma_position` member's `close` — an end-of-day price, dated when it lags the basket),
 the trailing-return ladder (`1d/7d/30d/90d/1Y`), the **`Path`** sparkline (`price_path`'s close
 series — a neutral hairline that BREAKS on a gap, "—" below two closes), `Off 52w high` (`range_52w`'s
 `pct_off_52w_high`), `RVOL 8D` / `RVOL 20D`, `Ins 30d` / `Ins 90d`, `ADV 20d` (`volume_regime`'s

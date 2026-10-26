@@ -2,7 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import type { DataFlagOut, DisplaySignal, MemberDataFlagsOut } from "../../api/hooks";
 import type { BucketRow } from "../buckets";
-import { cellFlag, derivedCellFlag, factorWords, markTitle, rowLevel } from "../dataFlags";
+import {
+  cellFlag,
+  derivedCellFlag,
+  factorWords,
+  markTitle,
+  rowLevel,
+  stoppedFeedReason,
+} from "../dataFlags";
 import { sparkTicks } from "../DisplaySignalsSection";
 import { groupMoving } from "../groupAggregate";
 
@@ -130,5 +137,35 @@ describe("dataFlags — derived cells (52w, ADV 20d) borrow the reach of the nam
     ]);
     // ret_30d -> "split"; rvol20 -> "split\nstopped": the merged hover names "split" once
     expect(derivedCellFlag(m, "adv")).toEqual({ level: "known_wrong", reason: "split\nstopped" });
+  });
+});
+
+describe("dataFlags — the last close reads the newest bar, and a stopped feed does not blank it", () => {
+  it("follows 1d alone, and inherits every kind EXCEPT a stopped price feed", () => {
+    const split = member([flag({ reason: "split", columns: ["ret_1d"] })]);
+    expect(derivedCellFlag(split, "last")).toEqual({ level: "in_doubt", reason: "split" });
+    // a flag that reaches only the older windows never touches the newest bar
+    expect(derivedCellFlag(member([flag({ reason: "r", columns: ["ret_7d", "ret_30d"] })]), "last")).toBeNull();
+
+    const stopped = member([
+      flag({ kind: "price_feed_stopped", level: "known_wrong", reason: "stopped", columns: ["ret_1d", "ret_7d"] }),
+    ]);
+    // the returns on the row are blanked by it…
+    expect(cellFlag(stopped, "ret_1d")).toEqual({ level: "known_wrong", reason: "stopped" });
+    // …but the last real print is not
+    expect(derivedCellFlag(stopped, "last")).toBeNull();
+    expect(stoppedFeedReason(stopped)).toBe("stopped");
+
+    // another kind on the same row still counts
+    const both = member([
+      flag({ kind: "price_feed_stopped", level: "known_wrong", reason: "stopped", columns: ["ret_1d"] }),
+      flag({ reason: "split", columns: ["ret_1d"] }),
+    ]);
+    expect(derivedCellFlag(both, "last")).toEqual({ level: "in_doubt", reason: "split" });
+  });
+
+  it("stoppedFeedReason is null for a name with no stopped-feed flag", () => {
+    expect(stoppedFeedReason(null)).toBeNull();
+    expect(stoppedFeedReason(member([flag({ columns: ["ret_1d"] })]))).toBeNull();
   });
 });

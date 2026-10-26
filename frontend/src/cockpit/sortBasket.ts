@@ -16,6 +16,7 @@ export type SortColId =
   | "ticker"
   | "name"
   | "type"
+  | "last"
   | "sma"
   | "ret_1d"
   | "ret_7d"
@@ -109,6 +110,9 @@ export function sortKey(col: SortColId, ctx: RowCtx): SortKey | null {
       const order = idx === -1 ? SUPERSECTOR_ORDER.length : idx; // a future super after the knowns
       return [order, row.scored?.business_type ?? ""];
     }
+    case "last":
+      // the newest close (the sma_position member's `close`) — the price LEVEL, highest → lowest
+      return numKey(metricValue(signals.sma, "close"));
     case "sma":
       // signed distance vs the slow line (pct_vs_slow) — most-above → most-below
       return numKey(metricValue(signals.sma, "pct_vs_slow"));

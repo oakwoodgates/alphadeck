@@ -379,6 +379,12 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .basket td.insc { white-space: nowrap; }
 .basket td.insc .insider { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
 .basket td.insc .insider.cluster { color: var(--leader); font-weight: 600; }
+/* Last close: mono, muted and un-accented like the other level cells; a bar older than the basket's newest
+   (a halt, a delisting, a thin name) adds its date, dimmer still — the exception, never every row (#7) */
+.basket td.lastc { white-space: nowrap; }
+.basket td.lastc .last { font-family: var(--mono); font-size: 10.5px; color: var(--txt-2); }
+.basket td.lastc .last.old { color: var(--txt-3); }
+.basket td.lastc .last-date { color: var(--txt-4); }
 /* 52w (% off the 52-week closing high) and ADV 20d (20-bar average dollar volume): mono like the other
    display cells, muted and un-accented — always-present context, no threshold of their own (#7) */
 .basket td.rngc, .basket td.advc { white-space: nowrap; }

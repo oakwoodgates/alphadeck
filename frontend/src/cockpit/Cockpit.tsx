@@ -11,11 +11,12 @@ import {
 } from "../api/hooks";
 import { CallCard } from "../components/CallCard";
 import { DataFlagMark, FlagWrap } from "./DataFlagMark";
-import { cellFlag, derivedCellFlag, factorWords, flagsBySid } from "./dataFlags";
+import { cellFlag, derivedCellFlag, factorWords, flagsBySid, stoppedFeedReason } from "./dataFlags";
 import {
   AdvCell,
   GroupMovingLine,
   InsiderCell,
+  LastCell,
   Off52wCell,
   PostureCell,
   ReturnCells,
@@ -249,6 +250,13 @@ export function Cockpit({
         barsAgo: s.bars_ago as number,
         label: `${s.label} ${s.effective_date} (prices before it ${factorWords(s.factor)})`,
       }));
+  // the newest last-bar date across the basket: a row whose last close is OLDER than it is lagging (a halt, a
+  // delisting, a thin OTC name with no print) and its Last close cell says when. Relative to the table, so a
+  // weekend or a holiday — when every row's newest bar is the same Friday — marks nothing.
+  const newestBar = [...smaBySid.values()].reduce(
+    (max, s) => ((s.basis.window_end ?? "") > max ? (s.basis.window_end ?? "") : max),
+    "",
+  );
   const thesis = thesisQ.data;
   const card = callQ.data;
   // C2: any of the as-of-keyed reads may still be showing the PREVIOUS date's values
@@ -613,6 +621,9 @@ export function Cockpit({
                         <SortableTh col="ticker" label="Ticker" className="tk" sort={sort} onSort={onSort} />
                         <SortableTh col="name" label="Name" sort={sort} onSort={onSort} />
                         <SortableTh col="type" label="Type" sort={sort} onSort={onSort} />
+                        {/* the newest END-OF-DAY close at or before the as-of (the sma_position member's
+                            `close`) — "last known": it stays when the tape has stopped, with its date */}
+                        <SortableTh col="last" label="Last close" align="right" sort={sort} onSort={onSort} />
                         <SortableTh col="sma" label="SMA" align="right" sort={sort} onSort={onSort} />
                         {/* trailing EOD price returns — 1d is the last close vs the PRIOR close (not a
                             24h/intraday move; this platform is end-of-day) */}
@@ -674,7 +685,7 @@ export function Cockpit({
                       {sortedGroups.map((g) => (
                         <Fragment key={g.key}>
                           <tr className={`grp ${g.cls}`}>
-                            <td colSpan={21}>
+                            <td colSpan={22}>
                               {/* the To Review heading idiom (chev · label · hint · count · moving
                                   line · hairline), bucket-colored; click-to-collapse, open by default
                                   — the count + the moving line stay visible while closed, so a
@@ -784,6 +795,22 @@ export function Cockpit({
                                 ) : (
                                   <span className="muted">—</span>
                                 )}
+                              </td>
+                              <td className="met lastc">
+                                {/* the last close, with its bar date when it lags the basket's newest bar. A
+                                    stopped feed is NOT blanked here (see DERIVED_CELL_SKIPS): the last print is
+                                    the point — it shows with its date and the flag's reason on hover. */}
+                                <FlagWrap flag={derivedCellFlag(flagsFor(r.member.security_id), "last")}>
+                                  <LastCell
+                                    sig={
+                                      r.member.security_id
+                                        ? (smaBySid.get(r.member.security_id) ?? null)
+                                        : null
+                                    }
+                                    newestBar={newestBar || null}
+                                    stopped={stoppedFeedReason(flagsFor(r.member.security_id))}
+                                  />
+                                </FlagWrap>
                               </td>
                               <td className="met smac">
                                 {/* the tape posture at table grain: the panel headline's glyph + the

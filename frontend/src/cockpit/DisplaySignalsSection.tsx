@@ -220,6 +220,58 @@ export function InsiderCell({
   );
 }
 
+/** A last-close price: "$27.71", thousands separated, and a name under a dollar gets four decimals (a $0.0431
+ *  stock must not read "$0.04"). */
+export function fmtLastPrice(v: number): string {
+  const digits = v >= 1 ? 2 : 4;
+  return `$${v.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
+}
+
+/** One basket-table `Last close` cell from the `sma_position` display member's `close` metric: the newest
+ *  close at or before the as-of — an END-OF-DAY print, never a live quote (this platform has no intraday). It
+ *  stays on screen even when the tape has stopped (that is what "last known" means), and then says WHEN: a
+ *  muted " · Oct 14" appears when the bar is older than the newest bar anywhere in the basket (`newestBar`),
+ *  when the member itself calls it stale, or when the feed is flagged stopped (`stopped` = the flag's reason,
+ *  which rides the hover). The date marks the exception — most rows print today's bar and carry none (#7). A
+ *  name with no bars is an honest "—". */
+export function LastCell({
+  sig,
+  newestBar,
+  stopped = null,
+}: {
+  sig: DisplaySignal | null;
+  /** the newest last-bar date across the basket's rows (ISO) — a row older than it is lagging */
+  newestBar?: string | null;
+  stopped?: string | null;
+}) {
+  const m = (sig?.metrics ?? []).find((x) => x.key === "close");
+  if (!sig || !m || m.value == null)
+    return (
+      <span className="muted" title={m?.note ?? sig?.basis.note ?? undefined}>
+        —
+      </span>
+    );
+  const end = sig.basis.window_end ?? null;
+  const memberStale = /^stale/.test(sig.basis.note ?? "");
+  const old = memberStale || stopped != null || (end != null && newestBar != null && end < newestBar);
+  const price = fmtLastPrice(m.value);
+  return (
+    <span
+      className={`last${old ? " old" : ""}`}
+      title={[
+        `last close ${price}${end ? ` on ${fmtDate(end)}` : ""} (end of day, not a live quote)`,
+        sig.basis.note,
+        stopped,
+      ]
+        .filter(Boolean)
+        .join(" · ")}
+    >
+      {price}
+      {old && end && <span className="last-date"> · {fmtDate(end)}</span>}
+    </span>
+  );
+}
+
 /** One basket-table `52w` cell from the `range_52w` display member: how far the last close sits BELOW the
  *  52-week closing high ("-23.4%"; 0.0% = at the high). Muted mono, no accent — it is always-present context,
  *  and "at the high" is already the exception the number itself states (#7). The hover shows the work: the high

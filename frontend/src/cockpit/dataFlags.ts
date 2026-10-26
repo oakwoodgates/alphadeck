@@ -50,8 +50,12 @@ function oneLine(f: DataFlagOut): string {
 export function cellFlag(
   member: MemberDataFlagsOut | null | undefined,
   cell: string,
+  /** flag kinds to leave out of this read (a derived cell that a kind does not make wrong — see `DERIVED_CELL_SKIPS`) */
+  skipKinds: readonly string[] = [],
 ): CellFlag | null {
-  const hits = (member?.flags ?? []).filter((f) => (f.columns ?? []).includes(cell));
+  const hits = (member?.flags ?? []).filter(
+    (f) => (f.columns ?? []).includes(cell) && !skipKinds.includes(f.kind),
+  );
   if (hits.length === 0) return null;
   const level: FlagLevel = hits.some((f) => f.level === "known_wrong") ? "known_wrong" : "in_doubt";
   return { level, reason: hits.map(oneLine).join("\n") };
@@ -70,15 +74,24 @@ export function cellFlag(
  *    tapeShort — the Tape marks that read a short window: a coil (60 bars + its 50d line) and RS at a 13-week
  *             high (~65 bars), both inside `ret_90d`'s 90.
  *    tapeLong — a golden / death cross, which reads back through the 200d line from the cross date: inside
- *             `ret_1y`'s 252 for a cross within the Tape's 30-day recency. */
+ *             `ret_1y`'s 252 for a cross within the Tape's 30-day recency.
+ *    last   — the newest close: the one bar `ret_1d`'s window also reads. */
 export const DERIVED_CELL_REACH = {
   off52w: ["ret_1y"],
   adv: ["ret_30d", "rvol20"],
   tapeShort: ["ret_90d"],
   tapeLong: ["ret_1y"],
+  last: ["ret_1d"],
 } as const;
 
 export type DerivedCell = keyof typeof DERIVED_CELL_REACH;
+
+/** Flag kinds a derived cell does NOT inherit. A stopped price feed makes every RETURN wrong (the tape ended
+ *  before the window did), but the newest close is still the last real print — that is exactly what a "last
+ *  known price" is for, so it is shown with its date (see `stoppedFeedReason`), not blanked. */
+export const DERIVED_CELL_SKIPS: Partial<Record<DerivedCell, readonly string[]>> = {
+  last: ["price_feed_stopped"],
+};
 
 /** The flag state of a derived cell: the worst level among its proxy cells' flags (known wrong beats in
  *  doubt), every distinct reason on the hover. Null when no proxy cell is flagged. */
@@ -87,11 +100,17 @@ export function derivedCellFlag(
   cell: DerivedCell,
 ): CellFlag | null {
   const hits = DERIVED_CELL_REACH[cell]
-    .map((c) => cellFlag(member, c))
+    .map((c) => cellFlag(member, c, DERIVED_CELL_SKIPS[cell]))
     .filter((f): f is CellFlag => f != null);
   if (hits.length === 0) return null;
   const level: FlagLevel = hits.some((h) => h.level === "known_wrong") ? "known_wrong" : "in_doubt";
   return { level, reason: [...new Set(hits.flatMap((h) => h.reason.split("\n")))].join("\n") };
+}
+
+/** The reason a name's price feed is flagged stopped (renamed, closed or a gap), or null. The last-close cell
+ *  shows its number WITH the bar's date and this reason on hover, rather than blanking it. */
+export function stoppedFeedReason(member: MemberDataFlagsOut | null | undefined): string | null {
+  return (member?.flags ?? []).find((f) => f.kind === "price_feed_stopped")?.reason ?? null;
 }
 
 /** The flags that reach a cell on the row (the ones the row mark speaks for). */

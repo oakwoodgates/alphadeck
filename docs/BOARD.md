@@ -171,19 +171,19 @@ still list it, and a name's flags list the reaching ones first). Flags apply onl
 scored reads have landed: the flag read is the faster one, and a mark beside a row of loading "—" (or another
 as-of's placeholder numbers) read as "the flag blanked the row". The header's 7d median **leaves flagged 7d values out** and says so ("· 2 left out", the why on
 hover). The sparkline gets a dashed **tick** at an applied split inside its window, nothing more. The
-cells the server's flag vocabulary does not name (`Off 52w high`, `ADV 20d`, and each `Tape` chip) take their reach
-from the **named cells whose bar window contains their own** (`cockpit/dataFlags.ts` `DERIVED_CELL_REACH`: 52w ←
-1Y; ADV ← 30d and RVOL 20D; coil and RS lead ← 90d; a cross ← 1Y), so a flag that could reach them grays or blanks them too; the one named limit is a step in the oldest
+cells the server's flag vocabulary does not name (`Last close`, `Off 52w high`, `ADV 20d`, and each `Tape` chip) take their reach
+from the **named cells whose bar window contains their own** (`cockpit/dataFlags.ts` `DERIVED_CELL_REACH`: Last close ←
+1D; 52w ← 1Y; ADV ← 30d and RVOL 20D; coil and RS lead ← 90d; a cross ← 1Y), so a flag that could reach them grays or blanks them too; the one named limit is a step in the oldest
 ~10 of the 52w window's ~262 bars, which `1Y`'s 252 do not reach — the long-run fix is to name the cells in
 `domain/data_flags.py`, which moves the engine fingerprint, so it rides a deliberate backend change. No alert,
 ever (#7). MEASURED on a read-only copy of prod (2026-10-22): 26 of 688 names carry a mark (3/90 AI Memory,
 1/34 Digital Asset, 4/190 Modern Defense, 2/79 Nuclear, 8/155 Rainbow Rush, 9/159 Everything Exchange), and
 all twelve live call cards were byte-identical with and without the flags read.
 
-**Columns:** `Dot · Ticker · Name · Type · SMA · 1d · 7d · 30d · 90d · 1Y · Path · Off 52w high · Tape ·
+**Columns:** `Dot · Ticker · Name · Type · Last close · SMA · 1d · 7d · 30d · 90d · 1Y · Path · Off 52w high · Tape ·
 RVOL 8D · RVOL 20D · Ins 30d · Ins 90d · Mkt cap · ADV 20d · Entry-by · Exit-by`.
 
-**The table scrolls in its own box** (`.basket-scroll`), because twenty-one columns do not fit a laptop's
+**The table scrolls in its own box** (`.basket-scroll`), because twenty-two columns do not fit a laptop's
 main column beside the 380px call rail (the widths MEASURED when this was built — 17 columns, 1025px of
 min-content — predate Off 52w high, Tape and ADV 20d; the table is wider now and has not been re-measured) — before it, the overflow painted *over* the rail and those columns
 were simply unreachable. Three things hold their place inside that box: the **status dot + ticker** stick
@@ -221,6 +221,17 @@ one laid out in a flowing document.
   not a path). One of the two display columns that are **not sortable** (the other is Tape) — a shape with no scalar to
   rank on.
 - **Mkt cap** — bridged from the scoring read ("—" when un-scored).
+- **Last close** — the newest **end-of-day** close at or before the as-of (the `sma_position` member's `close`;
+  "$27.71", thousands separated, four decimals under a dollar). It is the *last known* price, not a live quote
+  (this platform has no intraday): the hover says "end of day, not a live quote" and names the bar's date.
+  It stays on screen when the tape has stopped — that is what "last known" means — and then says **when**: a
+  muted " · Oct 14" appears only when the bar is older than the **newest bar anywhere in the basket** (a halt, a
+  delisting, a thin name with no print), when the member itself calls it stale (> 10 days before the as-of), or
+  when the feed is flagged stopped. Relative to the table, so a weekend or holiday — every row's newest bar the
+  same Friday — marks nothing; most rows carry no date (#7). Sortable by price level, highest first on desc.
+  A **stopped feed does not blank it** (a stopped feed makes the *returns* wrong, not the last real print): the
+  cell keeps the number with its date and the flag's reason on hover, while a split flag that reaches the newest
+  bar (`1d`) still grays or blanks it like any price cell.
 - **Off 52w high** — how far the last close sits below the 52-week closing high (`range_52w`'s
   `pct_off_52w_high`; "-23.4%", 0.0% = at the high). Muted mono, no accent — the number itself states "at the
   high" — with the high and the bar it printed on in the hover. Sortable; desc puts the names nearest their high
@@ -423,6 +434,18 @@ yet confirmed. Nothing here changes a call, and none of it touches the edition e
   one deliberate backend change and its single trial run), or test the 52w window directly against the flags' own
   `dates` (the affected bar dates, present even on a flag that names no cell) — frontend-only, but not yet
   verified against a real flag.
+
+**The `Last close` column**
+- **It is an end-of-day close, never a live price** — a quote that has moved since the last bar is not here, and
+  the platform has no intraday (out of scope for v1).
+- **"Lagging" is relative to the basket's newest bar.** If *every* name's feed is behind (a global stall), no row
+  is older than the newest and no date is shown; the Scoreboard's freshness line and Admin are what say the whole
+  feed is late. A thin OTC name that simply did not trade for a few days will show its date too — informative, but
+  on a basket full of such names the dates are common rather than rare.
+- **It reads the SMA member's `close`**, so a name with no bars inside that member's 600-day lookback reads "—".
+- **A flag-blanked cell still sorts by its underlying price** (as every column here does — the sort reads the
+  member's number, not the flag): a row shown "—" for a known-wrong flag keeps its rank. Pre-existing, now one
+  more column it applies to.
 
 **The `Tape` column**
 - **The three marks and the 30-day cross recency (`TAPE_CROSS_DAYS`) were picked by the builder, not specified**:
