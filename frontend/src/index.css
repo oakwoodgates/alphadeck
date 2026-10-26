@@ -545,6 +545,11 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .trg-item.hit .ic { color: var(--pos); }
 .trg-item.miss .ic { color: var(--txt-4); }
 .trg-item.warn .ic { color: var(--warm); }
+/* the catalyst surface: ambient, never an alert (#7) — a muted glyph and kind, and a date already past
+   grays rather than vanishes */
+.trg-item.cal .ic { color: var(--txt-4); }
+.trg-item.cal .cal-kind { margin-left: 6px; font-size: 10px; color: var(--txt-4); }
+.trg-item.cal.passed { opacity: 0.6; }
 /* the foreign-filer scoped sub-note under a missing conviction line — muted, indented, ambient (#7) */
 .trg-item.miss .miss-note { display: block; margin-top: 4px; font-size: 10px; line-height: 1.45; color: var(--txt-4); font-style: italic; }
 /* the source link is an unbreakable unit — "↗ source" never splits across a wrap */

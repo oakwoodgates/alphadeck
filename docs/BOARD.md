@@ -300,6 +300,10 @@ State-classed (its accent follows the lifecycle), recomputed at `card.asof`. Top
   warning glyph and no grade.
 - **Counter-case** — deterministic: active risk signals + the authored kill criteria + the missing
   triggers.
+- **Catalysts through exit-by** — the card's `catalyst_surface`: the dated binary events the assembler keeps
+  inside the `exit_by` window (it keeps every dated entry on or before it, so a date already past rides along),
+  listed soonest-first with a day count, a past one grayed and marked "passed". Ambient context beside the clocks
+  it sits between; an empty surface draws no panel. (`safe_sleeve` is not rendered — the assembler never fills it.)
 - **The two clocks** (sticky-on-confirmation, §6): `arm_until` — the **entry window** (confirmation's
   clock; on an Armed card it's an act-by deadline, "act within Nd", plus "· entry window closing" when the
   headline member's `entry_window_closing` is set; informational decay otherwise) — and

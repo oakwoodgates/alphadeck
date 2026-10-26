@@ -16,6 +16,15 @@ import { DecisionActions } from "./DecisionActions";
 import { RailPanel } from "./RailPanel";
 
 type TriggerLike = NonNullable<CallCardResponse["triggers_fired"]>[number];
+type CatalystLike = NonNullable<CallCardResponse["catalyst_surface"]>[number];
+
+/** Soonest-first comparator for the catalyst surface by ISO (`YYYY-MM-DD`) date; an undated entry sorts
+ *  last. String compare == chronological for ISO dates, and the sort is stable, so equal dates keep the
+ *  operator's authoring order. */
+export function byWhenDateAsc(a: CatalystLike, b: CatalystLike): number {
+  if (!a.when_date || !b.when_date) return a.when_date ? -1 : b.when_date ? 1 : 0;
+  return a.when_date.localeCompare(b.when_date);
+}
 
 /** The counter-case, as a COUNT of the two lists rendered above it rather than a restatement of
  *  them. The wire's `counter_case` string is deliberately NOT read: it is assembled server-side as
@@ -71,6 +80,11 @@ export function CallCard({
   const risks = [...(card.risk_signals ?? [])].sort(byEventDateDesc);
   const armDays = daysFrom(card.asof, card.arm_until);
   const exitDays = daysFrom(card.asof, card.exit_by);
+  // The catalyst surface — the dated binary events the assembler put inside the exit-by window (it keeps
+  // every dated entry on or before exit_by, so a date already past rides along). Soonest first, a display
+  // sort only (the wire order is the operator's authoring order); `safe_sleeve` is deliberately not read —
+  // the assembler never fills it.
+  const catalysts = [...(card.catalyst_surface ?? [])].sort(byWhenDateAsc);
   // The headline's entry-window flag (Q14). On an Armed card `arm_until` IS the headline member's
   // (armed_members[0]) confirmation clock, so its flag describes exactly the row drawn below. Read,
   // never re-derived: the trading-session count is the assembler's. Armed-only (#7).
@@ -174,6 +188,27 @@ export function CallCard({
           <b>Counter-case</b>
           {counterCaseSummary(risks, missing)}
         </div>
+
+        {catalysts.length > 0 && (
+          <RailPanel label="Catalysts through exit-by" count={catalysts.length}>
+            {catalysts.map((c) => {
+              const d = daysFrom(card.asof, c.when_date);
+              return (
+                <div className={`trg-item cal${d !== null && d < 0 ? " passed" : ""}`} key={c.id}>
+                  <span className="ic">◷</span>
+                  <span className="trg-body">
+                    {c.label}
+                    {c.kind && <span className="cal-kind">{c.kind}</span>}
+                  </span>
+                  <span className="trg-date">
+                    {c.when_date ? fmtDate(c.when_date) : (c.when_label ?? "—")}
+                    {d !== null && (d >= 0 ? ` · ${d}d` : " · passed")}
+                  </span>
+                </div>
+              );
+            })}
+          </RailPanel>
+        )}
 
         {(card.arm_until || card.exit_by) && (
           <div className="clocks">
