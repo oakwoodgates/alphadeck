@@ -533,6 +533,13 @@ export interface paths {
          *     anything is written — a row is never dropped silently. A silent name stays on the card but never counts
          *     toward the call (``domain.thesis.voting_thesis``).
          *
+         *     THE CONTEXT ROLE (``context_role``, one of six, NULL = unset) is per company per card: it rides EVERY row
+         *     of a company, identical. A company whose rows carry two DIFFERENT roles (sibling listings of one company
+         *     count as one) is refused with a 422 naming it and the roles it was sent, before anything is written; a
+         *     NULL row beside a set role INHERITS that role, so a hand-add or re-draft that puts an existing company in
+         *     a second link succeeds; clearing is NULL on every row of the company. Operator-authored display metadata:
+         *     it never feeds the call (#4) and no model path writes it (#3).
+         *
          *     ON-PROMOTE INGEST (PR-4): a promote that ADDS members (present in the incoming basket, absent from
          *     the pre-upsert spine — diffed by ``security_id``) kicks their back-half ingest as a BACKGROUND job
          *     after the commit, so a fresh starter basket needn't wait for the nightly cron; the additive
@@ -4921,6 +4928,7 @@ export interface components {
              * @default false
              */
             signed_off: boolean;
+            context_role?: components["schemas"]["ContextRole"] | null;
         };
         /**
          * BusinessSupersector
@@ -5101,6 +5109,19 @@ export interface components {
             placements: components["schemas"]["ResolvedPlacement"][];
             report?: components["schemas"]["DraftReportOut"] | null;
         };
+        /**
+         * ContextRole
+         * @description What part a company plays on THIS card — the operator-authored CONTEXT ROLE on a basket membership
+         *     (Context roles, Phase 1). Display metadata only: stored, carried end to end, shown quietly, and never read
+         *     by the call (#4 — the operator decides what a company is to the thesis, never the model, #3). A later
+         *     phase reads signals from a role-tagged company's own disclosures (a "read-through"); that is not built.
+         *
+         *     NAMING GUARD: this is NOT ``BasketMember.role`` (the free-text prose field) and NOT ``SignalEvent.role``
+         *     (``Role``: entry_trigger / risk_signal). ``None`` on a member = unset, never a default. The labels and
+         *     hover descriptions the operator reads live in the frontend; the wire/DB values are these.
+         * @enum {string}
+         */
+        ContextRole: "payer" | "counter_case" | "direct_read" | "participant" | "benchmark" | "financier";
         /**
          * CorporateEventOut
          * @description One stored 8-K filing inside an episode's window (Slice B) — an overlay chip / ledger row.
