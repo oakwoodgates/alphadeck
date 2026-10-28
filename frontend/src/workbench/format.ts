@@ -1,7 +1,7 @@
 // Workbench display helpers — turn the wire figures into the chips/labels the operator reads.
 // All values are DATA-DERIVED (the scoring engine, Slice 3); nothing here invents a number.
 
-import type { ProvenanceOut, ScoredFigureOut } from "../api/hooks";
+import type { ContextRole, ProvenanceOut, ScoredFigureOut } from "../api/hooks";
 
 // the business-type labels live in the shared util/format (the Cockpit board uses them too); re-exported
 // here so the Workbench / DDRail call sites import them alongside the other display helpers.
@@ -30,6 +30,43 @@ export const BUSINESS_TYPES = [
   "spac",
   "other",
 ] as const;
+
+/** The six CONTEXT ROLES (what part a company plays on THIS card) in the order the rail's select offers them —
+ *  mirrors domain ContextRole. The `Record<ContextRole, …>` maps below are exhaustive against the generated
+ *  enum, so a role added server-side fails the build here instead of rendering a blank. Operator-authored
+ *  display metadata: it never feeds the call (#4) and the model never sets it (#3). NAMING GUARD: not
+ *  `BasketMember.role` (prose) and not a signal's `role` (entry_trigger / risk_signal). */
+export const CONTEXT_ROLES: readonly ContextRole[] = [
+  "payer",
+  "counter_case",
+  "direct_read",
+  "participant",
+  "benchmark",
+  "financier",
+];
+
+export const CONTEXT_ROLE_LABEL: Record<ContextRole, string> = {
+  payer: "Payer",
+  counter_case: "Counter-case",
+  direct_read: "Direct read",
+  participant: "Participant",
+  benchmark: "Benchmark",
+  financier: "Financier",
+};
+
+/** The hover description of each role (operator-approved copy). */
+export const CONTEXT_ROLE_DESCRIPTION: Record<ContextRole, string> = {
+  payer: "The demand side: buys the theme's product or pays its price.",
+  counter_case: "Loses if the thesis plays out, or wins if it fails.",
+  direct_read: "Not in the business, but its numbers forecast what the voting names report.",
+  participant: "Does the thesis itself, but it is a slice of the company.",
+  benchmark: "A price series that IS the underlying (a spot fund, a physical trust).",
+  financier: "Funds the build-out (lenders, convertible buyers).",
+};
+
+/** The quiet inline tag for a set role — the lowercase label ("payer", "counter-case", "direct read"). Callers
+ *  render it ONLY when a role is set (never a "—" placeholder, WB#3). */
+export const contextRoleTag = (role: ContextRole): string => CONTEXT_ROLE_LABEL[role].toLowerCase();
 
 /** A collision-prone SIGNAL acronym term (single all-caps token, letters+digits, ≥2 chars — HBM,
  *  DRAM). Used by the low-quality junk-tell set (`junkTells.ts`). Deliberately the simple v1 rule

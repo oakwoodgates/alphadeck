@@ -189,3 +189,22 @@ class Authorship(StrEnum):
     SYSTEM_DRAFTED = "system_drafted"  # LLM-drafted placement (post-MVP); the operator ratifies it
     OPERATOR_SET = "operator_set"  # the operator placed it
     OPERATOR_EDITED = "operator_edited"  # the operator edited a drafted placement
+
+
+class ContextRole(StrEnum):
+    """What part a company plays on THIS card — the operator-authored CONTEXT ROLE on a basket membership
+    (Context roles, Phase 1). Display metadata only: stored, carried end to end, shown quietly, and never read
+    by the call (#4 — the operator decides what a company is to the thesis, never the model, #3). A later
+    phase reads signals from a role-tagged company's own disclosures (a "read-through"); that is not built.
+
+    NAMING GUARD: this is NOT ``BasketMember.role`` (the free-text prose field) and NOT ``SignalEvent.role``
+    (``Role``: entry_trigger / risk_signal). ``None`` on a member = unset, never a default. The labels and
+    hover descriptions the operator reads live in the frontend; the wire/DB values are these.
+    """
+
+    PAYER = "payer"  # the demand side: buys the theme's product or pays its price
+    COUNTER_CASE = "counter_case"  # loses if the thesis plays out, or wins if it fails
+    DIRECT_READ = "direct_read"  # its numbers forecast what the voting names report
+    PARTICIPANT = "participant"  # does the thesis itself, but it is a slice of the company
+    BENCHMARK = "benchmark"  # a price series that IS the underlying (a spot fund, a physical trust)
+    FINANCIER = "financier"  # funds the build-out (lenders, convertible buyers)

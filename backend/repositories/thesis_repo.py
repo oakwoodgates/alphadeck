@@ -146,8 +146,14 @@ def _member_to_snapshot(ordinal: int, m: BasketMember) -> dict[str, Any]:
     across the seed and the on-promote write (jsonb normalizes key order). Values are JSON-native (UUID ->
     str) so ``Json`` can serialize them — the ``set_term_set`` ``model_dump(mode="json")`` idiom. Every
     field ``_row_to_basket_member`` reads is present, so ``get_asof`` round-trips a byte-identical member.
+
+    ``context_role`` is the ONE key emitted only when SET (migration 0069). The dedup hashes
+    ``md5(members::text)``, so a ``"context_role": null`` added to every object would change every thesis's
+    hash and each thesis's next unchanged re-promote would append a redundant snapshot row. Omitting the unset
+    key keeps a role-less roster's hash byte-identical to the one the seed and the earlier writes stored;
+    ``_row_to_basket_member`` reads it with ``.get``, so a snapshot without the key hydrates as unset.
     """
-    return {
+    out: dict[str, Any] = {
         "ordinal": ordinal,
         "ticker": m.ticker,
         "role": m.role,
@@ -160,6 +166,9 @@ def _member_to_snapshot(ordinal: int, m: BasketMember) -> dict[str, Any]:
         "authored_by": m.authored_by.value,
         "signed_off": m.signed_off,
     }
+    if m.context_role is not None:
+        out["context_role"] = m.context_role.value
+    return out
 
 
 def _write_basket_snapshot(cur: psycopg.Cursor, thesis: Thesis, tenant_id: UUID) -> None:
@@ -366,8 +375,9 @@ def upsert(conn: psycopg.Connection, thesis: Thesis) -> None:
             cur.execute(
                 """INSERT INTO basket_member
                    (tenant_id, thesis_id, ordinal, ticker, role, security_id, detail,
-                    segment, thesis_fit, conviction, surfaced_terms, authored_by, signed_off)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                    segment, thesis_fit, conviction, surfaced_terms, authored_by, signed_off,
+                    context_role)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (
                     tenant,
                     tid,
@@ -382,6 +392,7 @@ def upsert(conn: psycopg.Connection, thesis: Thesis) -> None:
                     m.surfaced_terms,  # psycopg adapts list[str] <-> text[]
                     m.authored_by.value,
                     m.signed_off,
+                    m.context_role.value if m.context_role is not None else None,
                 ),
             )
         # evidence is append-only: add new rows, never modify/remove existing ones

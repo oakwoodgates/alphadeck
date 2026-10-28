@@ -3790,3 +3790,212 @@ def test_promote_sees_two_listings_of_one_company_as_one_company(client, db):
     )
     assert bad.status_code == 422
     assert "ASML is in Context and also in another link" in bad.json()["detail"]
+
+
+# --- Context roles (Phase 1): the operator's per-company role, on every row of the company ---------------
+
+_CR_SEGS = [{"label": "reactors"}, {"label": "fuel"}, {"label": "Discovered"}]
+
+
+def _cr_roles(db, tid) -> list[str | None]:
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT context_role FROM basket_member WHERE thesis_id = %s ORDER BY ordinal", (tid,)
+        )
+        return [r["context_role"] for r in cur.fetchall()]
+
+
+def _cr_two_links(sid, role=None, *, ticker="DEVCO", second=None, **kw):
+    """One company in two links (reactors + fuel); ``second`` overrides the second row's role."""
+    first = _s1_member(ticker, sid, segment="reactors", context_role=role, **kw)
+    other = _s1_member(
+        ticker, sid, segment="fuel", context_role=role if second is None else second, **kw
+    )
+    return [first, other]
+
+
+def test_promote_keeps_a_role_on_both_rows_of_a_two_link_company_through_get_and_a_resend(
+    client, db, security_id
+):
+    """THE WIPE-TRAP PATH (a narrative edit resends the GET's basket verbatim): the role is stored on BOTH
+    rows, the GET returns it on both, re-sending that basket keeps it, and the latest snapshot carries it on
+    both rows — hydrated back by ``thesis_repo.get_asof``."""
+    r = _sl_promote(client, segments=_CR_SEGS, basket=_cr_two_links(security_id, "counter_case"))
+    assert r.status_code == 200
+    assert [m["context_role"] for m in r.json()["basket"]] == ["counter_case", "counter_case"]
+    tid = r.json()["id"]
+    assert _cr_roles(db, tid) == ["counter_case", "counter_case"]
+
+    got = client.get(f"/theses/{tid}").json()
+    assert [m["context_role"] for m in got["basket"]] == ["counter_case", "counter_case"]
+
+    # the narrative-edit path: resend the GET's own basket + segments, only the narrative changed
+    again = client.post(
+        "/workbench/theses",
+        json={
+            "id": tid,
+            "name": got["name"],
+            "narrative": "edited — the basket is resent verbatim",
+            "ticker": None,
+            "segments": got["segments"],
+            "basket": got["basket"],
+        },
+    )
+    assert again.status_code == 200
+    assert _cr_roles(db, tid) == ["counter_case", "counter_case"]  # not wiped
+
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT members FROM basket_snapshot WHERE thesis_id = %s "
+            "ORDER BY taken_at DESC, id DESC LIMIT 1",
+            (tid,),
+        )
+        (snap,) = cur.fetchall()
+    assert [m["context_role"] for m in snap["members"]] == ["counter_case", "counter_case"]
+    asof = thesis_repo.get_asof(db, uuid.UUID(tid), datetime.now(timezone.utc))
+    assert [m.context_role.value for m in asof.basket] == ["counter_case", "counter_case"]
+
+
+def test_promote_refuses_two_different_roles_on_one_company_and_writes_nothing(
+    client, db, security_id
+):
+    ok = _sl_promote(client, segments=_CR_SEGS, basket=_cr_two_links(security_id, "payer"))
+    tid = ok.json()["id"]
+    before = (_sl_count(db, tid), _sl_count(db, tid, "basket_snapshot"))
+    assert _cr_roles(db, tid) == ["payer", "payer"]
+
+    bad = _sl_promote(
+        client,
+        tid=tid,
+        segments=_CR_SEGS,
+        basket=_cr_two_links(security_id, "financier", second="benchmark"),
+    )
+    assert bad.status_code == 422
+    detail = bad.json()["detail"]
+    assert "DEVCO" in detail and "financier" in detail and "benchmark" in detail
+    assert "one context role per card" in detail
+    # nothing written: COUNT both tables, and the stored roles are the earlier ones
+    assert (_sl_count(db, tid), _sl_count(db, tid, "basket_snapshot")) == before
+    assert _cr_roles(db, tid) == ["payer", "payer"]
+
+
+def test_promote_names_every_company_with_conflicting_roles(client, db, security_id):
+    oklo = _insert_security(db, "OKLO", name="Oklo Inc.", cik="0001849056")
+    bad = _sl_promote(
+        client,
+        segments=_CR_SEGS,
+        basket=[
+            *_cr_two_links(security_id, "payer", second="financier"),
+            *_cr_two_links(oklo, "benchmark", ticker="OKLO", second="direct_read"),
+        ],
+    )
+    assert bad.status_code == 422
+    assert "DEVCO" in bad.json()["detail"] and "OKLO" in bad.json()["detail"]
+    assert bad.json()["detail"].endswith("Keep one for each.")
+
+
+def test_promote_fills_a_null_row_beside_a_set_role_and_clearing_is_null_on_every_row(
+    client, db, security_id
+):
+    """A re-draft or hand-add that puts an existing company into a second link arrives with no role on the new
+    row: it INHERITS (both rows stored with the role). Clearing is NULL on every row, and stays cleared.
+    """
+    members = [
+        _s1_member("DEVCO", security_id, segment="reactors", context_role="participant"),
+        _s1_member("DEVCO", security_id, segment="fuel"),  # the new row: no role sent
+    ]
+    r = _sl_promote(client, segments=_CR_SEGS, basket=members)
+    assert r.status_code == 200
+    tid = r.json()["id"]
+    assert [m["context_role"] for m in r.json()["basket"]] == ["participant", "participant"]
+    assert _cr_roles(db, tid) == ["participant", "participant"]
+
+    cleared = _sl_promote(client, tid=tid, segments=_CR_SEGS, basket=_cr_two_links(security_id))
+    assert cleared.status_code == 200
+    assert _cr_roles(db, tid) == [None, None]
+    assert [m["context_role"] for m in client.get(f"/theses/{tid}").json()["basket"]] == [
+        None,
+        None,
+    ]
+
+
+@pytest.mark.parametrize("segment", ["Context", "Bench", "Discovered", "reactors"])
+def test_a_role_is_allowed_on_any_row_silent_links_and_discovered_included(
+    client, db, security_id, segment
+):
+    r = _sl_promote(
+        client,
+        segments=_CR_SEGS,
+        basket=[_s1_member("DEVCO", security_id, segment=segment, context_role="benchmark")],
+    )
+    assert r.status_code == 200
+    assert _cr_roles(db, r.json()["id"]) == ["benchmark"]
+
+
+@pytest.mark.parametrize("bad", ["watch", "Payer", "", "entry_trigger", 3])
+def test_promote_rejects_a_role_outside_the_six_with_a_422(client, db, security_id, bad):
+    ok = _sl_promote(client, segments=_CR_SEGS, basket=[])
+    tid = ok.json()["id"]
+    r = _sl_promote(
+        client,
+        tid=tid,
+        segments=_CR_SEGS,
+        basket=[_s1_member("DEVCO", security_id, segment="reactors", context_role=bad)],
+    )
+    assert r.status_code == 422
+    assert _sl_count(db, tid) == 0  # nothing written
+
+
+def test_promote_snapshot_hash_parity_an_unchanged_roleless_roster_appends_zero_rows(
+    client, db, security_id
+):
+    """COUNT THE TABLE. A role-less roster re-promoted (the editor does this on every save) appends ZERO
+    snapshot rows; setting a role appends ONE; re-sending the same roster appends none."""
+    roleless = _cr_two_links(security_id)
+    r = _sl_promote(client, segments=_CR_SEGS, basket=roleless)
+    tid = r.json()["id"]
+    assert _sl_count(db, tid, "basket_snapshot") == 1
+    assert _sl_promote(client, tid=tid, segments=_CR_SEGS, basket=roleless).status_code == 200
+    assert _sl_count(db, tid, "basket_snapshot") == 1  # unchanged, role-less: nothing appended
+
+    tagged = _cr_two_links(security_id, "direct_read")
+    assert _sl_promote(client, tid=tid, segments=_CR_SEGS, basket=tagged).status_code == 200
+    assert _sl_count(db, tid, "basket_snapshot") == 2  # a role is a roster change
+    assert _sl_promote(client, tid=tid, segments=_CR_SEGS, basket=tagged).status_code == 200
+    assert _sl_count(db, tid, "basket_snapshot") == 2  # the same tagged roster: nothing appended
+    # inheritance lands on the SAME hash: sending the role on one row only is the same roster
+    one_row = [tagged[0], {**tagged[1], "context_role": None}]
+    assert _sl_promote(client, tid=tid, segments=_CR_SEGS, basket=one_row).status_code == 200
+    assert _sl_count(db, tid, "basket_snapshot") == 2
+
+
+def test_promote_sees_two_listings_of_one_company_as_one_for_the_role_check(client, db):
+    """Sibling listings of one company merge into one security_id at the canonicalize pass; the role check
+    runs AFTER it, so a different role on each listing is still two roles on ONE company."""
+    primary = _insert_security(
+        db, "ASML", name="ASML Holding N.V.", cik="0000937966", is_primary=True
+    )
+    sibling = _insert_security(
+        db, "ASMLF", name="ASML Holding N.V.", cik="0000937966", is_primary=False
+    )
+    bad = _sl_promote(
+        client,
+        segments=_CR_SEGS,
+        basket=[
+            _s1_member("ASML", primary, segment="reactors", context_role="payer"),
+            _s1_member("ASMLF", sibling, segment="fuel", context_role="benchmark"),
+        ],
+    )
+    assert bad.status_code == 422
+    assert "ASML" in bad.json()["detail"] and "payer" in bad.json()["detail"]
+    # …and the same role on both listings is one company with one role (stored on both rows)
+    ok = _sl_promote(
+        client,
+        segments=_CR_SEGS,
+        basket=[
+            _s1_member("ASML", primary, segment="reactors", context_role="payer"),
+            _s1_member("ASMLF", sibling, segment="fuel"),  # arrives with no role: inherits
+        ],
+    )
+    assert ok.status_code == 200
+    assert [m["context_role"] for m in ok.json()["basket"]] == ["payer", "payer"]

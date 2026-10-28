@@ -94,6 +94,35 @@ function snapshot(thesis: ThesisDetail): ChainDraft {
   };
 }
 
+// THE CONTEXT-ROLE WIPE-TRAP GUARD. The first-screen editor NEVER authors a context role (the DD rail does, by
+// an immediate promote), but its Save full-replaces the basket from the working draft. A draft seeded from an
+// autosaved triage-session blob that was written BEFORE a role was set (rows without the key, or with
+// `context_role: null`) would carry no role, and Save would wipe the saved one. So a restore overlays the SAVED
+// spine's role (`base`, keyed by security_id) onto the restored rows of the same company — the saved spine wins
+// even when it says "unset" (a role cleared after the blob was written must not come back from a stale blob).
+// A restored row of a company the spine does not hold (a new draft name) is untouched, and a row already
+// holding the saved value comes back as the SAME object (no spurious `dirty`, no needless copy). Display
+// metadata only: never a call input (#4), never written by the model (#3).
+function withSavedContextRoles(draft: ChainDraft, base: ChainDraft): ChainDraft {
+  const saved = new Map<string, BasketMember["context_role"]>();
+  for (const m of base.basket) {
+    if (!m.security_id) continue;
+    // a company's rows carry one role; take the first set one (else whatever the first row says)
+    if (!saved.has(m.security_id) || (saved.get(m.security_id) == null && m.context_role != null)) {
+      saved.set(m.security_id, m.context_role);
+    }
+  }
+  if (saved.size === 0) return draft;
+  return {
+    ...draft,
+    basket: draft.basket.map((m) =>
+      m.security_id && saved.has(m.security_id) && m.context_role !== saved.get(m.security_id)
+        ? { ...m, context_role: saved.get(m.security_id) }
+        : m,
+    ),
+  };
+}
+
 // THE PLACED MODE (Research ⇄ Pick) — HOW the operator decides the PLACED section: one of two gestures over
 // the SAME working list.
 //   research (today's prune, the default): every name starts checked + open; unchecking is the DURABLE NO
@@ -159,7 +188,10 @@ export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainStat
   // normalize its segments so the editor and `dirty` see the same fixed pair a fresh snapshot carries.
   const [draft, setDraft] = useState<ChainDraft>(() =>
     restored
-      ? { ...restored.draft, segments: withSilentLinks(restored.draft.segments) }
+      ? withSavedContextRoles(
+          { ...restored.draft, segments: withSilentLinks(restored.draft.segments) },
+          base,
+        )
       : base,
   );
 

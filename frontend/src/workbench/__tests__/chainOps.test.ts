@@ -9,6 +9,7 @@ import {
   renameLink,
   reorderLink,
   sanitizeBasketForPromote,
+  setMemberContextRole,
   toggleMemberLink,
 } from "../chainOps";
 import { BENCH, CONTEXT, DISCOVERED, SILENT_DESCRIPTORS, withSilentLinks } from "../useChainDraft";
@@ -541,6 +542,99 @@ describe("toggleMemberLink — the rail's one-row rule (silent XOR voting)", () 
       const toCtx = reconcileMemberSegments(start, SC, "s-x", toggleMemberLink(["reactors", "fuel"], CONTEXT));
       const back = reconcileMemberSegments(toCtx.basket, toCtx.segments, "s-x", toggleMemberLink([CONTEXT], "reactors"));
       expect(rowsFor(back.basket, "s-x").map((m) => m.segment)).toEqual(["reactors"]);
+    });
+  });
+});
+
+
+describe("setMemberContextRole — the per-company context-role mover", () => {
+  it("sets the role on EVERY row of the company (a name in N links is N rows) and returns every other row by reference", () => {
+    const a = mem({ security_id: "s-a", ticker: "A", segment: "reactors" });
+    const x1 = mem({ security_id: "s-x", ticker: "X", segment: "reactors" });
+    const x2 = mem({ security_id: "s-x", ticker: "X", segment: "fuel" });
+    const b = mem({ security_id: "s-b", ticker: "B", segment: "fuel" });
+    const basket = [a, x1, b, x2];
+
+    const out = setMemberContextRole(basket, "s-x", "payer");
+
+    expect(out).toHaveLength(4);
+    expect(out.filter((m) => m.security_id === "s-x").map((m) => m.context_role)).toEqual([
+      "payer",
+      "payer",
+    ]);
+    // the other names' rows are the SAME objects (untouched), and the order is preserved
+    expect(out[0]).toBe(a);
+    expect(out[2]).toBe(b);
+    expect(out.map((m) => m.ticker)).toEqual(["A", "X", "B", "X"]);
+    // the input is not mutated
+    expect(x1.context_role).toBeUndefined();
+    expect(x2.context_role).toBeUndefined();
+  });
+
+  it("changes nothing else about a row (segment, authorship, sign-off, conviction, description)", () => {
+    const x = mem({
+      security_id: "s-x",
+      ticker: "X",
+      segment: "fuel",
+      conviction: 4,
+      signed_off: true,
+      thesis_fit: "why it sits here",
+      surfaced_terms: ["smr"],
+      authored_by: "operator_edited",
+    });
+    const [out] = setMemberContextRole([x], "s-x", "financier");
+    expect(out).toEqual({ ...x, context_role: "financier" });
+  });
+
+  it("replaces a different role on every row (a company never ends up with two)", () => {
+    const rows = [
+      mem({ security_id: "s-x", segment: "reactors", context_role: "payer" }),
+      mem({ security_id: "s-x", segment: "fuel", context_role: "payer" }),
+    ];
+    const out = setMemberContextRole(rows, "s-x", "benchmark");
+    expect(out.map((m) => m.context_role)).toEqual(["benchmark", "benchmark"]);
+  });
+
+  it("clears with null on EVERY row (the visible inverse), including rows that never had the key", () => {
+    const rows = [
+      mem({ security_id: "s-x", segment: "reactors", context_role: "counter_case" }),
+      mem({ security_id: "s-x", segment: "fuel" }), // no key at all
+    ];
+    const out = setMemberContextRole(rows, "s-x", null);
+    expect(out.map((m) => m.context_role)).toEqual([null, null]);
+    // set → clear → set again is a clean round trip
+    const again = setMemberContextRole(out, "s-x", "counter_case");
+    expect(again.map((m) => m.context_role)).toEqual(["counter_case", "counter_case"]);
+  });
+
+  it("is allowed on a silent-link row and a Discovered row", () => {
+    const ctx = mem({ security_id: "s-c", segment: CONTEXT });
+    const dis = mem({ security_id: "s-d", segment: DISCOVERED });
+    const out = setMemberContextRole(setMemberContextRole([ctx, dis], "s-c", "payer"), "s-d", "benchmark");
+    expect(out.map((m) => [m.segment, m.context_role])).toEqual([
+      [CONTEXT, "payer"],
+      [DISCOVERED, "benchmark"],
+    ]);
+  });
+
+  it("an unknown name is a harmless no-op (every row is the same reference)", () => {
+    const rows = [mem({ security_id: "s-a" }), mem({ security_id: "s-b" })];
+    const out = setMemberContextRole(rows, "s-nope", "payer");
+    expect(out).toEqual(rows);
+    out.forEach((m, i) => expect(m).toBe(rows[i]));
+  });
+
+  it("the other movers carry the role forward (reconcile, rename, remove-link): it rides every row", () => {
+    const x = mem({ security_id: "s-x", ticker: "X", segment: "reactors", context_role: "participant" });
+    // moving the name into a second link copies the representative row, role included
+    const moved = reconcileMemberSegments([x], CHAIN, "s-x", ["reactors", "fuel"]).basket;
+    expect(moved.map((m) => m.context_role)).toEqual(["participant", "participant"]);
+    // a rename cascades onto the row without dropping the role
+    expect(renameLink([x], CHAIN, "reactors", "builders").basket[0].context_role).toBe("participant");
+    // removing the link floors the name to Discovered, role intact
+    expect(removeLink([x], CHAIN, "reactors").basket[0]).toMatchObject({
+      segment: DISCOVERED,
+      context_role: "participant",
     });
   });
 });

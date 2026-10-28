@@ -65,7 +65,14 @@ from domain.enums import Authorship, InstrumentKind, TermTier
 from domain.extraction import ExtractedFact, ExtractionResult, Tier
 from domain.market_time import serve_view
 from domain.settings import get_settings
-from domain.thesis import Thesis, reserved_label, silent_conflicts, with_silent_links
+from domain.thesis import (
+    Thesis,
+    context_role_conflicts,
+    reserved_label,
+    silent_conflicts,
+    with_inherited_context_roles,
+    with_silent_links,
+)
 from ingest.cash_burn import ingest_cash_burn
 from ingest.catalyst import ingest_catalyst
 from ingest.edgar import nport
@@ -758,6 +765,13 @@ def promote(
     anything is written — a row is never dropped silently. A silent name stays on the card but never counts
     toward the call (``domain.thesis.voting_thesis``).
 
+    THE CONTEXT ROLE (``context_role``, one of six, NULL = unset) is per company per card: it rides EVERY row
+    of a company, identical. A company whose rows carry two DIFFERENT roles (sibling listings of one company
+    count as one) is refused with a 422 naming it and the roles it was sent, before anything is written; a
+    NULL row beside a set role INHERITS that role, so a hand-add or re-draft that puts an existing company in
+    a second link succeeds; clearing is NULL on every row of the company. Operator-authored display metadata:
+    it never feeds the call (#4) and no model path writes it (#3).
+
     ON-PROMOTE INGEST (PR-4): a promote that ADDS members (present in the incoming basket, absent from
     the pre-upsert spine — diffed by ``security_id``) kicks their back-half ingest as a BACKGROUND job
     after the commit, so a fresh starter basket needn't wait for the nightly cron; the additive
@@ -916,6 +930,24 @@ def promote(
                 + ("Move it to one." if len(conflicts) == 1 else "Move each to one.")
             ),
         )
+    # ONE CONTEXT ROLE PER COMPANY PER CARD: keyed on security_id like the check above, so it also runs
+    # AFTER canonicalize + the coherence pass (two sibling listings of one company are one company). Two
+    # different roles on one company is refused whole — NOTHING is written, and no row is quietly picked
+    # (the operator's words are never rewritten, WB#1). Otherwise a NULL row beside a set role INHERITS it,
+    # which is what lets a re-draft or hand-add that puts an existing company into a second link (the new
+    # row arrives with no role) succeed instead of splitting the company's role. Clearing is NULL on every
+    # row, so all-NULL stays all-NULL. Display metadata: nothing on the call path reads this.
+    role_conflicts = context_role_conflicts(thesis.basket)
+    if role_conflicts:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "; ".join(role_conflicts)
+                + " — a company has one context role per card. "
+                + ("Keep one." if len(role_conflicts) == 1 else "Keep one for each.")
+            ),
+        )
+    thesis.basket = with_inherited_context_roles(thesis.basket)
     # THE FREEZE PASS (Re-scope S1): ``surfaced_terms`` is frozen-at-entry PROVENANCE, so for a member
     # ALREADY in the stored basket the STORED value wins over the incoming payload — a re-draft's fresh
     # matched terms (or a client echoing stale ones) can never rewrite the record of why a name entered.

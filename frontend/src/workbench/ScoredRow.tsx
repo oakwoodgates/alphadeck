@@ -1,7 +1,9 @@
-import type { ScoredMemberOut } from "../api/hooks";
+import type { ContextRole, ScoredMemberOut } from "../api/hooks";
 import { useAutoConfirmShares, useExtract, useIngestPrices } from "../api/hooks";
 import { Meter } from "./Meter";
 import {
+  CONTEXT_ROLE_DESCRIPTION,
+  contextRoleTag,
   errText,
   formatMarketCap,
   memberHasFundamentals,
@@ -21,6 +23,10 @@ interface Props {
   // the scored as-of — used only to age the ratified share count behind the market cap (the ENDV stale-shares
   // flag). Optional: an un-wired/test render omits it (then no age check runs).
   asof?: string;
+  // the operator's context role for this company, passed by the parent off the thesis spine by security_id
+  // (`ScoredMemberOut` itself carries none). Shown as a quiet lowercase tag ONLY when set — never a "—"
+  // placeholder (WB#3). Display metadata only, never a call input (#4).
+  contextRole?: ContextRole | null;
 }
 
 /** One scored basket member: ticker + name + market-cap figure, then the four meters. purity /
@@ -38,7 +44,7 @@ interface Props {
  *  one: nobody knows a share count by heart, so confirming the extractor's cover figure only rubber-stamped
  *  it. The server owns the number and the AUTO gate (see `useAutoConfirmShares`); a FLAGged count still goes
  *  to the operator, and the market cap is the real check. */
-export function ScoredRow({ member, selected, onSelect, thesisId, asof }: Props) {
+export function ScoredRow({ member, selected, onSelect, thesisId, asof, contextRole }: Props) {
   const extract = useExtract(member.security_id, thesisId);
   // ENDV finding (display-only): a ratified share count from a stale cover (an old/delinquent filer) yields a
   // plausible-but-wrong market cap with no age signal. Light a WARM flag ONLY when the count is > ~6 months
@@ -77,6 +83,13 @@ export function ScoredRow({ member, selected, onSelect, thesisId, asof }: Props)
     if (shares?.tier === "auto") autoShares.mutate(member.security_id);
   };
 
+  // the quiet context-role tag (set only; the hover is the role's description) — beside the name in both rows
+  const roleTag = contextRole ? (
+    <span className="role-tag" title={CONTEXT_ROLE_DESCRIPTION[contextRole]}>
+      {contextRoleTag(contextRole)}
+    </span>
+  ) : null;
+
   // A `fund` sleeve is an EXPRESSION, not a scored equity (ETF Sleeve; #4/#6). It has no insider / dilution
   // / purity / runway data, so the four equity meters would be all-blank noise and "get data" would 404 on
   // extraction (a fund's cik is None). Render the row honestly: ticker + "ETF sleeve" label + its PRICE
@@ -92,6 +105,7 @@ export function ScoredRow({ member, selected, onSelect, thesisId, asof }: Props)
             <span className="tk">{member.ticker ?? "◇"}</span>
             {member.name && <span className="co">{member.name}</span>}
             <span className="btype bt-etf">ETF sleeve</span>
+            {roleTag}
           </button>
           <span className="cap">
             <small>sleeve price</small>
@@ -117,6 +131,7 @@ export function ScoredRow({ member, selected, onSelect, thesisId, asof }: Props)
           {/* the company NAME rides the row (joined from the master on read) — a ticker-only list made
               the finalize pass a memory quiz over 68 four-letter codes */}
           {member.name && <span className="co">{member.name}</span>}
+          {roleTag}
           {/* no type chip on the list row — the identity chips (sector) already say what it is, and
               the rail's business-type head is the one decision surface (quiet list, loud exception) */}
         </button>

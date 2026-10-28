@@ -1,4 +1,4 @@
-import type { BasketMember, Segment } from "../api/hooks";
+import type { BasketMember, ContextRole, Segment } from "../api/hooks";
 import {
   DISCOVERED,
   insertBeforeSilent,
@@ -87,6 +87,22 @@ export function reconcileMemberSegments(
   }
 
   return { basket: [...others, ...newRows], segments: nextSegments };
+}
+
+/** The context-role mover — set (or clear, `null`) `securityId`'s role on EVERY one of its rows, immediate-
+ *  promote-ready. The role is per COMPANY per card: a company in N links is N rows and the server refuses two
+ *  different roles on one company (and fills a NULL row beside a set one), so the only payload that is right
+ *  by construction puts the same value on all of them. Every OTHER name's rows come out as the SAME
+ *  references (untouched); an unknown name is a harmless no-op. Clearing is `null` on every row — the
+ *  visible inverse of setting (WB#1) — and nothing else about a row (segment, authorship, sign-off,
+ *  conviction, description) moves. Display metadata only: it is never a call input (#4) and the model never
+ *  sets it (#3). */
+export function setMemberContextRole(
+  basket: BasketMember[],
+  securityId: string,
+  role: ContextRole | null,
+): BasketMember[] {
+  return basket.map((m) => (m.security_id === securityId ? { ...m, context_role: role } : m));
 }
 
 /** The write-path self-heal — before a SCORE-view promote, rewrite any PRE-EXISTING orphan (a non-null

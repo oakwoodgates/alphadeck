@@ -3,6 +3,7 @@ import { Fragment, useEffect, useState, type ReactNode } from "react";
 import {
   type BasketMember,
   type BusinessTypeLeaf,
+  type ContextRole,
   type PromoteIngestRef,
   type PromoteOnboardingRef,
   type Segment,
@@ -29,6 +30,7 @@ import {
   renameLink,
   reorderLink,
   sanitizeBasketForPromote,
+  setMemberContextRole,
 } from "./chainOps";
 import { clearedRestore, deserialize } from "./triageSession";
 import { DDRail } from "./DDRail";
@@ -257,6 +259,17 @@ export function Workbench({ header, asof }: Props) {
       ]
     : [];
 
+  // The operator's CONTEXT ROLE per company, read from the SPINE (`thesis.basket`) — the scored read carries
+  // none of it. Rows of one company carry one role (a company in N links is N rows, all identical), so the
+  // first row that has one is the company's. Display metadata only: the rail's select and the quiet row tag
+  // read it; nothing on the call path does (#4).
+  const roleBySid = new Map<string, ContextRole>();
+  for (const b of thesis?.basket ?? []) {
+    if (b.security_id && b.context_role && !roleBySid.has(b.security_id)) {
+      roleBySid.set(b.security_id, b.context_role);
+    }
+  }
+
   const activeName = thesis?.name ?? theses.find((t) => t.id === thesisId)?.name ?? "…";
 
   const switchThesis = (id: string) => {
@@ -442,6 +455,18 @@ export function Workbench({ header, asof }: Props) {
   const setMemberSegments = (securityId: string, labels: string[]) => {
     if (!thesis) return;
     promoteChain(reconcileMemberSegments(thesis.basket, thesis.segments, securityId, labels));
+  };
+
+  // The CONTEXT ROLE (what part this company plays on this card) — one immediate promote through the same
+  // writer, with the role set (or cleared, `null` — the visible inverse, WB#1) on EVERY row of the company
+  // (`setMemberContextRole`; the server refuses two different roles on one company). Read from the SPINE,
+  // so every other per-name field rides the rows untouched. Display metadata only: never a call input (#4).
+  const setMemberRole = (securityId: string, role: ContextRole | null) => {
+    if (!thesis) return;
+    promoteChain({
+      basket: setMemberContextRole(thesis.basket, securityId, role),
+      segments: thesis.segments,
+    });
   };
 
   // #1–3 (Phase 2) — value-chain topology on the SCORE view: rename / reorder / add / remove links, each
@@ -1102,6 +1127,7 @@ export function Workbench({ header, asof }: Props) {
                       onSelect={() => setPickedMemberId(m.security_id)}
                       thesisId={thesisId}
                       asof={asof}
+                      contextRole={roleBySid.get(m.security_id) ?? null}
                     />
                   ))}
                   <div className="note">
@@ -1131,6 +1157,7 @@ export function Workbench({ header, asof }: Props) {
                       onSelect={() => setPickedMemberId(m.security_id)}
                       thesisId={thesisId}
                       asof={asof}
+                      contextRole={roleBySid.get(m.security_id) ?? null}
                     />
                   ))}
                 </section>
@@ -1235,6 +1262,10 @@ export function Workbench({ header, asof }: Props) {
                 }
                 onRetag={retagBusinessType}
                 retagPending={setBType.isPending}
+                // the operator's context role for the selected company (read from the spine) + its writer
+                contextRole={selectedMember ? (roleBySid.get(selectedMember.security_id) ?? null) : null}
+                onContextRole={setMemberRole}
+                contextRolePending={promote.isPending}
                 thesisId={thesisId}
                 asof={asof}
                 // Slice 2b — the sleeve's include/remove write path (used only by the SleeveRail branch).

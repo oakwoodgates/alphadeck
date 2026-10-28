@@ -103,6 +103,9 @@ def _row_to_basket_member(b: dict[str, Any]) -> BasketMember:
         signed_off=bool(
             b.get("signed_off", False)
         ),  # load-bearing like conviction: unmapped → the operator's endorsement wiped on any resave
+        context_role=b.get(
+            "context_role"
+        ),  # load-bearing like conviction: unmapped → silently wiped on any resave; an old snapshot lacks the key → unset
     )
 
 

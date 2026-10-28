@@ -152,7 +152,9 @@ row lands in the keep-visible `Unsegmented` tail. **Context and Bench are always
 (after the unknown labels and the `Unsegmented` tail, whatever order a payload's segments came in), under
 their fixed descriptors, and hidden when empty. In the **business-type** lens a silent name keeps its grayed
 row and carries a small lowercase `context` / `bench` tag (the lens hides which link it sits in; the other two
-name it in the header). The two non-segment lenses **dedupe to one row per
+name it in the header). A name the operator gave a **context role** (`TRIAGE.md` "Context roles") carries a
+second quiet lowercase tag beside its ticker (`payer`, `counter-case`…) in **every** lens and on any row, **only
+when set** (never a "—" placeholder); it moves no row, bucket or call. The two non-segment lenses **dedupe to one row per
 `security_id`** (a multi-segment name's otherwise-identical duplicate rows collapse — losslessly, since
 same `security_id` ⇒ same call bucket + scored join); the value-chain lens keeps them all (that's the
 point). Whichever lens is active, each row keeps its **own call-state dot and exit-by** — the call never

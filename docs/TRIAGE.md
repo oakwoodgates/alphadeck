@@ -296,6 +296,48 @@ in [`useChainDraft.ts`](../frontend/src/workbench/useChainDraft.ts) (`CONTEXT`, 
 - **Quiet by design (#7):** muted rows/tabs/chips, no badges — a name that never counts toward the call is the
   quietest thing on the page. The Cockpit side (buckets, lenses) is `BOARD.md` "The grouped basket".
 
+## Context roles — what a company is on this card
+
+Each basket membership may carry an operator-authored **context role** — what part this company plays on THIS
+card — so a later phase can read signals from its own disclosures. **Phase 1 stores it, carries it end to end,
+lets the operator set and clear it, and shows it quietly; nothing else.** Six values (wire value → label →
+hover): `payer` → **Payer** ("The demand side: buys the theme's product or pays its price."), `counter_case`
+→ **Counter-case** ("Loses if the thesis plays out, or wins if it fails."), `direct_read` → **Direct read**
+("Not in the business, but its numbers forecast what the voting names report."), `participant` →
+**Participant** ("Does the thesis itself, but it is a slice of the company."), `benchmark` → **Benchmark** ("A
+price series that IS the underlying (a spot fund, a physical trust)."), `financier` → **Financier** ("Funds
+the build-out (lenders, convertible buyers)."). Defined in `domain/enums.py` (`ContextRole`); the labels and
+hovers in `frontend/src/workbench/format.ts` (exhaustive `Record`s over the generated union). **Naming:** it is
+not `BasketMember.role` (the free-text prose field) and not `SignalEvent.role` (entry_trigger / risk_signal).
+
+- **Per company per card.** Stored on `basket_member` (`context_role`, migration 0069 — a nullable column and a
+  named CHECK on the six values), never on the security. A company in N links is N rows, and the role rides
+  **every** one, identical. Allowed on any row — Context, Bench, a real link, Discovered. `NULL` = unset, never
+  a default.
+- **The promote rule** (`POST /workbench/theses`, after canonicalize and the coherence pass, keyed on
+  `security_id` so sibling listings of one company count as one; a row with no `security_id` is never grouped):
+  two **different** non-null roles on one company is a **422** naming the company and the roles it was sent,
+  with nothing written; a `NULL` row beside a set role **inherits** it on write (so a re-draft or hand-add that
+  puts an existing company into a second link succeeds); **clearing** is `NULL` on every row of the company.
+  `domain/thesis.py`: `context_role_conflicts`, `with_inherited_context_roles`.
+- **Where it is edited:** the scored view's **DD rail** — one small "Context role" select per company, an ETF
+  sleeve's rail included (a spot or metal fund is the usual `benchmark`) ("— none" plus the six; each option's
+  hover is its description), an immediate promote through the same writer as the
+  link checkboxes (`setMemberContextRole` sets it on every row; the spine's rows ride along untouched). "— none"
+  clears it — the visible inverse (WB#1). The first-screen editor never authors a role, and its Save
+  full-replaces the basket, so a draft restored from an older autosaved session overlays the **saved spine's**
+  role by `security_id` (the saved spine wins, even when it says unset) — otherwise an old blob would wipe it.
+- **Shown quietly (WB#3):** a lowercase tag (`payer`, `counter-case`, `direct read`…) beside the name on the
+  scored row and in the Cockpit basket table, **only when set** — never a "—" placeholder, never a badge.
+- **Never a call input (#4), never written by the model (#3).** It is display metadata: no `CallCard` field
+  records it, no detector, grade or veto reads it (a golden test assembles the same thesis with and without roles
+  and asserts byte-identical cards), and the chain drafter, discovery and the reconciler leave it `NULL`.
+  Snapshot rule: a roster snapshot object carries `context_role` **only when set**, so a role-less roster's
+  content hash is unchanged and an unchanged re-promote still appends no snapshot row.
+- **Not built (the next phase):** reading signals from a role-tagged company's disclosures — the **read-through**
+  (its 8-K / earnings-release numbers shown beside the names it forecasts). Phase 1 has no read-through display,
+  endpoint or fetch; the role is only the operator's label for it.
+
 ## Mark for data — gate 2's per-name opt-in + the per-SECTION run (the scored view)
 
 **The section button** (`⇣ get data — {section} (N)`): one deliberate click covers the ACTIVE value-chain
@@ -346,4 +388,5 @@ visible inverse of Save (reversibility principle #1); cleared on any navigation 
   are all operator acts, and grouping is a lens (the exclude is still the operator's click). A field is the
   operator's **only if the operator changed it** — sign-off endorses, it never authors.
 - **#4 (deferential on thesis):** conviction is the operator's weight and sign-off is the operator's
-  endorsement — neither is ever an input to the call.
+  endorsement — neither is ever an input to the call. The same holds for a company's context role: the
+  operator's label, display only, never written by the model (#3).

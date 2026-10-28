@@ -68,3 +68,31 @@ describe("ScoredRow — the `fund` sleeve branch", () => {
     expect(screen.getByText("—")).toBeInTheDocument();
   });
 });
+
+describe("ScoredRow — the context role tag", () => {
+  it("shows a quiet lowercase tag beside a sleeve's name when the company has a role, with the description as its hover", () => {
+    render(
+      <ScoredRow
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        member={fundMember() as any}
+        selected={false}
+        onSelect={() => {}}
+        contextRole="benchmark"
+      />,
+    );
+    const tag = screen.getByText("benchmark");
+    expect(tag).toHaveClass("role-tag");
+    expect(tag).toHaveAttribute(
+      "title",
+      "A price series that IS the underlying (a spot fund, a physical trust).",
+    );
+  });
+
+  it("renders no tag at all without a role (no placeholder)", () => {
+    const { container } = render(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      <ScoredRow member={fundMember() as any} selected={false} onSelect={() => {}} contextRole={null} />,
+    );
+    expect(container.querySelector(".role-tag")).toBeNull();
+  });
+});
