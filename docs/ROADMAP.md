@@ -239,6 +239,44 @@ insider `Ins 30d`/`Ins 90d`, three lenses (call-state · business-type · value-
    fund/affiliate blocks (Baker Bros / Paulson-style) that are portfolio moves, not conviction, screened
    from Key-1; and the **`insider_flow` sell-side ceiling** (the display headline's symmetric guard). Both
    are preventive precision on the insider key, as-encountered against real filings.
+8. **Context read-throughs — Phase 2** (the 2026-10-28 brief; Phase 1 shipped only the per-company context
+   role on the membership, `TRIAGE.md` "Context roles"). Reading signals FROM a role-tagged name's disclosures,
+   signed by its role, display-only and compute-on-read like `theme_breadth`: a payer's capex (trailing four
+   quarters vs a year earlier), a direct read's or participant's RPO (else revenue), a counter-case's revenue
+   (inverted), a benchmark's own price (trailing returns + ETF flow where sampled), a financier's passages only,
+   and everyone's latest earnings-release passages (8-K Item 2.02, EX-99.1, LOCATED by keyword, never read by
+   a model, never a number). Findings from the Phase 1 code review that the next build should start from:
+   - **Store capex per XBRL concept** (the S4 share-count precedent: each concept its own `metric_key`, the
+     read picks one and never mixes two in a number), not one `capex` key with a fallback — revenue's
+     "pick the current tag" needed the 0060 re-parse chain to stay honest across a tag switch. Quarterly
+     capex is year-to-date differencing (Qn = YTD n − YTD n−1, Q4 = FY − 9 months), dated at the later filing.
+     The concept list (`PaymentsToAcquirePropertyPlantAndEquipment`, `PaymentsToAcquireProductiveAssets`) is
+     UNMEASURED — no cached companyfacts in the repo carry capex; measure it on prod's cache first.
+   - **The nightly lands the history on its own**: the fundamentals leg re-parses every basket company's
+     CACHED companyfacts each pass (the Q17 gate only decides re-pulls), so new metric keys append their full
+     history on the first night after deploy. A backfill CLI is for the dry-run report (which concept each
+     company reads) and a chosen-time apply; its `--apply` journals a `data_repair`, which starts an editions
+     repair trial.
+   - **Every reader of `fact_fundamentals` filters on `metric_key`** (checked 2026-10-28), so new keys cannot
+     reach a detector — keep it that way.
+   - **The keyword locator needs a boilerplate screen**: "expect" / "outlook" / "guidance" sit in every
+     release's forward-looking-statements paragraph. Proposed: skip the safe-harbor paragraph, count "expect"
+     only in a sentence with a digit, cap the passages per release.
+   - **Where the exhibit is fetched**: not in a display module (no I/O) and not on a Cockpit GET (no SEC on a
+     page load). Proposed: the nightly, AFTER every call-of-record (it can never delay or cost the record), only
+     for role-tagged members whose latest Item 2.02 is not cached — the full submission under the immutable
+     `forms/<accession>/<accession>.txt` key the split readers already use, parsed with
+     `split_filing.submission_documents` (import only; never change `split_filing.py`, it feeds split
+     detection). The 8-K list itself is free: `fact_corporate_event` already stores every 8-K's item codes.
+   - **The display seam** needs `fundamentals_facts` + `corporate_event_facts` on `DisplayPointInTimeData`
+     (never on the detectors' protocol), a `HORIZONS` declaration, and its own `*Out` wire shape with filing
+     links; the panel lists each company once, never once per row.
+   - **Known Phase 2 gaps to decide**: 6-K filers have no Item 2.02 and IFRS filers (20-F / 40-F) use no
+     us-gaap capex tag, so foreign payers read nothing; revenue comparison (latest quarter vs a year earlier,
+     or trailing four quarters); whether a newly set role fetches its release at once or at the next nightly.
+   - Membership **tags** (`medical`, `adult-use`, `crossover`; display and filter only) were also deferred;
+     if built, they follow the context role's per-company rule.
+   Phase 3 (undecided, the operator's `CALL_LOGIC` call): whether a read-through ever warms a card.
 
 ### Filed, post-MVP (additive)
 
