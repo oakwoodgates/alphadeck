@@ -527,6 +527,24 @@ describe("ledgerRow — the Slice B families", () => {
     expect(unresolved.type).toBe("SC 13G");
     expect(unresolved.detail).toContain("filer unresolved"); // #9 — said, never guessed or dropped
     expect(unresolved.detail).not.toContain("% of class");
+    // a 13D the call's holder screen set aside keeps its row and says why it does not fire (#6/#9)
+    const parent = ledgerRow({
+      ...base,
+      stake: {
+        d: "2026-06-04",
+        form: "SCHEDULE 13D",
+        filer_name: "WISeQey AG",
+        filer_cik: "0009990002",
+        pct_owned: 88.5,
+        url: "https://x.test/p.htm",
+        ingested: "2026-06-04",
+        holder: "control holder",
+      },
+    });
+    expect(parent.type).toBe("SCHEDULE 13D");
+    expect(parent.detail).toContain("WISeQey AG · 88.5% of class · control holder (50%+ of the class)");
+    expect(parent.detail).toContain("does not fire");
+    expect(resolved.detail).not.toContain("does not fire"); // an unscreened 13D reads as before
   });
 });
 

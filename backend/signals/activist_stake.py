@@ -3,9 +3,11 @@
 An ENTRY trigger with its own kind (``Kind.ACTIVIST_STAKE``): a new SC 13D filed ABOUT a basket
 member means an outside party crossed 5% WITH INTENT to influence — a rare, deliberate,
 capital-committed act by an informed party (the Brav/Jiang activist event-study literature measures
-persistent post-FILING abnormal returns). The FORM TYPE is the entire fire decision (#3 — the SEC
-only requires a 13D when intent exists; no NLP, no cover parse on the fire path; the filer identity
-and %-owned the tape carries are EVIDENCE shown beside the call, never inputs to the fire).
+persistent post-FILING abnormal returns). The FORM TYPE is the fire decision (#3 — the SEC only
+requires a 13D when intent exists; no NLP, no free-text parse on the fire path). The filer identity
+and %-owned the tape carries are EVIDENCE shown beside the call — with three deterministic exceptions,
+each a structured field compared to a number or a CIK: the mis-attribution screen, the exit
+termination, and the HOLDER SCREEN below, which asks whether the filer is an OUTSIDE party at all.
 
 The v1 fire policy (operator-confirmed 2026-08-18, the S3 1.01-flood lessons applied):
 
@@ -33,6 +35,24 @@ The v1 fire policy (operator-confirmed 2026-08-18, the S3 1.01-flood lessons app
   now belt-and-suspenders: the INGEST root-cause is fixed at source (``ingest/edgar/schedule13.py`` skips an
   outbound schedule whose true subject ≠ the feed owner), and ``pipeline/repair_activist_misattribution.py``
   deletes the pre-fix self-filed rows already on the tape.
+- **The HOLDER SCREEN — control holders and insiders do not fire** (option A, operator-approved 2026-10-28;
+  ``holder_screen``, dial ``cfg.activist_affiliate_screen``, DEFAULT ON). The SEC requires a 13D from anyone
+  above 5% who is not passive — a parent company, a founder, a CEO, a sponsor keeping control after a SPAC
+  listing — and none of them is an outside party committing new capital. MEASURED on prod (read-only, all
+  54 cards, asof 2026-10-28): 20 of the 68 live 13D triggers were such filers, and WISeSat (SAIQ) armed two
+  cards on its own parent WISeQey's 88.5% 13D. A 13D-family ORIGINAL does not anchor a fire when either holds:
+  **control** — any filer row of the SAME filing (same accession, same subject) reports ``pct_owned >=
+  cfg.activist_control_pct`` (50); **insider** — any filer of the filing is an OFFICER or DIRECTOR of the
+  subject: its ``filer_cik`` matches a ``rpt_owner_cik`` on the subject's own Form 4 rows whose
+  ``insider_role`` names an officer/director role (``cfg.activist_insider_role_keywords``), dated no earlier
+  than ``cfg.activist_insider_lookback_days`` before the 13D. A "10% owner"-only role does NOT screen (that
+  group mixes founders with real outside funds — the operator's choice). Point in time (#1): the Form 4 rows
+  are the point-in-time view's, which on a history view counts a Form 4 only from its SEC acceptance — a CEO
+  whose first Form 4 is public after his 13D fires until that Form 4 is public, then stops. NULL-safe (#9,
+  the ``_is_misattributed`` rule): a missing pct or an unresolved CIK never screens. VISIBLE, never dropped
+  (#6/#9): the filing stays on the tape, rides a fired episode's provenance labeled ``holder`` = "control
+  holder" / "insider" (with the basis), and the Scoreboard drawer labels it the same way; it only stops
+  firing. Set the dial False and every output is byte-identical to before the screen.
 
 Emitting a member of ``conviction_kinds`` inherits the existing composition: co-location arming
 (a 13D WARMS; arming still needs a fresh breakout), the ``own_conviction_kinds`` ranking, and
@@ -50,7 +70,7 @@ alone. ``detect`` remains GATED: set the dial False and it no-ops (registered ei
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -74,10 +94,26 @@ _13D_FORMS: frozenset[str] = frozenset({"SC 13D", "SC 13D/A", "SCHEDULE 13D", "S
 _13G_FORMS: frozenset[str] = frozenset({"SC 13G", "SC 13G/A", "SCHEDULE 13G", "SCHEDULE 13G/A"})
 
 
-def _provenance_detail(fact: dict[str, Any]) -> dict[str, Any]:
+def is_13d_original(form: str) -> bool:
+    """A 13D-family ORIGINAL, either naming era — the only filing that can anchor a fire (amendments and the
+    13G family never do)."""
+    return form in _13D_FORMS and not form.endswith("/A")
+
+
+# The HOLDER SCREEN's two labels — what a screened 13D is called instead of "activist" (the wire values the
+# provenance ``holder`` key and the Scoreboard drawer's ``ActivistStakeOut.holder`` carry).
+CONTROL_HOLDER = "control holder"
+INSIDER = "insider"
+
+
+def _provenance_detail(
+    fact: dict[str, Any], screen: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """One filing's evidence surface (#6): the form, dates, the activist's identity, and the
-    structured %-owned where the tape has them — shown beside the call, never fire inputs."""
-    return {
+    structured %-owned where the tape has them — shown beside the call. A filing the HOLDER SCREEN set
+    aside (``screen``, one ``holder_screen`` entry) also carries its label and the basis for it; an
+    unscreened filing's detail is exactly what it always was (no new key)."""
+    detail = {
         "form": fact["form"],
         "filed": fact["valid_from"].isoformat(),
         "filer_cik": fact.get("filer_cik"),
@@ -85,6 +121,10 @@ def _provenance_detail(fact: dict[str, Any]) -> dict[str, Any]:
         "pct_owned": None if fact.get("pct_owned") is None else float(fact["pct_owned"]),
         "index_url": fact["source_ref"],
     }
+    if screen is not None:
+        detail["holder"] = screen["holder"]
+        detail["holder_basis"] = dict(screen["basis"])
+    return detail
 
 
 def _norm_cik(cik: Any) -> str:
@@ -118,6 +158,133 @@ def _is_misattributed(fact: dict[str, Any], subject_cik: str | None) -> bool:
     if pct is not None and float(pct) < 5.0:
         return True  # (b) sub-5% — statutorily impossible for a 13D original
     return False
+
+
+def _names_officer_or_director(role: Any, keywords: frozenset[str]) -> bool:
+    """Does a Form 4 ``insider_role`` name an OFFICER or DIRECTOR role? Case-insensitive substring match on
+    ``keywords`` (the ``_is_senior`` matching). The Form 4 parser stores the officer title when one is given,
+    else the checked boxes joined ("Director", "Officer", "10% owner"), so "Director, 10% owner" names one and
+    a bare "10% owner" names none. An absent role names none (NULL-safe, #9)."""
+    if not role:
+        return False
+    r = str(role).lower()
+    return any(k in r for k in keywords)
+
+
+def holder_screen(
+    facts: list[dict[str, Any]],
+    insider_rows: list[dict[str, Any]],
+    asof: date,
+    cfg: CallConfig = DEFAULT_CONFIG,
+) -> dict[str, dict[str, Any]]:
+    """PURE — the HOLDER SCREEN (option A, operator-approved 2026-10-28): ``{accession: {"holder", "basis"}}``
+    for every 13D-family ORIGINAL on the subject's tape (``valid_from <= asof``) whose filers are not outside
+    parties, so it must NOT anchor an activist fire. ``insider_rows`` are the SUBJECT's own Form 4 rows from
+    the same point-in-time view (``pit.insider_txns``).
+
+    A filing is grouped by ACCESSION: a joint filing would carry several filer rows of one accession, and the
+    screen reads ANY of them, not only the lead row the label names.
+
+    - **control holder** — any row of the filing reports ``pct_owned >= cfg.activist_control_pct`` (a
+      majority owner: a parent, a sponsor that kept control). Basis: that row's filer + percent.
+    - **insider** — any filer of the filing is an OFFICER or DIRECTOR of the subject: its ``filer_cik``
+      matches the ``rpt_owner_cik`` of a Form 4 row whose ``insider_role`` names an officer/director role
+      (``cfg.activist_insider_role_keywords``) and whose transaction is dated no earlier than
+      ``cfg.activist_insider_lookback_days`` before the 13D. Later Form 4s count too — the view's own gate
+      decides which are public (on a history view a Form 4 counts from its SEC acceptance, #1), so a CEO whose
+      first Form 4 is public after his 13D is screened from that point on, never before. The window is
+      anchored on the 13D, never on ``asof``, so a screened filing can never come back to life as ``asof``
+      moves. Basis: the matched filer + the EARLIEST matching Form 4 (accession, role, transaction date). A
+      "10% owner"-only role names no officer/director role and does not screen. Control wins when both hold.
+
+    NULL-SAFE (#9, the ``_is_misattributed`` rule): a NULL ``pct_owned`` never makes a control holder and a
+    NULL / unresolved ``filer_cik`` or ``rpt_owner_cik`` never matches — unparsed is never "not an outsider".
+    Reads roles, never transaction codes: the role a row states is the same whatever its code.
+
+    KNOWN BOUNDS (documented, not silent): the ingest stores one row per (subject, accession) — the LEAD
+    reporting person (``ingest/edgar/schedule13.parse_structured_cover``) — so a joint filing's other members
+    are not on the tape and cannot be read until group capture lands; and a filer whose every Form 4 row was
+    counted once under a co-reporter (``domain.insider_joint_reports``) has no row of its own CIK to match.
+    """
+    originals: dict[str, list[dict[str, Any]]] = {}
+    for f in facts:
+        if is_13d_original(f["form"]) and f["valid_from"] <= asof:
+            originals.setdefault(f["accession"], []).append(f)
+    if not originals:
+        return {}
+    officer_rows: dict[str, list[dict[str, Any]]] = {}
+    for t in insider_rows:
+        owner = _norm_cik(t.get("rpt_owner_cik"))
+        if (
+            owner
+            and t["valid_from"] <= asof
+            and _names_officer_or_director(
+                t.get("insider_role"), cfg.activist_insider_role_keywords
+            )
+        ):
+            officer_rows.setdefault(owner, []).append(t)
+    out: dict[str, dict[str, Any]] = {}
+    for accession in sorted(originals):
+        group = originals[accession]
+        control = [
+            r
+            for r in group
+            if r.get("pct_owned") is not None and float(r["pct_owned"]) >= cfg.activist_control_pct
+        ]
+        if control:
+            top = max(control, key=lambda r: (float(r["pct_owned"]), _norm_cik(r.get("filer_cik"))))
+            out[accession] = {
+                "holder": CONTROL_HOLDER,
+                "basis": {
+                    "filer_cik": top.get("filer_cik"),
+                    "filer_name": top.get("filer_name"),
+                    "pct_owned": float(top["pct_owned"]),
+                    "control_pct": float(cfg.activist_control_pct),
+                },
+            }
+            continue
+        floor = min(r["valid_from"] for r in group) - timedelta(
+            days=cfg.activist_insider_lookback_days
+        )
+        best: tuple[tuple[Any, ...], dict[str, Any], dict[str, Any]] | None = None
+        for r in group:
+            for t in officer_rows.get(_norm_cik(r.get("filer_cik")), ()):
+                if t["valid_from"] < floor:
+                    continue
+                key = (t["valid_from"], str(t.get("accession")), t.get("txn_seq") or 0)
+                if best is None or key < best[0]:
+                    best = (key, r, t)
+        if best is not None:
+            _, r, t = best
+            out[accession] = {
+                "holder": INSIDER,
+                "basis": {
+                    "filer_cik": r.get("filer_cik"),
+                    "filer_name": r.get("filer_name"),
+                    "form4_accession": t.get("accession"),
+                    "form4_role": t.get("insider_role"),
+                    "form4_txn_date": t["valid_from"].isoformat(),
+                },
+            }
+    return out
+
+
+def _screened_note(rows: list[dict[str, Any]], screened: dict[str, dict[str, Any]]) -> str | None:
+    """``"1 13D not counted — WISeQey AG (control holder)"`` for the screened originals among ``rows`` (a
+    fired episode's), else ``None`` — the screen named on the label, never a silent set-aside (#6).
+    """
+    parts: list[str] = []
+    seen: set[str] = set()
+    for f in rows:
+        s = screened.get(f["accession"])
+        if s is None or f["accession"] in seen:
+            continue
+        seen.add(f["accession"])
+        parts.append(f"{f.get('filer_name') or 'filer unresolved'} ({s['holder']})")
+    if not parts:
+        return None
+    n = len(parts)
+    return f"{n} 13D{'s' if n != 1 else ''} not counted — {', '.join(parts)}"
 
 
 def _stake_exited(d_family: list[dict[str, Any]], anchor: dict[str, Any]) -> bool:
@@ -181,10 +348,12 @@ def _switch_from_13g(
       passive→active escalation (measured: QNTM, Malone Wealth 13G 2025-06-11 → 13D 2025-06-12); the
       dial screens it out while keeping real escalations (measured: Gemini, Winklevoss ~185 days).
 
-    KNOWN v1 BOUND — the affiliate edge: a control person / insider vehicle (e.g. Winklevoss Capital
-    Fund → the Gemini exchange) passes ``filer≠subject`` and reads as a switch though it is a
-    governance reshuffle, not an outside activist's escalation. v1 does not distinguish the two (both
-    are a same-party 13G→13D). It only ever ENRICHES an already-firing CORE — never a new fire."""
+    THE AFFILIATE EDGE — now HANDLED by the holder screen (``holder_screen``, 2026-10-28): a control person
+    / insider vehicle (e.g. Winklevoss Capital Fund → the Gemini exchange) passes ``filer≠subject`` and
+    used to read as a switch though it is a governance reshuffle, not an outside activist's escalation.
+    With ``cfg.activist_affiliate_screen`` ON a control-holder or insider 13D never anchors, so it never
+    reaches this enrichment; with it OFF the old v1 bound returns unchanged. It only ever ENRICHES an
+    already-firing CORE — never a new fire."""
     anchor_filer = _norm_cik(anchor.get("filer_cik"))
     if not anchor_filer:
         return (
@@ -215,6 +384,7 @@ def score(
     asof: date,
     cfg: CallConfig = DEFAULT_CONFIG,
     subject_cik: str | None = None,
+    insider_rows: list[dict[str, Any]] | None = None,
 ) -> SignalEvent | None:
     """Pure: the most recent LIVE 13D-family ORIGINAL on a security -> a Key-1 CORE conviction
     SignalEvent (or None). The form type is the whole decision (#3); 13G rows and amendments
@@ -222,17 +392,28 @@ def score(
     DATA-QUALITY screen (``_is_misattributed``) additionally drops a self-filed (``filer_cik`` ==
     ``subject_cik``) or statutorily-impossible sub-5% original before it can anchor — ``subject_cik``
     is the SUBJECT security's own CIK, resolved by ``detect`` from the master (``None`` when it can't
-    resolve → only the pure sub-5% half applies, recall-safe). A fired 13D is additionally ENRICHED
+    resolve → only the pure sub-5% half applies, recall-safe). The HOLDER SCREEN (``holder_screen``,
+    ``cfg.activist_affiliate_screen``) drops a control-holder or insider original the same way;
+    ``insider_rows`` are the subject's Form 4 rows from the same view (``None`` = no Form 4 evidence, so
+    only the control half can apply). A screened original inside a fired episode rides its provenance
+    labeled, and the label names it. A fired 13D is additionally ENRICHED
     when it is a 13G→13D SWITCH — a prior same-filer 13G on the tape (``_switch_from_13g``: a passive
     holder going activist) — label + provenance only, never the fire/grade/score. UNGATED by the
     master switch (``detect`` holds the gate)."""
     d_family = [f for f in facts if f["form"] in _13D_FORMS and f["valid_from"] <= asof]
+    # the holder screen (flag-guarded: OFF computes nothing, so every output is byte-identical to before it)
+    screened = (
+        holder_screen(d_family, insider_rows or [], asof, cfg)
+        if cfg.activist_affiliate_screen
+        else {}
+    )
     live_originals = [
         f
         for f in d_family
         if not f["form"].endswith("/A")
         and entry_signal_is_live(f["valid_from"], cfg.activist_13d_liveness_days, asof)
         and not _is_misattributed(f, subject_cik)
+        and f["accession"] not in screened
     ]
     if not live_originals:
         return None
@@ -261,7 +442,11 @@ def score(
         f"{pct_note} (filed {anchor['valid_from'].isoformat()})"
     )
     provenance = [
-        source_provenance("schedule13", f["accession"], detail=_provenance_detail(f))
+        source_provenance(
+            "schedule13",
+            f["accession"],
+            detail=_provenance_detail(f, screened.get(f["accession"])),
+        )
         for f in episode
     ]
     # The 13G→13D SWITCH enrichment: a passive holder (a prior same-filer 13G) going activist is a
@@ -277,6 +462,10 @@ def score(
         provenance = [
             source_provenance("schedule13", switch["accession"], detail=_provenance_detail(switch))
         ] + provenance
+    # a control-holder / insider original filed inside the episode rides it labeled (#6/#9) — named here too
+    screened_note = _screened_note(episode, screened)
+    if screened_note is not None:
+        label += f"; {screened_note}"
     return fired_signal(
         detector=DETECTOR_NAME,
         security_id=security_id,
@@ -300,9 +489,10 @@ def detect(
     """Key 1 — SC 13D activist-stake conviction (warms). Reads ``fact_activist_stake`` via the
     point-in-time view; arming still needs a co-located confirmation (the breakout). Resolves the
     SUBJECT security's own CIK from the master (``security_name``'s identity-read sibling) to power the
-    self-filed data-quality screen (``_is_misattributed``). MASTER SWITCH — **DEFAULT ON since
-    2026-08-20**: gated on ``cfg.activist_stake_enabled``, so setting it False still no-ops the
-    detector."""
+    self-filed data-quality screen (``_is_misattributed``), and — with the holder screen ON — reads the
+    subject's Form 4 rows from the SAME view (``insider_txns``, roles only) for its insider half. MASTER
+    SWITCH — **DEFAULT ON since 2026-08-20**: gated on ``cfg.activist_stake_enabled``, so setting it False
+    still no-ops the detector."""
     if not cfg.activist_stake_enabled:
         return None
     return score(
@@ -311,14 +501,31 @@ def detect(
         asof,
         cfg,
         subject_cik=pit.security_cik(security_id),
+        insider_rows=pit.insider_txns(security_id) if cfg.activist_affiliate_screen else None,
     )
 
 
 def horizons(cfg: CallConfig) -> dict[str, int | None]:
-    """The READ-HORIZON declaration (``signals/horizons.py``): the 13D/G ownership tape is read UNBOUNDED
-    (``None``) — the detector's own liveness/asof filters select from the full as-of tape, so no event-
-    time floor may ever be applied to it."""
-    return {"fact_activist_stake": None}
+    """The READ-HORIZON declaration (``signals/horizons.py``):
+
+    - ``fact_activist_stake`` — read UNBOUNDED (``None``): the detector's own liveness/asof filters select
+      from the full as-of tape, so no event-time floor may ever be applied to it.
+    - ``fact_insider_txn`` (only with the holder screen ON) — a live original is filed no earlier than
+      ``asof - activist_13d_liveness_days``, and its insider window opens ``activist_insider_lookback_days``
+      before that filing, so the oldest Form 4 row that can matter is ``asof - (liveness + lookback)``.
+      At the defaults that is 210 days — the insider detectors' own horizon — so the call view's Form 4
+      floor is unchanged.
+    """
+    h: dict[str, int | None] = {"fact_activist_stake": None}
+    if cfg.activist_affiliate_screen:
+        h["fact_insider_txn"] = cfg.activist_13d_liveness_days + cfg.activist_insider_lookback_days
+    return h
 
 
-DETECTOR = register_detector(Detector(name=DETECTOR_NAME, detect=detect, horizons=horizons))
+# ``reads_insider_roles``: the holder screen reads WHO a Form 4 names (``rpt_owner_cik`` + ``insider_role``), on
+# rows of any code, never a code's trade — so it declares no ``txn_codes`` and adds none to the amendment
+# classifier's signal code set (``signals.horizons.insider_signal_codes``; the code-blind probe in
+# ``tests/signals/test_insider_signal_codes.py`` holds it to that).
+DETECTOR = register_detector(
+    Detector(name=DETECTOR_NAME, detect=detect, horizons=horizons, reads_insider_roles=True)
+)

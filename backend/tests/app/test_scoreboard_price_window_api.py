@@ -915,6 +915,79 @@ def test_price_window_activist_unresolved_identity_ships_null_not_dropped(client
     assert d["filer_name"] == "Engaged Capital" and d["pct_owned"] == 6.2
 
 
+def test_price_window_labels_a_13d_the_holder_screen_sets_aside(client, db, security_id):
+    """The 13D holder screen (option A, 2026-10-28) on the wire: a parent's 88.5% 13D rides labeled "control
+    holder"; a CEO's 9.1% 13D rides labeled "insider" only once his Form 4 is PUBLIC (accepted 06-12 — on the
+    public clock the 06-11 view cannot know he is the CEO); an outside activist's 13D rides unlabeled. Every row
+    rides — the label explains, it never removes (#6/#9; the FE grays a labeled row)."""
+    thesis = persist_thesis(db, security_id)
+    rec = datetime(
+        2026, 7, 1, tzinfo=timezone.utc
+    )  # ingested late: public long before (the public clock)
+    activist(
+        db,
+        security_id,
+        accession="0009990002-26-000001",
+        filed=date(2026, 6, 3),
+        recorded_at=rec,
+        form="SCHEDULE 13D",
+        filer_cik="0009990002",
+        filer_name="WISeQey AG",
+        pct_owned=88.5,
+    )
+    activist(
+        db,
+        security_id,
+        accession="0001900001-26-000013",
+        filed=date(2026, 6, 5),
+        recorded_at=rec,
+        form="SCHEDULE 13D",
+        filer_cik="0001900001",
+        filer_name="John B. Wood",
+        pct_owned=9.1,
+    )
+    activist(
+        db,
+        security_id,
+        accession="0001234567-26-000120",
+        filed=date(2026, 6, 8),
+        recorded_at=rec,
+        form="SCHEDULE 13D",
+        filer_cik="0001234567",
+        filer_name="Big Activist LP",
+        pct_owned=7.5,
+    )
+    insider_buy(  # his first Form 4 — an award dated after the 13D, accepted 06-12 (17:00 ET)
+        db,
+        security_id,
+        accession="0001900001-26-000004",
+        valid_from=date(2026, 6, 9),
+        recorded_at=rec,
+        accepted=datetime(2026, 6, 12, 21, 0, tzinfo=timezone.utc),
+        insider_name="Wood John B",
+        role="Chairman and CEO",
+        txn_code="A",
+        price=0.0,
+        usd=0.0,
+        rpt_owner_cik="1900001",
+    )
+
+    def holders(asof):
+        stakes = _get(client, thesis.id, security_id, asof).json()["activist_stakes"]
+        return {s["filer_name"]: s["holder"] for s in stakes}
+
+    assert holders("2026-06-11") == {
+        "WISeQey AG": "control holder",
+        "John B. Wood": None,  # his Form 4 is not public yet — the platform cannot know he is the CEO
+        "Big Activist LP": None,
+    }
+    assert holders("2026-06-15") == {
+        "WISeQey AG": "control holder",
+        "John B. Wood": "insider",
+        "Big Activist LP": None,
+    }
+
+
 def test_price_window_split_factor_reads_only_the_thesis_tenants_split_list(
     client, db, security_id
 ):

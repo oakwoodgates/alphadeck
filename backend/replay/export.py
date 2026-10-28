@@ -415,17 +415,24 @@ def blind_detectors(excluded: list[str]) -> list[str]:
     Named beside the excluded tables because listing the tables alone is half an answer: a reader still has
     to work out what stopped firing, and without that a result reads as "that detector is inert on this
     tape" when the truth is "that detector had no tape". Derived from each detector's own declared read
-    horizons (``signals/horizons.py``), so it cannot fall behind the registry.
+    horizons (``signals/horizons.py``), so it cannot fall behind the registry. A ROLE read of the Form 4 tape
+    (``Detector.reads_insider_roles`` with no ``txn_codes`` — the 13D holder screen) only ever stops a fire,
+    never makes one, so it does not count as a tape the detector can fire from.
     """
     if not excluded:
         return []
     from domain.config import DEFAULT_CONFIG
     from signals import registered_detectors
+    from signals.horizons import INSIDER_TABLE
 
     gone = set(excluded)
     out = []
     for det in registered_detectors():
         tables = set(det.horizons(DEFAULT_CONFIG))
+        if det.reads_insider_roles and not det.txn_codes:
+            tables.discard(
+                INSIDER_TABLE
+            )  # a role read only screens; it can never make the detector fire
         if tables and tables <= gone:
             out.append(det.name)
     return sorted(out)

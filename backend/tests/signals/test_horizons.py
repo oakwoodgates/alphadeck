@@ -108,9 +108,11 @@ def test_derived_bounds_are_pinned_to_the_dials():
     each comes from. Change a dial and this test names the new bound (review-visible by design)."""
     cfg = DEFAULT_CONFIG
     assert MARGIN_DAYS == 30 and BOUNDED_TABLES == {"fact_price_eod", "fact_insider_txn"}
-    insider_call = (
+    insider_call = max(
         max(cfg.insider_core_alpha_liveness_days, cfg.insider_flip_alpha_liveness_days)
-        + cfg.insider_cluster_window_days
+        + cfg.insider_cluster_window_days,
+        # the 13D holder screen's Form 4 role read (activist_stake): a live 13D's insider window
+        cfg.activist_13d_liveness_days + cfg.activist_insider_lookback_days,
     )
     price_call = max(
         cfg.breakout_52w_lookback_days,
@@ -137,6 +139,23 @@ def test_a_widened_dial_widens_the_bound():
     assert call_bounds(wider)["fact_insider_txn"] == 400 + 30 + MARGIN_DAYS
     wider = DEFAULT_CONFIG.model_copy(update={"breakout_52w_lookback_days": 900})
     assert call_bounds(wider)["fact_price_eod"] == 900 + MARGIN_DAYS
+
+
+def test_the_13d_holder_screen_reads_inside_todays_insider_floor():
+    """The holder screen (activist_stake, 2026-10-28) declares its Form 4 read from its own dials — at the
+    defaults it sits exactly at the insider detectors' 210 days, so the call view's Form 4 floor (and every
+    other reader's rows) is unchanged; widen its lookback and the bound names the new number; turn the screen
+    off and it reads (and declares) no Form 4 at all."""
+    from signals import activist_stake
+
+    cfg = DEFAULT_CONFIG
+    assert activist_stake.horizons(cfg)["fact_insider_txn"] == 210
+    assert call_bounds(cfg)["fact_insider_txn"] == 240  # unchanged by the screen
+    wider = cfg.model_copy(update={"activist_insider_lookback_days": 90})
+    assert call_bounds(wider)["fact_insider_txn"] == 180 + 90 + MARGIN_DAYS
+    off = cfg.model_copy(update={"activist_affiliate_screen": False})
+    assert "fact_insider_txn" not in activist_stake.horizons(off)
+    assert call_bounds(off)["fact_insider_txn"] == 240
 
 
 def test_derive_bounds_rules():

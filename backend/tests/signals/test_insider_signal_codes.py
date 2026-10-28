@@ -8,7 +8,11 @@ each registered detector's declared ``txn_codes``; these tests make the declarat
 - a BEHAVIORAL probe feeds every registered detector (every master switch on) a strong, recent, senior cluster
   in EACH SEC Form 4 transaction code, and fails if a detector reacts to a code it did not declare — so a
   future detector reading another code fails here until it declares it (which widens the set automatically);
-- each declared code really fires its detector on the probe (the probe is not vacuous).
+- each declared code really fires its detector on the probe (the probe is not vacuous);
+- a ROLE reader (``Detector.reads_insider_roles`` — it reads WHO a Form 4 names, on rows of any code, and declares
+  no codes: the 13D holder screen) is CODE-BLIND: given a live 13D by the probe's CEO and the same probe rows in
+  EACH SEC code, its output is identical for every code — so it rightly adds no code to the set — and the rows
+  do change it (the probe is not vacuous).
 
 The probe rows are a contract test's direct inputs, not data about any company."""
 
@@ -140,7 +144,9 @@ def test_every_insider_reader_declares_its_codes_and_the_set_is_derived_from_the
     readers = [d for d in registered_detectors() if INSIDER_TABLE in d.horizons(DEFAULT_CONFIG)]
     assert readers, "no registered detector reads fact_insider_txn — the guard would be vacuous"
     for d in readers:
-        assert d.txn_codes, f"{d.name} reads {INSIDER_TABLE} without declaring txn_codes"
+        assert (
+            d.txn_codes or d.reads_insider_roles
+        ), f"{d.name} reads {INSIDER_TABLE} without declaring txn_codes"
     derived = insider_signal_codes(DEFAULT_CONFIG)
     assert set(derived) == set().union(*(d.txn_codes for d in readers))
     for d in readers:  # the horizon per code is the detector's own declaration
@@ -183,6 +189,73 @@ def test_a_reader_without_declared_codes_is_a_registry_error(monkeypatch):
     monkeypatch.setattr(horizons, "registered_detectors", lambda: (blind,))
     with pytest.raises(ValueError, match="declares no txn_codes"):
         horizons.insider_signal_codes(DEFAULT_CONFIG)
+
+
+# --- the ROLE readers: code-blind, so they add no code to the set ----------------------------------------------
+
+# the probe 13D's filer IS the probe's "Insider 0" (rpt_owner_cik 2000, Chief Executive Officer), filed 2 days
+# before ASOF so the probe's Form 4 rows (ASOF-1 .. ASOF-3) sit inside its insider window
+_PROBE_13D = {
+    "accession": "0000000000-26-913000",
+    "form": "SCHEDULE 13D",
+    "filer_cik": "0000002000",
+    "filer_name": "Insider 0",
+    "pct_owned": 9.0,
+    "filed": ASOF - timedelta(days=2),
+    "source_ref": "https://www.sec.gov/Archives/edgar/data/1000/000000000026913000/",
+    "valid_from": ASOF - timedelta(days=2),
+}
+
+
+class _RoleProbePIT(_ProbePIT):
+    """The probe view plus one live 13D by the probe's first insider — the role reader's other input."""
+
+    def activist_stake_facts(self, security_id):
+        return [dict(_PROBE_13D)]
+
+
+def _role_readers():
+    readers = [d for d in registered_detectors() if d.reads_insider_roles]
+    assert readers, "no registered role reader — the code-blind guard would be vacuous"
+    return readers
+
+
+def test_a_role_reader_declares_its_table_and_contributes_no_code():
+    for d in _role_readers():
+        assert INSIDER_TABLE in d.horizons(DEFAULT_CONFIG), d.name
+        assert not d.txn_codes, f"{d.name}: a role reader reads roles, never codes"
+    assert set(insider_signal_codes(DEFAULT_CONFIG)) == {"P", "S"}  # unchanged by the role reader
+
+
+def test_a_role_reader_is_code_blind():
+    """The same rows in every SEC code give the same output — the output depends on WHO the rows name and the
+    role they state, never on the code, so the amendment classifier's code set rightly leaves the role reader
+    out. Non-vacuous: without the rows the 13D fires; with them (the filer is the CEO) it does not.
+    """
+    for det in _role_readers():
+        sid = UUID("00000000-0000-0000-0000-000000000913")
+        bare = det(_RoleProbePIT([]), sid, ASOF, CFG)
+        outputs = {
+            code: det(_RoleProbePIT(_probe_rows(code, sid)), sid, ASOF, CFG)
+            for code in SEC_TXN_CODES
+        }
+        first = outputs[SEC_TXN_CODES[0]]
+        for code, out in outputs.items():
+            assert out == first, f"role reader {det.name!r} reacts to Form 4 code {code!r}"
+        assert bare != first, f"the role probe does not move {det.name!r} — the guard is vacuous"
+
+
+def test_a_role_reader_needs_no_codes_but_a_plain_reader_still_does(monkeypatch):
+    import signals.horizons as horizons
+
+    roles = Detector(
+        name="role_reader",
+        detect=lambda pit, sid, asof, cfg: None,
+        horizons=lambda cfg: {INSIDER_TABLE: 30},
+        reads_insider_roles=True,
+    )
+    monkeypatch.setattr(horizons, "registered_detectors", lambda: (roles,))
+    assert horizons.insider_signal_codes(DEFAULT_CONFIG) == {}
 
 
 # --- the Form 4/A REVIEW LINE's DERIVATION GUARD (operator decision 2026-10-24) ------------------------------

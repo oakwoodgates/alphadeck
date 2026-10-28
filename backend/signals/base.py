@@ -457,6 +457,14 @@ class Detector:
     # (``signals.horizons.insider_signal_codes``): a future detector reading another code widens it by declaring
     # it here, and ``tests/signals/test_insider_signal_codes.py`` fails a detector that reads an undeclared one.
     txn_codes: frozenset[str] = frozenset()
+    # The ROLE READ (the 13D holder screen, 2026-10-28): a detector that reads ``fact_insider_txn`` only for WHO a
+    # Form 4 names — ``rpt_owner_cik`` + ``insider_role``, on rows of ANY code — and never for a code's trade
+    # declares ``reads_insider_roles=True`` instead of codes (``activist_stake``: is the 13D's filer an officer
+    # or director?). It adds NO code to the amendment classifier's signal set — a 4/A that changes no signal-code
+    # row still resolves itself, and the read keeps showing the role the original filing stated.
+    # ``tests/signals/test_insider_signal_codes.py`` probes that a role reader is code-blind: given the same
+    # rows in each SEC code, its output never depends on the code.
+    reads_insider_roles: bool = False
     # S5 — the SPLIT-NIGHT HOLD (``signals/split_hold.py``): a detector that fires on the PRICE PATH (a breakout,
     # a breakdown, an SMA cross) declares its name on the card here ("Breakout"); on a held company it then
     # reads only the bars before an unconfirmed split-shaped step. ``None`` = not a price-path trigger (an

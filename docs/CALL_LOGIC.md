@@ -406,7 +406,9 @@ only *coincide* for insider buys, which is exactly why the two conviction source
   hidden), *Keep the original*, *Add to the original* (every original row stays and the amendment's rows are
   added — `replaced_rows = []`, basis `operator:add`). The signal code set is derived in ONE place from the
   detectors' own declarations (`Detector.txn_codes` + `horizons()` → `signals.horizons.insider_signal_codes`:
-  today `{P: 210 days, S: 120 days}`; a detector that reads `fact_insider_txn` without declaring codes raises).
+  today `{P: 210 days, S: 120 days}`; a detector that reads `fact_insider_txn` without declaring codes raises —
+  unless it declares `Detector.reads_insider_roles`: a ROLE reader, held code-blind by a probe, that reads who a
+  Form 4 names and adds no code — the 13D holder screen).
   **The pending state** (an operator-linked amendment awaiting its verdict, one the operator took back by
   revoking the system's decision, or a pre-R8-B link the sweep has not reached): a cancellation (void /
   duplicates) SUPPRESSES the affected original rows — buys and sells — so a canceled buy never fires (the
@@ -578,6 +580,50 @@ only *coincide* for insider buys, which is exactly why the two conviction source
   quarter and are gone — ASST (Digital Asset Treasury; its card's `exit_by` 2027-02-06 → 2026-11-07), DOMH and VREOD
   (Rainbow Rush), FRHC, LRHC, RKT and SEGG (The Everything Exchange); DOMH and RKT re-cite their genuine Q1-2026
   inflection instead. No state, verdict or armed name changes.
+- **`activist_stake` `[built — S5]` — grade-FIXED core, structural (Key 1).** A 13D-family **original** filed
+  about a basket member (the outside party crossed 5% with intent to influence) fires a `core` conviction live
+  for `activist_13d_liveness_days` (180) from its filing date; the 13G family and every amendment fire nothing,
+  and a same-filer sub-5% amendment after the fire terminates it (`activist_exit_terminates`). The form type is
+  the decision (#3); the full fire policy is `docs/ACTIVIST_STAKE.md`.
+  **The holder screen — control holders and insiders do not fire (option A, operator-approved 2026-10-28;
+  `activist_affiliate_screen`, default ON).** The SEC requires a 13D from anyone above 5% who is not passive —
+  a parent company, a founder, a CEO, a sponsor that kept control after a SPAC listing — and none of them is
+  an outside party committing new capital, which is what this trigger is for. MEASURED on prod (read-only, all
+  54 cards at asof 2026-10-28): WISeSat (SAIQ) armed two cards on a 13D from WISeQey, its own parent (88.5%),
+  plus a breakout in its first weeks of trading. An original does **not** anchor a fire when either holds:
+  - **control** — any filer row of the SAME filing (same accession, same subject) reports `pct_owned` ≥
+    `activist_control_pct` (50);
+  - **insider** — any filer of the filing is an **officer or director** of the subject: its `filer_cik`
+    matches a `rpt_owner_cik` on the subject's own Form 4 rows whose `insider_role` names an officer/director
+    role (`activist_insider_role_keywords`: director, officer, chief, CEO, CFO, COO, president, chair, VP,
+    secretary, treasurer, general counsel, controller), on a Form 4 dated no earlier than
+    `activist_insider_lookback_days` (30, `[PROPOSED]`) before the 13D. A **"10% owner"-only** role does NOT
+    screen — that group mixes founders with real outside funds, and the operator chose to leave it firing.
+  **Point in time (#1, the public clock):** the Form 4 rows are the view's, so on a history view a Form 4
+  counts only from its SEC acceptance — a CEO whose first Form 4 is public after his 13D fires until that
+  Form 4 is public, then stops. The window is anchored on the 13D, never on asof, so a screened filing never
+  comes back to life late in its window. **NULL-safe (#9):** a missing percent or an unresolved CIK never
+  screens. **Visible, never dropped (#6/#9):** the filing stays on the tape; inside a fired episode it rides
+  the provenance with `holder` = "control holder" / "insider" and its basis (the percent, or the Form 4's
+  accession, role and date), and the label names it ("1 13D not counted — WISeQey AG (control holder)"); the
+  Scoreboard drawer labels and grays it the same way. It only stops firing. The 13G→13D switch's "affiliate
+  edge" (a control vehicle's same-party 13G→13D read as an escalation — the Winklevoss fund at Gemini) is
+  handled with it: a screened 13D never anchors, so it is never enriched. **Roles, not codes:** the screen
+  reads WHO a Form 4 names on rows of any code, so `activist_stake` declares `Detector.reads_insider_roles`
+  and no `txn_codes` — the amendment classifier's signal code set stays `{P, S}` (a probe holds the reader
+  code-blind). Its Form 4 read horizon (`liveness + lookback` = 210 days) equals the insider detectors', so
+  the call view's Form 4 floor is unchanged. Replay applies the same rule (one pure function over the same
+  accessors, parity-gated). Off (`activist_affiliate_screen = False`) is byte-identical to before.
+  **Expected effect, MEASURED on prod by the orchestrator (read-only, 2026-10-28, all 54 cards):** of 68
+  live 13D triggers on 34 cards (53 company-and-filer pairs), the screens remove 20 — 5 control, 14 officer
+  or director, 1 more through a joint filing; 4 armed members de-arm (SAIQ on "Satellite Connectivity &
+  Spectrum" and "The Quantum Buildout", TLS on "Cyber Arms Race" and "Defense Software, C4ISR & Services");
+  only "Satellite Connectivity & Spectrum" leaves Armed; no card leaves Warming. Insider 13Ds rarely follow
+  a purchase: 9 of the 11 insider filers came with only awards or conversions (codes `A` / `C`); the other 2
+  (HELP, VIP) followed open-market buys the insider-buy trigger already counts. **Known bound:** the 13D
+  ingest stores the LEAD reporting person of a filing only (one row per subject and accession), so a joint
+  filing whose majority member is not the lead (the Symbotic shape, a 7.9% lead beside a 58.2% member) is
+  not on the tape for the screen to read until group capture lands (`docs/ACTIVIST_STAKE.md` §Deferred).
 - **`volume_breakout` `[built]` — the CONFIRMATION grade (Key 2).** VOLUME grades it: volume-backed
   (vol ≥ `breakout_volume_mult` × base avg) = `core`; a momentum thrust on weak volume arms but `flip`.
   **Grade-down** (ratified 2026-08-15, `breakout_weak_close_grade_down`): a volume-backed breakout that
