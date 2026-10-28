@@ -90,10 +90,14 @@ export function SleeveRail({
   onInclude,
   onRemove,
   includePending,
+  roleControl,
 }: {
   member: ScoredMemberOut;
   thesisId?: string;
   asof?: string;
+  // the DD rail's context-role control for this fund (a spot or metal fund is the usual `benchmark`), rendered
+  // under the head exactly as on the equity rail. Optional: the parent owns it; omitted, nothing renders.
+  roleControl?: ReactNode;
   // the LIVE thesis basket's security_ids — an available holding whose id is here has been included; its
   // button becomes the reversible "✓ included" (remove). Read off the basket, not a re-pull (cost thread).
   basketSids?: Set<string>;
@@ -157,6 +161,7 @@ export function SleeveRail({
         <span className="tk">{member.ticker ?? "◇"}</span>
         <span className="btype bt-etf">ETF sleeve</span>
       </div>
+      {roleControl}
       <div className="dd-body">
         {member.name && (
           <div className="dd-ident">

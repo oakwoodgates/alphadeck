@@ -320,8 +320,9 @@ not `BasketMember.role` (the free-text prose field) and not `SignalEvent.role` (
   with nothing written; a `NULL` row beside a set role **inherits** it on write (so a re-draft or hand-add that
   puts an existing company into a second link succeeds); **clearing** is `NULL` on every row of the company.
   `domain/thesis.py`: `context_role_conflicts`, `with_inherited_context_roles`.
-- **Where it is edited:** the scored view's **DD rail** — one small "Context role" select per company ("— none"
-  plus the six; each option's hover is its description), an immediate promote through the same writer as the
+- **Where it is edited:** the scored view's **DD rail** — one small "Context role" select per company, an ETF
+  sleeve's rail included (a spot or metal fund is the usual `benchmark`) ("— none" plus the six; each option's
+  hover is its description), an immediate promote through the same writer as the
   link checkboxes (`setMemberContextRole` sets it on every row; the spine's rows ride along untouched). "— none"
   clears it — the visible inverse (WB#1). The first-screen editor never authors a role, and its Save
   full-replaces the basket, so a draft restored from an older autosaved session overlays the **saved spine's**

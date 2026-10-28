@@ -844,6 +844,22 @@ def test_an_unset_role_is_stored_null_and_hydrates_none_both_live_and_asof(db, s
     ] == [None, None]
 
 
+def test_the_database_refuses_a_context_role_outside_the_six(db, security_id):
+    """Migration 0069's CHECK is the last line: a value the enum would never send (a typo, a seventh role, a
+    write that bypassed the model) is refused by the column itself, and a valid one is accepted."""
+    t = _two_link_company(security_id, None)
+    thesis_repo.upsert(db, t)
+    db.commit()
+    with pytest.raises(psycopg.errors.CheckViolation):
+        db.execute(
+            "UPDATE basket_member SET context_role = 'supplier' WHERE thesis_id = %s", (t.id,)
+        )
+    db.rollback()
+    db.execute("UPDATE basket_member SET context_role = 'payer' WHERE thesis_id = %s", (t.id,))
+    db.commit()
+    assert _stored_roles(db, t.id) == ["payer", "payer"]
+
+
 def test_context_role_survives_a_resave_through_the_mapper(db, security_id):
     """THE WIPE-TRAP guard (the conviction test's twin): a promote reads the basket THROUGH the mapper before
     DELETE+reinsert, so an unmapped column is silently wiped by any unrelated resave."""

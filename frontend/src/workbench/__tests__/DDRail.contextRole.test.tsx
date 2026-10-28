@@ -1,5 +1,6 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ScoredMemberOut } from "../../api/hooks";
@@ -14,6 +15,12 @@ import { CONTEXT_ROLES, CONTEXT_ROLE_DESCRIPTION, CONTEXT_ROLE_LABEL } from "../
 // the hook-using child panels aren't under test here — stub them so this stays a focused unit
 vi.mock("../CatalystFactForm", () => ({ CatalystFactForm: () => null }));
 vi.mock("../FactsPanel", () => ({ FactsPanel: () => null }));
+// the sleeve dossier pulls holdings/flow through hooks; stub it to the one thing under test here — its slot
+vi.mock("../SleeveRail", () => ({
+  SleeveRail: ({ roleControl }: { roleControl?: ReactNode }) => (
+    <div data-testid="sleeve">{roleControl}</div>
+  ),
+}));
 
 const fig = (pips: number | null, value: number | null) => ({ pips, value, provenance: [] });
 const member = {
@@ -134,5 +141,17 @@ describe("DDRail — the context role control", () => {
     );
     expect(screen.getByRole("checkbox", { name: "reactors" })).toBeChecked();
     expect(screen.getByRole("combobox", { name: "Context role" })).toBeInTheDocument();
+  });
+
+  it("an ETF sleeve gets the same control (a spot or metal fund is the usual benchmark)", async () => {
+    const user = userEvent.setup();
+    const onContextRole = vi.fn();
+    const fund = { ...member, security_id: "s-gld", ticker: "GLD", instrument_kind: "etf" };
+    render(<DDRail member={fund} contextRole={null} onContextRole={onContextRole} />);
+    const select = within(screen.getByTestId("sleeve")).getByRole("combobox", {
+      name: "Context role",
+    });
+    await user.selectOptions(select, "benchmark");
+    expect(onContextRole).toHaveBeenCalledWith("s-gld", "benchmark");
   });
 });

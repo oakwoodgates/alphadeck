@@ -168,6 +168,20 @@ describe("SleeveRail — the fund sleeve's DD-rail holdings", () => {
     expect(screen.getByText("⌾ pull holdings")).toBeInTheDocument();
   });
 
+  it("renders the parent's context-role control under the head, and nothing when none is passed", () => {
+    const { unmount } = renderSleeve();
+    expect(screen.queryByTestId("role-slot")).toBeNull();
+    unmount();
+    render(
+      <SleeveRail
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        member={fundMember() as any}
+        roleControl={<div data-testid="role-slot">Context role</div>}
+      />,
+    );
+    expect(screen.getByTestId("role-slot")).toBeInTheDocument();
+  });
+
   it("the deliberate pull-holdings click spends", () => {
     renderSleeve();
     fireEvent.click(screen.getByText("⌾ pull holdings"));

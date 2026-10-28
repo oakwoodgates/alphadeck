@@ -263,8 +263,24 @@ export function DDRail({
   // A `fund` sleeve is an EXPRESSION, not a scored equity (#4/#6): none of the meters / extract / ratify
   // machinery below applies. Its dossier is identity + price + N-PORT holdings — a wholly separate panel.
   // Keyed on the instrument (a fund has no SIC) — the master's instrument_kind is the sleeve's one marker.
+  // The context role rides the sleeve too: a spot or metal fund is the usual `benchmark`.
   if (member.instrument_kind === "etf") {
-    return <SleeveRail member={member} thesisId={thesisId} asof={asof} {...sleeve} />;
+    return (
+      <SleeveRail
+        member={member}
+        thesisId={thesisId}
+        asof={asof}
+        {...sleeve}
+        roleControl={
+          <ContextRoleControl
+            securityId={member.security_id}
+            role={contextRole ?? null}
+            onChange={onContextRole}
+            pending={contextRolePending}
+          />
+        }
+      />
+    );
   }
   // The business type (Business-Type M1): the SIC maps auto-derive the leaf (shown immediately, with
   // its basis); the operator can RE-TAG it here (#10 — the maps recommend, the operator overrules per
