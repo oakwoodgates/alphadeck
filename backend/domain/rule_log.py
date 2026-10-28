@@ -51,6 +51,16 @@ RULE_LOG: tuple[RuleEntry, ...] = (
             "removed from the call's inputs, so its signals never warm, arm or veto the card."
         ),
     ),
+    RuleEntry(
+        id="2026-10-13d-holder-screen",
+        date=date(2026, 10, 28),
+        label="13Ds from control holders and insiders no longer fire",
+        description=(
+            "A Schedule 13D whose filer holds 50% or more of the class, or is an officer or director of "
+            "the company on its own Form 4s, stays visible but no longer fires the activist-stake "
+            "conviction, because a parent, founder or CEO is not an outside party committing new capital."
+        ),
+    ),
 )
 
 

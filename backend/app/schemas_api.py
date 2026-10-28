@@ -1776,7 +1776,10 @@ class ActivistStakeOut(BaseModel):
     = identity unresolved; ``pct_owned`` ``None`` = pre-structured era / unparsed. 13G rows ride too —
     the fire policy (13D-family originals only) lives in the detector; the FE mirrors it as display
     weight (13G-family grayed-passive), never as an omission. ``url`` is the EDGAR filing-index URL
-    (#6). Both time axes are asof-capped (no-lookahead #1)."""
+    (#6). Both time axes are asof-capped (no-lookahead #1). ``holder`` names a 13D-family original the
+    call's holder screen sets aside: ``"control holder"`` (a filer row of the filing reports 50% or more
+    of the class) or ``"insider"`` (a filer is an officer or director of the company on its own Form 4s)
+    — it stays on the ledger, grayed, and does not fire; ``None`` for every other row."""
 
     d: date
     form: str
@@ -1785,6 +1788,8 @@ class ActivistStakeOut(BaseModel):
     pct_owned: float | None = None  # structured cover percentOfClass; None = unparsed
     url: str
     ingested: date
+    # "control holder" / "insider" = set aside by the call's holder screen (does not fire); None otherwise
+    holder: Literal["control holder", "insider"] | None = None
 
 
 class ScoreboardPriceWindowOut(BaseModel):

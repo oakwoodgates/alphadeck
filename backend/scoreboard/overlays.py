@@ -25,7 +25,9 @@ bars themselves (``docs/CALL_LOGIC.md`` / invariant #1):
   server-side cut would be a silent filter (#9).
 - ``episode_activist_stakes`` (Slice B) — every stored 13D/G-family filing in-window
   (``fact_activist_stake``), unresolved filer identity shipping as ``None`` (kept, never dropped, #9);
-  13G rows ride too — the fire policy lives in the detector, the passive-gray lives in the FE.
+  13G rows ride too — the fire policy lives in the detector, the passive-gray lives in the FE. A 13D the
+  call's holder screen sets aside rides labeled ``holder`` = "control holder" / "insider" (the detector's
+  own pure rule, ``signals.activist_stake.holder_screen``), grayed on the FE, never hidden.
 
 Both insider overlays read through the shared as-of seam, so a trade several persons reported in separate
 filings (a joint report — ``domain.insider_joint_reports``) rides the ledger ONCE, its ``insider_name`` naming
@@ -61,6 +63,7 @@ from domain.config import DEFAULT_CONFIG
 from domain.insider_internal_transfers import transfer_with
 from domain.insider_joint_reports import display_name
 from domain.insider_private_purchases import private_purchase_note
+from signals import activist_stake
 from signals.display.insider_flow import BUY, SELL, _screen
 from signals.insider_sell import _FOREIGN, _SELF
 from signals.insider_sell import _screen as _sell_screen
@@ -388,6 +391,12 @@ def episode_activist_stakes(
     13G rows and amendments ride too — the fire policy (13D-family originals only) lives in the
     detector; the FE mirrors it as display weight (13G-family grayed-passive), never as an omission.
     ``url`` is the row's ``source_ref`` (the EDGAR filing-index URL, #6).
+
+    ``holder`` (the 13D holder screen, 2026-10-28) labels a 13D-family ORIGINAL the CALL side sets aside —
+    "control holder" / "insider" — with the detector's OWN pure rule (``signals.activist_stake.holder_screen``)
+    over the same as-of tape and the subject's as-of Form 4 rows, so the ledger shows why a 13D did not fire
+    (the sell ``character`` precedent); ``None`` for every other row. The FE grays a labeled row, never hides it
+    (WB #2). The Form 4 read happens only when an in-window original exists and the screen is on.
     """
     rows = as_of(
         conn,
@@ -398,6 +407,20 @@ def episode_activist_stakes(
         tenant_id=tenant_id,
         clock=clock,
     )
+    screened: dict[str, dict[str, Any]] = {}
+    if DEFAULT_CONFIG.activist_affiliate_screen and any(
+        activist_stake.is_13d_original(r["form"]) and start <= r["valid_from"] <= end for r in rows
+    ):
+        insider_rows = as_of(
+            conn,
+            "fact_insider_txn",
+            security_id=security_id,
+            asof=asof,
+            known_at=known_at,
+            tenant_id=tenant_id,
+            clock=clock,
+        )
+        screened = activist_stake.holder_screen(rows, insider_rows, asof, DEFAULT_CONFIG)
     stakes: list[dict[str, Any]] = []
     for r in rows:
         vf: date = r["valid_from"]
@@ -412,6 +435,8 @@ def episode_activist_stakes(
                 "pct_owned": _f(r.get("pct_owned")),  # structured-era only; None = unparsed
                 "url": r["source_ref"],
                 "ingested": _ingested(r),
+                # "control holder" / "insider" = set aside by the call's holder screen; None otherwise
+                "holder": screened.get(r["accession"], {}).get("holder"),
             }
         )
     stakes.sort(key=lambda s: (s["d"], s["ingested"]))

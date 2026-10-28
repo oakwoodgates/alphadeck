@@ -623,11 +623,13 @@ export function is13DFamily(form: string): boolean {
  *  ledger row both read, across every family that has a gray state: an insider buy via
  *  `insiderSetAside` (primary-market / implausible); a sell whose character is anything but `kept`
  *  (screened out of the detector's cluster); an activist filing outside the 13D family (passive —
- *  mirrors "13G fires nothing" as display weight). Everything else carries its family weight. */
+ *  mirrors "13G fires nothing" as display weight), or a 13D the call's holder screen set aside (a
+ *  control holder or an insider — the server's `holder`, never re-derived here). Everything else
+ *  carries its family weight. */
 export function eventSetAside(e: OverlayEvent): boolean {
   if (e.family === "insider") return insiderSetAside(e.buy);
   if (e.family === "sell") return e.sell.character !== "kept";
-  if (e.family === "activist") return !is13DFamily(e.stake.form);
+  if (e.family === "activist") return !is13DFamily(e.stake.form) || e.stake.holder != null;
   if (e.family === "split") return e.split.status === "needs_review"; // listed, not applied
   return false;
 }
@@ -681,11 +683,19 @@ function filingTooltip(e: FilingChipEvent): TooltipContent {
   return { title: f.form, lines };
 }
 
+// Why a 13D the call's holder screen set aside does not fire (the server's `holder`, #6): the filer is
+// not an outside party, so the filing stays on the tape, grayed, and turns no key.
+const HOLDER_LINE: Record<"control holder" | "insider", string> = {
+  "control holder": "control holder (50%+ of the class) — not an outside activist, does not fire",
+  insider: "insider (an officer or director on its Form 4s) — not an outside activist, does not fire",
+};
+
 function activistTooltip(e: ActivistChipEvent): TooltipContent {
   const st = e.stake;
   // unresolved identity is SAID, never guessed and never a dropped row (#9/#6)
   const lines = [st.filer_name ?? "filer unresolved"];
   if (st.pct_owned != null) lines.push(`${st.pct_owned}% of class`);
+  if (st.holder != null) lines.push(HOLDER_LINE[st.holder]);
   lines.push(`filed ${st.d}`);
   const ilag = daysBetween(st.d, st.ingested);
   if (ilag >= 1) lines.push(`ingested ${ilag}d later (${st.ingested})`);

@@ -1248,6 +1248,16 @@ describe("overlayTooltip — the 13D/G stake chip", () => {
     expect(tip.lines).toContain("6.2% of class");
   });
 
+  it("a 13D the holder screen set aside says why it does not fire; an unscreened 13D adds no line", () => {
+    expect(mk({ holder: "control holder", pct_owned: 88.5 }).lines).toContain(
+      "control holder (50%+ of the class) — not an outside activist, does not fire",
+    );
+    expect(mk({ holder: "insider" }).lines).toContain(
+      "insider (an officer or director on its Form 4s) — not an outside activist, does not fire",
+    );
+    expect(mk().lines.some((l) => l.includes("does not fire"))).toBe(false); // honest loudness: the default is quiet
+  });
+
   it("unresolved identity reads 'filer unresolved'; a null pct adds no line (#9 — shown, not guessed)", () => {
     const tip = mk({ filer_name: null, filer_cik: null, pct_owned: null, form: "SC 13G" });
     expect(tip.title).toBe("SC 13G");
@@ -1276,7 +1286,12 @@ describe("is13DFamily + eventSetAside — the one gray-state helper (WB #2)", ()
       {
         sells: [sell({ d: "2026-06-02", character: "kept" }), sell({ d: "2026-06-02", character: "planned" })],
         filings: [filing({ d: "2026-06-03" })],
-        stakes: [stake({ d: "2026-06-04" }), stake({ d: "2026-06-04", form: "SC 13G", filer_name: null })],
+        stakes: [
+          stake({ d: "2026-06-04" }),
+          stake({ d: "2026-06-04", form: "SC 13G", filer_name: null }),
+          stake({ d: "2026-06-04", holder: "control holder", pct_owned: 88.5 }),
+          stake({ d: "2026-06-04", holder: "insider" }),
+        ],
       },
     );
     const flags = events.map((e) => [e.family, eventSetAside(e)]);
@@ -1289,6 +1304,8 @@ describe("is13DFamily + eventSetAside — the one gray-state helper (WB #2)", ()
       ["filing", false], // filings never gray (the family hue is already quiet)
       ["activist", false], // 13D — family weight
       ["activist", true], // 13G — passive gray
+      ["activist", true], // 13D by a control holder — set aside by the holder screen, grayed not hidden
+      ["activist", true], // 13D by an insider — likewise
     ]);
   });
 });

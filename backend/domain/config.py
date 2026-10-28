@@ -715,6 +715,57 @@ class CallConfig(DomainModel):
     # the exit side (elsewhere the module treats pct as display evidence) — which is why the flip was
     # MEASURED (the insider_sell / share_creep precedent). Set False to disable.
     activist_exit_terminates: bool = True
+    # --- the HOLDER SCREEN (option A — operator-approved 2026-10-28) ------------------------------------
+    # The SEC requires a 13D from ANYONE above 5% who is not passive: parent companies, founders, CEOs and
+    # the sponsors who keep control after a SPAC listing file one too, and none of them is an outside party
+    # committing new capital — what this trigger exists to catch. MEASURED on prod (read-only, all 54 cards
+    # at asof 2026-10-28): WISeSat (SAIQ) armed two cards on its own parent WISeQey's 88.5% 13D. When ON, a
+    # 13D-family ORIGINAL does not anchor a fire when (a) any filer row of the SAME filing (accession, same
+    # subject) reports ``pct_owned >= activist_control_pct`` — a CONTROL HOLDER — or (b) any of its filers is
+    # an OFFICER or DIRECTOR of the subject — an INSIDER: its ``filer_cik`` matches a ``rpt_owner_cik`` on the
+    # subject's own Form 4 rows whose ``insider_role`` names one of ``activist_insider_role_keywords``,
+    # dated no earlier than ``activist_insider_lookback_days`` before the 13D (and public by the evaluation,
+    # the point-in-time view's own gate). A "10% owner"-only role names none of them and keeps firing (that
+    # group mixes founders with real outside funds — the operator's choice). NULL-safe (#9): a missing pct or
+    # an unresolved CIK never screens. A screened filing stays on the tape and in the evidence, labeled
+    # "control holder" / "insider" (never dropped); it only stops firing. ``pct_owned`` and the filer's
+    # identity are FIRE inputs on this path (evidence-only elsewhere) — why the change was measured and
+    # signed off first. Set False and every call is byte-identical to before the screen.
+    activist_affiliate_screen: bool = True
+    # A filer row at or above this percent of class is a control holder (a majority owner). Operator-approved.
+    activist_control_pct: float = 50.0
+    # The words that make a Form 4 ``insider_role`` an OFFICER or DIRECTOR role (case-insensitive substring,
+    # the ``insider_senior_role_keywords`` matching). Broader than that set on purpose: it asks "is this
+    # person an officer or director of the company?", not "how senior?" — so a chair, an EVP or a general
+    # counsel counts. The Form 4 parser stores the officer title when one is given, else the checked boxes
+    # ("Director", "Officer", "10% owner"); "10% owner" contains none of these words, so a 10%-owner-only
+    # filer keeps firing. A title the list misses keeps firing too — the safe side (today's behavior).
+    activist_insider_role_keywords: frozenset[str] = frozenset(
+        {
+            "director",
+            "officer",
+            "chief",
+            "ceo",
+            "cfo",
+            "coo",
+            "president",
+            "chair",
+            "vp",
+            "secretary",
+            "treasurer",
+            "general counsel",
+            "controller",
+        }
+    )
+    # How far BEFORE a 13D's filing date a Form 4 may be dated and still make its filer an insider (a Form 4
+    # dated after the 13D always counts once it is public). Anchored on the 13D, never on asof, so a screened
+    # filing can never come back to life late in its window. 30 days covers the measured pattern — the 13D
+    # accompanies the award / conversion / purchase its filer reports on Form 4 (9 of the 11 measured insider
+    # filers came with only code A or C awards and conversions) — and keeps the call view's Form 4 read
+    # floor where it is today (``activist_13d_liveness_days`` + this = 210 days, the insider detectors' own
+    # horizon), so no other detector reads a different Form 4 window. [PROPOSED] — widening it widens the
+    # call view's insider read (``tests/signals/test_horizons.py`` names the new bound).
+    activist_insider_lookback_days: int = 30
 
     # --- Workbench scoring — pip-bucketing cutoffs (Slice 3) — PRE-REGISTERED, not fit to the seed ---
     # The 0-4 "pip" meters score each basket name from the point-in-time facts (re-derived on read). Every

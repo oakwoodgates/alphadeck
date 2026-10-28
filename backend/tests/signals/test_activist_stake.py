@@ -28,6 +28,9 @@ from signals.base import window_prices
 from tests.calls.factories import ASOF, SID, make_thesis
 
 _ON = DEFAULT_CONFIG.model_copy(update={"activist_stake_enabled": True})
+# the holder screen (option A, 2026-10-28) explicitly OFF — for the tests of mechanisms the screen does not touch
+# (the switch enrichment on the real 65.1% GEMI 13D, which the screen now sets aside as a control holder)
+_NO_SCREEN = DEFAULT_CONFIG.model_copy(update={"activist_affiliate_screen": False})
 _LIVENESS = DEFAULT_CONFIG.activist_13d_liveness_days
 _KNOWN = datetime(2027, 1, 1, tzinfo=timezone.utc)
 
@@ -276,12 +279,14 @@ def test_detect_resolves_subject_cik_from_the_master_and_screens_self_filed():
     pit_self = SimpleNamespace(
         activist_stake_facts=lambda sid: [dict(f) for f in self_filed],
         security_cik=lambda sid: "0001334933",
+        insider_txns=lambda sid: [],  # the holder screen's Form 4 read (no rows here)
     )
     assert activist_stake.detect(pit_self, SID, ASOF, _ON) is None
 
     pit_other = SimpleNamespace(
         activist_stake_facts=lambda sid: [dict(f) for f in self_filed],
         security_cik=lambda sid: "0009999999",
+        insider_txns=lambda sid: [],
     )
     assert activist_stake.detect(pit_other, SID, ASOF, _ON) is not None
 
@@ -309,6 +314,7 @@ def test_master_switch_now_defaults_on_but_still_gates_detect():
     pit_on = SimpleNamespace(
         activist_stake_facts=lambda sid: [_fact()],
         security_cik=lambda sid: None,  # detect now also resolves the subject cik for the screen
+        insider_txns=lambda sid: [],  # ... and reads the subject's Form 4 rows for the holder screen
     )
     e = activist_stake.detect(pit_on, SID, ASOF, DEFAULT_CONFIG)  # LIVE default -> fires
     assert e is not None and e.kind is Kind.ACTIVIST_STAKE
@@ -368,12 +374,14 @@ def _gemi_13d():
 
 def test_13g_to_13d_switch_enriches_the_fire_real_gemi():
     """THE SWITCH on real data: the Winklevoss 13G → 13D escalation enriches the fired CORE — the label
-    names the prior 13G's date and the 13G rides AHEAD of the 13D in the provenance (#6). Also the
-    AFFILIATE EDGE (a Winklevoss vehicle → the Winklevoss exchange): it reads as a switch though it is a
-    governance reshuffle — a known v1 bound (a same-party 13G→13D is indistinguishable from an outside
-    activist's escalation in v1)."""
+    names the prior 13G's date and the 13G rides AHEAD of the 13D in the provenance (#6). The AFFILIATE
+    EDGE (a Winklevoss vehicle → the Winklevoss exchange, 65.1%) used to read as a switch though it is a
+    governance reshuffle; the holder screen (ON by default since 2026-10-28) now sets it aside as a
+    control holder (``test_the_real_gemi_13d_is_a_control_holder_the_affiliate_edge_handled``), so the
+    switch MECHANISM is exercised here with the screen OFF — the enrichment logic itself is unchanged.
+    """
     e = activist_stake.score(
-        [_gemi_13g(), _gemi_13d()], SID, date(2026, 6, 1), subject_cik=_GEMI_SUBJECT
+        [_gemi_13g(), _gemi_13d()], SID, date(2026, 6, 1), _NO_SCREEN, subject_cik=_GEMI_SUBJECT
     )
     assert e is not None and e.grade is Grade.CORE
     assert e.asof == date(2026, 5, 18)  # the 13D anchors the fire
@@ -383,6 +391,19 @@ def test_13g_to_13d_switch_enriches_the_fire_real_gemi():
         "0001104659-25-112696",  # the prior 13G, first
         "0001193125-26-229103",  # then the firing 13D
     ]
+
+
+def test_the_real_gemi_13d_is_a_control_holder_the_affiliate_edge_handled():
+    """THE AFFILIATE EDGE, HANDLED: the real Winklevoss Capital Fund SCHEDULE 13D about Gemini
+    (0001193125-26-229103, 65.1%) is a control holder under the default holder screen — it does not
+    anchor, so the 13G→13D switch can no longer enrich a governance reshuffle into the loudest fire.
+    """
+    assert DEFAULT_CONFIG.activist_affiliate_screen is True  # the operator-approved default
+    tape = [_gemi_13g(), _gemi_13d()]
+    assert activist_stake.score(tape, SID, date(2026, 6, 1), subject_cik=_GEMI_SUBJECT) is None
+    screened = activist_stake.holder_screen(tape, [], date(2026, 6, 1))
+    assert screened["0001193125-26-229103"]["holder"] == "control holder"
+    assert screened["0001193125-26-229103"]["basis"]["pct_owned"] == 65.1
 
 
 def test_one_day_reclassification_is_not_a_switch_real_qntm():
@@ -423,7 +444,7 @@ def test_switch_needs_the_same_filer_a_different_filers_13g_does_not_escalate():
         pct=None,
     )
     e = activist_stake.score(
-        [other_g, _gemi_13d()], SID, date(2026, 6, 1), subject_cik=_GEMI_SUBJECT
+        [other_g, _gemi_13d()], SID, date(2026, 6, 1), _NO_SCREEN, subject_cik=_GEMI_SUBJECT
     )
     assert e is not None and "ESCALATED" not in e.label
     assert [p.ref for p in e.provenance] == ["0001193125-26-229103"]
@@ -432,7 +453,7 @@ def test_switch_needs_the_same_filer_a_different_filers_13g_does_not_escalate():
 def test_switch_min_gap_is_a_dial_not_a_magic_number():
     """The min-gap is a ``CallConfig`` dial, never hardcoded: raise it above the real Gemini gap and the
     SAME escalation stops counting as a switch (config-driven, the no-magic-number discipline)."""
-    wide = DEFAULT_CONFIG.model_copy(update={"activist_switch_min_gap_days": 400})
+    wide = _NO_SCREEN.model_copy(update={"activist_switch_min_gap_days": 400})
     e = activist_stake.score(
         [_gemi_13g(), _gemi_13d()], SID, date(2026, 6, 1), wide, subject_cik=_GEMI_SUBJECT
     )
@@ -453,7 +474,7 @@ def test_switch_ignores_a_mis_attributed_prior_13g():
         pct=4.0,
     )
     e = activist_stake.score(
-        [sub5_g, _gemi_13d()], SID, date(2026, 6, 1), subject_cik=_GEMI_SUBJECT
+        [sub5_g, _gemi_13d()], SID, date(2026, 6, 1), _NO_SCREEN, subject_cik=_GEMI_SUBJECT
     )
     assert e is not None and e.grade is Grade.CORE and "ESCALATED" not in e.label
 
@@ -687,3 +708,358 @@ def test_two_key_gate_a_13d_alone_warms_and_arms_only_with_a_colocated_breakout(
     assert off_spike.state is no_stakes.state
     assert {t.kind for t in off_spike.triggers_fired} == {t.kind for t in no_stakes.triggers_fired}
     assert Kind.ACTIVIST_STAKE not in {t.kind for t in off_spike.triggers_fired}
+
+
+# --- the HOLDER SCREEN (option A — operator-approved 2026-10-28): control holders + insiders do not fire --------
+# MEASURED on prod (read-only, all 54 cards at asof 2026-10-28): 20 of the 68 live 13D triggers came from filers
+# who are not outside parties — WISeSat (SAIQ) armed two cards on its own parent WISeQey's 88.5% 13D. The
+# instances below are real-SHAPED (the measured percentages and roles); the CIKs and accessions are labeled
+# test values, never a real filing's. The on/off configs are pinned explicitly so each test outlives the default.
+
+_SCREEN_ON = DEFAULT_CONFIG.model_copy(update={"activist_affiliate_screen": True})
+_SCREEN_OFF = _NO_SCREEN
+_SUBJ = "0009990001"  # the subject security's own CIK (never a filer here)
+_CEO_CIK = "0001900001"  # the 13D filer who is also the subject's officer (Form 4 rpt_owner_cik, unpadded below)
+
+
+def _form4(
+    owner_cik=_CEO_CIK.lstrip("0"),
+    role="Chairman and CEO",
+    d=ASOF - timedelta(days=20),
+    code="A",
+    accession="0001900001-26-000004",
+    accepted=None,
+    name="Wood John B",
+):
+    """One Form 4 row on the SUBJECT's insider tape as the ingest stores it (``rpt_owner_cik`` unpadded, the
+    role = the officer title, else the checked boxes)."""
+    return {
+        "insider_name": name,
+        "insider_role": role,
+        "rpt_owner_cik": owner_cik,
+        "issuer_cik": _SUBJ.lstrip("0"),
+        "txn_code": code,
+        "shares": 1000.0,
+        "price": 0.0,
+        "usd": 0.0,
+        "accession": accession,
+        "valid_from": d,
+        "txn_seq": 0,
+        "accepted": accepted,
+    }
+
+
+def _insider_13d(pct=9.1, filed=ASOF - timedelta(days=10), filer_cik=_CEO_CIK):
+    return _fact(
+        accession="0001900001-26-000013",
+        form="SCHEDULE 13D",
+        filed=filed,
+        filer_cik=filer_cik,
+        filer_name="John B. Wood",
+        pct=pct,
+    )
+
+
+def _parent_13d(pct=88.5):
+    """The SAIQ shape: the subject's own PARENT files a 13D for its majority stake."""
+    return _fact(
+        accession="0009990002-26-000001",
+        form="SCHEDULE 13D",
+        filed=ASOF - timedelta(days=12),
+        filer_cik="0009990002",
+        filer_name="WISeQey AG",
+        pct=pct,
+    )
+
+
+def test_control_holder_at_88_5_pct_does_not_fire():
+    e = activist_stake.score([_parent_13d(88.5)], SID, ASOF, _SCREEN_ON, subject_cik=_SUBJ)
+    assert e is None
+    (entry,) = activist_stake.holder_screen([_parent_13d(88.5)], [], ASOF, _SCREEN_ON).values()
+    assert entry["holder"] == "control holder"
+    assert entry["basis"] == {
+        "filer_cik": "0009990002",
+        "filer_name": "WISeQey AG",
+        "pct_owned": 88.5,
+        "control_pct": 50.0,
+    }
+
+
+def test_control_threshold_is_at_not_above_and_49_9_still_fires():
+    assert activist_stake.score([_parent_13d(50.0)], SID, ASOF, _SCREEN_ON) is None  # >= 50
+    e = activist_stake.score([_parent_13d(49.9)], SID, ASOF, _SCREEN_ON, subject_cik=_SUBJ)
+    assert e is not None and e.grade is Grade.CORE and "49.9% of class" in e.label
+
+
+def test_control_threshold_is_a_dial():
+    lower = _SCREEN_ON.model_copy(update={"activist_control_pct": 40.0})
+    assert activist_stake.score([_parent_13d(45.0)], SID, ASOF, lower) is None
+    assert activist_stake.score([_parent_13d(45.0)], SID, ASOF, _SCREEN_ON) is not None
+
+
+def test_null_pct_never_makes_a_control_holder_recall():
+    """NULL-safe (#9): an unparsed percent is never "a majority owner" — the filing still fires."""
+    e = activist_stake.score([_parent_13d(None)], SID, ASOF, _SCREEN_ON, subject_cik=_SUBJ)
+    assert e is not None and e.fired
+
+
+def test_chairman_and_ceo_filer_with_a_prior_form4_does_not_fire():
+    """The TLS shape: the subject's chairman and CEO files a 9.1% 13D; his Form 4 (a code-A award, dated
+    before the 13D) names him an officer — an insider, not an outside party."""
+    tape, form4s = [_insider_13d()], [_form4()]
+    assert (
+        activist_stake.score(tape, SID, ASOF, _SCREEN_ON, subject_cik=_SUBJ, insider_rows=form4s)
+        is None
+    )
+    (entry,) = activist_stake.holder_screen(tape, form4s, ASOF, _SCREEN_ON).values()
+    assert entry["holder"] == "insider"
+    assert entry["basis"] == {
+        "filer_cik": _CEO_CIK,
+        "filer_name": "John B. Wood",
+        "form4_accession": "0001900001-26-000004",
+        "form4_role": "Chairman and CEO",
+        "form4_txn_date": (ASOF - timedelta(days=20)).isoformat(),
+    }
+
+
+def test_director_boxes_screen_and_ten_pct_owner_only_fires():
+    """The GEMI shape (a fund whose Form 4 checks the director box) screens; a "10% owner"-only filer keeps
+    firing — that group mixes founders with real outside funds (the operator's choice)."""
+    tape = [_insider_13d()]
+    for role in (
+        "Director",
+        "Director, 10% owner",
+        "Officer",
+        "EVP, General Counsel",
+        "Executive Chairman",
+    ):
+        assert (
+            activist_stake.score(tape, SID, ASOF, _SCREEN_ON, insider_rows=[_form4(role=role)])
+            is None
+        ), role
+    for role in ("10% owner", None, ""):
+        e = activist_stake.score(tape, SID, ASOF, _SCREEN_ON, insider_rows=[_form4(role=role)])
+        assert e is not None and e.fired, role
+
+
+def test_the_role_screen_reads_roles_never_codes():
+    """An award, a conversion, a purchase, a sale — the same role on any code screens the same."""
+    tape = [_insider_13d()]
+    for code in ("A", "C", "P", "S", "M", "F", "G", "J"):
+        assert (
+            activist_stake.score(tape, SID, ASOF, _SCREEN_ON, insider_rows=[_form4(code=code)])
+            is None
+        )
+
+
+def test_an_unresolved_cik_never_matches_recall():
+    """NULL-safe (#9): a 13D with no filer CIK, or a Form 4 with no owner CIK, never makes an insider."""
+    no_filer = [_insider_13d(filer_cik=None)]
+    assert (
+        activist_stake.score(no_filer, SID, ASOF, _SCREEN_ON, insider_rows=[_form4()]) is not None
+    )
+    no_owner = [_form4(owner_cik=None)]
+    assert (
+        activist_stake.score([_insider_13d()], SID, ASOF, _SCREEN_ON, insider_rows=no_owner)
+        is not None
+    )
+
+
+def test_a_different_persons_officer_form4_does_not_screen():
+    other = [_form4(owner_cik="1900999", name="Someone Else")]
+    e = activist_stake.score([_insider_13d()], SID, ASOF, _SCREEN_ON, insider_rows=other)
+    assert e is not None and e.fired
+
+
+def test_the_insider_window_opens_lookback_days_before_the_13d_and_never_closes():
+    """A Form 4 dated more than ``activist_insider_lookback_days`` before the 13D is too old to say who the
+    filer is now; one dated after the 13D always counts. Anchored on the 13D, so the answer never flips back
+    as asof advances through the 13D's liveness window."""
+    filed = ASOF - timedelta(days=10)
+    lookback = _SCREEN_ON.activist_insider_lookback_days
+    edge = [_form4(d=filed - timedelta(days=lookback))]
+    stale = [_form4(d=filed - timedelta(days=lookback + 1))]
+    assert activist_stake.score([_insider_13d()], SID, ASOF, _SCREEN_ON, insider_rows=edge) is None
+    assert (
+        activist_stake.score([_insider_13d()], SID, ASOF, _SCREEN_ON, insider_rows=stale)
+        is not None
+    )
+    after = [_form4(d=filed + timedelta(days=5))]
+    for asof in (ASOF, filed + timedelta(days=_LIVENESS)):  # through the last live day
+        assert (
+            activist_stake.score([_insider_13d()], SID, asof, _SCREEN_ON, insider_rows=after)
+            is None
+        )
+
+
+def test_a_joint_filing_with_one_majority_member_is_screened():
+    """Joint filings carry several filer rows per accession (the Symbotic shape: the label's lead names a
+    7.9% holder, the same filing carries a 58.2% holder). The screen reads ANY filer row of the filing.
+    """
+    lead = _fact(
+        accession="JOINT-13D",
+        form="SCHEDULE 13D",
+        filer_cik="0001111111",
+        filer_name="Lead Holder LP",
+        pct=7.9,
+    )
+    member = _fact(
+        accession="JOINT-13D",
+        form="SCHEDULE 13D",
+        filer_cik="0001111112",
+        filer_name="Founder Trust",
+        pct=58.2,
+    )
+    assert activist_stake.score([lead, member], SID, ASOF, _SCREEN_ON) is None
+    assert (
+        activist_stake.holder_screen([lead, member], [], ASOF)["JOINT-13D"]["basis"]["pct_owned"]
+        == 58.2
+    )
+    # ... and a joint member who is an officer screens it too
+    officer = _fact(
+        accession="JOINT-13D",
+        form="SCHEDULE 13D",
+        filer_cik=_CEO_CIK,
+        filer_name="John B. Wood",
+        pct=6.0,
+    )
+    assert (
+        activist_stake.score([lead, officer], SID, ASOF, _SCREEN_ON, insider_rows=[_form4()])
+        is None
+    )
+    # the lead alone (a different accession for the member) still fires
+    alone = activist_stake.score([lead], SID, ASOF, _SCREEN_ON)
+    assert alone is not None and alone.fired
+
+
+def test_a_real_outside_activist_still_fires():
+    """No Form 4 on the subject's tape, under 50%: an outside party committing capital — unchanged."""
+    e = activist_stake.score(
+        [_fact(pct=7.3)], SID, ASOF, _SCREEN_ON, subject_cik=_SUBJ, insider_rows=[_form4()]
+    )
+    assert e is not None and e.grade is Grade.CORE and e.score == DEFAULT_CONFIG.activist_13d_score
+    assert "not counted" not in e.label
+    assert all("holder" not in p.detail for p in e.provenance)  # an unscreened detail is unchanged
+
+
+def test_a_screened_13d_does_not_shadow_a_real_activist_and_rides_its_evidence_labeled():
+    """Visible, never dropped (#6/#9): an outside activist's 13D fires; a later control-holder 13D on the
+    same subject does not anchor (it would have, being the most recent), and rides the fired episode's
+    provenance labeled "control holder" with its basis — the label names it."""
+    outside = _fact(accession="OUT-13D", filed=ASOF - timedelta(days=30), pct=8.0)
+    e = activist_stake.score([outside, _parent_13d()], SID, ASOF, _SCREEN_ON, subject_cik=_SUBJ)
+    assert e is not None and e.asof == ASOF - timedelta(days=30)  # the outside 13D anchors
+    assert "Activist Fund LP disclosed" in e.label
+    assert e.label.endswith("; 1 13D not counted — WISeQey AG (control holder)")
+    by_ref = {p.ref: p.detail for p in e.provenance}
+    assert "holder" not in by_ref["OUT-13D"]
+    assert by_ref["0009990002-26-000001"]["holder"] == "control holder"
+    assert by_ref["0009990002-26-000001"]["holder_basis"]["pct_owned"] == 88.5
+
+
+class _AcceptedPIT:
+    """A minimal view whose Form 4 read is gated on SEC ACCEPTANCE — what the real point-in-time view does on
+    a history view (the public clock): a Form 4 counts only once ``accepted <= known_at``."""
+
+    def __init__(self, known_at, stakes, form4s):
+        self.known_at = known_at
+        self._stakes, self._form4s = stakes, form4s
+
+    def activist_stake_facts(self, sid):
+        return [dict(f) for f in self._stakes]
+
+    def insider_txns(self, sid):
+        return [dict(t) for t in self._form4s if t["accepted"] <= self.known_at]
+
+    def security_cik(self, sid):
+        return _SUBJ
+
+
+def test_a_ceo_whose_first_form4_is_public_after_the_13d_fires_then_stops():
+    """#1, the public clock: the 13D is filed first; his first Form 4 (an award dated after the 13D) is
+    accepted days later. Until that Form 4 is public the platform could not know he is the CEO — the 13D
+    fires; once it is public, the 13D stops firing, and stays stopped."""
+    filed = ASOF - timedelta(days=10)
+    accepted = datetime(filed.year, filed.month, filed.day, 21, tzinfo=timezone.utc) + timedelta(
+        days=4
+    )
+    form4 = _form4(d=filed + timedelta(days=2), accepted=accepted)
+    tape = [_insider_13d(filed=filed)]
+    before = _AcceptedPIT(accepted - timedelta(minutes=1), tape, [form4])
+    at = _AcceptedPIT(accepted, tape, [form4])
+    later = _AcceptedPIT(accepted + timedelta(days=30), tape, [form4])
+    fired = activist_stake.detect(before, SID, ASOF, _SCREEN_ON)
+    assert fired is not None and fired.fired and fired.asof == filed
+    assert activist_stake.detect(at, SID, ASOF, _SCREEN_ON) is None
+    assert activist_stake.detect(later, SID, ASOF, _SCREEN_ON) is None
+
+
+def test_dial_off_is_byte_identical_and_reads_no_form4():
+    """OFF = before the screen, byte for byte: the detector never reads the Form 4 tape, and every output
+    (fire, label, provenance) equals the screen-on output on the same tape with nothing to screen.
+    """
+    pit = SimpleNamespace(
+        activist_stake_facts=lambda sid: [_parent_13d(), _insider_13d()],
+        security_cik=lambda sid: _SUBJ,
+        insider_txns=lambda sid: (_ for _ in ()).throw(AssertionError("Form 4 read while OFF")),
+    )
+    off = activist_stake.detect(pit, SID, ASOF, _SCREEN_OFF)
+    assert (
+        off is not None and off.fired
+    )  # the CEO's (most recent) 13D anchors, exactly as before the screen
+    assert "John B. Wood disclosed a >5% activist stake, 9.1% of class" in off.label
+    assert "not counted" not in off.label
+    assert all("holder" not in p.detail for p in off.provenance)
+    # the same tape with the screened rows reshaped to pass (pct < 50, no Form 4) — identical bytes ON and OFF
+    clean = [_parent_13d(49.0), _insider_13d()]
+    on = activist_stake.score(clean, SID, ASOF, _SCREEN_ON, subject_cik=_SUBJ, insider_rows=[])
+    assert on is not None
+    assert (
+        on.model_dump_json()
+        == activist_stake.score(clean, SID, ASOF, _SCREEN_OFF, subject_cik=_SUBJ).model_dump_json()
+    )
+
+
+def test_horizons_declare_the_form4_role_read_only_with_the_screen_on():
+    assert activist_stake.horizons(_SCREEN_ON) == {
+        "fact_activist_stake": None,
+        "fact_insider_txn": 210,
+    }
+    assert activist_stake.horizons(_SCREEN_OFF) == {"fact_activist_stake": None}
+    assert activist_stake.DETECTOR.reads_insider_roles and not activist_stake.DETECTOR.txn_codes
+
+
+class _SaiqPIT(_PIT):
+    """The full-pipeline fake plus a Form 4 tape — the SAIQ golden's view."""
+
+    def __init__(self, asof, *, form4s=(), **kw):
+        super().__init__(asof, **kw)
+        self._form4s = list(form4s)
+
+    def insider_txns(self, security_id):
+        return [dict(t) for t in self._form4s]
+
+
+def test_golden_a_card_whose_only_conviction_is_a_screened_13d_is_not_armed():
+    """THE GOLDEN (the SAIQ de-arm through the REAL pipeline): a parent's 88.5% 13D + a co-located volume
+    breakout ARMED the card before the screen; with the screen it is not armed — the 13D is not a conviction,
+    so the breakout has no key to turn. The same for the insider shape (a CEO's 13D). Screen OFF: armed, as
+    before."""
+    thesis = make_thesis()
+    for stakes, form4s in (([_parent_13d()], []), ([_insider_13d()], [_form4()])):
+        on = assemble_from_pit(
+            _SaiqPIT(ASOF, stakes=stakes, bars=_bars(spike=True), form4s=form4s),
+            thesis,
+            ASOF,
+            _SCREEN_ON,
+        )
+        assert on.state is not State.ARMED and on.armed_security_id is None
+        assert Kind.ACTIVIST_STAKE not in {t.kind for t in on.triggers_fired}
+        off = assemble_from_pit(
+            _SaiqPIT(ASOF, stakes=stakes, bars=_bars(spike=True), form4s=form4s),
+            thesis,
+            ASOF,
+            _SCREEN_OFF,
+        )
+        assert off.state is State.ARMED
+        assert Kind.ACTIVIST_STAKE in {t.kind for t in off.triggers_fired}

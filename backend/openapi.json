@@ -4113,6 +4113,21 @@
             "type": "string",
             "format": "date",
             "title": "Ingested"
+          },
+          "holder": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "control holder",
+                  "insider"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Holder"
           }
         },
         "type": "object",
@@ -4123,7 +4138,7 @@
           "ingested"
         ],
         "title": "ActivistStakeOut",
-        "description": "One stored 13D/G-family filing about the episode's security (Slice B) \u2014 an overlay chip /\nledger row.\n\n``d`` = ``valid_from`` = ``filed`` (knowability \u2014 never the in-document event date). ``form`` is\nverbatim, BOTH naming eras (``SC 13D`` / ``SCHEDULE 13D`` / amendments / the 13G family).\nUnresolved identity ships null and the row is KEPT (#9): ``filer_name`` / ``filer_cik`` ``None``\n= identity unresolved; ``pct_owned`` ``None`` = pre-structured era / unparsed. 13G rows ride too \u2014\nthe fire policy (13D-family originals only) lives in the detector; the FE mirrors it as display\nweight (13G-family grayed-passive), never as an omission. ``url`` is the EDGAR filing-index URL\n(#6). Both time axes are asof-capped (no-lookahead #1)."
+        "description": "One stored 13D/G-family filing about the episode's security (Slice B) \u2014 an overlay chip /\nledger row.\n\n``d`` = ``valid_from`` = ``filed`` (knowability \u2014 never the in-document event date). ``form`` is\nverbatim, BOTH naming eras (``SC 13D`` / ``SCHEDULE 13D`` / amendments / the 13G family).\nUnresolved identity ships null and the row is KEPT (#9): ``filer_name`` / ``filer_cik`` ``None``\n= identity unresolved; ``pct_owned`` ``None`` = pre-structured era / unparsed. 13G rows ride too \u2014\nthe fire policy (13D-family originals only) lives in the detector; the FE mirrors it as display\nweight (13G-family grayed-passive), never as an omission. ``url`` is the EDGAR filing-index URL\n(#6). Both time axes are asof-capped (no-lookahead #1). ``holder`` names a 13D-family original the\ncall's holder screen sets aside: ``\"control holder\"`` (a filer row of the filing reports 50% or more\nof the class) or ``\"insider\"`` (a filer is an officer or director of the company on its own Form 4s)\n\u2014 it stays on the ledger, grayed, and does not fire; ``None`` for every other row."
       },
       "AdminAcknowledgeIn": {
         "properties": {

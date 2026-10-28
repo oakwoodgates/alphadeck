@@ -99,7 +99,9 @@ def insider_signal_codes(cfg: CallConfig) -> dict[str, int | None]:
     wins). The keys are the amendment classifier's signal code set (``domain.insider_amendments`` — a 4/A that
     changes no row of these codes has no call effect and resolves itself); the values set the "in tonight's
     window" urgency. A detector that reads the table without declaring its codes is a registry error, raised
-    here and failed by ``tests/signals/test_insider_signal_codes.py`` — never a silently narrower set.
+    here and failed by ``tests/signals/test_insider_signal_codes.py`` — never a silently narrower set. A ROLE
+    reader (``Detector.reads_insider_roles`` — it reads who a Form 4 names, on rows of any code, never a code's
+    trade) contributes no code; the same test file probes that it is code-blind.
     """
     out: dict[str, int | None] = {}
     for det in registered_detectors():
@@ -107,6 +109,8 @@ def insider_signal_codes(cfg: CallConfig) -> dict[str, int | None]:
         if INSIDER_TABLE not in h:
             continue
         if not det.txn_codes:
+            if det.reads_insider_roles:
+                continue  # a role reader reads WHO filed, never a code's trade: it adds no signal code
             raise ValueError(
                 f"detector {det.name!r} reads {INSIDER_TABLE} but declares no txn_codes — the amendment "
                 "classifier cannot know which rows it reads"
