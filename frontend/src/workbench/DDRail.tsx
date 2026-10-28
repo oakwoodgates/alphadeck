@@ -1,4 +1,9 @@
-import type { BusinessTypeLeaf, ScoredFigureOut, ScoredMemberOut } from "../api/hooks";
+import type {
+  BusinessTypeLeaf,
+  ContextRole,
+  ScoredFigureOut,
+  ScoredMemberOut,
+} from "../api/hooks";
 import { CatalystFactForm } from "./CatalystFactForm";
 import { FactsPanel } from "./FactsPanel";
 import { SleeveRail } from "./SleeveRail";
@@ -6,6 +11,9 @@ import { toggleMemberLink } from "./chainOps";
 import { SILENT_DESCRIPTORS, SILENT_LINKS, isSilentLink } from "./useChainDraft";
 import {
   BUSINESS_TYPES,
+  CONTEXT_ROLES,
+  CONTEXT_ROLE_DESCRIPTION,
+  CONTEXT_ROLE_LABEL,
   businessTypeLabel,
   formatMarketCap,
   meterValueLabel,
@@ -74,6 +82,13 @@ interface Props {
   // when there's no write path; the derived chip shows regardless.
   onRetag?: (securityId: string, businessType: BusinessTypeLeaf | null) => void;
   retagPending?: boolean;
+  // The operator's CONTEXT ROLE for this company (what part it plays on THIS card — one of six, `null` = unset),
+  // read from the thesis spine by the parent, and the writer that persists a change (the parent's immediate
+  // promote; `null` clears — the visible inverse, WB#1). Omit `onContextRole` for a read-only render: a set role
+  // shows as a quiet text label, an unset one renders nothing (WB#3). Display metadata only — never a call input.
+  contextRole?: ContextRole | null;
+  onContextRole?: (securityId: string, role: ContextRole | null) => void;
+  contextRolePending?: boolean;
   // the active thesis — passed to the facts panel so the extract can request the GROUNDED purity estimate
   // (SURFACE 1b; purity's on-thesis segment depends on the narrative). Optional: no thesis -> no purity estimate.
   thesisId?: string;
@@ -165,6 +180,59 @@ function SegmentControl({ control }: { control: NonNullable<Props["segmentContro
   );
 }
 
+/** The context role control: ONE small select per company — "— none" plus the six roles (each option's hover is
+ *  its description). A change persists at once through the parent's promote; choosing "— none" clears it, so
+ *  the set is always reversible (WB#1). Read-only (no writer): a set role is a text label, an unset one
+ *  nothing at all (WB#3 — no placeholder). Quiet by design: operator-authored display metadata, so it never
+ *  shouts and never touches the call (#4). NAMING GUARD: not the member's prose `role`, not a signal's role. */
+function ContextRoleControl({
+  securityId,
+  role,
+  onChange,
+  pending,
+}: {
+  securityId: string;
+  role: ContextRole | null;
+  onChange?: (securityId: string, role: ContextRole | null) => void;
+  pending?: boolean;
+}) {
+  if (!onChange) {
+    return role ? (
+      <div className="dd-role">
+        <span className="dd-role-k">Context role</span>
+        <span className="dd-role-v" title={CONTEXT_ROLE_DESCRIPTION[role]}>
+          {CONTEXT_ROLE_LABEL[role]}
+        </span>
+      </div>
+    ) : null;
+  }
+  return (
+    <label
+      className="dd-role"
+      title={
+        role
+          ? CONTEXT_ROLE_DESCRIPTION[role]
+          : "What part this company plays on this card. Display only — it never changes the call."
+      }
+    >
+      <span className="dd-role-k">Context role</span>
+      <select
+        aria-label="Context role"
+        value={role ?? ""}
+        disabled={pending}
+        onChange={(e) => onChange(securityId, e.target.value ? (e.target.value as ContextRole) : null)}
+      >
+        <option value="">— none</option>
+        {CONTEXT_ROLES.map((r) => (
+          <option key={r} value={r} title={CONTEXT_ROLE_DESCRIPTION[r]}>
+            {CONTEXT_ROLE_LABEL[r]}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 /** The DD rail — "behind the scores" for the selected name. Deterministic provenance ONLY: every chip
  *  traces to a fact or a computation, and the notes (the recurring-vs-one-time burn composition, the
  *  cash-runway basis) are the payoff — the operator seeing WHY the number is what it is. The facts panel
@@ -175,6 +243,9 @@ export function DDRail({
   thesisFit,
   onRetag,
   retagPending,
+  contextRole,
+  onContextRole,
+  contextRolePending,
   thesisId,
   asof,
   sleeve,
@@ -263,6 +334,14 @@ export function DDRail({
           hands the next label set to the parent's immediate-promote. No real links yet → a quiet hint
           (the silent pair still lists); in no link at all → the "Unsorted (Discovered)" floor line. */}
       {segmentControl && <SegmentControl control={segmentControl} />}
+      {/* the context role — what part this company plays on THIS card (operator-authored, display only);
+          one select per company, under the value-chain links it sits beside */}
+      <ContextRoleControl
+        securityId={member.security_id}
+        role={contextRole ?? null}
+        onChange={onContextRole}
+        pending={contextRolePending}
+      />
       <div className="dd-body">
         {/* WHO this is — the company name + the machine-parsed identity (master enrichment; display-only,
             never promoted, #2). The rail is where the operator decides, so it says who it's deciding about. */}

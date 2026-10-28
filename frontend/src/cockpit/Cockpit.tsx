@@ -55,7 +55,7 @@ import {
   supersectorLabel,
   tickerLabel,
 } from "../util/format";
-import { formatMarketCap } from "../workbench/format";
+import { CONTEXT_ROLE_DESCRIPTION, contextRoleTag, formatMarketCap } from "../workbench/format";
 import { SILENT_DESCRIPTORS, isSilentLink } from "../workbench/useChainDraft";
 
 interface Props {
@@ -757,6 +757,18 @@ export function Cockpit({
                                     title={SILENT_DESCRIPTORS[r.member.segment]}
                                   >
                                     {r.member.segment.toLowerCase()}
+                                  </span>
+                                )}
+                                {/* the operator's CONTEXT ROLE (what part this company plays on this card) — a
+                                    quiet lowercase tag on ANY row whose member has one, in every lens, and
+                                    ONLY then (never a "—" placeholder, WB#3). Operator-authored display
+                                    metadata: never a call input (#4); the hover is the role's description. */}
+                                {r.member.context_role && (
+                                  <span
+                                    className="role-tag"
+                                    title={CONTEXT_ROLE_DESCRIPTION[r.member.context_role]}
+                                  >
+                                    {contextRoleTag(r.member.context_role)}
                                   </span>
                                 )}
                                 {/* #1 thin-history flag — a quiet amber caret ONLY on a starved row (honest

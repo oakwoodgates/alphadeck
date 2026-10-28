@@ -244,7 +244,7 @@ table.basket { view-transition-name: cp-basket; }
 tr.bkt-quiet td, tr.bkt-context td, tr.bkt-bench td { color: var(--txt-3); }
 tr.bkt-quiet .tk, tr.bkt-context .tk, tr.bkt-bench .tk { color: var(--txt-2); }
 /* the business-type lens's "context" / "bench" tag beside a silent name's ticker — small, lowercase, muted */
-.silent-tag { color: var(--txt-4); font-size: 9.5px; margin-left: 6px; letter-spacing: 0.02em; cursor: help; }
+.silent-tag, .role-tag { color: var(--txt-4); font-size: 9.5px; margin-left: 6px; letter-spacing: 0.02em; cursor: help; }
 table.basket td.exitby.lapse { color: var(--warm); }
 /* the entry-window (confirmation) clock, its own column beside exit-by — the clock that actually
    governs how long an armed-family member stays armed (arm_until), and the one that closes first.
@@ -934,6 +934,13 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .dd-seg-opt.silent { color: var(--txt-3); }
 .dd-seg-hint, .dd-seg-unsorted { font-size: 10.5px; margin: 4px 0 0; }
 .dd-seg-unsorted { color: var(--txt-4); font-style: italic; }
+/* The context role: one quiet select (or a text label, read-only) under the value-chain links — padded like
+   .dd-segctl so it reads as part of the rail head. No badge, no accent (operator-authored display metadata). */
+.dd-role { display: flex; align-items: center; gap: 8px; padding: 0 14px 12px; font-size: 11.5px; color: var(--txt-3); }
+.dd-role-k { font-size: 9px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); }
+.dd-role-v { color: var(--txt-2); }
+.dd-role select { font-size: 10.5px; color: var(--txt-2); background: var(--bg-2); border: 1px solid var(--line-2); border-radius: 5px; padding: 2px 5px; }
+.dd-role select:disabled { opacity: 0.5; }
 .dd-meter { margin-bottom: 12px; }
 .dd-meter-h { display: flex; align-items: baseline; justify-content: space-between; gap: 9px; margin-bottom: 6px; }
 .dd-meter-h .k { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--txt-3); }

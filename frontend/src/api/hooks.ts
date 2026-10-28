@@ -34,6 +34,8 @@ export type OnboardingReadoutOut = components["schemas"]["OnboardingReadoutOut"]
 export type OnboardingNameOut = components["schemas"]["OnboardingNameOut"];
 export type SecurityMatchOut = components["schemas"]["SecurityMatchOut"];
 export type BasketMember = components["schemas"]["BasketMember"];
+// the operator's per-company context role on a basket membership (display metadata only — never a call input)
+export type ContextRole = components["schemas"]["ContextRole"];
 export type ExtractedFact = components["schemas"]["ExtractedFact"];
 // the extract envelope (Retrieval Slice 1): candidates + the honest empty reason — the three empty
 // states are distinct ("no-annual-filing" = genuinely nothing on EDGAR; "cover-not-located" = an
