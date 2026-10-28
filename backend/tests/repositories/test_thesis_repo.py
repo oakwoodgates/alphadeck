@@ -3,12 +3,13 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime, timezone
 
+import psycopg
 import pytest
 from pydantic import ValidationError
 
 from db.migrate import MIGRATIONS_DIR
 from db.session import DEFAULT_TENANT_ID, connect
-from domain.enums import Authorship, TermTier
+from domain.enums import Authorship, ContextRole, TermTier
 from domain.thesis import (
     BENCH_DESCRIPTOR,
     CONTEXT_DESCRIPTOR,
@@ -737,3 +738,208 @@ def test_upserting_a_hydrated_thesis_stores_each_fixed_link_once(db, security_id
         "Context",
         "Bench",
     ]
+
+
+# --- Context roles (Phase 1): the role on the membership, per company per card ----------------------------
+
+
+def _two_link_company(security_id, role: ContextRole | None) -> Thesis:
+    """One company in TWO links (two rows, one security_id), the role (or None) on both."""
+    t = _thesis(security_id)
+    t.basket = [
+        BasketMember(
+            ticker="HIMS",
+            role="r",
+            security_id=security_id,
+            segment="Telehealth platforms",
+            context_role=role,
+        ),
+        BasketMember(
+            ticker="HIMS",
+            role="r",
+            security_id=security_id,
+            segment="Compounding / supply",
+            context_role=role,
+        ),
+    ]
+    return t
+
+
+def _stored_roles(db, thesis_id) -> list[str | None]:
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT context_role FROM basket_member WHERE thesis_id = %s ORDER BY ordinal",
+            (thesis_id,),
+        )
+        return [r["context_role"] for r in cur.fetchall()]
+
+
+def test_snapshot_object_omits_the_context_role_key_when_unset_and_carries_it_when_set(security_id):
+    """The snapshot dedup hashes ``md5(members::text)``: a ``"context_role": null`` on every object would move
+    every thesis's hash and make its next unchanged re-promote append a redundant row. So the key is emitted
+    ONLY when a role is set; an unset member's object is the exact key set the 0043 seed builds."""
+    bare = thesis_repo._member_to_snapshot(0, BasketMember(ticker="X", role="r"))
+    assert "context_role" not in bare
+    assert set(bare) == {
+        "ordinal",
+        "ticker",
+        "role",
+        "security_id",
+        "detail",
+        "segment",
+        "thesis_fit",
+        "conviction",
+        "surfaced_terms",
+        "authored_by",
+        "signed_off",
+    }
+    tagged = thesis_repo._member_to_snapshot(
+        2, BasketMember(ticker="X", role="r", context_role=ContextRole.COUNTER_CASE)
+    )
+    assert tagged["context_role"] == "counter_case"  # JSON-native: the value, not the enum member
+    assert {k: v for k, v in tagged.items() if k != "context_role"} == {
+        **bare,
+        "ordinal": 2,
+    }
+
+
+def test_the_mapper_round_trips_a_set_role_and_reads_a_pre_feature_snapshot_as_unset():
+    from repositories.mappers import _row_to_basket_member
+
+    obj = thesis_repo._member_to_snapshot(
+        0, BasketMember(ticker="X", role="r", context_role=ContextRole.PAYER)
+    )
+    assert _row_to_basket_member(obj).context_role is ContextRole.PAYER
+    # a snapshot written before the feature has no key at all — unset, never an error
+    pre_feature = thesis_repo._member_to_snapshot(0, BasketMember(ticker="X", role="r"))
+    assert "context_role" not in pre_feature
+    assert _row_to_basket_member(pre_feature).context_role is None
+    # …and a stored column NULL reads the same way
+    assert _row_to_basket_member({**pre_feature, "context_role": None}).context_role is None
+
+
+def test_context_role_roundtrips_on_every_row_and_get_asof_hydrates_it(db, security_id):
+    t = _two_link_company(security_id, ContextRole.PAYER)
+    thesis_repo.upsert(db, t)
+    db.commit()
+    assert _stored_roles(db, t.id) == ["payer", "payer"]  # the column, on BOTH rows
+    assert [m.context_role for m in thesis_repo.get(db, t.id).basket] == [ContextRole.PAYER] * 2
+    # the snapshot carries it on both rows, and get_asof hydrates the roster from that snapshot
+    with db.cursor() as cur:
+        cur.execute("SELECT members FROM basket_snapshot WHERE thesis_id = %s", (t.id,))
+        (snap,) = cur.fetchall()
+    assert [m["context_role"] for m in snap["members"]] == ["payer", "payer"]
+    asof = thesis_repo.get_asof(db, t.id, datetime.now(timezone.utc))
+    assert [m.context_role for m in asof.basket] == [ContextRole.PAYER] * 2
+
+
+def test_an_unset_role_is_stored_null_and_hydrates_none_both_live_and_asof(db, security_id):
+    t = _two_link_company(security_id, None)
+    thesis_repo.upsert(db, t)
+    db.commit()
+    assert _stored_roles(db, t.id) == [None, None]
+    assert [m.context_role for m in thesis_repo.get(db, t.id).basket] == [None, None]
+    assert [
+        m.context_role for m in thesis_repo.get_asof(db, t.id, datetime.now(timezone.utc)).basket
+    ] == [None, None]
+
+
+def test_context_role_survives_a_resave_through_the_mapper(db, security_id):
+    """THE WIPE-TRAP guard (the conviction test's twin): a promote reads the basket THROUGH the mapper before
+    DELETE+reinsert, so an unmapped column is silently wiped by any unrelated resave."""
+    t = _two_link_company(security_id, ContextRole.FINANCIER)
+    thesis_repo.upsert(db, t)
+    db.commit()
+    got = thesis_repo.get(db, t.id)
+    got.narrative = "edited narrative — the basket is resent verbatim"
+    thesis_repo.upsert(db, got)
+    db.commit()
+    assert _stored_roles(db, t.id) == ["financier", "financier"]
+
+
+def test_snapshot_hash_parity_a_roleless_roster_never_grows_the_table_and_a_role_appends_one(
+    db, security_id
+):
+    """COUNT THE TABLE. An unchanged role-less roster re-promoted appends ZERO snapshot rows (the unset key
+    is omitted, so its hash is the one already stored); setting a role changes the roster and appends ONE;
+    re-sending that same roster appends none; clearing it appends one more (the roster changed back).
+    """
+    t = _two_link_company(security_id, None)
+    thesis_repo.upsert(db, t)
+    db.commit()
+    assert _snapshot_count(db, t.id) == 1
+
+    thesis_repo.upsert(db, thesis_repo.get(db, t.id))  # unchanged, role-less
+    db.commit()
+    assert _snapshot_count(db, t.id) == 1
+
+    tagged = thesis_repo.get(db, t.id)
+    tagged.basket = [
+        m.model_copy(update={"context_role": ContextRole.BENCHMARK}) for m in tagged.basket
+    ]
+    thesis_repo.upsert(db, tagged)
+    db.commit()
+    assert _snapshot_count(db, t.id) == 2  # a role is a roster change
+
+    thesis_repo.upsert(db, thesis_repo.get(db, t.id))  # the same tagged roster again
+    db.commit()
+    assert _snapshot_count(db, t.id) == 2
+
+    cleared = thesis_repo.get(db, t.id)
+    cleared.basket = [m.model_copy(update={"context_role": None}) for m in cleared.basket]
+    thesis_repo.upsert(db, cleared)
+    db.commit()
+    assert _snapshot_count(db, t.id) == 3  # clearing is a roster change too
+    assert _stored_roles(db, t.id) == [None, None]
+
+
+def test_a_roleless_repromote_dedups_against_the_0043_deploy_seed(db, security_id):
+    """The reason the unset key is omitted: the 0043 seed (which knows nothing of roles) wrote the hash a
+    pre-feature thesis carries; a role-less re-promote after this feature ships must hash the same and append
+    nothing. Reproduce the seed on a snapshotless thesis, then re-promote unchanged."""
+    t = _two_link_company(security_id, None)
+    thesis_repo.upsert(db, t)
+    db.commit()
+    with db.cursor() as cur:
+        cur.execute("DELETE FROM basket_snapshot WHERE thesis_id = %s", (t.id,))
+        cur.execute((MIGRATIONS_DIR / "0043_basket_snapshot.sql").read_text(encoding="utf-8"))
+    db.commit()
+    assert _snapshot_count(db, t.id) == 1  # the seed's row
+
+    thesis_repo.upsert(db, thesis_repo.get(db, t.id))
+    db.commit()
+    assert _snapshot_count(db, t.id) == 1  # same hash as the seed: nothing appended
+
+
+def test_the_db_check_rejects_a_value_outside_the_six(db, security_id):
+    t = _two_link_company(security_id, None)
+    thesis_repo.upsert(db, t)
+    db.commit()
+    with pytest.raises(psycopg.errors.CheckViolation):
+        with db.cursor() as cur:
+            cur.execute(
+                "UPDATE basket_member SET context_role = 'watch' WHERE thesis_id = %s", (t.id,)
+            )
+    db.rollback()
+    with db.cursor() as cur:  # every valid value, and NULL, is accepted
+        for v in [r.value for r in ContextRole] + [None]:
+            cur.execute(
+                "UPDATE basket_member SET context_role = %s WHERE thesis_id = %s", (v, t.id)
+            )
+    db.rollback()
+
+
+def test_migration_0069_is_idempotent(db):
+    """Re-running the migration file is a clean no-op (the runner tracks the file once; this is the second
+    line): the column and the named CHECK end up exactly as one run leaves them."""
+    sql = (MIGRATIONS_DIR / "0069_basket_member_context_role.sql").read_text(encoding="utf-8")
+    with db.cursor() as cur:
+        cur.execute(sql)
+        cur.execute(sql)
+        cur.execute(
+            "SELECT count(*) AS n FROM pg_constraint "
+            "WHERE conname = 'basket_member_context_role_check' "
+            "AND conrelid = 'basket_member'::regclass"
+        )
+        assert cur.fetchone()["n"] == 1
+    db.commit()

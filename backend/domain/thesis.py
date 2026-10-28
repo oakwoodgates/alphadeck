@@ -6,7 +6,7 @@ from uuid import UUID
 from pydantic import Field, model_validator
 
 from domain.base import DomainModel
-from domain.enums import Authorship, TermTier
+from domain.enums import Authorship, ContextRole, TermTier
 
 
 class TermSetEntry(DomainModel):
@@ -122,6 +122,51 @@ def silent_conflicts(basket: list[BasketMember]) -> list[str]:
     return out
 
 
+def context_role_conflicts(basket: list[BasketMember]) -> list[str]:
+    """One plain sentence per company whose rows carry two or more DIFFERENT non-null context roles — the
+    role is per company per card, so a company has one. A company is keyed by its ``security_id`` (run this
+    AFTER the write's canonicalize and identity-coherence passes, where sibling listings of one company merge
+    into one id); a row with no ``security_id`` is never grouped, so it can neither conflict nor be conflicted
+    with. A NULL row is no conflict (it inherits, ``with_inherited_context_roles``). The caller refuses the
+    write with these sentences; a row is never dropped or rewritten to make the rule hold. Empty list = no
+    conflict. In first-seen order."""
+    sent: dict[UUID, dict[ContextRole, None]] = {}  # per company: the distinct roles, first-seen
+    ticker: dict[UUID, str] = {}
+    for m in basket:
+        if m.security_id is None or m.context_role is None:
+            continue
+        ticker.setdefault(m.security_id, m.ticker.strip())
+        sent.setdefault(m.security_id, {})[m.context_role] = None
+    return [
+        f"{ticker[sid]} was sent with {len(roles)} different context roles ({', '.join(roles)})"
+        for sid, roles in sent.items()
+        if len(roles) > 1
+    ]
+
+
+def with_inherited_context_roles(basket: list[BasketMember]) -> list[BasketMember]:
+    """The basket with every NULL-role row of a company that carries a role on another row filled with that
+    role — the write-side half of "the role is stored on every row of a company". It is what lets a hand-add
+    or a re-draft that puts an existing company into a second link (the new row arrives with no role) succeed
+    instead of silently splitting the company's role. Keyed by ``security_id``; a row with none is never
+    grouped, and a company with no role on any row stays all-NULL (unset is never defaulted, and clearing =
+    NULL on every row). A company holding two different roles is left untouched — that is the conflict the
+    caller already refused (``context_role_conflicts``), not a case to guess at. A new list; a row that
+    inherits nothing is returned as the same object, and the argument is untouched."""
+    roles: dict[UUID, set[ContextRole]] = {}
+    for m in basket:
+        if m.security_id is not None and m.context_role is not None:
+            roles.setdefault(m.security_id, set()).add(m.context_role)
+    out: list[BasketMember] = []
+    for m in basket:
+        held = roles.get(m.security_id) if m.security_id is not None else None
+        if m.context_role is None and held is not None and len(held) == 1:
+            out.append(m.model_copy(update={"context_role": next(iter(held))}))
+        else:
+            out.append(m)
+    return out
+
+
 def voting_thesis(thesis: Thesis) -> Thesis:
     """The same thesis with every silent ROW (Context / Bench) removed from the basket — the only roster the
     call reads. Per-row is per-company: the write refuses a company that holds a silent row AND another row
@@ -171,6 +216,16 @@ class BasketMember(DomainModel):
     # never a call/score input (#4). A hand-add enters signed_off=True (the operator picked the name
     # deliberately); the flag is CARRIED across a re-draft's re-roll, and a signed-off name is never
     # dropped (#9).
+    context_role: ContextRole | None = None  # this COMPANY's part on this card; NULL = unset
+    # The operator's own word for what a company is to THIS card (payer / counter_case / direct_read /
+    # participant / benchmark / financier). PER COMPANY PER CARD: stored on EVERY row of a company (a company
+    # in N links is N rows, all carrying the same role) — the promote refuses two different ones and fills a
+    # NULL row beside a set role (``context_role_conflicts`` / ``with_inherited_context_roles`` above).
+    # Allowed on any row, silent links and Discovered included. DISPLAY metadata only: it never feeds the
+    # call, a recorded field or a score (#4), and no LLM path writes it (#3) — the chain drafter, discovery
+    # and the reconciler leave it NULL.
+    # NAMING GUARD: this is NOT ``role`` above (the free-text prose field) and NOT ``SignalEvent.role``
+    # (entry_trigger / risk_signal) — three unrelated "roles"; never wire one into another.
 
 
 class Evidence(DomainModel):
