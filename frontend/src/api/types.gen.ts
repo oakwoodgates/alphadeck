@@ -2040,6 +2040,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboards/rotation-map": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Rotation Map
+         * @description Which links, business types, sectors or cards have price moving: per group, the median 1d / 7d /
+         *     30d / 90d / 1Y return with how many names are up, the share above the 50-day SMA, the median 20-day
+         *     RVOL, golden / death crosses in the last 30 days and RS leaders, with each group's names. Display only;
+         *     a past as-of reads what was public by the end of that date.
+         */
+        get: operations["rotation_map_dashboards_rotation_map_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/backtest/runs": {
         parameters: {
             query?: never;
@@ -7793,6 +7816,173 @@ export interface components {
             descriptor?: string | null;
         };
         /**
+         * RotationGroupOut
+         * @description One row of the map. Link view: ``link`` (``null`` = Unsegmented) + its card. Card view: the card.
+         *     Business type / Sector view: ``business_type`` / ``supersector`` (``null`` = Unclassified). ``names`` =
+         *     the companies in the group, each counted once.
+         */
+        RotationGroupOut: {
+            /** Key */
+            key: string;
+            /** Link */
+            link: string | null;
+            /** Thesis Id */
+            thesis_id: string | null;
+            /** Thesis Name */
+            thesis_name: string | null;
+            /** Business Type */
+            business_type: string | null;
+            /** Supersector */
+            supersector: string | null;
+            /** Names */
+            names: number;
+            /** Windows */
+            windows: components["schemas"]["RotationWindowOut"][];
+            /** Above 50D */
+            above_50d: number;
+            /** Above 50D N */
+            above_50d_n: number;
+            /** Rvol20 Median */
+            rvol20_median: number | null;
+            /** Rvol20 N */
+            rvol20_n: number;
+            /** Golden */
+            golden: number;
+            /** Death */
+            death: number;
+            /** Rs Leaders */
+            rs_leaders: number;
+            /** Rs N */
+            rs_n: number;
+            /** Members */
+            members: components["schemas"]["RotationNameOut"][];
+        };
+        /**
+         * RotationMapOut
+         * @description The whole page in one view, groups in the default order (the 7d median, highest first, "—" last).
+         *     The counts are the work shown on its quiet line. ``spy`` = SPY's own trailing returns (``null`` = no
+         *     SPY tape at the as-of). ``cache`` / ``compute_ms`` = whether the heavy read was served from the shared
+         *     dashboard cache and how long it took when it ran.
+         */
+        RotationMapOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Group By
+             * @enum {string}
+             */
+            group_by: "link" | "business_type" | "sector" | "card";
+            /** Include Silent */
+            include_silent: boolean;
+            /** Live Cards */
+            live_cards: number;
+            /** Cards Counted */
+            cards_counted: number;
+            /** Cards Not Yet Created */
+            cards_not_yet_created: number;
+            /** Roster Fallback Cards */
+            roster_fallback_cards: number;
+            /** Basket Rows */
+            basket_rows: number;
+            /** Silent Rows Left Out */
+            silent_rows_left_out: number;
+            /** Unresolved Rows */
+            unresolved_rows: number;
+            /** Companies */
+            companies: number;
+            /** Priced Companies */
+            priced_companies: number;
+            /** Spy */
+            spy: {
+                [key: string]: number | null;
+            } | null;
+            /** Groups */
+            groups: components["schemas"]["RotationGroupOut"][];
+            /** Min Priced */
+            min_priced: number;
+            /** Cross Days */
+            cross_days: number;
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * RotationNameCardOut
+         * @description A card a name sits on in this group: its ticker there (the Cockpit's ``?name=`` key) and its links
+         *     there (``null`` = Unsegmented).
+         */
+        RotationNameCardOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /** Ticker */
+            ticker: string;
+            /** Links */
+            links: (string | null)[];
+        };
+        /**
+         * RotationNameOut
+         * @description One company in a group. ``cross`` is its golden / death cross when it printed within ``cross_days``
+         *     of the as-of.
+         */
+        RotationNameOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Cards */
+            cards: components["schemas"]["RotationNameCardOut"][];
+            /** Returns */
+            returns: {
+                [key: string]: number | null;
+            };
+            /** Above 50D */
+            above_50d: boolean | null;
+            /** Rvol20 */
+            rvol20: number | null;
+            /** Cross */
+            cross: ("golden" | "death") | null;
+            /** Cross Date */
+            cross_date: string | null;
+            /** Rs Leading */
+            rs_leading: boolean | null;
+        };
+        /**
+         * RotationWindowOut
+         * @description One return window of a group: the median over the names priced for it (``null`` when fewer than
+         *     ``min_priced`` are), ``n`` priced, ``up`` of them with a positive return, ``above_spy`` of them beating
+         *     SPY's own return (``null`` without one). ``tone`` marks a median in the top / bottom 10% of the groups in
+         *     this view.
+         */
+        RotationWindowOut: {
+            /** Key */
+            key: string;
+            /** Median */
+            median: number | null;
+            /** N */
+            n: number;
+            /** Up */
+            up: number;
+            /** Above Spy */
+            above_spy: number | null;
+            /** Tone */
+            tone: ("pos" | "neg") | null;
+        };
+        /**
          * SavedRunSummary
          * @description One saved draft-run artifact's summary for the run-loader picker (the cheap label fields — never the
          *     draft itself; the detail endpoint returns the inner ``ChainDraftOut``). RUN metadata only: no score, no
@@ -11602,6 +11792,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["IdeaTimelineOut"];
+                };
+            };
+        };
+    };
+    rotation_map_dashboards_rotation_map_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; no price published after it is read */
+                asof: string;
+                /** @description the rows: link | business_type | sector | card */
+                group_by?: "link" | "business_type" | "sector" | "card";
+                /** @description add Context and Bench memberships (their own rows in the Link view) */
+                include_silent?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RotationMapOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

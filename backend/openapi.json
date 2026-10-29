@@ -3930,6 +3930,82 @@
         }
       }
     },
+    "/dashboards/rotation-map": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Rotation Map",
+        "description": "Which links, business types, sectors or cards have price moving: per group, the median 1d / 7d /\n30d / 90d / 1Y return with how many names are up, the share above the 50-day SMA, the median 20-day\nRVOL, golden / death crosses in the last 30 days and RS leaders, with each group's names. Display only;\na past as-of reads what was public by the end of that date.",
+        "operationId": "rotation_map_dashboards_rotation_map_get",
+        "parameters": [
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; no price published after it is read",
+              "title": "Asof"
+            },
+            "description": "as-of date; no price published after it is read"
+          },
+          {
+            "name": "group_by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "link",
+                "business_type",
+                "sector",
+                "card"
+              ],
+              "type": "string",
+              "description": "the rows: link | business_type | sector | card",
+              "default": "link",
+              "title": "Group By"
+            },
+            "description": "the rows: link | business_type | sector | card"
+          },
+          {
+            "name": "include_silent",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "add Context and Bench memberships (their own rows in the Link view)",
+              "default": false,
+              "title": "Include Silent"
+            },
+            "description": "add Context and Bench memberships (their own rows in the Link view)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RotationMapOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/backtest/runs": {
       "get": {
         "tags": [
@@ -15482,6 +15558,491 @@
           "label"
         ],
         "title": "ResolvedSegment"
+      },
+      "RotationGroupOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "link": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link"
+          },
+          "thesis_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thesis Name"
+          },
+          "business_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Type"
+          },
+          "supersector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supersector"
+          },
+          "names": {
+            "type": "integer",
+            "title": "Names"
+          },
+          "windows": {
+            "items": {
+              "$ref": "#/components/schemas/RotationWindowOut"
+            },
+            "type": "array",
+            "title": "Windows"
+          },
+          "above_50d": {
+            "type": "integer",
+            "title": "Above 50D"
+          },
+          "above_50d_n": {
+            "type": "integer",
+            "title": "Above 50D N"
+          },
+          "rvol20_median": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rvol20 Median"
+          },
+          "rvol20_n": {
+            "type": "integer",
+            "title": "Rvol20 N"
+          },
+          "golden": {
+            "type": "integer",
+            "title": "Golden"
+          },
+          "death": {
+            "type": "integer",
+            "title": "Death"
+          },
+          "rs_leaders": {
+            "type": "integer",
+            "title": "Rs Leaders"
+          },
+          "rs_n": {
+            "type": "integer",
+            "title": "Rs N"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/RotationNameOut"
+            },
+            "type": "array",
+            "title": "Members"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "link",
+          "thesis_id",
+          "thesis_name",
+          "business_type",
+          "supersector",
+          "names",
+          "windows",
+          "above_50d",
+          "above_50d_n",
+          "rvol20_median",
+          "rvol20_n",
+          "golden",
+          "death",
+          "rs_leaders",
+          "rs_n",
+          "members"
+        ],
+        "title": "RotationGroupOut",
+        "description": "One row of the map. Link view: ``link`` (``null`` = Unsegmented) + its card. Card view: the card.\nBusiness type / Sector view: ``business_type`` / ``supersector`` (``null`` = Unclassified). ``names`` =\nthe companies in the group, each counted once."
+      },
+      "RotationMapOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "group_by": {
+            "type": "string",
+            "enum": [
+              "link",
+              "business_type",
+              "sector",
+              "card"
+            ],
+            "title": "Group By"
+          },
+          "include_silent": {
+            "type": "boolean",
+            "title": "Include Silent"
+          },
+          "live_cards": {
+            "type": "integer",
+            "title": "Live Cards"
+          },
+          "cards_counted": {
+            "type": "integer",
+            "title": "Cards Counted"
+          },
+          "cards_not_yet_created": {
+            "type": "integer",
+            "title": "Cards Not Yet Created"
+          },
+          "roster_fallback_cards": {
+            "type": "integer",
+            "title": "Roster Fallback Cards"
+          },
+          "basket_rows": {
+            "type": "integer",
+            "title": "Basket Rows"
+          },
+          "silent_rows_left_out": {
+            "type": "integer",
+            "title": "Silent Rows Left Out"
+          },
+          "unresolved_rows": {
+            "type": "integer",
+            "title": "Unresolved Rows"
+          },
+          "companies": {
+            "type": "integer",
+            "title": "Companies"
+          },
+          "priced_companies": {
+            "type": "integer",
+            "title": "Priced Companies"
+          },
+          "spy": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spy"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/RotationGroupOut"
+            },
+            "type": "array",
+            "title": "Groups"
+          },
+          "min_priced": {
+            "type": "integer",
+            "title": "Min Priced"
+          },
+          "cross_days": {
+            "type": "integer",
+            "title": "Cross Days"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "group_by",
+          "include_silent",
+          "live_cards",
+          "cards_counted",
+          "cards_not_yet_created",
+          "roster_fallback_cards",
+          "basket_rows",
+          "silent_rows_left_out",
+          "unresolved_rows",
+          "companies",
+          "priced_companies",
+          "spy",
+          "groups",
+          "min_priced",
+          "cross_days",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "RotationMapOut",
+        "description": "The whole page in one view, groups in the default order (the 7d median, highest first, \"\u2014\" last).\nThe counts are the work shown on its quiet line. ``spy`` = SPY's own trailing returns (``null`` = no\nSPY tape at the as-of). ``cache`` / ``compute_ms`` = whether the heavy read was served from the shared\ndashboard cache and how long it took when it ran."
+      },
+      "RotationNameCardOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "links": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Links"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "thesis_name",
+          "ticker",
+          "links"
+        ],
+        "title": "RotationNameCardOut",
+        "description": "A card a name sits on in this group: its ticker there (the Cockpit's ``?name=`` key) and its links\nthere (``null`` = Unsegmented)."
+      },
+      "RotationNameOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/RotationNameCardOut"
+            },
+            "type": "array",
+            "title": "Cards"
+          },
+          "returns": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "object",
+            "title": "Returns"
+          },
+          "above_50d": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Above 50D"
+          },
+          "rvol20": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rvol20"
+          },
+          "cross": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "golden",
+                  "death"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cross"
+          },
+          "cross_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cross Date"
+          },
+          "rs_leading": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rs Leading"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "cards",
+          "returns",
+          "above_50d",
+          "rvol20",
+          "cross",
+          "cross_date",
+          "rs_leading"
+        ],
+        "title": "RotationNameOut",
+        "description": "One company in a group. ``cross`` is its golden / death cross when it printed within ``cross_days``\nof the as-of."
+      },
+      "RotationWindowOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "median": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median"
+          },
+          "n": {
+            "type": "integer",
+            "title": "N"
+          },
+          "up": {
+            "type": "integer",
+            "title": "Up"
+          },
+          "above_spy": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Above Spy"
+          },
+          "tone": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "pos",
+                  "neg"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tone"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "median",
+          "n",
+          "up",
+          "above_spy",
+          "tone"
+        ],
+        "title": "RotationWindowOut",
+        "description": "One return window of a group: the median over the names priced for it (``null`` when fewer than\n``min_priced`` are), ``n`` priced, ``up`` of them with a positive return, ``above_spy`` of them beating\nSPY's own return (``null`` without one). ``tone`` marks a median in the top / bottom 10% of the groups in\nthis view."
       },
       "SavedRunSummary": {
         "properties": {

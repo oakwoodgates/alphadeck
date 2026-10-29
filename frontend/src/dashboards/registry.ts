@@ -44,4 +44,13 @@ export const DASHBOARDS: readonly DashboardEntry[] = [
     asofAware: false,
     component: lazy(() => import("./idea-timeline/IdeaTimeline")),
   },
+  {
+    slug: "rotation-map",
+    label: "Rotation Map",
+    description:
+      "Which links, business types and sectors are moving: returns, breadth, volume and crosses by group.",
+    status: "experimental",
+    asofAware: true,
+    component: lazy(() => import("./rotation-map/RotationMap")),
+  },
 ];
