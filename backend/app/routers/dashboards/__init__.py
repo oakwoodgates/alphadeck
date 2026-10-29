@@ -14,6 +14,7 @@ from app.routers.dashboards import (
     leaders,
     narrative_index,
     rotation_map,
+    rotation_quadrant,
     shared_names,
     what_changed,
 )
@@ -32,6 +33,7 @@ _DASHBOARD_ROUTERS: tuple[APIRouter, ...] = (
     leaders.router,
     landing.router,
     narrative_index.router,
+    rotation_quadrant.router,
 )
 
 router = APIRouter(prefix="/dashboards", tags=["dashboards"])

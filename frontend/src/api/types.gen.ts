@@ -2223,6 +2223,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboards/rotation-quadrant": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Rotation Quadrant
+         * @description Each group's equal-weighted line against SPY's, as two numbers: x = RS level (the line ÷ SPY's, vs its own
+         *     65-session average; 100 = at it) and y = RS momentum (x vs x 20 sessions ago; 100 = flat), with the quadrant
+         *     (leading, weakening, lagging, improving), the quadrant 20 sessions ago and an 8-week tail every 5 sessions.
+         *     A group needs 3 priced names; a name whose data flags reach its price readings is left out of the line and
+         *     listed on its group. Display only; a past as-of reads what was public by the end of that date.
+         */
+        get: operations["rotation_quadrant_dashboards_rotation_quadrant_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/backtest/runs": {
         parameters: {
             query?: never;
@@ -8788,6 +8812,121 @@ export interface components {
             };
         };
         /**
+         * QuadrantFlaggedOut
+         * @description A name left out of its group's line: its data flags reach its price readings at the as-of (the reason
+         *     the Cockpit grays its price cells). ``reason`` = the flags' labels.
+         */
+        QuadrantFlaggedOut: {
+            /** Ticker */
+            ticker: string;
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * QuadrantGroupOut
+         * @description One group. Link view: ``link`` (``null`` = Unsegmented) + its card. Card view: the card. Business type /
+         *     Sector view: ``business_type`` / ``supersector`` (``null`` = Unclassified). ``names`` = the companies in the
+         *     group, each once (flagged ones included); ``priced`` of them have a daily return in the last
+         *     ``priced_sessions`` sessions. ``status``: ``plotted`` (x and y today), ``too_small`` (fewer than
+         *     ``min_priced`` priced names: not measured), ``no_history`` (too little history for today's x or y; ``x``
+         *     still shows when it alone is measurable). ``x`` = RS level, ``y`` = RS momentum, ``quadrant`` today,
+         *     ``quadrant_ago`` ``ago_sessions`` sessions back; ``tail`` = ``tail_points`` points every ``tail_step``
+         *     sessions, oldest first (empty when not measured). ``sessions_flat`` = sessions in the span the measures
+         *     read that no name could contribute to (the line carried flat).
+         */
+        QuadrantGroupOut: {
+            /** Key */
+            key: string;
+            /** Link */
+            link: string | null;
+            /** Thesis Id */
+            thesis_id: string | null;
+            /** Thesis Name */
+            thesis_name: string | null;
+            /** Business Type */
+            business_type: string | null;
+            /** Supersector */
+            supersector: string | null;
+            /** Names */
+            names: number;
+            /** Priced */
+            priced: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "plotted" | "too_small" | "no_history";
+            /** X */
+            x: number | null;
+            /** Y */
+            y: number | null;
+            /** Quadrant */
+            quadrant: ("leading" | "weakening" | "lagging" | "improving") | null;
+            /** Quadrant Ago */
+            quadrant_ago: ("leading" | "weakening" | "lagging" | "improving") | null;
+            /** Tail */
+            tail: components["schemas"]["QuadrantTailPointOut"][];
+            /** Sessions Flat */
+            sessions_flat: number;
+            /** Members */
+            members: components["schemas"]["QuadrantNameOut"][];
+            /** Flagged */
+            flagged: components["schemas"]["QuadrantFlaggedOut"][];
+        };
+        /**
+         * QuadrantNameCardOut
+         * @description A card a name sits on in this group: its ticker there (the Cockpit's ``?name=`` key) and its links
+         *     there (``null`` = Unsegmented).
+         */
+        QuadrantNameCardOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /** Ticker */
+            ticker: string;
+            /** Links */
+            links: (string | null)[];
+        };
+        /**
+         * QuadrantNameOut
+         * @description One company in a group. ``priced`` = a daily return into one of the last ``priced_sessions`` sessions.
+         *     ``flag`` = why it is left out of the line (a flagged price history; ``null`` = its bars are read).
+         */
+        QuadrantNameOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Cards */
+            cards: components["schemas"]["QuadrantNameCardOut"][];
+            /** Priced */
+            priced: boolean;
+            /** Flag */
+            flag: string | null;
+        };
+        /**
+         * QuadrantTailPointOut
+         * @description One tail point: x / y on ``session`` (``null`` = not measurable there; ``session`` null = before the
+         *     first session read) and its quadrant.
+         */
+        QuadrantTailPointOut: {
+            /** Session */
+            session: string | null;
+            /** X */
+            x: number | null;
+            /** Y */
+            y: number | null;
+            /** Quadrant */
+            quadrant: ("leading" | "weakening" | "lagging" | "improving") | null;
+        };
+        /**
          * RadarSpacOut
          * @description The SPAC Radar tape (``GET /radar/spac``): the latest version of each transition filing in
          *     the window, newest first, with per-CIK deal state and per-thesis term matches. Pull-only and
@@ -9194,6 +9333,91 @@ export interface components {
             cross_date: string | null;
             /** Rs Leading */
             rs_leading: boolean | null;
+        };
+        /**
+         * RotationQuadrantOut
+         * @description The whole page in one view, groups in the default order (quadrant: improving, leading, weakening,
+         *     lagging, then x highest first; no quadrant last). ``sessions`` = daily returns read
+         *     (``first_session`` → ``last_session``); ``session_source`` = where the calendar came from (SPY's tape, or
+         *     the companies' bars when SPY has none). ``spy_available`` false = no SPY line, so nothing is measured. The
+         *     counts are the work shown on its quiet line; the measure windows ride along. ``cache`` / ``compute_ms`` =
+         *     whether the groups came from the shared dashboard cache and how long they took when computed.
+         */
+        RotationQuadrantOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Group By
+             * @enum {string}
+             */
+            group_by: "link" | "business_type" | "sector" | "card";
+            /** Include Silent */
+            include_silent: boolean;
+            /** Live Cards */
+            live_cards: number;
+            /** Cards Counted */
+            cards_counted: number;
+            /** Cards Not Yet Created */
+            cards_not_yet_created: number;
+            /** Roster Fallback Cards */
+            roster_fallback_cards: number;
+            /** Basket Rows */
+            basket_rows: number;
+            /** Silent Rows Left Out */
+            silent_rows_left_out: number;
+            /** Unresolved Rows */
+            unresolved_rows: number;
+            /** Sessions */
+            sessions: number;
+            /** First Session */
+            first_session: string | null;
+            /** Last Session */
+            last_session: string | null;
+            /**
+             * Session Source
+             * @enum {string}
+             */
+            session_source: "benchmarks" | "companies" | "none";
+            /** Spy Available */
+            spy_available: boolean;
+            /** Companies */
+            companies: number;
+            /** Priced Companies */
+            priced_companies: number;
+            /** Flagged Companies */
+            flagged_companies: number;
+            /** Groups Plotted */
+            groups_plotted: number;
+            /** Groups Too Small */
+            groups_too_small: number;
+            /** Groups No History */
+            groups_no_history: number;
+            /** Groups */
+            groups: components["schemas"]["QuadrantGroupOut"][];
+            /** Level Sessions */
+            level_sessions: number;
+            /** Momentum Sessions */
+            momentum_sessions: number;
+            /** Tail Step */
+            tail_step: number;
+            /** Tail Points */
+            tail_points: number;
+            /** Ago Sessions */
+            ago_sessions: number;
+            /** Priced Sessions */
+            priced_sessions: number;
+            /** Min Priced */
+            min_priced: number;
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
         };
         /**
          * RotationWindowOut
@@ -13374,6 +13598,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NarrativeCardDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rotation_quadrant_dashboards_rotation_quadrant_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; no price published after it is read */
+                asof: string;
+                /** @description the groups: link | business_type | sector | card */
+                group_by?: "link" | "business_type" | "sector" | "card";
+                /** @description add Context and Bench memberships (their own groups in the Link view) */
+                include_silent?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RotationQuadrantOut"];
                 };
             };
             /** @description Validation Error */

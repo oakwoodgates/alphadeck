@@ -5,8 +5,9 @@ since when?". Follows the as-of dial.
 PURE: the router reads each counted card's roster as of the as-of (``dashboards/baskets.py``), every company's
 closes and the two benchmarks' through the point-in-time view, and hands them to ``index_inputs(...)``, which
 builds every card's 1Y series ONCE (cached per as-of, ``dashboards/cache.py``). ``narrative_index(...)`` then
-slices and rebases that series per request for the chosen window. Display only: nothing here feeds a call,
-scores an idea or writes anything (rule 1).
+slices and rebases that series per request for the chosen window. The line math (the session calendar, the
+alignment, the chain) lives in ``dashboards/series.py``, shared with the Rotation Quadrant. Display only: nothing
+here feeds a call, scores an idea or writes anything (rule 1).
 
 The rules, in one place:
 - **The basket.** Each counted card's roster AS OF the as-of, looking back (not the basket as it stood on each
@@ -40,7 +41,7 @@ The rules, in one place:
 from __future__ import annotations
 
 from bisect import bisect_left, bisect_right
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import date
 from typing import Literal
@@ -48,82 +49,22 @@ from uuid import UUID
 
 from dashboards.baskets import Membership, counted_rows
 
+# the line math: shared with the Rotation Quadrant (``dashboards/series.py``), and re-exported here under their
+# old names
+from dashboards.series import BASE as BASE
+from dashboards.series import YEAR_SESSIONS
+from dashboards.series import Chain as Chain
+from dashboards.series import SessionSource as SessionSource
+from dashboards.series import aligned as aligned
+from dashboards.series import chain as chain
+from dashboards.series import session_calendar as session_calendar
+
 Window = Literal["1y", "90d", "30d"]
 # trading sessions (daily returns) per window; the 1Y count is the Cockpit's own 1Y window
 # (``signals/display/trailing_returns.py``: 252 trading bars)
-WINDOWS: dict[Window, int] = {"1y": 252, "90d": 90, "30d": 30}
+WINDOWS: dict[Window, int] = {"1y": YEAR_SESSIONS, "90d": 90, "30d": 30}
 DEFAULT_WINDOW: Window = "1y"
 BENCHMARKS: tuple[str, ...] = ("SPY", "IWM")
-BASE = 100.0
-
-SessionSource = Literal["benchmarks", "companies", "none"]
-
-
-# --- the session calendar ---------------------------------------------------------------------------------
-
-
-def session_calendar(
-    benchmark_dates: Iterable[date],
-    company_dates: Iterable[date],
-    asof: date,
-    sessions: int = WINDOWS["1y"],
-) -> tuple[tuple[date, ...], SessionSource]:
-    """The shared sessions, ending at ``asof``: the last ``sessions + 1`` dates (``sessions`` daily returns).
-    The benchmarks' bar dates plus any company bar after their last one; with no benchmark bar, the companies'.
-    """
-    bench = {d for d in benchmark_dates if d <= asof}
-    companies = {d for d in company_dates if d <= asof}
-    if bench:
-        last = max(bench)
-        days, source = bench | {d for d in companies if d > last}, "benchmarks"
-    elif companies:
-        days, source = companies, "companies"
-    else:
-        return (), "none"
-    return tuple(sorted(days)[-(sessions + 1) :]), source  # type: ignore[return-value]
-
-
-def aligned(closes: Mapping[date, float], sessions: Sequence[date]) -> tuple[float | None, ...]:
-    """A company's closes on the shared sessions (``None`` = no bar that session; a non-positive close is no
-    bar)."""
-    out: list[float | None] = []
-    for d in sessions:
-        c = closes.get(d)
-        out.append(c if c is not None and c > 0 else None)
-    return tuple(out)
-
-
-# --- the chain --------------------------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class Chain:
-    """An equal-weighted, daily-rebalanced index over the sessions, from ``BASE`` at session 0."""
-
-    levels: tuple[float, ...]  # one per session
-    contributors: tuple[int, ...]  # members contributing the step INTO each session (session 0: 0)
-    contributed: tuple[tuple[int, ...], ...]  # per member, the sessions it contributed a step into
-
-
-def chain(members: Sequence[Sequence[float | None]], n_sessions: int) -> Chain:
-    """The index over ``n_sessions`` sessions: ``members[j][t]`` is member ``j``'s close on session ``t``.
-    Session ``t`` steps by the mean daily return of the members with a close on both ``t-1`` and ``t``; with
-    none, it carries flat."""
-    if n_sessions == 0:
-        return Chain((), (), tuple(() for _ in members))
-    levels = [BASE]
-    counts = [0]
-    contributed: list[list[int]] = [[] for _ in members]
-    for t in range(1, n_sessions):
-        rets: list[float] = []
-        for j, closes in enumerate(members):
-            prev, now = closes[t - 1], closes[t]
-            if prev is not None and now is not None:
-                rets.append(now / prev - 1.0)
-                contributed[j].append(t)
-        counts.append(len(rets))
-        levels.append(levels[-1] * (1.0 + sum(rets) / len(rets)) if rets else levels[-1])
-    return Chain(tuple(levels), tuple(counts), tuple(tuple(c) for c in contributed))
 
 
 # --- the cached 1Y read -----------------------------------------------------------------------------------
