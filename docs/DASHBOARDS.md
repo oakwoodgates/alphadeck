@@ -105,8 +105,8 @@ the data flags). Its plan is `docs/BOARD.md`.
 6. **Event-outcome views** ("what happened after X") slice by the fixed market-cap bands in
    `CLAUDE.md` (nano < $50M · micro $50M–$300M · small $300M–$2B · mid $2B–$10B · large ≥ $10B),
    measured at the event, with the horizon, the comparison, n and the hit rate stated per tier. See
-   `docs/BACKTEST.md` §"Sliced by market cap". The first dashboard that needs the bands defines them
-   once in `domain/`.
+   `docs/BACKTEST.md` §"Sliced by market cap". The bands are defined once, in
+   `backend/domain/market_cap.py` (`CapTier`, `cap_tier`; built with the Peer Table, which slices its names by them).
 
 7. **Cache.** Allowed, in-process, used only by dashboards. It must refresh after every new cron run
    and after any basket edit, and it keys on "a new run happened", never on a clock (the run schedule
@@ -121,9 +121,17 @@ the data flags). Its plan is `docs/BOARD.md`.
    the chunked point-in-time read (`per_company`), and the companies whose data flags reach their price
    readings (`price_flags`, the `/data-flags` reader, read by every price dashboard; `flagged_in_view` names
    them on a page, rule 5). A dashboard that groups cards' names reuses it rather than re-deriving the rule.
+   A one-card dashboard starts from its picker, `picker_cards` (the counted cards A→Z with their link counts;
+   built with the Chain Wave, shared since the Filing Stream).
    The equal-weighted line math lives in `backend/dashboards/series.py` (the session calendar, the alignment
    and the chain; built with the Narrative Index, shared since the Rotation Quadrant): a dashboard that draws
    a basket as one line reuses it.
+   What each company filed lives in `backend/dashboards/filings.py` (built with the Filing Stream, shared with
+   the Read-Throughs table): every filing-derived fact the system stores, normalized to one `FilingRow` shape
+   (`read_filing_rows`: the point-in-time view plus the Form 4/A SELECT, both on the request's one
+   `serve_view(asof)` pair). A page that lists what a company filed reuses it rather than re-reading the fact
+   tables. A ratified fact, and a catalyst a person ratified, carry who ratified them and the day
+   (`ratifier`, `ratified_on`; the Evidence Ledger's authority classes read them).
 
 8. **Self-contained layout, self-registering**, so dashboards build in parallel and delete cleanly. A slug
    is lowercase letters, digits and `-` (`tape-breadth`); the Python module name swaps `-` for `_`

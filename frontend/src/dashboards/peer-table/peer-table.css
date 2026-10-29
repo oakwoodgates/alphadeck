@@ -1,0 +1,115 @@
+/* Peer Table (docs/dashboards/peer-table.md) — its own sheet, imported by the component, never index.css
+   (docs/DASHBOARDS.md rule 8). The research set's document-like look (the Read-Throughs'): one wide table that
+   scrolls sideways on a phone with the Company column pinned, one line per row, tabular numbers. Loudness marks the
+   exception only (#7 / WB#3): no badges and no color by tier or role; a role is quiet lowercase text, the signed
+   columns tint their sign with the app's --pos / --neg mixed well toward gray, a flagged price history grays its
+   cells. Colors are the app's tokens only. */
+
+.pt {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 1500px;
+  --pt-pos: color-mix(in srgb, var(--pos) 55%, var(--txt-3));
+  --pt-neg: color-mix(in srgb, var(--neg) 55%, var(--txt-3));
+}
+
+.pt-scope { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
+.pt-seg { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.pt-tab { font: inherit; font-size: 11.5px; color: var(--txt-3); background: transparent; border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 10px; cursor: pointer; }
+.pt-tab:hover:not(:disabled) { color: var(--txt-2); }
+.pt-tab.on { color: var(--txt); background: var(--panel-2); }
+/* a scope with nothing to pick: grayed, still there (nothing is hidden) */
+.pt-tab.zero { color: var(--txt-4); border-style: dashed; cursor: default; }
+.pt-count { margin-left: auto; font-size: 10.5px; }
+
+.pt-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
+.pt-field { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.pt-seg-label { font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); margin-right: 2px; }
+.pt-search, .pt-select { font: inherit; font-size: 11.5px; color: var(--txt-2); background: transparent; border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 7px; }
+.pt-search { width: 150px; }
+.pt-select { max-width: 280px; }
+.pt-select option { background: var(--panel); color: var(--txt-2); }
+.pt-tier { font: inherit; font-size: 11px; color: var(--txt-3); background: transparent; border: 1px solid var(--line-2); border-radius: 6px; padding: 1px 8px; cursor: pointer; }
+.pt-tier:hover { color: var(--txt-2); }
+.pt-tier.on { color: var(--txt); background: var(--panel-2); }
+.pt-check { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--txt-3); cursor: pointer; }
+.pt-check input { accent-color: var(--txt-3); }
+.pt-clear { font: inherit; font-size: 11px; color: var(--txt-3); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.pt-clear:hover { color: var(--txt); }
+
+.pt-empty { padding: 14px 0; }
+
+/* the table: scrolls sideways inside its wrapper, the Company column stays */
+.pt-scroll { overflow-x: auto; margin-top: 4px; }
+table.pt-table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+table.pt-table th { text-align: left; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); font-weight: 600; padding: 0 12px 8px 0; border-bottom: 1px solid var(--line); white-space: nowrap; vertical-align: bottom; }
+table.pt-table td { padding: 5px 12px 5px 0; border-bottom: 1px solid var(--line); vertical-align: top; white-space: nowrap; color: var(--txt-2); }
+table.pt-table tbody tr:hover td { background: color-mix(in srgb, var(--panel) 60%, transparent); }
+.pt-sort { font: inherit; font-size: inherit; letter-spacing: inherit; text-transform: inherit; font-weight: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+.pt-sort:hover, .pt-sort.on { color: var(--txt-2); }
+.pt-sort:focus-visible { outline: 1px solid var(--line-2); outline-offset: 2px; border-radius: 2px; }
+table.pt-table .pt-num { text-align: right; padding-right: 16px; }
+table.pt-table .pt-num .pt-sort { text-align: right; }
+/* a column's coverage ("41 of 58") under its name; the blanks by reason ride in its hover */
+.pt-cov { display: block; margin-top: 2px; font-family: var(--mono); font-size: 9.5px; letter-spacing: 0; text-transform: none; font-weight: 400; color: var(--txt-4); cursor: help; }
+
+/* the pinned Company column */
+table.pt-table th.pt-co, table.pt-table td.pt-co { position: sticky; left: 0; z-index: 1; background: var(--bg); min-width: 140px; max-width: 190px; }
+table.pt-table tbody tr:hover td.pt-co { background: var(--panel); }
+.pt-chip { font-family: var(--mono); font-size: 10.5px; font-weight: 700; padding: 0 7px; border: 1px solid var(--line-2); border-radius: 6px; background: transparent; color: var(--txt-3); cursor: pointer; }
+.pt-chip:hover { color: var(--txt); border-color: var(--txt-4); background: var(--panel-2); }
+.pt-name { display: block; margin-top: 2px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; font-size: 10.5px; color: var(--txt-3); }
+
+/* the group header rows: the group's name in the pinned cell, its figures under the columns they belong to, each
+   saying what it rests on */
+table.pt-table tr.pt-group td, table.pt-table tr.pt-group th.pt-co { background: var(--panel); border-bottom: 1px solid var(--line-2); padding-top: 7px; padding-bottom: 7px; vertical-align: middle; }
+table.pt-table tbody tr.pt-group:hover td { background: var(--panel); }
+table.pt-table tr.pt-group th.pt-co { text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 600; color: var(--txt); text-align: left; }
+tr.pt-group.depth-1 th.pt-group-name { padding-left: 14px; font-weight: 500; }
+.pt-group-label { color: var(--txt); }
+.pt-n { font-size: 10px; font-weight: 400; color: var(--txt-4); }
+.pt-fig { font-family: var(--mono); font-size: 11px; color: var(--txt-3); cursor: help; }
+.pt-sub { display: block; font-size: 9px; color: var(--txt-4); }
+
+/* the Cards column: a count that opens its chips (the whole list rides in the title), then the role or silent tag */
+table.pt-table th.pt-cards, table.pt-table td.pt-cards { min-width: 120px; }
+.pt-cards-btn { font: inherit; font-size: 11px; color: var(--txt-3); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+.pt-cards-btn:hover { color: var(--txt); }
+.pt-links { color: var(--txt-3); font-size: 11px; cursor: help; }
+.pt-tag { margin-left: 8px; font-family: var(--mono); font-size: 10px; color: var(--txt-3); }
+.pt-tag.silent { color: var(--txt-4); }
+.pt-chips { display: flex; flex-wrap: wrap; gap: 4px; max-width: 340px; margin-top: 4px; white-space: normal; }
+.pt-card { display: inline-flex; align-items: baseline; min-width: 0; max-width: 100%; white-space: nowrap; font: inherit; font-size: 11px; padding: 1px 8px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--panel); color: var(--txt-2); cursor: pointer; text-align: left; }
+.pt-card:hover { border-color: var(--txt-4); background: var(--panel-2); color: var(--txt); }
+.pt-card.quiet { border-style: dashed; color: var(--txt-3); background: transparent; }
+.pt-card-name { flex: 0 1 auto; min-width: 0; max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+.pt-card-links { flex: 0 1 auto; min-width: 0; max-width: 140px; margin-left: 0.3em; overflow: hidden; text-overflow: ellipsis; font-size: 10px; color: var(--txt-3); }
+
+.pt-bt { color: var(--txt-3); }
+.pt-roy { font-size: 10px; color: var(--txt-4); }
+
+/* the number cells: a plain figure, its sign tinted well toward gray; a flagged or zero cell is gray */
+.pt-cell { font-family: var(--mono); font-size: 11.5px; color: var(--txt-2); cursor: help; }
+.pt-cell.pos { color: var(--pt-pos); }
+.pt-cell.neg { color: var(--pt-neg); }
+.pt-cell.gray { color: var(--txt-4); font-size: 10px; font-style: italic; }
+
+.pt-work { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
+.pt-cov-details summary, .pt-unresolved summary { cursor: pointer; width: fit-content; }
+.pt-cov-details summary:hover, .pt-unresolved summary:hover { color: var(--txt-2); }
+.pt-cov-list { list-style: none; margin: 4px 0 2px; padding: 0 0 0 14px; display: flex; flex-direction: column; gap: 2px; }
+.pt-limits { margin: 4px 0 0; padding-left: 16px; font-size: 10.5px; line-height: 1.5; color: var(--txt-4); }
+
+/* a phone: the table already scrolls sideways with Company pinned; tighten the controls */
+@media (max-width: 640px) {
+  .pt-search { width: 120px; }
+  .pt-select { max-width: 200px; }
+  .pt-count { margin-left: 0; }
+  table.pt-table th.pt-co, table.pt-table td.pt-co { min-width: 110px; max-width: 130px; }
+  .pt-name { max-width: 120px; }
+  table.pt-table th.pt-cards, table.pt-table td.pt-cards { min-width: 100px; }
+  .pt-chips { max-width: 260px; }
+  .pt-card-name { max-width: 130px; }
+  .pt-card-links { max-width: 100px; }
+}

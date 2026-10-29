@@ -2018,6 +2018,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboards/chain-map/cards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Chain Map Cards
+         * @description The card picker: the live cards that existed by the as-of, A→Z, each with its link count today. Display
+         *     only.
+         */
+        get: operations["chain_map_cards_dashboards_chain_map_cards_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboards/chain-map/{thesis_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Chain Map For Card
+         * @description One card as a picture: its links in chain order as columns with the roster's companies inside (each with
+         *     its business type, its side of the 50-day average and the age of its newest SEC filing), and the
+         *     companies with a context role standing on two rails beside the chain, each with one edge to the chain as a
+         *     whole. A company whose data flags reach its price readings is drawn grayed with no 50-day side. Display only;
+         *     a past as-of reads the roster as of that date and what was public by the end of it. 404 when the card is not
+         *     counted at the as-of.
+         */
+        get: operations["chain_map_for_card_dashboards_chain_map__thesis_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dashboards/chain-wave/cards": {
         parameters: {
             query?: never;
@@ -2080,6 +2126,142 @@ export interface paths {
          *     past as-of reads what was public by the end of that date.
          */
         get: operations["cross_radar_dashboards_cross_radar_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboards/evidence-ledger/cards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Evidence Ledger Cards
+         * @description The card picker: the live cards that existed by the as-of, A→Z, each with its link count today. Display
+         *     only.
+         */
+        get: operations["evidence_ledger_cards_dashboards_evidence_ledger_cards_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboards/evidence-ledger/{thesis_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Evidence Ledger For Card
+         * @description Everything one card's call and facts rest on, in one list: the recorded call's triggers and risk signals
+         *     with their sources, the ratified and stored facts, the card's catalysts, kill criteria and evidence links and
+         *     its context roles, each row marked by who put it there (a person, a computation, an ingest leg, the card).
+         *     Display only; a past as-of reads the call recorded for that night or the last one before it and the facts
+         *     public by the end of that date (a fact ratified after it never appears). The card's own entries are read live.
+         *     404 when the card is not counted at the as-of.
+         */
+        get: operations["evidence_ledger_for_card_dashboards_evidence_ledger__thesis_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboards/filing-stream/cards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Filing Stream Cards
+         * @description The card picker: the live cards that existed by the as-of, A→Z, each with its link count today. Display
+         *     only.
+         */
+        get: operations["filing_stream_cards_dashboards_filing_stream_cards_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboards/filing-stream/{thesis_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Filing Stream For Card
+         * @description One card's names' filing-derived facts, newest day first: 8-Ks with their items, Form 4s with the filer's
+         *     own words, Form 4/As, 13D/G stakes, revenue prints, splits, dilution, catalysts and the ratified or stored
+         *     facts, each row opening to its EDGAR source. Only facts the ingest stores are listed (not every filing).
+         *     Display only; a past as-of reads what was public by the end of that date (a fact public after it never
+         *     appears). 404 when the card is not counted at the as-of.
+         */
+        get: operations["filing_stream_for_card_dashboards_filing_stream__thesis_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboards/fundamentals-multiples/cards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Multiples Cards
+         * @description The card picker: the live cards that existed by the as-of, A→Z, each with its link count today. Display
+         *     only.
+         */
+        get: operations["multiples_cards_dashboards_fundamentals_multiples_cards_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboards/fundamentals-multiples/{thesis_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Multiples For Card
+         * @description One card's revenue series: its links in chain order as rows, each name a small chart of its last quarterly
+         *     revenue prints (placed by period end, dated by the filing that made them public) with the year-over-year
+         *     change as dots, and the median of those changes per link and for the card. Display only; a past as-of reads
+         *     the roster as of that date and what was public by the end of it. 404 when the card is not counted at the
+         *     as-of.
+         */
+        get: operations["multiples_for_card_dashboards_fundamentals_multiples__thesis_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2197,6 +2379,79 @@ export interface paths {
          *     counted at the as-of.
          */
         get: operations["narrative_index_card_dashboards_narrative_index__thesis_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboards/peer-table/scopes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Peer Table Scopes
+         * @description What the Peer Table can be scoped to at the as-of: the business-type leaves and supersectors present on the
+         *     counted cards' rosters (each with its distinct companies) and the counted cards, plus the leaf to open on.
+         *     Display only; a past as-of reads the rosters as they were by the end of that date.
+         */
+        get: operations["peer_table_scopes_dashboards_peer_table_scopes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboards/peer-table": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Peer Table
+         * @description The names of one scope side by side, each company once: approximate market cap and tier, latest revenue and
+         *     its year-over-year change, runway, convert overhang, revenue purity, the tape (off the 52-week high, the
+         *     50- and 200-day averages, RVOL, dollar volume, the 30-day return against SPY) and the insider buys of the
+         *     90-day window, grouped by business type, link or card, with every blank counted by column and reason. A
+         *     company whose data flags reach its price readings keeps its row and its price cells name the reason. Display
+         *     only; a past as-of reads what was public by the end of that date (a fact public after it never reaches a
+         *     cell). 404 when the scope's key is not present at the as-of.
+         */
+        get: operations["peer_table_dashboards_peer_table_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboards/read-through": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Through
+         * @description Every company tagged with a context role on a card counted at the as-of (payers, counter-cases, direct
+         *     reads, participants, financiers, benchmarks), one row per company and role, with the card chips it sits on, its
+         *     business type, the newest SEC filing in the last year, the nearest dated card catalyst and its 7 and
+         *     30 trading-day return minus SPY's. A company whose data flags reach its price readings shows no tape and is
+         *     named. Sorted by newest last filing. Display only; a past as-of reads what was public by the end of that
+         *     date.
+         */
+        get: operations["read_through_dashboards_read_through_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -5346,6 +5601,12 @@ export interface components {
              */
             watch_members: components["schemas"]["MemberCallOut"][];
         };
+        /**
+         * CapTier
+         * @description The five fixed market-cap bands, smallest first (the enum's order is the band order).
+         * @enum {string}
+         */
+        CapTier: "nano" | "micro" | "small" | "mid" | "large";
         /** Catalyst */
         Catalyst: {
             /**
@@ -5546,6 +5807,266 @@ export interface components {
              */
             placements: components["schemas"]["ResolvedPlacement"][];
             report?: components["schemas"]["DraftReportOut"] | null;
+        };
+        /**
+         * ChainMapCardOut
+         * @description A card in the picker: its name and its real links today (Context and Bench not counted).
+         */
+        ChainMapCardOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Name */
+            name: string;
+            /** Links */
+            links: number;
+        };
+        /**
+         * ChainMapCardsOut
+         * @description The picker: the cards counted at the as-of (the live cards that existed by then), A→Z. ``cache`` /
+         *     ``compute_ms`` = whether the list came from the shared dashboard cache and how long it took when computed.
+         */
+        ChainMapCardsOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /** Live Cards */
+            live_cards: number;
+            /** Not Yet Created */
+            not_yet_created: number;
+            /** Cards */
+            cards: components["schemas"]["ChainMapCardOut"][];
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * ChainMapColumnOut
+         * @description A column. ``kind``: ``link`` (a real link today, chain order), ``old_link`` (a roster link that is not on
+         *     the card today), ``no_link``, or ``silent`` (the Context or Bench names with no role; ``label`` says which,
+         *     the page shows them behind a toggle). ``descriptor`` = the link's descriptor when set.
+         */
+        ChainMapColumnOut: {
+            /** Key */
+            key: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "link" | "old_link" | "no_link" | "silent";
+            /** Label */
+            label: string;
+            /** Descriptor */
+            descriptor: string | null;
+            /** Nodes */
+            nodes: components["schemas"]["ChainMapNodeOut"][];
+        };
+        /**
+         * ChainMapCountsOut
+         * @description The work: ``companies`` = distinct roster companies; ``on_rails`` / ``untagged_silent`` = of those, the
+         *     ones on a rail and the ones in a Context or Bench column; ``roles`` = companies per role, rail order, only
+         *     roles that are set; ``with_side`` / ``without_side`` and ``with_filing`` / ``without_filing`` split the
+         *     companies (an unresolved or flagged one has no side).
+         */
+        ChainMapCountsOut: {
+            /** Links Today */
+            links_today: number;
+            /** Old Links */
+            old_links: number;
+            /** Roster Rows */
+            roster_rows: number;
+            /** Resolved Rows */
+            resolved_rows: number;
+            /** Unresolved Rows */
+            unresolved_rows: number;
+            /** Silent Rows */
+            silent_rows: number;
+            /** Companies */
+            companies: number;
+            /** On Rails */
+            on_rails: number;
+            /** Untagged Silent */
+            untagged_silent: number;
+            /** Roles */
+            roles: components["schemas"]["ChainMapRoleCountOut"][];
+            /** With Side */
+            with_side: number;
+            /** Without Side */
+            without_side: number;
+            /** With Filing */
+            with_filing: number;
+            /** Without Filing */
+            without_filing: number;
+        };
+        /**
+         * ChainMapEdgeOut
+         * @description One rail node's edge to the chain's bracket (the whole chain, never a link or a name): the node, its role
+         *     and the rail it stands on.
+         */
+        ChainMapEdgeOut: {
+            /** Node Key */
+            node_key: string;
+            role: components["schemas"]["ContextRole"];
+            /**
+             * Side
+             * @enum {string}
+             */
+            side: "left" | "right";
+        };
+        /**
+         * ChainMapFilingOut
+         * @description A company's newest SEC filing in the last ``filing_days`` days (an 8-K, 13D/G, Form 4 or 4/A, or a 10-Q /
+         *     10-K revenue print; never a split, a catalyst or a ratified or stored fact): its public ``date``
+         *     (``age_days`` before the as-of), the ``form`` as filed and its one-line ``headline``.
+         */
+        ChainMapFilingOut: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Age Days */
+            age_days: number;
+            /** Form */
+            form: string;
+            /** Headline */
+            headline: string;
+        };
+        /**
+         * ChainMapFlaggedOut
+         * @description A company on the card whose data flags reach its price readings at the as-of (the reason the Cockpit grays
+         *     its price cells): drawn grayed with no 50-day side. ``reason`` = the flags' labels.
+         */
+        ChainMapFlaggedOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * ChainMapNodeOut
+         * @description One company in one place. ``key`` is unique on the page; ``company_key`` is the company's (``security_id``,
+         *     or ``ticker:<T>`` with no resolved security). ``ticker`` = its ticker on the card (the Cockpit's ``?name=``
+         *     key). ``links`` = every link it sits in on the card (``null`` = no link). ``role`` = its context role (a tag on
+         *     a chain node, the reason it stands on a rail). ``business_type`` = the master's leaf (the operator's re-tag
+         *     winning). ``side_50d`` / ``pct_vs_50d`` = where it sits against its 50-day average (``null`` = no reading,
+         *     or a flagged price history). ``last_filing`` = its newest SEC filing in the year (``null`` = none stored).
+         *     ``flag`` = why its price readings are left out. ``thesis_fit`` / ``authored_by`` = the description on the
+         *     row this node stands for and who wrote it (``null`` when there is none); ``matched_terms`` = the discovery
+         *     terms that surfaced the name.
+         */
+        ChainMapNodeOut: {
+            /** Key */
+            key: string;
+            /** Company Key */
+            company_key: string;
+            /** Ticker */
+            ticker: string;
+            /** Name */
+            name: string | null;
+            /** Security Id */
+            security_id: string | null;
+            /** Links */
+            links: (string | null)[];
+            role: components["schemas"]["ContextRole"] | null;
+            /** Business Type */
+            business_type: string | null;
+            /** Side 50D */
+            side_50d: ("above" | "below" | "at") | null;
+            /** Pct Vs 50D */
+            pct_vs_50d: number | null;
+            last_filing: components["schemas"]["ChainMapFilingOut"] | null;
+            /** Flag */
+            flag: string | null;
+            /** Thesis Fit */
+            thesis_fit: string | null;
+            authored_by: components["schemas"]["Authorship"] | null;
+            /** Matched Terms */
+            matched_terms: string[];
+        };
+        /**
+         * ChainMapOut
+         * @description One card's picture. ``columns`` in chain order (real links, then a roster link that is not on the card
+         *     today, then No link, then the silent Context/Bench columns); ``rails`` = the left rail, then the right (either
+         *     may be empty); ``edges`` = one per rail node. ``clock``: ``record`` (the live read) or ``public`` (a past
+         *     as-of: what was public by the end of that date). ``roster_fallback`` = no roster snapshot by the as-of: today's
+         *     roster stands in. ``filing_days`` = how far back the last-filing glyph looks. ``cache`` / ``compute_ms`` =
+         *     whether the page came from the shared dashboard cache and how long it took when computed.
+         */
+        ChainMapOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /**
+             * Clock
+             * @enum {string}
+             */
+            clock: "record" | "public";
+            /** Roster Fallback */
+            roster_fallback: boolean;
+            /** Columns */
+            columns: components["schemas"]["ChainMapColumnOut"][];
+            /** Rails */
+            rails: components["schemas"]["ChainMapRailOut"][];
+            /** Edges */
+            edges: components["schemas"]["ChainMapEdgeOut"][];
+            /** Flagged */
+            flagged: components["schemas"]["ChainMapFlaggedOut"][];
+            counts: components["schemas"]["ChainMapCountsOut"];
+            /** Filing Days */
+            filing_days: number;
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * ChainMapRailOut
+         * @description A rail: ``left`` (what pays and funds: payer, then financier) or ``right`` (what reads across: direct read,
+         *     counter-case, participant, benchmark). ``nodes`` = the role-tagged companies with no row in a real link, by
+         *     role then roster order.
+         */
+        ChainMapRailOut: {
+            /**
+             * Side
+             * @enum {string}
+             */
+            side: "left" | "right";
+            /** Label */
+            label: string;
+            /** Nodes */
+            nodes: components["schemas"]["ChainMapNodeOut"][];
+        };
+        /** ChainMapRoleCountOut */
+        ChainMapRoleCountOut: {
+            role: components["schemas"]["ContextRole"];
+            /** Names */
+            names: number;
         };
         /**
          * ChainWaveCardOut
@@ -7232,6 +7753,253 @@ export interface components {
             date_label?: string | null;
         };
         /**
+         * EvidenceLedgerCardOut
+         * @description A card in the picker: its name and its real links today (Context and Bench not counted).
+         */
+        EvidenceLedgerCardOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Name */
+            name: string;
+            /** Links */
+            links: number;
+        };
+        /**
+         * EvidenceLedgerCardsOut
+         * @description The picker: the cards counted at the as-of (the live cards that existed by then), A→Z. ``cache`` /
+         *     ``compute_ms`` = whether the list came from the shared dashboard cache and how long it took when computed.
+         */
+        EvidenceLedgerCardsOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /** Live Cards */
+            live_cards: number;
+            /** Not Yet Created */
+            not_yet_created: number;
+            /** Cards */
+            cards: components["schemas"]["EvidenceLedgerCardOut"][];
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /** EvidenceLedgerCountOut */
+        EvidenceLedgerCountOut: {
+            /** Key */
+            key: string;
+            /** Rows */
+            rows: number;
+        };
+        /** EvidenceLedgerDayOut */
+        EvidenceLedgerDayOut: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Rows */
+            rows: components["schemas"]["EvidenceLedgerRowOut"][];
+        };
+        /**
+         * EvidenceLedgerNameOut
+         * @description A roster company (each once) with its rows; a name with none is still listed. ``key`` = its
+         *     ``security_id`` (``ticker:<T>`` for a row with no resolved security).
+         */
+        EvidenceLedgerNameOut: {
+            /** Key */
+            key: string;
+            /** Ticker */
+            ticker: string;
+            /** Security Id */
+            security_id: string | null;
+            role: components["schemas"]["ContextRole"] | null;
+            /** Silent */
+            silent: string | null;
+            /** Rows */
+            rows: number;
+        };
+        /**
+         * EvidenceLedgerNightOut
+         * @description The recorded call the triggers come from: the night it was recorded for and whether it was reconstructed.
+         */
+        EvidenceLedgerNightOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /** Reconstructed */
+            reconstructed: boolean;
+        };
+        /**
+         * EvidenceLedgerOut
+         * @description One card's ledger at the as-of. ``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was
+         *     public by the end of that date). ``night`` = the recorded call the triggers come from (``null`` = none
+         *     recorded by the as-of); ``night_unreadable`` = a row was found but its card did not read. ``standing`` = the
+         *     rows with no date; ``groups`` = the dated rows, newest day first. ``facts_days`` = how far back the stored
+         *     facts are read. ``roster_fallback`` = no roster snapshot by the as-of: today's roster stands in.
+         *     ``unresolved`` = tickers of roster rows with no resolved security (they can carry no fact: counted, never
+         *     listed as one). ``cache`` / ``compute_ms`` = whether the heavy read came from the shared dashboard cache and
+         *     how long it took when computed (the card's own entries are read live either way).
+         */
+        EvidenceLedgerOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /**
+             * Clock
+             * @enum {string}
+             */
+            clock: "record" | "public";
+            /** Roster Fallback */
+            roster_fallback: boolean;
+            night: components["schemas"]["EvidenceLedgerNightOut"] | null;
+            /** Night Unreadable */
+            night_unreadable: boolean;
+            /** Basket Rows */
+            basket_rows: number;
+            /** Silent Rows */
+            silent_rows: number;
+            /** Unresolved */
+            unresolved: string[];
+            /** Facts Days */
+            facts_days: number;
+            /** Names */
+            names: components["schemas"]["EvidenceLedgerNameOut"][];
+            /** Standing */
+            standing: components["schemas"]["EvidenceLedgerRowOut"][];
+            /** Groups */
+            groups: components["schemas"]["EvidenceLedgerDayOut"][];
+            tallies: components["schemas"]["EvidenceLedgerTalliesOut"];
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * EvidenceLedgerRowOut
+         * @description One piece of evidence. ``authority`` = WHO put it there, never a judgment of it: ``operator`` (a person
+         *     ratified or set it), ``system`` (a computation on public data), ``automatic`` (an ingest leg stored it, nobody
+         *     ratified it), ``card`` (an entry the operator maintains on the card). ``kind``: ``trigger`` | ``risk_signal``
+         *     (the recorded card's) | ``ratified`` (a ratified or stored fact) | ``catalyst_fact`` | ``card_catalyst`` |
+         *     ``kill`` | ``evidence`` | ``role``. ``date`` = the day it counts under (``null`` = standing). ``form`` = the
+         *     row's own kind word. ``silent`` = Context / Bench when its company sits there. ``role`` = the context role
+         *     (a role row). ``by`` / ``on`` = who ratified or set it and the day. ``edgar`` = a source links to EDGAR.
+         *     ``reconstructed`` = from a night ``pipeline.backfill`` wrote (reported, never scored).
+         */
+        EvidenceLedgerRowOut: {
+            /** Key */
+            key: string;
+            /**
+             * Authority
+             * @enum {string}
+             */
+            authority: "operator" | "system" | "automatic" | "card";
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "trigger" | "risk_signal" | "ratified" | "catalyst_fact" | "card_catalyst" | "kill" | "evidence" | "role";
+            /** Label */
+            label: string;
+            /** Date */
+            date: string | null;
+            /** Security Id */
+            security_id: string | null;
+            /** Ticker */
+            ticker: string | null;
+            /** Form */
+            form: string | null;
+            /** Silent */
+            silent: string | null;
+            role: components["schemas"]["ContextRole"] | null;
+            /** By */
+            by: string | null;
+            /** On */
+            on: string | null;
+            /** Sources */
+            sources: components["schemas"]["EvidenceLedgerSourceOut"][];
+            /** Detail */
+            detail: string[];
+            /** Edgar */
+            edgar: boolean;
+            /** Reconstructed */
+            reconstructed: boolean;
+        };
+        /**
+         * EvidenceLedgerSourceOut
+         * @description A place a row points at. ``source`` = the kind as stored (``form4``, ``price``, ``xbrl``, a form), ``ref``
+         *     = its reference (an accession, a price reference), ``url`` = a link (``null`` = none known), ``detail`` = the
+         *     computation's inputs as stored, one ``key: value`` line each.
+         */
+        EvidenceLedgerSourceOut: {
+            /** Source */
+            source: string;
+            /** Ref */
+            ref: string | null;
+            /** Url */
+            url: string | null;
+            /** Detail */
+            detail: string[];
+        };
+        /**
+         * EvidenceLedgerTalliesOut
+         * @description Every row, whatever the page's filters. ``trace_*`` = how the fired signals (triggers and risk signals)
+         *     trace: an EDGAR accession, a price reference only, another source, or no source stated. ``facts_ratified`` /
+         *     ``facts_stored`` = the fact rows a person ratified / nobody did.
+         */
+        EvidenceLedgerTalliesOut: {
+            /** Rows */
+            rows: number;
+            /** By Authority */
+            by_authority: components["schemas"]["EvidenceLedgerCountOut"][];
+            /** By Kind */
+            by_kind: components["schemas"]["EvidenceLedgerCountOut"][];
+            /** Signals */
+            signals: number;
+            /** Trace Accession */
+            trace_accession: number;
+            /** Trace Price */
+            trace_price: number;
+            /** Trace Other */
+            trace_other: number;
+            /** Trace None */
+            trace_none: number;
+            /** Facts Ratified */
+            facts_ratified: number;
+            /** Facts Stored */
+            facts_stored: number;
+            /** Catalysts Dated */
+            catalysts_dated: number;
+            /** Catalysts Undated */
+            catalysts_undated: number;
+            /** Roles Dated */
+            roles_dated: number;
+            /** Roles Undated */
+            roles_undated: number;
+        };
+        /**
          * ExcludedName
          * @description One durably-excluded name (#7): the operator's NO, with the optional why. Applied by the
          *     EDITOR as pre-seeded grayed state — discovery never filters on it (#9, recall sacred).
@@ -7347,6 +8115,244 @@ export interface components {
             empty_reason?: string | null;
             /** Runway Empty Reason */
             runway_empty_reason?: string | null;
+        };
+        /**
+         * FilingStreamCardOut
+         * @description A card in the picker: its name and its real links today (Context and Bench not counted).
+         */
+        FilingStreamCardOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Name */
+            name: string;
+            /** Links */
+            links: number;
+        };
+        /**
+         * FilingStreamCardsOut
+         * @description The picker: the cards counted at the as-of (the live cards that existed by then), A→Z. ``cache`` /
+         *     ``compute_ms`` = whether the list came from the shared dashboard cache and how long it took when computed.
+         */
+        FilingStreamCardsOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /** Live Cards */
+            live_cards: number;
+            /** Not Yet Created */
+            not_yet_created: number;
+            /** Cards */
+            cards: components["schemas"]["FilingStreamCardOut"][];
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * FilingStreamCountsOut
+         * @description What the window holds, folded rows included. ``form4_purchases`` = Form 4s holding a code-P purchase;
+         *     ``routine`` = the rows the fold covers.
+         */
+        FilingStreamCountsOut: {
+            /** Rows */
+            rows: number;
+            /** By Kind */
+            by_kind: components["schemas"]["FilingStreamKindOut"][];
+            /** Form4 Purchases */
+            form4_purchases: number;
+            /** Routine */
+            routine: number;
+        };
+        /**
+         * FilingStreamDayOut
+         * @description One day of the stream, its rows in stream order; ``routine`` = how many of them the fold covers.
+         */
+        FilingStreamDayOut: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Routine */
+            routine: number;
+            /** Rows */
+            rows: components["schemas"]["FilingStreamRowOut"][];
+        };
+        /**
+         * FilingStreamDays
+         * @description The window: the last 30, 90 or 365 days.
+         * @enum {integer}
+         */
+        FilingStreamDays: 30 | 90 | 365;
+        /** FilingStreamKindOut */
+        FilingStreamKindOut: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "8k" | "stake" | "form4" | "form4a" | "revenue" | "split" | "dilution" | "catalyst" | "ratified";
+            /** Rows */
+            rows: number;
+        };
+        /**
+         * FilingStreamLinkOut
+         * @description A link a page can filter by (``names`` = the companies on it today's roster, each once).
+         */
+        FilingStreamLinkOut: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "link" | "old_link" | "no_link" | "silent";
+            /** Names */
+            names: number;
+        };
+        /**
+         * FilingStreamNameOut
+         * @description A roster company (each once) with its rows in the window; a name with none is still listed.
+         *     ``key`` = its ``security_id`` (``ticker:<T>`` for a row with no resolved security).
+         */
+        FilingStreamNameOut: {
+            /** Key */
+            key: string;
+            /** Ticker */
+            ticker: string;
+            /** Security Id */
+            security_id: string | null;
+            /** Links */
+            links: (string | null)[];
+            role: components["schemas"]["ContextRole"] | null;
+            /** Silent */
+            silent: boolean;
+            /** Rows */
+            rows: number;
+        };
+        /**
+         * FilingStreamOut
+         * @description One card's stream for one window, newest day first. ``clock``: ``record`` (the live read) or ``public``
+         *     (a past as-of: what was public by the end of that date). ``roster_fallback`` = no roster snapshot by the
+         *     as-of: today's roster stands in. ``unresolved`` = tickers of basket rows with no resolved security (they can
+         *     carry no facts: counted, never in the stream). ``cache`` / ``compute_ms`` = whether the 365-day rows came
+         *     from the shared dashboard cache and how long they took when computed.
+         */
+        FilingStreamOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /** Days */
+            days: number;
+            /**
+             * Window Start
+             * Format: date
+             */
+            window_start: string;
+            /**
+             * Clock
+             * @enum {string}
+             */
+            clock: "record" | "public";
+            /** Roster Fallback */
+            roster_fallback: boolean;
+            /** Links Today */
+            links_today: number;
+            /** Basket Rows */
+            basket_rows: number;
+            /** Silent Rows */
+            silent_rows: number;
+            /** Unresolved */
+            unresolved: string[];
+            /** Links */
+            links: components["schemas"]["FilingStreamLinkOut"][];
+            /** Roles */
+            roles: components["schemas"]["ContextRole"][];
+            /** Names */
+            names: components["schemas"]["FilingStreamNameOut"][];
+            /** Groups */
+            groups: components["schemas"]["FilingStreamDayOut"][];
+            counts: components["schemas"]["FilingStreamCountsOut"];
+            /** Windows */
+            windows: number[];
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * FilingStreamRowOut
+         * @description One filing-derived fact. ``kind``: ``8k`` | ``form4`` | ``form4a`` | ``stake`` | ``revenue`` | ``split`` |
+         *     ``dilution`` | ``catalyst`` | ``ratified`` (a ratified fact, ``form`` "ratified fact", or a stored fact nobody
+         *     ratified, ``form`` "stored fact"). ``form`` = the form as filed or the row's own label; ``date`` = the
+         *     public date it counts from; ``headline`` = one neutral line; ``detail`` = the lines the expanded row shows;
+         *     ``url`` = the filing's EDGAR index or the stored source (``null`` = none known); ``tags`` = quiet field
+         *     predicates; ``routine`` = a fold candidate (a Form 4 holding no code-P purchase); ``usd`` = the row's dollar
+         *     size when it has one (a Form 4's purchases minus sales, a dilution's principal). ``links`` / ``role`` /
+         *     ``silent`` = the company's place on the card at the as-of (``null`` in ``links`` = no link).
+         */
+        FilingStreamRowOut: {
+            /** Key */
+            key: string;
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "8k" | "stake" | "form4" | "form4a" | "revenue" | "split" | "dilution" | "catalyst" | "ratified";
+            /** Form */
+            form: string;
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Headline */
+            headline: string;
+            /** Detail */
+            detail: string[];
+            /** Url */
+            url: string | null;
+            /** Accession */
+            accession: string | null;
+            /** Tags */
+            tags: string[];
+            /** Routine */
+            routine: boolean;
+            /** Usd */
+            usd: number | null;
+            /** Links */
+            links: (string | null)[];
+            role: components["schemas"]["ContextRole"] | null;
+            /** Silent */
+            silent: boolean;
         };
         /**
          * FiringDiagnostics
@@ -8542,6 +9548,281 @@ export interface components {
             split_table?: components["schemas"]["SplitTableInfo"] | null;
         };
         /**
+         * MultiplesBarOut
+         * @description One quarterly revenue print: placed by its ``period_end`` (``quarter`` = its calendar quarter, ``2026-Q2``),
+         *     dated by the filing that made it public (``filed``; ``accession`` and its EDGAR index ``url``). ``basis`` =
+         *     ``native`` (a standalone quarter) or ``derived`` (the fiscal year minus nine months). ``first_knowable`` is set
+         *     only when the value was public earlier than ``filed`` (a re-report), with its accession. ``yoy`` = percent
+         *     change against the same period a year earlier (``prior_period_end``); ``null`` = no such row in the read.
+         */
+        MultiplesBarOut: {
+            /** Quarter */
+            quarter: string;
+            /**
+             * Period End
+             * Format: date
+             */
+            period_end: string;
+            /** Value */
+            value: number;
+            /** Basis */
+            basis: string;
+            /** Fiscal Period */
+            fiscal_period: string | null;
+            /** Fiscal Year */
+            fiscal_year: number | null;
+            /**
+             * Filed
+             * Format: date
+             */
+            filed: string;
+            /** Accession */
+            accession: string | null;
+            /** Url */
+            url: string | null;
+            /** First Knowable */
+            first_knowable: string | null;
+            /** First Knowable Accession */
+            first_knowable_accession: string | null;
+            /** Yoy */
+            yoy: number | null;
+            /** Prior Period End */
+            prior_period_end: string | null;
+        };
+        /**
+         * MultiplesCardOut
+         * @description A card in the picker: its name and its real links today (Context and Bench not counted).
+         */
+        MultiplesCardOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Name */
+            name: string;
+            /** Links */
+            links: number;
+        };
+        /**
+         * MultiplesCardsOut
+         * @description The picker: the cards counted at the as-of (the live cards that existed by then), A→Z. ``cache`` /
+         *     ``compute_ms`` = whether the list came from the shared dashboard cache and how long it took when computed.
+         */
+        MultiplesCardsOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /** Live Cards */
+            live_cards: number;
+            /** Not Yet Created */
+            not_yet_created: number;
+            /** Cards */
+            cards: components["schemas"]["MultiplesCardOut"][];
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * MultiplesCompanyOut
+         * @description One roster company, once. ``company_key`` is the company's (``security_id``, or ``ticker:<T>`` with no
+         *     resolved security); ``ticker`` = its ticker on the card (the Cockpit's ``?name=`` key). ``silent`` = it sits
+         *     only in Context or Bench (never in a median). ``state``: ``series`` (five or more bars on the axis), ``thin``
+         *     (one to four), ``stale`` (a series that ends before the axis: no bar), ``none`` (no revenue stored) or
+         *     ``unresolved`` (no resolved security). ``periods`` = revenue period ends stored on or before the as-of;
+         *     ``set_aside`` = revenue rows an active data-quality set-aside covers.
+         */
+        MultiplesCompanyOut: {
+            /** Company Key */
+            company_key: string;
+            /** Ticker */
+            ticker: string;
+            /** Name */
+            name: string | null;
+            /** Security Id */
+            security_id: string | null;
+            /** Silent */
+            silent: boolean;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "series" | "thin" | "stale" | "none" | "unresolved";
+            /** Periods */
+            periods: number;
+            /** Bars */
+            bars: components["schemas"]["MultiplesBarOut"][];
+            last_print: components["schemas"]["MultiplesLastPrintOut"] | null;
+            /** Set Aside */
+            set_aside: number;
+        };
+        /**
+         * MultiplesCountsOut
+         * @description The work: roster rows split resolved / unresolved / silent; ``companies`` = distinct roster companies, of
+         *     which ``counting`` sit in a real, old or No-link row and ``silent_companies`` only in Context or Bench;
+         *     ``with_series`` / ``without_series`` split them by whether any revenue period end is stored; ``thin`` and
+         *     ``stale`` are of the ones with a series; ``set_aside`` = revenue rows covered by an active set-aside on the
+         *     card's names.
+         */
+        MultiplesCountsOut: {
+            /** Links Today */
+            links_today: number;
+            /** Old Links */
+            old_links: number;
+            /** Roster Rows */
+            roster_rows: number;
+            /** Resolved Rows */
+            resolved_rows: number;
+            /** Unresolved Rows */
+            unresolved_rows: number;
+            /** Silent Rows */
+            silent_rows: number;
+            /** Companies */
+            companies: number;
+            /** Counting */
+            counting: number;
+            /** Silent Companies */
+            silent_companies: number;
+            /** With Series */
+            with_series: number;
+            /** Without Series */
+            without_series: number;
+            /** Thin */
+            thin: number;
+            /** Stale */
+            stale: number;
+            /** Set Aside */
+            set_aside: number;
+        };
+        /**
+         * MultiplesLastPrintOut
+         * @description A name's newest print by period end (even one older than the axis): ``days_before`` = how many days before
+         *     the as-of it was filed; ``yoy`` = its percent change on the same period a year earlier.
+         */
+        MultiplesLastPrintOut: {
+            /** Quarter */
+            quarter: string;
+            /**
+             * Period End
+             * Format: date
+             */
+            period_end: string;
+            /**
+             * Filed
+             * Format: date
+             */
+            filed: string;
+            /** Days Before */
+            days_before: number;
+            /** Yoy */
+            yoy: number | null;
+        };
+        /**
+         * MultiplesMedianOut
+         * @description A median line over the axis. ``counting`` = the counting names it is over; each point's ``n`` is how many
+         *     of them contributed. A line over exactly one name is that name's own dots.
+         */
+        MultiplesMedianOut: {
+            /** Counting */
+            counting: number;
+            /** Points */
+            points: components["schemas"]["MultiplesMedianPointOut"][];
+        };
+        /**
+         * MultiplesMedianPointOut
+         * @description One axis quarter of a median line: ``median`` (percent; ``null`` = not drawn, fewer than the needed names)
+         *     and ``n`` = the names that had a year-over-year change that quarter.
+         */
+        MultiplesMedianPointOut: {
+            /** Quarter */
+            quarter: string;
+            /** Median */
+            median: number | null;
+            /** N */
+            n: number;
+        };
+        /**
+         * MultiplesOut
+         * @description One card's revenue series. ``axis`` = the calendar quarters drawn, oldest first (twelve ending at the newest
+         *     quarter any roster name's latest print falls in; empty when no name has a print); ``card_line`` = the median
+         *     over the card's counting names; ``rows`` in chain order (real links, then a roster link that is not on the card
+         *     today, then No link, then Context, then Bench); ``companies`` = every roster company once, referenced by key
+         *     from the rows. ``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was public by the end of
+         *     that date). ``roster_fallback`` = no roster snapshot by the as-of: today's roster stands in. ``quarters`` /
+         *     ``thin_below`` / ``min_median_names`` = the rules the page states. ``cache`` / ``compute_ms`` = whether the page
+         *     came from the shared dashboard cache and how long it took when computed.
+         */
+        MultiplesOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /**
+             * Clock
+             * @enum {string}
+             */
+            clock: "record" | "public";
+            /** Roster Fallback */
+            roster_fallback: boolean;
+            /** Axis */
+            axis: string[];
+            card_line: components["schemas"]["MultiplesMedianOut"];
+            /** Rows */
+            rows: components["schemas"]["MultiplesRowOut"][];
+            /** Companies */
+            companies: components["schemas"]["MultiplesCompanyOut"][];
+            counts: components["schemas"]["MultiplesCountsOut"];
+            /** Quarters */
+            quarters: number;
+            /** Thin Below */
+            thin_below: number;
+            /** Min Median Names */
+            min_median_names: number;
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * MultiplesRowOut
+         * @description A row of names. ``kind``: ``link`` (a real link today, chain order), ``old_link`` (a roster link that is not
+         *     on the card today), ``no_link``, or ``silent`` (the Context or Bench names; ``label`` says which; no median).
+         *     ``companies`` = company keys in roster order; ``descriptor`` = the link's descriptor when set.
+         */
+        MultiplesRowOut: {
+            /** Key */
+            key: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "link" | "old_link" | "no_link" | "silent";
+            /** Label */
+            label: string;
+            /** Descriptor */
+            descriptor: string | null;
+            /** Companies */
+            companies: string[];
+            median: components["schemas"]["MultiplesMedianOut"] | null;
+        };
+        /**
          * NarrativeBenchmarkOut
          * @description A benchmark over the window's sessions, rebased to 100 at the window start. ``available`` false = no
          *     line, and ``reason`` says why. ``sessions_flat`` = window sessions it had no bar for (carried flat).
@@ -8898,6 +10179,493 @@ export interface components {
             operator_return?: number | null;
             /** Reason */
             reason?: string | null;
+        };
+        /** PeerBlankOut */
+        PeerBlankOut: {
+            /**
+             * Gap
+             * @enum {string}
+             */
+            gap: "flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ";
+            /** N */
+            n: number;
+        };
+        /**
+         * PeerCapOut
+         * @description The approximate market cap (USD) and its tier: the latest close times the latest shares fact, the
+         *     Workbench's rule (``ads_ratio_status`` known divides the ordinary count by ``ads_ratio``, unread withholds the
+         *     cap, none counts 1:1), with ``split_factor`` = the multiplier put on the count when a split in force sits
+         *     between the count's date and the close's. ``shares`` = the ordinary count on file.
+         */
+        PeerCapOut: {
+            /** Value */
+            value: number | null;
+            tier: components["schemas"]["CapTier"] | null;
+            /** Gap */
+            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
+            /** Note */
+            note: string | null;
+            /** Close */
+            close: number | null;
+            /** Close Date */
+            close_date: string | null;
+            /** Shares */
+            shares: number | null;
+            /** Shares Date */
+            shares_date: string | null;
+            /** Ads Ratio */
+            ads_ratio: number | null;
+            /** Split Factor */
+            split_factor: number | null;
+        };
+        /**
+         * PeerCardChipOut
+         * @description A card the company sits on: its ticker there (the Cockpit's ``?name=`` key), its links there (``null`` = no
+         *     link; Context / Bench by their labels), whether it is silent there and its context role there.
+         */
+        PeerCardChipOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /** Ticker */
+            ticker: string;
+            /** Links */
+            links: (string | null)[];
+            /** Silent */
+            silent: boolean;
+            role: components["schemas"]["ContextRole"] | null;
+        };
+        /**
+         * PeerCardOptionOut
+         * @description A counted card in the picker: its real links today (Context and Bench not counted) and its distinct
+         *     companies on the roster at the as-of.
+         */
+        PeerCardOptionOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Name */
+            name: string;
+            /** Links */
+            links: number;
+            /** Companies */
+            companies: number;
+        };
+        /**
+         * PeerCellOut
+         * @description A number cell: ``value`` is stated, or ``gap`` says why it is blank (``flagged`` | ``no_price`` |
+         *     ``no_reading`` | ``no_shares`` | ``ads_unread`` | ``no_cap`` | ``no_revenue`` | ``no_prior_year`` | ``no_burn`` |
+         *     ``no_convert`` | ``no_mix`` | ``no_form4`` | ``no_spy`` | ``ends_differ``) and ``note`` is the reader's own
+         *     words (a display member's "n/a: 120/200 bars", the flags' labels). Blank is never zero. The unit is the
+         *     column's: 52-week-high and the two averages in percent, RVOL as a ratio, dollar volume in USD, overhang in
+         *     percent of shares.
+         */
+        PeerCellOut: {
+            /** Value */
+            value: number | null;
+            /** Gap */
+            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
+            /** Note */
+            note: string | null;
+        };
+        /**
+         * PeerCompanyOut
+         * @description One company, once. ``key`` = its ``security_id``. ``business_type`` / ``supersector`` = today's identity
+         *     (``null`` = unclassified), ``royalty`` = the royalty/streaming overlay. ``roles`` = the distinct context roles
+         *     it holds; ``silent_only`` = every row is Context or Bench; ``workbench_facts`` = it holds a shares, cash/burn,
+         *     revenue-mix or convertible-note fact; ``flag`` = why its price-derived cells are blank (its row stays).
+         */
+        PeerCompanyOut: {
+            /** Key */
+            key: string;
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Name */
+            name: string | null;
+            /** Business Type */
+            business_type: string | null;
+            /** Supersector */
+            supersector: string | null;
+            /** Royalty */
+            royalty: boolean;
+            /** Cards */
+            cards: components["schemas"]["PeerCardChipOut"][];
+            /** Roles */
+            roles: components["schemas"]["ContextRole"][];
+            /** Silent Only */
+            silent_only: boolean;
+            /** Rows */
+            rows: number;
+            /** Workbench Facts */
+            workbench_facts: boolean;
+            /** Flag */
+            flag: string | null;
+            cap: components["schemas"]["PeerCapOut"];
+            revenue: components["schemas"]["PeerRevenueOut"];
+            yoy: components["schemas"]["PeerYoyOut"];
+            runway: components["schemas"]["PeerRunwayOut"];
+            overhang: components["schemas"]["PeerCellOut"];
+            purity: components["schemas"]["PeerPurityOut"];
+            off_high: components["schemas"]["PeerCellOut"];
+            sma50: components["schemas"]["PeerCellOut"];
+            sma200: components["schemas"]["PeerCellOut"];
+            rvol20: components["schemas"]["PeerCellOut"];
+            adv: components["schemas"]["PeerCellOut"];
+            vs_spy: components["schemas"]["PeerSpyOut"];
+            insider: components["schemas"]["PeerInsiderOut"];
+        };
+        /**
+         * PeerCoverageOut
+         * @description A column's coverage: ``stated`` of ``total`` names, the blanks by reason (most first).
+         */
+        PeerCoverageOut: {
+            /**
+             * Column
+             * @enum {string}
+             */
+            column: "cap" | "revenue" | "yoy" | "runway" | "overhang" | "purity" | "off_high" | "sma50" | "sma200" | "rvol20" | "adv" | "vs_spy" | "insider";
+            /** Stated */
+            stated: number;
+            /** Total */
+            total: number;
+            /** Blanks */
+            blanks: components["schemas"]["PeerBlankOut"][];
+        };
+        /**
+         * PeerFlaggedOut
+         * @description A company in scope whose data flags reach its price readings at the as-of: its row stays, its price-derived
+         *     cells name ``reason`` (the flags' labels).
+         */
+        PeerFlaggedOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * PeerGroupOut
+         * @description A group header row. ``kind``: ``supersector`` | ``business_type`` (the leaf) | ``link`` | ``old_link`` (a
+         *     roster link no longer on the card) | ``no_link`` | ``silent`` (Context or Bench); ``label`` = the key (the page
+         *     words it). ``depth`` 1 = a leaf under a supersector (the all-cards scope). ``members`` = the keys of the
+         *     companies listed under it, names A to Z (a supersector header lists none: its leaves do). ``stats`` = every name
+         *     in the group; ``stats_counting`` = the names that count (not silent-only).
+         */
+        PeerGroupOut: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "supersector" | "business_type" | "link" | "old_link" | "no_link" | "silent";
+            /** Depth */
+            depth: number;
+            /** Members */
+            members: string[];
+            stats: components["schemas"]["PeerGroupStatsOut"];
+            stats_counting: components["schemas"]["PeerGroupStatsOut"];
+        };
+        /**
+         * PeerGroupStatsOut
+         * @description What a group row says, each figure with its n: the names; the median approximate cap; the names above the
+         *     50-day average of those with a 50-day reading; the median 30-day return minus SPY's; the median YoY; the names
+         *     with a runway figure. Medians only, equal weight, no score.
+         */
+        PeerGroupStatsOut: {
+            /** Names */
+            names: number;
+            cap: components["schemas"]["PeerMedianOut"];
+            /** Above 50D */
+            above_50d: number;
+            /** Priced 50D */
+            priced_50d: number;
+            vs_spy: components["schemas"]["PeerMedianOut"];
+            yoy: components["schemas"]["PeerMedianOut"];
+            /** Runway */
+            runway: number;
+        };
+        /**
+         * PeerInsiderOut
+         * @description Open-market buys in the member's 90-day window as the Cockpit's column screens them: count, dollars and
+         *     distinct buyers. ``buys`` 0 is a stated zero; ``gap`` ``no_form4`` = no Form 4 ingested (a blank).
+         */
+        PeerInsiderOut: {
+            /** Buys */
+            buys: number | null;
+            /** Usd */
+            usd: number | null;
+            /** Buyers */
+            buyers: number | null;
+            /** Gap */
+            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
+            /** Note */
+            note: string | null;
+        };
+        /**
+         * PeerKeyOptionOut
+         * @description A business-type leaf or a supersector present on the counted rosters (``unclassified`` = no business type),
+         *     with the distinct companies on it.
+         */
+        PeerKeyOptionOut: {
+            /** Key */
+            key: string;
+            /** Companies */
+            companies: number;
+        };
+        /**
+         * PeerMedianOut
+         * @description A median and the n it rests on (``value`` null with ``n`` 0).
+         */
+        PeerMedianOut: {
+            /** Value */
+            value: number | null;
+            /** N */
+            n: number;
+        };
+        /**
+         * PeerPurityOut
+         * @description The largest revenue-mix line, in percent, with its segment label.
+         */
+        PeerPurityOut: {
+            /** Value */
+            value: number | null;
+            /** Segment */
+            segment: string | null;
+            /** Gap */
+            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
+        };
+        /**
+         * PeerRevenueOut
+         * @description The latest period's revenue (USD) from the XBRL series, with its period end.
+         */
+        PeerRevenueOut: {
+            /** Value */
+            value: number | null;
+            /** Period End */
+            period_end: string | null;
+            /** Gap */
+            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
+        };
+        /**
+         * PeerRunwayOut
+         * @description Months of cash at the current burn (cash / (quarterly burn / 3)); ``cash_positive`` when the burn is zero or
+         *     negative (no finite figure). ``as_of`` = the fact's date.
+         */
+        PeerRunwayOut: {
+            /** Months */
+            months: number | null;
+            /** Cash Positive */
+            cash_positive: boolean;
+            /** Cash Usd */
+            cash_usd: number | null;
+            /** Burn Usd */
+            burn_usd: number | null;
+            /** As Of */
+            as_of: string | null;
+            /** Gap */
+            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
+        };
+        /**
+         * PeerScopesOut
+         * @description What can be picked at the as-of: the business-type leaves and supersectors present on the live rosters
+         *     (biggest first, Unclassified last) and the counted cards (A to Z), each with its companies. ``default_scope`` /
+         *     ``default_key`` = the leaf to open on (the first with two or more companies); ``null`` with no company at all.
+         *     ``cards_counted`` = the live cards that existed by the as-of; ``roster_fallback_cards`` = counted cards with no
+         *     roster snapshot by then (today's roster stands in). ``companies`` = distinct resolved companies on them;
+         *     ``unresolved_rows`` = roster rows with no resolved security (never a company). ``clock``: ``record`` (the live
+         *     read) or ``public`` (a past as-of: what was public by the end of that date). ``cache`` / ``compute_ms`` = whether
+         *     the lists came from the shared dashboard cache and how long they took when computed.
+         */
+        PeerScopesOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Clock
+             * @enum {string}
+             */
+            clock: "record" | "public";
+            /** Live Cards */
+            live_cards: number;
+            /** Cards Counted */
+            cards_counted: number;
+            /** Cards Not Yet Created */
+            cards_not_yet_created: number;
+            /** Roster Fallback Cards */
+            roster_fallback_cards: number;
+            /** Companies */
+            companies: number;
+            /** Unresolved Rows */
+            unresolved_rows: number;
+            /** Business Types */
+            business_types: components["schemas"]["PeerKeyOptionOut"][];
+            /** Supersectors */
+            supersectors: components["schemas"]["PeerKeyOptionOut"][];
+            /** Cards */
+            cards: components["schemas"]["PeerCardOptionOut"][];
+            /** Default Scope */
+            default_scope: ("business_type" | "supersector" | "card" | "all") | null;
+            /** Default Key */
+            default_key: string | null;
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * PeerSpyOut
+         * @description The 30-trading-day return minus SPY's, in percentage points (``value``), the two returns it is made of and
+         *     the date of the company's last close.
+         */
+        PeerSpyOut: {
+            /** Value */
+            value: number | null;
+            /** Ret Pct */
+            ret_pct: number | null;
+            /** Spy Pct */
+            spy_pct: number | null;
+            /** Last Close */
+            last_close: string | null;
+            /** Gap */
+            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
+            /** Note */
+            note: string | null;
+        };
+        /**
+         * PeerSpyRefOut
+         * @description SPY's own 30-trading-day return at the as-of, the benchmark every vs-SPY cell subtracts.
+         */
+        PeerSpyRefOut: {
+            /** Ret 30D */
+            ret_30d: number | null;
+            /** End */
+            end: string | null;
+        };
+        /**
+         * PeerTableOut
+         * @description One scope's table. ``scope`` + ``key``: the picked scope (``key`` null for ``all``); ``scope_name`` = the
+         *     card's name in a card scope. ``companies`` = every company in scope once, in the default order (group order,
+         *     names A to Z inside); ``groups`` list their keys. ``coverage`` / ``coverage_counting`` = every column's coverage
+         *     over every company / over the names that count. ``scope_cards`` = counted cards holding at least one company in
+         *     scope; ``rows`` = their roster rows in view; ``silent_only`` = companies whose every row is Context or Bench.
+         *     ``unresolved`` = roster rows with no resolved security (a card scope: that card's; else every counted card's).
+         *     ``flagged`` = companies in scope with a data flag that reaches their price readings. ``clock``: ``record`` (the
+         *     live read) or ``public`` (a past as-of). ``cache`` / ``compute_ms`` = whether the table came from the shared
+         *     dashboard cache and how long it took when computed.
+         */
+        PeerTableOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Clock
+             * @enum {string}
+             */
+            clock: "record" | "public";
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "business_type" | "supersector" | "card" | "all";
+            /** Key */
+            key: string | null;
+            /** Scope Name */
+            scope_name: string | null;
+            /** Live Cards */
+            live_cards: number;
+            /** Cards Counted */
+            cards_counted: number;
+            /** Cards Not Yet Created */
+            cards_not_yet_created: number;
+            /** Roster Fallback Cards */
+            roster_fallback_cards: number;
+            /** Scope Cards */
+            scope_cards: number;
+            /** Rows */
+            rows: number;
+            /** Silent Only */
+            silent_only: number;
+            /** Companies */
+            companies: components["schemas"]["PeerCompanyOut"][];
+            /** Groups */
+            groups: components["schemas"]["PeerGroupOut"][];
+            /** Unresolved */
+            unresolved: components["schemas"]["PeerUnresolvedOut"][];
+            /** Unresolved Rows */
+            unresolved_rows: number;
+            /** Flagged */
+            flagged: components["schemas"]["PeerFlaggedOut"][];
+            /** Coverage */
+            coverage: components["schemas"]["PeerCoverageOut"][];
+            /** Coverage Counting */
+            coverage_counting: components["schemas"]["PeerCoverageOut"][];
+            spy: components["schemas"]["PeerSpyRefOut"] | null;
+            /** Benchmark */
+            benchmark: string;
+            /** Columns */
+            columns: ("cap" | "revenue" | "yoy" | "runway" | "overhang" | "purity" | "off_high" | "sma50" | "sma200" | "rvol20" | "adv" | "vs_spy" | "insider")[];
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * PeerUnresolvedOut
+         * @description A roster row with no resolved security: counted and listed, never a row.
+         */
+        PeerUnresolvedOut: {
+            /** Ticker */
+            ticker: string;
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+        };
+        /**
+         * PeerYoyOut
+         * @description The change in percent against the row for the same period end a year earlier (within 10 days) in the same
+         *     read, with the prior figure it rests on.
+         */
+        PeerYoyOut: {
+            /** Value */
+            value: number | null;
+            /** Prior Value */
+            prior_value: number | null;
+            /** Prior Period End */
+            prior_period_end: string | null;
+            /** Gap */
+            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
         };
         /**
          * PlacementStatus
@@ -9450,6 +11218,251 @@ export interface components {
             ads_ratio?: number | null;
             /** Ads Ratio Status */
             ads_ratio_status?: ("known" | "unread") | null;
+        };
+        /**
+         * ReadThroughCardOut
+         * @description A card a company holds the role on. ``ticker`` = its ticker there (the Cockpit's ``?name=`` key);
+         *     ``links`` = its links there (``null`` = no link; Context / Bench by their labels); ``silent`` = it is in
+         *     Context or Bench there (it never counts toward the call).
+         */
+        ReadThroughCardOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /** Ticker */
+            ticker: string;
+            /** Links */
+            links: (string | null)[];
+            /** Silent */
+            silent: boolean;
+        };
+        /** ReadThroughCardRefOut */
+        ReadThroughCardRefOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+        };
+        /**
+         * ReadThroughCatalystOut
+         * @description The nearest dated card-level catalyst on or after the as-of among the row's cards; ``days`` = its date
+         *     minus the as-of (0 = the as-of day).
+         */
+        ReadThroughCatalystOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /**
+             * Catalyst Id
+             * Format: uuid
+             */
+            catalyst_id: string;
+            /** Label */
+            label: string;
+            /** Kind */
+            kind: string | null;
+            /**
+             * When Date
+             * Format: date
+             */
+            when_date: string;
+            /** When Label */
+            when_label: string | null;
+            /** Days */
+            days: number;
+        };
+        /**
+         * ReadThroughFilingOut
+         * @description The company's newest SEC filing in the last ``filing_days`` days: ``kind`` (``8k`` | ``stake`` | ``form4`` |
+         *     ``form4a`` | ``revenue``; never a split, a catalyst or a ratified or stored fact), ``form`` (the form as
+         *     filed), its public ``date`` (``days_ago`` before the as-of), one neutral ``headline``, and ``url`` (the EDGAR
+         *     filing index or the stored source; ``null`` = none known).
+         */
+        ReadThroughFilingOut: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "8k" | "stake" | "form4" | "form4a" | "revenue" | "split" | "dilution" | "catalyst" | "ratified";
+            /** Form */
+            form: string;
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Days Ago */
+            days_ago: number;
+            /** Headline */
+            headline: string;
+            /** Url */
+            url: string | null;
+            /** Accession */
+            accession: string | null;
+        };
+        /**
+         * ReadThroughFlaggedOut
+         * @description A role company whose data flags reach its price readings at the as-of: its row stays, its tape cells name
+         *     ``reason`` (the flags' labels).
+         */
+        ReadThroughFlaggedOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * ReadThroughOut
+         * @description The whole table for the as-of, in the default order (newest last filing first; no filing last, A to Z).
+         *     ``cards_counted`` = the live cards that existed by the as-of; ``cards_with_roles`` of them hold at least one
+         *     role, ``cards_without_roles`` hold none (listed: the page is also the to-do list for roles); ``role_tags`` =
+         *     the roles set (one per card and company), ``companies`` = distinct role companies, ``by_role`` = the rows per
+         *     role (a role with none included). ``unresolved`` = tickers of the role rows with no resolved security
+         *     (``unresolved_rows``: counted, never a row). ``flagged`` = role companies whose data flags reach their price
+         *     readings. ``tape_ends_differ`` = rows whose last close is not SPY's. ``roster_fallback_cards`` = counted cards
+         *     with no roster snapshot by the as-of (today's roster stands in). ``clock``: ``record`` (the live read) or
+         *     ``public`` (a past as-of: what was public by the end of that date). ``cache`` / ``compute_ms`` = whether the
+         *     table came from the shared dashboard cache and how long it took when computed.
+         */
+        ReadThroughOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Clock
+             * @enum {string}
+             */
+            clock: "record" | "public";
+            /** Live Cards */
+            live_cards: number;
+            /** Cards Counted */
+            cards_counted: number;
+            /** Cards Not Yet Created */
+            cards_not_yet_created: number;
+            /** Roster Fallback Cards */
+            roster_fallback_cards: number;
+            /** Cards With Roles */
+            cards_with_roles: number;
+            /** Cards Without Roles */
+            cards_without_roles: components["schemas"]["ReadThroughCardRefOut"][];
+            /** Role Tags */
+            role_tags: number;
+            /** Companies */
+            companies: number;
+            /** By Role */
+            by_role: components["schemas"]["ReadThroughRoleCountOut"][];
+            /** Rows */
+            rows: components["schemas"]["ReadThroughRowOut"][];
+            /** Rows With Filing */
+            rows_with_filing: number;
+            /** Unresolved */
+            unresolved: string[];
+            /** Unresolved Rows */
+            unresolved_rows: number;
+            /** Flagged */
+            flagged: components["schemas"]["ReadThroughFlaggedOut"][];
+            /** Tape Ends Differ */
+            tape_ends_differ: number;
+            spy: components["schemas"]["ReadThroughSpyOut"] | null;
+            /** Benchmark */
+            benchmark: string;
+            /** Tape Windows */
+            tape_windows: number[];
+            /** Filing Days */
+            filing_days: number;
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /** ReadThroughRoleCountOut */
+        ReadThroughRoleCountOut: {
+            role: components["schemas"]["ContextRole"];
+            /** Rows */
+            rows: number;
+        };
+        /**
+         * ReadThroughRowOut
+         * @description One (company, role). ``key`` = ``<security_id>:<role>``; ``ticker`` = the one most of its cards use;
+         *     ``business_type`` = the leaf derived on read from the master (the operator's re-tag wins; ``null`` = unknown).
+         */
+        ReadThroughRowOut: {
+            /** Key */
+            key: string;
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Name */
+            name: string | null;
+            role: components["schemas"]["ContextRole"];
+            /** Cards */
+            cards: components["schemas"]["ReadThroughCardOut"][];
+            /** Business Type */
+            business_type: string | null;
+            last_filing: components["schemas"]["ReadThroughFilingOut"] | null;
+            next_catalyst: components["schemas"]["ReadThroughCatalystOut"] | null;
+            tape: components["schemas"]["ReadThroughTapeOut"];
+        };
+        /**
+         * ReadThroughSpyOut
+         * @description SPY's own trailing returns at the as-of, the benchmark every vs-SPY cell subtracts.
+         */
+        ReadThroughSpyOut: {
+            /** Ret 7D */
+            ret_7d: number | null;
+            /** Ret 30D */
+            ret_30d: number | null;
+            /** End */
+            end: string | null;
+        };
+        /**
+         * ReadThroughTapeOut
+         * @description The company's tape. ``ret_7d`` / ``ret_30d`` = its trailing return in percent over the last 7 / 30 trading
+         *     days; ``vs_spy_*`` = that minus SPY's over the same window, in percentage points; ``last_close`` = the date of
+         *     its last close. ``gap`` = why the vs-SPY cells are blank: ``flagged`` (its data flags reach its price readings;
+         *     ``reason`` = the flags' labels, and no return is shown), ``no_tape`` (no bars), ``no_spy`` (SPY has none) or
+         *     ``ends_differ`` (its last close is not SPY's last close). ``null`` = shown, or only that window is short.
+         */
+        ReadThroughTapeOut: {
+            /** Ret 7D */
+            ret_7d: number | null;
+            /** Ret 30D */
+            ret_30d: number | null;
+            /** Vs Spy 7D */
+            vs_spy_7d: number | null;
+            /** Vs Spy 30D */
+            vs_spy_30d: number | null;
+            /** Last Close */
+            last_close: string | null;
+            /** Gap */
+            gap: ("flagged" | "no_tape" | "no_spy" | "ends_differ") | null;
+            /** Reason */
+            reason: string | null;
         };
         /**
          * ResolveEtfRequest
@@ -13701,6 +15714,72 @@ export interface operations {
             };
         };
     };
+    chain_map_cards_dashboards_chain_map_cards_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; only the cards that existed by then are listed */
+                asof: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChainMapCardsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chain_map_for_card_dashboards_chain_map__thesis_id__get: {
+        parameters: {
+            query: {
+                /** @description as-of date; nothing published after it is read */
+                asof: string;
+            };
+            header?: never;
+            path: {
+                thesis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChainMapOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     chain_wave_cards_dashboards_chain_wave_cards_get: {
         parameters: {
             query: {
@@ -13796,6 +15875,206 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CrossRadarOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    evidence_ledger_cards_dashboards_evidence_ledger_cards_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; only the cards that existed by then are listed */
+                asof: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvidenceLedgerCardsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    evidence_ledger_for_card_dashboards_evidence_ledger__thesis_id__get: {
+        parameters: {
+            query: {
+                /** @description as-of date; no call recorded for a later night, no fact public after it */
+                asof: string;
+            };
+            header?: never;
+            path: {
+                thesis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvidenceLedgerOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    filing_stream_cards_dashboards_filing_stream_cards_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; only the cards that existed by then are listed */
+                asof: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FilingStreamCardsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    filing_stream_for_card_dashboards_filing_stream__thesis_id__get: {
+        parameters: {
+            query: {
+                /** @description as-of date; no filing public after it is read */
+                asof: string;
+                /** @description the window: the last 30 | 90 | 365 days */
+                days?: components["schemas"]["FilingStreamDays"];
+            };
+            header?: never;
+            path: {
+                thesis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FilingStreamOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    multiples_cards_dashboards_fundamentals_multiples_cards_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; only the cards that existed by then are listed */
+                asof: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MultiplesCardsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    multiples_for_card_dashboards_fundamentals_multiples__thesis_id__get: {
+        parameters: {
+            query: {
+                /** @description as-of date; nothing published after it is read */
+                asof: string;
+            };
+            header?: never;
+            path: {
+                thesis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MultiplesOut"];
                 };
             };
             /** @description Validation Error */
@@ -13962,6 +16241,106 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NarrativeCardDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    peer_table_scopes_dashboards_peer_table_scopes_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; only the cards that existed by then, with their rosters then */
+                asof: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PeerScopesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    peer_table_dashboards_peer_table_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; nothing published after it is read */
+                asof: string;
+                /** @description business_type | supersector | card | all */
+                scope: "business_type" | "supersector" | "card" | "all";
+                /** @description the scope's pick: a business-type leaf, a supersector, or a card id (``unclassified`` = none); ignored for ``all`` */
+                key?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PeerTableOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_through_dashboards_read_through_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; nothing published after it is read */
+                asof: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReadThroughOut"];
                 };
             };
             /** @description Validation Error */

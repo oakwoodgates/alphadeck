@@ -1,0 +1,107 @@
+/* Read-Throughs (docs/dashboards/read-through.md) — its own sheet, imported by the component, never index.css
+   (docs/DASHBOARDS.md rule 8). The research set's document-like look (the Filing Stream's): one wide table that
+   scrolls sideways on a phone with the Company column pinned, one line per row, tabular numbers. Loudness marks
+   the exception only (#7 / WB#3): no badges and no color by role; a role is quiet lowercase text, the two tape
+   columns tint their sign with the app's --pos / --neg mixed well toward gray, a flagged price history grays its
+   cells. Colors are the app's tokens only. */
+
+.rt {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 1280px;
+  --rt-pos: color-mix(in srgb, var(--pos) 55%, var(--txt-3));
+  --rt-neg: color-mix(in srgb, var(--neg) 55%, var(--txt-3));
+}
+
+.rt-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.rt-tab { font: inherit; font-size: 11.5px; color: var(--txt-3); background: transparent; border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 10px; cursor: pointer; }
+.rt-tab:hover { color: var(--txt-2); }
+.rt-tab.on { color: var(--txt); background: var(--panel-2); }
+/* a role with no rows: grayed, still there (nothing is hidden) */
+.rt-tab.zero { color: var(--txt-4); border-style: dashed; }
+.rt-tab.zero.on { color: var(--txt-3); }
+.rt-n { font-family: var(--mono); font-size: 9.5px; color: var(--txt-4); font-variant-numeric: tabular-nums; margin-left: 2px; }
+.rt-tab.on .rt-n { color: var(--txt-3); }
+
+.rt-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
+.rt-field { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.rt-seg-label { font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); margin-right: 2px; }
+.rt-search, .rt-select { font: inherit; font-size: 11.5px; color: var(--txt-2); background: transparent; border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 7px; }
+.rt-search { width: 160px; }
+.rt-select { max-width: 260px; }
+.rt-select option { background: var(--panel); color: var(--txt-2); }
+.rt-clear { font: inherit; font-size: 11px; color: var(--txt-3); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.rt-clear:hover { color: var(--txt); }
+
+.rt-empty { padding: 14px 0; }
+
+/* the table: scrolls sideways inside its wrapper, the Company column stays */
+.rt-scroll { overflow-x: auto; margin-top: 4px; }
+table.rt-table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+table.rt-table th { text-align: left; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); font-weight: 600; padding: 0 12px 8px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
+table.rt-table td { padding: 6px 12px 6px 0; border-bottom: 1px solid var(--line); vertical-align: top; white-space: nowrap; color: var(--txt-2); }
+table.rt-table tbody tr:hover td { background: color-mix(in srgb, var(--panel) 60%, transparent); }
+.rt-sort { font: inherit; font-size: inherit; letter-spacing: inherit; text-transform: inherit; font-weight: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+.rt-sort:hover, .rt-sort.on { color: var(--txt-2); }
+.rt-sort:focus-visible { outline: 1px solid var(--line-2); outline-offset: 2px; border-radius: 2px; }
+table.rt-table .rt-num { text-align: right; padding-right: 16px; }
+table.rt-table .rt-num .rt-sort { text-align: right; }
+
+/* the pinned Company column */
+table.rt-table th.rt-co, table.rt-table td.rt-co { position: sticky; left: 0; z-index: 1; background: var(--bg); min-width: 150px; max-width: 190px; }
+table.rt-table tbody tr:hover td.rt-co { background: var(--panel); }
+.rt-chip { font-family: var(--mono); font-size: 10.5px; font-weight: 700; padding: 0 7px; border: 1px solid var(--line-2); border-radius: 6px; background: transparent; color: var(--txt-3); cursor: pointer; }
+.rt-chip:hover { color: var(--txt); border-color: var(--txt-4); background: var(--panel-2); }
+.rt-name { display: block; margin-top: 2px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; font-size: 10.5px; color: var(--txt-3); }
+
+.rt-role { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); cursor: help; }
+
+/* the Cards column: a row of pills, each pill ONE line (the card name cut short with an ellipsis, then its links in
+   the quiet style, each cut on its own; the whole line rides in the pill's title). The pills wrap as pills, never
+   the text inside one, and the column keeps a floor so a crowded table scrolls sideways instead of squeezing it. A
+   membership that never counts (Context / Bench) is the quietest pill. */
+table.rt-table th.rt-cards, table.rt-table td.rt-cards { min-width: 240px; }
+.rt-chips { display: flex; flex-wrap: wrap; gap: 4px; max-width: 340px; white-space: normal; }
+.rt-card { display: inline-flex; align-items: baseline; min-width: 0; max-width: 100%; white-space: nowrap; font: inherit; font-size: 11px; padding: 1px 8px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--panel); color: var(--txt-2); cursor: pointer; text-align: left; transition: border-color 0.14s, background 0.14s; }
+.rt-card:hover { border-color: var(--txt-4); background: var(--panel-2); color: var(--txt); }
+.rt-card.quiet { border-style: dashed; color: var(--txt-3); background: transparent; }
+.rt-card-name { flex: 0 1 auto; min-width: 0; max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+.rt-card-links { flex: 0 1 auto; min-width: 0; max-width: 140px; margin-left: 0.3em; overflow: hidden; text-overflow: ellipsis; font-size: 10px; color: var(--txt-3); }
+.rt-card.quiet .rt-card-links { color: var(--txt-4); }
+.rt-card:hover .rt-card-links { color: var(--txt-2); }
+
+.rt-bt { color: var(--txt-3); }
+
+.rt-fil-line { display: flex; align-items: baseline; gap: 8px; }
+.rt-fil-text { display: block; max-width: 380px; overflow: hidden; text-overflow: ellipsis; color: var(--txt-2); cursor: help; }
+.rt-cat-text { display: block; max-width: 300px; overflow: hidden; text-overflow: ellipsis; color: var(--txt-2); cursor: help; }
+.rt-src { font-family: var(--mono); font-size: 10px; color: var(--txt-3); text-decoration: none; white-space: nowrap; }
+.rt-src:hover { color: var(--txt); text-decoration: underline; text-underline-offset: 3px; }
+.rt-none { color: var(--txt-4); font-size: 11px; }
+
+/* the tape cells: a plain signed number, its sign tinted well toward gray; flagged = gray */
+.rt-tape { font-family: var(--mono); font-size: 11.5px; color: var(--txt-3); cursor: help; }
+.rt-tape.pos { color: var(--rt-pos); }
+.rt-tape.neg { color: var(--rt-neg); }
+.rt-tape.gray { color: var(--txt-4); font-size: 10px; font-style: italic; }
+
+.rt-work { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
+.rt-none-cards summary { cursor: pointer; width: fit-content; }
+.rt-none-cards summary:hover { color: var(--txt-2); }
+.rt-none-list { list-style: none; margin: 4px 0 2px; padding: 0 0 0 14px; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.rt-none-card { font: inherit; font-size: 10.5px; color: var(--txt-3); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.rt-none-card:hover { color: var(--txt); }
+.rt-limits { margin: 4px 0 0; padding-left: 16px; font-size: 10.5px; line-height: 1.5; color: var(--txt-4); }
+
+/* a phone: the table already scrolls sideways with Company pinned; tighten the controls */
+@media (max-width: 640px) {
+  .rt-search { width: 120px; }
+  .rt-select { max-width: 190px; }
+  table.rt-table th.rt-co, table.rt-table td.rt-co { min-width: 110px; max-width: 130px; }
+  .rt-name { max-width: 120px; }
+  table.rt-table th.rt-cards, table.rt-table td.rt-cards { min-width: 200px; }
+  .rt-chips { max-width: 260px; }
+  .rt-card-name { max-width: 130px; }
+  .rt-card-links { max-width: 100px; }
+}

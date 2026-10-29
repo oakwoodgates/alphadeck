@@ -3884,6 +3884,108 @@
         }
       }
     },
+    "/dashboards/chain-map/cards": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Chain Map Cards",
+        "description": "The card picker: the live cards that existed by the as-of, A\u2192Z, each with its link count today. Display\nonly.",
+        "operationId": "chain_map_cards_dashboards_chain_map_cards_get",
+        "parameters": [
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; only the cards that existed by then are listed",
+              "title": "Asof"
+            },
+            "description": "as-of date; only the cards that existed by then are listed"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChainMapCardsOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboards/chain-map/{thesis_id}": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Chain Map For Card",
+        "description": "One card as a picture: its links in chain order as columns with the roster's companies inside (each with\nits business type, its side of the 50-day average and the age of its newest SEC filing), and the\ncompanies with a context role standing on two rails beside the chain, each with one edge to the chain as a\nwhole. A company whose data flags reach its price readings is drawn grayed with no 50-day side. Display only;\na past as-of reads the roster as of that date and what was public by the end of it. 404 when the card is not\ncounted at the as-of.",
+        "operationId": "chain_map_for_card_dashboards_chain_map__thesis_id__get",
+        "parameters": [
+          {
+            "name": "thesis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thesis Id"
+            }
+          },
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; nothing published after it is read",
+              "title": "Asof"
+            },
+            "description": "as-of date; nothing published after it is read"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChainMapOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/dashboards/chain-wave/cards": {
       "get": {
         "tags": [
@@ -4080,6 +4182,323 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/CrossRadarOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboards/evidence-ledger/cards": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Evidence Ledger Cards",
+        "description": "The card picker: the live cards that existed by the as-of, A\u2192Z, each with its link count today. Display\nonly.",
+        "operationId": "evidence_ledger_cards_dashboards_evidence_ledger_cards_get",
+        "parameters": [
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; only the cards that existed by then are listed",
+              "title": "Asof"
+            },
+            "description": "as-of date; only the cards that existed by then are listed"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvidenceLedgerCardsOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboards/evidence-ledger/{thesis_id}": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Evidence Ledger For Card",
+        "description": "Everything one card's call and facts rest on, in one list: the recorded call's triggers and risk signals\nwith their sources, the ratified and stored facts, the card's catalysts, kill criteria and evidence links and\nits context roles, each row marked by who put it there (a person, a computation, an ingest leg, the card).\nDisplay only; a past as-of reads the call recorded for that night or the last one before it and the facts\npublic by the end of that date (a fact ratified after it never appears). The card's own entries are read live.\n404 when the card is not counted at the as-of.",
+        "operationId": "evidence_ledger_for_card_dashboards_evidence_ledger__thesis_id__get",
+        "parameters": [
+          {
+            "name": "thesis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thesis Id"
+            }
+          },
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; no call recorded for a later night, no fact public after it",
+              "title": "Asof"
+            },
+            "description": "as-of date; no call recorded for a later night, no fact public after it"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvidenceLedgerOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboards/filing-stream/cards": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Filing Stream Cards",
+        "description": "The card picker: the live cards that existed by the as-of, A\u2192Z, each with its link count today. Display\nonly.",
+        "operationId": "filing_stream_cards_dashboards_filing_stream_cards_get",
+        "parameters": [
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; only the cards that existed by then are listed",
+              "title": "Asof"
+            },
+            "description": "as-of date; only the cards that existed by then are listed"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilingStreamCardsOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboards/filing-stream/{thesis_id}": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Filing Stream For Card",
+        "description": "One card's names' filing-derived facts, newest day first: 8-Ks with their items, Form 4s with the filer's\nown words, Form 4/As, 13D/G stakes, revenue prints, splits, dilution, catalysts and the ratified or stored\nfacts, each row opening to its EDGAR source. Only facts the ingest stores are listed (not every filing).\nDisplay only; a past as-of reads what was public by the end of that date (a fact public after it never\nappears). 404 when the card is not counted at the as-of.",
+        "operationId": "filing_stream_for_card_dashboards_filing_stream__thesis_id__get",
+        "parameters": [
+          {
+            "name": "thesis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thesis Id"
+            }
+          },
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; no filing public after it is read",
+              "title": "Asof"
+            },
+            "description": "as-of date; no filing public after it is read"
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/FilingStreamDays",
+              "description": "the window: the last 30 | 90 | 365 days",
+              "default": 90
+            },
+            "description": "the window: the last 30 | 90 | 365 days"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilingStreamOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboards/fundamentals-multiples/cards": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Multiples Cards",
+        "description": "The card picker: the live cards that existed by the as-of, A\u2192Z, each with its link count today. Display\nonly.",
+        "operationId": "multiples_cards_dashboards_fundamentals_multiples_cards_get",
+        "parameters": [
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; only the cards that existed by then are listed",
+              "title": "Asof"
+            },
+            "description": "as-of date; only the cards that existed by then are listed"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MultiplesCardsOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboards/fundamentals-multiples/{thesis_id}": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Multiples For Card",
+        "description": "One card's revenue series: its links in chain order as rows, each name a small chart of its last quarterly\nrevenue prints (placed by period end, dated by the filing that made them public) with the year-over-year\nchange as dots, and the median of those changes per link and for the card. Display only; a past as-of reads\nthe roster as of that date and what was public by the end of it. 404 when the card is not counted at the\nas-of.",
+        "operationId": "multiples_for_card_dashboards_fundamentals_multiples__thesis_id__get",
+        "parameters": [
+          {
+            "name": "thesis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thesis Id"
+            }
+          },
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; nothing published after it is read",
+              "title": "Asof"
+            },
+            "description": "as-of date; nothing published after it is read"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MultiplesOut"
                 }
               }
             }
@@ -4414,6 +4833,179 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/NarrativeCardDetailOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboards/peer-table/scopes": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Peer Table Scopes",
+        "description": "What the Peer Table can be scoped to at the as-of: the business-type leaves and supersectors present on the\ncounted cards' rosters (each with its distinct companies) and the counted cards, plus the leaf to open on.\nDisplay only; a past as-of reads the rosters as they were by the end of that date.",
+        "operationId": "peer_table_scopes_dashboards_peer_table_scopes_get",
+        "parameters": [
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; only the cards that existed by then, with their rosters then",
+              "title": "Asof"
+            },
+            "description": "as-of date; only the cards that existed by then, with their rosters then"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PeerScopesOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboards/peer-table": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Peer Table",
+        "description": "The names of one scope side by side, each company once: approximate market cap and tier, latest revenue and\nits year-over-year change, runway, convert overhang, revenue purity, the tape (off the 52-week high, the\n50- and 200-day averages, RVOL, dollar volume, the 30-day return against SPY) and the insider buys of the\n90-day window, grouped by business type, link or card, with every blank counted by column and reason. A\ncompany whose data flags reach its price readings keeps its row and its price cells name the reason. Display\nonly; a past as-of reads what was public by the end of that date (a fact public after it never reaches a\ncell). 404 when the scope's key is not present at the as-of.",
+        "operationId": "peer_table_dashboards_peer_table_get",
+        "parameters": [
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; nothing published after it is read",
+              "title": "Asof"
+            },
+            "description": "as-of date; nothing published after it is read"
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "enum": [
+                "business_type",
+                "supersector",
+                "card",
+                "all"
+              ],
+              "type": "string",
+              "description": "business_type | supersector | card | all",
+              "title": "Scope"
+            },
+            "description": "business_type | supersector | card | all"
+          },
+          {
+            "name": "key",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "the scope's pick: a business-type leaf, a supersector, or a card id (``unclassified`` = none); ignored for ``all``",
+              "title": "Key"
+            },
+            "description": "the scope's pick: a business-type leaf, a supersector, or a card id (``unclassified`` = none); ignored for ``all``"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PeerTableOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboards/read-through": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Read Through",
+        "description": "Every company tagged with a context role on a card counted at the as-of (payers, counter-cases, direct\nreads, participants, financiers, benchmarks), one row per company and role, with the card chips it sits on, its\nbusiness type, the newest SEC filing in the last year, the nearest dated card catalyst and its 7 and\n30 trading-day return minus SPY's. A company whose data flags reach its price readings shows no tape and is\nnamed. Sorted by newest last filing. Display only; a past as-of reads what was public by the end of that\ndate.",
+        "operationId": "read_through_dashboards_read_through_get",
+        "parameters": [
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; nothing published after it is read",
+              "title": "Asof"
+            },
+            "description": "as-of date; nothing published after it is read"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadThroughOut"
                 }
               }
             }
@@ -10575,6 +11167,18 @@
         "title": "CallCardResponse",
         "description": "The CallCard as served \u2014 the domain card plus resolved provenance URLs."
       },
+      "CapTier": {
+        "type": "string",
+        "enum": [
+          "nano",
+          "micro",
+          "small",
+          "mid",
+          "large"
+        ],
+        "title": "CapTier",
+        "description": "The five fixed market-cap bands, smallest first (the enum's order is the band order)."
+      },
       "Catalyst": {
         "properties": {
           "id": {
@@ -11051,6 +11655,605 @@
         ],
         "title": "ChainDraftOut",
         "description": "The narrative\u2192chain draft (Slice 5b): the value-chain SEGMENTS the model proposed + each proposed name\nresolved against the master to PLACED / AMBIGUOUS / ABSENT (exact membership decides \u2014 INVARIANT #2).\n\nRESPONSE-ONLY and value-free: it carries NO score/number field, and the endpoint persists NOTHING \u2014 a\nplaced name is UNSCORED until the operator extract\u2192ratifies it, and the operator's promote is the only\nwriter. ``segments`` / ``placements`` reuse the resolver's domain result types directly (the wire is the\nresolver's output). ``report`` is the run's honesty report (coverage / capped terms / tail-sweep /\nnarration \u2014 ``DraftReportOut``): ALWAYS set by ``execute_draft``, optional on the wire only so a reader\nhandles its absence."
+      },
+      "ChainMapCardOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "links": {
+            "type": "integer",
+            "title": "Links"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "name",
+          "links"
+        ],
+        "title": "ChainMapCardOut",
+        "description": "A card in the picker: its name and its real links today (Context and Bench not counted)."
+      },
+      "ChainMapCardsOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "live_cards": {
+            "type": "integer",
+            "title": "Live Cards"
+          },
+          "not_yet_created": {
+            "type": "integer",
+            "title": "Not Yet Created"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/ChainMapCardOut"
+            },
+            "type": "array",
+            "title": "Cards"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "live_cards",
+          "not_yet_created",
+          "cards",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "ChainMapCardsOut",
+        "description": "The picker: the cards counted at the as-of (the live cards that existed by then), A\u2192Z. ``cache`` /\n``compute_ms`` = whether the list came from the shared dashboard cache and how long it took when computed."
+      },
+      "ChainMapColumnOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "link",
+              "old_link",
+              "no_link",
+              "silent"
+            ],
+            "title": "Kind"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "descriptor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Descriptor"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/ChainMapNodeOut"
+            },
+            "type": "array",
+            "title": "Nodes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "kind",
+          "label",
+          "descriptor",
+          "nodes"
+        ],
+        "title": "ChainMapColumnOut",
+        "description": "A column. ``kind``: ``link`` (a real link today, chain order), ``old_link`` (a roster link that is not on\nthe card today), ``no_link``, or ``silent`` (the Context or Bench names with no role; ``label`` says which,\nthe page shows them behind a toggle). ``descriptor`` = the link's descriptor when set."
+      },
+      "ChainMapCountsOut": {
+        "properties": {
+          "links_today": {
+            "type": "integer",
+            "title": "Links Today"
+          },
+          "old_links": {
+            "type": "integer",
+            "title": "Old Links"
+          },
+          "roster_rows": {
+            "type": "integer",
+            "title": "Roster Rows"
+          },
+          "resolved_rows": {
+            "type": "integer",
+            "title": "Resolved Rows"
+          },
+          "unresolved_rows": {
+            "type": "integer",
+            "title": "Unresolved Rows"
+          },
+          "silent_rows": {
+            "type": "integer",
+            "title": "Silent Rows"
+          },
+          "companies": {
+            "type": "integer",
+            "title": "Companies"
+          },
+          "on_rails": {
+            "type": "integer",
+            "title": "On Rails"
+          },
+          "untagged_silent": {
+            "type": "integer",
+            "title": "Untagged Silent"
+          },
+          "roles": {
+            "items": {
+              "$ref": "#/components/schemas/ChainMapRoleCountOut"
+            },
+            "type": "array",
+            "title": "Roles"
+          },
+          "with_side": {
+            "type": "integer",
+            "title": "With Side"
+          },
+          "without_side": {
+            "type": "integer",
+            "title": "Without Side"
+          },
+          "with_filing": {
+            "type": "integer",
+            "title": "With Filing"
+          },
+          "without_filing": {
+            "type": "integer",
+            "title": "Without Filing"
+          }
+        },
+        "type": "object",
+        "required": [
+          "links_today",
+          "old_links",
+          "roster_rows",
+          "resolved_rows",
+          "unresolved_rows",
+          "silent_rows",
+          "companies",
+          "on_rails",
+          "untagged_silent",
+          "roles",
+          "with_side",
+          "without_side",
+          "with_filing",
+          "without_filing"
+        ],
+        "title": "ChainMapCountsOut",
+        "description": "The work: ``companies`` = distinct roster companies; ``on_rails`` / ``untagged_silent`` = of those, the\nones on a rail and the ones in a Context or Bench column; ``roles`` = companies per role, rail order, only\nroles that are set; ``with_side`` / ``without_side`` and ``with_filing`` / ``without_filing`` split the\ncompanies (an unresolved or flagged one has no side)."
+      },
+      "ChainMapEdgeOut": {
+        "properties": {
+          "node_key": {
+            "type": "string",
+            "title": "Node Key"
+          },
+          "role": {
+            "$ref": "#/components/schemas/ContextRole"
+          },
+          "side": {
+            "type": "string",
+            "enum": [
+              "left",
+              "right"
+            ],
+            "title": "Side"
+          }
+        },
+        "type": "object",
+        "required": [
+          "node_key",
+          "role",
+          "side"
+        ],
+        "title": "ChainMapEdgeOut",
+        "description": "One rail node's edge to the chain's bracket (the whole chain, never a link or a name): the node, its role\nand the rail it stands on."
+      },
+      "ChainMapFilingOut": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "age_days": {
+            "type": "integer",
+            "title": "Age Days"
+          },
+          "form": {
+            "type": "string",
+            "title": "Form"
+          },
+          "headline": {
+            "type": "string",
+            "title": "Headline"
+          }
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "age_days",
+          "form",
+          "headline"
+        ],
+        "title": "ChainMapFilingOut",
+        "description": "A company's newest SEC filing in the last ``filing_days`` days (an 8-K, 13D/G, Form 4 or 4/A, or a 10-Q /\n10-K revenue print; never a split, a catalyst or a ratified or stored fact): its public ``date``\n(``age_days`` before the as-of), the ``form`` as filed and its one-line ``headline``."
+      },
+      "ChainMapFlaggedOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "reason"
+        ],
+        "title": "ChainMapFlaggedOut",
+        "description": "A company on the card whose data flags reach its price readings at the as-of (the reason the Cockpit grays\nits price cells): drawn grayed with no 50-day side. ``reason`` = the flags' labels."
+      },
+      "ChainMapNodeOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "company_key": {
+            "type": "string",
+            "title": "Company Key"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "security_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Security Id"
+          },
+          "links": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Links"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContextRole"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "business_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Type"
+          },
+          "side_50d": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "above",
+                  "below",
+                  "at"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Side 50D"
+          },
+          "pct_vs_50d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pct Vs 50D"
+          },
+          "last_filing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChainMapFilingOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "flag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flag"
+          },
+          "thesis_fit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thesis Fit"
+          },
+          "authored_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Authorship"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "matched_terms": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Matched Terms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "company_key",
+          "ticker",
+          "name",
+          "security_id",
+          "links",
+          "role",
+          "business_type",
+          "side_50d",
+          "pct_vs_50d",
+          "last_filing",
+          "flag",
+          "thesis_fit",
+          "authored_by",
+          "matched_terms"
+        ],
+        "title": "ChainMapNodeOut",
+        "description": "One company in one place. ``key`` is unique on the page; ``company_key`` is the company's (``security_id``,\nor ``ticker:<T>`` with no resolved security). ``ticker`` = its ticker on the card (the Cockpit's ``?name=``\nkey). ``links`` = every link it sits in on the card (``null`` = no link). ``role`` = its context role (a tag on\na chain node, the reason it stands on a rail). ``business_type`` = the master's leaf (the operator's re-tag\nwinning). ``side_50d`` / ``pct_vs_50d`` = where it sits against its 50-day average (``null`` = no reading,\nor a flagged price history). ``last_filing`` = its newest SEC filing in the year (``null`` = none stored).\n``flag`` = why its price readings are left out. ``thesis_fit`` / ``authored_by`` = the description on the\nrow this node stands for and who wrote it (``null`` when there is none); ``matched_terms`` = the discovery\nterms that surfaced the name."
+      },
+      "ChainMapOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "clock": {
+            "type": "string",
+            "enum": [
+              "record",
+              "public"
+            ],
+            "title": "Clock"
+          },
+          "roster_fallback": {
+            "type": "boolean",
+            "title": "Roster Fallback"
+          },
+          "columns": {
+            "items": {
+              "$ref": "#/components/schemas/ChainMapColumnOut"
+            },
+            "type": "array",
+            "title": "Columns"
+          },
+          "rails": {
+            "items": {
+              "$ref": "#/components/schemas/ChainMapRailOut"
+            },
+            "type": "array",
+            "title": "Rails"
+          },
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/ChainMapEdgeOut"
+            },
+            "type": "array",
+            "title": "Edges"
+          },
+          "flagged": {
+            "items": {
+              "$ref": "#/components/schemas/ChainMapFlaggedOut"
+            },
+            "type": "array",
+            "title": "Flagged"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/ChainMapCountsOut"
+          },
+          "filing_days": {
+            "type": "integer",
+            "title": "Filing Days"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "thesis_id",
+          "thesis_name",
+          "clock",
+          "roster_fallback",
+          "columns",
+          "rails",
+          "edges",
+          "flagged",
+          "counts",
+          "filing_days",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "ChainMapOut",
+        "description": "One card's picture. ``columns`` in chain order (real links, then a roster link that is not on the card\ntoday, then No link, then the silent Context/Bench columns); ``rails`` = the left rail, then the right (either\nmay be empty); ``edges`` = one per rail node. ``clock``: ``record`` (the live read) or ``public`` (a past\nas-of: what was public by the end of that date). ``roster_fallback`` = no roster snapshot by the as-of: today's\nroster stands in. ``filing_days`` = how far back the last-filing glyph looks. ``cache`` / ``compute_ms`` =\nwhether the page came from the shared dashboard cache and how long it took when computed."
+      },
+      "ChainMapRailOut": {
+        "properties": {
+          "side": {
+            "type": "string",
+            "enum": [
+              "left",
+              "right"
+            ],
+            "title": "Side"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/ChainMapNodeOut"
+            },
+            "type": "array",
+            "title": "Nodes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "side",
+          "label",
+          "nodes"
+        ],
+        "title": "ChainMapRailOut",
+        "description": "A rail: ``left`` (what pays and funds: payer, then financier) or ``right`` (what reads across: direct read,\ncounter-case, participant, benchmark). ``nodes`` = the role-tagged companies with no row in a real link, by\nrole then roster order."
+      },
+      "ChainMapRoleCountOut": {
+        "properties": {
+          "role": {
+            "$ref": "#/components/schemas/ContextRole"
+          },
+          "names": {
+            "type": "integer",
+            "title": "Names"
+          }
+        },
+        "type": "object",
+        "required": [
+          "role",
+          "names"
+        ],
+        "title": "ChainMapRoleCountOut"
       },
       "ChainWaveCardOut": {
         "properties": {
@@ -14737,6 +15940,619 @@
         "title": "Evidence",
         "description": "Immutable reference to a filing / data point."
       },
+      "EvidenceLedgerCardOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "links": {
+            "type": "integer",
+            "title": "Links"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "name",
+          "links"
+        ],
+        "title": "EvidenceLedgerCardOut",
+        "description": "A card in the picker: its name and its real links today (Context and Bench not counted)."
+      },
+      "EvidenceLedgerCardsOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "live_cards": {
+            "type": "integer",
+            "title": "Live Cards"
+          },
+          "not_yet_created": {
+            "type": "integer",
+            "title": "Not Yet Created"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceLedgerCardOut"
+            },
+            "type": "array",
+            "title": "Cards"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "live_cards",
+          "not_yet_created",
+          "cards",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "EvidenceLedgerCardsOut",
+        "description": "The picker: the cards counted at the as-of (the live cards that existed by then), A\u2192Z. ``cache`` /\n``compute_ms`` = whether the list came from the shared dashboard cache and how long it took when computed."
+      },
+      "EvidenceLedgerCountOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "rows"
+        ],
+        "title": "EvidenceLedgerCountOut"
+      },
+      "EvidenceLedgerDayOut": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceLedgerRowOut"
+            },
+            "type": "array",
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "rows"
+        ],
+        "title": "EvidenceLedgerDayOut"
+      },
+      "EvidenceLedgerNameOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "security_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Security Id"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContextRole"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "silent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Silent"
+          },
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "ticker",
+          "security_id",
+          "role",
+          "silent",
+          "rows"
+        ],
+        "title": "EvidenceLedgerNameOut",
+        "description": "A roster company (each once) with its rows; a name with none is still listed. ``key`` = its\n``security_id`` (``ticker:<T>`` for a row with no resolved security)."
+      },
+      "EvidenceLedgerNightOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "reconstructed": {
+            "type": "boolean",
+            "title": "Reconstructed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "reconstructed"
+        ],
+        "title": "EvidenceLedgerNightOut",
+        "description": "The recorded call the triggers come from: the night it was recorded for and whether it was reconstructed."
+      },
+      "EvidenceLedgerOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "clock": {
+            "type": "string",
+            "enum": [
+              "record",
+              "public"
+            ],
+            "title": "Clock"
+          },
+          "roster_fallback": {
+            "type": "boolean",
+            "title": "Roster Fallback"
+          },
+          "night": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EvidenceLedgerNightOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "night_unreadable": {
+            "type": "boolean",
+            "title": "Night Unreadable"
+          },
+          "basket_rows": {
+            "type": "integer",
+            "title": "Basket Rows"
+          },
+          "silent_rows": {
+            "type": "integer",
+            "title": "Silent Rows"
+          },
+          "unresolved": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Unresolved"
+          },
+          "facts_days": {
+            "type": "integer",
+            "title": "Facts Days"
+          },
+          "names": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceLedgerNameOut"
+            },
+            "type": "array",
+            "title": "Names"
+          },
+          "standing": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceLedgerRowOut"
+            },
+            "type": "array",
+            "title": "Standing"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceLedgerDayOut"
+            },
+            "type": "array",
+            "title": "Groups"
+          },
+          "tallies": {
+            "$ref": "#/components/schemas/EvidenceLedgerTalliesOut"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "thesis_id",
+          "thesis_name",
+          "clock",
+          "roster_fallback",
+          "night",
+          "night_unreadable",
+          "basket_rows",
+          "silent_rows",
+          "unresolved",
+          "facts_days",
+          "names",
+          "standing",
+          "groups",
+          "tallies",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "EvidenceLedgerOut",
+        "description": "One card's ledger at the as-of. ``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was\npublic by the end of that date). ``night`` = the recorded call the triggers come from (``null`` = none\nrecorded by the as-of); ``night_unreadable`` = a row was found but its card did not read. ``standing`` = the\nrows with no date; ``groups`` = the dated rows, newest day first. ``facts_days`` = how far back the stored\nfacts are read. ``roster_fallback`` = no roster snapshot by the as-of: today's roster stands in.\n``unresolved`` = tickers of roster rows with no resolved security (they can carry no fact: counted, never\nlisted as one). ``cache`` / ``compute_ms`` = whether the heavy read came from the shared dashboard cache and\nhow long it took when computed (the card's own entries are read live either way)."
+      },
+      "EvidenceLedgerRowOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "authority": {
+            "type": "string",
+            "enum": [
+              "operator",
+              "system",
+              "automatic",
+              "card"
+            ],
+            "title": "Authority"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "trigger",
+              "risk_signal",
+              "ratified",
+              "catalyst_fact",
+              "card_catalyst",
+              "kill",
+              "evidence",
+              "role"
+            ],
+            "title": "Kind"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date"
+          },
+          "security_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "form": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Form"
+          },
+          "silent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Silent"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContextRole"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "By"
+          },
+          "on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "On"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceLedgerSourceOut"
+            },
+            "type": "array",
+            "title": "Sources"
+          },
+          "detail": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Detail"
+          },
+          "edgar": {
+            "type": "boolean",
+            "title": "Edgar"
+          },
+          "reconstructed": {
+            "type": "boolean",
+            "title": "Reconstructed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "authority",
+          "kind",
+          "label",
+          "date",
+          "security_id",
+          "ticker",
+          "form",
+          "silent",
+          "role",
+          "by",
+          "on",
+          "sources",
+          "detail",
+          "edgar",
+          "reconstructed"
+        ],
+        "title": "EvidenceLedgerRowOut",
+        "description": "One piece of evidence. ``authority`` = WHO put it there, never a judgment of it: ``operator`` (a person\nratified or set it), ``system`` (a computation on public data), ``automatic`` (an ingest leg stored it, nobody\nratified it), ``card`` (an entry the operator maintains on the card). ``kind``: ``trigger`` | ``risk_signal``\n(the recorded card's) | ``ratified`` (a ratified or stored fact) | ``catalyst_fact`` | ``card_catalyst`` |\n``kill`` | ``evidence`` | ``role``. ``date`` = the day it counts under (``null`` = standing). ``form`` = the\nrow's own kind word. ``silent`` = Context / Bench when its company sits there. ``role`` = the context role\n(a role row). ``by`` / ``on`` = who ratified or set it and the day. ``edgar`` = a source links to EDGAR.\n``reconstructed`` = from a night ``pipeline.backfill`` wrote (reported, never scored)."
+      },
+      "EvidenceLedgerSourceOut": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ref"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "detail": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "ref",
+          "url",
+          "detail"
+        ],
+        "title": "EvidenceLedgerSourceOut",
+        "description": "A place a row points at. ``source`` = the kind as stored (``form4``, ``price``, ``xbrl``, a form), ``ref``\n= its reference (an accession, a price reference), ``url`` = a link (``null`` = none known), ``detail`` = the\ncomputation's inputs as stored, one ``key: value`` line each."
+      },
+      "EvidenceLedgerTalliesOut": {
+        "properties": {
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          },
+          "by_authority": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceLedgerCountOut"
+            },
+            "type": "array",
+            "title": "By Authority"
+          },
+          "by_kind": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceLedgerCountOut"
+            },
+            "type": "array",
+            "title": "By Kind"
+          },
+          "signals": {
+            "type": "integer",
+            "title": "Signals"
+          },
+          "trace_accession": {
+            "type": "integer",
+            "title": "Trace Accession"
+          },
+          "trace_price": {
+            "type": "integer",
+            "title": "Trace Price"
+          },
+          "trace_other": {
+            "type": "integer",
+            "title": "Trace Other"
+          },
+          "trace_none": {
+            "type": "integer",
+            "title": "Trace None"
+          },
+          "facts_ratified": {
+            "type": "integer",
+            "title": "Facts Ratified"
+          },
+          "facts_stored": {
+            "type": "integer",
+            "title": "Facts Stored"
+          },
+          "catalysts_dated": {
+            "type": "integer",
+            "title": "Catalysts Dated"
+          },
+          "catalysts_undated": {
+            "type": "integer",
+            "title": "Catalysts Undated"
+          },
+          "roles_dated": {
+            "type": "integer",
+            "title": "Roles Dated"
+          },
+          "roles_undated": {
+            "type": "integer",
+            "title": "Roles Undated"
+          }
+        },
+        "type": "object",
+        "required": [
+          "rows",
+          "by_authority",
+          "by_kind",
+          "signals",
+          "trace_accession",
+          "trace_price",
+          "trace_other",
+          "trace_none",
+          "facts_ratified",
+          "facts_stored",
+          "catalysts_dated",
+          "catalysts_undated",
+          "roles_dated",
+          "roles_undated"
+        ],
+        "title": "EvidenceLedgerTalliesOut",
+        "description": "Every row, whatever the page's filters. ``trace_*`` = how the fired signals (triggers and risk signals)\ntrace: an EDGAR accession, a price reference only, another source, or no source stated. ``facts_ratified`` /\n``facts_stored`` = the fact rows a person ratified / nobody did."
+      },
       "ExcludedName": {
         "properties": {
           "security_id": {
@@ -14979,6 +16795,557 @@
         "type": "object",
         "title": "ExtractionResult",
         "description": "The extract endpoint's envelope (Retrieval Slice 1): the candidates plus an HONEST reason when\nthere are none. The three empty states are DISTINCT (interaction #2 \u2014 \"we couldn't read it\" must\nnever masquerade as \"there is nothing\"; the old bare ``[]`` + the FE's *\"nothing to extract or\nratify here\"* copy was false for 44 of the 48 dark names):\n\n- ``facts`` non-empty \u2192 covered. For an annual-cover name that is SHARES ONLY \u2014 cash + purity are\n  still not covered for it (the FE says so rather than implying the data doesn't exist).\n- ``empty_reason=\"no-annual-filing\"`` \u2192 no 10-K/10-Q AND no 20-F/40-F: genuinely nothing on EDGAR\n  the extractor can read (SKHY, a brand-new F-1/DRS listing). The only case where \"nothing to\n  extract\" is true.\n- ``empty_reason=\"cover-not-located\"`` \u2192 an annual filing EXISTS but its cover instruction could\n  not be matched: the name is UNREAD, not empty \u2014 it stays a visible candidate for the next\n  pass, and companyfacts alone is deliberately NOT served (a fact without its located passage\n  would break the no-passage-no-fact contract).\n\n``runway_empty_reason`` (Retrieval Slice A) is the RUNWAY leg's own honest state for an annual\nfiler whose filing exists but yielded no cash_burn candidate \u2014 kept SEPARATE from ``empty_reason``\nbecause the shares leg usually still emits (facts non-empty), and the three states must stay\ndistinct (interaction #2):\n\n- ``\"cash-generative\"`` \u2192 operating cash flow is positive: a STATE, not a gap \u2014 no runway applies\n  and none is computed (a finite number here would be bogus).\n- ``\"financials-in-exhibit\"`` \u2192 a BURNING name whose financial statements were found in NEITHER\n  the main document NOR any EX-99 exhibit the bounded scan read (Retrieval Slice A-2 hunts the\n  exhibits by content signature \u2014 both statement rows \u2014 before this reason fires): deferred,\n  never a companyfacts-only number (no passage \u2192 no fact).\n- ``\"exhibit-ambiguous\"`` \u2192 MORE THAN ONE exhibit carries the statement signature (Slice A-2's\n  fail-closed rule): deferred rather than guessed \u2014 a wrong statement source is the runway\n  analog of a confident-wrong cover match.\n- ``\"statements-not-located\"`` \u2192 neither the statements nor a companyfacts sign could be read:\n  unread, not empty."
+      },
+      "FilingStreamCardOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "links": {
+            "type": "integer",
+            "title": "Links"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "name",
+          "links"
+        ],
+        "title": "FilingStreamCardOut",
+        "description": "A card in the picker: its name and its real links today (Context and Bench not counted)."
+      },
+      "FilingStreamCardsOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "live_cards": {
+            "type": "integer",
+            "title": "Live Cards"
+          },
+          "not_yet_created": {
+            "type": "integer",
+            "title": "Not Yet Created"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/FilingStreamCardOut"
+            },
+            "type": "array",
+            "title": "Cards"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "live_cards",
+          "not_yet_created",
+          "cards",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "FilingStreamCardsOut",
+        "description": "The picker: the cards counted at the as-of (the live cards that existed by then), A\u2192Z. ``cache`` /\n``compute_ms`` = whether the list came from the shared dashboard cache and how long it took when computed."
+      },
+      "FilingStreamCountsOut": {
+        "properties": {
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          },
+          "by_kind": {
+            "items": {
+              "$ref": "#/components/schemas/FilingStreamKindOut"
+            },
+            "type": "array",
+            "title": "By Kind"
+          },
+          "form4_purchases": {
+            "type": "integer",
+            "title": "Form4 Purchases"
+          },
+          "routine": {
+            "type": "integer",
+            "title": "Routine"
+          }
+        },
+        "type": "object",
+        "required": [
+          "rows",
+          "by_kind",
+          "form4_purchases",
+          "routine"
+        ],
+        "title": "FilingStreamCountsOut",
+        "description": "What the window holds, folded rows included. ``form4_purchases`` = Form 4s holding a code-P purchase;\n``routine`` = the rows the fold covers."
+      },
+      "FilingStreamDayOut": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "routine": {
+            "type": "integer",
+            "title": "Routine"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/FilingStreamRowOut"
+            },
+            "type": "array",
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "routine",
+          "rows"
+        ],
+        "title": "FilingStreamDayOut",
+        "description": "One day of the stream, its rows in stream order; ``routine`` = how many of them the fold covers."
+      },
+      "FilingStreamDays": {
+        "type": "integer",
+        "enum": [
+          30,
+          90,
+          365
+        ],
+        "title": "FilingStreamDays",
+        "description": "The window: the last 30, 90 or 365 days."
+      },
+      "FilingStreamKindOut": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "8k",
+              "stake",
+              "form4",
+              "form4a",
+              "revenue",
+              "split",
+              "dilution",
+              "catalyst",
+              "ratified"
+            ],
+            "title": "Kind"
+          },
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "rows"
+        ],
+        "title": "FilingStreamKindOut"
+      },
+      "FilingStreamLinkOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "link",
+              "old_link",
+              "no_link",
+              "silent"
+            ],
+            "title": "Kind"
+          },
+          "names": {
+            "type": "integer",
+            "title": "Names"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "kind",
+          "names"
+        ],
+        "title": "FilingStreamLinkOut",
+        "description": "A link a page can filter by (``names`` = the companies on it today's roster, each once)."
+      },
+      "FilingStreamNameOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "security_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Security Id"
+          },
+          "links": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Links"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContextRole"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "silent": {
+            "type": "boolean",
+            "title": "Silent"
+          },
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "ticker",
+          "security_id",
+          "links",
+          "role",
+          "silent",
+          "rows"
+        ],
+        "title": "FilingStreamNameOut",
+        "description": "A roster company (each once) with its rows in the window; a name with none is still listed.\n``key`` = its ``security_id`` (``ticker:<T>`` for a row with no resolved security)."
+      },
+      "FilingStreamOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "days": {
+            "type": "integer",
+            "title": "Days"
+          },
+          "window_start": {
+            "type": "string",
+            "format": "date",
+            "title": "Window Start"
+          },
+          "clock": {
+            "type": "string",
+            "enum": [
+              "record",
+              "public"
+            ],
+            "title": "Clock"
+          },
+          "roster_fallback": {
+            "type": "boolean",
+            "title": "Roster Fallback"
+          },
+          "links_today": {
+            "type": "integer",
+            "title": "Links Today"
+          },
+          "basket_rows": {
+            "type": "integer",
+            "title": "Basket Rows"
+          },
+          "silent_rows": {
+            "type": "integer",
+            "title": "Silent Rows"
+          },
+          "unresolved": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Unresolved"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/FilingStreamLinkOut"
+            },
+            "type": "array",
+            "title": "Links"
+          },
+          "roles": {
+            "items": {
+              "$ref": "#/components/schemas/ContextRole"
+            },
+            "type": "array",
+            "title": "Roles"
+          },
+          "names": {
+            "items": {
+              "$ref": "#/components/schemas/FilingStreamNameOut"
+            },
+            "type": "array",
+            "title": "Names"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/FilingStreamDayOut"
+            },
+            "type": "array",
+            "title": "Groups"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/FilingStreamCountsOut"
+          },
+          "windows": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Windows"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "thesis_id",
+          "thesis_name",
+          "days",
+          "window_start",
+          "clock",
+          "roster_fallback",
+          "links_today",
+          "basket_rows",
+          "silent_rows",
+          "unresolved",
+          "links",
+          "roles",
+          "names",
+          "groups",
+          "counts",
+          "windows",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "FilingStreamOut",
+        "description": "One card's stream for one window, newest day first. ``clock``: ``record`` (the live read) or ``public``\n(a past as-of: what was public by the end of that date). ``roster_fallback`` = no roster snapshot by the\nas-of: today's roster stands in. ``unresolved`` = tickers of basket rows with no resolved security (they can\ncarry no facts: counted, never in the stream). ``cache`` / ``compute_ms`` = whether the 365-day rows came\nfrom the shared dashboard cache and how long they took when computed."
+      },
+      "FilingStreamRowOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "8k",
+              "stake",
+              "form4",
+              "form4a",
+              "revenue",
+              "split",
+              "dilution",
+              "catalyst",
+              "ratified"
+            ],
+            "title": "Kind"
+          },
+          "form": {
+            "type": "string",
+            "title": "Form"
+          },
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "headline": {
+            "type": "string",
+            "title": "Headline"
+          },
+          "detail": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Detail"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "accession": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accession"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags"
+          },
+          "routine": {
+            "type": "boolean",
+            "title": "Routine"
+          },
+          "usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Usd"
+          },
+          "links": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Links"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContextRole"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "silent": {
+            "type": "boolean",
+            "title": "Silent"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "security_id",
+          "ticker",
+          "kind",
+          "form",
+          "date",
+          "headline",
+          "detail",
+          "url",
+          "accession",
+          "tags",
+          "routine",
+          "usd",
+          "links",
+          "role",
+          "silent"
+        ],
+        "title": "FilingStreamRowOut",
+        "description": "One filing-derived fact. ``kind``: ``8k`` | ``form4`` | ``form4a`` | ``stake`` | ``revenue`` | ``split`` |\n``dilution`` | ``catalyst`` | ``ratified`` (a ratified fact, ``form`` \"ratified fact\", or a stored fact nobody\nratified, ``form`` \"stored fact\"). ``form`` = the form as filed or the row's own label; ``date`` = the\npublic date it counts from; ``headline`` = one neutral line; ``detail`` = the lines the expanded row shows;\n``url`` = the filing's EDGAR index or the stored source (``null`` = none known); ``tags`` = quiet field\npredicates; ``routine`` = a fold candidate (a Form 4 holding no code-P purchase); ``usd`` = the row's dollar\nsize when it has one (a Form 4's purchases minus sales, a dilution's principal). ``links`` / ``role`` /\n``silent`` = the company's place on the card at the as-of (``null`` in ``links`` = no link)."
       },
       "FiringDiagnostics": {
         "properties": {
@@ -17685,6 +20052,639 @@
         "title": "MirrorInfo",
         "description": "The frozen Parquet mirror this run swept, and what it does NOT contain.\n\n``excluded_tables`` + ``blind_detectors`` are a pair on purpose: naming a table that was left out is\nonly half an answer, because the reader still has to work out what stopped firing. Saying both means a\nresult can never be read as \"that detector is inert on this tape\" when the truth is \"that detector had\nno tape\"."
       },
+      "MultiplesBarOut": {
+        "properties": {
+          "quarter": {
+            "type": "string",
+            "title": "Quarter"
+          },
+          "period_end": {
+            "type": "string",
+            "format": "date",
+            "title": "Period End"
+          },
+          "value": {
+            "type": "number",
+            "title": "Value"
+          },
+          "basis": {
+            "type": "string",
+            "title": "Basis"
+          },
+          "fiscal_period": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fiscal Period"
+          },
+          "fiscal_year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fiscal Year"
+          },
+          "filed": {
+            "type": "string",
+            "format": "date",
+            "title": "Filed"
+          },
+          "accession": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accession"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "first_knowable": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Knowable"
+          },
+          "first_knowable_accession": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Knowable Accession"
+          },
+          "yoy": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Yoy"
+          },
+          "prior_period_end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prior Period End"
+          }
+        },
+        "type": "object",
+        "required": [
+          "quarter",
+          "period_end",
+          "value",
+          "basis",
+          "fiscal_period",
+          "fiscal_year",
+          "filed",
+          "accession",
+          "url",
+          "first_knowable",
+          "first_knowable_accession",
+          "yoy",
+          "prior_period_end"
+        ],
+        "title": "MultiplesBarOut",
+        "description": "One quarterly revenue print: placed by its ``period_end`` (``quarter`` = its calendar quarter, ``2026-Q2``),\ndated by the filing that made it public (``filed``; ``accession`` and its EDGAR index ``url``). ``basis`` =\n``native`` (a standalone quarter) or ``derived`` (the fiscal year minus nine months). ``first_knowable`` is set\nonly when the value was public earlier than ``filed`` (a re-report), with its accession. ``yoy`` = percent\nchange against the same period a year earlier (``prior_period_end``); ``null`` = no such row in the read."
+      },
+      "MultiplesCardOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "links": {
+            "type": "integer",
+            "title": "Links"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "name",
+          "links"
+        ],
+        "title": "MultiplesCardOut",
+        "description": "A card in the picker: its name and its real links today (Context and Bench not counted)."
+      },
+      "MultiplesCardsOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "live_cards": {
+            "type": "integer",
+            "title": "Live Cards"
+          },
+          "not_yet_created": {
+            "type": "integer",
+            "title": "Not Yet Created"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/MultiplesCardOut"
+            },
+            "type": "array",
+            "title": "Cards"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "live_cards",
+          "not_yet_created",
+          "cards",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "MultiplesCardsOut",
+        "description": "The picker: the cards counted at the as-of (the live cards that existed by then), A\u2192Z. ``cache`` /\n``compute_ms`` = whether the list came from the shared dashboard cache and how long it took when computed."
+      },
+      "MultiplesCompanyOut": {
+        "properties": {
+          "company_key": {
+            "type": "string",
+            "title": "Company Key"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "security_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Security Id"
+          },
+          "silent": {
+            "type": "boolean",
+            "title": "Silent"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "series",
+              "thin",
+              "stale",
+              "none",
+              "unresolved"
+            ],
+            "title": "State"
+          },
+          "periods": {
+            "type": "integer",
+            "title": "Periods"
+          },
+          "bars": {
+            "items": {
+              "$ref": "#/components/schemas/MultiplesBarOut"
+            },
+            "type": "array",
+            "title": "Bars"
+          },
+          "last_print": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MultiplesLastPrintOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "set_aside": {
+            "type": "integer",
+            "title": "Set Aside"
+          }
+        },
+        "type": "object",
+        "required": [
+          "company_key",
+          "ticker",
+          "name",
+          "security_id",
+          "silent",
+          "state",
+          "periods",
+          "bars",
+          "last_print",
+          "set_aside"
+        ],
+        "title": "MultiplesCompanyOut",
+        "description": "One roster company, once. ``company_key`` is the company's (``security_id``, or ``ticker:<T>`` with no\nresolved security); ``ticker`` = its ticker on the card (the Cockpit's ``?name=`` key). ``silent`` = it sits\nonly in Context or Bench (never in a median). ``state``: ``series`` (five or more bars on the axis), ``thin``\n(one to four), ``stale`` (a series that ends before the axis: no bar), ``none`` (no revenue stored) or\n``unresolved`` (no resolved security). ``periods`` = revenue period ends stored on or before the as-of;\n``set_aside`` = revenue rows an active data-quality set-aside covers."
+      },
+      "MultiplesCountsOut": {
+        "properties": {
+          "links_today": {
+            "type": "integer",
+            "title": "Links Today"
+          },
+          "old_links": {
+            "type": "integer",
+            "title": "Old Links"
+          },
+          "roster_rows": {
+            "type": "integer",
+            "title": "Roster Rows"
+          },
+          "resolved_rows": {
+            "type": "integer",
+            "title": "Resolved Rows"
+          },
+          "unresolved_rows": {
+            "type": "integer",
+            "title": "Unresolved Rows"
+          },
+          "silent_rows": {
+            "type": "integer",
+            "title": "Silent Rows"
+          },
+          "companies": {
+            "type": "integer",
+            "title": "Companies"
+          },
+          "counting": {
+            "type": "integer",
+            "title": "Counting"
+          },
+          "silent_companies": {
+            "type": "integer",
+            "title": "Silent Companies"
+          },
+          "with_series": {
+            "type": "integer",
+            "title": "With Series"
+          },
+          "without_series": {
+            "type": "integer",
+            "title": "Without Series"
+          },
+          "thin": {
+            "type": "integer",
+            "title": "Thin"
+          },
+          "stale": {
+            "type": "integer",
+            "title": "Stale"
+          },
+          "set_aside": {
+            "type": "integer",
+            "title": "Set Aside"
+          }
+        },
+        "type": "object",
+        "required": [
+          "links_today",
+          "old_links",
+          "roster_rows",
+          "resolved_rows",
+          "unresolved_rows",
+          "silent_rows",
+          "companies",
+          "counting",
+          "silent_companies",
+          "with_series",
+          "without_series",
+          "thin",
+          "stale",
+          "set_aside"
+        ],
+        "title": "MultiplesCountsOut",
+        "description": "The work: roster rows split resolved / unresolved / silent; ``companies`` = distinct roster companies, of\nwhich ``counting`` sit in a real, old or No-link row and ``silent_companies`` only in Context or Bench;\n``with_series`` / ``without_series`` split them by whether any revenue period end is stored; ``thin`` and\n``stale`` are of the ones with a series; ``set_aside`` = revenue rows covered by an active set-aside on the\ncard's names."
+      },
+      "MultiplesLastPrintOut": {
+        "properties": {
+          "quarter": {
+            "type": "string",
+            "title": "Quarter"
+          },
+          "period_end": {
+            "type": "string",
+            "format": "date",
+            "title": "Period End"
+          },
+          "filed": {
+            "type": "string",
+            "format": "date",
+            "title": "Filed"
+          },
+          "days_before": {
+            "type": "integer",
+            "title": "Days Before"
+          },
+          "yoy": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Yoy"
+          }
+        },
+        "type": "object",
+        "required": [
+          "quarter",
+          "period_end",
+          "filed",
+          "days_before",
+          "yoy"
+        ],
+        "title": "MultiplesLastPrintOut",
+        "description": "A name's newest print by period end (even one older than the axis): ``days_before`` = how many days before\nthe as-of it was filed; ``yoy`` = its percent change on the same period a year earlier."
+      },
+      "MultiplesMedianOut": {
+        "properties": {
+          "counting": {
+            "type": "integer",
+            "title": "Counting"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/MultiplesMedianPointOut"
+            },
+            "type": "array",
+            "title": "Points"
+          }
+        },
+        "type": "object",
+        "required": [
+          "counting",
+          "points"
+        ],
+        "title": "MultiplesMedianOut",
+        "description": "A median line over the axis. ``counting`` = the counting names it is over; each point's ``n`` is how many\nof them contributed. A line over exactly one name is that name's own dots."
+      },
+      "MultiplesMedianPointOut": {
+        "properties": {
+          "quarter": {
+            "type": "string",
+            "title": "Quarter"
+          },
+          "median": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median"
+          },
+          "n": {
+            "type": "integer",
+            "title": "N"
+          }
+        },
+        "type": "object",
+        "required": [
+          "quarter",
+          "median",
+          "n"
+        ],
+        "title": "MultiplesMedianPointOut",
+        "description": "One axis quarter of a median line: ``median`` (percent; ``null`` = not drawn, fewer than the needed names)\nand ``n`` = the names that had a year-over-year change that quarter."
+      },
+      "MultiplesOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "clock": {
+            "type": "string",
+            "enum": [
+              "record",
+              "public"
+            ],
+            "title": "Clock"
+          },
+          "roster_fallback": {
+            "type": "boolean",
+            "title": "Roster Fallback"
+          },
+          "axis": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Axis"
+          },
+          "card_line": {
+            "$ref": "#/components/schemas/MultiplesMedianOut"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/MultiplesRowOut"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "companies": {
+            "items": {
+              "$ref": "#/components/schemas/MultiplesCompanyOut"
+            },
+            "type": "array",
+            "title": "Companies"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/MultiplesCountsOut"
+          },
+          "quarters": {
+            "type": "integer",
+            "title": "Quarters"
+          },
+          "thin_below": {
+            "type": "integer",
+            "title": "Thin Below"
+          },
+          "min_median_names": {
+            "type": "integer",
+            "title": "Min Median Names"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "thesis_id",
+          "thesis_name",
+          "clock",
+          "roster_fallback",
+          "axis",
+          "card_line",
+          "rows",
+          "companies",
+          "counts",
+          "quarters",
+          "thin_below",
+          "min_median_names",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "MultiplesOut",
+        "description": "One card's revenue series. ``axis`` = the calendar quarters drawn, oldest first (twelve ending at the newest\nquarter any roster name's latest print falls in; empty when no name has a print); ``card_line`` = the median\nover the card's counting names; ``rows`` in chain order (real links, then a roster link that is not on the card\ntoday, then No link, then Context, then Bench); ``companies`` = every roster company once, referenced by key\nfrom the rows. ``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was public by the end of\nthat date). ``roster_fallback`` = no roster snapshot by the as-of: today's roster stands in. ``quarters`` /\n``thin_below`` / ``min_median_names`` = the rules the page states. ``cache`` / ``compute_ms`` = whether the page\ncame from the shared dashboard cache and how long it took when computed."
+      },
+      "MultiplesRowOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "link",
+              "old_link",
+              "no_link",
+              "silent"
+            ],
+            "title": "Kind"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "descriptor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Descriptor"
+          },
+          "companies": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Companies"
+          },
+          "median": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MultiplesMedianOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "kind",
+          "label",
+          "descriptor",
+          "companies",
+          "median"
+        ],
+        "title": "MultiplesRowOut",
+        "description": "A row of names. ``kind``: ``link`` (a real link today, chain order), ``old_link`` (a roster link that is not\non the card today), ``no_link``, or ``silent`` (the Context or Bench names; ``label`` says which; no median).\n``companies`` = company keys in roster order; ``descriptor`` = the link's descriptor when set."
+      },
       "NarrativeBenchmarkOut": {
         "properties": {
           "symbol": {
@@ -18638,6 +21638,1557 @@
         ],
         "title": "OperatorSpanOut",
         "description": "An off-record take\u2192close span (answering no armed episode), with the stance FROZEN on the\ntake row at logging time. ``override`` = entered while the platform said not-armed \u2014 the\ngate's logged override, now carrying its outcome."
+      },
+      "PeerBlankOut": {
+        "properties": {
+          "gap": {
+            "type": "string",
+            "enum": [
+              "flagged",
+              "no_price",
+              "no_reading",
+              "no_shares",
+              "ads_unread",
+              "no_cap",
+              "no_revenue",
+              "no_prior_year",
+              "no_burn",
+              "no_convert",
+              "no_mix",
+              "no_form4",
+              "no_spy",
+              "ends_differ"
+            ],
+            "title": "Gap"
+          },
+          "n": {
+            "type": "integer",
+            "title": "N"
+          }
+        },
+        "type": "object",
+        "required": [
+          "gap",
+          "n"
+        ],
+        "title": "PeerBlankOut"
+      },
+      "PeerCapOut": {
+        "properties": {
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "tier": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CapTier"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "gap": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "flagged",
+                  "no_price",
+                  "no_reading",
+                  "no_shares",
+                  "ads_unread",
+                  "no_cap",
+                  "no_revenue",
+                  "no_prior_year",
+                  "no_burn",
+                  "no_convert",
+                  "no_mix",
+                  "no_form4",
+                  "no_spy",
+                  "ends_differ"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "close": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close"
+          },
+          "close_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close Date"
+          },
+          "shares": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shares"
+          },
+          "shares_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shares Date"
+          },
+          "ads_ratio": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ads Ratio"
+          },
+          "split_factor": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Split Factor"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "tier",
+          "gap",
+          "note",
+          "close",
+          "close_date",
+          "shares",
+          "shares_date",
+          "ads_ratio",
+          "split_factor"
+        ],
+        "title": "PeerCapOut",
+        "description": "The approximate market cap (USD) and its tier: the latest close times the latest shares fact, the\nWorkbench's rule (``ads_ratio_status`` known divides the ordinary count by ``ads_ratio``, unread withholds the\ncap, none counts 1:1), with ``split_factor`` = the multiplier put on the count when a split in force sits\nbetween the count's date and the close's. ``shares`` = the ordinary count on file."
+      },
+      "PeerCardChipOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "links": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Links"
+          },
+          "silent": {
+            "type": "boolean",
+            "title": "Silent"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContextRole"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "thesis_name",
+          "ticker",
+          "links",
+          "silent",
+          "role"
+        ],
+        "title": "PeerCardChipOut",
+        "description": "A card the company sits on: its ticker there (the Cockpit's ``?name=`` key), its links there (``null`` = no\nlink; Context / Bench by their labels), whether it is silent there and its context role there."
+      },
+      "PeerCardOptionOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "links": {
+            "type": "integer",
+            "title": "Links"
+          },
+          "companies": {
+            "type": "integer",
+            "title": "Companies"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "name",
+          "links",
+          "companies"
+        ],
+        "title": "PeerCardOptionOut",
+        "description": "A counted card in the picker: its real links today (Context and Bench not counted) and its distinct\ncompanies on the roster at the as-of."
+      },
+      "PeerCellOut": {
+        "properties": {
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "gap": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "flagged",
+                  "no_price",
+                  "no_reading",
+                  "no_shares",
+                  "ads_unread",
+                  "no_cap",
+                  "no_revenue",
+                  "no_prior_year",
+                  "no_burn",
+                  "no_convert",
+                  "no_mix",
+                  "no_form4",
+                  "no_spy",
+                  "ends_differ"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "gap",
+          "note"
+        ],
+        "title": "PeerCellOut",
+        "description": "A number cell: ``value`` is stated, or ``gap`` says why it is blank (``flagged`` | ``no_price`` |\n``no_reading`` | ``no_shares`` | ``ads_unread`` | ``no_cap`` | ``no_revenue`` | ``no_prior_year`` | ``no_burn`` |\n``no_convert`` | ``no_mix`` | ``no_form4`` | ``no_spy`` | ``ends_differ``) and ``note`` is the reader's own\nwords (a display member's \"n/a: 120/200 bars\", the flags' labels). Blank is never zero. The unit is the\ncolumn's: 52-week-high and the two averages in percent, RVOL as a ratio, dollar volume in USD, overhang in\npercent of shares."
+      },
+      "PeerCompanyOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "business_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Type"
+          },
+          "supersector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supersector"
+          },
+          "royalty": {
+            "type": "boolean",
+            "title": "Royalty"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/PeerCardChipOut"
+            },
+            "type": "array",
+            "title": "Cards"
+          },
+          "roles": {
+            "items": {
+              "$ref": "#/components/schemas/ContextRole"
+            },
+            "type": "array",
+            "title": "Roles"
+          },
+          "silent_only": {
+            "type": "boolean",
+            "title": "Silent Only"
+          },
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          },
+          "workbench_facts": {
+            "type": "boolean",
+            "title": "Workbench Facts"
+          },
+          "flag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flag"
+          },
+          "cap": {
+            "$ref": "#/components/schemas/PeerCapOut"
+          },
+          "revenue": {
+            "$ref": "#/components/schemas/PeerRevenueOut"
+          },
+          "yoy": {
+            "$ref": "#/components/schemas/PeerYoyOut"
+          },
+          "runway": {
+            "$ref": "#/components/schemas/PeerRunwayOut"
+          },
+          "overhang": {
+            "$ref": "#/components/schemas/PeerCellOut"
+          },
+          "purity": {
+            "$ref": "#/components/schemas/PeerPurityOut"
+          },
+          "off_high": {
+            "$ref": "#/components/schemas/PeerCellOut"
+          },
+          "sma50": {
+            "$ref": "#/components/schemas/PeerCellOut"
+          },
+          "sma200": {
+            "$ref": "#/components/schemas/PeerCellOut"
+          },
+          "rvol20": {
+            "$ref": "#/components/schemas/PeerCellOut"
+          },
+          "adv": {
+            "$ref": "#/components/schemas/PeerCellOut"
+          },
+          "vs_spy": {
+            "$ref": "#/components/schemas/PeerSpyOut"
+          },
+          "insider": {
+            "$ref": "#/components/schemas/PeerInsiderOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "security_id",
+          "ticker",
+          "name",
+          "business_type",
+          "supersector",
+          "royalty",
+          "cards",
+          "roles",
+          "silent_only",
+          "rows",
+          "workbench_facts",
+          "flag",
+          "cap",
+          "revenue",
+          "yoy",
+          "runway",
+          "overhang",
+          "purity",
+          "off_high",
+          "sma50",
+          "sma200",
+          "rvol20",
+          "adv",
+          "vs_spy",
+          "insider"
+        ],
+        "title": "PeerCompanyOut",
+        "description": "One company, once. ``key`` = its ``security_id``. ``business_type`` / ``supersector`` = today's identity\n(``null`` = unclassified), ``royalty`` = the royalty/streaming overlay. ``roles`` = the distinct context roles\nit holds; ``silent_only`` = every row is Context or Bench; ``workbench_facts`` = it holds a shares, cash/burn,\nrevenue-mix or convertible-note fact; ``flag`` = why its price-derived cells are blank (its row stays)."
+      },
+      "PeerCoverageOut": {
+        "properties": {
+          "column": {
+            "type": "string",
+            "enum": [
+              "cap",
+              "revenue",
+              "yoy",
+              "runway",
+              "overhang",
+              "purity",
+              "off_high",
+              "sma50",
+              "sma200",
+              "rvol20",
+              "adv",
+              "vs_spy",
+              "insider"
+            ],
+            "title": "Column"
+          },
+          "stated": {
+            "type": "integer",
+            "title": "Stated"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "blanks": {
+            "items": {
+              "$ref": "#/components/schemas/PeerBlankOut"
+            },
+            "type": "array",
+            "title": "Blanks"
+          }
+        },
+        "type": "object",
+        "required": [
+          "column",
+          "stated",
+          "total",
+          "blanks"
+        ],
+        "title": "PeerCoverageOut",
+        "description": "A column's coverage: ``stated`` of ``total`` names, the blanks by reason (most first)."
+      },
+      "PeerFlaggedOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "reason"
+        ],
+        "title": "PeerFlaggedOut",
+        "description": "A company in scope whose data flags reach its price readings at the as-of: its row stays, its price-derived\ncells name ``reason`` (the flags' labels)."
+      },
+      "PeerGroupOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "supersector",
+              "business_type",
+              "link",
+              "old_link",
+              "no_link",
+              "silent"
+            ],
+            "title": "Kind"
+          },
+          "depth": {
+            "type": "integer",
+            "title": "Depth"
+          },
+          "members": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Members"
+          },
+          "stats": {
+            "$ref": "#/components/schemas/PeerGroupStatsOut"
+          },
+          "stats_counting": {
+            "$ref": "#/components/schemas/PeerGroupStatsOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "kind",
+          "depth",
+          "members",
+          "stats",
+          "stats_counting"
+        ],
+        "title": "PeerGroupOut",
+        "description": "A group header row. ``kind``: ``supersector`` | ``business_type`` (the leaf) | ``link`` | ``old_link`` (a\nroster link no longer on the card) | ``no_link`` | ``silent`` (Context or Bench); ``label`` = the key (the page\nwords it). ``depth`` 1 = a leaf under a supersector (the all-cards scope). ``members`` = the keys of the\ncompanies listed under it, names A to Z (a supersector header lists none: its leaves do). ``stats`` = every name\nin the group; ``stats_counting`` = the names that count (not silent-only)."
+      },
+      "PeerGroupStatsOut": {
+        "properties": {
+          "names": {
+            "type": "integer",
+            "title": "Names"
+          },
+          "cap": {
+            "$ref": "#/components/schemas/PeerMedianOut"
+          },
+          "above_50d": {
+            "type": "integer",
+            "title": "Above 50D"
+          },
+          "priced_50d": {
+            "type": "integer",
+            "title": "Priced 50D"
+          },
+          "vs_spy": {
+            "$ref": "#/components/schemas/PeerMedianOut"
+          },
+          "yoy": {
+            "$ref": "#/components/schemas/PeerMedianOut"
+          },
+          "runway": {
+            "type": "integer",
+            "title": "Runway"
+          }
+        },
+        "type": "object",
+        "required": [
+          "names",
+          "cap",
+          "above_50d",
+          "priced_50d",
+          "vs_spy",
+          "yoy",
+          "runway"
+        ],
+        "title": "PeerGroupStatsOut",
+        "description": "What a group row says, each figure with its n: the names; the median approximate cap; the names above the\n50-day average of those with a 50-day reading; the median 30-day return minus SPY's; the median YoY; the names\nwith a runway figure. Medians only, equal weight, no score."
+      },
+      "PeerInsiderOut": {
+        "properties": {
+          "buys": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Buys"
+          },
+          "usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Usd"
+          },
+          "buyers": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Buyers"
+          },
+          "gap": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "flagged",
+                  "no_price",
+                  "no_reading",
+                  "no_shares",
+                  "ads_unread",
+                  "no_cap",
+                  "no_revenue",
+                  "no_prior_year",
+                  "no_burn",
+                  "no_convert",
+                  "no_mix",
+                  "no_form4",
+                  "no_spy",
+                  "ends_differ"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "buys",
+          "usd",
+          "buyers",
+          "gap",
+          "note"
+        ],
+        "title": "PeerInsiderOut",
+        "description": "Open-market buys in the member's 90-day window as the Cockpit's column screens them: count, dollars and\ndistinct buyers. ``buys`` 0 is a stated zero; ``gap`` ``no_form4`` = no Form 4 ingested (a blank)."
+      },
+      "PeerKeyOptionOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "companies": {
+            "type": "integer",
+            "title": "Companies"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "companies"
+        ],
+        "title": "PeerKeyOptionOut",
+        "description": "A business-type leaf or a supersector present on the counted rosters (``unclassified`` = no business type),\nwith the distinct companies on it."
+      },
+      "PeerMedianOut": {
+        "properties": {
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "n": {
+            "type": "integer",
+            "title": "N"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "n"
+        ],
+        "title": "PeerMedianOut",
+        "description": "A median and the n it rests on (``value`` null with ``n`` 0)."
+      },
+      "PeerPurityOut": {
+        "properties": {
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "segment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Segment"
+          },
+          "gap": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "flagged",
+                  "no_price",
+                  "no_reading",
+                  "no_shares",
+                  "ads_unread",
+                  "no_cap",
+                  "no_revenue",
+                  "no_prior_year",
+                  "no_burn",
+                  "no_convert",
+                  "no_mix",
+                  "no_form4",
+                  "no_spy",
+                  "ends_differ"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "segment",
+          "gap"
+        ],
+        "title": "PeerPurityOut",
+        "description": "The largest revenue-mix line, in percent, with its segment label."
+      },
+      "PeerRevenueOut": {
+        "properties": {
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "period_end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period End"
+          },
+          "gap": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "flagged",
+                  "no_price",
+                  "no_reading",
+                  "no_shares",
+                  "ads_unread",
+                  "no_cap",
+                  "no_revenue",
+                  "no_prior_year",
+                  "no_burn",
+                  "no_convert",
+                  "no_mix",
+                  "no_form4",
+                  "no_spy",
+                  "ends_differ"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "period_end",
+          "gap"
+        ],
+        "title": "PeerRevenueOut",
+        "description": "The latest period's revenue (USD) from the XBRL series, with its period end."
+      },
+      "PeerRunwayOut": {
+        "properties": {
+          "months": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Months"
+          },
+          "cash_positive": {
+            "type": "boolean",
+            "title": "Cash Positive"
+          },
+          "cash_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cash Usd"
+          },
+          "burn_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Burn Usd"
+          },
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "gap": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "flagged",
+                  "no_price",
+                  "no_reading",
+                  "no_shares",
+                  "ads_unread",
+                  "no_cap",
+                  "no_revenue",
+                  "no_prior_year",
+                  "no_burn",
+                  "no_convert",
+                  "no_mix",
+                  "no_form4",
+                  "no_spy",
+                  "ends_differ"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap"
+          }
+        },
+        "type": "object",
+        "required": [
+          "months",
+          "cash_positive",
+          "cash_usd",
+          "burn_usd",
+          "as_of",
+          "gap"
+        ],
+        "title": "PeerRunwayOut",
+        "description": "Months of cash at the current burn (cash / (quarterly burn / 3)); ``cash_positive`` when the burn is zero or\nnegative (no finite figure). ``as_of`` = the fact's date."
+      },
+      "PeerScopesOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "clock": {
+            "type": "string",
+            "enum": [
+              "record",
+              "public"
+            ],
+            "title": "Clock"
+          },
+          "live_cards": {
+            "type": "integer",
+            "title": "Live Cards"
+          },
+          "cards_counted": {
+            "type": "integer",
+            "title": "Cards Counted"
+          },
+          "cards_not_yet_created": {
+            "type": "integer",
+            "title": "Cards Not Yet Created"
+          },
+          "roster_fallback_cards": {
+            "type": "integer",
+            "title": "Roster Fallback Cards"
+          },
+          "companies": {
+            "type": "integer",
+            "title": "Companies"
+          },
+          "unresolved_rows": {
+            "type": "integer",
+            "title": "Unresolved Rows"
+          },
+          "business_types": {
+            "items": {
+              "$ref": "#/components/schemas/PeerKeyOptionOut"
+            },
+            "type": "array",
+            "title": "Business Types"
+          },
+          "supersectors": {
+            "items": {
+              "$ref": "#/components/schemas/PeerKeyOptionOut"
+            },
+            "type": "array",
+            "title": "Supersectors"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/PeerCardOptionOut"
+            },
+            "type": "array",
+            "title": "Cards"
+          },
+          "default_scope": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "business_type",
+                  "supersector",
+                  "card",
+                  "all"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Scope"
+          },
+          "default_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Key"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "clock",
+          "live_cards",
+          "cards_counted",
+          "cards_not_yet_created",
+          "roster_fallback_cards",
+          "companies",
+          "unresolved_rows",
+          "business_types",
+          "supersectors",
+          "cards",
+          "default_scope",
+          "default_key",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "PeerScopesOut",
+        "description": "What can be picked at the as-of: the business-type leaves and supersectors present on the live rosters\n(biggest first, Unclassified last) and the counted cards (A to Z), each with its companies. ``default_scope`` /\n``default_key`` = the leaf to open on (the first with two or more companies); ``null`` with no company at all.\n``cards_counted`` = the live cards that existed by the as-of; ``roster_fallback_cards`` = counted cards with no\nroster snapshot by then (today's roster stands in). ``companies`` = distinct resolved companies on them;\n``unresolved_rows`` = roster rows with no resolved security (never a company). ``clock``: ``record`` (the live\nread) or ``public`` (a past as-of: what was public by the end of that date). ``cache`` / ``compute_ms`` = whether\nthe lists came from the shared dashboard cache and how long they took when computed."
+      },
+      "PeerSpyOut": {
+        "properties": {
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "ret_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ret Pct"
+          },
+          "spy_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spy Pct"
+          },
+          "last_close": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Close"
+          },
+          "gap": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "flagged",
+                  "no_price",
+                  "no_reading",
+                  "no_shares",
+                  "ads_unread",
+                  "no_cap",
+                  "no_revenue",
+                  "no_prior_year",
+                  "no_burn",
+                  "no_convert",
+                  "no_mix",
+                  "no_form4",
+                  "no_spy",
+                  "ends_differ"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "ret_pct",
+          "spy_pct",
+          "last_close",
+          "gap",
+          "note"
+        ],
+        "title": "PeerSpyOut",
+        "description": "The 30-trading-day return minus SPY's, in percentage points (``value``), the two returns it is made of and\nthe date of the company's last close."
+      },
+      "PeerSpyRefOut": {
+        "properties": {
+          "ret_30d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ret 30D"
+          },
+          "end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ret_30d",
+          "end"
+        ],
+        "title": "PeerSpyRefOut",
+        "description": "SPY's own 30-trading-day return at the as-of, the benchmark every vs-SPY cell subtracts."
+      },
+      "PeerTableOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "clock": {
+            "type": "string",
+            "enum": [
+              "record",
+              "public"
+            ],
+            "title": "Clock"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "business_type",
+              "supersector",
+              "card",
+              "all"
+            ],
+            "title": "Scope"
+          },
+          "key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key"
+          },
+          "scope_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope Name"
+          },
+          "live_cards": {
+            "type": "integer",
+            "title": "Live Cards"
+          },
+          "cards_counted": {
+            "type": "integer",
+            "title": "Cards Counted"
+          },
+          "cards_not_yet_created": {
+            "type": "integer",
+            "title": "Cards Not Yet Created"
+          },
+          "roster_fallback_cards": {
+            "type": "integer",
+            "title": "Roster Fallback Cards"
+          },
+          "scope_cards": {
+            "type": "integer",
+            "title": "Scope Cards"
+          },
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          },
+          "silent_only": {
+            "type": "integer",
+            "title": "Silent Only"
+          },
+          "companies": {
+            "items": {
+              "$ref": "#/components/schemas/PeerCompanyOut"
+            },
+            "type": "array",
+            "title": "Companies"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/PeerGroupOut"
+            },
+            "type": "array",
+            "title": "Groups"
+          },
+          "unresolved": {
+            "items": {
+              "$ref": "#/components/schemas/PeerUnresolvedOut"
+            },
+            "type": "array",
+            "title": "Unresolved"
+          },
+          "unresolved_rows": {
+            "type": "integer",
+            "title": "Unresolved Rows"
+          },
+          "flagged": {
+            "items": {
+              "$ref": "#/components/schemas/PeerFlaggedOut"
+            },
+            "type": "array",
+            "title": "Flagged"
+          },
+          "coverage": {
+            "items": {
+              "$ref": "#/components/schemas/PeerCoverageOut"
+            },
+            "type": "array",
+            "title": "Coverage"
+          },
+          "coverage_counting": {
+            "items": {
+              "$ref": "#/components/schemas/PeerCoverageOut"
+            },
+            "type": "array",
+            "title": "Coverage Counting"
+          },
+          "spy": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PeerSpyRefOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "benchmark": {
+            "type": "string",
+            "title": "Benchmark"
+          },
+          "columns": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "cap",
+                "revenue",
+                "yoy",
+                "runway",
+                "overhang",
+                "purity",
+                "off_high",
+                "sma50",
+                "sma200",
+                "rvol20",
+                "adv",
+                "vs_spy",
+                "insider"
+              ]
+            },
+            "type": "array",
+            "title": "Columns"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "clock",
+          "scope",
+          "key",
+          "scope_name",
+          "live_cards",
+          "cards_counted",
+          "cards_not_yet_created",
+          "roster_fallback_cards",
+          "scope_cards",
+          "rows",
+          "silent_only",
+          "companies",
+          "groups",
+          "unresolved",
+          "unresolved_rows",
+          "flagged",
+          "coverage",
+          "coverage_counting",
+          "spy",
+          "benchmark",
+          "columns",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "PeerTableOut",
+        "description": "One scope's table. ``scope`` + ``key``: the picked scope (``key`` null for ``all``); ``scope_name`` = the\ncard's name in a card scope. ``companies`` = every company in scope once, in the default order (group order,\nnames A to Z inside); ``groups`` list their keys. ``coverage`` / ``coverage_counting`` = every column's coverage\nover every company / over the names that count. ``scope_cards`` = counted cards holding at least one company in\nscope; ``rows`` = their roster rows in view; ``silent_only`` = companies whose every row is Context or Bench.\n``unresolved`` = roster rows with no resolved security (a card scope: that card's; else every counted card's).\n``flagged`` = companies in scope with a data flag that reaches their price readings. ``clock``: ``record`` (the\nlive read) or ``public`` (a past as-of). ``cache`` / ``compute_ms`` = whether the table came from the shared\ndashboard cache and how long it took when computed."
+      },
+      "PeerUnresolvedOut": {
+        "properties": {
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ticker",
+          "thesis_id",
+          "thesis_name"
+        ],
+        "title": "PeerUnresolvedOut",
+        "description": "A roster row with no resolved security: counted and listed, never a row."
+      },
+      "PeerYoyOut": {
+        "properties": {
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "prior_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prior Value"
+          },
+          "prior_period_end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prior Period End"
+          },
+          "gap": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "flagged",
+                  "no_price",
+                  "no_reading",
+                  "no_shares",
+                  "ads_unread",
+                  "no_cap",
+                  "no_revenue",
+                  "no_prior_year",
+                  "no_burn",
+                  "no_convert",
+                  "no_mix",
+                  "no_form4",
+                  "no_spy",
+                  "ends_differ"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "prior_value",
+          "prior_period_end",
+          "gap"
+        ],
+        "title": "PeerYoyOut",
+        "description": "The change in percent against the row for the same period end a year earlier (within 10 days) in the same\nread, with the prior figure it rests on."
       },
       "PlacementStatus": {
         "type": "string",
@@ -19894,6 +24445,638 @@
           "shares"
         ],
         "title": "RatifyShares"
+      },
+      "ReadThroughCardOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "links": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Links"
+          },
+          "silent": {
+            "type": "boolean",
+            "title": "Silent"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "thesis_name",
+          "ticker",
+          "links",
+          "silent"
+        ],
+        "title": "ReadThroughCardOut",
+        "description": "A card a company holds the role on. ``ticker`` = its ticker there (the Cockpit's ``?name=`` key);\n``links`` = its links there (``null`` = no link; Context / Bench by their labels); ``silent`` = it is in\nContext or Bench there (it never counts toward the call)."
+      },
+      "ReadThroughCardRefOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "thesis_name"
+        ],
+        "title": "ReadThroughCardRefOut"
+      },
+      "ReadThroughCatalystOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "catalyst_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Catalyst Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "when_date": {
+            "type": "string",
+            "format": "date",
+            "title": "When Date"
+          },
+          "when_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "When Label"
+          },
+          "days": {
+            "type": "integer",
+            "title": "Days"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "thesis_name",
+          "catalyst_id",
+          "label",
+          "kind",
+          "when_date",
+          "when_label",
+          "days"
+        ],
+        "title": "ReadThroughCatalystOut",
+        "description": "The nearest dated card-level catalyst on or after the as-of among the row's cards; ``days`` = its date\nminus the as-of (0 = the as-of day)."
+      },
+      "ReadThroughFilingOut": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "8k",
+              "stake",
+              "form4",
+              "form4a",
+              "revenue",
+              "split",
+              "dilution",
+              "catalyst",
+              "ratified"
+            ],
+            "title": "Kind"
+          },
+          "form": {
+            "type": "string",
+            "title": "Form"
+          },
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "days_ago": {
+            "type": "integer",
+            "title": "Days Ago"
+          },
+          "headline": {
+            "type": "string",
+            "title": "Headline"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "accession": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accession"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "form",
+          "date",
+          "days_ago",
+          "headline",
+          "url",
+          "accession"
+        ],
+        "title": "ReadThroughFilingOut",
+        "description": "The company's newest SEC filing in the last ``filing_days`` days: ``kind`` (``8k`` | ``stake`` | ``form4`` |\n``form4a`` | ``revenue``; never a split, a catalyst or a ratified or stored fact), ``form`` (the form as\nfiled), its public ``date`` (``days_ago`` before the as-of), one neutral ``headline``, and ``url`` (the EDGAR\nfiling index or the stored source; ``null`` = none known)."
+      },
+      "ReadThroughFlaggedOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "reason"
+        ],
+        "title": "ReadThroughFlaggedOut",
+        "description": "A role company whose data flags reach its price readings at the as-of: its row stays, its tape cells name\n``reason`` (the flags' labels)."
+      },
+      "ReadThroughOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "clock": {
+            "type": "string",
+            "enum": [
+              "record",
+              "public"
+            ],
+            "title": "Clock"
+          },
+          "live_cards": {
+            "type": "integer",
+            "title": "Live Cards"
+          },
+          "cards_counted": {
+            "type": "integer",
+            "title": "Cards Counted"
+          },
+          "cards_not_yet_created": {
+            "type": "integer",
+            "title": "Cards Not Yet Created"
+          },
+          "roster_fallback_cards": {
+            "type": "integer",
+            "title": "Roster Fallback Cards"
+          },
+          "cards_with_roles": {
+            "type": "integer",
+            "title": "Cards With Roles"
+          },
+          "cards_without_roles": {
+            "items": {
+              "$ref": "#/components/schemas/ReadThroughCardRefOut"
+            },
+            "type": "array",
+            "title": "Cards Without Roles"
+          },
+          "role_tags": {
+            "type": "integer",
+            "title": "Role Tags"
+          },
+          "companies": {
+            "type": "integer",
+            "title": "Companies"
+          },
+          "by_role": {
+            "items": {
+              "$ref": "#/components/schemas/ReadThroughRoleCountOut"
+            },
+            "type": "array",
+            "title": "By Role"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/ReadThroughRowOut"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "rows_with_filing": {
+            "type": "integer",
+            "title": "Rows With Filing"
+          },
+          "unresolved": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Unresolved"
+          },
+          "unresolved_rows": {
+            "type": "integer",
+            "title": "Unresolved Rows"
+          },
+          "flagged": {
+            "items": {
+              "$ref": "#/components/schemas/ReadThroughFlaggedOut"
+            },
+            "type": "array",
+            "title": "Flagged"
+          },
+          "tape_ends_differ": {
+            "type": "integer",
+            "title": "Tape Ends Differ"
+          },
+          "spy": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReadThroughSpyOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "benchmark": {
+            "type": "string",
+            "title": "Benchmark"
+          },
+          "tape_windows": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Tape Windows"
+          },
+          "filing_days": {
+            "type": "integer",
+            "title": "Filing Days"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "clock",
+          "live_cards",
+          "cards_counted",
+          "cards_not_yet_created",
+          "roster_fallback_cards",
+          "cards_with_roles",
+          "cards_without_roles",
+          "role_tags",
+          "companies",
+          "by_role",
+          "rows",
+          "rows_with_filing",
+          "unresolved",
+          "unresolved_rows",
+          "flagged",
+          "tape_ends_differ",
+          "spy",
+          "benchmark",
+          "tape_windows",
+          "filing_days",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "ReadThroughOut",
+        "description": "The whole table for the as-of, in the default order (newest last filing first; no filing last, A to Z).\n``cards_counted`` = the live cards that existed by the as-of; ``cards_with_roles`` of them hold at least one\nrole, ``cards_without_roles`` hold none (listed: the page is also the to-do list for roles); ``role_tags`` =\nthe roles set (one per card and company), ``companies`` = distinct role companies, ``by_role`` = the rows per\nrole (a role with none included). ``unresolved`` = tickers of the role rows with no resolved security\n(``unresolved_rows``: counted, never a row). ``flagged`` = role companies whose data flags reach their price\nreadings. ``tape_ends_differ`` = rows whose last close is not SPY's. ``roster_fallback_cards`` = counted cards\nwith no roster snapshot by the as-of (today's roster stands in). ``clock``: ``record`` (the live read) or\n``public`` (a past as-of: what was public by the end of that date). ``cache`` / ``compute_ms`` = whether the\ntable came from the shared dashboard cache and how long it took when computed."
+      },
+      "ReadThroughRoleCountOut": {
+        "properties": {
+          "role": {
+            "$ref": "#/components/schemas/ContextRole"
+          },
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "role",
+          "rows"
+        ],
+        "title": "ReadThroughRoleCountOut"
+      },
+      "ReadThroughRowOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "role": {
+            "$ref": "#/components/schemas/ContextRole"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/ReadThroughCardOut"
+            },
+            "type": "array",
+            "title": "Cards"
+          },
+          "business_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Type"
+          },
+          "last_filing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReadThroughFilingOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "next_catalyst": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReadThroughCatalystOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tape": {
+            "$ref": "#/components/schemas/ReadThroughTapeOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "security_id",
+          "ticker",
+          "name",
+          "role",
+          "cards",
+          "business_type",
+          "last_filing",
+          "next_catalyst",
+          "tape"
+        ],
+        "title": "ReadThroughRowOut",
+        "description": "One (company, role). ``key`` = ``<security_id>:<role>``; ``ticker`` = the one most of its cards use;\n``business_type`` = the leaf derived on read from the master (the operator's re-tag wins; ``null`` = unknown)."
+      },
+      "ReadThroughSpyOut": {
+        "properties": {
+          "ret_7d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ret 7D"
+          },
+          "ret_30d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ret 30D"
+          },
+          "end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ret_7d",
+          "ret_30d",
+          "end"
+        ],
+        "title": "ReadThroughSpyOut",
+        "description": "SPY's own trailing returns at the as-of, the benchmark every vs-SPY cell subtracts."
+      },
+      "ReadThroughTapeOut": {
+        "properties": {
+          "ret_7d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ret 7D"
+          },
+          "ret_30d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ret 30D"
+          },
+          "vs_spy_7d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vs Spy 7D"
+          },
+          "vs_spy_30d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vs Spy 30D"
+          },
+          "last_close": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Close"
+          },
+          "gap": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "flagged",
+                  "no_tape",
+                  "no_spy",
+                  "ends_differ"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ret_7d",
+          "ret_30d",
+          "vs_spy_7d",
+          "vs_spy_30d",
+          "last_close",
+          "gap",
+          "reason"
+        ],
+        "title": "ReadThroughTapeOut",
+        "description": "The company's tape. ``ret_7d`` / ``ret_30d`` = its trailing return in percent over the last 7 / 30 trading\ndays; ``vs_spy_*`` = that minus SPY's over the same window, in percentage points; ``last_close`` = the date of\nits last close. ``gap`` = why the vs-SPY cells are blank: ``flagged`` (its data flags reach its price readings;\n``reason`` = the flags' labels, and no return is shown), ``no_tape`` (no bars), ``no_spy`` (SPY has none) or\n``ends_differ`` (its last close is not SPY's last close). ``null`` = shown, or only that window is short."
       },
       "ResolveEtfRequest": {
         "properties": {

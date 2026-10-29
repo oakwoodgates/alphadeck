@@ -1,0 +1,82 @@
+/* Filing Stream (docs/dashboards/filing-stream.md) — its own sheet, imported by the component, never index.css
+   (docs/DASHBOARDS.md rule 8). A document, not a card grid: one column, full-width day headers, one line per row,
+   tabular numbers, the expanded row as an indented block. Loudness marks the exception only (#7 / WB#3): no
+   badges, no color by kind; a tag is quiet gray text, the routine Form 4s fold into one gray line. Colors are the
+   app's tokens only. */
+
+.fs { display: flex; flex-direction: column; gap: 8px; max-width: 1080px; }
+.fs-controls, .fs-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
+.fs-pick, .fs-seg, .fs-field { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.fs-seg-label { font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); margin-right: 2px; }
+.fs-search, .fs-select { font: inherit; font-size: 11.5px; color: var(--txt-2); background: transparent; border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 7px; }
+.fs-search { width: 140px; }
+.fs-select { max-width: 320px; }
+.fs-select option { background: var(--panel); color: var(--txt-2); }
+.fs-seg-btn { font: inherit; font-size: 11px; color: var(--txt-3); background: transparent; border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 9px; cursor: pointer; }
+.fs-seg-btn:hover { color: var(--txt-2); }
+.fs-seg-btn.on { color: var(--txt); background: var(--panel-2); }
+.fs-check { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--txt-2); cursor: pointer; }
+.fs-check input { accent-color: var(--txt-3); margin: 0; }
+
+.fs-title { display: flex; align-items: baseline; gap: 10px; margin-top: 2px; }
+.fs-card { font: inherit; font-size: 14px; font-weight: 600; color: var(--txt); background: none; border: 0; padding: 0; cursor: pointer; }
+.fs-card:hover { text-decoration: underline; text-underline-offset: 3px; }
+.fs-n { font-family: var(--mono); font-size: 9.5px; font-weight: 400; color: var(--txt-4); font-variant-numeric: tabular-nums; }
+.fs-seg-btn .fs-n { color: inherit; opacity: 0.7; }
+.fs-empty { padding: 14px 0; }
+
+/* the stream: a day header over its rows */
+.fs-stream { display: flex; flex-direction: column; gap: 14px; margin-top: 6px; }
+.fs-day-head { margin: 0 0 4px; padding-bottom: 3px; border-bottom: 1px solid var(--line); font-size: 12px; font-weight: 600; color: var(--txt-2); letter-spacing: 0.02em; display: flex; align-items: baseline; gap: 10px; }
+.fs-list { list-style: none; margin: 0; padding: 0; }
+.fs-row { padding: 2px 0; }
+.fs-line { display: grid; grid-template-columns: 62px 78px minmax(0, 1fr) auto 62px; align-items: baseline; gap: 0 10px; }
+.fs-chip { justify-self: start; font-family: var(--mono); font-size: 10.5px; font-weight: 700; padding: 0 7px; border: 1px solid var(--line-2); border-radius: 6px; background: transparent; color: var(--txt-3); cursor: pointer; }
+.fs-chip:hover { color: var(--txt); border-color: var(--txt-4); background: var(--panel-2); }
+.fs-form { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fs-main { min-width: 0; font-size: 12px; line-height: 1.45; color: var(--txt-2); }
+/* Interaction states are NEUTRAL, never a state color (#7 / WB#3: loudness marks the exception, not hover or open).
+   Every state of the headline, the fold line and the source link is set here from the text tokens, so none is left
+   to a browser default (a button's :active, a link's :visited / :active): rest = --txt-2, hover and open = the
+   brighter --txt with a faint underline, the open row on a faint panel ground. Never --pos / --neg / --armed. */
+.fs-head { font: inherit; text-align: left; color: var(--txt-2); -webkit-text-fill-color: currentcolor; background: none; border: 0; padding: 0; cursor: pointer; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; text-decoration: none; }
+.fs-head:focus, .fs-head:active { color: var(--txt-2); }
+.fs-head:hover, .fs-head[aria-expanded="true"] { color: var(--txt); text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 3px; }
+.fs-head:focus-visible, .fs-fold:focus-visible { outline: 1px solid var(--line-2); outline-offset: 2px; border-radius: 2px; }
+.fs-head.plain, .fs-head.plain:hover { cursor: default; color: var(--txt-2); text-decoration: none; }
+.fs-row.open { background: color-mix(in srgb, var(--panel) 70%, transparent); border-radius: 4px; }
+.fs-chev { display: inline-block; width: 12px; color: var(--txt-4); font-size: 10px; }
+.fs-tag { margin-left: 8px; font-family: var(--mono); font-size: 9.5px; color: var(--txt-3); white-space: nowrap; }
+.fs-usd { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.fs-src, .fs-src:visited, .fs-src:active { font-family: var(--mono); font-size: 10px; color: var(--txt-3); text-align: right; text-decoration: none; white-space: nowrap; }
+.fs-src:hover { color: var(--txt); text-decoration: underline; text-underline-offset: 3px; }
+
+/* the expanded row: an indented block under its line */
+.fs-detail { margin: 3px 0 6px 72px; padding-left: 12px; border-left: 1px solid var(--line); font-size: 11.5px; line-height: 1.5; color: var(--txt-3); font-variant-numeric: tabular-nums; }
+.fs-detail ul { list-style: none; margin: 0; padding: 0; }
+.fs-detail li { padding: 1px 0; overflow-wrap: anywhere; }
+.fs-detail a { color: var(--txt-2); text-underline-offset: 3px; }
+
+/* the fold: a day's routine Form 4s as one quiet line that expands in place */
+.fs-fold-item { padding: 2px 0; }
+.fs-fold, .fs-fold:focus, .fs-fold:active { font: inherit; font-size: 11.5px; color: var(--txt-3); background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
+.fs-fold:hover, .fs-fold[aria-expanded="true"] { color: var(--txt-2); }
+.fs-folded { margin: 2px 0 4px 12px; padding-left: 10px; border-left: 1px solid var(--line); }
+
+.fs-work { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
+.fs-limits { margin: 4px 0 0; padding-left: 16px; font-size: 10.5px; line-height: 1.5; color: var(--txt-4); }
+
+/* a phone: the ticker chip keeps its column, the form, dollar hint and link sit on the first line and the
+   headline wraps on the line under them */
+@media (max-width: 640px) {
+  .fs-search { width: 110px; }
+  .fs-select { max-width: 220px; }
+  .fs-line { grid-template-columns: 62px minmax(0, 1fr) auto auto; row-gap: 1px; }
+  .fs-chip { grid-column: 1; grid-row: 1 / span 2; align-self: start; }
+  .fs-form { grid-column: 2; grid-row: 1; }
+  .fs-usd { grid-column: 3; grid-row: 1; }
+  .fs-src { grid-column: 4; grid-row: 1; }
+  .fs-src.none { display: none; }
+  .fs-main { grid-column: 2 / -1; grid-row: 2; }
+  .fs-detail { margin-left: 24px; }
+}
