@@ -57,6 +57,10 @@ from dashboards.baskets import (
 )
 from dashboards.series import YEAR_SESSIONS, Chain, SessionSource, aligned, chain, session_calendar
 
+# the line's start: moved to the shared line math (``dashboards/series.py``) with the Chain Wave, re-exported here
+# under its old name
+from dashboards.series import line_start as line_start
+
 NEUTRAL = 100.0
 # x: the RS ratio vs its own trailing average over this many sessions (13 weeks)
 LEVEL_SESSIONS = 65
@@ -92,15 +96,6 @@ def quadrant(x: float | None, y: float | None) -> Quadrant | None:
     if x > NEUTRAL:
         return "leading" if y > NEUTRAL else "weakening"
     return "improving" if y > NEUTRAL else "lagging"
-
-
-def line_start(ch: Chain | None) -> int | None:
-    """The session a line's first real step starts from (the one before the first session any member
-    contributed a daily return to); ``None`` = the line never steps."""
-    if ch is None:
-        return None
-    first = next((t for t, k in enumerate(ch.contributors) if k > 0), None)
-    return None if first is None else first - 1
 
 
 def rs_ratio(group: Chain, spy: Chain | None) -> tuple[float | None, ...]:

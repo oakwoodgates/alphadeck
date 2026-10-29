@@ -3884,6 +3884,131 @@
         }
       }
     },
+    "/dashboards/chain-wave/cards": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Chain Wave Cards",
+        "description": "The card picker: the live cards that existed by the as-of, A\u2192Z, each with its link count today. Display\nonly.",
+        "operationId": "chain_wave_cards_dashboards_chain_wave_cards_get",
+        "parameters": [
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; only the cards that existed by then are listed",
+              "title": "Asof"
+            },
+            "description": "as-of date; only the cards that existed by then are listed"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChainWaveCardsOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboards/chain-wave/{thesis_id}": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Chain Wave",
+        "description": "One card's links in chain order, week by week: each cell is the link's equal-weighted weekly return\n(rebalanced daily) minus SPY's, in percentage points, so a move traveling along the chain shows as a\ndiagonal. Below the chain, its counting names and one row per context role (payers first), each with its\ncompanies' own weekly cells. A name whose data flags reach its price readings is left out of every line and\nlisted. Display only; a past as-of reads what was public by the end of that date. 404 when the card is not\ncounted at the as-of.",
+        "operationId": "chain_wave_dashboards_chain_wave__thesis_id__get",
+        "parameters": [
+          {
+            "name": "thesis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thesis Id"
+            }
+          },
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; no price published after it is read",
+              "title": "Asof"
+            },
+            "description": "as-of date; no price published after it is read"
+          },
+          {
+            "name": "weeks",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ChainWaveWeeks",
+              "description": "the window: 13 | 26 | 52 weeks",
+              "default": 26
+            },
+            "description": "the window: 13 | 26 | 52 weeks"
+          },
+          {
+            "name": "include_silent",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "add Context and Bench as the last two chain rows",
+              "default": false,
+              "title": "Include Silent"
+            },
+            "description": "add Context and Bench as the last two chain rows"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChainWaveOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/dashboards/cross-radar": {
       "get": {
         "tags": [
@@ -10926,6 +11051,614 @@
         ],
         "title": "ChainDraftOut",
         "description": "The narrative\u2192chain draft (Slice 5b): the value-chain SEGMENTS the model proposed + each proposed name\nresolved against the master to PLACED / AMBIGUOUS / ABSENT (exact membership decides \u2014 INVARIANT #2).\n\nRESPONSE-ONLY and value-free: it carries NO score/number field, and the endpoint persists NOTHING \u2014 a\nplaced name is UNSCORED until the operator extract\u2192ratifies it, and the operator's promote is the only\nwriter. ``segments`` / ``placements`` reuse the resolver's domain result types directly (the wire is the\nresolver's output). ``report`` is the run's honesty report (coverage / capped terms / tail-sweep /\nnarration \u2014 ``DraftReportOut``): ALWAYS set by ``execute_draft``, optional on the wire only so a reader\nhandles its absence."
+      },
+      "ChainWaveCardOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "links": {
+            "type": "integer",
+            "title": "Links"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "name",
+          "links"
+        ],
+        "title": "ChainWaveCardOut",
+        "description": "A card in the picker: its name and its real links today (Context and Bench not counted)."
+      },
+      "ChainWaveCardsOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "live_cards": {
+            "type": "integer",
+            "title": "Live Cards"
+          },
+          "not_yet_created": {
+            "type": "integer",
+            "title": "Not Yet Created"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/ChainWaveCardOut"
+            },
+            "type": "array",
+            "title": "Cards"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "live_cards",
+          "not_yet_created",
+          "cards",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "ChainWaveCardsOut",
+        "description": "The picker: the cards counted at the as-of (the live cards that existed by then), A\u2192Z. ``cache`` /\n``compute_ms`` = whether the list came from the shared dashboard cache and how long it took when computed."
+      },
+      "ChainWaveCellOut": {
+        "properties": {
+          "diff": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Diff"
+          },
+          "ret": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ret"
+          },
+          "spy": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spy"
+          },
+          "names": {
+            "type": "integer",
+            "title": "Names"
+          },
+          "gap": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "no_session",
+                  "not_started",
+                  "no_return",
+                  "no_spy"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap"
+          }
+        },
+        "type": "object",
+        "required": [
+          "diff",
+          "ret",
+          "spy",
+          "names",
+          "gap"
+        ],
+        "title": "ChainWaveCellOut",
+        "description": "One week of a row. ``diff`` = the row's weekly return minus SPY's, in percentage points (``null`` = \"\u2014\",\n``gap`` says why: ``no_session`` no session that week, ``not_started`` the line had not started by last week's\nclose, ``no_return`` no name contributed a daily return that week, ``no_spy`` SPY had no return that week).\n``ret`` / ``spy`` = the two weekly returns in percent; ``names`` = names contributing a daily return that week.\nOn the SPY row ``ret`` is SPY's own return and ``diff`` is null."
+      },
+      "ChainWaveFlaggedOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "reason"
+        ],
+        "title": "ChainWaveFlaggedOut",
+        "description": "A company on the card left out of every line: its data flags reach its price readings at the as-of (the\nreason the Cockpit grays its price cells). ``reason`` = the flags' labels."
+      },
+      "ChainWaveMemberOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "security_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Security Id"
+          },
+          "flag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flag"
+          },
+          "priced": {
+            "type": "boolean",
+            "title": "Priced"
+          },
+          "cells": {
+            "items": {
+              "$ref": "#/components/schemas/ChainWaveCellOut"
+            },
+            "type": "array",
+            "title": "Cells"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "ticker",
+          "security_id",
+          "flag",
+          "priced",
+          "cells"
+        ],
+        "title": "ChainWaveMemberOut",
+        "description": "One company on a row, each once. ``key`` = its ``security_id`` (``ticker:<T>`` for a basket row with no\nresolved security). ``ticker`` = its ticker on the card (the Cockpit's ``?name=`` key). ``flag`` = why it is\nleft out (a flagged price history); ``priced`` = a daily return in one of the window's weeks. ``cells`` = its\nown weekly return vs SPY over the window; empty when never read (flagged, or no resolved security)."
+      },
+      "ChainWaveOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "weeks": {
+            "type": "integer",
+            "title": "Weeks"
+          },
+          "include_silent": {
+            "type": "boolean",
+            "title": "Include Silent"
+          },
+          "roster_fallback": {
+            "type": "boolean",
+            "title": "Roster Fallback"
+          },
+          "links_today": {
+            "type": "integer",
+            "title": "Links Today"
+          },
+          "basket_rows": {
+            "type": "integer",
+            "title": "Basket Rows"
+          },
+          "silent_rows": {
+            "type": "integer",
+            "title": "Silent Rows"
+          },
+          "unresolved_rows": {
+            "type": "integer",
+            "title": "Unresolved Rows"
+          },
+          "sessions": {
+            "type": "integer",
+            "title": "Sessions"
+          },
+          "first_session": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Session"
+          },
+          "last_session": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Session"
+          },
+          "session_source": {
+            "type": "string",
+            "enum": [
+              "benchmarks",
+              "companies",
+              "none"
+            ],
+            "title": "Session Source"
+          },
+          "spy_available": {
+            "type": "boolean",
+            "title": "Spy Available"
+          },
+          "week_columns": {
+            "items": {
+              "$ref": "#/components/schemas/ChainWaveWeekOut"
+            },
+            "type": "array",
+            "title": "Week Columns"
+          },
+          "spy": {
+            "items": {
+              "$ref": "#/components/schemas/ChainWaveCellOut"
+            },
+            "type": "array",
+            "title": "Spy"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/ChainWaveRowOut"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "readout": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChainWaveReadoutOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "flagged": {
+            "items": {
+              "$ref": "#/components/schemas/ChainWaveFlaggedOut"
+            },
+            "type": "array",
+            "title": "Flagged"
+          },
+          "roles_set": {
+            "type": "integer",
+            "title": "Roles Set"
+          },
+          "windows": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Windows"
+          },
+          "thin_below": {
+            "type": "integer",
+            "title": "Thin Below"
+          },
+          "readout_weeks": {
+            "type": "integer",
+            "title": "Readout Weeks"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "thesis_id",
+          "thesis_name",
+          "weeks",
+          "include_silent",
+          "roster_fallback",
+          "links_today",
+          "basket_rows",
+          "silent_rows",
+          "unresolved_rows",
+          "sessions",
+          "first_session",
+          "last_session",
+          "session_source",
+          "spy_available",
+          "week_columns",
+          "spy",
+          "rows",
+          "readout",
+          "flagged",
+          "roles_set",
+          "windows",
+          "thin_below",
+          "readout_weeks",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "ChainWaveOut",
+        "description": "One card's grid for one window: ``week_columns`` oldest first; ``spy`` = SPY's own weekly return per week;\n``rows`` in page order (the chain in today's link order, then Counting names, then one row per role set:\npayers, counter-case, direct read, participant, financier, benchmark). ``sessions`` = daily returns read\n(``first_session`` \u2192 ``last_session``); ``session_source`` = where the calendar came from (SPY's tape, or the\ncompanies' bars when SPY has none). ``roster_fallback`` = no roster snapshot by the as-of: today's roster stands\nin. ``cache`` / ``compute_ms`` = whether the 52 weeks came from the shared dashboard cache and how long they\ntook when computed."
+      },
+      "ChainWaveReadoutOut": {
+        "properties": {
+          "weeks": {
+            "type": "integer",
+            "title": "Weeks"
+          },
+          "start": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start"
+          },
+          "end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End"
+          },
+          "payers": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payers"
+          },
+          "counting": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Counting"
+          }
+        },
+        "type": "object",
+        "required": [
+          "weeks",
+          "start",
+          "end",
+          "payers",
+          "counting"
+        ],
+        "title": "ChainWaveReadoutOut",
+        "description": "Only when the card has payers: over the last ``weeks`` week columns (from the close ``start`` to the last\nsession ``end``), the payers' line and the counting names' line, each minus SPY's, in pp (``null`` = \"\u2014\")."
+      },
+      "ChainWaveRowOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "link",
+              "old_link",
+              "no_link",
+              "silent",
+              "counting",
+              "role"
+            ],
+            "title": "Kind"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContextRole"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "names": {
+            "type": "integer",
+            "title": "Names"
+          },
+          "priced": {
+            "type": "integer",
+            "title": "Priced"
+          },
+          "thin": {
+            "type": "boolean",
+            "title": "Thin"
+          },
+          "cells": {
+            "items": {
+              "$ref": "#/components/schemas/ChainWaveCellOut"
+            },
+            "type": "array",
+            "title": "Cells"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/ChainWaveMemberOut"
+            },
+            "type": "array",
+            "title": "Members"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "kind",
+          "label",
+          "role",
+          "names",
+          "priced",
+          "thin",
+          "cells",
+          "members"
+        ],
+        "title": "ChainWaveRowOut",
+        "description": "One row. ``kind``: ``link`` (a real link today, chain order), ``old_link`` (a roster link that is not on the\ncard today), ``no_link``, ``silent`` (Context / Bench, only with the toggle), ``counting`` (every company that\ncounts toward the call) or ``role`` (``role``: one context role, Context and Bench names included). ``label`` =\nthe link's label (``role`` rows: the role's value). ``names`` = companies, each once (flagged and unresolved\nincluded); ``priced`` = of those, priced in the window; ``thin`` = fewer than ``thin_below`` priced."
+      },
+      "ChainWaveWeekOut": {
+        "properties": {
+          "monday": {
+            "type": "string",
+            "format": "date",
+            "title": "Monday"
+          },
+          "first_session": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Session"
+          },
+          "close": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close"
+          },
+          "sessions": {
+            "type": "integer",
+            "title": "Sessions"
+          },
+          "to_date": {
+            "type": "boolean",
+            "title": "To Date"
+          }
+        },
+        "type": "object",
+        "required": [
+          "monday",
+          "first_session",
+          "close",
+          "sessions",
+          "to_date"
+        ],
+        "title": "ChainWaveWeekOut",
+        "description": "One week column: its Monday, its first and last session (``close``, the week's close) and how many sessions\nit holds (0 = none). ``to_date`` = the as-of's week, with the as-of before its Friday."
+      },
+      "ChainWaveWeeks": {
+        "type": "integer",
+        "enum": [
+          13,
+          26,
+          52
+        ],
+        "title": "ChainWaveWeeks",
+        "description": "The window: the last 13, 26 or 52 week columns."
       },
       "ContextRole": {
         "type": "string",

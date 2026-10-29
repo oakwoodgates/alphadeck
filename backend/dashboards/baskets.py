@@ -72,6 +72,9 @@ class Membership:
     security_id: UUID | None
     segment: str | None
     silent: bool
+    # the company's context role on this card (``BasketMember.context_role``: payer, counter_case, ...); None =
+    # unset. Display metadata, read by the Chain Wave's role rows only (never a call input, #4)
+    context_role: str | None = None
 
 
 def cards_that_existed(
@@ -101,6 +104,7 @@ def memberships_of(theses: Iterable[Thesis]) -> tuple[Membership, ...]:
             security_id=m.security_id,
             segment=m.segment,
             silent=is_silent(m),
+            context_role=m.context_role.value if m.context_role is not None else None,
         )
         for t in theses
         for m in t.basket
