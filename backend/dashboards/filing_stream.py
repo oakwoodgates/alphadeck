@@ -16,7 +16,7 @@ The rules, in one place. This is our own simple listing, stated here and on the 
 - **The window.** The last 30, 90 (default) or 365 days: dates from ``asof - N days`` through ``asof``,
   inclusive. The cached read holds the 365-day rows; a window is sliced per request.
 - **The order.** Newest day first; within a day by kind (``filings.KIND_ORDER``: 8-K, 13D/G, Form 4, 4/A,
-  revenue, split, dilution, catalyst, ratified fact), then by ticker.
+  revenue, split, dilution, catalyst, ratified or stored fact), then by ticker.
 - **The fold.** A day's ``routine`` rows (a Form 4 holding no code-P purchase) collapse into one quiet line on the
   page (a client toggle). The counts here are of EVERY row, folded or not (``Counts.routine`` says how many rows
   the fold covers); nothing is hidden from the numbers.

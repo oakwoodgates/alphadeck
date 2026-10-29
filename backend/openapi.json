@@ -3936,7 +3936,7 @@
           "dashboards"
         ],
         "summary": "Chain Map For Card",
-        "description": "One card as a picture: its links in chain order as columns with the roster's companies inside (each with\nits business type, its side of the 50-day average and the age of its newest filing-derived fact), and the\ncompanies with a context role standing on two rails beside the chain, each with one edge to the chain as a\nwhole. A company whose data flags reach its price readings is drawn grayed with no 50-day side. Display only;\na past as-of reads the roster as of that date and what was public by the end of it. 404 when the card is not\ncounted at the as-of.",
+        "description": "One card as a picture: its links in chain order as columns with the roster's companies inside (each with\nits business type, its side of the 50-day average and the age of its newest SEC filing), and the\ncompanies with a context role standing on two rails beside the chain, each with one edge to the chain as a\nwhole. A company whose data flags reach its price readings is drawn grayed with no 50-day side. Display only;\na past as-of reads the roster as of that date and what was public by the end of it. 404 when the card is not\ncounted at the as-of.",
         "operationId": "chain_map_for_card_dashboards_chain_map__thesis_id__get",
         "parameters": [
           {
@@ -4251,7 +4251,7 @@
           "dashboards"
         ],
         "summary": "Filing Stream For Card",
-        "description": "One card's names' filing-derived facts, newest day first: 8-Ks with their items, Form 4s with the filer's\nown words, Form 4/As, 13D/G stakes, revenue prints, splits, dilution and the operator's ratified facts, each\nrow opening to its EDGAR source. Only facts the ingest stores are listed (not every filing). Display only; a\npast as-of reads what was public by the end of that date (a fact public after it never appears). 404 when\nthe card is not counted at the as-of.",
+        "description": "One card's names' filing-derived facts, newest day first: 8-Ks with their items, Form 4s with the filer's\nown words, Form 4/As, 13D/G stakes, revenue prints, splits, dilution, catalysts and the ratified or stored\nfacts, each row opening to its EDGAR source. Only facts the ingest stores are listed (not every filing).\nDisplay only; a past as-of reads what was public by the end of that date (a fact public after it never\nappears). 404 when the card is not counted at the as-of.",
         "operationId": "filing_stream_for_card_dashboards_filing_stream__thesis_id__get",
         "parameters": [
           {
@@ -4652,7 +4652,7 @@
           "dashboards"
         ],
         "summary": "Read Through",
-        "description": "Every company tagged with a context role on a card counted at the as-of (payers, counter-cases, direct\nreads, participants, financiers, benchmarks), one row per company and role, with the card chips it sits on, its\nbusiness type, the newest filing-derived fact in the last year, the nearest dated card catalyst and its 7 and\n30 trading-day return minus SPY's. A company whose data flags reach its price readings shows no tape and is\nnamed. Sorted by newest last filing. Display only; a past as-of reads what was public by the end of that\ndate.",
+        "description": "Every company tagged with a context role on a card counted at the as-of (payers, counter-cases, direct\nreads, participants, financiers, benchmarks), one row per company and role, with the card chips it sits on, its\nbusiness type, the newest SEC filing in the last year, the nearest dated card catalyst and its 7 and\n30 trading-day return minus SPY's. A company whose data flags reach its price readings shows no tape and is\nnamed. Sorted by newest last filing. Display only; a past as-of reads what was public by the end of that\ndate.",
         "operationId": "read_through_dashboards_read_through_get",
         "parameters": [
           {
@@ -11572,7 +11572,7 @@
           "headline"
         ],
         "title": "ChainMapFilingOut",
-        "description": "A company's newest filing-derived fact in the last ``filing_days`` days: its public ``date`` (``age_days``\nbefore the as-of), the ``form`` as filed (or the row's own label) and its one-line ``headline``."
+        "description": "A company's newest SEC filing in the last ``filing_days`` days (an 8-K, 13D/G, Form 4 or 4/A, or a 10-Q /\n10-K revenue print; never a split, a catalyst or a ratified or stored fact): its public ``date``\n(``age_days`` before the as-of), the ``form`` as filed and its one-line ``headline``."
       },
       "ChainMapFlaggedOut": {
         "properties": {
@@ -11767,7 +11767,7 @@
           "matched_terms"
         ],
         "title": "ChainMapNodeOut",
-        "description": "One company in one place. ``key`` is unique on the page; ``company_key`` is the company's (``security_id``,\nor ``ticker:<T>`` with no resolved security). ``ticker`` = its ticker on the card (the Cockpit's ``?name=``\nkey). ``links`` = every link it sits in on the card (``null`` = no link). ``role`` = its context role (a tag on\na chain node, the reason it stands on a rail). ``business_type`` = the master's leaf (the operator's re-tag\nwinning). ``side_50d`` / ``pct_vs_50d`` = where it sits against its 50-day average (``null`` = no reading,\nor a flagged price history). ``last_filing`` = its newest filing-derived fact in the year (``null`` = none\nstored). ``flag`` = why its price readings are left out. ``thesis_fit`` / ``authored_by`` = the description\non the row this node stands for and who wrote it (``null`` when there is none); ``matched_terms`` = the\ndiscovery terms that surfaced the name."
+        "description": "One company in one place. ``key`` is unique on the page; ``company_key`` is the company's (``security_id``,\nor ``ticker:<T>`` with no resolved security). ``ticker`` = its ticker on the card (the Cockpit's ``?name=``\nkey). ``links`` = every link it sits in on the card (``null`` = no link). ``role`` = its context role (a tag on\na chain node, the reason it stands on a rail). ``business_type`` = the master's leaf (the operator's re-tag\nwinning). ``side_50d`` / ``pct_vs_50d`` = where it sits against its 50-day average (``null`` = no reading,\nor a flagged price history). ``last_filing`` = its newest SEC filing in the year (``null`` = none stored).\n``flag`` = why its price readings are left out. ``thesis_fit`` / ``authored_by`` = the description on the\nrow this node stands for and who wrote it (``null`` when there is none); ``matched_terms`` = the discovery\nterms that surfaced the name."
       },
       "ChainMapOut": {
         "properties": {
@@ -16389,7 +16389,7 @@
           "silent"
         ],
         "title": "FilingStreamRowOut",
-        "description": "One filing-derived fact. ``kind``: ``8k`` | ``form4`` | ``form4a`` | ``stake`` | ``revenue`` | ``split`` |\n``dilution`` | ``catalyst`` | ``ratified``. ``form`` = the form as filed or the row's own label; ``date`` = the\npublic date it counts from; ``headline`` = one neutral line; ``detail`` = the lines the expanded row shows;\n``url`` = the filing's EDGAR index or the stored source (``null`` = none known); ``tags`` = quiet field\npredicates; ``routine`` = a fold candidate (a Form 4 holding no code-P purchase); ``usd`` = the row's dollar\nsize when it has one (a Form 4's purchases minus sales, a dilution's principal). ``links`` / ``role`` /\n``silent`` = the company's place on the card at the as-of (``null`` in ``links`` = no link)."
+        "description": "One filing-derived fact. ``kind``: ``8k`` | ``form4`` | ``form4a`` | ``stake`` | ``revenue`` | ``split`` |\n``dilution`` | ``catalyst`` | ``ratified`` (a ratified fact, ``form`` \"ratified fact\", or a stored fact nobody\nratified, ``form`` \"stored fact\"). ``form`` = the form as filed or the row's own label; ``date`` = the\npublic date it counts from; ``headline`` = one neutral line; ``detail`` = the lines the expanded row shows;\n``url`` = the filing's EDGAR index or the stored source (``null`` = none known); ``tags`` = quiet field\npredicates; ``routine`` = a fold candidate (a Form 4 holding no code-P purchase); ``usd`` = the row's dollar\nsize when it has one (a Form 4's purchases minus sales, a dilution's principal). ``links`` / ``role`` /\n``silent`` = the company's place on the card at the as-of (``null`` in ``links`` = no link)."
       },
       "FiringDiagnostics": {
         "properties": {
@@ -21504,7 +21504,7 @@
           "accession"
         ],
         "title": "ReadThroughFilingOut",
-        "description": "The company's newest filing-derived row in the last ``filing_days`` days: ``kind`` (``8k`` | ``stake`` |\n``form4`` | ``form4a`` | ``revenue`` | ``split`` | ``dilution`` | ``catalyst`` | ``ratified``), ``form`` (the form\nas filed or the row's own label), its public ``date`` (``days_ago`` before the as-of), one neutral\n``headline``, and ``url`` (the EDGAR filing index or the stored source; ``null`` = none known)."
+        "description": "The company's newest SEC filing in the last ``filing_days`` days: ``kind`` (``8k`` | ``stake`` | ``form4`` |\n``form4a`` | ``revenue``; never a split, a catalyst or a ratified or stored fact), ``form`` (the form as\nfiled), its public ``date`` (``days_ago`` before the as-of), one neutral ``headline``, and ``url`` (the EDGAR\nfiling index or the stored source; ``null`` = none known)."
       },
       "ReadThroughFlaggedOut": {
         "properties": {

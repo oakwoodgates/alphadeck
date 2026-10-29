@@ -77,8 +77,9 @@ class ChainMapCardsOut(_Wire):
 
 
 class ChainMapFilingOut(_Wire):
-    """A company's newest filing-derived fact in the last ``filing_days`` days: its public ``date`` (``age_days``
-    before the as-of), the ``form`` as filed (or the row's own label) and its one-line ``headline``.
+    """A company's newest SEC filing in the last ``filing_days`` days (an 8-K, 13D/G, Form 4 or 4/A, or a 10-Q /
+    10-K revenue print; never a split, a catalyst or a ratified or stored fact): its public ``date``
+    (``age_days`` before the as-of), the ``form`` as filed and its one-line ``headline``.
     """
 
     date: date
@@ -93,10 +94,10 @@ class ChainMapNodeOut(_Wire):
     key). ``links`` = every link it sits in on the card (``null`` = no link). ``role`` = its context role (a tag on
     a chain node, the reason it stands on a rail). ``business_type`` = the master's leaf (the operator's re-tag
     winning). ``side_50d`` / ``pct_vs_50d`` = where it sits against its 50-day average (``null`` = no reading,
-    or a flagged price history). ``last_filing`` = its newest filing-derived fact in the year (``null`` = none
-    stored). ``flag`` = why its price readings are left out. ``thesis_fit`` / ``authored_by`` = the description
-    on the row this node stands for and who wrote it (``null`` when there is none); ``matched_terms`` = the
-    discovery terms that surfaced the name."""
+    or a flagged price history). ``last_filing`` = its newest SEC filing in the year (``null`` = none stored).
+    ``flag`` = why its price readings are left out. ``thesis_fit`` / ``authored_by`` = the description on the
+    row this node stands for and who wrote it (``null`` when there is none); ``matched_terms`` = the discovery
+    terms that surfaced the name."""
 
     key: str
     company_key: str
@@ -309,7 +310,7 @@ def chain_map_for_card(
     conn: psycopg.Connection = Depends(get_conn),
 ) -> ChainMapOut:
     """One card as a picture: its links in chain order as columns with the roster's companies inside (each with
-    its business type, its side of the 50-day average and the age of its newest filing-derived fact), and the
+    its business type, its side of the 50-day average and the age of its newest SEC filing), and the
     companies with a context role standing on two rails beside the chain, each with one edge to the chain as a
     whole. A company whose data flags reach its price readings is drawn grayed with no 50-day side. Display only;
     a past as-of reads the roster as of that date and what was public by the end of it. 404 when the card is not

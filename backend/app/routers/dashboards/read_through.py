@@ -75,10 +75,10 @@ class ReadThroughCardOut(_Wire):
 
 
 class ReadThroughFilingOut(_Wire):
-    """The company's newest filing-derived row in the last ``filing_days`` days: ``kind`` (``8k`` | ``stake`` |
-    ``form4`` | ``form4a`` | ``revenue`` | ``split`` | ``dilution`` | ``catalyst`` | ``ratified``), ``form`` (the form
-    as filed or the row's own label), its public ``date`` (``days_ago`` before the as-of), one neutral
-    ``headline``, and ``url`` (the EDGAR filing index or the stored source; ``null`` = none known).
+    """The company's newest SEC filing in the last ``filing_days`` days: ``kind`` (``8k`` | ``stake`` | ``form4`` |
+    ``form4a`` | ``revenue``; never a split, a catalyst or a ratified or stored fact), ``form`` (the form as
+    filed), its public ``date`` (``days_ago`` before the as-of), one neutral ``headline``, and ``url`` (the EDGAR
+    filing index or the stored source; ``null`` = none known).
     """
 
     kind: FilingKind
@@ -279,7 +279,7 @@ def read_through(
 ) -> ReadThroughOut:
     """Every company tagged with a context role on a card counted at the as-of (payers, counter-cases, direct
     reads, participants, financiers, benchmarks), one row per company and role, with the card chips it sits on, its
-    business type, the newest filing-derived fact in the last year, the nearest dated card catalyst and its 7 and
+    business type, the newest SEC filing in the last year, the nearest dated card catalyst and its 7 and
     30 trading-day return minus SPY's. A company whose data flags reach its price readings shows no tape and is
     named. Sorted by newest last filing. Display only; a past as-of reads what was public by the end of that
     date."""

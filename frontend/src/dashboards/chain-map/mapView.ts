@@ -41,7 +41,7 @@ export const linkWords = (links: readonly (string | null)[]): string =>
 /** The business-type label a node shows ("" when the master has none: no placeholder, Workbench principle 3). */
 export const typeLabel = (n: ChainMapNodeOut): string => (n.business_type ? businessTypeLabel(n.business_type) : "");
 
-/** The age glyph on a node: whole days since the newest filing-derived fact ("12d"), "—" when none. */
+/** The age glyph on a node: whole days since the newest filing ("12d"), "—" when none. */
 export const ageGlyph = (n: ChainMapNodeOut): string => (n.last_filing ? `${n.last_filing.age_days}d` : "—");
 
 export function ageWords(days: number): string {
@@ -65,7 +65,7 @@ export function sideWords(n: ChainMapNodeOut): string {
   }
 }
 
-/** The newest filing-derived fact, in words ("none stored" is a statement, not a blank). */
+/** The newest filing, in words ("none stored" is a statement, not a blank). */
 export function filingWords(n: ChainMapNodeOut, filingDays = 365): string {
   if (n.security_id == null) return "no resolved security, so no filings are read";
   const f = n.last_filing;
@@ -121,7 +121,7 @@ export function workLine(d: ChainMapOut, showUntagged: boolean): string {
     c.roles.length > 0 ? `roles set: ${roles}` : "no context roles are set on this card",
     `${plural(c.on_rails, "company", "companies")} on the rails`,
     `a 50-day side for ${c.with_side.toLocaleString("en-US")} of ${plural(c.companies, "name", "names")} (${c.without_side.toLocaleString("en-US")} without)`,
-    `a filing-derived fact in the last ${d.filing_days} days for ${c.with_filing.toLocaleString("en-US")} (${c.without_filing.toLocaleString("en-US")} without)`,
+    `a filing in the last ${d.filing_days} days for ${c.with_filing.toLocaleString("en-US")} (${c.without_filing.toLocaleString("en-US")} without)`,
     d.flagged.length > 0
       ? `${plural(d.flagged.length, "name", "names")} drawn grayed for a flagged price history`
       : "names with a flagged price history are drawn grayed",

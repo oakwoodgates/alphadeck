@@ -8,7 +8,7 @@
 
 **Label:** Filing Stream. **Description:** "Every filing-derived fact the system holds for one card's names, newest
 first, as it was readable that night: 8-Ks with their items, Form 4s with the filer's words, 13D/G stakes, revenue
-prints, splits, dilution, ratified catalysts."
+prints, splits, dilution, catalysts, ratified and stored facts."
 
 It shows ONE card at a time: a dated stream, newest day first, of every fact the ingest has stored for the card's
 names, each row opening to its EDGAR source. It is the analyst's reading queue: what did my names just file, and
@@ -16,8 +16,8 @@ what did the system make of it. Display only: it never feeds a call, never write
 the LLM. At a past as-of it shows what was readable by the end of that night, on the public clock.
 
 **It shows ingested facts, not every filing.** The system stores 8-Ks (with item codes), Form 4s and 4/As, 13D/G
-stakes, the revenue series from 10-Qs and 10-Ks, splits, convertible-note dilution, and the operator's ratified
-facts. Other forms (S-1, 424B, DEF 14A, 10-Q text beyond revenue, …) are not stored yet; the page says so in its
+stakes, the revenue series from 10-Qs and 10-Ks, splits, convertible-note dilution, catalysts, and the ratified or
+stored facts. Other forms (S-1, 424B, DEF 14A, 10-Q text beyond revenue, …) are not stored yet; the page says so in its
 work line. A later change stores the full filing index per basket company from the submissions index the nightly
 already fetches (its own PR, a pipeline change, not dashboard code); the stream picks it up as one more row kind.
 
@@ -31,9 +31,10 @@ shows "what did this company file" reads the same rows.
 FilingRow(security_id, ticker, kind, form, date, headline, detail, url, accession, tags, routine, usd)
   kind      8k | form4 | form4a | stake | revenue | split | dilution | catalyst | ratified
   form      the form as filed ("8-K", "8-K/A", "4", "4/A", "SC 13D", "SC 13G/A", "10-Q", "10-K", ...) or the row's
-            own label ("split", "catalyst", "ratified fact")
+            own label ("split", "catalyst", "ratified fact", "stored fact")
   date      the PUBLIC date the row counts from (its filing / acceptance date; a split's own publication; a
-            ratified catalyst's event date): the day it sorts under
+            catalyst's event date; a stored fact's cover or filing date; a ratified fact's ratification): the day
+            it sorts under
   headline  one neutral line (what the numbers show, never a verdict)
   detail    the lines the expanded row shows (the filer's own words, the items' labels, the terms)
   url       the EDGAR filing-index URL (the row's source_ref where stored; else built from the company's CIK and
@@ -89,12 +90,15 @@ with the request's `known_at, clock = serve_view(asof)`; invariant #1):
 7. **Dilution**: `pit.dilution_facts`, `instrument_kind`, `principal_total_usd`, and the overhang as a percent of
    `shares_outstanding` when both are present (the stored seeded basis; the builder states the formula), dated
    `valid_from`, linked by `accession`.
-8. **Ratified catalyst**: `pit.catalyst_facts` (`catalyst_type`, `grade`, `label`, `source`, `source_ref`,
+8. **Catalyst**: `pit.catalyst_facts` (`catalyst_type`, `grade`, `label`, `source`, `source_ref`,
    `ratified_by`), dated `valid_from` (its event date, so a future-dated catalyst appears once its day passes; the
-   card-level dated and undated catalysts are the Catalyst Calendar's and are NOT in the stream).
-9. **Ratified fact**: `pit.cash_burn_facts`, `pit.shares_outstanding_facts`, `pit.revenue_mix_facts`, one row each,
-   headline = the fact and its value ("cash $41.2M · burn $8.1M/qtr", "shares outstanding 84.2M", "revenue mix:
-   nuclear 61%"), with `source_ref` and `ratified_by`. These are the operator's own ratifications, so they are few.
+   card-level dated and undated catalysts are the Catalyst Calendar's and are NOT in the stream). The detail names
+   the ratifier when the operator ratified it and says so when nobody did (an automated feed such as
+   `doe_usaspending` stores it with no `ratified_by`): see choice 16.
+9. **Ratified or stored fact**: `pit.cash_burn_facts`, `pit.shares_outstanding_facts`, `pit.revenue_mix_facts`, one
+   row each, headline = the fact and its value ("cash $41.2M · burn $8.1M/qtr", "shares outstanding 84.2M", "revenue
+   mix: nuclear 61%"), with `source_ref` and `ratified_by`. Whether it is a "ratified fact" or a "stored fact" turns on
+   `ratified_by`: choice 16.
 
 Unresolved basket rows (no `security_id`) can carry no facts: they are counted in the work line and listed in the
 roster note, never in the stream (invariant #9: counted, never silently dropped).
@@ -113,7 +117,7 @@ before its first snapshot, said in a quiet note), `memberships_of` (with each ro
 - **Window: the last 30 · 90 (default) · 365 days** before the as-of, inclusive. The server slices the window from ONE
   cached 365-day read per (card, clock, as-of). No "all": a year is the research horizon here.
 - **Order:** by `date` descending, grouped under a day header; within a day by kind (8-K, 13D/G, Form 4, 4/A,
-  revenue, split, dilution, catalyst, ratified fact), then by ticker.
+  revenue, split, dilution, catalyst, ratified or stored fact), then by ticker.
 - **The fold (honest loudness, Workbench principle 3):** on any card, Form 4 sales, grants, exercises and tax
   withholdings outnumber everything else. A day's `routine` Form 4 rows collapse into ONE quiet line, "N routine Form 4
   filings (sales, grants, exercises, withholding)", that expands in place; a Form 4 holding a code-P purchase is
@@ -140,7 +144,7 @@ Wave re-exports them under their old names and uses the shared one), so the next
 
 The card and the as-of; the window's dates; the clock ("live" or "as it was public by <date>"); roster rows / resolved /
 unresolved / silent; rows in the window by kind (8-Ks, Form 4s with how many hold a purchase, 4/As, stakes, revenue
-prints, splits, dilution, catalysts, ratified facts); folded routine rows; the cache state. Below it, the honest notes:
+prints, splits, dilution, catalysts, ratified or stored facts); folded routine rows; the cache state. Below it, the honest notes:
 "ingested facts only: forms other than 8-K, Form 4 and 4/A, 13D/G and the 10-Q/10-K revenue series are not stored
 yet"; "the Cockpit's day-low and implausible-data insider screens are not applied here"; "4/As are shown as filings,
 their standing is on Admin › Insider amendments"; the roster note when today's roster stands in ("rosters are
@@ -265,10 +269,33 @@ the build fixed them sensibly and says how.
     `shares_outstanding` basis, per offering (the dilution signal sums the live offerings against the latest basis;
     this page shows each issuance on its own). It is left out unless the principal, the rate and a positive basis are all
     stored. A matured note is still listed (it is a filing).
-16. **Ratified facts are dated by the ratification,** the market-time date of their `recorded_at` (the public clock's own
-    instant for these three tables), not by the period or cover date (`valid_from`), which precedes the filing's
-    publication; that date rides in the detail. A cash and burn fact with a burn of zero or less reads "cash-positive
-    quarter". A ratified catalyst reads "<type>: <label>", with its grade, horizon and source in the detail.
+16. **A fact is "ratified" only when someone ratified it; a machine-applied or feed-stored one is a "stored fact"
+    (revised 2026-10-29 after dev with a prod data copy).** The three Workbench tables hold both: on dev,
+    `fact_shares_outstanding` had 856 rows with `ratified_by = 'auto'` (source `10-q-cover`, applied by the
+    Workbench's auto-confirm) against 113 `'operator'`, `fact_catalyst` had rows with `ratified_by` NULL (source
+    `doe_usaspending`) and `fact_revenue_mix` one NULL. The first build called every one a "ratified fact" and dated it by
+    its `recorded_at`, so a whole card's Oct 27 held six "ratified" rows that were an ingest batch.
+    - **`ratified_by` is `operator`, or any other non-empty value but `auto`:** a "ratified fact", dated by the
+      market-time date of its `recorded_at` (the public clock's own instant for these three tables: the instant the
+      ratifier acted), as before. The period or cover date (`valid_from`) rides in the detail.
+    - **`ratified_by` is NULL or `auto`:** a "stored fact" (`form` = "stored fact"). Its headline is led by its source as
+      stored ("10-q-cover: shares outstanding 540.6M"; no lead when no source is stored), and its date is its
+      `valid_from`, the cover or filing date (the fact's own public date, not the day we stored it). The detail says
+      "Stored on <day>" (the market-time date of `recorded_at`), the source, and what the stored `ratified_by` says
+      ("Applied automatically, not operator-ratified" for `auto`, "No operator ratification stored" for NULL). A stored
+      fact with no `valid_from` falls back to its store day and says so; with neither date it is not a row (never a
+      guessed day). The cover date can precede the 10-Q's acceptance by days, so the row can read a few days older
+      than the filing itself; the reading is still gated by the point-in-time view (a past as-of never reads a fact
+      we had not stored by then).
+    - **The wire kind stays `ratified` for both** (no contract change, no new enum value): the row's `form` tells them
+      apart, and the page's kind chip reads "Ratified and stored facts" (work line: "ratified or stored facts").
+    - **A catalyst** keeps `kind` = `catalyst`, `form` = "catalyst" and its event date whoever stored it; only its
+      source line changes: "ratified by <who>" appears only for a real ratifier, and a catalyst nobody ratified says so in
+      the detail (it is no longer worded "ratified by auto").
+    - A cash and burn fact with a burn of zero or less reads "cash-positive quarter". A catalyst reads
+      "<type>: <label>", with its grade, horizon and source in the detail.
+    - The shared reader exports `SEC_FILING_KINDS` (8-K, 13D/G, Form 4, 4/A, revenue print): the kinds that are SEC
+      filings. Read-Throughs and the Chain Map pick "last filing" among these alone.
 17. **A source link is made only from a real reference:** a stored http(s) URL as is, an accession-shaped reference
     through the EDGAR index, nothing for an award id or free text. A catalyst's non-EDGAR link reads "source" instead of
     "EDGAR".

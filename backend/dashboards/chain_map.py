@@ -4,7 +4,7 @@ on two rails beside the chain, each with one edge to the chain's bracket. Follow
 
 PURE: the router reads the card's roster as of the as-of (``thesis_repo.get_asof``, today's roster standing in
 before its first snapshot), each company's identity, its 50-day side (the ``sma_position`` display member), its
-newest filing-derived fact (the shared reader ``dashboards/filings.py``) and the price flags, and hands them to
+newest SEC filing (the shared reader ``dashboards/filings.py``) and the price flags, and hands them to
 ``chain_map(...)``, which places every company and counts the work. The whole page is cached per (card, clock,
 as-of) (``dashboards/cache.py``); the Context/Bench toggle is client side. Display only: nothing here feeds a
 call, scores an idea or writes anything (rule 1). The 50-day side and the last-filing age are display context,
@@ -27,9 +27,10 @@ The rules, in one place. This is a layout, not a model: no edge weights, no clus
   an edge never lands on a link or a name. The page draws the counter-case edge dashed.
 - **The glyphs.** The business type is the master's leaf (the operator's re-tag winning). The 50-day side is the
   sign of ``sma_position``'s ``pct_vs_fast`` (rounded to two places: ``at`` when it rounds to zero). The last
-  filing is the newest ``FilingRow`` of the 365 days ending at the as-of, whatever its kind. A company whose data
-  flags reach its price readings has no 50-day side (its bars are never read) and is named with its reason; it
-  stays on the map.
+  filing is the newest SEC filing of the 365 days ending at the as-of (8-K, 13D/G, Form 4, 4/A or a 10-Q / 10-K
+  revenue print: ``filings.SEC_FILING_KINDS``; a split, a catalyst or a ratified or stored fact is never it). A
+  company whose data flags reach its price readings has no 50-day side (its bars are never read) and is named
+  with its reason; it stays on the map.
 - **Counts.** Nothing is dropped: every roster company is a node on the chain, on a rail, or in a silent column,
   and the counts say how many of each.
 """
@@ -43,7 +44,7 @@ from typing import Literal
 from uuid import UUID
 
 from dashboards.baskets import FlaggedCompany, Membership
-from dashboards.filings import KIND_ORDER, FilingRow
+from dashboards.filings import KIND_ORDER, SEC_FILING_KINDS, FilingRow
 from domain.thesis import SILENT_LABELS, BasketMember, Segment
 from signals.display.base import DisplaySignal
 
@@ -111,8 +112,8 @@ def roster_rows(
 
 @dataclass(frozen=True)
 class LastFiling:
-    """A company's newest filing-derived fact in the 365 days: its public ``date`` (``age_days`` before the
-    as-of), the ``form`` as filed (or the row's own label) and its one-line ``headline``."""
+    """A company's newest SEC filing in the 365 days: its public ``date`` (``age_days`` before the as-of), the
+    ``form`` as filed and its one-line ``headline``."""
 
     date: date
     age_days: int
@@ -168,10 +169,12 @@ def side_of(pct: float | None) -> Side50 | None:
 
 
 def last_filing(rows: Sequence[FilingRow], asof: date) -> LastFiling | None:
-    """The newest of a company's rows by date (a row dated after the as-of cannot be read and is skipped);
-    among rows of that day the first by kind order, form, headline and accession, so the pick never flips.
+    """The newest of a company's SEC filings by date (an 8-K, 13D/G, Form 4 or 4/A, or a 10-Q / 10-K revenue
+    print: ``filings.SEC_FILING_KINDS``; never a split, dilution fact, catalyst, or ratified or stored fact; a row
+    dated after the as-of cannot be read and is skipped); among rows of that day the first by kind order, form,
+    headline and accession, so the pick never flips.
     """
-    dated = [r for r in rows if r.date <= asof]
+    dated = [r for r in rows if r.kind in SEC_FILING_KINDS and r.date <= asof]
     if not dated:
         return None
     newest = max(r.date for r in dated)
@@ -251,7 +254,7 @@ class MapCounts:
     ``untagged_silent`` = of those, the ones on a rail and the ones in a Context/Bench column (``untagged_silent``
     is the toggle's count). ``roles`` = companies per role, rail order, only roles that are set. ``with_side`` /
     ``without_side`` and ``with_filing`` / ``without_filing`` split the companies (an unresolved or flagged one
-    has no side; one with no filing-derived fact in the year has no filing)."""
+    has no side; one with no SEC filing stored in the year has no filing)."""
 
     links_today: int
     old_links: int

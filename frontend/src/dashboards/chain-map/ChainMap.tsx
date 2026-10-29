@@ -432,7 +432,7 @@ export default function ChainMap({ asof, onSelectThesis }: DashboardProps) {
           <FlaggedNote flagged={data.flagged} />
           <div className="dash-note cm-legend">
             On each name: its business type, a mark for the 50-day average (▲ above, ▼ below, – at it) and the days
-            since its newest filing-derived fact (— = none stored in the last year). A name drawn gray has a
+            since its newest filing (— = none stored in the last year). A name drawn gray has a
             flagged price history, so its 50-day side is left out.
           </div>
           <ul className="cm-limits">
@@ -445,9 +445,9 @@ export default function ChainMap({ asof, onSelectThesis }: DashboardProps) {
               descriptions are today's (only the roster is snapshotted).
             </li>
             <li>
-              The 50-day side and the filing age are display context and never feed a call. Filing-derived facts are
-              the ones the system stores (8-Ks, Form 4s and 4/As, 13D/G stakes, 10-Q and 10-K revenue, splits,
-              dilution, ratified facts), not every filing.
+              The 50-day side and the filing age are display context and never feed a call. The filing age counts the
+              filings the system stores (8-Ks, Form 4s and 4/As, 13D/G stakes, 10-Q and 10-K revenue), not every
+              filing; a split, a catalyst or a ratified or stored fact is never counted as one.
             </li>
           </ul>
         </>

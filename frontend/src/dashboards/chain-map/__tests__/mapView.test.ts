@@ -81,7 +81,7 @@ describe("sideWords", () => {
 });
 
 describe("filingWords", () => {
-  it("words the newest filing-derived fact with its date and age", () => {
+  it("words the newest filing with its date and age", () => {
     expect(filingWords(node("A"))).toBe("last filing: 8-K · Oct 25, 2026 (3 days before the as-of) · 8-K · 9.01");
   });
 
@@ -135,7 +135,7 @@ describe("workLine", () => {
     expect(line).toContain("roles set: payer 1, financier 1, direct read 1, counter-case 2");
     expect(line).toContain("4 companies on the rails");
     expect(line).toContain("a 50-day side for 6 of 11 names (5 without)");
-    expect(line).toContain("a filing-derived fact in the last 365 days for 5 (6 without)");
+    expect(line).toContain("a filing in the last 365 days for 5 (6 without)");
     expect(line).toContain("1 name drawn grayed for a flagged price history");
     expect(line).toContain("1 Context or Bench name with no role hidden");
     expect(line).toContain("public clock · cached · as of Oct 28, 2026");

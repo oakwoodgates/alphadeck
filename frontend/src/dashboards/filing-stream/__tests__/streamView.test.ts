@@ -72,7 +72,7 @@ describe("the kinds", () => {
       "Split",
       "Dilution",
       "Catalyst",
-      "Ratified fact",
+      "Ratified and stored facts",
     ]);
   });
 });
@@ -278,7 +278,7 @@ describe("workLines", () => {
       "57 roster rows · 2 companies resolved · 2 without a resolved security · 8 in Context or Bench",
     );
     expect(c).toBe(
-      "41 rows in the window: 12 8-Ks · 2 13D/G stakes · 22 Form 4s (3 hold a purchase) · 1 4/A · 3 revenue prints · 0 splits · 0 dilution rows · 1 catalyst · 0 ratified facts · 19 routine Form 4 rows folded (counted above)",
+      "41 rows in the window: 12 8-Ks · 2 13D/G stakes · 22 Form 4s (3 hold a purchase) · 1 4/A · 3 revenue prints · 0 splits · 0 dilution rows · 1 catalyst · 0 ratified or stored facts · 19 routine Form 4 rows folded (counted above)",
     );
   });
 

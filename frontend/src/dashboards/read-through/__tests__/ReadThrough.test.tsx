@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CONTEXT_ROLE_DESCRIPTION } from "../../../workbench/format";
 import ReadThrough from "../ReadThrough";
 import type { ReadThroughOut } from "../useReadThrough";
-import { EDGAR, MIXED, payload, row } from "./fixtures";
+import { EDGAR, MIXED, card, payload, row } from "./fixtures";
 
 // The Read-Throughs body with its one hook stubbed: the table in the server's default order, one line per row
 // (company chip, role tag, card chips, business type, last filing, next catalyst, the two tape cells), the tabs
@@ -69,6 +69,37 @@ describe("ReadThrough — the table", () => {
     expect(chips[0]).toHaveClass("quiet");
     expect(chips[1]).not.toHaveClass("quiet");
     expect(lines()[2].querySelector(".rt-card")?.textContent).toBe("Grid · No link");
+  });
+
+  it("keeps each chip to one line: the name and the links are two parts, the whole line rides in the title", () => {
+    setup();
+    const [quiet, loud] = [...lines()[1].querySelectorAll(".rt-card")];
+    // the name is its own (truncatable) part, the links follow it in their own quiet part
+    expect(loud.querySelector(".rt-card-name")?.textContent).toBe("Grid");
+    expect(loud.querySelector(".rt-card-links")?.textContent).toBe(" · Turbines, Cables");
+    expect(loud).toHaveAttribute("title", "Open Grid · Turbines, Cables");
+    expect(quiet).toHaveAttribute("title", "Open Batteries · Context");
+    // the Cards column is the one with a width floor
+    expect(document.querySelector("th.rt-cards")).not.toBeNull();
+    expect(lines()[1].querySelector("td.rt-cards")).not.toBeNull();
+  });
+
+  it("gives a long card name and a card with no link row the same chip: the full name in the title, no links part when none", () => {
+    const long = "Defense Software, Cybersecurity & Services";
+    setup(
+      payload({
+        rows: [
+          row("long", {
+            cards: [card({ thesis_name: long, links: ["Context"], silent: true }), card({ thesis_name: "Grid", links: [] })],
+          }),
+        ],
+      }),
+    );
+    const [a, b] = [...document.querySelectorAll("tbody .rt-card")];
+    expect(a.querySelector(".rt-card-name")?.textContent).toBe(long); // cut by the stylesheet, never by the text
+    expect(a).toHaveAttribute("title", `Open ${long} · Context`);
+    expect(b.querySelector(".rt-card-links")).toBeNull();
+    expect(b).toHaveAttribute("title", "Open Grid");
   });
 
   it("shows the last filing as date, form and headline with an EDGAR link, and says when none is stored", () => {
@@ -252,7 +283,7 @@ describe("ReadThrough — the work and the notes", () => {
     expect(screen.getByText("3 cards counted · 1 not yet created · 2 with at least one role · 1 with none")).toBeInTheDocument();
     expect(screen.getByText("6 roles set · 4 companies · 5 rows (one per company and role)")).toBeInTheDocument();
     expect(screen.getByText(/^rows by role: Payers 2 · Counter-cases 1/)).toBeInTheDocument();
-    expect(screen.getByText("3 of 5 rows have a filing-derived fact in the last 365 days")).toBeInTheDocument();
+    expect(screen.getByText("3 of 5 rows have a filing in the last 365 days")).toBeInTheDocument();
     expect(screen.getByText(/^tape: 7 and 30 trading days of closes, the company minus SPY/)).toBeInTheDocument();
     expect(screen.getByText("1 row has a last close that is not SPY's, so its tape is not compared")).toBeInTheDocument();
   });
@@ -292,7 +323,7 @@ describe("ReadThrough — the work and the notes", () => {
     setup();
     expect(screen.getByText(/A role names a part, not a target/)).toBeInTheDocument();
     expect(screen.getByText(/Catalysts are today's list/)).toBeInTheDocument();
-    expect(screen.getByText(/Last filing means ingested facts only/)).toBeInTheDocument();
+    expect(screen.getByText(/Last filing means ingested filings only/)).toBeInTheDocument();
     expect(screen.getByText(/each card's roster as of the as-of/)).toBeInTheDocument();
   });
 

@@ -57,11 +57,19 @@ table.rt-table tbody tr:hover td.rt-co { background: var(--panel); }
 
 .rt-role { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); cursor: help; }
 
-/* the card chips wrap inside their cell; a membership that never counts (Context / Bench) is the quietest chip */
-.rt-chips { display: flex; flex-wrap: wrap; gap: 4px; max-width: 280px; white-space: normal; }
-.rt-card { font: inherit; font-size: 11px; max-width: 100%; padding: 1px 8px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--panel); color: var(--txt-2); cursor: pointer; text-align: left; transition: border-color 0.14s, background 0.14s; }
+/* the Cards column: a row of pills, each pill ONE line (the card name cut short with an ellipsis, then its links in
+   the quiet style, each cut on its own; the whole line rides in the pill's title). The pills wrap as pills, never
+   the text inside one, and the column keeps a floor so a crowded table scrolls sideways instead of squeezing it. A
+   membership that never counts (Context / Bench) is the quietest pill. */
+table.rt-table th.rt-cards, table.rt-table td.rt-cards { min-width: 240px; }
+.rt-chips { display: flex; flex-wrap: wrap; gap: 4px; max-width: 340px; white-space: normal; }
+.rt-card { display: inline-flex; align-items: baseline; min-width: 0; max-width: 100%; white-space: nowrap; font: inherit; font-size: 11px; padding: 1px 8px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--panel); color: var(--txt-2); cursor: pointer; text-align: left; transition: border-color 0.14s, background 0.14s; }
 .rt-card:hover { border-color: var(--txt-4); background: var(--panel-2); color: var(--txt); }
 .rt-card.quiet { border-style: dashed; color: var(--txt-3); background: transparent; }
+.rt-card-name { flex: 0 1 auto; min-width: 0; max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+.rt-card-links { flex: 0 1 auto; min-width: 0; max-width: 140px; margin-left: 0.3em; overflow: hidden; text-overflow: ellipsis; font-size: 10px; color: var(--txt-3); }
+.rt-card.quiet .rt-card-links { color: var(--txt-4); }
+.rt-card:hover .rt-card-links { color: var(--txt-2); }
 
 .rt-bt { color: var(--txt-3); }
 
@@ -92,4 +100,8 @@ table.rt-table tbody tr:hover td.rt-co { background: var(--panel); }
   .rt-select { max-width: 190px; }
   table.rt-table th.rt-co, table.rt-table td.rt-co { min-width: 110px; max-width: 130px; }
   .rt-name { max-width: 120px; }
+  table.rt-table th.rt-cards, table.rt-table td.rt-cards { min-width: 200px; }
+  .rt-chips { max-width: 260px; }
+  .rt-card-name { max-width: 130px; }
+  .rt-card-links { max-width: 100px; }
 }

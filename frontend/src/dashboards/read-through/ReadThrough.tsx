@@ -15,6 +15,7 @@ import {
   businessTypeOptions,
   cardNames,
   catalystWords,
+  chipLinks,
   chipWords,
   filingWords,
   filterRows,
@@ -36,8 +37,8 @@ import {
 import { useReadThrough, type ReadThroughRowOut, type ReadThroughSpyOut } from "./useReadThrough";
 
 // Read-Throughs (docs/dashboards/read-through.md): every company the operator tagged with a context role on a
-// card counted at the as-of, one row per company and role, with its cards, business type, newest filing-derived
-// fact, next dated catalyst and tape against SPY. Display only. Every row and number is computed server-side;
+// card counted at the as-of, one row per company and role, with its cards, business type, newest filing,
+// next dated catalyst and tape against SPY. Display only. Every row and number is computed server-side;
 // this page keeps the tab, the sort and the filters (component state only) and words the work. No badges and no
 // color by role: loudness marks the exception only (#7 / WB#3).
 
@@ -48,7 +49,7 @@ const SORT_TITLE: Record<SortKey, string> = {
   role: "Sort by role, payers first",
   cards: "Sort by the first card's name",
   business_type: "Sort by business type",
-  last_filing: "Sort by the date of the newest filing-derived fact",
+  last_filing: "Sort by the date of the newest filing",
   next_catalyst: "Sort by the date of the next dated catalyst",
   vs_spy_7d: "Sort by the 7 trading-day return minus SPY's, in percentage points",
   vs_spy_30d: "Sort by the 30 trading-day return minus SPY's, in percentage points",
@@ -180,7 +181,7 @@ export default function ReadThrough({ asof, onSelectThesis }: DashboardProps) {
               </label>
             )}
             {showWindow && (
-              <label className="rt-field" title="Keep only the rows whose newest filing-derived fact is this recent">
+              <label className="rt-field" title="Keep only the rows whose newest filing is this recent">
                 <span className="rt-seg-label">Filed in the last</span>
                 <select
                   className="rt-select"
@@ -225,7 +226,7 @@ export default function ReadThrough({ asof, onSelectThesis }: DashboardProps) {
               <tr>
                 <SortTh col="company" label="Company" sort={sort} onSort={(k) => setSort((s) => nextSort(s, k))} className="rt-co" />
                 <SortTh col="role" label="Role" sort={sort} onSort={(k) => setSort((s) => nextSort(s, k))} />
-                <SortTh col="cards" label="Cards" sort={sort} onSort={(k) => setSort((s) => nextSort(s, k))} />
+                <SortTh col="cards" label="Cards" sort={sort} onSort={(k) => setSort((s) => nextSort(s, k))} className="rt-cards" />
                 <SortTh col="business_type" label="Business type" sort={sort} onSort={(k) => setSort((s) => nextSort(s, k))} />
                 <SortTh col="last_filing" label="Last filing" sort={sort} onSort={(k) => setSort((s) => nextSort(s, k))} />
                 <SortTh col="next_catalyst" label="Next dated catalyst" sort={sort} onSort={(k) => setSort((s) => nextSort(s, k))} />
@@ -261,19 +262,23 @@ export default function ReadThrough({ asof, onSelectThesis }: DashboardProps) {
                         {contextRoleTag(r.role)}
                       </span>
                     </td>
-                    <td>
+                    <td className="rt-cards">
                       <div className="rt-chips">
-                        {r.cards.map((c) => (
-                          <button
-                            key={c.thesis_id}
-                            type="button"
-                            className={`rt-card${c.silent ? " quiet" : ""}`}
-                            title={`Open ${c.thesis_name}`}
-                            onClick={() => onSelectThesis(c.thesis_id)}
-                          >
-                            {chipWords(c)}
-                          </button>
-                        ))}
+                        {r.cards.map((c) => {
+                          const links = chipLinks(c);
+                          return (
+                            <button
+                              key={c.thesis_id}
+                              type="button"
+                              className={`rt-card${c.silent ? " quiet" : ""}`}
+                              title={`Open ${chipWords(c)}`}
+                              onClick={() => onSelectThesis(c.thesis_id)}
+                            >
+                              <span className="rt-card-name">{c.thesis_name}</span>
+                              {links && <span className="rt-card-links">{` · ${links}`}</span>}
+                            </button>
+                          );
+                        })}
                       </div>
                     </td>
                     <td className="rt-bt">{r.business_type ? businessTypeLabel(r.business_type) : ""}</td>
