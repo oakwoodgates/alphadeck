@@ -71,6 +71,8 @@ class ExtractedFact(DomainModel):
     # basis) rides the note as provenance, never a flag — a flag true of ~every filer carries no
     # information (the re-tier; honest loudness):
     # shares -> "dual-class" | "stale-cover" | "no-companyfacts"
+    #           | "cover-after-filing" (a companyfacts cover row dated after its own filing was refused;
+    #             it rides beside the condition label, on any tier — the note names the row)
     # cash   -> "ytd-raw" | "possible-one-time" | "stale-cash"
     #           | "no-companyfacts" | "no-cashflow-column" | "no-cash-instant"  (missing-data: value None)
     flags: list[str] = Field(default_factory=list)
