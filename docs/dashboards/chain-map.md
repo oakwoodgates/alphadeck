@@ -120,3 +120,77 @@ The build lists here every choice it made that this plan does not spell out, eac
 Pre-decided here for the operator's review: the two-rail split (payer and financier left; direct read, counter-case,
 participant and benchmark right), the dashed counter-case edge, equal node sizes, and the untagged Context and Bench
 names behind a toggle.
+
+Numbered by the build (2026-10-29). Items 1 to 5 are plan details that did not match the code, fixed sensibly; the
+rest are choices the plan left open.
+
+1. **Business type comes from `master.identity_for`,** not `resolve_business_type` + `get_many` by hand. It is the same
+   `resolve_business_type` call over the stored sector, name and ticker with the operator's re-tag winning, in one query
+   (the Leaders read), and it returns the company name the readout shows. The node shows the leaf's short label
+   (`businessTypeLabel`); the royalty overlay is not drawn.
+2. **"Matched terms" reads `BasketMember.surfaced_terms`** (the frozen provenance of how the name entered the card).
+   The `matched_terms` the Workbench shows is ephemeral run state, not on the roster. The readout keeps the plan's
+   words, "Matched terms".
+3. **`memberships_of` does not carry the description, its author or the terms,** so the card's basket is paired with
+   its memberships row for row (`roster_rows`, a strict zip: a length mismatch raises). `baskets.py` is untouched.
+4. **The 50-day side is the sign of `sma_position`'s `pct_vs_fast`** (two decimals). A third state, "at", is drawn as a
+   flat bar when it rounds to zero. No reading (fewer than 50 bars, no price) draws no mark.
+5. **A company in two links has two nodes, each with ITS row's description and author,** because the draft writes one
+   `basket_member` row per link. The company-level facts (role, glyphs, every link it sits in) are the same on both.
+6. **A role-tagged company with no row in a real link is on a rail, whatever its other rows are.** That covers a silent
+   (Context/Bench) name and, rarely, a name whose only rows are an old link or No link; the old-link and No-link columns
+   then omit it (it is drawn once). A role-tagged company that sits in a real link stays in its column, never on a rail,
+   and never in the Context or Bench column (those hold the names with no role).
+7. **A real link is always a column, even with nobody in it.** An old-link, No-link, Context or Bench column exists only
+   when somebody sits in it, and the toggle renders only when a Context or Bench name has no role (a control that cannot
+   discriminate does not render).
+8. **Rail order:** left rail payer, then financier; right rail direct read, counter-case, participant, benchmark (the
+   plan's order); inside a role, roster order. A rail with no names has no zone, no bracket and no edge.
+9. **The last-filing glyph is the newest `FilingRow` of ANY kind** in the year, as the plan says: that includes a split,
+   a dilution fact, a ratified catalyst (dated by its event) and an operator-ratified fact (dated by the ratification).
+   If you want it to mean SEC forms only, restrict it to the 8-K, 13D/G, Form 4, 4/A and revenue kinds. Two facts on the
+   newest day: the first by kind order, form, headline, accession.
+10. **A flagged price history leaves out the 50-day side only.** The name stays on the map, drawn gray (45% opacity) with
+    its reason in the tooltip, the readout and the shared note; its bars are never read; its business type and its filing
+    age still show (they are not price readings).
+11. **An unresolved row** is a node with a dashed outline, its ticker and "no resolved security", no glyph at all (not
+    even a dash). It is keyed by its upper-cased ticker, so two rows of one ticker are one company.
+12. **One edge per rail node,** landing at evenly spaced points down the bracket in the node order (so the curves never
+    cross), cubic curves, a small dot at the landing, the counter-case dashed. The role label sits once per role per rail
+    at the middle of its middle edge, with a halo in the page color. The edge draws no weight and no arrowhead.
+13. **Wide layout:** three SVG slices of one frame (left rail, chain, right rail) side by side; the chain slice scrolls
+    sideways and the rails stay put. The two brackets belong to the pinned rail slices, at the chain's edges, as tall as
+    the chain's tallest column. Node 136 x 44, column 148 wide, 8 apart (all fixed, nothing sized by data).
+14. **Narrow layout (a phone, `max-width: 640px`):** the same three slices stacked: the left rail above the chain, the
+    right rail below it, each rail a vertical list with its bracket as a horizontal line (under the upper rail, over the
+    lower). Edges are curves from the node's right side to that line, nested so they never cross. Edge labels are left
+    out there (each rail node carries its role tag), and the chain still scrolls sideways.
+15. **Node text:** ticker (clipped to 9 characters), the role tag (only when set), the business type (clipped to 15),
+    a triangle up or down or a bar for the 50-day side, and "Nd" for the filing age ("—" when none stored). Column
+    header: the label (clipped to 22), a tag line (the descriptor; "not a link today"; "rows with no link"; "no role · not
+    in the call"), and the name count. Full text rides in a tooltip.
+16. **Keyboard:** one tab stop (the first name; it follows the focus). Up and down walk one column or rail; left and right
+    step to the previous or next group (left rail, the columns, right rail), landing on the same row or the group's last
+    name (the row is not remembered across several steps). Enter or Space opens the Cockpit on the name; hover and focus
+    drive the same readout.
+17. **Click opens the Cockpit on the name's ticker on this card** (`onSelectThesis(thesisId, ticker)`), rail names
+    included; the card's name opens the Cockpit on the card.
+18. **The readout** shows the ticker, name, every link the company sits in, its role with the approved description, the
+    business type, the 50-day side with its percent, the last filing line (form, date, age, headline), the description
+    with "model draft" or "your words" (`operator_set`, retired for basket members, reads "model draft") and the matched
+    terms. It is a steady-height box above the picture so hovering never moves the picture.
+19. **The whole page is cached as one read** per (card, clock, as-of); the Context/Bench toggle is client side, so the wire
+    has no parameter for it. The 404 reads the cached picker list first, as the Chain Wave and the Filing Stream do.
+20. **The wire adds `filing_days`** (365) and `clock`; `authored_by` uses the existing `Authorship` enum and `role` the
+    existing `ContextRole`. The counter-case edge's dashing is the page's (its role), not a wire field.
+21. **The folder is self-contained:** `fmtDay`, `plural` and the picker filter are small copies, not imports from another
+    dashboard, so cutting any dashboard stays a folder delete. The only shared pieces are the ones the rules name
+    (`baskets`, `filings`, `cache`, `FlaggedNote`, the Workbench's role words, `businessTypeLabel`).
+22. **The registry test** gained this slug and order 140 only. The Read-Throughs table (order 130) is the sibling build's
+    line; after the two merge the pinned list reads both.
+23. **Not measured:** the compute time and payload of a big card on real data (this build ran on hand-built rosters and
+    the test database). The year of filing facts for a 150-name card is the heaviest read (the Filing Stream's 365-day
+    case); the cache holds the finished page once per card and as-of. Check it on dev with a prod copy before relying on it.
+24. **Not verified in the live app:** the picture was checked by rendering the component's markup (from the test
+    renderer) with the real stylesheet in the Browser pane at a desktop and a phone width, on hand-built payloads. It has
+    not been seen on a live card in the running app.

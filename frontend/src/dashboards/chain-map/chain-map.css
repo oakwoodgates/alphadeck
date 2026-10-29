@@ -1,0 +1,82 @@
+/* Chain Map (docs/dashboards/chain-map.md) — its own sheet, imported by the component, never index.css
+   (docs/DASHBOARDS.md rule 8). One card as a picture: inline SVG, a document-like page around it (the research
+   set's look). Loudness marks the exception only (#7 / WB#3): no color by link or role, no size by anything,
+   every node the same size, every column the same width; edges are thin gray lines (the counter-case dashed),
+   a tag is quiet gray text, a name with a flagged price history is drawn gray. Colors are the app's tokens only. */
+
+.cm { display: flex; flex-direction: column; gap: 8px; max-width: 1280px; }
+.cm-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
+.cm-pick { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.cm-seg-label { font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); margin-right: 2px; }
+.cm-search, .cm-select { font: inherit; font-size: 11.5px; color: var(--txt-2); background: transparent; border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 7px; }
+.cm-search { width: 140px; }
+.cm-select { max-width: 320px; }
+.cm-select option { background: var(--panel); color: var(--txt-2); }
+.cm-check { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--txt-2); cursor: pointer; }
+.cm-check input { accent-color: var(--txt-3); margin: 0; }
+
+.cm-title { display: flex; align-items: baseline; gap: 10px; margin-top: 2px; }
+.cm-card { font: inherit; font-size: 14px; font-weight: 600; color: var(--txt); background: none; border: 0; padding: 0; cursor: pointer; }
+.cm-card:hover { text-decoration: underline; text-underline-offset: 3px; }
+.cm-n { font-family: var(--mono); font-size: 9.5px; font-weight: 400; color: var(--txt-4); font-variant-numeric: tabular-nums; }
+
+/* the readout above the picture: a steady-height box, so hovering a name never moves the picture */
+.cm-readout { min-height: 98px; max-height: 190px; overflow-y: auto; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); font-size: 12px; line-height: 1.5; color: var(--txt-2); }
+.cm-prompt { color: var(--txt-3); font-size: 11.5px; }
+.cm-ro-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.cm-ro-tk { font-family: var(--mono); font-size: 13px; font-weight: 700; color: var(--txt); }
+.cm-ro-name { color: var(--txt); }
+.cm-ro-role { font-family: var(--mono); font-size: 10px; color: var(--txt-3); }
+.cm-ro-line { font-size: 11.5px; color: var(--txt-3); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.cm-ro-fit { margin: 4px 0 2px; font-size: 12px; color: var(--txt-2); }
+
+/* the frame: the left rail and the right rail are pinned beside the chain, which scrolls sideways between them */
+.cm-frame { display: flex; align-items: flex-start; border-top: 1px solid var(--line); padding-top: 4px; }
+.cm-zone { flex: none; }
+.cm-zone svg { display: block; overflow: hidden; }
+.cm-zone-chain { flex: 0 1 auto; min-width: 0; overflow-x: auto; }
+/* a phone: the rails stack above and below the chain; the chain scrolls inside its own box */
+.cm-frame.stacked { flex-direction: column; align-items: flex-start; }
+.cm-frame.stacked .cm-zone { max-width: 100%; overflow-x: auto; }
+.cm-frame.stacked .cm-zone-chain { flex: none; }
+
+/* columns */
+.cm-col-box { fill: color-mix(in srgb, var(--panel) 55%, transparent); stroke: var(--line); stroke-width: 1; }
+.cm-col.old_link .cm-col-box, .cm-col.no_link .cm-col-box, .cm-col.silent .cm-col-box { stroke-dasharray: 3 3; }
+.cm-col-label { fill: var(--txt); font-size: 11px; font-weight: 600; }
+.cm-col.old_link .cm-col-label, .cm-col.no_link .cm-col-label, .cm-col.silent .cm-col-label { fill: var(--txt-3); }
+.cm-col-tag { fill: var(--txt-3); font-size: 9.5px; }
+svg .cm-n { fill: var(--txt-4); }
+
+/* nodes: all one size */
+.cm-node { cursor: pointer; outline: none; }
+.cm-node-box { fill: var(--panel); stroke: var(--line-2); stroke-width: 1; }
+.cm-node:hover .cm-node-box { stroke: var(--txt-3); fill: var(--panel-2); }
+.cm-node:focus .cm-node-box { stroke: var(--txt-3); fill: var(--panel-2); }
+.cm-node:focus-visible .cm-node-box { stroke: var(--txt-2); stroke-width: 1.5; }
+.cm-tk { fill: var(--txt); font-family: var(--mono); font-size: 11px; font-weight: 700; }
+.cm-role { fill: var(--txt-3); font-size: 9px; }
+.cm-type { fill: var(--txt-3); font-size: 9.5px; }
+.cm-age { fill: var(--txt-3); font-family: var(--mono); font-size: 9.5px; font-variant-numeric: tabular-nums; }
+.cm-side { fill: var(--txt-2); stroke: var(--txt-2); stroke-width: 1.2; stroke-linejoin: round; }
+.cm-node.flagged { opacity: 0.45; }
+.cm-node.unresolved .cm-node-box { stroke-dasharray: 3 2; }
+
+/* rails, edges and the bracket */
+.cm-rail-head text { fill: var(--txt-3); font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; }
+.cm-rail-head text.cm-n { letter-spacing: 0; text-transform: none; fill: var(--txt-4); }
+.cm-edge { fill: none; stroke: var(--txt-4); stroke-width: 1; }
+.cm-edge.dashed { stroke-dasharray: 4 3; }
+.cm-end { fill: var(--txt-3); }
+.cm-bracket { fill: none; stroke: var(--txt-3); stroke-width: 1.4; stroke-linecap: square; }
+.cm-edge-label { fill: var(--txt-3); font-size: 9px; paint-order: stroke; stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round; }
+
+.cm-work { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
+.cm-legend { color: var(--txt-4); }
+.cm-limits { margin: 4px 0 0; padding-left: 16px; font-size: 10.5px; line-height: 1.5; color: var(--txt-4); }
+
+@media (max-width: 640px) {
+  .cm-search { width: 110px; }
+  .cm-select { max-width: 200px; }
+  .cm-readout { min-height: 118px; }
+}

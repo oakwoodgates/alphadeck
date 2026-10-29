@@ -2018,6 +2018,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboards/chain-map/cards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Chain Map Cards
+         * @description The card picker: the live cards that existed by the as-of, A→Z, each with its link count today. Display
+         *     only.
+         */
+        get: operations["chain_map_cards_dashboards_chain_map_cards_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboards/chain-map/{thesis_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Chain Map For Card
+         * @description One card as a picture: its links in chain order as columns with the roster's companies inside (each with
+         *     its business type, its side of the 50-day average and the age of its newest filing-derived fact), and the
+         *     companies with a context role standing on two rails beside the chain, each with one edge to the chain as a
+         *     whole. A company whose data flags reach its price readings is drawn grayed with no 50-day side. Display only;
+         *     a past as-of reads the roster as of that date and what was public by the end of it. 404 when the card is not
+         *     counted at the as-of.
+         */
+        get: operations["chain_map_for_card_dashboards_chain_map__thesis_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dashboards/chain-wave/cards": {
         parameters: {
             query?: never;
@@ -5616,6 +5662,265 @@ export interface components {
              */
             placements: components["schemas"]["ResolvedPlacement"][];
             report?: components["schemas"]["DraftReportOut"] | null;
+        };
+        /**
+         * ChainMapCardOut
+         * @description A card in the picker: its name and its real links today (Context and Bench not counted).
+         */
+        ChainMapCardOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Name */
+            name: string;
+            /** Links */
+            links: number;
+        };
+        /**
+         * ChainMapCardsOut
+         * @description The picker: the cards counted at the as-of (the live cards that existed by then), A→Z. ``cache`` /
+         *     ``compute_ms`` = whether the list came from the shared dashboard cache and how long it took when computed.
+         */
+        ChainMapCardsOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /** Live Cards */
+            live_cards: number;
+            /** Not Yet Created */
+            not_yet_created: number;
+            /** Cards */
+            cards: components["schemas"]["ChainMapCardOut"][];
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * ChainMapColumnOut
+         * @description A column. ``kind``: ``link`` (a real link today, chain order), ``old_link`` (a roster link that is not on
+         *     the card today), ``no_link``, or ``silent`` (the Context or Bench names with no role; ``label`` says which,
+         *     the page shows them behind a toggle). ``descriptor`` = the link's descriptor when set.
+         */
+        ChainMapColumnOut: {
+            /** Key */
+            key: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "link" | "old_link" | "no_link" | "silent";
+            /** Label */
+            label: string;
+            /** Descriptor */
+            descriptor: string | null;
+            /** Nodes */
+            nodes: components["schemas"]["ChainMapNodeOut"][];
+        };
+        /**
+         * ChainMapCountsOut
+         * @description The work: ``companies`` = distinct roster companies; ``on_rails`` / ``untagged_silent`` = of those, the
+         *     ones on a rail and the ones in a Context or Bench column; ``roles`` = companies per role, rail order, only
+         *     roles that are set; ``with_side`` / ``without_side`` and ``with_filing`` / ``without_filing`` split the
+         *     companies (an unresolved or flagged one has no side).
+         */
+        ChainMapCountsOut: {
+            /** Links Today */
+            links_today: number;
+            /** Old Links */
+            old_links: number;
+            /** Roster Rows */
+            roster_rows: number;
+            /** Resolved Rows */
+            resolved_rows: number;
+            /** Unresolved Rows */
+            unresolved_rows: number;
+            /** Silent Rows */
+            silent_rows: number;
+            /** Companies */
+            companies: number;
+            /** On Rails */
+            on_rails: number;
+            /** Untagged Silent */
+            untagged_silent: number;
+            /** Roles */
+            roles: components["schemas"]["ChainMapRoleCountOut"][];
+            /** With Side */
+            with_side: number;
+            /** Without Side */
+            without_side: number;
+            /** With Filing */
+            with_filing: number;
+            /** Without Filing */
+            without_filing: number;
+        };
+        /**
+         * ChainMapEdgeOut
+         * @description One rail node's edge to the chain's bracket (the whole chain, never a link or a name): the node, its role
+         *     and the rail it stands on.
+         */
+        ChainMapEdgeOut: {
+            /** Node Key */
+            node_key: string;
+            role: components["schemas"]["ContextRole"];
+            /**
+             * Side
+             * @enum {string}
+             */
+            side: "left" | "right";
+        };
+        /**
+         * ChainMapFilingOut
+         * @description A company's newest filing-derived fact in the last ``filing_days`` days: its public ``date`` (``age_days``
+         *     before the as-of), the ``form`` as filed (or the row's own label) and its one-line ``headline``.
+         */
+        ChainMapFilingOut: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Age Days */
+            age_days: number;
+            /** Form */
+            form: string;
+            /** Headline */
+            headline: string;
+        };
+        /**
+         * ChainMapFlaggedOut
+         * @description A company on the card whose data flags reach its price readings at the as-of (the reason the Cockpit grays
+         *     its price cells): drawn grayed with no 50-day side. ``reason`` = the flags' labels.
+         */
+        ChainMapFlaggedOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * ChainMapNodeOut
+         * @description One company in one place. ``key`` is unique on the page; ``company_key`` is the company's (``security_id``,
+         *     or ``ticker:<T>`` with no resolved security). ``ticker`` = its ticker on the card (the Cockpit's ``?name=``
+         *     key). ``links`` = every link it sits in on the card (``null`` = no link). ``role`` = its context role (a tag on
+         *     a chain node, the reason it stands on a rail). ``business_type`` = the master's leaf (the operator's re-tag
+         *     winning). ``side_50d`` / ``pct_vs_50d`` = where it sits against its 50-day average (``null`` = no reading,
+         *     or a flagged price history). ``last_filing`` = its newest filing-derived fact in the year (``null`` = none
+         *     stored). ``flag`` = why its price readings are left out. ``thesis_fit`` / ``authored_by`` = the description
+         *     on the row this node stands for and who wrote it (``null`` when there is none); ``matched_terms`` = the
+         *     discovery terms that surfaced the name.
+         */
+        ChainMapNodeOut: {
+            /** Key */
+            key: string;
+            /** Company Key */
+            company_key: string;
+            /** Ticker */
+            ticker: string;
+            /** Name */
+            name: string | null;
+            /** Security Id */
+            security_id: string | null;
+            /** Links */
+            links: (string | null)[];
+            role: components["schemas"]["ContextRole"] | null;
+            /** Business Type */
+            business_type: string | null;
+            /** Side 50D */
+            side_50d: ("above" | "below" | "at") | null;
+            /** Pct Vs 50D */
+            pct_vs_50d: number | null;
+            last_filing: components["schemas"]["ChainMapFilingOut"] | null;
+            /** Flag */
+            flag: string | null;
+            /** Thesis Fit */
+            thesis_fit: string | null;
+            authored_by: components["schemas"]["Authorship"] | null;
+            /** Matched Terms */
+            matched_terms: string[];
+        };
+        /**
+         * ChainMapOut
+         * @description One card's picture. ``columns`` in chain order (real links, then a roster link that is not on the card
+         *     today, then No link, then the silent Context/Bench columns); ``rails`` = the left rail, then the right (either
+         *     may be empty); ``edges`` = one per rail node. ``clock``: ``record`` (the live read) or ``public`` (a past
+         *     as-of: what was public by the end of that date). ``roster_fallback`` = no roster snapshot by the as-of: today's
+         *     roster stands in. ``filing_days`` = how far back the last-filing glyph looks. ``cache`` / ``compute_ms`` =
+         *     whether the page came from the shared dashboard cache and how long it took when computed.
+         */
+        ChainMapOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /**
+             * Clock
+             * @enum {string}
+             */
+            clock: "record" | "public";
+            /** Roster Fallback */
+            roster_fallback: boolean;
+            /** Columns */
+            columns: components["schemas"]["ChainMapColumnOut"][];
+            /** Rails */
+            rails: components["schemas"]["ChainMapRailOut"][];
+            /** Edges */
+            edges: components["schemas"]["ChainMapEdgeOut"][];
+            /** Flagged */
+            flagged: components["schemas"]["ChainMapFlaggedOut"][];
+            counts: components["schemas"]["ChainMapCountsOut"];
+            /** Filing Days */
+            filing_days: number;
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * ChainMapRailOut
+         * @description A rail: ``left`` (what pays and funds: payer, then financier) or ``right`` (what reads across: direct read,
+         *     counter-case, participant, benchmark). ``nodes`` = the role-tagged companies with no row in a real link, by
+         *     role then roster order.
+         */
+        ChainMapRailOut: {
+            /**
+             * Side
+             * @enum {string}
+             */
+            side: "left" | "right";
+            /** Label */
+            label: string;
+            /** Nodes */
+            nodes: components["schemas"]["ChainMapNodeOut"][];
+        };
+        /** ChainMapRoleCountOut */
+        ChainMapRoleCountOut: {
+            role: components["schemas"]["ContextRole"];
+            /** Names */
+            names: number;
         };
         /**
          * ChainWaveCardOut
@@ -14249,6 +14554,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CatalystCalendarOut"];
+                };
+            };
+        };
+    };
+    chain_map_cards_dashboards_chain_map_cards_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; only the cards that existed by then are listed */
+                asof: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChainMapCardsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chain_map_for_card_dashboards_chain_map__thesis_id__get: {
+        parameters: {
+            query: {
+                /** @description as-of date; nothing published after it is read */
+                asof: string;
+            };
+            header?: never;
+            path: {
+                thesis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChainMapOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
