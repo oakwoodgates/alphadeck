@@ -1,0 +1,53 @@
+/* What Changed (docs/dashboards/what-changed.md) — its own sheet, imported by the component, never index.css
+   (docs/DASHBOARDS.md rule 8). Dense, quiet one-line items, like the nightly's TRANSITIONS block: everything
+   sits in the muted grays except a state word, which reads in its Board column's own color (--incub, --warm,
+   --armed, --manage). Nothing here is loud; a calm page means nothing moved. */
+
+.wc { display: flex; flex-direction: column; gap: 10px; }
+.wc-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.wc-seg { display: inline-flex; border: 1px solid var(--line-2); border-radius: 6px; overflow: hidden; }
+.wc-seg button { font: inherit; font-size: 11px; color: var(--txt-3); background: transparent; border: 0; padding: 3px 10px; cursor: pointer; }
+.wc-seg button + button { border-left: 1px solid var(--line-2); }
+.wc-seg button:hover:not(:disabled) { color: var(--txt-2); }
+.wc-seg button.on { color: var(--txt); background: var(--panel-2); }
+.wc-seg button:disabled { color: var(--txt-4); cursor: default; }
+.wc-date { font: inherit; font-family: var(--mono); font-size: 11px; color: var(--txt-2); background: var(--panel); border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 6px; color-scheme: dark; }
+.wc-work { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); cursor: help; }
+.wc-quiet { font-size: 12px; color: var(--txt-3); margin-top: 6px; }
+.wc-error { color: var(--txt-3); }
+
+.wc-sec { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.wc-h { margin: 0 0 2px; font-size: 10px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--txt-3); display: flex; align-items: center; }
+.wc-h::after { content: ""; flex: 1; height: 1px; background: var(--line); margin-left: 8px; }
+.wc-ct { font-family: var(--mono); font-weight: 400; letter-spacing: 0.02em; text-transform: none; color: var(--txt-2); white-space: pre; }
+/* by card: the header is the card's name, in the card's own case, and opens the card */
+.wc-cardh { letter-spacing: 0.02em; text-transform: none; font-size: 11.5px; }
+.wc-cardname { font: inherit; color: var(--txt-2); background: none; border: 0; padding: 0; cursor: pointer; }
+.wc-cardname:hover { color: var(--txt); }
+.wc-cardh .wc-tag { margin-left: 8px; }
+
+.wc-list { list-style: none; margin: 0; padding: 0; }
+.wc-line { font: inherit; font-size: 12px; width: 100%; display: grid; grid-template-columns: minmax(120px, 220px) 64px 1fr; gap: 0 12px; align-items: baseline; padding: 3px 6px; border: 0; border-radius: 4px; background: transparent; color: var(--txt-2); text-align: left; cursor: pointer; }
+.wc-line.in-card { grid-template-columns: 64px 1fr; }
+.wc-line:hover { background: var(--panel); color: var(--txt); }
+.wc-line:focus-visible { outline: 1px solid var(--line-2); outline-offset: -1px; }
+.wc-card { color: var(--txt-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wc-tk { font-family: var(--mono); font-weight: 700; color: var(--txt-2); white-space: nowrap; }
+.wc-what { color: var(--txt-3); }
+.wc-line:hover .wc-what { color: var(--txt-2); }
+.wc-arrow { color: var(--txt-4); }
+/* a re-dated trigger (still firing, its event date moved): quieter than a fired / no-longer-firing line —
+   the ticker drops to the line's own gray, unbolded; hover lifts it like any line */
+.wc-line.wc-redated .wc-tk { color: var(--txt-3); font-weight: 400; }
+.wc-line.wc-redated:hover .wc-tk { color: var(--txt-2); }
+.wc-st { font-weight: 600; }
+.wc-st.incub { color: var(--incub); }
+.wc-st.warm { color: var(--warm); }
+.wc-st.armed { color: var(--armed); }
+.wc-st.manage { color: var(--manage); }
+.wc-tag { margin-left: 8px; font-size: 9.5px; letter-spacing: 0.02em; color: var(--txt-4); border: 1px dashed var(--line-2); border-radius: 4px; padding: 0 5px; text-transform: none; font-weight: 400; cursor: help; }
+
+@media (max-width: 640px) {
+  .wc-line { grid-template-columns: 1fr; gap: 1px; }
+  .wc-line.in-card { grid-template-columns: 1fr; }
+}

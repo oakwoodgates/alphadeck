@@ -2063,6 +2063,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboards/what-changed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What Changed
+         * @description What moved on the live cards between the baseline night and the newest recorded night (states, keys,
+         *     armed and watch names, triggers and risk signals), plus the clocks coming due on the newest one. A "now"
+         *     view of the recorded calls; archived cards are excluded. A picked date after the newest recorded night,
+         *     or before the first, is a 422.
+         */
+        get: operations["what_changed_dashboards_what_changed_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/backtest/runs": {
         parameters: {
             query?: never;
@@ -9296,6 +9319,91 @@ export interface components {
          * @enum {string}
          */
         Verdict: "watching" | "not_yet" | "flip_only" | "starter_entry" | "core_entry" | "managing";
+        /** WhatChangedCardRefOut */
+        WhatChangedCardRefOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+        };
+        /**
+         * WhatChangedItemOut
+         * @description One line. ``section`` = its group on the page; ``change`` = what moved. ``security_id`` / ``ticker`` are
+         *     set for a name or a trigger line (``null`` = a card-level line; ``ticker`` is ``null`` when the master has
+         *     none). ``label`` = the key's own label, or the trigger's. ``on`` = the trigger's event date, or the clock's
+         *     date (``arm_until`` / ``exit_by``); ``previous_on`` = a re-dated trigger's event date on the baseline night
+         *     (``null`` on every other line); ``days`` = calendar days from the newest night to ``arm_until``.
+         *     ``reconstructed`` = the card's newest row was written by ``pipeline.backfill``.
+         */
+        WhatChangedItemOut: {
+            /**
+             * Section
+             * @enum {string}
+             */
+            section: "column_moves" | "keys" | "names" | "triggers" | "clocks" | "new_cards";
+            /**
+             * Change
+             * @enum {string}
+             */
+            change: "state" | "key_on" | "key_off" | "armed" | "no_longer_armed" | "new_watch" | "trigger_new" | "trigger_gone" | "risk_new" | "trigger_redated" | "entry_window" | "exit_by" | "new_card";
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /** Reconstructed */
+            reconstructed: boolean;
+            /** Security Id */
+            security_id: string | null;
+            /** Ticker */
+            ticker: string | null;
+            from_state: components["schemas"]["State"] | null;
+            to_state: components["schemas"]["State"] | null;
+            /** Label */
+            label: string | null;
+            signal_kind: components["schemas"]["Kind"] | null;
+            /** On */
+            on: string | null;
+            /** Previous On */
+            previous_on: string | null;
+            /** Days */
+            days: number | null;
+        };
+        /**
+         * WhatChangedOut
+         * @description The whole page. ``latest`` = the newest recorded night across the live cards (``null`` = no recorded
+         *     call yet); ``baseline`` = the night compared against (``null`` = no earlier night, so every recorded card
+         *     is new). ``first_recorded`` bounds the date picker. ``unrecorded`` = live cards with no recorded call yet,
+         *     counted on the quiet line. Items come in section order, then card name.
+         */
+        WhatChangedOut: {
+            /**
+             * Since
+             * @enum {string}
+             */
+            since: "last_night" | "7d" | "date";
+            /** Since Date */
+            since_date: string | null;
+            /** First Recorded */
+            first_recorded: string | null;
+            /** Latest */
+            latest: string | null;
+            /** Baseline */
+            baseline: string | null;
+            /** Live Cards */
+            live_cards: number;
+            /** Cards With Change */
+            cards_with_change: number;
+            /** Unrecorded */
+            unrecorded: components["schemas"]["WhatChangedCardRefOut"][];
+            /** Items */
+            items: components["schemas"]["WhatChangedItemOut"][];
+        };
         /**
          * WorkbenchScored
          * @description The Workbench scored read for a thesis: its value-chain segments + the scored members (the UI groups
@@ -11819,6 +11927,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RotationMapOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    what_changed_dashboards_what_changed_get: {
+        parameters: {
+            query?: {
+                /** @description the baseline night: last_night (the previous recorded night), 7d (7 calendar days before the newest night) or a YYYY-MM-DD date between the first recorded night and the newest */
+                since?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WhatChangedOut"];
                 };
             };
             /** @description Validation Error */
