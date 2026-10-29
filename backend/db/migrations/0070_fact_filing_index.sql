@@ -43,8 +43,12 @@ CREATE TABLE IF NOT EXISTS fact_filing_index (
     UNIQUE (tenant_id, security_id, accession, recorded_at)
 );
 
-CREATE INDEX IF NOT EXISTS ix_filing_index_asof
-    ON fact_filing_index (tenant_id, security_id, valid_from, recorded_at);
+-- NO separate as-of index (unlike 0038's 8-K tape), on purpose: the as-of read (``WHERE tenant_id = … AND
+-- security_id = …``) and the leg's stored-accessions SELECT both use the UNIQUE natural key's (tenant_id,
+-- security_id) prefix. MEASURED on a dev copy of prod (2026-10-29, 925,651 rows): the as-of read of the three
+-- biggest baskets took 393 / 687 / 442 ms without a (tenant, security, valid_from, recorded_at) index and
+-- 417 / 682 / 422 ms with it (the past public-clock view the same), while that index cost 63 MB of the table's
+-- 219 MB. The primary key and the natural-key UNIQUE stay.
 
 DROP TRIGGER IF EXISTS no_update ON fact_filing_index;
 CREATE TRIGGER no_update BEFORE UPDATE ON fact_filing_index
