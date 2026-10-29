@@ -32,7 +32,7 @@ since the Read-Throughs table): the per-company point-in-time fact lists, normal
 shows "what did this company file" reads the same rows.
 
 ```
-FilingRow(security_id, ticker, kind, form, date, headline, detail, url, accession, tags, routine, usd)
+FilingRow(security_id, ticker, kind, form, date, headline, detail, url, accession, tags, routine, usd, fold)
   kind      8k | form4 | form4a | stake | revenue | filing | split | dilution | catalyst | ratified
   form      the form as filed ("8-K", "8-K/A", "4", "4/A", "SC 13D", "SC 13G/A", "10-Q", "10-K", ...) or the row's
             own label ("split", "catalyst", "ratified fact", "stored fact")
@@ -45,8 +45,10 @@ FilingRow(security_id, ticker, kind, form, date, headline, detail, url, accessio
             the accession: https://www.sec.gov/Archives/edgar/data/<cik as int>/<accession without dashes>/)
   tags      the quiet tags ("issuer self-filing", "internal transfer", "10b5-1 plan", "items not yet resolved",
             "re-reported", "needs review", "filer identity unresolved")
-  routine   a fold candidate (below): true for a Form 4 whose rows hold no code-P purchase
+  routine   a fold candidate (below): a Form 4 whose rows hold no code-P purchase, a prospectus supplement, an
+            insider ownership filing with no transaction rows stored
   usd       the row's dollar size when it has one (a Form 4's net, a dilution's principal), for the compact hint
+  fold      the routine row's fold group: form4 | prospectus | ownership (null for a row that is not routine)
 ```
 
 The sources, each through the SAME point-in-time view the Cockpit builds (`baskets.per_company` over `PointInTimeData`,
@@ -105,7 +107,8 @@ with the request's `known_at, clock = serve_view(asof)`; invariant #1):
    `ratified_by`: choice 16.
 10. **Other forms** (kind `filing`, 2026-10-29): `pit.filing_index`, the company's EDGAR index (`form`, `accession`,
    `filed`, `primary_doc`, `source_ref`), dated `filed`. Headline: "<form> · <primary document>" (just the form when
-   EDGAR left the document blank); no detail, no tags, never routine; the link is the stored EDGAR index page. Built
+   EDGAR left the document blank); no detail, no tags; the link is the stored EDGAR index page. Prospectus paper and
+   index-only ownership forms are ROUTINE in their own fold group (the fold, below); every other form is loud. Built
    AFTER every other kind and only for an accession no other row carries (an 8-K, a Form 4 or 4/A, a 13D/G, a revenue
    print, a split, a dilution or a catalyst; accessions compared as stored, whitespace removed), so each filing shows
    once. A display accessor, off the detectors' protocol (the `fund_shares` precedent), with both clocks from the
@@ -133,15 +136,39 @@ before its first snapshot, said in a quiet note), `memberships_of` (with each ro
 - **The fold (honest loudness, Workbench principle 3):** on any card, Form 4 sales, grants, exercises and tax
   withholdings outnumber everything else. A day's `routine` Form 4 rows collapse into ONE quiet line, "N routine Form 4
   filings (sales, grants, exercises, withholding)", that expands in place; a Form 4 holding a code-P purchase is
-  never routine. The fold is on by default and is a client-side toggle ("Show routine Form 4s"). Nothing is hidden
-  from the counts: the work line counts every row, folded or not.
+  never routine. The fold is on by default and is a client-side toggle ("Show routine Form 4s"; "Show routine rows"
+  once another group is on the page). Nothing is hidden from the counts: the work line counts every row, folded or not.
+- **The other fold groups (2026-10-29, with the EDGAR index).** Two more kinds of row are routine, each folded per
+  (day, company) into its own quiet line in the same style and under the same toggle, each line opening on its own
+  (`filings.FOLD_GROUPS`, the form sets named once in `backend/dashboards/filings.py`):
+  - `prospectus`: an index row whose form starts with 424B, 424H, 424I or 497, or is FWP — "JPM · 87 prospectus
+    supplements (424B, FWP)". An S-1, an S-3 or an F-1 is NOT here: a new registration stays loud.
+  - `ownership`: an index-only Form 3, 4, 5 (and their /A) — one no Form 4 tape row claims (derivative-only, or the
+    company as another issuer's reporting owner) — and a Form 144 / 144/A notice of an intended sale (the loudness
+    class of a Form 4 sale) — "META · 5 insider ownership filings (Forms 3/4/5 with no transaction rows stored, 144
+    notices)", the parenthesis naming only what the line holds. The 144s sit behind ONE operator flag,
+    `filings.FOLD_FORM_144` (default true): false makes every 144 a loud row again.
+  Why (MEASURED on a dev copy of prod, 2026-10-29, 62 cards, 925,651 index rows): JPM (a Context name on one
+  card) lists 26,439 filings in a year, 26,035 of them prospectus paper (424B2 22,965, FWP 1,817, 424B3
+  1,217, 424B8 36); 15,254 index rows of form "4" and 6,523 of form "3" survive the dedupe; ~23,000 Form 144s a
+  year. As loud rows they buried the stream and outshouted the parsed routine Form 4s.
+- **The cap (server side, per request window).** Per (company, fold group) at most `ROUTINE_CAP` = 200 ROUTINE rows of
+  the window are listed, newest first (the stream's stable order breaks ties). A row that is not routine is never cut
+  (a purchase, an 8-K, an S-1, a stake). The rows cut are COUNTED, never vanished: `not_listed` (per company and
+  group, largest first), `counts.not_listed`, and one quiet work line ("26,035 routine rows not listed (over 200 of
+  one kind for one company in this window): JPM 25,835 prospectus supplements"); `counts.rows` / `by_kind` and each
+  name's row count keep counting every row in the window, listed or not. The cached 365-day read keeps every row;
+  the cap is applied when a window is sliced, so a 30-day window counts only the rows cut inside it. Why: the worst
+  365-day payload went from 5.00 MB to 15.07 MB when the index landed (MEASURED on the dev copy). The Read-Throughs
+  and the Chain Map carry no row lists (each picks ONE last filing per company), so the cap does not apply to them.
 - **Loudness:** no badges, no colors by kind. Each row is one line: date · ticker (a chip opening the Cockpit name panel
   via `onSelectThesis(thesisId, ticker)`) · form · headline · tags · the EDGAR link. The expanded row shows `detail`.
 
 ## Filters (client side, over the window's rows)
 
 Kind (one chip per kind, all on by default), link (the card's links in chain order, plus Context, Bench, No link),
-name (a type-ahead over the roster), role (the roles set on the card), "Counting names only", "Show routine Form 4s".
+name (a type-ahead over the roster), role (the roles set on the card), "Counting names only", "Show routine Form 4s"
+(or "Show routine rows").
 The URL carries none of these; they are component state (no browser storage).
 
 ## Picking the card
@@ -203,6 +230,9 @@ is cached as `("cards", clock)`. The shared cache clears on a new run or a baske
   (reading EDGAR's older index pages would cost extra requests). A form nothing reads into is listed by its form and
   primary document only. The index is insert-only: a filing EDGAR later re-lists with a changed form or document keeps
   its first-seen row (SEC's listed fields drift; re-versioning would churn the table nightly).
+- At most 200 routine rows of one kind per company are listed in a window (the cap, above); the rest are counted in
+  the work line and in every count, never listed. A routine row folds into a quiet line; a row that is not routine is
+  never folded or cut.
 - The Cockpit's day-low and implausible-data insider screens are not applied; the stream never says "open market".
 - A 4/A is shown as a filing, not resolved against its original.
 - A split is dated by its own publication as the view knows it; its status is as stored.

@@ -20,11 +20,14 @@ from psycopg.types.json import Json
 from app.deps import get_conn
 from app.main import app
 from app.routers.dashboards import filing_stream as router_mod
+from dashboards import filings as filings_mod
 from dashboards.baskets import CardChoice, CardsRead, Membership, card_choices
 from dashboards.cache import CACHE
 from dashboards.filing_stream import (
     READ_DAYS,
+    ROUTINE_CAP,
     WINDOWS,
+    NotListed,
     StreamRow,
     companies_of,
     counts_of,
@@ -38,6 +41,7 @@ from dashboards.filing_stream import (
     stream_rows,
 )
 from dashboards.filings import (
+    FOLD_GROUPS,
     KIND_ORDER,
     SEC_FILING_KINDS,
     STANDARD_8K_ITEMS,
@@ -1048,6 +1052,180 @@ def test_an_index_row_is_in_the_window_from_its_filing_date_and_never_after_the_
 
 
 # ---------------------------------------------------------------------------------------------------------
+# the fold groups and the per-company cap
+# ---------------------------------------------------------------------------------------------------------
+
+
+def test_the_fold_groups_of_the_edgar_index_rows_and_the_tapes_form4s():
+    """Prospectus paper and index-only ownership forms are ROUTINE in their own group; every other form (an S-1, a
+    shelf registration, a proxy) stays a loud row. The tape's Form 4 keeps today's rule in the ``form4`` group.
+    """
+    cases = {
+        "424B2": "prospectus",
+        "424b5": "prospectus",  # read uppercased
+        "424H": "prospectus",
+        "424I": "prospectus",
+        "FWP": "prospectus",
+        "497K": "prospectus",
+        "497": "prospectus",
+        "4": "ownership",
+        "3": "ownership",
+        "5/A": "ownership",
+        "S-1": None,
+        "S-3ASR": None,
+        "8-K": None,
+        "DEF 14A": None,
+        "10-Q": None,
+        "424A": None,  # not a 424B / 424H / 424I supplement
+    }
+    rows = rows_from_filing_index(
+        [index_row(form=f, accession=f"0000876543-26-{i:06d}") for i, f in enumerate(cases)], W
+    )
+    assert {r.form: (r.routine, r.fold) for r in rows} == {
+        f: (g is not None, g) for f, g in cases.items()
+    }
+    (sale,) = rows_from_insider_txns([txn("S")], W)
+    (buy,) = rows_from_insider_txns([txn("P")], W)
+    assert (sale.routine, sale.fold) == (True, "form4")
+    assert (buy.routine, buy.fold) == (False, None)  # a purchase is the exception: loud
+    assert FOLD_GROUPS == ("form4", "prospectus", "ownership")
+
+
+@pytest.mark.parametrize("flag", [True, False])
+def test_form_144_folds_with_the_ownership_group_behind_ONE_flag(monkeypatch, flag):
+    monkeypatch.setattr(filings_mod, "FOLD_FORM_144", flag)
+    rows = rows_from_filing_index(
+        [
+            index_row(form="144", accession="0000876543-26-000201"),
+            index_row(form="144/A", accession="0000876543-26-000202"),
+            index_row(form="4", accession="0000876543-26-000203"),
+        ],
+        W,
+    )
+    want_144 = (True, "ownership") if flag else (False, None)  # False: a 144 is a loud row again
+    assert [(r.routine, r.fold) for r in rows] == [want_144, want_144, (True, "ownership")]
+
+
+def prospectus(sid, ticker, d, i, **over) -> FilingRow:
+    return fr(
+        sid,
+        ticker,
+        "filing",
+        d,
+        form="424B2",
+        accession=f"P-{ticker}-{i:05d}",
+        routine=True,
+        fold="prospectus",
+        **over,
+    )
+
+
+def _page(rows_by_sid, days):
+    inputs = stream_inputs(
+        thesis_id=T1,
+        thesis_name="Grid",
+        segments=SEGMENTS,
+        memberships=ROSTER,
+        rows_by_sid=rows_by_sid,
+    )
+    return filing_stream(inputs, asof=ASOF, days=days)
+
+
+def _listed(page) -> list[FilingRow]:
+    return [r.row for d in page.groups for r in d.rows]
+
+
+def test_the_cap_lists_200_routine_rows_per_company_and_group_newest_first_and_counts_the_rest():
+    rows = {
+        SX: [prospectus(SX, "XXX", ASOF - timedelta(days=i % 20), i) for i in range(201)]
+        + [
+            fr(
+                SX, "XXX", "filing", ASOF, form="4", accession="O-1", routine=True, fold="ownership"
+            ),
+            fr(SX, "XXX", "filing", ASOF, form="S-1", accession="S-1"),
+        ],
+        SY: [prospectus(SY, "YYY", ASOF, i) for i in range(5)],
+    }
+    page = _page(rows, 30)
+    listed = _listed(page)
+    xxx = [r for r in listed if r.ticker == "XXX" and r.fold == "prospectus"]
+    assert len(xxx) == 200  # 201 -> 200 listed + 1 counted
+    # the one cut is the OLDEST (the stream is newest first; a tie by its stable order: the higher accession)
+    cut = {r.accession for r in rows[SX] if r.fold == "prospectus"} - {r.accession for r in xxx}
+    assert cut == {"P-XXX-00199"}
+    assert page.not_listed == (NotListed(SX, "XXX", "prospectus", 1),)
+    # another group of the same company and another company are their own caps; the loud S-1 is listed
+    assert {r.accession for r in listed if r.ticker == "XXX" and r.fold != "prospectus"} == {
+        "O-1",
+        "S-1",
+    }
+    assert len([r for r in listed if r.ticker == "YYY"]) == 5
+    # the counts count EVERY row in the window, listed or not
+    assert page.counts.rows == 201 + 2 + 5 and page.counts.not_listed == 1
+    assert {k.kind: k.rows for k in page.counts.by_kind}["filing"] == 208
+    assert page.counts.routine == 207
+    assert {n.company.ticker: n.rows for n in page.names}[
+        "XXX"
+    ] == 203  # a name's rows: listed or not
+
+
+def test_the_cap_never_cuts_a_row_that_is_not_routine():
+    rows = {
+        SX: [fr(SX, "XXX", "filing", ASOF, form="S-1", accession=f"S-{i:05d}") for i in range(250)]
+        + [prospectus(SX, "XXX", ASOF, i) for i in range(250)]
+    }
+    page = _page(rows, 30)
+    listed = _listed(page)
+    assert len([r for r in listed if r.form == "S-1"]) == 250  # every exception listed, past 200
+    assert len([r for r in listed if r.fold == "prospectus"]) == 200
+    assert page.not_listed == (NotListed(SX, "XXX", "prospectus", 50),)
+    assert page.counts.rows == 500 and page.counts.not_listed == 50
+
+
+def test_the_cap_is_per_window_a_short_window_counts_only_the_rows_cut_inside_it():
+    """250 supplements inside the last 30 days, 100 more 31-90 days back: the 30-day window cuts 50, the
+    90-day window 150 — each window's count is of its OWN rows, never the cached year's."""
+    rows = {
+        SX: [prospectus(SX, "XXX", ASOF - timedelta(days=i % 30), i) for i in range(250)]
+        + [prospectus(SX, "XXX", ASOF - timedelta(days=31 + i % 59), 1000 + i) for i in range(100)]
+    }
+    p30, p90, p365 = (_page(rows, d) for d in (30, 90, 365))
+    assert [p.counts.not_listed for p in (p30, p90, p365)] == [50, 150, 150]
+    assert [p.counts.rows for p in (p30, p90, p365)] == [250, 350, 350]
+    assert [len(_listed(p)) for p in (p30, p90, p365)] == [200, 200, 200]
+    assert p30.not_listed == (NotListed(SX, "XXX", "prospectus", 50),)
+    # the 90-day list is the NEWEST 200: every listed row is within the last 30 days
+    assert all(r.date >= ASOF - timedelta(days=29) for r in _listed(p90))
+
+
+def test_not_listed_is_largest_first():
+    rows = {
+        SX: [prospectus(SX, "XXX", ASOF, i) for i in range(203)],
+        SY: [prospectus(SY, "YYY", ASOF, i) for i in range(210)]
+        + [
+            fr(
+                SY,
+                "YYY",
+                "filing",
+                ASOF,
+                form="4",
+                accession=f"O-{i}",
+                routine=True,
+                fold="ownership",
+            )
+            for i in range(201)
+        ],
+    }
+    page = _page(rows, 30)
+    assert [(n.ticker, n.fold, n.rows) for n in page.not_listed] == [
+        ("YYY", "prospectus", 10),
+        ("XXX", "prospectus", 3),
+        ("YYY", "ownership", 1),
+    ]
+    assert page.counts.not_listed == 14
+
+
+# ---------------------------------------------------------------------------------------------------------
 # the roster, links, roles, window, day order, fold counts (pure)
 # ---------------------------------------------------------------------------------------------------------
 
@@ -1196,7 +1374,7 @@ def test_counts_cover_every_row_folded_or_not_and_every_kind_even_at_zero():
 def card_inputs():
     rows = {
         SX: [fr(SX, "XXX", "8k", ASOF), fr(SX, "XXX", "8k", ASOF - timedelta(days=100))],
-        SY: [fr(SY, "YYY", "form4", ASOF - timedelta(days=5), routine=True)],
+        SY: [fr(SY, "YYY", "form4", ASOF - timedelta(days=5), routine=True, fold="form4")],
     }
     return stream_inputs(
         thesis_id=T1,
@@ -1338,6 +1516,9 @@ def test_the_router_wire_shape(stub_client):
     assert (
         row["routine"] is True and row["tags"] == [] and row["detail"] == [] and row["url"] is None
     )
+    assert row["fold"] == "form4"
+    assert body["not_listed"] == [] and body["routine_cap"] == 200
+    assert body["counts"]["not_listed"] == 0
     assert [(k["kind"], k["rows"]) for k in body["counts"]["by_kind"]][:3] == [
         ("8k", 2),
         ("stake", 0),
@@ -1359,6 +1540,33 @@ def test_the_router_wire_shape(stub_client):
         ("OLD", 0),
     ]
     assert body["names"][2]["security_id"] is None and body["names"][2]["links"] == [None]
+
+
+def test_the_router_wire_carries_the_cap_and_each_rows_fold_group(stub_client, monkeypatch):
+    """A card whose one company lists 203 prospectus supplements in the window: 200 listed, the 3 oldest counted
+    in ``not_listed`` (per company and group) and in ``counts`` (rows / by_kind still count every row).
+    """
+    rows = {SX: [prospectus(SX, "XXX", ASOF, i) for i in range(203)]}
+    inputs = stream_inputs(
+        thesis_id=T1,
+        thesis_name="Grid",
+        segments=SEGMENTS,
+        memberships=ROSTER,
+        rows_by_sid=rows,
+    )
+    monkeypatch.setattr(router_mod, "read_inputs", lambda *a: inputs)
+    client, _ = stub_client
+    body = client.get(
+        f"/dashboards/filing-stream/{T1}", params={"asof": "2026-10-28", "days": 30}
+    ).json()
+    listed = [r for g in body["groups"] for r in g["rows"]]
+    assert len(listed) == ROUTINE_CAP and {r["fold"] for r in listed} == {"prospectus"}
+    assert body["not_listed"] == [
+        {"security_id": str(SX), "ticker": "XXX", "fold": "prospectus", "rows": 3}
+    ]
+    assert body["counts"]["not_listed"] == 3 and body["counts"]["rows"] == 203
+    assert {k["kind"]: k["rows"] for k in body["counts"]["by_kind"]}["filing"] == 203
+    assert body["routine_cap"] == ROUTINE_CAP == 200
 
 
 def test_the_router_404s_a_card_not_counted_at_the_asof(stub_client):

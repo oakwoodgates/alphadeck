@@ -16888,6 +16888,10 @@
           "routine": {
             "type": "integer",
             "title": "Routine"
+          },
+          "not_listed": {
+            "type": "integer",
+            "title": "Not Listed"
           }
         },
         "type": "object",
@@ -16895,10 +16899,11 @@
           "rows",
           "by_kind",
           "form4_purchases",
-          "routine"
+          "routine",
+          "not_listed"
         ],
         "title": "FilingStreamCountsOut",
-        "description": "What the window holds, folded rows included. ``form4_purchases`` = Form 4s holding a code-P purchase;\n``routine`` = the rows the fold covers."
+        "description": "What the window holds: EVERY row in it, folded or not and listed or not (``rows`` and ``by_kind`` include\nthe rows the cap left out of the list). ``form4_purchases`` = Form 4s holding a code-P purchase; ``routine`` =\nthe routine rows (folded or not listed); ``not_listed`` = the routine rows the cap left out of the list\n(``FilingStreamOut.not_listed`` says whose)."
       },
       "FilingStreamDayOut": {
         "properties": {
@@ -16926,7 +16931,7 @@
           "rows"
         ],
         "title": "FilingStreamDayOut",
-        "description": "One day of the stream, its rows in stream order; ``routine`` = how many of them the fold covers."
+        "description": "One day of the stream, its LISTED rows in stream order (the per-company cap applied); ``routine`` = how many\nof them the fold covers."
       },
       "FilingStreamDays": {
         "type": "integer",
@@ -17071,6 +17076,48 @@
         "title": "FilingStreamNameOut",
         "description": "A roster company (each once) with its rows in the window; a name with none is still listed.\n``key`` = its ``security_id`` (``ticker:<T>`` for a row with no resolved security)."
       },
+      "FilingStreamNotListedOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "fold": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "form4",
+                  "prospectus",
+                  "ownership"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fold"
+          },
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "fold",
+          "rows"
+        ],
+        "title": "FilingStreamNotListedOut",
+        "description": "One company's routine rows of one fold group the cap left out of the window's list: counted, never\nvanished."
+      },
       "FilingStreamOut": {
         "properties": {
           "asof": {
@@ -17158,6 +17205,17 @@
           "counts": {
             "$ref": "#/components/schemas/FilingStreamCountsOut"
           },
+          "not_listed": {
+            "items": {
+              "$ref": "#/components/schemas/FilingStreamNotListedOut"
+            },
+            "type": "array",
+            "title": "Not Listed"
+          },
+          "routine_cap": {
+            "type": "integer",
+            "title": "Routine Cap"
+          },
           "windows": {
             "items": {
               "type": "integer"
@@ -17196,12 +17254,14 @@
           "names",
           "groups",
           "counts",
+          "not_listed",
+          "routine_cap",
           "windows",
           "cache",
           "compute_ms"
         ],
         "title": "FilingStreamOut",
-        "description": "One card's stream for one window, newest day first. ``clock``: ``record`` (the live read) or ``public``\n(a past as-of: what was public by the end of that date). ``roster_fallback`` = no roster snapshot by the\nas-of: today's roster stands in. ``unresolved`` = tickers of basket rows with no resolved security (they can\ncarry no facts: counted, never in the stream). ``cache`` / ``compute_ms`` = whether the 365-day rows came\nfrom the shared dashboard cache and how long they took when computed."
+        "description": "One card's stream for one window, newest day first. ``clock``: ``record`` (the live read) or ``public``\n(a past as-of: what was public by the end of that date). ``roster_fallback`` = no roster snapshot by the\nas-of: today's roster stands in. ``unresolved`` = tickers of basket rows with no resolved security (they can\ncarry no facts: counted, never in the stream). ``groups`` = the LISTED rows: per (company, fold group) at most\n``routine_cap`` routine rows of the window, newest first; a non-routine row is never cut. ``not_listed`` = the\nroutine rows left out, per (company, group), largest first (also counted in ``counts``). ``cache`` /\n``compute_ms`` = whether the 365-day rows came from the shared dashboard cache and how long they took when\ncomputed."
       },
       "FilingStreamRowOut": {
         "properties": {
@@ -17287,6 +17347,22 @@
             "type": "boolean",
             "title": "Routine"
           },
+          "fold": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "form4",
+                  "prospectus",
+                  "ownership"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fold"
+          },
           "usd": {
             "anyOf": [
               {
@@ -17341,13 +17417,14 @@
           "accession",
           "tags",
           "routine",
+          "fold",
           "usd",
           "links",
           "role",
           "silent"
         ],
         "title": "FilingStreamRowOut",
-        "description": "One filing-derived fact. ``kind``: ``8k`` | ``form4`` | ``form4a`` | ``stake`` | ``revenue`` | ``filing``\n(any other form in the company's EDGAR index, shown as its form and primary document) | ``split`` |\n``dilution`` | ``catalyst`` | ``ratified`` (a ratified fact, ``form`` \"ratified fact\", or a stored fact nobody\nratified, ``form`` \"stored fact\"). ``form`` = the form as filed or the row's own label; ``date`` = the\npublic date it counts from; ``headline`` = one neutral line; ``detail`` = the lines the expanded row shows;\n``url`` = the filing's EDGAR index or the stored source (``null`` = none known); ``tags`` = quiet field\npredicates; ``routine`` = a fold candidate (a Form 4 holding no code-P purchase); ``usd`` = the row's dollar\nsize when it has one (a Form 4's purchases minus sales, a dilution's principal). ``links`` / ``role`` /\n``silent`` = the company's place on the card at the as-of (``null`` in ``links`` = no link)."
+        "description": "One filing-derived fact. ``kind``: ``8k`` | ``form4`` | ``form4a`` | ``stake`` | ``revenue`` | ``filing``\n(any other form in the company's EDGAR index, shown as its form and primary document) | ``split`` |\n``dilution`` | ``catalyst`` | ``ratified`` (a ratified fact, ``form`` \"ratified fact\", or a stored fact nobody\nratified, ``form`` \"stored fact\"). ``form`` = the form as filed or the row's own label; ``date`` = the\npublic date it counts from; ``headline`` = one neutral line; ``detail`` = the lines the expanded row shows;\n``url`` = the filing's EDGAR index or the stored source (``null`` = none known); ``tags`` = quiet field\npredicates; ``routine`` = a fold candidate; ``fold`` = its fold group (``form4``: a Form 4 holding no code-P\npurchase, folded per day; ``prospectus``: a 424B / 424H / 424I / 497 / FWP index row and ``ownership``: an\nindex-only Form 3/4/5 or a Form 144 notice, each folded per day and company; ``null`` for a row that is not\nroutine); ``usd`` = the\nrow's dollar size when it has one (a Form 4's purchases minus sales, a dilution's principal). ``links`` /\n``role`` / ``silent`` = the company's place on the card at the as-of (``null`` in ``links`` = no link)."
       },
       "FiringDiagnostics": {
         "properties": {

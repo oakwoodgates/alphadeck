@@ -30,12 +30,13 @@ from dashboards.baskets import (  # noqa: F401  (CardsRead: the picker's read; t
 from dashboards.cache import Cached, cached
 from dashboards.filing_stream import (
     READ_DAYS,
+    ROUTINE_CAP,
     WINDOWS,
     StreamInputs,
     filing_stream,
     stream_inputs,
 )
-from dashboards.filings import FilingKind, read_filing_rows
+from dashboards.filings import FilingKind, FoldGroup, read_filing_rows
 from domain.enums import ContextRole
 from domain.market_time import serve_view
 from repositories import thesis_repo
@@ -89,9 +90,13 @@ class FilingStreamRowOut(_Wire):
     ratified, ``form`` "stored fact"). ``form`` = the form as filed or the row's own label; ``date`` = the
     public date it counts from; ``headline`` = one neutral line; ``detail`` = the lines the expanded row shows;
     ``url`` = the filing's EDGAR index or the stored source (``null`` = none known); ``tags`` = quiet field
-    predicates; ``routine`` = a fold candidate (a Form 4 holding no code-P purchase); ``usd`` = the row's dollar
-    size when it has one (a Form 4's purchases minus sales, a dilution's principal). ``links`` / ``role`` /
-    ``silent`` = the company's place on the card at the as-of (``null`` in ``links`` = no link)."""
+    predicates; ``routine`` = a fold candidate; ``fold`` = its fold group (``form4``: a Form 4 holding no code-P
+    purchase, folded per day; ``prospectus``: a 424B / 424H / 424I / 497 / FWP index row and ``ownership``: an
+    index-only Form 3/4/5 or a Form 144 notice, each folded per day and company; ``null`` for a row that is not
+    routine); ``usd`` = the
+    row's dollar size when it has one (a Form 4's purchases minus sales, a dilution's principal). ``links`` /
+    ``role`` / ``silent`` = the company's place on the card at the as-of (``null`` in ``links`` = no link).
+    """
 
     key: str
     security_id: UUID
@@ -105,6 +110,7 @@ class FilingStreamRowOut(_Wire):
     accession: str | None
     tags: list[str]
     routine: bool
+    fold: FoldGroup | None
     usd: float | None
     links: list[str | None]
     role: ContextRole | None
@@ -112,7 +118,8 @@ class FilingStreamRowOut(_Wire):
 
 
 class FilingStreamDayOut(_Wire):
-    """One day of the stream, its rows in stream order; ``routine`` = how many of them the fold covers."""
+    """One day of the stream, its LISTED rows in stream order (the per-company cap applied); ``routine`` = how many
+    of them the fold covers."""
 
     date: date
     routine: int
@@ -125,13 +132,26 @@ class FilingStreamKindOut(_Wire):
 
 
 class FilingStreamCountsOut(_Wire):
-    """What the window holds, folded rows included. ``form4_purchases`` = Form 4s holding a code-P purchase;
-    ``routine`` = the rows the fold covers."""
+    """What the window holds: EVERY row in it, folded or not and listed or not (``rows`` and ``by_kind`` include
+    the rows the cap left out of the list). ``form4_purchases`` = Form 4s holding a code-P purchase; ``routine`` =
+    the routine rows (folded or not listed); ``not_listed`` = the routine rows the cap left out of the list
+    (``FilingStreamOut.not_listed`` says whose)."""
 
     rows: int
     by_kind: list[FilingStreamKindOut]
     form4_purchases: int
     routine: int
+    not_listed: int
+
+
+class FilingStreamNotListedOut(_Wire):
+    """One company's routine rows of one fold group the cap left out of the window's list: counted, never
+    vanished."""
+
+    security_id: UUID
+    ticker: str
+    fold: FoldGroup | None
+    rows: int
 
 
 class FilingStreamLinkOut(_Wire):
@@ -160,8 +180,11 @@ class FilingStreamOut(_Wire):
     """One card's stream for one window, newest day first. ``clock``: ``record`` (the live read) or ``public``
     (a past as-of: what was public by the end of that date). ``roster_fallback`` = no roster snapshot by the
     as-of: today's roster stands in. ``unresolved`` = tickers of basket rows with no resolved security (they can
-    carry no facts: counted, never in the stream). ``cache`` / ``compute_ms`` = whether the 365-day rows came
-    from the shared dashboard cache and how long they took when computed."""
+    carry no facts: counted, never in the stream). ``groups`` = the LISTED rows: per (company, fold group) at most
+    ``routine_cap`` routine rows of the window, newest first; a non-routine row is never cut. ``not_listed`` = the
+    routine rows left out, per (company, group), largest first (also counted in ``counts``). ``cache`` /
+    ``compute_ms`` = whether the 365-day rows came from the shared dashboard cache and how long they took when
+    computed."""
 
     asof: date
     thesis_id: UUID
@@ -179,6 +202,8 @@ class FilingStreamOut(_Wire):
     names: list[FilingStreamNameOut]
     groups: list[FilingStreamDayOut]
     counts: FilingStreamCountsOut
+    not_listed: list[FilingStreamNotListedOut]
+    routine_cap: int
     windows: list[int]
     cache: Literal["hit", "computed"]
     compute_ms: int
@@ -322,6 +347,8 @@ def filing_stream_for_card(
                 for g in page.groups
             ],
             "counts": asdict(page.counts),
+            "not_listed": [asdict(n) for n in page.not_listed],
+            "routine_cap": ROUTINE_CAP,
             "windows": list(WINDOWS),
             "cache": got.status,
             "compute_ms": got.compute_ms,
