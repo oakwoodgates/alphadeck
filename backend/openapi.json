@@ -4312,6 +4312,108 @@
         }
       }
     },
+    "/dashboards/fundamentals-multiples/cards": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Multiples Cards",
+        "description": "The card picker: the live cards that existed by the as-of, A\u2192Z, each with its link count today. Display\nonly.",
+        "operationId": "multiples_cards_dashboards_fundamentals_multiples_cards_get",
+        "parameters": [
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; only the cards that existed by then are listed",
+              "title": "Asof"
+            },
+            "description": "as-of date; only the cards that existed by then are listed"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MultiplesCardsOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboards/fundamentals-multiples/{thesis_id}": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Multiples For Card",
+        "description": "One card's revenue series: its links in chain order as rows, each name a small chart of its last quarterly\nrevenue prints (placed by period end, dated by the filing that made them public) with the year-over-year\nchange as dots, and the median of those changes per link and for the card. Display only; a past as-of reads\nthe roster as of that date and what was public by the end of it. 404 when the card is not counted at the\nas-of.",
+        "operationId": "multiples_for_card_dashboards_fundamentals_multiples__thesis_id__get",
+        "parameters": [
+          {
+            "name": "thesis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thesis Id"
+            }
+          },
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; nothing published after it is read",
+              "title": "Asof"
+            },
+            "description": "as-of date; nothing published after it is read"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MultiplesOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/dashboards/idea-timeline": {
       "get": {
         "tags": [
@@ -19095,6 +19197,639 @@
         ],
         "title": "MirrorInfo",
         "description": "The frozen Parquet mirror this run swept, and what it does NOT contain.\n\n``excluded_tables`` + ``blind_detectors`` are a pair on purpose: naming a table that was left out is\nonly half an answer, because the reader still has to work out what stopped firing. Saying both means a\nresult can never be read as \"that detector is inert on this tape\" when the truth is \"that detector had\nno tape\"."
+      },
+      "MultiplesBarOut": {
+        "properties": {
+          "quarter": {
+            "type": "string",
+            "title": "Quarter"
+          },
+          "period_end": {
+            "type": "string",
+            "format": "date",
+            "title": "Period End"
+          },
+          "value": {
+            "type": "number",
+            "title": "Value"
+          },
+          "basis": {
+            "type": "string",
+            "title": "Basis"
+          },
+          "fiscal_period": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fiscal Period"
+          },
+          "fiscal_year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fiscal Year"
+          },
+          "filed": {
+            "type": "string",
+            "format": "date",
+            "title": "Filed"
+          },
+          "accession": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accession"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "first_knowable": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Knowable"
+          },
+          "first_knowable_accession": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Knowable Accession"
+          },
+          "yoy": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Yoy"
+          },
+          "prior_period_end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prior Period End"
+          }
+        },
+        "type": "object",
+        "required": [
+          "quarter",
+          "period_end",
+          "value",
+          "basis",
+          "fiscal_period",
+          "fiscal_year",
+          "filed",
+          "accession",
+          "url",
+          "first_knowable",
+          "first_knowable_accession",
+          "yoy",
+          "prior_period_end"
+        ],
+        "title": "MultiplesBarOut",
+        "description": "One quarterly revenue print: placed by its ``period_end`` (``quarter`` = its calendar quarter, ``2026-Q2``),\ndated by the filing that made it public (``filed``; ``accession`` and its EDGAR index ``url``). ``basis`` =\n``native`` (a standalone quarter) or ``derived`` (the fiscal year minus nine months). ``first_knowable`` is set\nonly when the value was public earlier than ``filed`` (a re-report), with its accession. ``yoy`` = percent\nchange against the same period a year earlier (``prior_period_end``); ``null`` = no such row in the read."
+      },
+      "MultiplesCardOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "links": {
+            "type": "integer",
+            "title": "Links"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "name",
+          "links"
+        ],
+        "title": "MultiplesCardOut",
+        "description": "A card in the picker: its name and its real links today (Context and Bench not counted)."
+      },
+      "MultiplesCardsOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "live_cards": {
+            "type": "integer",
+            "title": "Live Cards"
+          },
+          "not_yet_created": {
+            "type": "integer",
+            "title": "Not Yet Created"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/MultiplesCardOut"
+            },
+            "type": "array",
+            "title": "Cards"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "live_cards",
+          "not_yet_created",
+          "cards",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "MultiplesCardsOut",
+        "description": "The picker: the cards counted at the as-of (the live cards that existed by then), A\u2192Z. ``cache`` /\n``compute_ms`` = whether the list came from the shared dashboard cache and how long it took when computed."
+      },
+      "MultiplesCompanyOut": {
+        "properties": {
+          "company_key": {
+            "type": "string",
+            "title": "Company Key"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "security_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Security Id"
+          },
+          "silent": {
+            "type": "boolean",
+            "title": "Silent"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "series",
+              "thin",
+              "stale",
+              "none",
+              "unresolved"
+            ],
+            "title": "State"
+          },
+          "periods": {
+            "type": "integer",
+            "title": "Periods"
+          },
+          "bars": {
+            "items": {
+              "$ref": "#/components/schemas/MultiplesBarOut"
+            },
+            "type": "array",
+            "title": "Bars"
+          },
+          "last_print": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MultiplesLastPrintOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "set_aside": {
+            "type": "integer",
+            "title": "Set Aside"
+          }
+        },
+        "type": "object",
+        "required": [
+          "company_key",
+          "ticker",
+          "name",
+          "security_id",
+          "silent",
+          "state",
+          "periods",
+          "bars",
+          "last_print",
+          "set_aside"
+        ],
+        "title": "MultiplesCompanyOut",
+        "description": "One roster company, once. ``company_key`` is the company's (``security_id``, or ``ticker:<T>`` with no\nresolved security); ``ticker`` = its ticker on the card (the Cockpit's ``?name=`` key). ``silent`` = it sits\nonly in Context or Bench (never in a median). ``state``: ``series`` (five or more bars on the axis), ``thin``\n(one to four), ``stale`` (a series that ends before the axis: no bar), ``none`` (no revenue stored) or\n``unresolved`` (no resolved security). ``periods`` = revenue period ends stored on or before the as-of;\n``set_aside`` = revenue rows an active data-quality set-aside covers."
+      },
+      "MultiplesCountsOut": {
+        "properties": {
+          "links_today": {
+            "type": "integer",
+            "title": "Links Today"
+          },
+          "old_links": {
+            "type": "integer",
+            "title": "Old Links"
+          },
+          "roster_rows": {
+            "type": "integer",
+            "title": "Roster Rows"
+          },
+          "resolved_rows": {
+            "type": "integer",
+            "title": "Resolved Rows"
+          },
+          "unresolved_rows": {
+            "type": "integer",
+            "title": "Unresolved Rows"
+          },
+          "silent_rows": {
+            "type": "integer",
+            "title": "Silent Rows"
+          },
+          "companies": {
+            "type": "integer",
+            "title": "Companies"
+          },
+          "counting": {
+            "type": "integer",
+            "title": "Counting"
+          },
+          "silent_companies": {
+            "type": "integer",
+            "title": "Silent Companies"
+          },
+          "with_series": {
+            "type": "integer",
+            "title": "With Series"
+          },
+          "without_series": {
+            "type": "integer",
+            "title": "Without Series"
+          },
+          "thin": {
+            "type": "integer",
+            "title": "Thin"
+          },
+          "stale": {
+            "type": "integer",
+            "title": "Stale"
+          },
+          "set_aside": {
+            "type": "integer",
+            "title": "Set Aside"
+          }
+        },
+        "type": "object",
+        "required": [
+          "links_today",
+          "old_links",
+          "roster_rows",
+          "resolved_rows",
+          "unresolved_rows",
+          "silent_rows",
+          "companies",
+          "counting",
+          "silent_companies",
+          "with_series",
+          "without_series",
+          "thin",
+          "stale",
+          "set_aside"
+        ],
+        "title": "MultiplesCountsOut",
+        "description": "The work: roster rows split resolved / unresolved / silent; ``companies`` = distinct roster companies, of\nwhich ``counting`` sit in a real, old or No-link row and ``silent_companies`` only in Context or Bench;\n``with_series`` / ``without_series`` split them by whether any revenue period end is stored; ``thin`` and\n``stale`` are of the ones with a series; ``set_aside`` = revenue rows covered by an active set-aside on the\ncard's names."
+      },
+      "MultiplesLastPrintOut": {
+        "properties": {
+          "quarter": {
+            "type": "string",
+            "title": "Quarter"
+          },
+          "period_end": {
+            "type": "string",
+            "format": "date",
+            "title": "Period End"
+          },
+          "filed": {
+            "type": "string",
+            "format": "date",
+            "title": "Filed"
+          },
+          "days_before": {
+            "type": "integer",
+            "title": "Days Before"
+          },
+          "yoy": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Yoy"
+          }
+        },
+        "type": "object",
+        "required": [
+          "quarter",
+          "period_end",
+          "filed",
+          "days_before",
+          "yoy"
+        ],
+        "title": "MultiplesLastPrintOut",
+        "description": "A name's newest print by period end (even one older than the axis): ``days_before`` = how many days before\nthe as-of it was filed; ``yoy`` = its percent change on the same period a year earlier."
+      },
+      "MultiplesMedianOut": {
+        "properties": {
+          "counting": {
+            "type": "integer",
+            "title": "Counting"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/MultiplesMedianPointOut"
+            },
+            "type": "array",
+            "title": "Points"
+          }
+        },
+        "type": "object",
+        "required": [
+          "counting",
+          "points"
+        ],
+        "title": "MultiplesMedianOut",
+        "description": "A median line over the axis. ``counting`` = the counting names it is over; each point's ``n`` is how many\nof them contributed. A line over exactly one name is that name's own dots."
+      },
+      "MultiplesMedianPointOut": {
+        "properties": {
+          "quarter": {
+            "type": "string",
+            "title": "Quarter"
+          },
+          "median": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median"
+          },
+          "n": {
+            "type": "integer",
+            "title": "N"
+          }
+        },
+        "type": "object",
+        "required": [
+          "quarter",
+          "median",
+          "n"
+        ],
+        "title": "MultiplesMedianPointOut",
+        "description": "One axis quarter of a median line: ``median`` (percent; ``null`` = not drawn, fewer than the needed names)\nand ``n`` = the names that had a year-over-year change that quarter."
+      },
+      "MultiplesOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "clock": {
+            "type": "string",
+            "enum": [
+              "record",
+              "public"
+            ],
+            "title": "Clock"
+          },
+          "roster_fallback": {
+            "type": "boolean",
+            "title": "Roster Fallback"
+          },
+          "axis": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Axis"
+          },
+          "card_line": {
+            "$ref": "#/components/schemas/MultiplesMedianOut"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/MultiplesRowOut"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "companies": {
+            "items": {
+              "$ref": "#/components/schemas/MultiplesCompanyOut"
+            },
+            "type": "array",
+            "title": "Companies"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/MultiplesCountsOut"
+          },
+          "quarters": {
+            "type": "integer",
+            "title": "Quarters"
+          },
+          "thin_below": {
+            "type": "integer",
+            "title": "Thin Below"
+          },
+          "min_median_names": {
+            "type": "integer",
+            "title": "Min Median Names"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "thesis_id",
+          "thesis_name",
+          "clock",
+          "roster_fallback",
+          "axis",
+          "card_line",
+          "rows",
+          "companies",
+          "counts",
+          "quarters",
+          "thin_below",
+          "min_median_names",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "MultiplesOut",
+        "description": "One card's revenue series. ``axis`` = the calendar quarters drawn, oldest first (twelve ending at the newest\nquarter any roster name's latest print falls in; empty when no name has a print); ``card_line`` = the median\nover the card's counting names; ``rows`` in chain order (real links, then a roster link that is not on the card\ntoday, then No link, then Context, then Bench); ``companies`` = every roster company once, referenced by key\nfrom the rows. ``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was public by the end of\nthat date). ``roster_fallback`` = no roster snapshot by the as-of: today's roster stands in. ``quarters`` /\n``thin_below`` / ``min_median_names`` = the rules the page states. ``cache`` / ``compute_ms`` = whether the page\ncame from the shared dashboard cache and how long it took when computed."
+      },
+      "MultiplesRowOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "link",
+              "old_link",
+              "no_link",
+              "silent"
+            ],
+            "title": "Kind"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "descriptor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Descriptor"
+          },
+          "companies": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Companies"
+          },
+          "median": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MultiplesMedianOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "kind",
+          "label",
+          "descriptor",
+          "companies",
+          "median"
+        ],
+        "title": "MultiplesRowOut",
+        "description": "A row of names. ``kind``: ``link`` (a real link today, chain order), ``old_link`` (a roster link that is not\non the card today), ``no_link``, or ``silent`` (the Context or Bench names; ``label`` says which; no median).\n``companies`` = company keys in roster order; ``descriptor`` = the link's descriptor when set."
       },
       "NarrativeBenchmarkOut": {
         "properties": {

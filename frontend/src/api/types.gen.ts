@@ -2179,6 +2179,51 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboards/fundamentals-multiples/cards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Multiples Cards
+         * @description The card picker: the live cards that existed by the as-of, A→Z, each with its link count today. Display
+         *     only.
+         */
+        get: operations["multiples_cards_dashboards_fundamentals_multiples_cards_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboards/fundamentals-multiples/{thesis_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Multiples For Card
+         * @description One card's revenue series: its links in chain order as rows, each name a small chart of its last quarterly
+         *     revenue prints (placed by period end, dated by the filing that made them public) with the year-over-year
+         *     change as dots, and the median of those changes per link and for the card. Display only; a past as-of reads
+         *     the roster as of that date and what was public by the end of it. 404 when the card is not counted at the
+         *     as-of.
+         */
+        get: operations["multiples_for_card_dashboards_fundamentals_multiples__thesis_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dashboards/idea-timeline": {
         parameters: {
             query?: never;
@@ -9156,6 +9201,281 @@ export interface components {
             split_table?: components["schemas"]["SplitTableInfo"] | null;
         };
         /**
+         * MultiplesBarOut
+         * @description One quarterly revenue print: placed by its ``period_end`` (``quarter`` = its calendar quarter, ``2026-Q2``),
+         *     dated by the filing that made it public (``filed``; ``accession`` and its EDGAR index ``url``). ``basis`` =
+         *     ``native`` (a standalone quarter) or ``derived`` (the fiscal year minus nine months). ``first_knowable`` is set
+         *     only when the value was public earlier than ``filed`` (a re-report), with its accession. ``yoy`` = percent
+         *     change against the same period a year earlier (``prior_period_end``); ``null`` = no such row in the read.
+         */
+        MultiplesBarOut: {
+            /** Quarter */
+            quarter: string;
+            /**
+             * Period End
+             * Format: date
+             */
+            period_end: string;
+            /** Value */
+            value: number;
+            /** Basis */
+            basis: string;
+            /** Fiscal Period */
+            fiscal_period: string | null;
+            /** Fiscal Year */
+            fiscal_year: number | null;
+            /**
+             * Filed
+             * Format: date
+             */
+            filed: string;
+            /** Accession */
+            accession: string | null;
+            /** Url */
+            url: string | null;
+            /** First Knowable */
+            first_knowable: string | null;
+            /** First Knowable Accession */
+            first_knowable_accession: string | null;
+            /** Yoy */
+            yoy: number | null;
+            /** Prior Period End */
+            prior_period_end: string | null;
+        };
+        /**
+         * MultiplesCardOut
+         * @description A card in the picker: its name and its real links today (Context and Bench not counted).
+         */
+        MultiplesCardOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Name */
+            name: string;
+            /** Links */
+            links: number;
+        };
+        /**
+         * MultiplesCardsOut
+         * @description The picker: the cards counted at the as-of (the live cards that existed by then), A→Z. ``cache`` /
+         *     ``compute_ms`` = whether the list came from the shared dashboard cache and how long it took when computed.
+         */
+        MultiplesCardsOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /** Live Cards */
+            live_cards: number;
+            /** Not Yet Created */
+            not_yet_created: number;
+            /** Cards */
+            cards: components["schemas"]["MultiplesCardOut"][];
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * MultiplesCompanyOut
+         * @description One roster company, once. ``company_key`` is the company's (``security_id``, or ``ticker:<T>`` with no
+         *     resolved security); ``ticker`` = its ticker on the card (the Cockpit's ``?name=`` key). ``silent`` = it sits
+         *     only in Context or Bench (never in a median). ``state``: ``series`` (five or more bars on the axis), ``thin``
+         *     (one to four), ``stale`` (a series that ends before the axis: no bar), ``none`` (no revenue stored) or
+         *     ``unresolved`` (no resolved security). ``periods`` = revenue period ends stored on or before the as-of;
+         *     ``set_aside`` = revenue rows an active data-quality set-aside covers.
+         */
+        MultiplesCompanyOut: {
+            /** Company Key */
+            company_key: string;
+            /** Ticker */
+            ticker: string;
+            /** Name */
+            name: string | null;
+            /** Security Id */
+            security_id: string | null;
+            /** Silent */
+            silent: boolean;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "series" | "thin" | "stale" | "none" | "unresolved";
+            /** Periods */
+            periods: number;
+            /** Bars */
+            bars: components["schemas"]["MultiplesBarOut"][];
+            last_print: components["schemas"]["MultiplesLastPrintOut"] | null;
+            /** Set Aside */
+            set_aside: number;
+        };
+        /**
+         * MultiplesCountsOut
+         * @description The work: roster rows split resolved / unresolved / silent; ``companies`` = distinct roster companies, of
+         *     which ``counting`` sit in a real, old or No-link row and ``silent_companies`` only in Context or Bench;
+         *     ``with_series`` / ``without_series`` split them by whether any revenue period end is stored; ``thin`` and
+         *     ``stale`` are of the ones with a series; ``set_aside`` = revenue rows covered by an active set-aside on the
+         *     card's names.
+         */
+        MultiplesCountsOut: {
+            /** Links Today */
+            links_today: number;
+            /** Old Links */
+            old_links: number;
+            /** Roster Rows */
+            roster_rows: number;
+            /** Resolved Rows */
+            resolved_rows: number;
+            /** Unresolved Rows */
+            unresolved_rows: number;
+            /** Silent Rows */
+            silent_rows: number;
+            /** Companies */
+            companies: number;
+            /** Counting */
+            counting: number;
+            /** Silent Companies */
+            silent_companies: number;
+            /** With Series */
+            with_series: number;
+            /** Without Series */
+            without_series: number;
+            /** Thin */
+            thin: number;
+            /** Stale */
+            stale: number;
+            /** Set Aside */
+            set_aside: number;
+        };
+        /**
+         * MultiplesLastPrintOut
+         * @description A name's newest print by period end (even one older than the axis): ``days_before`` = how many days before
+         *     the as-of it was filed; ``yoy`` = its percent change on the same period a year earlier.
+         */
+        MultiplesLastPrintOut: {
+            /** Quarter */
+            quarter: string;
+            /**
+             * Period End
+             * Format: date
+             */
+            period_end: string;
+            /**
+             * Filed
+             * Format: date
+             */
+            filed: string;
+            /** Days Before */
+            days_before: number;
+            /** Yoy */
+            yoy: number | null;
+        };
+        /**
+         * MultiplesMedianOut
+         * @description A median line over the axis. ``counting`` = the counting names it is over; each point's ``n`` is how many
+         *     of them contributed. A line over exactly one name is that name's own dots.
+         */
+        MultiplesMedianOut: {
+            /** Counting */
+            counting: number;
+            /** Points */
+            points: components["schemas"]["MultiplesMedianPointOut"][];
+        };
+        /**
+         * MultiplesMedianPointOut
+         * @description One axis quarter of a median line: ``median`` (percent; ``null`` = not drawn, fewer than the needed names)
+         *     and ``n`` = the names that had a year-over-year change that quarter.
+         */
+        MultiplesMedianPointOut: {
+            /** Quarter */
+            quarter: string;
+            /** Median */
+            median: number | null;
+            /** N */
+            n: number;
+        };
+        /**
+         * MultiplesOut
+         * @description One card's revenue series. ``axis`` = the calendar quarters drawn, oldest first (twelve ending at the newest
+         *     quarter any roster name's latest print falls in; empty when no name has a print); ``card_line`` = the median
+         *     over the card's counting names; ``rows`` in chain order (real links, then a roster link that is not on the card
+         *     today, then No link, then Context, then Bench); ``companies`` = every roster company once, referenced by key
+         *     from the rows. ``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was public by the end of
+         *     that date). ``roster_fallback`` = no roster snapshot by the as-of: today's roster stands in. ``quarters`` /
+         *     ``thin_below`` / ``min_median_names`` = the rules the page states. ``cache`` / ``compute_ms`` = whether the page
+         *     came from the shared dashboard cache and how long it took when computed.
+         */
+        MultiplesOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /**
+             * Clock
+             * @enum {string}
+             */
+            clock: "record" | "public";
+            /** Roster Fallback */
+            roster_fallback: boolean;
+            /** Axis */
+            axis: string[];
+            card_line: components["schemas"]["MultiplesMedianOut"];
+            /** Rows */
+            rows: components["schemas"]["MultiplesRowOut"][];
+            /** Companies */
+            companies: components["schemas"]["MultiplesCompanyOut"][];
+            counts: components["schemas"]["MultiplesCountsOut"];
+            /** Quarters */
+            quarters: number;
+            /** Thin Below */
+            thin_below: number;
+            /** Min Median Names */
+            min_median_names: number;
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * MultiplesRowOut
+         * @description A row of names. ``kind``: ``link`` (a real link today, chain order), ``old_link`` (a roster link that is not
+         *     on the card today), ``no_link``, or ``silent`` (the Context or Bench names; ``label`` says which; no median).
+         *     ``companies`` = company keys in roster order; ``descriptor`` = the link's descriptor when set.
+         */
+        MultiplesRowOut: {
+            /** Key */
+            key: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "link" | "old_link" | "no_link" | "silent";
+            /** Label */
+            label: string;
+            /** Descriptor */
+            descriptor: string | null;
+            /** Companies */
+            companies: string[];
+            median: components["schemas"]["MultiplesMedianOut"] | null;
+        };
+        /**
          * NarrativeBenchmarkOut
          * @description A benchmark over the window's sessions, rebased to 100 at the window start. ``available`` false = no
          *     line, and ``reason`` says why. ``sessions_flat`` = window sessions it had no bar for (carried flat).
@@ -14789,6 +15109,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FilingStreamOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    multiples_cards_dashboards_fundamentals_multiples_cards_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; only the cards that existed by then are listed */
+                asof: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MultiplesCardsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    multiples_for_card_dashboards_fundamentals_multiples__thesis_id__get: {
+        parameters: {
+            query: {
+                /** @description as-of date; nothing published after it is read */
+                asof: string;
+            };
+            header?: never;
+            path: {
+                thesis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MultiplesOut"];
                 };
             };
             /** @description Validation Error */
