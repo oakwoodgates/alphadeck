@@ -4475,6 +4475,82 @@
         }
       }
     },
+    "/dashboards/rotation-quadrant": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Rotation Quadrant",
+        "description": "Each group's equal-weighted line against SPY's, as two numbers: x = RS level (the line \u00f7 SPY's, vs its own\n65-session average; 100 = at it) and y = RS momentum (x vs x 20 sessions ago; 100 = flat), with the quadrant\n(leading, weakening, lagging, improving), the quadrant 20 sessions ago and an 8-week tail every 5 sessions.\nA group needs 3 priced names; a name whose data flags reach its price readings is left out of the line and\nlisted on its group. Display only; a past as-of reads what was public by the end of that date.",
+        "operationId": "rotation_quadrant_dashboards_rotation_quadrant_get",
+        "parameters": [
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; no price published after it is read",
+              "title": "Asof"
+            },
+            "description": "as-of date; no price published after it is read"
+          },
+          {
+            "name": "group_by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "link",
+                "business_type",
+                "sector",
+                "card"
+              ],
+              "type": "string",
+              "description": "the groups: link | business_type | sector | card",
+              "default": "link",
+              "title": "Group By"
+            },
+            "description": "the groups: link | business_type | sector | card"
+          },
+          {
+            "name": "include_silent",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "add Context and Bench memberships (their own groups in the Link view)",
+              "default": false,
+              "title": "Include Silent"
+            },
+            "description": "add Context and Bench memberships (their own groups in the Link view)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RotationQuadrantOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/backtest/runs": {
       "get": {
         "tags": [
@@ -18241,6 +18317,358 @@
         ],
         "title": "ProvenanceOut"
       },
+      "QuadrantFlaggedOut": {
+        "properties": {
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ticker",
+          "reason"
+        ],
+        "title": "QuadrantFlaggedOut",
+        "description": "A name left out of its group's line: its data flags reach its price readings at the as-of (the reason\nthe Cockpit grays its price cells). ``reason`` = the flags' labels."
+      },
+      "QuadrantGroupOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "link": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link"
+          },
+          "thesis_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thesis Name"
+          },
+          "business_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Type"
+          },
+          "supersector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supersector"
+          },
+          "names": {
+            "type": "integer",
+            "title": "Names"
+          },
+          "priced": {
+            "type": "integer",
+            "title": "Priced"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "plotted",
+              "too_small",
+              "no_history"
+            ],
+            "title": "Status"
+          },
+          "x": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "X"
+          },
+          "y": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Y"
+          },
+          "quadrant": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "leading",
+                  "weakening",
+                  "lagging",
+                  "improving"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quadrant"
+          },
+          "quadrant_ago": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "leading",
+                  "weakening",
+                  "lagging",
+                  "improving"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quadrant Ago"
+          },
+          "tail": {
+            "items": {
+              "$ref": "#/components/schemas/QuadrantTailPointOut"
+            },
+            "type": "array",
+            "title": "Tail"
+          },
+          "sessions_flat": {
+            "type": "integer",
+            "title": "Sessions Flat"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/QuadrantNameOut"
+            },
+            "type": "array",
+            "title": "Members"
+          },
+          "flagged": {
+            "items": {
+              "$ref": "#/components/schemas/QuadrantFlaggedOut"
+            },
+            "type": "array",
+            "title": "Flagged"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "link",
+          "thesis_id",
+          "thesis_name",
+          "business_type",
+          "supersector",
+          "names",
+          "priced",
+          "status",
+          "x",
+          "y",
+          "quadrant",
+          "quadrant_ago",
+          "tail",
+          "sessions_flat",
+          "members",
+          "flagged"
+        ],
+        "title": "QuadrantGroupOut",
+        "description": "One group. Link view: ``link`` (``null`` = Unsegmented) + its card. Card view: the card. Business type /\nSector view: ``business_type`` / ``supersector`` (``null`` = Unclassified). ``names`` = the companies in the\ngroup, each once (flagged ones included); ``priced`` of them have a daily return in the last\n``priced_sessions`` sessions. ``status``: ``plotted`` (x and y today), ``too_small`` (fewer than\n``min_priced`` priced names: not measured), ``no_history`` (too little history for today's x or y; ``x``\nstill shows when it alone is measurable). ``x`` = RS level, ``y`` = RS momentum, ``quadrant`` today,\n``quadrant_ago`` ``ago_sessions`` sessions back; ``tail`` = ``tail_points`` points every ``tail_step``\nsessions, oldest first (empty when not measured). ``sessions_flat`` = sessions in the span the measures\nread that no name could contribute to (the line carried flat)."
+      },
+      "QuadrantNameCardOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "links": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Links"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "thesis_name",
+          "ticker",
+          "links"
+        ],
+        "title": "QuadrantNameCardOut",
+        "description": "A card a name sits on in this group: its ticker there (the Cockpit's ``?name=`` key) and its links\nthere (``null`` = Unsegmented)."
+      },
+      "QuadrantNameOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/QuadrantNameCardOut"
+            },
+            "type": "array",
+            "title": "Cards"
+          },
+          "priced": {
+            "type": "boolean",
+            "title": "Priced"
+          },
+          "flag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flag"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "cards",
+          "priced",
+          "flag"
+        ],
+        "title": "QuadrantNameOut",
+        "description": "One company in a group. ``priced`` = a daily return into one of the last ``priced_sessions`` sessions.\n``flag`` = why it is left out of the line (a flagged price history; ``null`` = its bars are read)."
+      },
+      "QuadrantTailPointOut": {
+        "properties": {
+          "session": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session"
+          },
+          "x": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "X"
+          },
+          "y": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Y"
+          },
+          "quadrant": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "leading",
+                  "weakening",
+                  "lagging",
+                  "improving"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quadrant"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session",
+          "x",
+          "y",
+          "quadrant"
+        ],
+        "title": "QuadrantTailPointOut",
+        "description": "One tail point: x / y on ``session`` (``null`` = not measurable there; ``session`` null = before the\nfirst session read) and its quadrant."
+      },
       "RadarSpacOut": {
         "properties": {
           "events": {
@@ -19208,6 +19636,205 @@
         ],
         "title": "RotationNameOut",
         "description": "One company in a group. ``cross`` is its golden / death cross when it printed within ``cross_days``\nof the as-of."
+      },
+      "RotationQuadrantOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "group_by": {
+            "type": "string",
+            "enum": [
+              "link",
+              "business_type",
+              "sector",
+              "card"
+            ],
+            "title": "Group By"
+          },
+          "include_silent": {
+            "type": "boolean",
+            "title": "Include Silent"
+          },
+          "live_cards": {
+            "type": "integer",
+            "title": "Live Cards"
+          },
+          "cards_counted": {
+            "type": "integer",
+            "title": "Cards Counted"
+          },
+          "cards_not_yet_created": {
+            "type": "integer",
+            "title": "Cards Not Yet Created"
+          },
+          "roster_fallback_cards": {
+            "type": "integer",
+            "title": "Roster Fallback Cards"
+          },
+          "basket_rows": {
+            "type": "integer",
+            "title": "Basket Rows"
+          },
+          "silent_rows_left_out": {
+            "type": "integer",
+            "title": "Silent Rows Left Out"
+          },
+          "unresolved_rows": {
+            "type": "integer",
+            "title": "Unresolved Rows"
+          },
+          "sessions": {
+            "type": "integer",
+            "title": "Sessions"
+          },
+          "first_session": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Session"
+          },
+          "last_session": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Session"
+          },
+          "session_source": {
+            "type": "string",
+            "enum": [
+              "benchmarks",
+              "companies",
+              "none"
+            ],
+            "title": "Session Source"
+          },
+          "spy_available": {
+            "type": "boolean",
+            "title": "Spy Available"
+          },
+          "companies": {
+            "type": "integer",
+            "title": "Companies"
+          },
+          "priced_companies": {
+            "type": "integer",
+            "title": "Priced Companies"
+          },
+          "flagged_companies": {
+            "type": "integer",
+            "title": "Flagged Companies"
+          },
+          "groups_plotted": {
+            "type": "integer",
+            "title": "Groups Plotted"
+          },
+          "groups_too_small": {
+            "type": "integer",
+            "title": "Groups Too Small"
+          },
+          "groups_no_history": {
+            "type": "integer",
+            "title": "Groups No History"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/QuadrantGroupOut"
+            },
+            "type": "array",
+            "title": "Groups"
+          },
+          "level_sessions": {
+            "type": "integer",
+            "title": "Level Sessions"
+          },
+          "momentum_sessions": {
+            "type": "integer",
+            "title": "Momentum Sessions"
+          },
+          "tail_step": {
+            "type": "integer",
+            "title": "Tail Step"
+          },
+          "tail_points": {
+            "type": "integer",
+            "title": "Tail Points"
+          },
+          "ago_sessions": {
+            "type": "integer",
+            "title": "Ago Sessions"
+          },
+          "priced_sessions": {
+            "type": "integer",
+            "title": "Priced Sessions"
+          },
+          "min_priced": {
+            "type": "integer",
+            "title": "Min Priced"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "group_by",
+          "include_silent",
+          "live_cards",
+          "cards_counted",
+          "cards_not_yet_created",
+          "roster_fallback_cards",
+          "basket_rows",
+          "silent_rows_left_out",
+          "unresolved_rows",
+          "sessions",
+          "first_session",
+          "last_session",
+          "session_source",
+          "spy_available",
+          "companies",
+          "priced_companies",
+          "flagged_companies",
+          "groups_plotted",
+          "groups_too_small",
+          "groups_no_history",
+          "groups",
+          "level_sessions",
+          "momentum_sessions",
+          "tail_step",
+          "tail_points",
+          "ago_sessions",
+          "priced_sessions",
+          "min_priced",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "RotationQuadrantOut",
+        "description": "The whole page in one view, groups in the default order (quadrant: improving, leading, weakening,\nlagging, then x highest first; no quadrant last). ``sessions`` = daily returns read\n(``first_session`` \u2192 ``last_session``); ``session_source`` = where the calendar came from (SPY's tape, or\nthe companies' bars when SPY has none). ``spy_available`` false = no SPY line, so nothing is measured. The\ncounts are the work shown on its quiet line; the measure windows ride along. ``cache`` / ``compute_ms`` =\nwhether the groups came from the shared dashboard cache and how long they took when computed."
       },
       "RotationWindowOut": {
         "properties": {

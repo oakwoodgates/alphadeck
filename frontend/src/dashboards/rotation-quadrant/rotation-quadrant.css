@@ -1,0 +1,98 @@
+/* Rotation Quadrant (docs/dashboards/rotation-quadrant.md) — its own sheet, imported by the component, never
+   index.css (docs/DASHBOARDS.md rule 8). The Landing's dense dark table beside an inline-SVG plot. Loudness marks
+   the exception only (#7 / WB#3): the dots are small and muted, their tails thin and faint, and the only color is
+   the quadrant's own hue (mixed toward gray), on the dots, the tails and the table's swatches; every number stays
+   gray. The hovered or selected dot is the one drawn full-strength. */
+
+.rq {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  /* the four quadrant hues, muted toward gray */
+  --rq-leading: color-mix(in srgb, var(--pos) 55%, var(--txt-3));
+  --rq-weakening: color-mix(in srgb, var(--warm) 55%, var(--txt-3));
+  --rq-lagging: color-mix(in srgb, var(--neg) 55%, var(--txt-3));
+  --rq-improving: color-mix(in srgb, var(--leader) 55%, var(--txt-3));
+}
+.rq-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
+.rq-seg { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.rq-seg-label { font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); margin-right: 4px; }
+.rq-seg-btn { font: inherit; font-size: 11px; color: var(--txt-3); background: transparent; border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 9px; cursor: pointer; }
+.rq-seg-btn:hover { color: var(--txt-2); }
+.rq-seg-btn.on { color: var(--txt); background: var(--panel-2); }
+.rq-check { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--txt-2); cursor: pointer; }
+.rq-check input { accent-color: var(--txt-3); margin: 0; }
+.rq-work, .rq-legend { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
+.rq-legend { font-family: inherit; color: var(--txt-4); }
+
+/* the plot beside the table on a wide screen, above it on a narrow one */
+.rq-body { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 14px 22px; margin-top: 6px; }
+.rq-plot-wrap { flex: 1 1 420px; max-width: 680px; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.rq-scroll { flex: 1 1 460px; min-width: 0; overflow-x: auto; }
+
+.rq-readout { display: flex; flex-wrap: wrap; gap: 2px 12px; min-height: 15px; font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
+.rq-readout-name { color: var(--txt-2); font-weight: 600; }
+
+.rq-plot { display: block; width: 100%; height: auto; }
+.rq-frame { fill: none; stroke: var(--line); stroke-width: 1; }
+.rq-axis { stroke: var(--line-2); stroke-width: 1; }
+.rq-tick { font-family: var(--mono); font-size: 9.5px; fill: var(--txt-4); }
+.rq-axis-title { letter-spacing: 0.04em; }
+.rq-qlabel { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; fill: var(--txt-4); opacity: 0.8; }
+
+.rq-tail { fill: none; stroke: var(--txt-4); stroke-width: 1; opacity: 0.45; pointer-events: none; }
+.rq-tail.on { stroke-width: 1.4; opacity: 0.9; }
+.rq-dot-g { cursor: pointer; outline: none; }
+.rq-dot { fill: var(--txt-3); stroke: var(--bg); stroke-width: 0.8; opacity: 0.75; }
+.rq-dot-g.hover .rq-dot, .rq-dot-g.selected .rq-dot, .rq-dot-g:focus-visible .rq-dot { opacity: 1; stroke: var(--txt-2); }
+.rq-dot-label { font-family: var(--mono); font-size: 10px; fill: var(--txt-2); pointer-events: none; }
+
+.rq-dot.leading { fill: var(--rq-leading); }
+.rq-dot.weakening { fill: var(--rq-weakening); }
+.rq-dot.lagging { fill: var(--rq-lagging); }
+.rq-dot.improving { fill: var(--rq-improving); }
+.rq-tail.leading { stroke: var(--rq-leading); }
+.rq-tail.weakening { stroke: var(--rq-weakening); }
+.rq-tail.lagging { stroke: var(--rq-lagging); }
+.rq-tail.improving { stroke: var(--rq-improving); }
+
+/* the quadrant's swatch in the table and the readout */
+.rq-sw { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--line-2); vertical-align: middle; margin-right: 2px; }
+.rq-sw.leading { background: var(--rq-leading); }
+.rq-sw.weakening { background: var(--rq-weakening); }
+.rq-sw.lagging { background: var(--rq-lagging); }
+.rq-sw.improving { background: var(--rq-improving); }
+
+table.rq-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+table.rq-table th { text-align: left; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); font-weight: 600; padding: 0 14px 8px 0; border-bottom: 1px solid var(--line); white-space: nowrap; vertical-align: bottom; }
+table.rq-table td { padding: 6px 14px 6px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.rq-table .rq-num { text-align: right; }
+table.rq-table th.rq-num .rq-sort { justify-content: flex-end; }
+.rq-sort { font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; display: inline-flex; align-items: center; gap: 3px; }
+.rq-sort:hover, .rq-sort.active { color: var(--txt-2); }
+.rq-sort:focus-visible { outline: 1px solid var(--line-2); outline-offset: 2px; border-radius: 2px; }
+.rq-arrow { font-size: 8px; line-height: 1; }
+
+/* a group row: click to show its names */
+tr.rq-group { cursor: pointer; }
+tr.rq-group:hover td { background: var(--panel); }
+tr.rq-group:focus-visible { outline: 1px solid var(--line-2); outline-offset: -1px; }
+tr.rq-group.open td { background: var(--panel); }
+tr.rq-group.selected td { background: var(--panel-2); }
+tr.rq-group.quiet .rq-label { color: var(--txt-3); }
+.rq-label { color: var(--txt); font-weight: 600; white-space: nowrap; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+.rq-chev { display: inline-block; width: 14px; color: var(--txt-4); font-size: 10px; }
+.rq-q { white-space: nowrap; font-size: 11px; color: var(--txt-3); }
+.rq-v { font-family: var(--mono); font-size: 11px; color: var(--txt-3); white-space: nowrap; }
+.rq-off { margin-left: 8px; font-family: var(--mono); font-size: 9.5px; font-weight: 400; color: var(--txt-4); }
+.rq-note { font-family: var(--mono); font-size: 10px; color: var(--txt-4); cursor: help; }
+
+/* a group's names, under its row: quieter and indented */
+tr.rq-name td { padding-top: 4px; padding-bottom: 4px; background: color-mix(in srgb, var(--panel) 50%, transparent); }
+table.rq-table td.rq-name-id { padding-left: 14px; white-space: nowrap; }
+tr.rq-name.quiet .rq-tk { color: var(--txt-4); }
+.rq-tk { font-family: var(--mono); font-weight: 700; font-size: 11px; color: var(--txt-2); margin-right: 8px; }
+.rq-chips { display: inline-flex; flex-wrap: wrap; gap: 4px; vertical-align: middle; }
+.rq-chip { font: inherit; font-size: 10.5px; padding: 1px 7px; border: 1px solid var(--line-2); border-radius: 6px; background: transparent; color: var(--txt-3); cursor: pointer; }
+.rq-chip:hover { color: var(--txt); border-color: var(--txt-4); background: var(--panel-2); }
+.rq-chip-links { color: var(--txt-4); }

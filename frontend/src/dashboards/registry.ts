@@ -126,4 +126,13 @@ export const DASHBOARDS: readonly DashboardEntry[] = [
     asofAware: true,
     component: lazy(() => import("./narrative-index/NarrativeIndex")),
   },
+  {
+    slug: "rotation-quadrant",
+    label: "Rotation Quadrant",
+    description:
+      "Each group's strength vs SPY and its momentum, with an 8-week tail: leading, weakening, lagging, improving.",
+    status: "experimental",
+    asofAware: true,
+    component: lazy(() => import("./rotation-quadrant/RotationQuadrant")),
+  },
 ];
