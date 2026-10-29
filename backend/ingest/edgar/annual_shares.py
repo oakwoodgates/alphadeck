@@ -36,7 +36,13 @@ from domain.extraction import ExtractedFact, ExtractionResult, LocatedPassage, T
 from domain.market_time import market_today
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.converts import clean_filing_text
-from ingest.edgar.extract import _doc_url, companyfacts_url
+from ingest.edgar.extract import (
+    COVER_AFTER_FILING,
+    _doc_url,
+    companyfacts_url,
+    refused_cover_note,
+    screen_cover_rows,
+)
 from ingest.edgar.submissions import fetch_submissions, filings_of
 
 # The SEC form instruction ITSELF — the discriminator between a real annual cover and a footnote
@@ -224,12 +230,9 @@ def _detect_ads_ratio(
     return None, None, hits
 
 
-def _latest_dei_cover(companyfacts: dict[str, Any] | None) -> tuple[float, date] | None:
-    """The latest ``dei:EntityCommonStockSharesOutstanding`` (value, as-of end date). ``dei`` is
-    taxonomy-independent, so it is present for US-GAAP and IFRS filers alike; ``None`` when
-    companyfacts is absent or carries no cover concept (GLAS/CRLBF/TRSG have none at all — the
-    cover-only path must work)."""
-    rows = (
+def _dei_cover_rows(companyfacts: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Every ``dei:EntityCommonStockSharesOutstanding`` row, unscreened."""
+    return (
         (companyfacts or {})
         .get("facts", {})
         .get("dei", {})
@@ -237,6 +240,15 @@ def _latest_dei_cover(companyfacts: dict[str, Any] | None) -> tuple[float, date]
         .get("units", {})
         .get("shares", [])
     )
+
+
+def _latest_dei_cover(companyfacts: dict[str, Any] | None) -> tuple[float, date] | None:
+    """The latest ``dei:EntityCommonStockSharesOutstanding`` (value, as-of end date) among the rows
+    ``screen_cover_rows`` keeps (a row dated after its own filing is refused — it would win the
+    later-as-of rule below forever). ``dei`` is taxonomy-independent, so it is present for US-GAAP and
+    IFRS filers alike; ``None`` when companyfacts is absent or carries no cover concept (GLAS/CRLBF/TRSG
+    have none at all — the cover-only path must work)."""
+    rows, _refused = screen_cover_rows(_dei_cover_rows(companyfacts))
     if not rows:
         return None
     end = max(r["end"] for r in rows)
@@ -334,6 +346,10 @@ def extract_annual_shares(
             " The cover carries more than one count (classes / an ADS subset / a second date) — "
             "the FIRST is offered, never a sum; ratify the composition against the passage."
         )
+    _kept, refused = screen_cover_rows(_dei_cover_rows(companyfacts))
+    if refused:
+        flags.append(COVER_AFTER_FILING)
+        note += f" {refused_cover_note(refused)}"
 
     # the ADS ratio (spec §10) — the count stays the true ORDINARY count; the ratio rides as
     # derivation metadata for the market-cap scorer (apply where read, suppress where not).

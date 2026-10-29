@@ -9,6 +9,8 @@ Given a company's SEC ``companyfacts`` + its latest 10-Q/10-K text, produce cand
   on the latest cover date, or >=2 per-class counts parsed from the cover — the A+B sum offered),
   ``stale-cover`` (a single count older than the period — offered, dated by its own as-of date), or
   ``no-companyfacts`` (nothing observed — located-only). One condition, one label; never a catch-all.
+  A cover row dated after its own filing is refused first (``cover_after_filing``) and named by the
+  ``cover-after-filing`` flag + the note.
 - **cash_burn** (runway): cash = cash+equiv (+ same-dated marketable securities), each read under its most
   current label (the restricted-cash total says so in the note); a clean ~quarter of operating cash
   flow -> ``AUTO``; a year-to-date column -> ``FLAG`` (derive the quarter); a large one-time reconciliation
@@ -26,6 +28,7 @@ dimensions, filer-specific marketable-securities tags), so the located passages 
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
@@ -198,8 +201,99 @@ def _cover_class_sum(text: str) -> float | None:
     return sum(by_class.values()) if len(by_class) >= 2 else None
 
 
+# THE COVER DATE'S BOUND (2026-10-29). The cover "as of" date is the filer's own XBRL context, taken verbatim, and
+# a filer can mistype it: AerSale's 10-K/A (0001558370-24-004010, filed 2024-03-27) says "outstanding as of March
+# 5, 2024 was 52,990,947" on the page, but the inline-XBRL context behind that count is ``As_Of_3_5_2034`` (instant
+# 2034-03-05; ``tests/fixtures/edgar/cover_dates/``). companyfacts carries that row verbatim, the reader took the
+# newest ``end``, and a two-year-old 10-K/A count dated 2034 beat every later cover: get-data auto-applied 52,990,947
+# as of 2034-03-05 under the 2026-06-30 10-Q's URL, whose own cover says 47,726,763 as of August 3, 2026.
+COVER_AFTER_FILING = "cover-after-filing"
+
+
+def cover_after_filing(asof: date, filed: date) -> bool:
+    """THE RULE (one home: the 10-Q and annual cover readers and ``pipeline.repair_shares_cover_dates`` import it):
+    a cover share count dated AFTER its filing's date is refused. A count is never public before its filing, and
+    never dated in the future.
+
+    The bound is the FILING date: SEC accepts a filing on its filing date, or the business evening before for an
+    XBRL filing accepted after 17:30 ET, so a cover dated after the filing date is after the acceptance in every
+    case. companyfacts carries the filing date on every row; it carries no acceptance time."""
+    return asof > filed
+
+
+@dataclass(frozen=True)
+class RefusedCover:
+    """One companyfacts cover-share row refused by ``cover_after_filing`` — what the note names."""
+
+    asof: date
+    filed: date
+    value: float
+    accession: str
+    form: str
+
+
+def screen_cover_rows(rows: list[dict]) -> tuple[list[dict], list[RefusedCover]]:
+    """Split ``dei:EntityCommonStockSharesOutstanding`` rows into (kept, refused) by ``cover_after_filing``. A
+    row with no filing date cannot be judged and is kept (never dropped silently, #9)."""
+    kept: list[dict] = []
+    refused: list[RefusedCover] = []
+    for r in rows:
+        filed = r.get("filed")
+        if filed and cover_after_filing(date.fromisoformat(r["end"]), date.fromisoformat(filed)):
+            refused.append(
+                RefusedCover(
+                    asof=date.fromisoformat(r["end"]),
+                    filed=date.fromisoformat(filed),
+                    value=float(r["val"]),
+                    accession=r.get("accn") or "",
+                    form=r.get("form") or "",
+                )
+            )
+        else:
+            kept.append(r)
+    return kept, refused
+
+
+def refused_cover_note(refused: list[RefusedCover]) -> str:
+    """The sentence a candidate's note carries for its refused rows (stored with the fact on a ratify)."""
+    rows = "; ".join(
+        f"{r.value:,.0f} as of {r.asof.isoformat()} ({r.form or 'filing'} {r.accession}, filed "
+        f"{r.filed.isoformat()})"
+        for r in sorted(refused, key=lambda r: (r.asof, r.accession))
+    )
+    return (
+        f"Refused {len(refused)} companyfacts cover row(s) dated after their own filing: {rows} — a cover "
+        "count is never dated after its filing."
+    )
+
+
 def _shares(facts: dict, tenq_text: str, ref: str, period_end: date) -> ExtractedFact:
-    rows = _rows(facts, "dei", "EntityCommonStockSharesOutstanding", "shares")
+    """The shares candidate over the cover rows ``screen_cover_rows`` keeps; a refused row rides the candidate as
+    the ``cover-after-filing`` flag and a sentence in its note (visible on the Workbench card, and stored with the
+    fact when it is applied or ratified)."""
+    rows, refused = screen_cover_rows(
+        _rows(facts, "dei", "EntityCommonStockSharesOutstanding", "shares")
+    )
+    fact = _shares_candidate(rows, tenq_text, ref, period_end)
+    if not refused:
+        return fact
+    note = fact.note
+    if "no-companyfacts" in fact.flags:  # every cover row was refused: "no concept" would be untrue
+        note = (
+            "companyfacts' only cover-shares rows are dated after their own filing and the cover yielded no "
+            "per-class counts — author the count from the located cover."
+        )
+    return fact.model_copy(
+        update={
+            "flags": [*fact.flags, COVER_AFTER_FILING],
+            "note": f"{note} {refused_cover_note(refused)}",
+        }
+    )
+
+
+def _shares_candidate(
+    rows: list[dict], tenq_text: str, ref: str, period_end: date
+) -> ExtractedFact:
     latest_end = max(r["end"] for r in rows) if rows else None
     vals = sorted({float(r["val"]) for r in rows if r["end"] == latest_end}) if rows else []
     # the located cover rides EVERY branch — on AUTO too (show-the-work: the pre-filled count is
@@ -800,4 +894,14 @@ def extract_with_annual_fallback(
     return annual_facts_for_security(client, cik, cfg=cfg)
 
 
-__all__ = ["extract_facts", "extract_for_security", "extract_with_annual_fallback", "ExtractedFact"]
+__all__ = [
+    "COVER_AFTER_FILING",
+    "RefusedCover",
+    "cover_after_filing",
+    "extract_facts",
+    "extract_for_security",
+    "extract_with_annual_fallback",
+    "ExtractedFact",
+    "refused_cover_note",
+    "screen_cover_rows",
+]

@@ -128,6 +128,26 @@ def _set_aside(monkeypatch, tmp_path):
     return m, [], ["--apply"], ("set_aside_fundamentals", 2)
 
 
+def _shares_cover_dates(monkeypatch, tmp_path):
+    from pipeline import repair_shares_cover_dates as m
+
+    def fake_scan(conn, **k):
+        return m.RepairResult()
+
+    def fake_apply(conn, result):
+        result.facts = [
+            SimpleNamespace(status=m.CORRECT, appended_id=uuid.uuid4()) for _ in range(2)
+        ]
+        result.applied = True
+
+    monkeypatch.setattr(m, "scan", fake_scan)
+    monkeypatch.setattr(m, "apply", fake_apply)
+    monkeypatch.setattr(m, "build_payload", lambda r: {})
+    monkeypatch.setattr(m, "write_payload", lambda p: tmp_path / "cover-dates.json")
+    _quiet(monkeypatch, m, "report")
+    return m, [], ["--apply"], ("repair_shares_cover_dates", 2)
+
+
 def _split_basis(monkeypatch, tmp_path):
     from pipeline import repair_split_basis as m
 
@@ -249,6 +269,7 @@ TOOLS = {
     "relink_amendments": _relink,
     "rederive_amendment_matches": _rederive,
     "set_aside_fundamentals": _set_aside,
+    "repair_shares_cover_dates": _shares_cover_dates,
     "repair_split_basis": _split_basis,
     "reingest_fundamentals": _reingest,
     "backfill_splits": _backfill_splits,

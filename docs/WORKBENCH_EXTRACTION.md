@@ -148,6 +148,15 @@ most needs to make:
     companyfacts, not a class structure. The stale value IS offered, dated by its **own** as-of date
     (valid-time honesty); the operator confirms currency against the located cover.
   - → flag `no-companyfacts` — nothing observed anywhere: located-only, no value.
+  - **Before any of these, a cover row dated after its own filing is refused** (`cover_after_filing`, 2026-10-29)
+    and named by the flag `cover-after-filing` + a sentence in the note — beside the condition label, on any
+    tier, so it rides into the stored fact's note on an auto-apply or a ratify. A count is never public before
+    its filing: AerSale's 10-K/A tagged its 2024 cover count to an XBRL context dated 2034-03-05, companyfacts
+    kept it, and the newest-`end` pick auto-applied it as ASLE's count. The bound is the FILING date (companyfacts
+    carries no acceptance time; an acceptance is on or before its filing date). The annual-cover reader applies the
+    same rule to its companyfacts side. MEASURED on dev's 838 cached companyfacts: 39 hold a refused row, the
+    candidate changes for 2 (ASLE; GMER, a 10-Q cover dated 8 days after its filing, now `stale-cover`). The
+    stored versions are corrected by `python -m pipeline.repair_shares_cover_dates`.
 
 When no flag trips, `cash_burn` / `shares_outstanding` are AUTO; `revenue_mix` is always HUMAN.
 
