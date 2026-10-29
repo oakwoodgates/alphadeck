@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 from app.deps import get_conn
 from app.main import app
 from app.routers.dashboards import cross_radar as router_mod
-from dashboards.baskets import Membership
+from dashboards.baskets import CardsAsOf, Membership
 from dashboards.cache import CACHE
 from dashboards.cross_radar import (
     CLUSTER_MIN_SHARE_PCT,
@@ -640,6 +640,149 @@ def test_the_timeline_axis_is_spy_sessions_plus_any_a_company_printed():
     assert len(axis) == HISTORY_SESSIONS and axis[-1] == date(2026, 8, 20)
     assert axis[-2] == spy[-1]
     assert timeline_sessions([], [ASOF]) == (ASOF,)
+
+
+# ---------------------------------------------------------------------------------------------------------
+# a flagged price history (dashboards.baskets.price_flags): a scale break makes fake crosses, so the name is
+# left out of everything and named on the page
+# ---------------------------------------------------------------------------------------------------------
+
+MIXED = "mixed-scale price history"
+
+
+def _robots():
+    """Card 1's Core link: RBOT's scale break reads as a fresh golden cross (1 session ago) that, with AAA's
+    real one, would make a 2-of-4 cluster; BBB sits far below; CCC is closing in on a golden cross. Card 2's
+    Power link: DDD and EEE both crossed golden (a real cluster)."""
+    rows = [
+        ms(T1, "Robots", "RBOT", S[0]),
+        ms(T1, "Robots", "AAA", S[1]),
+        ms(T1, "Robots", "BBB", S[2]),
+        ms(T1, "Robots", "CCC", S[3]),
+        ms(T2, "Power", "DDD", S[4], "Power"),
+        ms(T2, "Power", "EEE", S[5], "Power"),
+    ]
+    readings = {
+        S[0]: reading("golden", 1, gap=900.0, then=-5.0, rs=True, posture="above_rising"),
+        S[1]: reading("golden", 2, gap=1.0, then=-1.0, posture="above_rising"),
+        S[2]: reading(gap=-10.0, then=-9.0),
+        S[3]: reading(gap=-1.5, then=-3.0, posture="below_rising"),
+        S[4]: reading("golden", 3, gap=2.0, then=-1.0, posture="above_rising"),
+        S[5]: reading("golden", 4, gap=3.0, then=-1.0, posture="above_rising"),
+    }
+    return rows, readings
+
+
+def test_a_flagged_company_is_left_out_of_every_read_and_named_on_the_page():
+    """Unflagged, RBOT's fake cross makes a Robots cluster. Flagged, it is never priced and in no cluster, first
+    mover, near-cross list, timeline count or posture: the Robots link reads exactly as without RBOT (AAA is the
+    first mover, CCC closing in). RBOT stays on the timeline row (no cross, its flag), counts in the group's
+    names and ``flagged`` (never ``not_priced``), and the page names it with the flag's label."""
+    rows, readings = _robots()
+    plain = cross_radar(inputs(rows, readings), {}, asof=ASOF)
+    assert [(c.group.link, c.count, c.priced) for c in plain.clusters] == [
+        ("Power", 2, 2),
+        ("Core", 2, 4),  # RBOT's fake cross + AAA's: 2 of 4 is a cluster
+    ]
+
+    without = cross_radar(inputs(rows[1:], readings), {}, asof=ASOF)
+    result = cross_radar(inputs(rows, readings, flagged={S[0]: MIXED}), {}, asof=ASOF)
+    assert [(c.group.link, c.count, c.priced) for c in result.clusters] == [("Power", 2, 2)]
+    assert [(f.group.link, f.leader.ticker, f.rest, f.closing_in) for f in result.first_movers] == [
+        ("Core", "AAA", 2, 1)
+    ]
+    assert [[n.ticker for n in g.names] for g in result.near_cross] == [["CCC"]]
+
+    row, alone = grp(result.timeline, "Core"), grp(without.timeline, "Core")
+    assert (row.golden, row.death, row.posture) == (alone.golden, alone.death, alone.posture)
+    assert row.posture.above_rising == 1  # RBOT's "above_rising" is in no posture count
+    g = row.group
+    assert (g.names, g.priced, g.not_priced, g.flagged) == (4, 3, 0, 1)
+    rbot = next(m for m in row.members if m.ticker == "RBOT")
+    assert (rbot.flag, rbot.priced, rbot.not_priced, rbot.crosses) == (MIXED, False, None, ())
+    assert row.members[-1] is rbot  # no cross, never priced, flagged: last
+    assert all(m.flag is None for m in row.members if m.ticker != "RBOT")
+
+    assert [(f.ticker, f.reason) for f in result.flagged] == [("RBOT", MIXED)]
+    assert (result.companies, result.priced_companies) == (6, 5)
+    assert (result.short_tape_companies, result.stale_tape_companies) == (0, 0)
+
+
+def test_an_unflagged_group_is_unaffected_by_a_flag_elsewhere():
+    rows, readings = _robots()
+    plain = cross_radar(inputs(rows, readings), {}, asof=ASOF)
+    flagged = cross_radar(inputs(rows, readings, flagged={S[0]: MIXED}), {}, asof=ASOF)
+    assert grp(flagged.timeline, "Power") == grp(plain.timeline, "Power")
+    assert [c for c in flagged.clusters if c.group.link == "Power"] == [
+        c for c in plain.clusters if c.group.link == "Power"
+    ]
+    assert plain.flagged == () and grp(plain.timeline, "Core").group.flagged == 0
+
+
+class _Pit:
+    """A stand-in point-in-time view: each company's bars, by security."""
+
+    def __init__(self, bars: dict):
+        self.bars = bars
+
+    def price_history(self, sid, lookback_days):
+        return self.bars[sid]
+
+
+def test_the_router_reads_the_price_flags_inside_the_cached_read(monkeypatch):
+    """``read_inputs`` itself reads the flags (the real one, its DB reads stubbed): once per cached read, on
+    the request's one ``serve_view`` pair. A flagged company's bars never shape the timeline's axis (its bar
+    after SPY's last one adds no session; a clean company's does), and the page names it."""
+    rows = [ms(T1, "Robots", "RBOT", S[0]), ms(T1, "Robots", "AAA", S[1])]
+    spy = [ASOF - timedelta(days=i) for i in range(5, 1, -1)]  # SPY ends 2026-05-30
+    bars = {
+        S[0]: _bars([100.0 + i for i in range(260)], end=ASOF),  # one bar past AAA's
+        S[1]: _bars([50.0 + i * 0.1 for i in range(260)], end=ASOF - timedelta(days=1)),
+    }
+    none = lambda pit, sid, asof: None  # noqa: E731 - the two display members: no reading
+    seen: dict = {"flag_reads": 0}
+
+    def fake_flags(conn, ids, asof, *, known_at, clock):
+        seen["flag_reads"] += 1
+        seen["flags_view"] = (set(ids), asof, known_at, clock)
+        return {S[0]: MIXED}
+
+    CACHE.clear()
+    monkeypatch.setattr(
+        router_mod, "cards_as_of", lambda conn, asof, known_at: CardsAsOf(1, [], 0, 0)
+    )
+    monkeypatch.setattr(router_mod, "memberships_of", lambda cards: tuple(rows))
+    monkeypatch.setattr(router_mod, "display_members", lambda names, dash: {n: none for n in names})
+    monkeypatch.setattr(
+        router_mod,
+        "per_company",
+        lambda conn, sids, asof, known_at, clock, read: {s: read(_Pit(bars), s) for s in sids},
+    )
+    monkeypatch.setattr(router_mod, "_spy_dates", lambda conn, asof, known_at, clock: spy)
+    monkeypatch.setattr(router_mod, "price_flags", fake_flags)
+    monkeypatch.setattr(CACHE, "_token_fn", lambda conn: "gen-1")
+    app.dependency_overrides[get_conn] = lambda: object()
+    try:
+        client = TestClient(app)
+        body = client.get("/dashboards/cross-radar", params={"asof": "2026-06-01"}).json()
+        again = client.get(
+            "/dashboards/cross-radar", params={"asof": "2026-06-01", "group_by": "card"}
+        ).json()
+    finally:
+        app.dependency_overrides.clear()
+        CACHE.clear()
+
+    ids, asof, known_at, clock = seen["flags_view"]
+    assert seen["flag_reads"] == 1 and again["cache"] == "hit"
+    assert ids == {S[0], S[1]} and asof == ASOF and clock == "public" and known_at is not None
+    assert (
+        body["sessions"][-1] == (ASOF - timedelta(days=1)).isoformat()
+    )  # AAA's last bar, not RBOT's
+    assert body["flagged"] == [{"security_id": str(S[0]), "ticker": "RBOT", "reason": MIXED}]
+    (row,) = body["timeline"]
+    assert row["group"]["flagged"] == 1 and row["group"]["priced"] == 1
+    rbot = next(m for m in row["members"] if m["ticker"] == "RBOT")
+    assert rbot["flag"] == MIXED and rbot["crosses"] == [] and rbot["priced"] is False
 
 
 # ---------------------------------------------------------------------------------------------------------

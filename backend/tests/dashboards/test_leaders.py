@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 from app.deps import get_conn
 from app.main import app
 from app.routers.dashboards import leaders as router_mod
-from dashboards.baskets import Membership
+from dashboards.baskets import CardsAsOf, Membership
 from dashboards.cache import CACHE
 from dashboards.leaders import (
     LISTS,
@@ -486,6 +486,127 @@ def test_the_real_members_keys_and_notes_parse():
 
 
 # ---------------------------------------------------------------------------------------------------------
+# a flagged price history (dashboards.baskets.price_flags): on no list, in no group, named on the page
+# ---------------------------------------------------------------------------------------------------------
+
+MIXED = "mixed-scale price history"
+
+
+def _robots():
+    """Card 1's Turbines link: RBOT (a scale break reads as a 52-week high, RS at a high, loud volume, plus an
+    insider cluster; no VCP reading), AAA (near its high, loud volume, one buy), BBB (a 2-buyer cluster) and
+    CCC (on no list). Card 2's Fuel link: DDD and EEE, each with a buy."""
+    rows = [
+        ms(T1, "Grid", "RBOT", S[0], "Turbines"),
+        ms(T1, "Grid", "AAA", S[1], "Turbines"),
+        ms(T1, "Grid", "BBB", S[2], "Turbines"),
+        ms(T1, "Grid", "CCC", S[3], "Turbines"),
+        ms(T2, "Nuclear", "DDD", S[4], "Fuel"),
+        ms(T2, "Nuclear", "EEE", S[5], "Fuel"),
+    ]
+    readings = {
+        S[0]: reading(
+            pct_off_high=0.0,
+            rs_leading=True,
+            coiling=None,
+            buys_30d=3,
+            buyers_30d=2,
+            rvol20=9.0,
+            ret_30d=8000.0,
+        ),
+        S[1]: reading(pct_off_high=-1.0, rvol20=2.0, buys_30d=1, buyers_30d=1),
+        S[2]: reading(buys_30d=3, buyers_30d=2),
+        S[3]: reading(),
+        S[4]: reading(buys_30d=1, buyers_30d=1),
+        S[5]: reading(buys_30d=2, buyers_30d=1),
+    }
+    return rows, readings
+
+
+def _lists(result):
+    return [(x.key, tickers(result, x.security_ids), x.no_reading) for x in result.lists]
+
+
+def test_a_flagged_company_is_on_no_list_and_in_no_group_and_named_on_the_page():
+    """RBOT is flagged: it is on no list (the insider one included), never in a no-reading count, out of every
+    insider group's names, buyers and share (counted in ``flagged``); every list and the several-lists
+    section read exactly as without it, and the page names it with the flag's label."""
+    rows, readings = _robots()
+    plain = leaders(inputs(rows, readings), {}, asof=ASOF)
+    assert "RBOT" in [n.ticker for n in plain.names] and lst(plain, "coiling").no_reading == 1
+
+    without = leaders(inputs(rows[1:], readings), {}, asof=ASOF)
+    result = leaders(inputs(rows, readings, flagged={S[0]: MIXED}), {}, asof=ASOF)
+    assert [n.ticker for n in result.names] == [n.ticker for n in without.names]
+    assert "RBOT" not in [n.ticker for n in result.names]
+    assert _lists(result) == _lists(without)
+    assert lst(result, "coiling").no_reading == 0  # RBOT's missing VCP reading is not counted
+    assert tickers(result, result.several) == tickers(without, without.several) == ["AAA"]
+
+    turbines = next(g for g in result.insider_groups if g.link == "Turbines")
+    alone = next(g for g in without.insider_groups if g.link == "Turbines")
+    assert replace(turbines, flagged=0) == alone
+    assert (turbines.with_buys, turbines.names, turbines.flagged) == (2, 3, 1)
+    assert [m.ticker for m in turbines.members] == ["BBB", "AAA"]
+
+    assert [(f.ticker, f.reason) for f in result.flagged] == [("RBOT", MIXED)]
+    assert result.companies == plain.companies == 6
+
+
+def test_an_unflagged_group_is_unaffected_by_a_flag_elsewhere():
+    rows, readings = _robots()
+    plain = leaders(inputs(rows, readings), {}, asof=ASOF)
+    flagged = leaders(inputs(rows, readings, flagged={S[0]: MIXED}), {}, asof=ASOF)
+    fuel = [g for g in flagged.insider_groups if g.link == "Fuel"]
+    assert fuel == [g for g in plain.insider_groups if g.link == "Fuel"] and fuel[0].flagged == 0
+    assert plain.flagged == ()
+    assert all(g.flagged == 0 for g in plain.insider_groups)
+
+
+def test_the_router_reads_the_price_flags_inside_the_cached_read(monkeypatch):
+    """``read_inputs`` itself reads the flags (the real one, its DB reads stubbed): once per cached read, for
+    every resolved company, on the request's one ``serve_view`` pair; every grouping after it is a hit.
+    """
+    rows, readings = _robots()
+    seen: dict = {"flag_reads": 0}
+
+    def fake_flags(conn, ids, asof, *, known_at, clock):
+        seen["flag_reads"] += 1
+        seen["flags_view"] = (set(ids), asof, known_at, clock)
+        return {S[0]: MIXED}
+
+    CACHE.clear()
+    monkeypatch.setattr(
+        router_mod, "cards_as_of", lambda conn, asof, known_at: CardsAsOf(2, [], 0, 0)
+    )
+    monkeypatch.setattr(router_mod, "memberships_of", lambda cards: tuple(rows))
+    monkeypatch.setattr(router_mod, "_readings", lambda conn, sids, asof, known_at, clock: readings)
+    monkeypatch.setattr(router_mod, "price_flags", fake_flags)
+    monkeypatch.setattr(router_mod.master, "identity_for", lambda conn, ids, **kw: {})
+    monkeypatch.setattr(CACHE, "_token_fn", lambda conn: "gen-1")
+    app.dependency_overrides[get_conn] = lambda: object()
+    try:
+        client = TestClient(app)
+        body = client.get("/dashboards/leaders", params={"asof": "2026-06-01"}).json()
+        again = client.get(
+            "/dashboards/leaders", params={"asof": "2026-06-01", "group_by": "card"}
+        ).json()
+    finally:
+        app.dependency_overrides.clear()
+        CACHE.clear()
+
+    ids, asof, known_at, clock = seen["flags_view"]
+    assert seen["flag_reads"] == 1 and again["cache"] == "hit"
+    assert ids == set(S[:6]) and asof == ASOF and clock == "public" and known_at is not None
+    assert body["flagged"] == [{"security_id": str(S[0]), "ticker": "RBOT", "reason": MIXED}]
+    assert str(S[0]) not in {n["security_id"] for n in body["names"]}
+    turbines = next(g for g in body["insider_groups"] if g["link"] == "Turbines")
+    assert (turbines["names"], turbines["flagged"]) == (3, 1)
+    grid = next(g for g in again["insider_groups"] if g["thesis_name"] == "Grid")
+    assert grid["flagged"] == 1
+
+
+# ---------------------------------------------------------------------------------------------------------
 # the router (pure: the heavy read stubbed)
 # ---------------------------------------------------------------------------------------------------------
 
@@ -597,11 +718,13 @@ def _security(db, ticker: str) -> UUID:
     return sid
 
 
-def test_a_price_published_after_a_past_asof_stays_invisible(db):
+def test_a_price_published_after_a_past_asof_stays_invisible(db, monkeypatch):
     """260 daily bars rising into the as-of (its own bar the 52-week high), each public at its own session.
     The as-of's bar is then re-versioned a week after the thaw at half the close: the past view still reads
     the ORIGINAL close (the correction was not public by the end of that day), so the name sits at its high;
-    a live view reads the correction, far off the high, and the name is on no list."""
+    a live view reads the correction, far off the high, and the name is on no list. The data flags ride the
+    same views through the real reader: none at the past as-of; on today's view the tape (it ends 2026-06-01)
+    is a stopped feed, so the name is on no list for that reason too, and named."""
     sid = _security(db, "LEAD")
     start = ASOF - timedelta(days=259)
     for i in range(260):
@@ -627,6 +750,12 @@ def test_a_price_published_after_a_past_asof_stays_invisible(db):
         client = TestClient(app)
         past = client.get("/dashboards/leaders", params={"asof": ASOF.isoformat()}).json()
         live = client.get("/dashboards/leaders", params={"asof": market_today().isoformat()}).json()
+        # the clock alone: the same live read with the flag read stubbed out
+        CACHE.clear()
+        monkeypatch.setattr(router_mod, "price_flags", lambda *a, **k: {})
+        unflagged = client.get(
+            "/dashboards/leaders", params={"asof": market_today().isoformat()}
+        ).json()
     finally:
         app.dependency_overrides.clear()
         CACHE.clear()
@@ -645,5 +774,12 @@ def test_a_price_published_after_a_past_asof_stays_invisible(db):
     assert no_reading["rs_leader"] == 1 and no_reading["insider"] == 1
     assert no_reading["near_high"] == 0
 
+    assert past["flagged"] == []
+
     assert live["names"] == [] and live["companies"] == 1
-    assert next(x for x in live["lists"] if x["key"] == "near_high")["security_ids"] == []
+    assert live["flagged"] == [
+        {"security_id": str(sid), "ticker": "LEAD", "reason": "price feed stopped"}
+    ]
+    assert all(x["no_reading"] == 0 for x in live["lists"])  # left out, never "no reading"
+    assert unflagged["names"] == [] and unflagged["flagged"] == []
+    assert next(x for x in unflagged["lists"] if x["key"] == "near_high")["security_ids"] == []

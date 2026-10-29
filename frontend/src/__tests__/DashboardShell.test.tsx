@@ -23,6 +23,7 @@ const body = lazy(() => Promise.resolve({ default: () => <div>THE BODY</div> }))
 
 const FILL: DashboardEntry = {
   slug: "fill-dash",
+  order: 0,
   label: "Fill Dash",
   description: "A fill-layout dashboard.",
   status: "core",
@@ -33,6 +34,7 @@ const FILL: DashboardEntry = {
 
 const PAGE: DashboardEntry = {
   slug: "page-dash",
+  order: 10,
   label: "Page Dash",
   description: "A page-layout dashboard (no layout set).",
   status: "experimental",

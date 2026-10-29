@@ -43,6 +43,7 @@ const name = (ticker: string, over: Partial<RotationNameOut> = {}): RotationName
   cross: null,
   cross_date: null,
   rs_leading: null,
+  flag: null,
   ...over,
 });
 
@@ -54,6 +55,7 @@ const group = (key: string, link: string, r7: number | null, over: Partial<Rotat
   business_type: null,
   supersector: null,
   names: 4,
+  flagged: 0,
   windows: wins(r7),
   above_50d: 2,
   above_50d_n: 4,
@@ -103,6 +105,7 @@ const DATA: RotationMapOut = {
   priced_companies: 1402,
   spy: { ret_1d: 0.2, ret_7d: 1.0, ret_30d: 2.0, ret_90d: 3.0, ret_1y: 10.0 },
   groups: GROUPS,
+  flagged: [],
   min_priced: 3,
   cross_days: 30,
   cache: "hit",
@@ -351,5 +354,59 @@ describe("Rotation Map — a row's names", () => {
     expect(screen.getByRole("button", { name: "Grid · Turbines, Unsegmented" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Nuclear · Fuel" }));
     expect(onSelectThesis).toHaveBeenCalledWith("t-nuc", "AAA");
+  });
+});
+
+describe("Rotation Map — a flagged price history", () => {
+  const MIXED = "mixed-scale price history";
+  const NONE = { ret_1d: null, ret_7d: null, ret_30d: null, ret_90d: null, ret_1y: null };
+  const FLAGGED: RotationMapOut = {
+    ...DATA,
+    flagged: [
+      { security_id: "s-RBOT", ticker: "RBOT", reason: MIXED },
+      { security_id: "s-OLD", ticker: "OLD", reason: "price feed stopped" },
+    ],
+    groups: [
+      {
+        ...GROUPS[0],
+        names: 5,
+        flagged: 1,
+        members: [
+          ...GROUPS[0].members,
+          name("RBOT", { returns: NONE, above_50d: null, rvol20: null, flag: MIXED }),
+        ],
+      },
+      ...GROUPS.slice(1),
+    ],
+  };
+
+  it("names the left-out companies on one quiet line that opens to each ticker and reason", async () => {
+    const user = userEvent.setup();
+    h.useRotationMap.mockReturnValue(query(FLAGGED));
+    renderPage();
+    const note = screen.getByText("2 names left out for a flagged price history");
+    await user.click(note);
+    expect(note.closest("details")).toHaveAttribute("open");
+    const items = [...document.querySelectorAll(".dash-flagged-list li")].map((li) => li.textContent);
+    expect(items).toEqual([`RBOT ${MIXED}`, "OLD price feed stopped"]);
+  });
+
+  it("a group counts its left-out names, and expanded it lists the flagged name grayed with its reason", async () => {
+    const user = userEvent.setup();
+    h.useRotationMap.mockReturnValue(query(FLAGGED));
+    renderPage();
+    const row = groupRow("Turbines");
+    expect(within(row).getByText("1 left out")).toBeInTheDocument();
+    await user.click(row);
+    const rbot = [...document.querySelectorAll("tr.rm-name")].find((r) => r.textContent?.startsWith("RBOT"));
+    expect(rbot).toHaveClass("flagged");
+    expect(within(rbot as HTMLElement).getByText(`left out: ${MIXED}`)).toBeInTheDocument();
+    expect(document.querySelectorAll("tr.rm-name.flagged")).toHaveLength(1);
+  });
+
+  it("shows no note when nothing is left out", () => {
+    renderPage();
+    expect(screen.queryByText(/left out for a flagged price history/)).toBeNull();
+    expect(screen.queryByText("1 left out")).toBeNull();
   });
 });

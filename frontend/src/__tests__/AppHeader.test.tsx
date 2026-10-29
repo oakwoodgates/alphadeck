@@ -20,6 +20,7 @@ const REAL = await vi.importActual<typeof import("../dashboards/registry")>("../
 
 const FAKE: DashboardEntry = {
   slug: "fake-dash",
+  order: 1000,
   label: "Fake Dash",
   description: "One fake dashboard for the menu tests.",
   status: "experimental",

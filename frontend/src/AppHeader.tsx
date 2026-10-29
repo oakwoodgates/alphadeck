@@ -34,7 +34,8 @@ const LINKS: readonly { key: NavKey; label: string; to: (asof: string | null) =>
   // `/`; the same dashboard at /dashboards/<slug> lights the Dashboards menu instead.
   { key: "home", label: "Home", to: homePath },
   // A MENU, not a tab (DashboardsMenu below): "All dashboards" (this `to`, the index) and then one item per
-  // entry in dashboards/registry.ts — the menu reads the registry, so a new dashboard adds no line here.
+  // entry in dashboards/registry.ts (each dashboard's own <slug>/entry.ts) — the menu reads the registry, so a
+  // new dashboard adds no line here.
   { key: "dashboards", label: "Dashboards", to: dashboardsPath },
   { key: "workbench", label: "Workbench", to: workbenchPath },
   { key: "scoreboard", label: "Scoreboard", to: scoreboardPath },

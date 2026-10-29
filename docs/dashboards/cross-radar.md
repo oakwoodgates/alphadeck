@@ -25,6 +25,12 @@ Exactly the Rotation Map's, through the shared read in `backend/dashboards/baske
   per group (by `security_id`). A row with no link groups as "Unsegmented"; a company with no business type /
   sector as "Unclassified". A basket row with no resolved security is counted on the quiet line, never
   grouped.
+- **A flagged price history is left out of everything** (`docs/DASHBOARDS.md` rule 5): a company whose data
+  flags reach its price readings at the as-of (`dashboards.baskets.price_flags`) is never priced and in no
+  cluster, first mover, near-cross list, timeline count or posture bar, because a scale break makes fake
+  crosses; its bars never shape the timeline's axis. It counts in its group's names ("N left out" beside "not
+  priced", never inside it); expanded, a timeline row lists it grayed as "left out: <reason>" with no strip.
+  The page shows a quiet "N names left out for a flagged price history" that opens to each ticker and reason.
 
 ## Definitions
 
@@ -156,8 +162,9 @@ flip:
 - **Business type and sector come from today's master**, at any as-of.
 - **No weighting** by market cap, liquidity or recency in v1: a cluster is a count and a share. A weight would
   be added later, only with its formula on the page.
-- **Data flags are not applied** (as on the Rotation Map): a bar a data flag (split plan S3) reaches still
-  counts in the SMAs.
+- **The price flags are read inside the cached read** (as on the Narrative Index), so an operator's split
+  review in Admin (which clears a flag) reaches this page at the next run or roster edit; the flags are
+  read once per as-of, so a flag on any price cell leaves the name out of every window.
 - **The cache refreshes on a new run, a roster edit, or a card created, archived or renamed** (the shared
   cache's rule). Prices a Workbench pull or an onboarding batch writes between runs show after the next run or
   roster edit.

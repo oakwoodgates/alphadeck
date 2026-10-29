@@ -1,10 +1,13 @@
-import { lazy, type ComponentType, type LazyExoticComponent } from "react";
+/// <reference types="vite/client" />
+import type { ComponentType, LazyExoticComponent } from "react";
 
 // The ONE list of dashboards (docs/DASHBOARDS.md): self-contained cross-card views, the Board first. The
 // top nav's Dashboards menu, the /dashboards index, the /dashboards/:slug route and the home page (`/`,
-// HOME_DASHBOARD below) all read this list, so adding a dashboard is one line here (plus its folder,
-// frontend/src/dashboards/<slug>/) and cutting one is deleting that line and the folder. Every entry is
-// lazy-loaded, so a page loads only the dashboard it shows.
+// HOME_DASHBOARD below) all read this list. It is SELF-REGISTERING: each dashboard's folder,
+// frontend/src/dashboards/<slug>/, carries an `entry.ts` exporting its `entry`, and the list below is built
+// from every one of them, so adding a dashboard is its folder (with its entry.ts) and cutting one is deleting
+// the folder: no shared line to edit. Every entry's body is lazy-loaded, so a page loads only the dashboard it
+// shows (the entries themselves are tiny and load eagerly).
 
 /** What the shell hands a dashboard body. `asof` is the app's as-of date (YYYY-MM-DD) for an as-of
  *  aware dashboard and today's date for a "now" one. `onSelectThesis` opens the Cockpit (optionally on one
@@ -17,6 +20,9 @@ export type DashboardProps = {
 export type DashboardEntry = {
   /** The URL segment: /dashboards/<slug>. Also the folder name, frontend/src/dashboards/<slug>/. */
   slug: string;
+  /** Menu order, lowest first (ties by label): the Board 0, then steps of 10, so a new dashboard slots in
+   *  anywhere without renumbering the rest. */
+  order: number;
   label: string;
   /** One line, shown under the title and in the menu. */
   description: string;
@@ -29,110 +35,38 @@ export type DashboardEntry = {
    *  row, and the body takes the rest of the viewport with no padding: for a page that scrolls inside
    *  itself, like the Board's columns. */
   layout?: "page" | "fill";
-  /** React.lazy(() => import("./<slug>/<Component>")) — the component file default-exports its body. */
+  /** React.lazy(() => import("./<Component>")) — the component file default-exports its body. */
   component: LazyExoticComponent<ComponentType<DashboardProps>>;
 };
 
 /** The dashboard `/` renders (the top nav's Home tab), in place, never a redirect. Changing the home page
- *  is this one line: any slug in DASHBOARDS below. */
+ *  is this one line: any slug a dashboard's entry.ts registers. */
 export const HOME_DASHBOARD = "board";
 
-// One line per dashboard; order = menu order (the Board first; a new dashboard appends at the end); see
-// docs/DASHBOARDS.md.
-export const DASHBOARDS: readonly DashboardEntry[] = [
-  {
-    slug: "board",
-    label: "Board",
-    description: "Every card in its lifecycle column, with the Decision Queue.",
-    status: "core",
-    asofAware: true,
-    layout: "fill",
-    component: lazy(() => import("./board/BoardDashboard")),
-  },
-  {
-    slug: "shared-names",
-    label: "Shared Names",
-    description: "Companies that sit on more than one card, and which cards share them.",
-    status: "experimental",
-    asofAware: false,
-    component: lazy(() => import("./shared-names/SharedNames")),
-  },
-  {
-    slug: "idea-timeline",
-    label: "Idea Timeline",
-    description: "Each card's recorded state over time, with its catalysts and your logged decisions.",
-    status: "experimental",
-    asofAware: false,
-    component: lazy(() => import("./idea-timeline/IdeaTimeline")),
-  },
-  {
-    slug: "rotation-map",
-    label: "Rotation Map",
-    description:
-      "Which links, business types and sectors are moving: returns, breadth, volume and crosses by group.",
-    status: "experimental",
-    asofAware: true,
-    component: lazy(() => import("./rotation-map/RotationMap")),
-  },
-  {
-    slug: "what-changed",
-    label: "What Changed",
-    description: "What moved on your cards since last night: states, keys, names, triggers and clocks.",
-    status: "experimental",
-    asofAware: false,
-    component: lazy(() => import("./what-changed/WhatChanged")),
-  },
-  {
-    slug: "cross-radar",
-    label: "Cross Radar",
-    description:
-      "Golden and death crosses by group: clusters, first movers, names closing in, and the last 90 sessions.",
-    status: "experimental",
-    asofAware: true,
-    component: lazy(() => import("./cross-radar/CrossRadar")),
-  },
-  {
-    slug: "catalyst-calendar",
-    label: "Catalyst Calendar",
-    description:
-      "Every dated catalyst and card deadline across your cards, with passed ones to prune and undated ones to date.",
-    status: "experimental",
-    asofAware: false,
-    component: lazy(() => import("./catalyst-calendar/CatalystCalendar")),
-  },
-  {
-    slug: "leaders",
-    label: "Leaders",
-    description:
-      "Names across every card at new highs, leading the market, coiling, or with insider buying, and the groups where insiders cluster.",
-    status: "experimental",
-    asofAware: true,
-    component: lazy(() => import("./leaders/Leaders")),
-  },
-  {
-    slug: "landing",
-    label: "Price & Volume Landing",
-    description: "Where price closed in each window's range, and whether volume backed the move, by group.",
-    status: "experimental",
-    asofAware: true,
-    component: lazy(() => import("./landing/Landing")),
-  },
-  {
-    slug: "narrative-index",
-    label: "Narrative Index",
-    description:
-      "Each card's basket as one equal-weighted line against SPY and IWM, with the day the card was created marked.",
-    status: "experimental",
-    asofAware: true,
-    component: lazy(() => import("./narrative-index/NarrativeIndex")),
-  },
-  {
-    slug: "rotation-quadrant",
-    label: "Rotation Quadrant",
-    description:
-      "Each group's strength vs SPY and its momentum, with an 8-week tail: leading, weakening, lagging, improving.",
-    status: "experimental",
-    asofAware: true,
-    component: lazy(() => import("./rotation-quadrant/RotationQuadrant")),
-  },
-];
+/** The registry from the dashboards' own entry modules (`{ "./<slug>/entry.ts": { entry } }`), sorted by
+ *  `order` then label. Fails loud, never quietly drops or shadows a page: a module with no `entry`, an entry
+ *  whose slug is not its folder's name, or two entries with one slug. */
+export function buildRegistry(modules: Record<string, unknown>): DashboardEntry[] {
+  const bySlug = new Map<string, string>();
+  const entries: DashboardEntry[] = [];
+  for (const [path, mod] of Object.entries(modules)) {
+    const entry = (mod as { entry?: DashboardEntry } | undefined)?.entry;
+    if (!entry) throw new Error(`Dashboard registry: ${path} does not export \`entry\``);
+    const folder = path.split("/").at(-2);
+    if (entry.slug !== folder) {
+      throw new Error(`Dashboard registry: ${path} registers slug "${entry.slug}", not its folder "${folder}"`);
+    }
+    const prior = bySlug.get(entry.slug);
+    if (prior) throw new Error(`Dashboard registry: duplicate slug "${entry.slug}" (${prior} and ${path})`);
+    bySlug.set(entry.slug, path);
+    entries.push(entry);
+  }
+  return entries.sort(
+    (a, b) => a.order - b.order || (a.label < b.label ? -1 : a.label > b.label ? 1 : 0),
+  );
+}
+
+// Every <slug>/entry.ts, collected at build time (Vite; Vitest too). Order = menu order; see docs/DASHBOARDS.md.
+export const DASHBOARDS: readonly DashboardEntry[] = buildRegistry(
+  import.meta.glob("./*/entry.ts", { eager: true }),
+);

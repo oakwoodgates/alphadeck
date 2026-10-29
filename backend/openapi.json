@@ -3862,190 +3862,21 @@
         }
       }
     },
-    "/dashboards/shared-names": {
+    "/dashboards/catalyst-calendar": {
       "get": {
         "tags": [
           "dashboards"
         ],
-        "summary": "Shared Names",
-        "description": "The companies on more than one live card (matched by security), the cards each sits on, and every\npair of cards that shares a company. A \"now\" view of today's baskets; archived cards are excluded.",
-        "operationId": "shared_names_dashboards_shared_names_get",
-        "parameters": [
-          {
-            "name": "counting_only",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "boolean",
-              "description": "drop Context and Bench memberships before both sections are computed",
-              "default": false,
-              "title": "Counting Only"
-            },
-            "description": "drop Context and Bench memberships before both sections are computed"
-          }
-        ],
+        "summary": "Catalyst Calendar",
+        "description": "Every live card's dated catalysts and its latest call's entry window and exit-by, bucketed from today,\nwith the passed catalysts and the undated ones per card. A \"now\" view; archived cards are excluded.",
+        "operationId": "catalyst_calendar_dashboards_catalyst_calendar_get",
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SharedNamesOut"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/dashboards/idea-timeline": {
-      "get": {
-        "tags": [
-          "dashboards"
-        ],
-        "summary": "Idea Timeline",
-        "description": "Each live card's recorded state over time (the calls log as runs of one state), with its dated\ncatalysts, the logged decisions and the latest call's exit-by and entry window. A \"now\" view; archived\ncards are excluded.",
-        "operationId": "idea_timeline_dashboards_idea_timeline_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/IdeaTimelineOut"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/dashboards/rotation-map": {
-      "get": {
-        "tags": [
-          "dashboards"
-        ],
-        "summary": "Rotation Map",
-        "description": "Which links, business types, sectors or cards have price moving: per group, the median 1d / 7d /\n30d / 90d / 1Y return with how many names are up, the share above the 50-day SMA, the median 20-day\nRVOL, golden / death crosses in the last 30 days and RS leaders, with each group's names. Display only;\na past as-of reads what was public by the end of that date.",
-        "operationId": "rotation_map_dashboards_rotation_map_get",
-        "parameters": [
-          {
-            "name": "asof",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "date",
-              "description": "as-of date; no price published after it is read",
-              "title": "Asof"
-            },
-            "description": "as-of date; no price published after it is read"
-          },
-          {
-            "name": "group_by",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "enum": [
-                "link",
-                "business_type",
-                "sector",
-                "card"
-              ],
-              "type": "string",
-              "description": "the rows: link | business_type | sector | card",
-              "default": "link",
-              "title": "Group By"
-            },
-            "description": "the rows: link | business_type | sector | card"
-          },
-          {
-            "name": "include_silent",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "boolean",
-              "description": "add Context and Bench memberships (their own rows in the Link view)",
-              "default": false,
-              "title": "Include Silent"
-            },
-            "description": "add Context and Bench memberships (their own rows in the Link view)"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RotationMapOut"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/dashboards/what-changed": {
-      "get": {
-        "tags": [
-          "dashboards"
-        ],
-        "summary": "What Changed",
-        "description": "What moved on the live cards between the baseline night and the newest recorded night (states, keys,\narmed and watch names, triggers and risk signals), plus the clocks coming due on the newest one. A \"now\"\nview of the recorded calls; archived cards are excluded. A picked date after the newest recorded night,\nor before the first, is a 422.",
-        "operationId": "what_changed_dashboards_what_changed_get",
-        "parameters": [
-          {
-            "name": "since",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "pattern": "^(last_night|7d|\\d{4}-\\d{2}-\\d{2})$",
-              "description": "the baseline night: last_night (the previous recorded night), 7d (7 calendar days before the newest night) or a YYYY-MM-DD date between the first recorded night and the newest",
-              "default": "last_night",
-              "title": "Since"
-            },
-            "description": "the baseline night: last_night (the previous recorded night), 7d (7 calendar days before the newest night) or a YYYY-MM-DD date between the first recorded night and the newest"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WhatChangedOut"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/CatalystCalendarOut"
                 }
               }
             }
@@ -4059,7 +3890,7 @@
           "dashboards"
         ],
         "summary": "Cross Radar",
-        "description": "Golden and death crosses (the 50-day SMA crossing the 200-day) by link, business type, sector or card:\nclusters (several names crossing the same way within 10 sessions), first movers (exactly one), names\nwithin 2% of a cross and narrowing, and every cross of the last 90 sessions with each group's posture.\nDisplay only; a past as-of reads what was public by the end of that date.",
+        "description": "Golden and death crosses (the 50-day SMA crossing the 200-day) by link, business type, sector or card:\nclusters (several names crossing the same way within 10 sessions), first movers (exactly one), names\nwithin 2% of a cross and narrowing, and every cross of the last 90 sessions with each group's posture. A\nname whose data flags reach its price readings is left out of everything and listed. Display only; a\npast as-of reads what was public by the end of that date.",
         "operationId": "cross_radar_dashboards_cross_radar_get",
         "parameters": [
           {
@@ -4141,97 +3972,21 @@
         }
       }
     },
-    "/dashboards/catalyst-calendar": {
+    "/dashboards/idea-timeline": {
       "get": {
         "tags": [
           "dashboards"
         ],
-        "summary": "Catalyst Calendar",
-        "description": "Every live card's dated catalysts and its latest call's entry window and exit-by, bucketed from today,\nwith the passed catalysts and the undated ones per card. A \"now\" view; archived cards are excluded.",
-        "operationId": "catalyst_calendar_dashboards_catalyst_calendar_get",
+        "summary": "Idea Timeline",
+        "description": "Each live card's recorded state over time (the calls log as runs of one state), with its dated\ncatalysts, the logged decisions and the latest call's exit-by and entry window. A \"now\" view; archived\ncards are excluded.",
+        "operationId": "idea_timeline_dashboards_idea_timeline_get",
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CatalystCalendarOut"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/dashboards/leaders": {
-      "get": {
-        "tags": [
-          "dashboards"
-        ],
-        "summary": "Leaders",
-        "description": "Names across every card within 2% of their 52-week high, with relative strength at a 13-week high,\ncoiling, with open-market insider buys in the last 30 days, or with RVOL 20D at 1.5 or more; the names on\nseveral of those lists; and the groups where at least two names had insider buys. One row per company.\nDisplay only; a past as-of reads what was public by the end of that date.",
-        "operationId": "leaders_dashboards_leaders_get",
-        "parameters": [
-          {
-            "name": "asof",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "date",
-              "description": "as-of date; nothing published after it is read",
-              "title": "Asof"
-            },
-            "description": "as-of date; nothing published after it is read"
-          },
-          {
-            "name": "include_silent",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "boolean",
-              "description": "add Context and Bench memberships",
-              "default": false,
-              "title": "Include Silent"
-            },
-            "description": "add Context and Bench memberships"
-          },
-          {
-            "name": "group_by",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "enum": [
-                "link",
-                "business_type",
-                "sector",
-                "card"
-              ],
-              "type": "string",
-              "description": "the insider-cluster groups: link | business_type | sector | card",
-              "default": "link",
-              "title": "Group By"
-            },
-            "description": "the insider-cluster groups: link | business_type | sector | card"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LeadersOut"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/IdeaTimelineOut"
                 }
               }
             }
@@ -4245,7 +4000,7 @@
           "dashboards"
         ],
         "summary": "Landing",
-        "description": "Where price closed in each window's range, and whether volume backed the move, by link, business\ntype, sector or card: per group and per window (1D / 7D / 30D / 90D trading bars), the median range\nposition, the split of names by return x volume (accumulation, thin rally, distribution, rest, flat)\nand the median up/down-day volume, with each group's names. Display only; a past as-of reads what was\npublic by the end of that date.",
+        "description": "Where price closed in each window's range, and whether volume backed the move, by link, business\ntype, sector or card: per group and per window (1D / 7D / 30D / 90D trading bars), the median range\nposition, the split of names by return x volume (accumulation, thin rally, distribution, rest, flat)\nand the median up/down-day volume, with each group's names. A name whose data flags reach its price\nreadings is left out of every aggregate and listed. Display only; a past as-of reads what was public by\nthe end of that date.",
         "operationId": "landing_dashboards_landing_get",
         "parameters": [
           {
@@ -4298,6 +4053,82 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/LandingOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboards/leaders": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Leaders",
+        "description": "Names across every card within 2% of their 52-week high, with relative strength at a 13-week high,\ncoiling, with open-market insider buys in the last 30 days, or with RVOL 20D at 1.5 or more; the names on\nseveral of those lists; and the groups where at least two names had insider buys. One row per company. A\nname whose data flags reach its price readings is on no list and in no group, and is listed. Display\nonly; a past as-of reads what was public by the end of that date.",
+        "operationId": "leaders_dashboards_leaders_get",
+        "parameters": [
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; nothing published after it is read",
+              "title": "Asof"
+            },
+            "description": "as-of date; nothing published after it is read"
+          },
+          {
+            "name": "include_silent",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "add Context and Bench memberships",
+              "default": false,
+              "title": "Include Silent"
+            },
+            "description": "add Context and Bench memberships"
+          },
+          {
+            "name": "group_by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "link",
+                "business_type",
+                "sector",
+                "card"
+              ],
+              "type": "string",
+              "description": "the insider-cluster groups: link | business_type | sector | card",
+              "default": "link",
+              "title": "Group By"
+            },
+            "description": "the insider-cluster groups: link | business_type | sector | card"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadersOut"
                 }
               }
             }
@@ -4475,6 +4306,82 @@
         }
       }
     },
+    "/dashboards/rotation-map": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Rotation Map",
+        "description": "Which links, business types, sectors or cards have price moving: per group, the median 1d / 7d /\n30d / 90d / 1Y return with how many names are up, the share above the 50-day SMA, the median 20-day\nRVOL, golden / death crosses in the last 30 days and RS leaders, with each group's names. A name whose\ndata flags reach its price readings is left out of every aggregate and listed. Display only; a past\nas-of reads what was public by the end of that date.",
+        "operationId": "rotation_map_dashboards_rotation_map_get",
+        "parameters": [
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; no price published after it is read",
+              "title": "Asof"
+            },
+            "description": "as-of date; no price published after it is read"
+          },
+          {
+            "name": "group_by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "link",
+                "business_type",
+                "sector",
+                "card"
+              ],
+              "type": "string",
+              "description": "the rows: link | business_type | sector | card",
+              "default": "link",
+              "title": "Group By"
+            },
+            "description": "the rows: link | business_type | sector | card"
+          },
+          {
+            "name": "include_silent",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "add Context and Bench memberships (their own rows in the Link view)",
+              "default": false,
+              "title": "Include Silent"
+            },
+            "description": "add Context and Bench memberships (their own rows in the Link view)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RotationMapOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/dashboards/rotation-quadrant": {
       "get": {
         "tags": [
@@ -4534,6 +4441,99 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RotationQuadrantOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboards/shared-names": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Shared Names",
+        "description": "The companies on more than one live card (matched by security), the cards each sits on, and every\npair of cards that shares a company. A \"now\" view of today's baskets; archived cards are excluded.",
+        "operationId": "shared_names_dashboards_shared_names_get",
+        "parameters": [
+          {
+            "name": "counting_only",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "drop Context and Bench memberships before both sections are computed",
+              "default": false,
+              "title": "Counting Only"
+            },
+            "description": "drop Context and Bench memberships before both sections are computed"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedNamesOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboards/what-changed": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "What Changed",
+        "description": "What moved on the live cards between the baseline night and the newest recorded night (states, keys,\narmed and watch names, triggers and risk signals), plus the clocks coming due on the newest one. A \"now\"\nview of the recorded calls; archived cards are excluded. A picked date after the newest recorded night,\nor before the first, is a 422.",
+        "operationId": "what_changed_dashboards_what_changed_get",
+        "parameters": [
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(last_night|7d|\\d{4}-\\d{2}-\\d{2})$",
+              "description": "the baseline night: last_night (the previous recorded night), 7d (7 calendar days before the newest night) or a YYYY-MM-DD date between the first recorded night and the newest",
+              "default": "last_night",
+              "title": "Since"
+            },
+            "description": "the baseline night: last_night (the previous recorded night), 7d (7 calendar days before the newest night) or a YYYY-MM-DD date between the first recorded night and the newest"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WhatChangedOut"
                 }
               }
             }
@@ -11126,6 +11126,31 @@
         "title": "CrossFirstMoverOut",
         "description": "A group where exactly one priced name crossed ``direction`` within ``recent_sessions``. The group's\n``rest`` priced names: ``closing_in`` (near-crossing the same way), ``already`` (on the far side with no\nrecent cross: above the 200d for golden, below for death) and ``not_yet``."
       },
+      "CrossFlaggedOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "reason"
+        ],
+        "title": "CrossFlaggedOut",
+        "description": "A company in view left out of everything: its data flags reach its price readings at the as-of (the\nreason the Cockpit grays its price cells; a scale break makes fake crosses). ``reason`` = the flags'\nlabels."
+      },
       "CrossGroupOut": {
         "properties": {
           "key": {
@@ -11203,6 +11228,10 @@
           "not_priced": {
             "type": "integer",
             "title": "Not Priced"
+          },
+          "flagged": {
+            "type": "integer",
+            "title": "Flagged"
           }
         },
         "type": "object",
@@ -11216,10 +11245,11 @@
           "supersector",
           "names",
           "priced",
-          "not_priced"
+          "not_priced",
+          "flagged"
         ],
         "title": "CrossGroupOut",
-        "description": "One group. Link view: ``link`` (``null`` = Unsegmented) + its card. Card view: the card. Business type\n/ Sector view: ``business_type`` / ``supersector`` (``null`` = Unclassified). ``names`` = the companies in\nthe group, each counted once; ``priced`` of them have a 200-day SMA at the as-of."
+        "description": "One group. Link view: ``link`` (``null`` = Unsegmented) + its card. Card view: the card. Business type\n/ Sector view: ``business_type`` / ``supersector`` (``null`` = Unclassified). ``names`` = the companies in\nthe group, each counted once; ``priced`` of them have a 200-day SMA at the as-of, ``not_priced`` have a\nshort or stale tape, ``flagged`` are left out of everything for a flagged price history."
       },
       "CrossMarkOut": {
         "properties": {
@@ -11412,7 +11442,7 @@
           "other"
         ],
         "title": "CrossPostureOut",
-        "description": "The group's names by ``sma_position`` posture; ``other`` = every other posture and every name not\npriced."
+        "description": "The group's names by ``sma_position`` posture; ``other`` = every other posture and every name not\npriced (a flagged name is in none)."
       },
       "CrossRadarOut": {
         "properties": {
@@ -11519,6 +11549,13 @@
             "type": "array",
             "title": "Timeline"
           },
+          "flagged": {
+            "items": {
+              "$ref": "#/components/schemas/CrossFlaggedOut"
+            },
+            "type": "array",
+            "title": "Flagged"
+          },
           "recent_sessions": {
             "type": "integer",
             "title": "Recent Sessions"
@@ -11586,6 +11623,7 @@
           "first_movers",
           "near_cross",
           "timeline",
+          "flagged",
           "recent_sessions",
           "history_sessions",
           "cluster_min_names",
@@ -11598,7 +11636,7 @@
           "compute_ms"
         ],
         "title": "CrossRadarOut",
-        "description": "The whole page in one view, each list in its default order (clusters by share then count; first\nmovers newest cross first; near-cross by the smallest gap; the timeline by total crosses). The counts are\nthe work shown on its quiet line; the rule dials ride along. ``sessions`` = the timeline's axis.\n``cache`` / ``compute_ms`` = whether the heavy read was served from the shared dashboard cache and how\nlong it took when it ran."
+        "description": "The whole page in one view, each list in its default order (clusters by share then count; first\nmovers newest cross first; near-cross by the smallest gap; the timeline by total crosses). The counts are\nthe work shown on its quiet line; the rule dials ride along. ``sessions`` = the timeline's axis.\n``flagged`` = the companies in view left out of everything for a flagged price history, by ticker.\n``cache`` / ``compute_ms`` = whether the heavy read was served from the shared dashboard cache and how\nlong it took when it ran."
       },
       "CrossTimelineNameOut": {
         "properties": {
@@ -11703,6 +11741,17 @@
               }
             ],
             "title": "Rs Leading"
+          },
+          "flag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flag"
           }
         },
         "type": "object",
@@ -11719,10 +11768,11 @@
           "price_200d",
           "gap_pct",
           "posture",
-          "rs_leading"
+          "rs_leading",
+          "flag"
         ],
         "title": "CrossTimelineNameOut",
-        "description": "One company of a timeline row. ``crosses`` = every 50d \u00d7 200d cross of the last ``history_sessions``\nsessions, newest first (``readable_sessions`` of them could be read: a name with a shorter tape reads a\nshorter history); ``price_200d`` = its price \u00d7 200d crosses when that layer is on. A name ``not_priced``\n(``short_tape`` / ``stale_tape``) reads no crosses."
+        "description": "One company of a timeline row. ``crosses`` = every 50d \u00d7 200d cross of the last ``history_sessions``\nsessions, newest first (``readable_sessions`` of them could be read: a name with a shorter tape reads a\nshorter history); ``price_200d`` = its price \u00d7 200d crosses when that layer is on. A name ``not_priced``\n(``short_tape`` / ``stale_tape``) reads no crosses. ``flag`` = why it is left out of everything (a flagged\nprice history; it then reads no crosses and is neither priced nor ``not_priced``); ``null`` = read."
       },
       "CrossTimelineRowOut": {
         "properties": {
@@ -15308,6 +15358,31 @@
         "title": "LandingCardOut",
         "description": "A card a name sits on in this group: its ticker there (the Cockpit's ``?name=`` key) and its links\nthere (``null`` = Unsegmented)."
       },
+      "LandingFlaggedOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "reason"
+        ],
+        "title": "LandingFlaggedOut",
+        "description": "A company in view left out of every aggregate: its data flags reach its price readings at the as-of\n(the reason the Cockpit grays its price cells). ``reason`` = the flags' labels."
+      },
       "LandingGroupOut": {
         "properties": {
           "key": {
@@ -15378,6 +15453,10 @@
             "type": "integer",
             "title": "Priced"
           },
+          "flagged": {
+            "type": "integer",
+            "title": "Flagged"
+          },
           "windows": {
             "items": {
               "$ref": "#/components/schemas/LandingGroupWindowOut"
@@ -15403,11 +15482,12 @@
           "supersector",
           "names",
           "priced",
+          "flagged",
           "windows",
           "members"
         ],
         "title": "LandingGroupOut",
-        "description": "One row. Link view: ``link`` (``null`` = Unsegmented) + its card. Card view: the card. Business type /\nSector view: ``business_type`` / ``supersector`` (``null`` = Unclassified). ``names`` = the companies in\nthe group, each counted once; ``priced`` of them have a recent close."
+        "description": "One row. Link view: ``link`` (``null`` = Unsegmented) + its card. Card view: the card. Business type /\nSector view: ``business_type`` / ``supersector`` (``null`` = Unclassified). ``names`` = the companies in\nthe group, each counted once; ``priced`` of them have a recent close; ``flagged`` of them are left out of\nevery aggregate for a flagged price history."
       },
       "LandingGroupWindowOut": {
         "properties": {
@@ -15516,6 +15596,17 @@
             },
             "type": "array",
             "title": "Windows"
+          },
+          "flag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flag"
           }
         },
         "type": "object",
@@ -15526,10 +15617,11 @@
           "priced",
           "not_priced",
           "last_bar",
-          "windows"
+          "windows",
+          "flag"
         ],
         "title": "LandingNameOut",
-        "description": "One company in a group. A name ``not_priced`` (``no_tape``: no close by the as-of; ``stale_tape``: its\nlast close is more than ``stale_gap_days`` before it) reads no window."
+        "description": "One company in a group. A name ``not_priced`` (``no_tape``: no close by the as-of; ``stale_tape``: its\nlast close is more than ``stale_gap_days`` before it) reads no window. ``flag`` = why it is left out of\nevery aggregate (a flagged price history; it then reads no window and is neither priced nor\n``not_priced``); ``null`` = read."
       },
       "LandingNameWindowOut": {
         "properties": {
@@ -15684,6 +15776,13 @@
             "type": "array",
             "title": "Groups"
           },
+          "flagged": {
+            "items": {
+              "$ref": "#/components/schemas/LandingFlaggedOut"
+            },
+            "type": "array",
+            "title": "Flagged"
+          },
           "windows": {
             "items": {
               "$ref": "#/components/schemas/LandingWindowDefOut"
@@ -15733,6 +15832,7 @@
           "no_tape_companies",
           "stale_tape_companies",
           "groups",
+          "flagged",
           "windows",
           "min_priced",
           "rising_mult",
@@ -15741,7 +15841,7 @@
           "compute_ms"
         ],
         "title": "LandingOut",
-        "description": "The whole page in one view, groups in the default order (the 7D median range position, highest\nfirst, \"\u2014\" last). The counts are the work shown on its quiet line; the rule dials ride along. ``cache``\n/ ``compute_ms`` = whether the heavy read was served from the shared dashboard cache and how long it took\nwhen it ran."
+        "description": "The whole page in one view, groups in the default order (the 7D median range position, highest\nfirst, \"\u2014\" last). The counts are the work shown on its quiet line; the rule dials ride along. ``flagged`` =\nthe companies in view left out of every aggregate for a flagged price history, by ticker. ``cache``\n/ ``compute_ms`` = whether the heavy read was served from the shared dashboard cache and how long it took\nwhen it ran."
       },
       "LandingSplitOut": {
         "properties": {
@@ -15956,6 +16056,31 @@
         "title": "LeadersClusterNameOut",
         "description": "A name of an insider-cluster group: its open-market buys and distinct buyers in the last 30 days."
       },
+      "LeadersFlaggedOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "reason"
+        ],
+        "title": "LeadersFlaggedOut",
+        "description": "A company in view on no list and in no group: its data flags reach its price readings at the as-of\n(the reason the Cockpit grays its price cells). ``reason`` = the flags' labels."
+      },
       "LeadersInsiderGroupOut": {
         "properties": {
           "key": {
@@ -16048,6 +16173,10 @@
             },
             "type": "array",
             "title": "Members"
+          },
+          "flagged": {
+            "type": "integer",
+            "title": "Flagged"
           }
         },
         "type": "object",
@@ -16064,10 +16193,11 @@
           "no_insider_data",
           "share",
           "buys",
-          "members"
+          "members",
+          "flagged"
         ],
         "title": "LeadersInsiderGroupOut",
-        "description": "A group where at least ``group_min_names`` names had open-market buys in the last 30 days. Link view:\n``link`` (``null`` = Unsegmented) + its card. Card view: the card. Business type / Sector view:\n``business_type`` / ``supersector`` (``null`` = Unclassified). ``with_buys`` of its ``names`` (each counted\nonce) bought, ``share`` = ``with_buys / names``; ``no_insider_data`` of them have no Form 4 ingested;\n``buys`` = the group's buys."
+        "description": "A group where at least ``group_min_names`` names had open-market buys in the last 30 days. Link view:\n``link`` (``null`` = Unsegmented) + its card. Card view: the card. Business type / Sector view:\n``business_type`` / ``supersector`` (``null`` = Unclassified). ``with_buys`` of its ``names`` (each counted\nonce) bought, ``share`` = ``with_buys / names``; ``no_insider_data`` of them have no Form 4 ingested;\n``buys`` = the group's buys. ``flagged`` = the group's companies left out for a flagged price history (not\nin ``names``)."
       },
       "LeadersListOut": {
         "properties": {
@@ -16392,6 +16522,13 @@
             "type": "array",
             "title": "Insider Groups"
           },
+          "flagged": {
+            "items": {
+              "$ref": "#/components/schemas/LeadersFlaggedOut"
+            },
+            "type": "array",
+            "title": "Flagged"
+          },
           "near_high_pct": {
             "type": "number",
             "title": "Near High Pct"
@@ -16450,6 +16587,7 @@
           "several",
           "lists",
           "insider_groups",
+          "flagged",
           "near_high_pct",
           "rvol_loud",
           "insider_min_buys",
@@ -16461,7 +16599,7 @@
           "compute_ms"
         ],
         "title": "LeadersOut",
-        "description": "The whole page in one view. ``names`` = every company on at least one list, in the several-lists order\n(the number of lists, then the 30D return); ``several`` = those on ``multi_min_lists`` or more; ``lists`` =\neach list's names in its default order and its no-reading count; ``insider_groups`` by names with buys,\nthen share. The counts are the work shown on its quiet line; the rule dials ride along. ``cache`` /\n``compute_ms`` = whether the heavy read was served from the shared dashboard cache and how long it took\nwhen it ran."
+        "description": "The whole page in one view. ``names`` = every company on at least one list, in the several-lists order\n(the number of lists, then the 30D return); ``several`` = those on ``multi_min_lists`` or more; ``lists`` =\neach list's names in its default order and its no-reading count; ``insider_groups`` by names with buys,\nthen share; ``flagged`` = the companies in view left out of every list and group for a flagged price\nhistory, by ticker. The counts are the work shown on its quiet line; the rule dials ride along. ``cache`` /\n``compute_ms`` = whether the heavy read was served from the shared dashboard cache and how long it took\nwhen it ran."
       },
       "LocatedPassage": {
         "properties": {
@@ -19216,6 +19354,31 @@
         ],
         "title": "ResolvedSegment"
       },
+      "RotationFlaggedOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "reason"
+        ],
+        "title": "RotationFlaggedOut",
+        "description": "A company in view left out of every aggregate: its data flags reach its price readings at the as-of\n(the reason the Cockpit grays its price cells). ``reason`` = the flags' labels."
+      },
       "RotationGroupOut": {
         "properties": {
           "key": {
@@ -19282,6 +19445,10 @@
             "type": "integer",
             "title": "Names"
           },
+          "flagged": {
+            "type": "integer",
+            "title": "Flagged"
+          },
           "windows": {
             "items": {
               "$ref": "#/components/schemas/RotationWindowOut"
@@ -19345,6 +19512,7 @@
           "business_type",
           "supersector",
           "names",
+          "flagged",
           "windows",
           "above_50d",
           "above_50d_n",
@@ -19357,7 +19525,7 @@
           "members"
         ],
         "title": "RotationGroupOut",
-        "description": "One row of the map. Link view: ``link`` (``null`` = Unsegmented) + its card. Card view: the card.\nBusiness type / Sector view: ``business_type`` / ``supersector`` (``null`` = Unclassified). ``names`` =\nthe companies in the group, each counted once."
+        "description": "One row of the map. Link view: ``link`` (``null`` = Unsegmented) + its card. Card view: the card.\nBusiness type / Sector view: ``business_type`` / ``supersector`` (``null`` = Unclassified). ``names`` =\nthe companies in the group, each counted once; ``flagged`` = of those, left out of every aggregate for a\nflagged price history."
       },
       "RotationMapOut": {
         "properties": {
@@ -19444,6 +19612,13 @@
             "type": "array",
             "title": "Groups"
           },
+          "flagged": {
+            "items": {
+              "$ref": "#/components/schemas/RotationFlaggedOut"
+            },
+            "type": "array",
+            "title": "Flagged"
+          },
           "min_priced": {
             "type": "integer",
             "title": "Min Priced"
@@ -19481,13 +19656,14 @@
           "priced_companies",
           "spy",
           "groups",
+          "flagged",
           "min_priced",
           "cross_days",
           "cache",
           "compute_ms"
         ],
         "title": "RotationMapOut",
-        "description": "The whole page in one view, groups in the default order (the 7d median, highest first, \"\u2014\" last).\nThe counts are the work shown on its quiet line. ``spy`` = SPY's own trailing returns (``null`` = no\nSPY tape at the as-of). ``cache`` / ``compute_ms`` = whether the heavy read was served from the shared\ndashboard cache and how long it took when it ran."
+        "description": "The whole page in one view, groups in the default order (the 7d median, highest first, \"\u2014\" last).\nThe counts are the work shown on its quiet line. ``spy`` = SPY's own trailing returns (``null`` = no\nSPY tape at the as-of). ``flagged`` = the companies in view left out of every aggregate for a flagged\nprice history, by ticker. ``cache`` / ``compute_ms`` = whether the heavy read was served from the shared\ndashboard cache and how long it took when it ran."
       },
       "RotationNameCardOut": {
         "properties": {
@@ -19620,6 +19796,17 @@
               }
             ],
             "title": "Rs Leading"
+          },
+          "flag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flag"
           }
         },
         "type": "object",
@@ -19632,10 +19819,11 @@
           "rvol20",
           "cross",
           "cross_date",
-          "rs_leading"
+          "rs_leading",
+          "flag"
         ],
         "title": "RotationNameOut",
-        "description": "One company in a group. ``cross`` is its golden / death cross when it printed within ``cross_days``\nof the as-of."
+        "description": "One company in a group. ``cross`` is its golden / death cross when it printed within ``cross_days``\nof the as-of. ``flag`` = why it is left out of every aggregate (a flagged price history; it then carries\nno reading); ``null`` = read."
       },
       "RotationQuadrantOut": {
         "properties": {

@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 from app.deps import get_conn
 from app.main import app
 from app.routers.dashboards import landing as router_mod
-from dashboards.baskets import Membership
+from dashboards.baskets import CardsAsOf, Membership
 from dashboards.cache import CACHE
 from dashboards.landing import (
     LOOKBACK_DAYS,
@@ -484,6 +484,128 @@ def test_unresolved_rows_are_counted_never_grouped_and_not_priced_names_are_coun
 
 
 # ---------------------------------------------------------------------------------------------------------
+# a flagged price history (dashboards.baskets.price_flags): left out of every aggregate, named on the page
+# ---------------------------------------------------------------------------------------------------------
+
+MIXED = "mixed-scale price history"
+
+
+def _robots():
+    """Card 1's Core link: RBOT (a scale break reads as a close at the top of every window on rising volume)
+    and three clean names. Card 2's Fuel link: three clean names of its own."""
+    rows = [ms(T1, "Robots", "RBOT", S[0])]
+    rows += [ms(T1, "Robots", t, S[i]) for i, t in ((1, "AAA"), (2, "BBB"), (3, "CCC"))]
+    rows += [ms(T2, "Nuclear", t, S[i], "Fuel") for i, t in ((4, "DDD"), (5, "EEE"), (6, "FFF"))]
+    loud = dict(range_pos=100.0, quadrant="accumulation", up_down=9.0, ret=8900.0, vol_ratio=9.0)
+    readings = {S[0]: company(**{k: loud for k in WINDOW_KEYS})}
+    for i, (pos, q, ud) in enumerate(
+        [
+            (20.0, "distribution", 0.6),
+            (50.0, "rest", 1.0),
+            (80.0, "thin_rally", 1.4),
+            (30.0, "rest", 0.9),
+            (60.0, "accumulation", 1.3),
+            (90.0, "accumulation", 2.0),
+        ],
+        start=1,
+    ):
+        w = dict(range_pos=pos, quadrant=q, up_down=ud)
+        readings[S[i]] = company(**{k: w for k in WINDOW_KEYS})
+    return rows, readings
+
+
+@pytest.mark.parametrize("group_by", ["link", "card"])
+def test_a_flagged_company_is_left_out_of_every_aggregate_and_named_on_the_page(group_by):
+    """RBOT is flagged: every window's median range position, quadrant split (not even ``unread``) and median
+    up/down-day volume reads exactly as without it. It stays listed (no window, its flag, neither priced nor
+    not priced), counts in the group's names and ``flagged``, and the page names it with the flag's label.
+    """
+    rows, readings = _robots()
+    plain = landing(inputs(rows, readings), {}, asof=ASOF, group_by=group_by)
+    assert win(next(g for g in plain.groups if g.thesis_id == T1)).split.accumulation == 1
+
+    without = landing(inputs(rows[1:], readings), {}, asof=ASOF, group_by=group_by)
+    result = landing(
+        inputs(rows, readings, flagged={S[0]: MIXED}), {}, asof=ASOF, group_by=group_by
+    )
+    g = next(g for g in result.groups if g.thesis_id == T1)
+    alone = next(x for x in without.groups if x.key == g.key)
+    assert g.windows == alone.windows
+    assert (win(g).range_median, win(g).range_n, win(g).up_down_median) == (50.0, 3, 1.0)
+    assert asdict(win(g).split) == {
+        "accumulation": 0,
+        "thin_rally": 1,
+        "distribution": 1,
+        "rest": 1,
+        "flat": 0,
+        "unread": 0,
+    }
+    assert (g.names, g.priced, g.flagged) == (4, 3, 1)
+
+    rbot = next(m for m in g.members if m.ticker == "RBOT")
+    assert (rbot.flag, rbot.priced, rbot.not_priced, rbot.last_bar) == (MIXED, False, None, None)
+    assert all(w.range_pos is None and w.quadrant is None for w in rbot.windows)
+    assert g.members[-1] is rbot
+    assert all(m.flag is None for m in g.members if m.ticker != "RBOT")
+
+    assert [(f.ticker, f.reason) for f in result.flagged] == [("RBOT", MIXED)]
+    assert (result.companies, result.priced_companies) == (7, 6)
+    assert (result.no_tape_companies, result.stale_tape_companies) == (0, 0)
+
+
+def test_an_unflagged_group_is_unaffected_by_a_flag_elsewhere():
+    rows, readings = _robots()
+    plain = landing(inputs(rows, readings), {}, asof=ASOF)
+    flagged = landing(inputs(rows, readings, flagged={S[0]: MIXED}), {}, asof=ASOF)
+    assert grp(flagged, f"link:{T2}:Fuel") == grp(plain, f"link:{T2}:Fuel")
+    assert grp(flagged, f"link:{T2}:Fuel").flagged == 0
+    assert plain.flagged == () and grp(plain, f"link:{T1}:Core").flagged == 0
+
+
+def test_the_router_reads_the_price_flags_inside_the_cached_read(monkeypatch):
+    """``read_inputs`` itself reads the flags (the real one, its DB reads stubbed): once per cached read, for
+    every resolved company, on the request's one ``serve_view`` pair; every grouping after it is a hit.
+    """
+    rows, readings = _robots()
+    seen: dict = {"flag_reads": 0}
+
+    def fake_flags(conn, ids, asof, *, known_at, clock):
+        seen["flag_reads"] += 1
+        seen["flags_view"] = (set(ids), asof, known_at, clock)
+        return {S[0]: MIXED}
+
+    CACHE.clear()
+    monkeypatch.setattr(
+        router_mod, "cards_as_of", lambda conn, asof, known_at: CardsAsOf(2, [], 0, 0)
+    )
+    monkeypatch.setattr(router_mod, "memberships_of", lambda cards: tuple(rows))
+    monkeypatch.setattr(router_mod, "_readings", lambda conn, sids, asof, known_at, clock: readings)
+    monkeypatch.setattr(router_mod, "price_flags", fake_flags)
+    monkeypatch.setattr(router_mod.master, "identity_for", lambda conn, ids, **kw: {})
+    monkeypatch.setattr(CACHE, "_token_fn", lambda conn: "gen-1")
+    app.dependency_overrides[get_conn] = lambda: object()
+    try:
+        client = TestClient(app)
+        body = client.get("/dashboards/landing", params={"asof": "2026-06-01"}).json()
+        again = client.get(
+            "/dashboards/landing", params={"asof": "2026-06-01", "group_by": "card"}
+        ).json()
+    finally:
+        app.dependency_overrides.clear()
+        CACHE.clear()
+
+    ids, asof, known_at, clock = seen["flags_view"]
+    assert seen["flag_reads"] == 1 and again["cache"] == "hit"
+    assert ids == set(S[:7]) and asof == ASOF and clock == "public" and known_at is not None
+    assert body["flagged"] == [{"security_id": str(S[0]), "ticker": "RBOT", "reason": MIXED}]
+    core = next(g for g in body["groups"] if g["link"] == "Core")
+    assert (core["names"], core["priced"], core["flagged"]) == (4, 3, 1)
+    rbot = next(m for m in core["members"] if m["ticker"] == "RBOT")
+    assert rbot["flag"] == MIXED and rbot["priced"] is False and rbot["not_priced"] is None
+    assert again["flagged"] == body["flagged"]
+
+
+# ---------------------------------------------------------------------------------------------------------
 # the router (pure: the heavy read stubbed)
 # ---------------------------------------------------------------------------------------------------------
 
@@ -654,6 +776,8 @@ def test_a_bar_published_after_a_past_asof_stays_invisible(db):
     assert then["vol_ratio"] == 1.0 and then["quadrant"] == "thin_rally"
     assert then["range_pos"] == 50.0
     assert past["cards_counted"] == 1 and past["priced_companies"] == 1
+    # the real flag reader rode both views: a clean three-day-old tape carries no price flag
+    assert past["flagged"] == [] and live["flagged"] == []
     # no roster snapshot by then, so today's roster stood in (and is counted)
     assert past["roster_fallback_cards"] == 1
     now = one_day(live)

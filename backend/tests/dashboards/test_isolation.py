@@ -53,9 +53,23 @@ def _py_files(root: Path) -> Iterator[Path]:
                 yield Path(dirpath) / f
 
 
+def _is_dynamic_import(func: ast.expr) -> bool:
+    """``importlib.import_module(...)`` / ``import_module(...)`` / ``__import__(...)``."""
+    name = (
+        func.id
+        if isinstance(func, ast.Name)
+        else func.attr if isinstance(func, ast.Attribute) else None
+    )
+    return name in ("import_module", "__import__")
+
+
 def imports_of(source: str) -> list[tuple[str, int]]:
     """``(dotted name, line)`` for every absolute import. ``from a.b import c`` yields both ``a.b`` and
     ``a.b.c``, so ``from app.routers import dashboards`` is seen as importing ``app.routers.dashboards``.
+    A DYNAMIC import of a literal name (``importlib.import_module("dashboards.x")``, ``__import__(...)``)
+    counts too: the router package discovers its dashboards with ``importlib``, so the scan must see that
+    shape anywhere else. (A computed name, like the discovery's own ``f"{package}.{module}"``, cannot be
+    read; it lives only inside ``app/routers/dashboards/``.)
     """
     out: list[tuple[str, int]] = []
     for node in ast.walk(ast.parse(source)):
@@ -64,6 +78,14 @@ def imports_of(source: str) -> list[tuple[str, int]]:
         elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
             out.append((node.module, node.lineno))
             out += [(f"{node.module}.{a.name}", node.lineno) for a in node.names]
+        elif (
+            isinstance(node, ast.Call)
+            and _is_dynamic_import(node.func)
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and isinstance(node.args[0].value, str)
+        ):
+            out.append((node.args[0].value, node.lineno))
     return out
 
 
@@ -294,6 +316,9 @@ def test_no_dashboard_writes_to_the_database():
         "from dashboards.tape_breadth import compute",
         "from app.routers import dashboards",
         "from app.routers.dashboards import router",
+        'importlib.import_module("dashboards.tape_breadth")',
+        'import_module("app.routers.dashboards.leaders")',
+        '__import__("dashboards")',
     ],
 )
 def test_the_leaf_scan_sees_every_import_shape(source):
@@ -302,7 +327,9 @@ def test_the_leaf_scan_sees_every_import_shape(source):
 
 def test_the_leaf_scan_ignores_unrelated_names():
     source = (
-        "import app.routers.theses\nfrom scoreboard import dashboard_helpers\nfrom app import deps"
+        "import app.routers.theses\nfrom scoreboard import dashboard_helpers\nfrom app import deps\n"
+        'importlib.import_module("signals.display")\n'
+        'importlib.import_module(f"{package.__name__}.{name}")'  # a computed name: unreadable, skipped
     )
     assert not any(_is_dashboard_import(n) for n, _ in imports_of(source))
 
@@ -317,6 +344,7 @@ def test_the_leaf_scan_ignores_unrelated_names():
         "import notify.slack",
         "from app.deps import get_conn, get_llm_client",
         "from app.deps import get_decompose_client",
+        'importlib.import_module("llm.client")',
     ],
 )
 def test_the_llm_notify_scan_bites(source):

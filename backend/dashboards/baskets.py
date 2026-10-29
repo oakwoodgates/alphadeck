@@ -17,7 +17,8 @@ The rules, in one place:
   the as-of, each with the flags' labels: the same reader the ``/data-flags`` routes serve
   (``pipeline.data_flags.read_flags``), and the domain's own reach rule: a flag whose ``columns`` (the
   Cockpit cells it reaches, ``domain.data_flags.cells_for``) include a price cell (``PRICE_CELLS``, the
-  price group's cells). A price dashboard leaves such a company out rather than chain a bad bar.
+  price group's cells). A price dashboard leaves such a company out rather than chain a bad bar, and names
+  it (``flagged_in_view``: each company in view once, by ticker, with its reason): left out, never vanished.
 
 Display only (rule 1): this module READS the cards, their roster snapshots and the point-in-time facts; it
 writes nothing.
@@ -357,3 +358,29 @@ def display_ticker(cards: Sequence[NameCard]) -> str:
     for c in cards:
         counts[c.ticker] = counts.get(c.ticker, 0) + 1
     return min(counts, key=lambda t: (-counts[t], t))
+
+
+@dataclass(frozen=True)
+class FlaggedCompany:
+    """A company in view that a price dashboard leaves out: its data flags reach its price readings at the
+    as-of (``price_flags``). Named on the page's quiet note, never silently dropped (rule 5 / #9).
+    """
+
+    security_id: UUID
+    ticker: str  # its display ticker (``display_ticker``)
+    reason: str  # the flags' labels ("mixed-scale price history")
+
+
+def flagged_in_view(
+    rows: Sequence[Membership], flagged: Mapping[UUID, str]
+) -> tuple[FlaggedCompany, ...]:
+    """The flagged companies among the (resolved) rows in view, each ONCE, by ticker."""
+    if not flagged:
+        return ()
+    out = [
+        FlaggedCompany(sid, display_ticker(cards), flagged[sid])
+        for sid, cards in companies_in(rows)
+        if sid in flagged
+    ]
+    out.sort(key=lambda f: (f.ticker.casefold(), str(f.security_id)))
+    return tuple(out)

@@ -33,18 +33,25 @@ The rules, in one place:
   unless ``include_silent``; in the Link view a company in two links counts in both, elsewhere once per group.
 - **The price x 200d layer** (``price_200d``) adds price-crosses-the-200d ticks to the timeline only; it never
   counts toward a cluster, a first mover or the near-cross watch.
+- **A flagged price history.** A company whose data flags reach its price readings at the as-of
+  (``dashboards.baskets.price_flags``, the reader the Cockpit's grayed price cells come from) is left out of
+  everything: a scale break makes fake crosses. It is never priced, never in a cluster, a first mover, the
+  near-cross watch, a timeline count or the posture bar, and its bars never shape the timeline's axis. It
+  still counts in its group's ``names`` (``flagged`` says how many; never in ``not_priced``), its timeline row
+  carries no cross and its ``flag``, and the page names it (``flagged``).
 """
 
 from __future__ import annotations
 
 from bisect import bisect_left
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Literal
 from uuid import UUID
 
 from dashboards.baskets import (
+    FlaggedCompany,
     GroupBy,
     Membership,
     NameCard,
@@ -52,6 +59,7 @@ from dashboards.baskets import (
     companies_in,
     counted_rows,
     display_ticker,
+    flagged_in_view,
 )
 from signals.display import sma
 from signals.display.base import DisplaySignal
@@ -212,6 +220,8 @@ def company_crosses(
 
 
 NO_READING = CompanyCrosses(bars=0, last_bar=None, priced=False, not_priced="short_tape")
+# a flagged company's reading: no bar read, never priced, and not "not priced" either (it is left out)
+LEFT_OUT = CompanyCrosses(bars=0, last_bar=None, priced=False, not_priced=None)
 
 
 def recent_cross(r: CompanyCrosses) -> CrossEvent | None:
@@ -268,6 +278,9 @@ class RadarInputs:
         UUID, CompanyCrosses
     ]  # every resolved company on the counted cards, silent included
     sessions: tuple[date, ...]  # the timeline's axis (timeline_sessions)
+    # companies whose data flags reach their price readings at the as-of, each with its reason
+    # (``dashboards.baskets.price_flags``): left out of everything
+    flagged: Mapping[UUID, str] = field(default_factory=dict)
 
 
 # --- the payload -----------------------------------------------------------------------------------------
@@ -286,9 +299,10 @@ class Group:
     thesis_name: str | None = None
     business_type: str | None = None  # Business type view (None = Unclassified)
     supersector: str | None = None  # Sector view (None = Unclassified)
-    names: int = 0  # companies in the group, each once
+    names: int = 0  # companies in the group, each once (flagged ones included)
     priced: int = 0
-    not_priced: int = 0
+    not_priced: int = 0  # short or stale tape (never a flagged one)
+    flagged: int = 0  # left out of everything for a flagged price history
 
 
 @dataclass(frozen=True)
@@ -368,6 +382,7 @@ class RadarName:
     gap_pct: float | None
     posture: str
     rs_leading: bool | None
+    flag: str | None = None  # why it is left out (a flagged price history); None = read
 
 
 @dataclass(frozen=True)
@@ -376,7 +391,9 @@ class Posture:
     above_falling: int = 0
     below_rising: int = 0
     below_falling: int = 0
-    other: int = 0  # every other posture key, no reading, and every name not priced
+    other: int = (
+        0  # every other posture key, no reading, and every name not priced (never a flagged one)
+    )
 
 
 @dataclass(frozen=True)
@@ -412,6 +429,8 @@ class CrossRadar:
     first_movers: tuple[FirstMover, ...]
     near_cross: tuple[NearGroup, ...]
     timeline: tuple[TimelineRow, ...]
+    # companies in view left out for a flagged price history, by ticker
+    flagged: tuple[FlaggedCompany, ...] = ()
 
 
 def _pos(sessions: Sequence[date], d: date) -> int:
@@ -445,6 +464,7 @@ def _group_view(
     readings: Mapping[UUID, CompanyCrosses],
     sessions: Sequence[date],
     price_200d: bool,
+    flagged: Mapping[UUID, str],
 ) -> tuple[list[Cluster], list[FirstMover], NearGroup | None, TimelineRow]:
     priced = [(sid, cards, readings[sid]) for sid, cards in companies if readings[sid].priced]
 
@@ -515,7 +535,9 @@ def _group_view(
     posture = {k: 0 for k in (*POSTURES, "other")}
     for sid, cards in companies:
         r = readings[sid]
-        posture[r.posture if r.priced else "other"] += 1
+        flag = flagged.get(sid)
+        if flag is None:  # a flagged name is in no posture count
+            posture[r.posture if r.priced else "other"] += 1
         members.append(
             RadarName(
                 security_id=sid,
@@ -531,6 +553,7 @@ def _group_view(
                 gap_pct=None if r.gap_pct is None else round(r.gap_pct, 2),
                 posture=r.posture if r.priced else "other",
                 rs_leading=r.rs_leading,
+                flag=flag,
             )
         )
     members.sort(
@@ -538,6 +561,7 @@ def _group_view(
             not m.crosses,
             m.crosses[0].sessions_ago if m.crosses else 0,
             not m.priced,
+            m.flag is not None,
             m.ticker.casefold(),
             str(m.security_id),
         )
@@ -569,8 +593,11 @@ def cross_radar(
     ``business_supersector`` (``securities.master.identity_for``); only the type and sector views read it.
     """
     counted = counted_rows(inputs.memberships, include_silent)
+    flagged = inputs.flagged
+    # a flagged company reads as LEFT_OUT: no cross, never priced, so no rule below can count it
     readings = {
-        sid: inputs.readings.get(sid, NO_READING) for sid in {m.security_id for m in counted.rows}
+        sid: LEFT_OUT if sid in flagged else inputs.readings.get(sid, NO_READING)
+        for sid in {m.security_id for m in counted.rows}
     }
     found: list[Cluster] = []
     movers: list[FirstMover] = []
@@ -579,15 +606,19 @@ def cross_radar(
     for key, (rows, label, meta) in buckets(counted.rows, group_by, identity).items():
         companies = companies_in(rows)
         n_priced = sum(1 for sid, _ in companies if readings[sid].priced)
+        n_flagged = sum(1 for sid, _ in companies if sid in flagged)
         group = Group(
             key=key,
             label=label,
             names=len(companies),
             priced=n_priced,
-            not_priced=len(companies) - n_priced,
+            not_priced=len(companies) - n_priced - n_flagged,
+            flagged=n_flagged,
             **meta,  # type: ignore[arg-type]
         )
-        c, f, nr, row = _group_view(group, companies, readings, inputs.sessions, price_200d)
+        c, f, nr, row = _group_view(
+            group, companies, readings, inputs.sessions, price_200d, flagged
+        )
         found += c
         movers += f
         if nr is not None:
@@ -637,4 +668,5 @@ def cross_radar(
         first_movers=tuple(movers),
         near_cross=tuple(near),
         timeline=tuple(timeline),
+        flagged=flagged_in_view(counted.rows, flagged),
     )

@@ -34,6 +34,12 @@ The rules, in one place (per name, per window of N trading bars, off its own bar
   volume (same thin rule).
 - **Who counts / groups:** exactly the Rotation Map's (``dashboards/baskets.py``): Context and Bench left out
   unless ``include_silent``; in the Link view a company in two links counts in both, elsewhere once per group.
+- **A flagged price history.** A company whose data flags reach its price readings at the as-of
+  (``dashboards.baskets.price_flags``, the reader the Cockpit's grayed price cells come from) is left out of
+  every aggregate: no window's median range position, quadrant split (not even ``unread``) or median
+  up/down-day volume. It still counts in its group's ``names`` (``flagged`` says how many), never priced and
+  never ``not_priced``; its member row reads no window and carries its ``flag``, and the page names it
+  (``flagged``).
 - **Default order:** the 7D median range position, highest first, "—" last, ties by label (the page re-sorts
   by any window's position or accumulation count).
 """
@@ -41,13 +47,14 @@ The rules, in one place (per name, per window of N trading bars, off its own bar
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from statistics import median
 from typing import Any, Literal
 from uuid import UUID
 
 from dashboards.baskets import (
+    FlaggedCompany,
     GroupBy,
     Membership,
     NameCard,
@@ -55,6 +62,7 @@ from dashboards.baskets import (
     companies_in,
     counted_rows,
     display_ticker,
+    flagged_in_view,
 )
 from signals.display import sma
 
@@ -197,6 +205,8 @@ class CompanyLanding:
 
 
 NO_READING = CompanyLanding(bars=0, last_bar=None, priced=False, not_priced="no_tape")
+# a flagged company's reading: no bar read, never priced, and not "not priced" either (it is left out)
+LEFT_OUT = CompanyLanding(bars=0, last_bar=None, priced=False, not_priced=None)
 
 
 def company_landing(bars: Sequence[Mapping[str, Any]], asof: date) -> CompanyLanding:
@@ -242,6 +252,9 @@ class LandingInputs:
     readings: Mapping[
         UUID, CompanyLanding
     ]  # every resolved company on the counted cards, silent included
+    # companies whose data flags reach their price readings at the as-of, each with its reason
+    # (``dashboards.baskets.price_flags``): left out of every aggregate
+    flagged: Mapping[UUID, str] = field(default_factory=dict)
 
 
 # --- the payload -----------------------------------------------------------------------------------------
@@ -278,6 +291,7 @@ class LandingName:
     not_priced: NotPriced | None
     last_bar: date | None
     windows: tuple[WindowReading, ...]
+    flag: str | None = None  # why it is left out (a flagged price history); None = read
 
 
 @dataclass(frozen=True)
@@ -293,8 +307,9 @@ class LandingGroup:
     thesis_name: str | None = None
     business_type: str | None = None  # Business type view (None = Unclassified)
     supersector: str | None = None  # Sector view (None = Unclassified)
-    names: int = 0  # companies in the group, each once
+    names: int = 0  # companies in the group, each once (flagged ones included)
     priced: int = 0
+    flagged: int = 0  # of those, left out of every aggregate for a flagged price history
     windows: tuple[GroupWindow, ...] = ()
     members: tuple[LandingName, ...] = ()
 
@@ -316,6 +331,8 @@ class Landing:
     no_tape_companies: int  # not priced: no close at or before the as-of
     stale_tape_companies: int  # not priced: the last close is too old
     groups: tuple[LandingGroup, ...]
+    # companies in view left out for a flagged price history, by ticker
+    flagged: tuple[FlaggedCompany, ...] = ()
 
 
 def _median(values: Sequence[float], ndigits: int) -> float | None:
@@ -349,7 +366,14 @@ def _window_of(windows: Sequence[Any], key: str) -> Any:
 
 def _name_sort_key(m: LandingName) -> tuple:
     v = _window_of(m.windows, DEFAULT_SORT).range_pos
-    return (v is None, -(v or 0.0), not m.priced, m.ticker.casefold(), str(m.security_id))
+    return (
+        v is None,
+        -(v or 0.0),
+        not m.priced,
+        m.flag is not None,
+        m.ticker.casefold(),
+        str(m.security_id),
+    )
 
 
 def group_sort_key(g: LandingGroup, key: str = DEFAULT_SORT) -> tuple:
@@ -370,8 +394,11 @@ def landing(
     ``business_supersector`` (``securities.master.identity_for``); only the type and sector views read it.
     """
     counted = counted_rows(inputs.memberships, include_silent)
+    flagged = inputs.flagged
+    # a flagged company reads as LEFT_OUT: no window, never priced, never "not priced"
     readings = {
-        sid: inputs.readings.get(sid, NO_READING) for sid in {m.security_id for m in counted.rows}
+        sid: LEFT_OUT if sid in flagged else inputs.readings.get(sid, NO_READING)
+        for sid in {m.security_id for m in counted.rows}
     }
     groups: list[LandingGroup] = []
     for key, (rows, label, meta) in buckets(counted.rows, group_by, identity).items():
@@ -387,17 +414,20 @@ def landing(
                     not_priced=r.not_priced,
                     last_bar=r.last_bar,
                     windows=r.windows,
+                    flag=flagged.get(sid),
                 )
             )
         members.sort(key=_name_sort_key)
+        read = [m for m in members if m.flag is None]  # every aggregate is over these
         groups.append(
             LandingGroup(
                 key=key,
                 label=label,
                 names=len(members),
-                priced=sum(1 for m in members if m.priced),
+                priced=sum(1 for m in read if m.priced),
+                flagged=len(members) - len(read),
                 windows=tuple(
-                    _window(k, [_window_of(m.windows, k) for m in members]) for k in WINDOW_KEYS
+                    _window(k, [_window_of(m.windows, k) for m in read]) for k in WINDOW_KEYS
                 ),
                 members=tuple(members),
                 **meta,  # type: ignore[arg-type]
@@ -424,4 +454,5 @@ def landing(
         no_tape_companies=count("no_tape"),
         stale_tape_companies=count("stale_tape"),
         groups=tuple(groups),
+        flagged=flagged_in_view(counted.rows, flagged),
     )

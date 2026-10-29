@@ -1,13 +1,15 @@
 """The Cross Radar dashboard's API (``docs/dashboards/cross-radar.md``): one GET over every live card, at the as-of
 dial. It READS the cards and their rosters as of the as-of (``dashboards/baskets.py``, the Rotation Map's own
 read), walks each company's price history once on the public clock (with its ``sma_position`` and
-``relative_strength`` display members), and hands the result to the pure grouping in
+``relative_strength`` display members), reads which companies' data flags reach their price readings
+(``dashboards.baskets.price_flags``, on the same view), and hands the result to the pure grouping in
 ``dashboards/cross_radar.py``. The heavy read is cached per as-of in the shared dashboard cache
 (``dashboards/cache.py``, ``docs/DASHBOARDS.md`` rule 7), so one cold compute serves every grouping and
 toggle. Its wire models live here, not in ``app/schemas_api.py`` (rule 8)."""
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import fields
 from datetime import date, datetime
 from typing import Literal
@@ -24,6 +26,7 @@ from dashboards.baskets import (
     display_members,
     memberships_of,
     per_company,
+    price_flags,
     resolved_ids,
 )
 from dashboards.cache import cached
@@ -73,7 +76,8 @@ class CrossCardOut(_Wire):
 class CrossGroupOut(_Wire):
     """One group. Link view: ``link`` (``null`` = Unsegmented) + its card. Card view: the card. Business type
     / Sector view: ``business_type`` / ``supersector`` (``null`` = Unclassified). ``names`` = the companies in
-    the group, each counted once; ``priced`` of them have a 200-day SMA at the as-of."""
+    the group, each counted once; ``priced`` of them have a 200-day SMA at the as-of, ``not_priced`` have a
+    short or stale tape, ``flagged`` are left out of everything for a flagged price history."""
 
     key: str
     label: str
@@ -85,6 +89,7 @@ class CrossGroupOut(_Wire):
     names: int
     priced: int
     not_priced: int
+    flagged: int
 
 
 class CrossNameOut(_Wire):
@@ -159,7 +164,9 @@ class CrossTimelineNameOut(_Wire):
     """One company of a timeline row. ``crosses`` = every 50d × 200d cross of the last ``history_sessions``
     sessions, newest first (``readable_sessions`` of them could be read: a name with a shorter tape reads a
     shorter history); ``price_200d`` = its price × 200d crosses when that layer is on. A name ``not_priced``
-    (``short_tape`` / ``stale_tape``) reads no crosses."""
+    (``short_tape`` / ``stale_tape``) reads no crosses. ``flag`` = why it is left out of everything (a flagged
+    price history; it then reads no crosses and is neither priced nor ``not_priced``); ``null`` = read.
+    """
 
     security_id: UUID
     ticker: str
@@ -174,11 +181,22 @@ class CrossTimelineNameOut(_Wire):
     gap_pct: float | None
     posture: Literal["above_rising", "above_falling", "below_rising", "below_falling", "other"]
     rs_leading: bool | None
+    flag: str | None
+
+
+class CrossFlaggedOut(_Wire):
+    """A company in view left out of everything: its data flags reach its price readings at the as-of (the
+    reason the Cockpit grays its price cells; a scale break makes fake crosses). ``reason`` = the flags'
+    labels."""
+
+    security_id: UUID
+    ticker: str
+    reason: str
 
 
 class CrossPostureOut(_Wire):
     """The group's names by ``sma_position`` posture; ``other`` = every other posture and every name not
-    priced."""
+    priced (a flagged name is in none)."""
 
     above_rising: int
     above_falling: int
@@ -204,6 +222,7 @@ class CrossRadarOut(_Wire):
     """The whole page in one view, each list in its default order (clusters by share then count; first
     movers newest cross first; near-cross by the smallest gap; the timeline by total crosses). The counts are
     the work shown on its quiet line; the rule dials ride along. ``sessions`` = the timeline's axis.
+    ``flagged`` = the companies in view left out of everything for a flagged price history, by ticker.
     ``cache`` / ``compute_ms`` = whether the heavy read was served from the shared dashboard cache and how
     long it took when it ran."""
 
@@ -227,6 +246,7 @@ class CrossRadarOut(_Wire):
     first_movers: list[CrossFirstMoverOut]
     near_cross: list[CrossNearGroupOut]
     timeline: list[CrossTimelineRowOut]
+    flagged: list[CrossFlaggedOut]
     recent_sessions: int
     history_sessions: int
     cluster_min_names: int
@@ -245,10 +265,12 @@ def _readings(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    flagged: Collection[UUID] = (),
 ) -> tuple[dict[UUID, CompanyCrosses], set[date]]:
     """Each company's cross history and readings, computed ONCE from the same point-in-time view the Cockpit's
     ``/display-signals`` builds (``known_at`` + ``clock`` from ``serve_view``), plus every session a priced
-    company printed in its last ``HISTORY_SESSIONS`` bars (for the timeline's axis)."""
+    company printed in its last ``HISTORY_SESSIONS`` bars (for the timeline's axis; a ``flagged`` company's
+    bars never shape it)."""
     members = display_members(MEMBERS, "Cross Radar")
     seen: set[date] = set()
 
@@ -256,7 +278,7 @@ def _readings(
         bars = pit.price_history(sid, lookback_days=sma.LOOKBACK_DAYS)
         sigs = {n: m(pit, sid, asof) for n, m in members.items()}
         got = company_crosses(bars, asof, sigs["sma_position"], sigs["relative_strength"])
-        if got.priced:
+        if got.priced and sid not in flagged:
             seen.update(recent_dates(bars))
         return got
 
@@ -288,10 +310,13 @@ def read_inputs(
     clock: Literal["record", "public"],
 ) -> RadarInputs:
     """The heavy read the cache holds: the counted cards' rosters as of the as-of, every company's cross
-    history and readings, the timeline's sessions."""
+    history and readings, its price flags (``price_flags``, on the same view), the timeline's sessions.
+    """
     counted = cards_as_of(conn, asof, known_at)
     memberships = memberships_of(counted.cards)
-    readings, seen = _readings(conn, resolved_ids(memberships), asof, known_at, clock)
+    sids = resolved_ids(memberships)
+    flagged = price_flags(conn, sids, asof, known_at=known_at, clock=clock)
+    readings, seen = _readings(conn, sids, asof, known_at, clock, flagged)
     return RadarInputs(
         live_cards=counted.live_count,
         cards_counted=len(counted.cards),
@@ -300,6 +325,7 @@ def read_inputs(
         memberships=memberships,
         readings=readings,
         sessions=timeline_sessions(_spy_dates(conn, asof, known_at, clock), seen),
+        flagged=flagged,
     )
 
 
@@ -320,8 +346,9 @@ def cross_radar(
 ) -> CrossRadarOut:
     """Golden and death crosses (the 50-day SMA crossing the 200-day) by link, business type, sector or card:
     clusters (several names crossing the same way within 10 sessions), first movers (exactly one), names
-    within 2% of a cross and narrowing, and every cross of the last 90 sessions with each group's posture.
-    Display only; a past as-of reads what was public by the end of that date."""
+    within 2% of a cross and narrowing, and every cross of the last 90 sessions with each group's posture. A
+    name whose data flags reach its price readings is left out of everything and listed. Display only; a
+    past as-of reads what was public by the end of that date."""
     known_at, clock = serve_view(asof)
     # the clock is part of the key: the same date read live today and on the public clock tomorrow are two
     # reads (a new run clears the cache anyway; this holds even on a night with no run)

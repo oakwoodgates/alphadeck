@@ -450,7 +450,7 @@ export function Cockpit({
       <header className="cp-top">
         {onBack && (
           <button type="button" className="back" onClick={onBack}>
-            ← Board
+            ← Back
           </button>
         )}
         <div className="brand">

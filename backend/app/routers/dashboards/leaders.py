@@ -1,7 +1,8 @@
 """The Leaders dashboard's API (``docs/dashboards/leaders.md``): one GET over every live card, at the as-of dial.
 It READS the cards and their rosters as of the as-of (``dashboards/baskets.py``, the Rotation Map's own read),
-runs seven display members once per company on the public clock, and hands the readings to the pure lists in
-``dashboards/leaders.py``. The heavy read is cached per as-of in the shared dashboard cache
+runs seven display members once per company on the public clock, reads which companies' data flags reach
+their price readings (``dashboards.baskets.price_flags``, on the same view), and hands the readings to the pure
+lists in ``dashboards/leaders.py``. The heavy read is cached per as-of in the shared dashboard cache
 (``dashboards/cache.py``, ``docs/DASHBOARDS.md`` rule 7), so one cold compute serves every grouping and toggle.
 Its wire models live here, not in ``app/schemas_api.py`` (rule 8)."""
 
@@ -23,6 +24,7 @@ from dashboards.baskets import (
     display_members,
     memberships_of,
     per_company,
+    price_flags,
     resolved_ids,
 )
 from dashboards.cache import cached
@@ -120,7 +122,8 @@ class LeadersInsiderGroupOut(_Wire):
     ``link`` (``null`` = Unsegmented) + its card. Card view: the card. Business type / Sector view:
     ``business_type`` / ``supersector`` (``null`` = Unclassified). ``with_buys`` of its ``names`` (each counted
     once) bought, ``share`` = ``with_buys / names``; ``no_insider_data`` of them have no Form 4 ingested;
-    ``buys`` = the group's buys."""
+    ``buys`` = the group's buys. ``flagged`` = the group's companies left out for a flagged price history (not
+    in ``names``)."""
 
     key: str
     label: str
@@ -135,13 +138,24 @@ class LeadersInsiderGroupOut(_Wire):
     share: float
     buys: int
     members: list[LeadersClusterNameOut]
+    flagged: int
+
+
+class LeadersFlaggedOut(_Wire):
+    """A company in view on no list and in no group: its data flags reach its price readings at the as-of
+    (the reason the Cockpit grays its price cells). ``reason`` = the flags' labels."""
+
+    security_id: UUID
+    ticker: str
+    reason: str
 
 
 class LeadersOut(_Wire):
     """The whole page in one view. ``names`` = every company on at least one list, in the several-lists order
     (the number of lists, then the 30D return); ``several`` = those on ``multi_min_lists`` or more; ``lists`` =
     each list's names in its default order and its no-reading count; ``insider_groups`` by names with buys,
-    then share. The counts are the work shown on its quiet line; the rule dials ride along. ``cache`` /
+    then share; ``flagged`` = the companies in view left out of every list and group for a flagged price
+    history, by ticker. The counts are the work shown on its quiet line; the rule dials ride along. ``cache`` /
     ``compute_ms`` = whether the heavy read was served from the shared dashboard cache and how long it took
     when it ran."""
 
@@ -160,6 +174,7 @@ class LeadersOut(_Wire):
     several: list[UUID]
     lists: list[LeadersListOut]
     insider_groups: list[LeadersInsiderGroupOut]
+    flagged: list[LeadersFlaggedOut]
     near_high_pct: float
     rvol_loud: float
     insider_min_buys: int
@@ -198,17 +213,19 @@ def read_inputs(
     known_at: datetime | None,
     clock: Literal["record", "public"],
 ) -> LeadersInputs:
-    """The heavy read the cache holds: the counted cards' rosters as of the as-of and every company's
-    readings."""
+    """The heavy read the cache holds: the counted cards' rosters as of the as-of, every company's readings
+    and its price flags (``price_flags``, on the same view)."""
     counted = cards_as_of(conn, asof, known_at)
     memberships = memberships_of(counted.cards)
+    sids = resolved_ids(memberships)
     return LeadersInputs(
         live_cards=counted.live_count,
         cards_counted=len(counted.cards),
         cards_not_yet_created=counted.not_yet_created,
         roster_fallback_cards=counted.roster_fallback,
         memberships=memberships,
-        readings=_readings(conn, resolved_ids(memberships), asof, known_at, clock),
+        readings=_readings(conn, sids, asof, known_at, clock),
+        flagged=price_flags(conn, sids, asof, known_at=known_at, clock=clock),
     )
 
 
@@ -224,8 +241,9 @@ def leaders(
 ) -> LeadersOut:
     """Names across every card within 2% of their 52-week high, with relative strength at a 13-week high,
     coiling, with open-market insider buys in the last 30 days, or with RVOL 20D at 1.5 or more; the names on
-    several of those lists; and the groups where at least two names had insider buys. One row per company.
-    Display only; a past as-of reads what was public by the end of that date."""
+    several of those lists; and the groups where at least two names had insider buys. One row per company. A
+    name whose data flags reach its price readings is on no list and in no group, and is listed. Display
+    only; a past as-of reads what was public by the end of that date."""
     known_at, clock = serve_view(asof)
     # the clock is part of the key: the same date read live today and on the public clock tomorrow are two
     # reads (a new run clears the cache anyway; this holds even on a night with no run)

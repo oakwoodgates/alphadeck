@@ -69,6 +69,15 @@ A group with fewer than 3 priced names for a window shows "—" for that window'
 shows n) and is never colored: the Cockpit's link-header rule (`groupAggregate.ts`'s `AGG_MIN_PRICED`). The
 RVOL median follows the same rule.
 
+### A flagged price history
+
+A company whose data flags reach its price readings at the as-of (`dashboards.baskets.price_flags`, the
+reader behind the Cockpit's grayed price cells; `docs/DASHBOARDS.md` rule 5) is left out of every aggregate:
+no window's median, "x/n up" or "above SPY", no above-50d share, RVOL median, cross or RS count. It still
+counts in its group's Names (with "N left out" under the count) and never as priced; expanded, the group lists
+it grayed as "left out: <reason>" with no reading. The page shows a quiet "N names left out for a flagged
+price history" that opens to each ticker and the flags' labels.
+
 ### The quiet "show the work" line
 
 Live cards counted (and how many were created after the as-of), companies, groups, priced companies, the
@@ -133,8 +142,9 @@ cache state ("cached" / "computed in 41 s — first load since the last run or b
 
 - **Coloring is cross-sectional**, against the other groups in view, not against each group's own history.
 - **Business type and sector come from today's master**, at any as-of.
-- **Data flags are not applied.** The Cockpit's link header leaves out a 7d value a data flag (split plan
-  S3) reaches; this page does not read the data flags yet, so a flagged value counts in its group's median.
+- **The price flags are read inside the cached read** (as on the Narrative Index), so an operator's split
+  review in Admin (which clears a flag) reaches this page at the next run or roster edit; the flags are
+  read once per as-of, so a flag on any price cell leaves the name out of every window.
 - **The cache refreshes on a new run, a roster edit, or a card created, archived or renamed.** Prices a
   Workbench pull or an onboarding batch writes between runs show after the next run or roster edit. (A
   business-type re-tag shows at once: identity is read per request, outside the cache.)

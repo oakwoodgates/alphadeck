@@ -20,6 +20,11 @@ The rules, in one place:
   a company with no business type / sector as "Unclassified" (``None``). A basket row with no resolved
   security is counted on the quiet line, never dropped (rule 5 / invariant #9). These rules live in
   ``dashboards/baskets.py``, shared with the Cross Radar.
+- **A flagged price history.** A company whose data flags reach its price readings at the as-of
+  (``dashboards.baskets.price_flags``, the reader the Cockpit's grayed price cells come from) is left out of
+  every aggregate: no window's median, "x/n up" or "above SPY", no above-50d share, RVOL median, cross or RS
+  count. It still counts in its group's ``names`` (``flagged`` says how many), never in ``priced_companies``;
+  its member row carries no reading and its ``flag``, and the page names it (``flagged``).
 - **Color only the unusual.** A return median is toned ``pos`` / ``neg`` only when it sits in the top /
   bottom ``TONE_SHARE`` of the groups in view with a value in that column (cross-sectional, ties included,
   ``len // 10`` groups each side, so a view of fewer than 10 groups colors nothing). The vs-SPY view
@@ -39,10 +44,17 @@ from uuid import UUID
 # the cards, rosters, groups and who counts: shared with the Cross Radar (``dashboards/baskets.py``), and
 # re-exported here under their old names
 from dashboards.baskets import GROUP_BYS as GROUP_BYS
+from dashboards.baskets import (
+    FlaggedCompany,
+    buckets,
+    companies_in,
+    counted_rows,
+    display_ticker,
+    flagged_in_view,
+)
 from dashboards.baskets import GroupBy as GroupBy
 from dashboards.baskets import Membership as Membership
 from dashboards.baskets import NameCard as NameCard
-from dashboards.baskets import buckets, companies_in, counted_rows, display_ticker
 from dashboards.baskets import cards_that_existed as cards_that_existed
 from dashboards.baskets import memberships_of as memberships_of
 from signals.display.base import DisplaySignal
@@ -145,6 +157,9 @@ class RotationInputs:
         UUID, CompanyTape
     ]  # every resolved company on the counted cards, silent ones included
     spy: Mapping[str, float | None] | None  # SPY's own trailing returns; None = no SPY tape
+    # companies whose data flags reach their price readings at the as-of, each with its reason
+    # (``dashboards.baskets.price_flags``): left out of every aggregate
+    flagged: Mapping[UUID, str] = field(default_factory=dict)
 
 
 # --- the payload -----------------------------------------------------------------------------------------
@@ -171,6 +186,7 @@ class NameRow:
     cross: Cross | None  # within CROSS_DAYS of the as-of
     cross_date: date | None
     rs_leading: bool | None
+    flag: str | None = None  # why it is left out (a flagged price history); None = read
 
 
 @dataclass(frozen=True)
@@ -183,7 +199,8 @@ class GroupRow:
     thesis_name: str | None = None
     business_type: str | None = None  # Business type view (None = Unclassified)
     supersector: str | None = None  # Sector view (None = Unclassified)
-    names: int = 0
+    names: int = 0  # companies in the group, each once (flagged ones included)
+    flagged: int = 0  # of those, left out of every aggregate for a flagged price history
     windows: tuple[WindowStat, ...] = ()
     above_50d: int = 0
     above_50d_n: int = 0
@@ -210,9 +227,11 @@ class RotationMap:
     silent_rows_left_out: int
     unresolved_rows: int  # rows in view with no resolved security: counted, never grouped
     companies: int  # distinct resolved companies in view
-    priced_companies: int  # of those, companies with a close at the as-of
+    priced_companies: int  # of those, companies with a close at the as-of (never a flagged one)
     spy: Mapping[str, float | None] | None
     groups: tuple[GroupRow, ...]
+    # companies in view left out for a flagged price history, by ticker
+    flagged: tuple[FlaggedCompany, ...] = ()
 
 
 def _median(values: Sequence[float]) -> float | None:
@@ -243,14 +262,19 @@ def _group(
     spy: Mapping[str, float | None] | None,
     asof: date,
     label: str,
+    flagged: Mapping[UUID, str],
     **ident: object,
 ) -> GroupRow:
-    """One group over its membership rows: each company once (its rows' cards and links folded together)."""
+    """One group over its membership rows: each company once (its rows' cards and links folded together).
+    A flagged company is listed with no reading and its ``flag``, and left out of every aggregate.
+    """
     members: list[NameRow] = []
     group_tapes: list[CompanyTape] = []
     for sid, cards in companies_in(rows):
-        tape = tapes.get(sid, NO_TAPE)
-        group_tapes.append(tape)
+        flag = flagged.get(sid)
+        tape = NO_TAPE if flag is not None else tapes.get(sid, NO_TAPE)
+        if flag is None:
+            group_tapes.append(tape)
         cross = recent_cross(tape, asof)
         members.append(
             NameRow(
@@ -263,6 +287,7 @@ def _group(
                 cross=cross,
                 cross_date=tape.cross_date if cross else None,
                 rs_leading=tape.rs_leading,
+                flag=flag,
             )
         )
     members.sort(key=_name_sort_key)
@@ -273,6 +298,7 @@ def _group(
     return GroupRow(
         key=key,
         names=len(members),
+        flagged=len(members) - len(group_tapes),
         windows=tuple(_window_stat(w, group_tapes, (spy or {}).get(w)) for w in WINDOWS),
         above_50d=sum(above),
         above_50d_n=len(above),
@@ -337,8 +363,9 @@ def rotation_map(
     """
     counted = counted_rows(inputs.memberships, include_silent)
     rows = counted.rows
+    flagged = inputs.flagged
     groups = [
-        _group(key, members, inputs.tapes, inputs.spy, asof, label, **meta)
+        _group(key, members, inputs.tapes, inputs.spy, asof, label, flagged, **meta)
         for key, (members, label, meta) in buckets(rows, group_by, identity).items()
     ]
     groups = _tones(groups)
@@ -357,7 +384,10 @@ def rotation_map(
         silent_rows_left_out=counted.silent_rows_left_out,
         unresolved_rows=counted.unresolved_rows,
         companies=len(companies),
-        priced_companies=sum(1 for sid in companies if inputs.tapes.get(sid, NO_TAPE).priced),
+        priced_companies=sum(
+            1 for sid in companies if sid not in flagged and inputs.tapes.get(sid, NO_TAPE).priced
+        ),
         spy=inputs.spy,
         groups=tuple(groups),
+        flagged=flagged_in_view(rows, flagged),
     )

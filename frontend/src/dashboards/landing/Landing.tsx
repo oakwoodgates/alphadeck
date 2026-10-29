@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 
+import { FlaggedNote, leftOutWords } from "../FlaggedNote";
 import type { DashboardProps } from "../registry";
 import "./landing.css";
 import {
@@ -203,6 +204,7 @@ function LabelTh({
 }
 
 function notPricedWords(m: LandingNameOut): string | null {
+  if (m.flag != null) return leftOutWords(m.flag);
   if (m.priced) return null;
   if (m.not_priced === "stale_tape")
     return m.last_bar ? `stale tape · last bar ${fmtDay(m.last_bar)}` : "stale tape";
@@ -220,7 +222,7 @@ function NameRow({
 }) {
   const off = notPricedWords(name);
   return (
-    <tr className="ld-name">
+    <tr className={`ld-name${name.flag != null ? " flagged" : ""}`}>
       <td className="ld-name-id">
         <span className="ld-tk">{name.ticker}</span>
         <span className="ld-chips">
@@ -313,7 +315,14 @@ function GroupRow({
           </span>
           {label}
         </td>
-        <td className="ld-num ld-v">{g.names}</td>
+        <td className="ld-num">
+          <span className="ld-v">{g.names}</span>
+          {g.flagged > 0 && (
+            <span className="ld-sub" title="left out of every number: a flagged price history">
+              {g.flagged} left out
+            </span>
+          )}
+        </td>
         {WINDOWS.map((w) => {
           const s = groupWindow(g, w.key);
           if (!s) return <td key={w.key} className="ld-cell" />;
@@ -411,6 +420,7 @@ export default function Landing({ asof, onSelectThesis }: DashboardProps) {
         )}
       </div>
       <div className="dash-note ld-work">{workLine(data, groups.length)}</div>
+      <FlaggedNote flagged={data.flagged} />
       {data.roster_fallback_cards > 0 && (
         <div className="dash-note ld-work">
           Today's roster stands in for {plural(data.roster_fallback_cards, "card", "cards")}: rosters are

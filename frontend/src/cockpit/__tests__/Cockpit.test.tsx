@@ -118,3 +118,34 @@ describe("Cockpit — the basket Type cell (Business-Type M1)", () => {
     expect(screen.getByText("$3.2B")).toBeInTheDocument(); // URA's computed cap (formatMarketCap(3.2e9))
   });
 });
+
+describe("Cockpit — the back button", () => {
+  const renderWith = (onBack?: () => void) =>
+    render(
+      <Cockpit
+        thesisId="t-etf"
+        asof="2026-06-20"
+        onAsofChange={() => {}}
+        onBack={onBack}
+        selectedName={null}
+        onSelectName={() => {}}
+        railOpen
+        onRailChange={() => {}}
+      />,
+    );
+
+  it("reads '← Back' (it returns to whatever page the click came from, not always the Board) and calls onBack", async () => {
+    const user = userEvent.setup();
+    const onBack = vi.fn();
+    renderWith(onBack);
+    const back = screen.getByRole("button", { name: "← Back" });
+    expect(screen.queryByRole("button", { name: "← Board" })).toBeNull();
+    await user.click(back);
+    expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
+  it("is absent without an onBack", () => {
+    renderWith(undefined);
+    expect(screen.queryByRole("button", { name: "← Back" })).toBeNull();
+  });
+});

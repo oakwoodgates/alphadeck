@@ -67,6 +67,15 @@ Cockpit on the name (`onSelectThesis(thesisId, ticker)`); a name on several card
 per chip (with its links outside the Link view). A name not priced says so quietly ("no tape", "stale tape ·
 last bar …").
 
+### A flagged price history
+
+A company whose data flags reach its price readings at the as-of (`dashboards.baskets.price_flags`;
+`docs/DASHBOARDS.md` rule 5) is left out of every aggregate: no window's median range position, quadrant split
+(not even "unread") or median up/down-day volume. It counts in its group's Names (with "N left out" under the
+count), never as priced or not priced; expanded, the group lists it grayed as "left out: <reason>" with no
+window. The page shows a quiet "N names left out for a flagged price history" that opens to each ticker and
+reason.
+
 ### The quiet "show the work" line
 
 Cards counted (and how many were created after the as-of), companies, groups, priced names (with how many
@@ -128,7 +137,9 @@ trading bars"), the cache state and the as-of. A legend line words the position,
 - **1D up/down-day volume is degenerate by construction**: one bar is either an up day (no down days,
   so "—") or a down day (no up-day volume, so 0.00×). The group median reads 0.00× when at least 3
   names closed down that day, "—" otherwise. Kept as the plan specified it, for one consistent column.
-- **Data flags are not applied** (the Rotation Map's limit): a value a data flag reaches counts in its group.
+- **The price flags are read inside the cached read** (as on the Narrative Index), so an operator's split
+  review in Admin (which clears a flag) reaches this page at the next run or roster edit; the flags are
+  read once per as-of, so a flag on any price cell leaves the name out of every window.
 - **The cache refreshes on a new run, a roster edit, or a card created, archived or renamed** (rule 7).
 - **Load time is unmeasured until review.**
 

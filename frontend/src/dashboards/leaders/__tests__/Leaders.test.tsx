@@ -91,6 +91,7 @@ const group = (key: string, over: Partial<LeadersInsiderGroupOut> = {}): Leaders
       cluster: false,
     },
   ],
+  flagged: 0,
   ...over,
 });
 
@@ -123,6 +124,7 @@ const DATA: LeadersOut = {
     list("volume", "rvol", ["s-AAA"], 15),
   ],
   insider_groups: [group(`link:t-grid:Turbines`)],
+  flagged: [],
   near_high_pct: -2.0,
   rvol_loud: 1.5,
   insider_min_buys: 1,
@@ -333,5 +335,42 @@ describe("Leaders — insider clusters, toggles and clicks", () => {
     const table = screen.getByRole("table", { name: "Insider clusters by group" });
     await userEvent.click(within(table).getByRole("button", { name: /DDD/ }));
     expect(onSelectThesis).toHaveBeenLastCalledWith("t-grid", "DDD");
+  });
+});
+
+describe("Leaders — a flagged price history", () => {
+  const MIXED = "mixed-scale price history";
+  const FLAGGED: LeadersOut = {
+    ...DATA,
+    flagged: [{ security_id: "s-RBOT", ticker: "RBOT", reason: MIXED }],
+    insider_groups: [group(`link:t-grid:Turbines`, { names: 4, share: 0.5, flagged: 1 })],
+  };
+
+  it("names the left-out companies on one quiet line that opens to each ticker and reason", async () => {
+    const user = userEvent.setup();
+    h.useLeaders.mockReturnValue(query(FLAGGED));
+    renderPage();
+    const note = screen.getByText("1 name left out for a flagged price history");
+    await user.click(note);
+    expect(note.closest("details")).toHaveAttribute("open");
+    expect((screen.getByText("RBOT").closest("li") as HTMLElement).textContent).toBe(`RBOT ${MIXED}`);
+    // never on a list: the server keeps it off, so no list row carries it
+    expect(document.querySelectorAll("tr .ld-tk")).not.toHaveLength(0);
+    expect([...document.querySelectorAll("tr .ld-tk")].map((e) => e.textContent)).not.toContain("RBOT");
+  });
+
+  it("an insider group counts the names it left out", () => {
+    h.useLeaders.mockReturnValue(query(FLAGGED));
+    renderPage();
+    const table = screen.getByRole("table", { name: "Insider clusters by group" });
+    const row = within(table).getAllByRole("row")[1];
+    expect(within(row).getByText("2 of 4")).toBeInTheDocument();
+    expect(within(row).getByText("1 left out")).toBeInTheDocument();
+  });
+
+  it("shows no note when nothing is left out", () => {
+    renderPage();
+    expect(screen.queryByText(/left out for a flagged price history/)).toBeNull();
+    expect(screen.queryByText("1 left out")).toBeNull();
   });
 });

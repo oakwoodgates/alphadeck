@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 from app.deps import get_conn
 from app.main import app
 from app.routers.dashboards import rotation_map as router_mod
+from dashboards.baskets import CardsAsOf
 from dashboards.cache import CACHE
 from dashboards.rotation_map import (
     MIN_PRICED,
@@ -454,6 +455,116 @@ def test_cards_created_after_the_asof_are_left_out():
 
 
 # ---------------------------------------------------------------------------------------------------------
+# a flagged price history (dashboards.baskets.price_flags): left out of every aggregate, named on the page
+# ---------------------------------------------------------------------------------------------------------
+
+MIXED = "mixed-scale price history"
+
+
+def _robots():
+    """Card 1's Robots link: RBOT (a +8,900% one-bar scale break read as a return, a golden cross, RS leading,
+    loud volume) and three clean names. Card 2's Power link: two clean names, one of them also on card 1.
+    """
+    rbot, a, b, c, d = S[0], S[1], S[2], S[3], S[4]
+    rows = [
+        ms(T1, "Robots", "RBOT", rbot, "Robots"),
+        ms(T1, "Robots", "AAA", a, "Robots"),
+        ms(T1, "Robots", "BBB", b, "Robots"),
+        ms(T1, "Robots", "CCC", c, "Robots"),
+        ms(T2, "Power", "AAA", a, "Power"),
+        ms(T2, "Power", "DDD", d, "Power"),
+    ]
+    tapes = {
+        rbot: tape(
+            8900.0,
+            rets={"ret_1d": 8900.0, "ret_30d": 8000.0},
+            pct_vs_50d=900.0,
+            rvol20=9.0,
+            cross="golden",
+            cross_date=ASOF - timedelta(days=3),
+            rs_leading=True,
+        ),
+        a: tape(2.0, pct_vs_50d=1.0, rvol20=1.0, rs_leading=False),
+        b: tape(-1.0, pct_vs_50d=-2.0, rvol20=1.2, rs_leading=False),
+        c: tape(3.0, pct_vs_50d=4.0, rvol20=0.8, rs_leading=False),
+        d: tape(5.0, pct_vs_50d=2.0, rvol20=1.5, rs_leading=True),
+    }
+    return rows, tapes
+
+
+def _stats(g):
+    """Everything a group row aggregates (its names and flagged counts aside)."""
+    return (
+        [(s.key, s.median, s.n, s.up, s.above_spy) for s in g.windows],
+        (g.above_50d, g.above_50d_n, g.rvol20_median, g.rvol20_n),
+        (g.golden, g.death, g.rs_leaders, g.rs_n),
+    )
+
+
+@pytest.mark.parametrize("group_by", ["link", "card", "business_type"])
+def test_a_flagged_company_is_left_out_of_every_aggregate_and_named_on_the_page(group_by):
+    """RBOT is flagged: every median, "x/n up", "above SPY", above-50d share, RVOL median, cross and RS count of
+    its group reads exactly as without it; it stays listed (no reading, its flag), counts in the group's names
+    and in ``flagged``, never in ``priced_companies``, and the page names it with the flag's label.
+    """
+    rows, tapes = _robots()
+    spy = {w: 0.5 for w in WINDOWS}
+    # card 1's four names share a business type; DDD (card 2 only) is another
+    identity = {sid: {"business_type": "robotics"} for sid in S[:4]}
+    identity[S[4]] = {"business_type": "utilities"}
+    without = rotation_map(
+        inputs([m for m in rows if m.ticker != "RBOT"], tapes, spy=spy),
+        identity,
+        asof=ASOF,
+        group_by=group_by,
+    )
+    result = rotation_map(
+        inputs(rows, tapes, spy=spy, flagged={S[0]: MIXED}),
+        identity,
+        asof=ASOF,
+        group_by=group_by,
+    )
+    g = next(g for g in result.groups if any(m.ticker == "RBOT" for m in g.members))
+    alone = next(x for x in without.groups if x.key == g.key)
+    assert _stats(g) == _stats(alone)
+    assert win(g).median == 2.0 and (win(g).n, win(g).up) == (3, 2)  # median of [-1, 2, 3]
+    assert (g.golden, g.rs_leaders) == (0, 0)  # RBOT's cross and RS never count
+    assert (g.names, g.flagged) == (alone.names + 1, 1)
+
+    rbot = next(m for m in g.members if m.ticker == "RBOT")
+    assert rbot.flag == MIXED and all(v is None for v in rbot.returns.values())
+    assert (rbot.above_50d, rbot.rvol20, rbot.cross, rbot.rs_leading) == (None, None, None, None)
+    assert g.members[-1] is rbot  # no reading sorts last
+    assert all(m.flag is None for m in g.members if m.ticker != "RBOT")
+
+    assert [(f.ticker, f.reason) for f in result.flagged] == [("RBOT", MIXED)]
+    assert (result.companies, result.priced_companies) == (5, 4)
+
+
+def test_an_unflagged_group_is_unaffected_by_a_flag_elsewhere():
+    """Card 2's Power link holds no flagged name: it reads exactly as with no flag at all."""
+    rows, tapes = _robots()
+    plain = rotation_map(inputs(rows, tapes), {}, asof=ASOF)
+    flagged = rotation_map(inputs(rows, tapes, flagged={S[0]: MIXED}), {}, asof=ASOF)
+    assert grp(flagged, f"link:{T2}:Power") == grp(plain, f"link:{T2}:Power")
+    assert grp(flagged, f"link:{T2}:Power").flagged == 0
+    assert plain.flagged == () and grp(plain, f"link:{T1}:Robots").flagged == 0
+
+
+def test_a_flagged_company_out_of_view_is_not_named():
+    """A flag on a Context name stays off the page while Context is left out, and is named once shown."""
+    rows = [ms(T1, "Grid", "AAA", S[0]), ms(T1, "Grid", "CTX", S[1], CONTEXT_LABEL)]
+    tapes = {S[0]: tape(1.0), S[1]: tape(2.0)}
+    off = rotation_map(inputs(rows, tapes, flagged={S[1]: MIXED}), {}, asof=ASOF)
+    assert off.flagged == () and off.priced_companies == 1
+    on = rotation_map(
+        inputs(rows, tapes, flagged={S[1]: MIXED}), {}, asof=ASOF, include_silent=True
+    )
+    assert [(f.ticker, f.reason) for f in on.flagged] == [("CTX", MIXED)]
+    assert (on.companies, on.priced_companies) == (2, 1)
+
+
+# ---------------------------------------------------------------------------------------------------------
 # the router (pure: the heavy read stubbed)
 # ---------------------------------------------------------------------------------------------------------
 
@@ -525,6 +636,54 @@ def test_the_router_rejects_an_unknown_grouping(stub_client):
     assert r.status_code == 422
 
 
+def test_the_router_reads_the_price_flags_inside_the_cached_read(monkeypatch):
+    """``read_inputs`` itself reads the flags (the real one, its DB reads stubbed): once per cached read, for
+    every resolved company, on the request's one ``serve_view`` pair; every grouping after it is a hit.
+    """
+    rows, tapes = _robots()
+    seen: dict = {"flag_reads": 0}
+
+    def fake_flags(conn, ids, asof, *, known_at, clock):
+        seen["flag_reads"] += 1
+        seen["flags_view"] = (set(ids), asof, known_at, clock)
+        return {S[0]: MIXED}
+
+    CACHE.clear()
+    monkeypatch.setattr(
+        router_mod, "cards_as_of", lambda conn, asof, known_at: CardsAsOf(2, [], 0, 0)
+    )
+    monkeypatch.setattr(router_mod, "memberships_of", lambda cards: tuple(rows))
+    monkeypatch.setattr(router_mod, "_tapes", lambda conn, sids, asof, known_at, clock: tapes)
+    monkeypatch.setattr(router_mod, "_spy", lambda conn, asof, known_at, clock: None)
+    monkeypatch.setattr(router_mod, "price_flags", fake_flags)
+    monkeypatch.setattr(router_mod.master, "identity_for", lambda conn, ids, **kw: {})
+    monkeypatch.setattr(CACHE, "_token_fn", lambda conn: "gen-1")
+    app.dependency_overrides[get_conn] = lambda: object()
+    try:
+        client = TestClient(app)
+        body = client.get("/dashboards/rotation-map", params={"asof": "2026-06-01"}).json()
+        again = client.get(
+            "/dashboards/rotation-map", params={"asof": "2026-06-01", "group_by": "card"}
+        ).json()
+    finally:
+        app.dependency_overrides.clear()
+        CACHE.clear()
+
+    ids, asof, known_at, clock = seen["flags_view"]
+    assert seen["flag_reads"] == 1 and again["cache"] == "hit"
+    assert ids == set(S[:5]) and asof == ASOF and clock == "public" and known_at is not None
+    assert body["flagged"] == [{"security_id": str(S[0]), "ticker": "RBOT", "reason": MIXED}]
+    robots = next(g for g in body["groups"] if g["link"] == "Robots")
+    assert robots["flagged"] == 1 and win_out(robots)["median"] == 2.0
+    rbot = next(m for m in robots["members"] if m["ticker"] == "RBOT")
+    assert rbot["flag"] == MIXED and rbot["returns"]["ret_7d"] is None
+    assert again["flagged"] == body["flagged"]
+
+
+def win_out(group: dict, key: str = "ret_7d") -> dict:
+    return next(w for w in group["windows"] if w["key"] == key)
+
+
 # ---------------------------------------------------------------------------------------------------------
 # DB-backed: a price published after a past as-of stays invisible to it (skips without Postgres)
 # ---------------------------------------------------------------------------------------------------------
@@ -559,10 +718,12 @@ def _security(db, ticker: str) -> UUID:
     return sid
 
 
-def test_a_price_published_after_a_past_asof_stays_invisible(db):
+def test_a_price_published_after_a_past_asof_stays_invisible(db, monkeypatch):
     """220 daily bars ending at the as-of, each public at its own session. The as-of's own bar is then
     re-versioned a week after the thaw at double the close: the past view still reads the ORIGINAL close
-    (the correction was not public by the end of that day), a live view reads the correction."""
+    (the correction was not public by the end of that day), a live view reads the correction. The data flags
+    ride the same views through the real reader: none at the past as-of; on today's view the tape (it ends
+    2026-06-01) is a stopped feed, so the name is left out of every aggregate and named."""
     sid = _security(db, "ROTA")
     start = ASOF - timedelta(days=219)
     for i in range(220):
@@ -590,6 +751,12 @@ def test_a_price_published_after_a_past_asof_stays_invisible(db):
         live = client.get(
             "/dashboards/rotation-map", params={"asof": market_today().isoformat()}
         ).json()
+        # the clock alone: the same live read with the flag read stubbed out
+        CACHE.clear()
+        monkeypatch.setattr(router_mod, "price_flags", lambda *a, **k: {})
+        unflagged = client.get(
+            "/dashboards/rotation-map", params={"asof": market_today().isoformat()}
+        ).json()
     finally:
         app.dependency_overrides.clear()
         CACHE.clear()
@@ -600,5 +767,17 @@ def test_a_price_published_after_a_past_asof_stays_invisible(db):
     assert name["ticker"] == "ROTA" and group["link"] == "Core"
     # the card existed on the as-of; no roster snapshot then, so today's roster stood in (and is counted)
     assert past["cards_counted"] == 1 and past["roster_fallback_cards"] == 1
-    (lname,) = live["groups"][0]["members"]
-    assert lname["returns"]["ret_1d"] == round((63.8 / 31.8 - 1) * 100, 2)
+    assert name["flag"] is None and past["flagged"] == [] and group["flagged"] == 0
+
+    # today's view: no bar since 2026-06-01 is a stopped feed (``tape_stale_days``), a flag on every price
+    # cell, so the name is left out of every aggregate: listed with its flag and no reading, and named
+    (lgroup,) = live["groups"]
+    (lname,) = lgroup["members"]
+    assert lname["flag"] == "price feed stopped" and lname["returns"]["ret_1d"] is None
+    assert (lgroup["names"], lgroup["flagged"], live["priced_companies"]) == (1, 1, 0)
+    assert all(w["n"] == 0 for w in lgroup["windows"])
+    assert live["flagged"] == [
+        {"security_id": str(sid), "ticker": "ROTA", "reason": "price feed stopped"}
+    ]
+    (uname,) = unflagged["groups"][0]["members"]
+    assert uname["returns"]["ret_1d"] == round((63.8 / 31.8 - 1) * 100, 2)

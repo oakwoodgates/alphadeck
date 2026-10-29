@@ -46,6 +46,9 @@ tr.rm-group.quiet .rm-label { color: var(--txt-3); }
 
 /* a group's names, under its row: quieter and indented */
 tr.rm-name td { padding-top: 4px; padding-bottom: 4px; background: color-mix(in srgb, var(--panel) 50%, transparent); }
+/* a name left out for a flagged price history: grayed, never gone (WB#2) */
+tr.rm-name.flagged td { opacity: 0.6; }
+.rm-off { margin-left: 8px; font-family: var(--mono); font-size: 9.5px; color: var(--txt-4); }
 .rm-name-id { padding-left: 14px; white-space: nowrap; }
 .rm-tk { font-family: var(--mono); font-weight: 700; font-size: 11px; color: var(--txt-2); margin-right: 8px; }
 .rm-chips { display: inline-flex; flex-wrap: wrap; gap: 4px; vertical-align: middle; }

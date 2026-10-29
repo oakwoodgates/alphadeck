@@ -33,6 +33,7 @@ const group = (link: string, over: Partial<CrossGroupOut> = {}): CrossGroupOut =
   names: 7,
   priced: 7,
   not_priced: 0,
+  flagged: 0,
   ...over,
 });
 
@@ -100,6 +101,7 @@ const tname = (ticker: string, over: Partial<CrossTimelineNameOut> = {}): CrossT
   gap_pct: -3.0,
   posture: "below_rising",
   rs_leading: null,
+  flag: null,
   ...over,
 });
 
@@ -151,6 +153,7 @@ const DATA: CrossRadarOut = {
   first_movers: [MOVER, ROLLOVER],
   near_cross: [NEAR],
   timeline: [QUIET_ROW, ROW],
+  flagged: [],
   recent_sessions: 10,
   history_sessions: 90,
   cluster_min_names: 2,
@@ -369,5 +372,58 @@ describe("Cross Radar — a timeline row's names", () => {
     expect(onSelectThesis).toHaveBeenLastCalledWith("t-grid", "BWXT");
     await user.click(within(section("Near-cross watch")).getByRole("button", { name: "MMM" }));
     expect(onSelectThesis).toHaveBeenLastCalledWith("t-grid", "MMM");
+  });
+});
+
+describe("Cross Radar — a flagged price history", () => {
+  const MIXED = "mixed-scale price history";
+  const FLAGGED: CrossRadarOut = {
+    ...DATA,
+    priced_companies: 1401,
+    flagged: [{ security_id: "s-rbot", ticker: "RBOT", reason: MIXED }],
+    timeline: [
+      QUIET_ROW,
+      {
+        ...ROW,
+        group: group("Turbines", { names: 4, priced: 2, not_priced: 1, flagged: 1 }),
+        members: [
+          ...ROW.members,
+          tname("RBOT", { priced: false, not_priced: null, bars: 0, last_bar: null, gap_pct: null, posture: "other", flag: MIXED }),
+        ],
+      },
+    ],
+  };
+
+  it("names the left-out companies on one quiet line that opens to each ticker and reason", async () => {
+    const user = userEvent.setup();
+    h.useCrossRadar.mockReturnValue(query(FLAGGED));
+    renderPage();
+    const note = screen.getByText("1 name left out for a flagged price history");
+    expect(note.closest("details")).not.toHaveAttribute("open");
+    await user.click(note);
+    expect(note.closest("details")).toHaveAttribute("open");
+    const item = screen.getByText("RBOT").closest("li") as HTMLElement;
+    expect(item.textContent).toBe(`RBOT ${MIXED}`);
+    // the work line's "not priced" never counts a left-out name: 1,480 - 1,401 priced - 1 left out
+    expect(screen.getByText(/· 78 not priced \(70 too few bars, 8 stale tape\) ·/)).toBeInTheDocument();
+  });
+
+  it("an expanded group lists the flagged name grayed with its reason, never gone", async () => {
+    const user = userEvent.setup();
+    h.useCrossRadar.mockReturnValue(query(FLAGGED));
+    renderPage();
+    const row = screen.getAllByRole("row").find((r) => r.classList.contains("xr-tl") && r.textContent?.includes("Turbines"));
+    if (!row) throw new Error("no Turbines row");
+    expect(row.textContent).toContain("4 names · 1 not priced · 1 left out");
+    await user.click(row);
+    const rbot = [...document.querySelectorAll("tr.xr-tl-name")].find((r) => r.textContent?.startsWith("RBOT"));
+    expect(rbot).toHaveClass("flagged");
+    expect(within(rbot as HTMLElement).getByText(`left out: ${MIXED}`)).toBeInTheDocument();
+    expect((rbot as HTMLElement).querySelector("svg")).toBeNull(); // no strip: no crosses drawn
+  });
+
+  it("shows no note when nothing is left out", () => {
+    renderPage();
+    expect(screen.queryByText(/left out for a flagged price history/)).toBeNull();
   });
 });

@@ -1,7 +1,8 @@
 """The Rotation Map dashboard's API (``docs/dashboards/rotation-map.md``): one GET over every live card, at the
 as-of dial. It READS the cards (``thesis_repo.list_all``, archived excluded; each card's roster as of the
-as-of via ``get_asof``), runs four display members once per company on the public clock, and hands the
-result to the pure grouping in ``dashboards/rotation_map.py``. The heavy read is cached per as-of in the
+as-of via ``get_asof``), runs four display members once per company on the public clock, reads which
+companies' data flags reach their price readings (``dashboards.baskets.price_flags``, on the same view), and
+hands the result to the pure grouping in ``dashboards/rotation_map.py``. The heavy read is cached per as-of in the
 shared dashboard cache (``dashboards/cache.py``, ``docs/DASHBOARDS.md`` rule 7), so one cold compute serves
 every grouping and toggle. Its wire models live here, not in ``app/schemas_api.py`` (rule 8)."""
 
@@ -23,6 +24,7 @@ from dashboards.baskets import (
     display_members,
     memberships_of,
     per_company,
+    price_flags,
     resolved_ids,
 )
 from dashboards.cache import cached
@@ -80,7 +82,8 @@ class RotationNameCardOut(_Wire):
 
 class RotationNameOut(_Wire):
     """One company in a group. ``cross`` is its golden / death cross when it printed within ``cross_days``
-    of the as-of."""
+    of the as-of. ``flag`` = why it is left out of every aggregate (a flagged price history; it then carries
+    no reading); ``null`` = read."""
 
     security_id: UUID
     ticker: str
@@ -91,12 +94,23 @@ class RotationNameOut(_Wire):
     cross: Literal["golden", "death"] | None
     cross_date: date | None
     rs_leading: bool | None
+    flag: str | None
+
+
+class RotationFlaggedOut(_Wire):
+    """A company in view left out of every aggregate: its data flags reach its price readings at the as-of
+    (the reason the Cockpit grays its price cells). ``reason`` = the flags' labels."""
+
+    security_id: UUID
+    ticker: str
+    reason: str
 
 
 class RotationGroupOut(_Wire):
     """One row of the map. Link view: ``link`` (``null`` = Unsegmented) + its card. Card view: the card.
     Business type / Sector view: ``business_type`` / ``supersector`` (``null`` = Unclassified). ``names`` =
-    the companies in the group, each counted once."""
+    the companies in the group, each counted once; ``flagged`` = of those, left out of every aggregate for a
+    flagged price history."""
 
     key: str
     link: str | None
@@ -105,6 +119,7 @@ class RotationGroupOut(_Wire):
     business_type: str | None
     supersector: str | None
     names: int
+    flagged: int
     windows: list[RotationWindowOut]
     above_50d: int
     above_50d_n: int
@@ -120,7 +135,8 @@ class RotationGroupOut(_Wire):
 class RotationMapOut(_Wire):
     """The whole page in one view, groups in the default order (the 7d median, highest first, "—" last).
     The counts are the work shown on its quiet line. ``spy`` = SPY's own trailing returns (``null`` = no
-    SPY tape at the as-of). ``cache`` / ``compute_ms`` = whether the heavy read was served from the shared
+    SPY tape at the as-of). ``flagged`` = the companies in view left out of every aggregate for a flagged
+    price history, by ticker. ``cache`` / ``compute_ms`` = whether the heavy read was served from the shared
     dashboard cache and how long it took when it ran."""
 
     asof: date
@@ -137,6 +153,7 @@ class RotationMapOut(_Wire):
     priced_companies: int
     spy: dict[str, float | None] | None
     groups: list[RotationGroupOut]
+    flagged: list[RotationFlaggedOut]
     min_priced: int
     cross_days: int
     cache: Literal["hit", "computed"]
@@ -196,8 +213,8 @@ def read_inputs(
     known_at: datetime | None,
     clock: Literal["record", "public"],
 ) -> RotationInputs:
-    """The heavy read the cache holds: the counted cards' rosters as of the as-of, every company's readings,
-    SPY's returns."""
+    """The heavy read the cache holds: the counted cards' rosters as of the as-of, every company's readings
+    and price flags (``price_flags``, on the same view), SPY's returns."""
     counted = cards_as_of(conn, asof, known_at)
     memberships = memberships_of(counted.cards)
     sids = resolved_ids(memberships)
@@ -209,6 +226,7 @@ def read_inputs(
         memberships=memberships,
         tapes=_tapes(conn, sids, asof, known_at, clock),
         spy=_spy(conn, asof, known_at, clock),
+        flagged=price_flags(conn, sids, asof, known_at=known_at, clock=clock),
     )
 
 
@@ -223,8 +241,9 @@ def rotation_map(
 ) -> RotationMapOut:
     """Which links, business types, sectors or cards have price moving: per group, the median 1d / 7d /
     30d / 90d / 1Y return with how many names are up, the share above the 50-day SMA, the median 20-day
-    RVOL, golden / death crosses in the last 30 days and RS leaders, with each group's names. Display only;
-    a past as-of reads what was public by the end of that date."""
+    RVOL, golden / death crosses in the last 30 days and RS leaders, with each group's names. A name whose
+    data flags reach its price readings is left out of every aggregate and listed. Display only; a past
+    as-of reads what was public by the end of that date."""
     known_at, clock = serve_view(asof)
     # the clock is part of the key: the same date read live today and on the public clock tomorrow are two
     # reads (a new run clears the cache anyway; this holds even on a night with no run)
