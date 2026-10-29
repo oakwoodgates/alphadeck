@@ -4163,6 +4163,82 @@
         }
       }
     },
+    "/dashboards/leaders": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Leaders",
+        "description": "Names across every card within 2% of their 52-week high, with relative strength at a 13-week high,\ncoiling, with open-market insider buys in the last 30 days, or with RVOL 20D at 1.5 or more; the names on\nseveral of those lists; and the groups where at least two names had insider buys. One row per company.\nDisplay only; a past as-of reads what was public by the end of that date.",
+        "operationId": "leaders_dashboards_leaders_get",
+        "parameters": [
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; nothing published after it is read",
+              "title": "Asof"
+            },
+            "description": "as-of date; nothing published after it is read"
+          },
+          {
+            "name": "include_silent",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "add Context and Bench memberships",
+              "default": false,
+              "title": "Include Silent"
+            },
+            "description": "add Context and Bench memberships"
+          },
+          {
+            "name": "group_by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "link",
+                "business_type",
+                "sector",
+                "card"
+              ],
+              "type": "string",
+              "description": "the insider-cluster groups: link | business_type | sector | card",
+              "default": "link",
+              "title": "Group By"
+            },
+            "description": "the insider-cluster groups: link | business_type | sector | card"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadersOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/backtest/runs": {
       "get": {
         "tags": [
@@ -14939,6 +15015,608 @@
         ],
         "title": "LateNightOut",
         "description": "One late night (L1, operator Q5 = A): a (thesis, as-of) holding a call-of-record recorded at/after\nits night's on-time window closed \u2014 the next weekday's 06:00 ET EDGAR open \u2014 so it can have read a\nfiling SEC accepted after the night. Under the default reading such rows are set aside before the\nper-as-of dedup; under the ``include_late`` reading they are scored. ``recorded_at`` = the first late\nrow's stamp, ``edgar_open`` = the window end it missed, ``n_rows`` = late rows on the night,\n``earlier_recorded_at`` = the stamp of the earlier honest row the late-excluding reading scores instead\n(``null`` = none: the night reads like a cron gap), ``reason`` = the words."
+      },
+      "LeadersCardOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "links": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Links"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "thesis_name",
+          "ticker",
+          "links"
+        ],
+        "title": "LeadersCardOut",
+        "description": "A card a name sits on: its ticker there (the Cockpit's ``?name=`` key) and its links there (``null`` =\nUnsegmented)."
+      },
+      "LeadersClusterNameOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/LeadersCardOut"
+            },
+            "type": "array",
+            "title": "Cards"
+          },
+          "buys_30d": {
+            "type": "integer",
+            "title": "Buys 30D"
+          },
+          "buyers_30d": {
+            "type": "integer",
+            "title": "Buyers 30D"
+          },
+          "cluster": {
+            "type": "boolean",
+            "title": "Cluster"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "name",
+          "cards",
+          "buys_30d",
+          "buyers_30d",
+          "cluster"
+        ],
+        "title": "LeadersClusterNameOut",
+        "description": "A name of an insider-cluster group: its open-market buys and distinct buyers in the last 30 days."
+      },
+      "LeadersInsiderGroupOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "link": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link"
+          },
+          "thesis_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thesis Name"
+          },
+          "business_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Type"
+          },
+          "supersector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supersector"
+          },
+          "names": {
+            "type": "integer",
+            "title": "Names"
+          },
+          "with_buys": {
+            "type": "integer",
+            "title": "With Buys"
+          },
+          "no_insider_data": {
+            "type": "integer",
+            "title": "No Insider Data"
+          },
+          "share": {
+            "type": "number",
+            "title": "Share"
+          },
+          "buys": {
+            "type": "integer",
+            "title": "Buys"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/LeadersClusterNameOut"
+            },
+            "type": "array",
+            "title": "Members"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "link",
+          "thesis_id",
+          "thesis_name",
+          "business_type",
+          "supersector",
+          "names",
+          "with_buys",
+          "no_insider_data",
+          "share",
+          "buys",
+          "members"
+        ],
+        "title": "LeadersInsiderGroupOut",
+        "description": "A group where at least ``group_min_names`` names had open-market buys in the last 30 days. Link view:\n``link`` (``null`` = Unsegmented) + its card. Card view: the card. Business type / Sector view:\n``business_type`` / ``supersector`` (``null`` = Unclassified). ``with_buys`` of its ``names`` (each counted\nonce) bought, ``share`` = ``with_buys / names``; ``no_insider_data`` of them have no Form 4 ingested;\n``buys`` = the group's buys."
+      },
+      "LeadersListOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "enum": [
+              "near_high",
+              "rs_leader",
+              "coiling",
+              "insider",
+              "volume"
+            ],
+            "title": "Key"
+          },
+          "member": {
+            "type": "string",
+            "title": "Member"
+          },
+          "security_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Security Ids"
+          },
+          "no_reading": {
+            "type": "integer",
+            "title": "No Reading"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "member",
+          "security_ids",
+          "no_reading"
+        ],
+        "title": "LeadersListOut",
+        "description": "One list: its names (``security_ids`` into ``names``, in its default order) and how many companies in\nview its display ``member`` gave no reading (not on the list for want of data, never silently dropped)."
+      },
+      "LeadersNameOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/LeadersCardOut"
+            },
+            "type": "array",
+            "title": "Cards"
+          },
+          "lists": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "near_high",
+                "rs_leader",
+                "coiling",
+                "insider",
+                "volume"
+              ]
+            },
+            "type": "array",
+            "title": "Lists"
+          },
+          "pct_off_high": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pct Off High"
+          },
+          "high_52w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "High 52W"
+          },
+          "high_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "High Date"
+          },
+          "range_bars": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Range Bars"
+          },
+          "rs_vs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Rs Vs"
+          },
+          "contraction": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contraction"
+          },
+          "buys_30d": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Buys 30D"
+          },
+          "buyers_30d": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Buyers 30D"
+          },
+          "cluster": {
+            "type": "boolean",
+            "title": "Cluster"
+          },
+          "rvol20": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rvol20"
+          },
+          "ret_7d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ret 7D"
+          },
+          "ret_30d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ret 30D"
+          },
+          "above_50d": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Above 50D"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "name",
+          "cards",
+          "lists",
+          "pct_off_high",
+          "high_52w",
+          "high_date",
+          "range_bars",
+          "rs_vs",
+          "contraction",
+          "buys_30d",
+          "buyers_30d",
+          "cluster",
+          "rvol20",
+          "ret_7d",
+          "ret_30d",
+          "above_50d"
+        ],
+        "title": "LeadersNameOut",
+        "description": "One company on at least one list (``lists``), each list's value beside it. ``pct_off_high`` = % off the\n52-week closing high (``high_date`` its print date; ``range_bars`` the bars the range stands on, under\n``full_year_bars`` = not a full year); ``rs_vs`` = the benchmarks its RS is at a 13-week high against;\n``contraction`` = the vcp member's newest-segment depth over its oldest; ``buys_30d`` / ``buyers_30d`` =\nopen-market buys and distinct buyers in the last 30 days (``cluster`` = at least ``cluster_min_buyers``\nbuyers); ``rvol20`` = RVOL 20D. ``null`` = no reading."
+      },
+      "LeadersOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "group_by": {
+            "type": "string",
+            "enum": [
+              "link",
+              "business_type",
+              "sector",
+              "card"
+            ],
+            "title": "Group By"
+          },
+          "include_silent": {
+            "type": "boolean",
+            "title": "Include Silent"
+          },
+          "live_cards": {
+            "type": "integer",
+            "title": "Live Cards"
+          },
+          "cards_counted": {
+            "type": "integer",
+            "title": "Cards Counted"
+          },
+          "cards_not_yet_created": {
+            "type": "integer",
+            "title": "Cards Not Yet Created"
+          },
+          "roster_fallback_cards": {
+            "type": "integer",
+            "title": "Roster Fallback Cards"
+          },
+          "basket_rows": {
+            "type": "integer",
+            "title": "Basket Rows"
+          },
+          "silent_rows_left_out": {
+            "type": "integer",
+            "title": "Silent Rows Left Out"
+          },
+          "unresolved_rows": {
+            "type": "integer",
+            "title": "Unresolved Rows"
+          },
+          "companies": {
+            "type": "integer",
+            "title": "Companies"
+          },
+          "names": {
+            "items": {
+              "$ref": "#/components/schemas/LeadersNameOut"
+            },
+            "type": "array",
+            "title": "Names"
+          },
+          "several": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Several"
+          },
+          "lists": {
+            "items": {
+              "$ref": "#/components/schemas/LeadersListOut"
+            },
+            "type": "array",
+            "title": "Lists"
+          },
+          "insider_groups": {
+            "items": {
+              "$ref": "#/components/schemas/LeadersInsiderGroupOut"
+            },
+            "type": "array",
+            "title": "Insider Groups"
+          },
+          "near_high_pct": {
+            "type": "number",
+            "title": "Near High Pct"
+          },
+          "rvol_loud": {
+            "type": "number",
+            "title": "Rvol Loud"
+          },
+          "insider_min_buys": {
+            "type": "integer",
+            "title": "Insider Min Buys"
+          },
+          "cluster_min_buyers": {
+            "type": "integer",
+            "title": "Cluster Min Buyers"
+          },
+          "group_min_names": {
+            "type": "integer",
+            "title": "Group Min Names"
+          },
+          "multi_min_lists": {
+            "type": "integer",
+            "title": "Multi Min Lists"
+          },
+          "full_year_bars": {
+            "type": "integer",
+            "title": "Full Year Bars"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "group_by",
+          "include_silent",
+          "live_cards",
+          "cards_counted",
+          "cards_not_yet_created",
+          "roster_fallback_cards",
+          "basket_rows",
+          "silent_rows_left_out",
+          "unresolved_rows",
+          "companies",
+          "names",
+          "several",
+          "lists",
+          "insider_groups",
+          "near_high_pct",
+          "rvol_loud",
+          "insider_min_buys",
+          "cluster_min_buyers",
+          "group_min_names",
+          "multi_min_lists",
+          "full_year_bars",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "LeadersOut",
+        "description": "The whole page in one view. ``names`` = every company on at least one list, in the several-lists order\n(the number of lists, then the 30D return); ``several`` = those on ``multi_min_lists`` or more; ``lists`` =\neach list's names in its default order and its no-reading count; ``insider_groups`` by names with buys,\nthen share. The counts are the work shown on its quiet line; the rule dials ride along. ``cache`` /\n``compute_ms`` = whether the heavy read was served from the shared dashboard cache and how long it took\nwhen it ran."
       },
       "LocatedPassage": {
         "properties": {

@@ -10,6 +10,7 @@ from app.routers.dashboards import (
     catalyst_calendar,
     cross_radar,
     idea_timeline,
+    leaders,
     rotation_map,
     shared_names,
     what_changed,
@@ -26,6 +27,7 @@ _DASHBOARD_ROUTERS: tuple[APIRouter, ...] = (
     what_changed.router,
     cross_radar.router,
     catalyst_calendar.router,
+    leaders.router,
 )
 
 router = APIRouter(prefix="/dashboards", tags=["dashboards"])
