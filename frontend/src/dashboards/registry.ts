@@ -117,4 +117,13 @@ export const DASHBOARDS: readonly DashboardEntry[] = [
     asofAware: true,
     component: lazy(() => import("./landing/Landing")),
   },
+  {
+    slug: "narrative-index",
+    label: "Narrative Index",
+    description:
+      "Each card's basket as one equal-weighted line against SPY and IWM, with the day the card was created marked.",
+    status: "experimental",
+    asofAware: true,
+    component: lazy(() => import("./narrative-index/NarrativeIndex")),
+  },
 ];

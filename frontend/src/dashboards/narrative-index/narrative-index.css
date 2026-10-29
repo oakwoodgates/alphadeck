@@ -1,0 +1,73 @@
+/* Narrative Index (docs/dashboards/narrative-index.md) — its own sheet, imported by the component, never index.css
+   (docs/DASHBOARDS.md rule 8). A dense dark grid of small multiples in the Rotation Map's style: mono numbers,
+   uppercase quiet labels. Loudness marks the exception only (#7 / WB#3): every number stays gray; the index line
+   is the one solid line, SPY and IWM are faint, and the only color on a tile is its state word, in its Board
+   column's own color (--incub, --warm, --armed, --manage). */
+
+.ni { display: flex; flex-direction: column; gap: 8px; }
+.ni-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
+.ni-seg { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.ni-seg-label { font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); margin-right: 4px; }
+.ni-seg-btn { font: inherit; font-size: 11px; color: var(--txt-3); background: transparent; border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 9px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+.ni-seg-btn:hover { color: var(--txt-2); }
+.ni-seg-btn.on { color: var(--txt); background: var(--panel-2); }
+.ni-arrow { font-size: 8px; line-height: 1; }
+.ni-check { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--txt-2); cursor: pointer; }
+.ni-check input { accent-color: var(--txt-3); margin: 0; }
+.ni-work, .ni-legend { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
+.ni-legend { font-family: inherit; color: var(--txt-4); }
+
+/* the grid of small multiples; an enlarged card spans the whole row, in place */
+.ni-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; margin-top: 6px; }
+.ni-tile { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 8px 10px 6px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ni-tile.big { grid-column: 1 / -1; padding: 10px 12px; gap: 6px; border-color: var(--line-2); }
+.ni-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ni-name { font: inherit; font-size: 12px; font-weight: 600; color: var(--txt); background: none; border: 0; padding: 0; cursor: pointer; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.ni-name:hover { text-decoration: underline; text-underline-offset: 2px; }
+.ni-name:focus-visible, .ni-chart:focus-visible, .ni-close:focus-visible { outline: 1px solid var(--line-2); outline-offset: 2px; border-radius: 2px; }
+.ni-st { font-size: 9.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap; color: var(--txt-4); }
+.ni-st.incub { color: var(--incub); }
+.ni-st.warm { color: var(--warm); }
+.ni-st.armed { color: var(--armed); }
+.ni-st.manage { color: var(--manage); }
+.ni-st.none { font-weight: 400; text-transform: none; letter-spacing: 0; }
+.ni-close { margin-left: auto; font: inherit; font-size: 10.5px; color: var(--txt-3); background: transparent; border: 1px solid var(--line-2); border-radius: 6px; padding: 1px 8px; cursor: pointer; }
+.ni-close:hover { color: var(--txt); }
+
+.ni-nums { display: flex; flex-wrap: wrap; gap: 2px 10px; font-family: var(--mono); font-size: 10px; color: var(--txt-3); }
+.ni-nums span { white-space: nowrap; cursor: help; }
+/* the names left out for a flagged price history: a quiet note, gray like the numbers (WB#3) */
+.ni-note { font-family: var(--mono); font-size: 10px; color: var(--txt-4); cursor: help; }
+
+/* the charts: the index solid, the benchmarks faint, the baseline fainter, the creation tick dotted */
+.ni-chart { display: block; width: 100%; padding: 0; margin: 0; border: 0; background: none; cursor: zoom-in; }
+.ni-mini { display: block; width: 100%; height: 56px; overflow: visible; }
+.ni-line, .ni-bench { fill: none; vector-effect: non-scaling-stroke; }
+.ni-line { stroke: var(--txt-2); stroke-width: 1.4; }
+.ni-bench { stroke: var(--txt-4); stroke-width: 1; }
+.ni-bench.spy { stroke-dasharray: 4 3; }
+.ni-bench.iwm { stroke-dasharray: 1 2; }
+.ni-base { stroke: var(--line-2); stroke-width: 1; vector-effect: non-scaling-stroke; }
+line.ni-gridline { stroke: var(--line); stroke-width: 1; }
+.ni-created { stroke: var(--txt-3); stroke-width: 1; stroke-dasharray: 2 2; vector-effect: non-scaling-stroke; }
+
+.ni-big-chart { display: flex; flex-direction: column; gap: 2px; max-width: 960px; }
+.ni-big, .ni-strip { display: block; width: 100%; height: auto; }
+.ni-axis { font-family: var(--mono); font-size: 9.5px; fill: var(--txt-4); }
+.ni-created-label { fill: var(--txt-3); }
+.ni-hover { stroke: var(--txt-4); stroke-width: 1; }
+.ni-hit { fill: transparent; cursor: crosshair; }
+.ni-bar { fill: var(--line-2); }
+.ni-bar.on { fill: var(--txt-3); }
+.ni-readout, .ni-legend { display: flex; flex-wrap: wrap; gap: 2px 12px; }
+.ni-readout { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); min-height: 15px; }
+.ni-key.idx { color: var(--txt-2); }
+.ni-key.spy, .ni-key.iwm, .ni-key.created { color: var(--txt-4); }
+
+/* the enlarged card's names */
+table.ni-members { border-collapse: collapse; font-size: 11px; margin-top: 4px; max-width: 520px; }
+table.ni-members th { text-align: left; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); font-weight: 600; padding: 0 14px 4px 0; border-bottom: 1px solid var(--line); }
+table.ni-members td { padding: 3px 14px 3px 0; border-bottom: 1px solid var(--line); font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); white-space: nowrap; }
+table.ni-members .ni-num { text-align: right; }
+table.ni-members tr.quiet td { color: var(--txt-4); }
+.ni-tk { font-weight: 700; color: var(--txt-2); }

@@ -12,6 +12,7 @@ from app.routers.dashboards import (
     idea_timeline,
     landing,
     leaders,
+    narrative_index,
     rotation_map,
     shared_names,
     what_changed,
@@ -30,6 +31,7 @@ _DASHBOARD_ROUTERS: tuple[APIRouter, ...] = (
     catalyst_calendar.router,
     leaders.router,
     landing.router,
+    narrative_index.router,
 )
 
 router = APIRouter(prefix="/dashboards", tags=["dashboards"])

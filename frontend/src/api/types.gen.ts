@@ -2177,6 +2177,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboards/narrative-index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Narrative Index
+         * @description Each card's basket as of the as-of as one equal-weighted line (rebalanced daily, from 100 at the window
+         *     start) against SPY and IWM over the same sessions, with the card's creation day and the window return,
+         *     the return vs SPY and the return since creation. A name whose data flags reach its price readings is left
+         *     out of the line and listed on its card. Display only; a past as-of reads what was public by the end of
+         *     that date.
+         */
+        get: operations["narrative_index_dashboards_narrative_index_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboards/narrative-index/{thesis_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Narrative Index Card
+         * @description One card enlarged: its index, SPY and IWM over the window, how many names contributed each session and
+         *     each name's sessions in the window. Served off the same cached read as the grid. 404 when the card is not
+         *     counted at the as-of.
+         */
+        get: operations["narrative_index_card_dashboards_narrative_index__thesis_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/backtest/runs": {
         parameters: {
             query?: never;
@@ -8103,6 +8149,205 @@ export interface components {
             split_table?: components["schemas"]["SplitTableInfo"] | null;
         };
         /**
+         * NarrativeBenchmarkOut
+         * @description A benchmark over the window's sessions, rebased to 100 at the window start. ``available`` false = no
+         *     line, and ``reason`` says why. ``sessions_flat`` = window sessions it had no bar for (carried flat).
+         */
+        NarrativeBenchmarkOut: {
+            /** Symbol */
+            symbol: string;
+            /** Available */
+            available: boolean;
+            /** Reason */
+            reason: string | null;
+            /** Ret */
+            ret: number | null;
+            /** Points */
+            points: number[] | null;
+            /** Sessions Flat */
+            sessions_flat: number;
+        };
+        /**
+         * NarrativeCardDetailOut
+         * @description One card enlarged: its window view, the benchmarks over the same ``dates``, how many names contributed
+         *     the step into each session (``contributors``, the first session 0) and each name's window.
+         */
+        NarrativeCardDetailOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Window
+             * @enum {string}
+             */
+            window: "1y" | "90d" | "30d";
+            /** Include Silent */
+            include_silent: boolean;
+            /** Sessions */
+            sessions: number;
+            /** Dates */
+            dates: string[];
+            card: components["schemas"]["NarrativeCardOut"];
+            /** Benchmarks */
+            benchmarks: components["schemas"]["NarrativeBenchmarkOut"][];
+            /** Contributors */
+            contributors: number[];
+            /** Members */
+            members: components["schemas"]["NarrativeMemberOut"][];
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * NarrativeCardOut
+         * @description One card's index over the window: ``points`` one per session of the page's ``dates``, from 100.
+         *     ``ret`` = the window return (``null`` with no priced name), ``vs_spy`` = it minus SPY's, ``since_created``
+         *     = from the close of ``created_base`` (the last session on or before the creation day) to the as-of, only
+         *     when ``created_in_window``. ``names`` = the companies on the card (each once) plus rows with no resolved
+         *     security; ``priced`` = names with at least one daily return in the window. ``flagged`` = the names left
+         *     out of the line for a flagged price history (counted in ``names``, never in ``priced``). ``state`` = the
+         *     latest recorded state at the as-of (``null`` = no recorded call).
+         */
+        NarrativeCardOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /** State */
+            state: ("incubating" | "warming" | "armed" | "managing") | null;
+            /** Created */
+            created: string | null;
+            /** Created In Window */
+            created_in_window: boolean;
+            /** Created Base */
+            created_base: string | null;
+            /** Names */
+            names: number;
+            /** Priced */
+            priced: number;
+            /** Unresolved */
+            unresolved: number;
+            /** Silent Left Out */
+            silent_left_out: number;
+            /** Ret */
+            ret: number | null;
+            /** Vs Spy */
+            vs_spy: number | null;
+            /** Since Created */
+            since_created: number | null;
+            /** Sessions Flat */
+            sessions_flat: number;
+            /** Points */
+            points: number[];
+            /** Flagged */
+            flagged: components["schemas"]["NarrativeFlaggedOut"][];
+        };
+        /**
+         * NarrativeFlaggedOut
+         * @description A name left out of its card's line: its data flags reach its price readings at the as-of (the reason
+         *     the Cockpit grays its price cells). ``reason`` = the flags' labels.
+         */
+        NarrativeFlaggedOut: {
+            /** Ticker */
+            ticker: string;
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * NarrativeIndexOut
+         * @description The whole page for one window, cards by name. ``sessions`` = daily returns in the window (fewer than
+         *     the window's nominal count when the tape is short); ``dates`` = its sessions. ``session_source`` = where
+         *     the session calendar came from (the SPY / IWM tapes, or the companies' bars when neither benchmark has a
+         *     tape). The counts are the work shown on its quiet line; ``flagged_companies`` = the companies left out of
+         *     every line for a flagged price history. ``cache`` / ``compute_ms`` = whether the 1Y series came from the
+         *     shared dashboard cache and how long it took when it ran.
+         */
+        NarrativeIndexOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Window
+             * @enum {string}
+             */
+            window: "1y" | "90d" | "30d";
+            /** Include Silent */
+            include_silent: boolean;
+            /** Sessions */
+            sessions: number;
+            /** Dates */
+            dates: string[];
+            /**
+             * Session Source
+             * @enum {string}
+             */
+            session_source: "benchmarks" | "companies" | "none";
+            /** Live Cards */
+            live_cards: number;
+            /** Cards Counted */
+            cards_counted: number;
+            /** Cards Not Yet Created */
+            cards_not_yet_created: number;
+            /** Roster Fallback Cards */
+            roster_fallback_cards: number;
+            /** Companies */
+            companies: number;
+            /** Priced Companies */
+            priced_companies: number;
+            /** Silent Rows Left Out */
+            silent_rows_left_out: number;
+            /** Unresolved Rows */
+            unresolved_rows: number;
+            /** Flagged Companies */
+            flagged_companies: number;
+            /** Benchmarks */
+            benchmarks: components["schemas"]["NarrativeBenchmarkOut"][];
+            /** Cards */
+            cards: components["schemas"]["NarrativeCardOut"][];
+            /** Window Sessions */
+            window_sessions: {
+                [key: string]: number;
+            };
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * NarrativeMemberOut
+         * @description One name on the card: the daily returns it contributed in the window and the first / last session it
+         *     did (``security_id`` null = a basket row with no resolved security, never priced). ``flag`` = why it is
+         *     left out of the line (a flagged price history; ``null`` = its bars are read).
+         */
+        NarrativeMemberOut: {
+            /** Ticker */
+            ticker: string;
+            /** Security Id */
+            security_id: string | null;
+            /** Sessions */
+            sessions: number;
+            /** First */
+            first: string | null;
+            /** Last */
+            last: string | null;
+            /** Flag */
+            flag: string | null;
+        };
+        /**
          * OnboardingNameOut
          * @description X1 — one name in the staged onboarding queue (``security_onboarding``). ``legs_done`` is its checkpoint;
          *     ``in_live_basket`` false = PARKED (no live basket holds it any more, so the job leaves it — re-adding the
@@ -13055,6 +13300,80 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LandingOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    narrative_index_dashboards_narrative_index_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; no price published after it is read */
+                asof: string;
+                /** @description the look back in trading sessions: 1y | 90d | 30d */
+                window?: "1y" | "90d" | "30d";
+                /** @description add Context and Bench names to each basket */
+                include_silent?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NarrativeIndexOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    narrative_index_card_dashboards_narrative_index__thesis_id__get: {
+        parameters: {
+            query: {
+                /** @description as-of date; no price published after it is read */
+                asof: string;
+                /** @description the look back in trading sessions: 1y | 90d | 30d */
+                window?: "1y" | "90d" | "30d";
+                /** @description add Context and Bench names to the basket */
+                include_silent?: boolean;
+            };
+            header?: never;
+            path: {
+                thesis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NarrativeCardDetailOut"];
                 };
             };
             /** @description Validation Error */

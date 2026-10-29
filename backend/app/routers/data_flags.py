@@ -30,7 +30,6 @@ from domain.market_time import serve_view
 from domain.settings import get_settings
 from domain.thesis import Thesis
 from pipeline import data_flags as flags_reader
-from pipeline.cron_run_log import carried_inventory, list_run_logs
 from securities import master
 
 router = APIRouter(tags=["data-flags"])
@@ -186,20 +185,6 @@ def _member_out(
     )
 
 
-def _run_reads() -> tuple[dict, dict]:
-    """The nightly's readings the flags borrow on TODAY's view (read from the run artifacts on disk, the same
-    carry-forward the Admin price-feed panel renders) and the "history corrected" record (the repair tool's
-    provenance + the price leg's first-night application). Fail-open: no artifacts -> neither."""
-    logs = list_run_logs(limit=20)
-    inv = carried_inventory(logs, evaluated_key="tape_evaluated")
-    readings = flags_reader.stop_readings(inv.as_doc() if inv else None)
-    corrections = {
-        **flags_reader.first_night_corrections(logs),
-        **flags_reader.repair_corrections(),
-    }
-    return readings, corrections
-
-
 def _read(
     conn: psycopg.Connection,
     *,
@@ -208,7 +193,7 @@ def _read(
     asof: date,
 ) -> dict[UUID, MemberFlags]:
     known_at, clock = serve_view(asof)
-    readings, corrections = _run_reads()
+    readings, corrections = flags_reader.run_reads()
     return flags_reader.read_flags(
         conn,
         tenant_id=tenant_id,

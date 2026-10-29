@@ -4315,6 +4315,166 @@
         }
       }
     },
+    "/dashboards/narrative-index": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Narrative Index",
+        "description": "Each card's basket as of the as-of as one equal-weighted line (rebalanced daily, from 100 at the window\nstart) against SPY and IWM over the same sessions, with the card's creation day and the window return,\nthe return vs SPY and the return since creation. A name whose data flags reach its price readings is left\nout of the line and listed on its card. Display only; a past as-of reads what was public by the end of\nthat date.",
+        "operationId": "narrative_index_dashboards_narrative_index_get",
+        "parameters": [
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; no price published after it is read",
+              "title": "Asof"
+            },
+            "description": "as-of date; no price published after it is read"
+          },
+          {
+            "name": "window",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "1y",
+                "90d",
+                "30d"
+              ],
+              "type": "string",
+              "description": "the look back in trading sessions: 1y | 90d | 30d",
+              "default": "1y",
+              "title": "Window"
+            },
+            "description": "the look back in trading sessions: 1y | 90d | 30d"
+          },
+          {
+            "name": "include_silent",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "add Context and Bench names to each basket",
+              "default": false,
+              "title": "Include Silent"
+            },
+            "description": "add Context and Bench names to each basket"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NarrativeIndexOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboards/narrative-index/{thesis_id}": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Narrative Index Card",
+        "description": "One card enlarged: its index, SPY and IWM over the window, how many names contributed each session and\neach name's sessions in the window. Served off the same cached read as the grid. 404 when the card is not\ncounted at the as-of.",
+        "operationId": "narrative_index_card_dashboards_narrative_index__thesis_id__get",
+        "parameters": [
+          {
+            "name": "thesis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thesis Id"
+            }
+          },
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; no price published after it is read",
+              "title": "Asof"
+            },
+            "description": "as-of date; no price published after it is read"
+          },
+          {
+            "name": "window",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "1y",
+                "90d",
+                "30d"
+              ],
+              "type": "string",
+              "description": "the look back in trading sessions: 1y | 90d | 30d",
+              "default": "1y",
+              "title": "Window"
+            },
+            "description": "the look back in trading sessions: 1y | 90d | 30d"
+          },
+          {
+            "name": "include_silent",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "add Context and Bench names to the basket",
+              "default": false,
+              "title": "Include Silent"
+            },
+            "description": "add Context and Bench names to the basket"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NarrativeCardDetailOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/backtest/runs": {
       "get": {
         "tags": [
@@ -16577,6 +16737,527 @@
         ],
         "title": "MirrorInfo",
         "description": "The frozen Parquet mirror this run swept, and what it does NOT contain.\n\n``excluded_tables`` + ``blind_detectors`` are a pair on purpose: naming a table that was left out is\nonly half an answer, because the reader still has to work out what stopped firing. Saying both means a\nresult can never be read as \"that detector is inert on this tape\" when the truth is \"that detector had\nno tape\"."
+      },
+      "NarrativeBenchmarkOut": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          },
+          "available": {
+            "type": "boolean",
+            "title": "Available"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "ret": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ret"
+          },
+          "points": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Points"
+          },
+          "sessions_flat": {
+            "type": "integer",
+            "title": "Sessions Flat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbol",
+          "available",
+          "reason",
+          "ret",
+          "points",
+          "sessions_flat"
+        ],
+        "title": "NarrativeBenchmarkOut",
+        "description": "A benchmark over the window's sessions, rebased to 100 at the window start. ``available`` false = no\nline, and ``reason`` says why. ``sessions_flat`` = window sessions it had no bar for (carried flat)."
+      },
+      "NarrativeCardDetailOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "window": {
+            "type": "string",
+            "enum": [
+              "1y",
+              "90d",
+              "30d"
+            ],
+            "title": "Window"
+          },
+          "include_silent": {
+            "type": "boolean",
+            "title": "Include Silent"
+          },
+          "sessions": {
+            "type": "integer",
+            "title": "Sessions"
+          },
+          "dates": {
+            "items": {
+              "type": "string",
+              "format": "date"
+            },
+            "type": "array",
+            "title": "Dates"
+          },
+          "card": {
+            "$ref": "#/components/schemas/NarrativeCardOut"
+          },
+          "benchmarks": {
+            "items": {
+              "$ref": "#/components/schemas/NarrativeBenchmarkOut"
+            },
+            "type": "array",
+            "title": "Benchmarks"
+          },
+          "contributors": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Contributors"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/NarrativeMemberOut"
+            },
+            "type": "array",
+            "title": "Members"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "window",
+          "include_silent",
+          "sessions",
+          "dates",
+          "card",
+          "benchmarks",
+          "contributors",
+          "members",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "NarrativeCardDetailOut",
+        "description": "One card enlarged: its window view, the benchmarks over the same ``dates``, how many names contributed\nthe step into each session (``contributors``, the first session 0) and each name's window."
+      },
+      "NarrativeCardOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "incubating",
+                  "warming",
+                  "armed",
+                  "managing"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State"
+          },
+          "created": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created"
+          },
+          "created_in_window": {
+            "type": "boolean",
+            "title": "Created In Window"
+          },
+          "created_base": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created Base"
+          },
+          "names": {
+            "type": "integer",
+            "title": "Names"
+          },
+          "priced": {
+            "type": "integer",
+            "title": "Priced"
+          },
+          "unresolved": {
+            "type": "integer",
+            "title": "Unresolved"
+          },
+          "silent_left_out": {
+            "type": "integer",
+            "title": "Silent Left Out"
+          },
+          "ret": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ret"
+          },
+          "vs_spy": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vs Spy"
+          },
+          "since_created": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since Created"
+          },
+          "sessions_flat": {
+            "type": "integer",
+            "title": "Sessions Flat"
+          },
+          "points": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Points"
+          },
+          "flagged": {
+            "items": {
+              "$ref": "#/components/schemas/NarrativeFlaggedOut"
+            },
+            "type": "array",
+            "title": "Flagged"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "thesis_name",
+          "state",
+          "created",
+          "created_in_window",
+          "created_base",
+          "names",
+          "priced",
+          "unresolved",
+          "silent_left_out",
+          "ret",
+          "vs_spy",
+          "since_created",
+          "sessions_flat",
+          "points",
+          "flagged"
+        ],
+        "title": "NarrativeCardOut",
+        "description": "One card's index over the window: ``points`` one per session of the page's ``dates``, from 100.\n``ret`` = the window return (``null`` with no priced name), ``vs_spy`` = it minus SPY's, ``since_created``\n= from the close of ``created_base`` (the last session on or before the creation day) to the as-of, only\nwhen ``created_in_window``. ``names`` = the companies on the card (each once) plus rows with no resolved\nsecurity; ``priced`` = names with at least one daily return in the window. ``flagged`` = the names left\nout of the line for a flagged price history (counted in ``names``, never in ``priced``). ``state`` = the\nlatest recorded state at the as-of (``null`` = no recorded call)."
+      },
+      "NarrativeFlaggedOut": {
+        "properties": {
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ticker",
+          "reason"
+        ],
+        "title": "NarrativeFlaggedOut",
+        "description": "A name left out of its card's line: its data flags reach its price readings at the as-of (the reason\nthe Cockpit grays its price cells). ``reason`` = the flags' labels."
+      },
+      "NarrativeIndexOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "window": {
+            "type": "string",
+            "enum": [
+              "1y",
+              "90d",
+              "30d"
+            ],
+            "title": "Window"
+          },
+          "include_silent": {
+            "type": "boolean",
+            "title": "Include Silent"
+          },
+          "sessions": {
+            "type": "integer",
+            "title": "Sessions"
+          },
+          "dates": {
+            "items": {
+              "type": "string",
+              "format": "date"
+            },
+            "type": "array",
+            "title": "Dates"
+          },
+          "session_source": {
+            "type": "string",
+            "enum": [
+              "benchmarks",
+              "companies",
+              "none"
+            ],
+            "title": "Session Source"
+          },
+          "live_cards": {
+            "type": "integer",
+            "title": "Live Cards"
+          },
+          "cards_counted": {
+            "type": "integer",
+            "title": "Cards Counted"
+          },
+          "cards_not_yet_created": {
+            "type": "integer",
+            "title": "Cards Not Yet Created"
+          },
+          "roster_fallback_cards": {
+            "type": "integer",
+            "title": "Roster Fallback Cards"
+          },
+          "companies": {
+            "type": "integer",
+            "title": "Companies"
+          },
+          "priced_companies": {
+            "type": "integer",
+            "title": "Priced Companies"
+          },
+          "silent_rows_left_out": {
+            "type": "integer",
+            "title": "Silent Rows Left Out"
+          },
+          "unresolved_rows": {
+            "type": "integer",
+            "title": "Unresolved Rows"
+          },
+          "flagged_companies": {
+            "type": "integer",
+            "title": "Flagged Companies"
+          },
+          "benchmarks": {
+            "items": {
+              "$ref": "#/components/schemas/NarrativeBenchmarkOut"
+            },
+            "type": "array",
+            "title": "Benchmarks"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/NarrativeCardOut"
+            },
+            "type": "array",
+            "title": "Cards"
+          },
+          "window_sessions": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Window Sessions"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "window",
+          "include_silent",
+          "sessions",
+          "dates",
+          "session_source",
+          "live_cards",
+          "cards_counted",
+          "cards_not_yet_created",
+          "roster_fallback_cards",
+          "companies",
+          "priced_companies",
+          "silent_rows_left_out",
+          "unresolved_rows",
+          "flagged_companies",
+          "benchmarks",
+          "cards",
+          "window_sessions",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "NarrativeIndexOut",
+        "description": "The whole page for one window, cards by name. ``sessions`` = daily returns in the window (fewer than\nthe window's nominal count when the tape is short); ``dates`` = its sessions. ``session_source`` = where\nthe session calendar came from (the SPY / IWM tapes, or the companies' bars when neither benchmark has a\ntape). The counts are the work shown on its quiet line; ``flagged_companies`` = the companies left out of\nevery line for a flagged price history. ``cache`` / ``compute_ms`` = whether the 1Y series came from the\nshared dashboard cache and how long it took when it ran."
+      },
+      "NarrativeMemberOut": {
+        "properties": {
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "security_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Security Id"
+          },
+          "sessions": {
+            "type": "integer",
+            "title": "Sessions"
+          },
+          "first": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First"
+          },
+          "last": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last"
+          },
+          "flag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flag"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ticker",
+          "security_id",
+          "sessions",
+          "first",
+          "last",
+          "flag"
+        ],
+        "title": "NarrativeMemberOut",
+        "description": "One name on the card: the daily returns it contributed in the window and the first / last session it\ndid (``security_id`` null = a basket row with no resolved security, never priced). ``flag`` = why it is\nleft out of the line (a flagged price history; ``null`` = its bars are read)."
       },
       "OnboardingNameOut": {
         "properties": {

@@ -108,8 +108,10 @@ the data flags). Its plan is `docs/BOARD.md`.
    The cross-card basket read lives beside it in `backend/dashboards/baskets.py` (built with the Rotation
    Map, shared since the Cross Radar): the counted cards and their rosters at the as-of (`cards_as_of`), the
    membership rows, the four groupings and who counts in each (`counted_rows`, `buckets`, `companies_in`),
-   and the chunked point-in-time read (`per_company`). A dashboard that groups cards' names reuses it rather
-   than re-deriving the rule.
+   the chunked point-in-time read (`per_company`), and the companies whose data flags reach their price
+   readings (`price_flags`, the `/data-flags` reader; built with the Narrative Index's fix, the other price
+   dashboards do not read it yet). A dashboard that groups cards' names reuses it rather than re-deriving the
+   rule.
 
 8. **Self-contained layout**, so dashboards build in parallel and delete cleanly. A slug is lowercase
    letters, digits and `-` (`tape-breadth`); the Python module name swaps `-` for `_`
@@ -178,3 +180,4 @@ the data flags). Its plan is `docs/BOARD.md`.
 | Catalyst Calendar | `catalyst-calendar` | experimental | [`docs/dashboards/catalyst-calendar.md`](dashboards/catalyst-calendar.md) |
 | Leaders | `leaders` | experimental | [`docs/dashboards/leaders.md`](dashboards/leaders.md) |
 | Price & Volume Landing | `landing` | experimental | [`docs/dashboards/landing.md`](dashboards/landing.md) |
+| Narrative Index | `narrative-index` | experimental | [`docs/dashboards/narrative-index.md`](dashboards/narrative-index.md) |
