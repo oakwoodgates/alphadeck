@@ -131,10 +131,14 @@ replay mirror, `db.bitemporal.DISPLAY_ONLY_FACT_TABLES`). So its failure is reco
 `ingest_fresh` and the name-error pages — and it can never withhold a call. Reported loud only when nonzero: one
 `filing index:` pass line (filings indexed, names, skipped rows by reason, set-aside acceptance times) plus one
 `filing index ERROR:` line per failed company, and `filing_index_appended` / `filing_index_errors` per thesis on the
-run artifact. The first pass after the deploy indexes up to ~1,000 rows per company (the whole `recent` window), one
-batched insert each; every pass after appends only that night's new filings. MEASURED on a local test database
-(2026-10-29): a 1,000-row company's batch 0.11 s, a warm re-run (nothing new) 0.005 s; PROPOSED, not measured on
-prod: roughly a minute of extra wall time on that first pass for ~700 companies.
+run artifact. The first pass after the deploy stores each company's whole `recent` window (at least a year, or the
+last 1,000 filings, whichever reaches further, so a shelf issuer holds far more: JPM lists 26,551), one batched insert
+each; every pass after appends only that night's new filings. MEASURED on a copy of prod (dev, 2026-10-29, 62 live
+cards, 1,488 companies, cache-only so no SEC request): the first pass stored 925,651 rows (median 622 per company)
+and added 136 s across the cards (per card median 2.0 s, max 7.4 s); a steady-state pass adds 10.8 s (per card median
+0.17 s, max 0.48 s), against prod's last pass of 1,034 s (per-card ingest median 13.4 s). A second and third pass
+appended 0 rows (the table count did not move). 0 rows skipped; 45,456 listed acceptance times (4.9%) set aside.
+The table is 390 MB (234 MB of rows, 156 MB of indexes: the primary key and the natural key only).
 
 ## The price-source seam — `ingest/prices/source.py`  `[BUILT #72]`
 
