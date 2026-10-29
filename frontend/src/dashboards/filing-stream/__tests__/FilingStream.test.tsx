@@ -1,4 +1,7 @@
 import { render, screen, within } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -395,6 +398,23 @@ describe("FilingStream", () => {
     unmount();
     setup(payload(), { data: undefined, isLoading: true, isFetching: true });
     expect(screen.getByText(/Reading this card's filings/)).toBeInTheDocument();
+  });
+
+  it("marks the open row with a neutral class, and its stylesheet uses no state color for hover or open", async () => {
+    setup();
+    const btn = screen.getByRole("button", { name: /5\.02 officer\/director/ });
+    const li = btn.closest("li")!;
+    expect(li).not.toHaveClass("open");
+    await userEvent.click(btn);
+    expect(li).toHaveClass("open");
+    await userEvent.click(btn);
+    expect(li).not.toHaveClass("open");
+    // loudness marks the exception, never an interaction state: no lifecycle / sign color in the sheet's rules
+    const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "filing-stream.css"), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(css).toContain(".fs-head:hover");
+    expect(css).not.toMatch(/--(pos|neg|armed|warm|manage|incub|leader|activist)\b/);
+    expect(css).not.toMatch(/#[0-9a-f]{3,8}\b|rgba?\(|\bred\b/i);
   });
 
   it("keeps the previous view up while a new one loads, saying so", () => {

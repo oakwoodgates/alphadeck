@@ -69,7 +69,7 @@ function StreamLine({
   const expandable = row.detail.length > 0 || row.kind === "form4a";
   const source = row.url?.includes("sec.gov") ? "EDGAR" : "source";
   return (
-    <li className="fs-row" data-testid="fs-row" data-kind={row.kind}>
+    <li className={`fs-row${open ? " open" : ""}`} data-testid="fs-row" data-kind={row.kind}>
       <div className="fs-line">
         <button
           type="button"

@@ -49,6 +49,7 @@ from dashboards.filings import (
     Who,
     convert_overhang_pct,
     filing_index_url,
+    fmt_compact,
     is_issuer_self,
     item_words,
     merge_4a,
@@ -1370,3 +1371,203 @@ def test_read_filing_rows_threads_the_view_into_every_source_and_names_every_com
     assert sorted(r.accession for r in rows if r.kind == "form4") == [EARLY_F4]
     assert all(r.date <= PAST for r in rows)
     assert read_filing_rows(db, [], PAST, None, "public", days=30) == {}
+
+
+# ---------------------------------------------------------------------------------------------------------
+# real-shaped rows: a stored row can state less than the plan assumed (found on dev with a prod copy)
+# ---------------------------------------------------------------------------------------------------------
+
+
+def test_a_price_against_a_zero_share_count_states_no_mean_price_instead_of_dividing_by_zero():
+    """The first 500 on dev: a real code-P row with ``shares == 0`` and a price made the shares-weighted mean
+    price divide by a zero weight. A mean needs a positive weight; without one the price is left out.
+    """
+    (zero,) = rows_from_insider_txns([txn("P", shares=0, price=4.0)], W)
+    assert zero.headline == "Jane Roe (CEO): P purchase 0 sh"
+    assert (
+        zero.detail[0] == "2026-10-01 · P · 0 sh @ $4.00 · $0"
+    )  # the row's own stated numbers, as stated
+    assert zero.routine is False and zero.usd == 0.0
+    # every row of the filing states zero shares
+    (all_zero,) = rows_from_insider_txns([txn("S", 0, 5.0), txn("S", 0, 6.0)], W)
+    assert all_zero.headline == "Jane Roe (CEO): S sale 0 sh" and all_zero.routine is True
+    # a zero-share row beside a real one adds no weight: the mean is the real row's price
+    (mixed,) = rows_from_insider_txns([txn("P", 0, 9.0), txn("P", 1000, 5.0)], W)
+    assert mixed.headline == "Jane Roe (CEO): P purchase 1,000 sh @ $5.00 · $5,000"
+
+
+def test_a_form4_row_may_state_shares_or_dollars_alone_and_the_phrase_says_only_what_it_states():
+    (usd_only,) = rows_from_insider_txns([txn("P", shares=None, price=None, usd=1234)], W)
+    assert usd_only.headline == "Jane Roe (CEO): P purchase · $1,234" and usd_only.usd == 1234.0
+    (priced_only,) = rows_from_insider_txns([txn("P", shares=None, price=4.0, usd=None)], W)
+    assert priced_only.headline == "Jane Roe (CEO): P purchase" and priced_only.usd is None
+    (shares_only,) = rows_from_insider_txns([txn("P", shares=500, price=None, usd=None)], W)
+    assert shares_only.headline == "Jane Roe (CEO): P purchase 500 sh" and shares_only.usd is None
+    # a stated price of exactly zero (a grant) reads $0.00, not $0.0000
+    (grant,) = rows_from_insider_txns([txn("A", 5000, 0.0)], W)
+    assert grant.headline == "Jane Roe (CEO): A grant/award 5,000 sh @ $0.00"
+
+
+def test_a_non_finite_stored_number_is_read_as_not_stated():
+    for bad in (float("nan"), float("inf"), Decimal("NaN"), Decimal("Infinity"), "abc", True):
+        (r,) = rows_from_insider_txns([txn("P", shares=bad, price=bad, usd=bad)], W)
+        assert r.headline == "Jane Roe (CEO): P purchase" and r.usd is None
+
+
+def test_a_filings_instants_may_mix_aware_and_naive_stamps():
+    naive = datetime(2026, 10, 3, 2, 0)  # read as UTC: 22:00 ET on Oct 2
+    (r,) = rows_from_insider_txns(
+        [txn(accepted=naive), txn(accepted=utc(2026, 10, 9, 14, 0), txn_seq=1)], W
+    )
+    assert r.date == date(2026, 10, 2)
+    (n,) = rows_from_insider_txns([txn(accepted=None, recorded_at=datetime(2026, 10, 6, 15, 0))], W)
+    assert n.date == date(2026, 10, 6)
+
+
+@pytest.mark.parametrize("shares", [None, 0, Decimal("0"), 7, float("nan"), Decimal("NaN")])
+@pytest.mark.parametrize("price", [None, 0, 0.0, 4.5, float("inf")])
+@pytest.mark.parametrize("usd", [None, 0, 100, Decimal("NaN")])
+@pytest.mark.parametrize("code", ["P", "S", "J", None])
+def test_no_form4_row_shape_can_raise(shares, price, usd, code):
+    """Every combination of stated, zero, missing and non-finite numbers builds a row (the summary's arithmetic
+    is total over what a row can hold); a bug that raises must stay visible, so nothing here is caught.
+    """
+    row = {**txn("P"), "txn_code": code, "shares": shares, "price": price, "usd": usd}
+    rows = rows_from_insider_txns([row], W)
+    assert len(rows) == 1 and rows[0].headline.startswith("Jane Roe (CEO):")
+
+
+# a row that states nothing but its accession (or nothing at all) goes through EVERY normalizer
+BARE_ROWS = [{}, {"accession": ACC}, {"accession": ACC, "valid_from": None, "filed": None}]
+
+
+@pytest.mark.parametrize("bare", BARE_ROWS)
+def test_a_row_that_states_nothing_but_its_accession_never_raises_in_any_normalizer(bare):
+    assert isinstance(rows_from_corporate_events([bare], W), list)
+    assert isinstance(rows_from_insider_txns([bare], W), list)
+    assert isinstance(rows_from_amendments([bare], W), list)
+    assert isinstance(rows_from_stakes([bare], W), list)
+    assert isinstance(rows_from_revenue([{**bare, "metric_key": "revenue"}], W), list)
+    assert isinstance(rows_from_splits([bare], W, clock="public"), list)
+    assert isinstance(rows_from_splits([bare], W, clock="record"), list)
+    assert isinstance(rows_from_dilution([bare], W), list)
+    assert isinstance(rows_from_catalysts([bare], W), list)
+    assert isinstance(rows_from_ratified([bare], [bare], [bare], W), list)
+    pit = StubPit(
+        events=[bare], insider=[bare], stakes=[bare], fundamentals=[bare], splits=[bare],
+        dilution=[bare], catalysts=[bare], cash=[bare],
+    )  # fmt: skip
+    assert isinstance(rows_for_company(pit, W, clock="public", amendments=[bare]), list)
+
+
+def test_rows_that_can_be_dated_but_state_nothing_else_still_make_a_row():
+    d = date(2026, 10, 1)
+    (ev,) = rows_from_corporate_events([{"accession": ACC, "filed": d}], W)
+    assert ev.headline == "8-K · items not yet resolved" and ev.tags == (TAG_ITEMS_PENDING,)
+    (st,) = rows_from_stakes([{"accession": ACC, "filed": d}], W)
+    assert st.headline == "13D/G · filer not named" and st.tags == (TAG_FILER_UNRESOLVED,)
+    (am,) = rows_from_amendments([{"accession": A_ACC, "day": d}], W)
+    assert am.headline == "4/A amends an earlier Form 4" and am.detail == (
+        "0 transaction rows as filed",
+    )
+    (di,) = rows_from_dilution([{"accession": ACC, "valid_from": d}], W)
+    assert di.headline == "dilution" and di.usd is None
+    (ca,) = rows_from_catalysts([{"valid_from": d}], W)
+    assert ca.headline == "catalyst: no label stated" and ca.detail == (
+        "Type: catalyst",
+        "Source: not stated",
+    )
+    (ra,) = rows_from_ratified(
+        [{"cash_usd": 5, "quarterly_burn_usd": 1, "recorded_at": utc(2026, 10, 1, 12)}], [], [], W
+    )
+    assert ra.detail == ("Source: not stated",)
+
+
+def test_the_year_over_year_and_overhang_rules_refuse_a_zero_or_missing_basis():
+    zero_prior = rev(date(2025, 6, 30), 0, "0000876543-25-000036", date(2025, 8, 5))
+    nan_prior = rev(date(2025, 6, 30), Decimal("NaN"), "0000876543-25-000037", date(2025, 8, 5))
+    assert "YoY" not in rows_from_revenue([zero_prior, NOW], W)[1].headline
+    got = rows_from_revenue(
+        [nan_prior, NOW], W
+    )  # a NaN value states no number: that row is not a row
+    assert [r.accession for r in got] == [NOW["accession"]] and "YoY" not in got[0].headline
+    for hole in (
+        {"principal_total_usd": 0},
+        {"principal_total_usd": Decimal("NaN")},
+        {"shares_outstanding": Decimal("NaN")},
+        {"terms": {"conversion_rate": 0}},
+        {"terms": {"conversion_rate": "abc"}},
+        {"terms": None},
+    ):
+        assert convert_overhang_pct(dilution(**hole)) is None
+        assert len(rows_from_dilution([dilution(**hole)], W)) == 1
+
+
+@pytest.mark.parametrize(
+    "value,words",
+    [
+        (0, "$0"),
+        (999.4, "$999"),
+        (999.5, "$1.0K"),  # a whole number that rounds to 1,000 moves up
+        (1_000, "$1.0K"),
+        (845_000, "$845.0K"),
+        (999_949, "$999.9K"),
+        (999_950, "$1.0M"),
+        (41_200_000, "$41.2M"),
+        (999_949_999, "$999.9M"),
+        (999_950_000, "$1.0B"),
+        (1_260_000_000, "$1.3B"),
+        (2_000_000_000_000, "$2,000.0B"),  # past the top unit the figure stays in billions
+        (-999_950, "-$1.0M"),
+        (-999_949, "-$999.9K"),
+    ],
+)
+def test_compact_figures_round_to_one_decimal_and_roll_to_the_next_unit_at_1000(value, words):
+    """THE ROLLOVER RULE: a figure is rounded to what is shown (a whole number below a thousand, one decimal above)
+    and one that rounds up to 1,000 moves to the next unit, so 999,949 is "$999.9K" and 999,950 is "$1.0M",
+    never "$1000.0K"."""
+    assert fmt_compact(value) == words
+    assert fmt_compact(abs(value), dollars=False) == words.lstrip("-").replace("$", "")
+
+
+# ---------------------------------------------------------------------------------------------------------
+# DB-backed: a real zero-share Form 4 row reaches the stream instead of a 500
+# ---------------------------------------------------------------------------------------------------------
+
+
+def test_a_zero_share_form4_row_reaches_the_stream_instead_of_a_500(db):
+    thesis_id, sid = _seed_card(db)
+    zero_acc = "0000876543-26-000131"
+    append_fact(
+        db,
+        "fact_insider_txn",
+        {
+            "tenant_id": DEFAULT_TENANT_ID,
+            "security_id": sid,
+            "insider_name": "Zed Zero",
+            "insider_role": "Director",
+            "txn_code": "P",
+            "shares": 0,
+            "price": 4.0,
+            "usd": 0,
+            "accession": zero_acc,
+            "txn_seq": 0,
+            "valid_from": date(2026, 6, 2),
+            "accepted": utc(2026, 6, 3, 21, 0),
+            "recorded_at": INGESTED,
+        },
+    )
+    db.commit()
+    CACHE.clear()
+    app.dependency_overrides[get_conn] = lambda: db
+    try:
+        r = TestClient(app).get(
+            f"/dashboards/filing-stream/{thesis_id}", params={"asof": PAST.isoformat(), "days": 365}
+        )
+    finally:
+        app.dependency_overrides.clear()
+        CACHE.clear()
+    assert r.status_code == 200
+    row = next(x for g in r.json()["groups"] for x in g["rows"] if x["accession"] == zero_acc)
+    assert row["headline"] == "Zed Zero (Director): P purchase 0 sh"
+    assert row["kind"] == "form4" and row["routine"] is False
