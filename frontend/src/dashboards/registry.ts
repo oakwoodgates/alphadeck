@@ -53,4 +53,12 @@ export const DASHBOARDS: readonly DashboardEntry[] = [
     asofAware: true,
     component: lazy(() => import("./rotation-map/RotationMap")),
   },
+  {
+    slug: "what-changed",
+    label: "What Changed",
+    description: "What moved on your cards since last night: states, keys, names, triggers and clocks.",
+    status: "experimental",
+    asofAware: false,
+    component: lazy(() => import("./what-changed/WhatChanged")),
+  },
 ];

@@ -4006,6 +4006,53 @@
         }
       }
     },
+    "/dashboards/what-changed": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "What Changed",
+        "description": "What moved on the live cards between the baseline night and the newest recorded night (states, keys,\narmed and watch names, triggers and risk signals), plus the clocks coming due on the newest one. A \"now\"\nview of the recorded calls; archived cards are excluded. A picked date after the newest recorded night,\nor before the first, is a 422.",
+        "operationId": "what_changed_dashboards_what_changed_get",
+        "parameters": [
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(last_night|7d|\\d{4}-\\d{2}-\\d{2})$",
+              "description": "the baseline night: last_night (the previous recorded night), 7d (7 calendar days before the newest night) or a YYYY-MM-DD date between the first recorded night and the newest",
+              "default": "last_night",
+              "title": "Since"
+            },
+            "description": "the baseline night: last_night (the previous recorded night), 7d (7 calendar days before the newest night) or a YYYY-MM-DD date between the first recorded night and the newest"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WhatChangedOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/backtest/runs": {
       "get": {
         "tags": [
@@ -18913,6 +18960,274 @@
           "managing"
         ],
         "title": "Verdict"
+      },
+      "WhatChangedCardRefOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "thesis_name"
+        ],
+        "title": "WhatChangedCardRefOut"
+      },
+      "WhatChangedItemOut": {
+        "properties": {
+          "section": {
+            "type": "string",
+            "enum": [
+              "column_moves",
+              "keys",
+              "names",
+              "triggers",
+              "clocks",
+              "new_cards"
+            ],
+            "title": "Section"
+          },
+          "change": {
+            "type": "string",
+            "enum": [
+              "state",
+              "key_on",
+              "key_off",
+              "armed",
+              "no_longer_armed",
+              "new_watch",
+              "trigger_new",
+              "trigger_gone",
+              "risk_new",
+              "entry_window",
+              "exit_by",
+              "new_card"
+            ],
+            "title": "Change"
+          },
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "reconstructed": {
+            "type": "boolean",
+            "title": "Reconstructed"
+          },
+          "security_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "from_state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/State"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "to_state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/State"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "signal_kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Kind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "On"
+          },
+          "days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days"
+          }
+        },
+        "type": "object",
+        "required": [
+          "section",
+          "change",
+          "thesis_id",
+          "thesis_name",
+          "reconstructed",
+          "security_id",
+          "ticker",
+          "from_state",
+          "to_state",
+          "label",
+          "signal_kind",
+          "on",
+          "days"
+        ],
+        "title": "WhatChangedItemOut",
+        "description": "One line. ``section`` = its group on the page; ``change`` = what moved. ``security_id`` / ``ticker`` are\nset for a name or a trigger line (``null`` = a card-level line; ``ticker`` is ``null`` when the master has\nnone). ``label`` = the key's own label, or the trigger's. ``on`` = the trigger's event date, or the clock's\ndate (``arm_until`` / ``exit_by``); ``days`` = calendar days from the newest night to ``arm_until``.\n``reconstructed`` = the card's newest row was written by ``pipeline.backfill``."
+      },
+      "WhatChangedOut": {
+        "properties": {
+          "since": {
+            "type": "string",
+            "enum": [
+              "last_night",
+              "7d",
+              "date"
+            ],
+            "title": "Since"
+          },
+          "since_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since Date"
+          },
+          "first_recorded": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Recorded"
+          },
+          "latest": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest"
+          },
+          "baseline": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline"
+          },
+          "live_cards": {
+            "type": "integer",
+            "title": "Live Cards"
+          },
+          "cards_with_change": {
+            "type": "integer",
+            "title": "Cards With Change"
+          },
+          "unrecorded": {
+            "items": {
+              "$ref": "#/components/schemas/WhatChangedCardRefOut"
+            },
+            "type": "array",
+            "title": "Unrecorded"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/WhatChangedItemOut"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "since",
+          "since_date",
+          "first_recorded",
+          "latest",
+          "baseline",
+          "live_cards",
+          "cards_with_change",
+          "unrecorded",
+          "items"
+        ],
+        "title": "WhatChangedOut",
+        "description": "The whole page. ``latest`` = the newest recorded night across the live cards (``null`` = no recorded\ncall yet); ``baseline`` = the night compared against (``null`` = no earlier night, so every recorded card\nis new). ``first_recorded`` bounds the date picker. ``unrecorded`` = live cards with no recorded call yet,\ncounted on the quiet line. Items come in section order, then card name."
       },
       "WorkbenchScored": {
         "properties": {

@@ -135,3 +135,4 @@ dashboard. Every link carries `?asof=` like the rest of the app.
 | Shared Names | `shared-names` | experimental | [`docs/dashboards/shared-names.md`](dashboards/shared-names.md) |
 | Idea Timeline | `idea-timeline` | experimental | [`docs/dashboards/idea-timeline.md`](dashboards/idea-timeline.md) |
 | Rotation Map | `rotation-map` | experimental | [`docs/dashboards/rotation-map.md`](dashboards/rotation-map.md) |
+| What Changed | `what-changed` | experimental | [`docs/dashboards/what-changed.md`](dashboards/what-changed.md) |
