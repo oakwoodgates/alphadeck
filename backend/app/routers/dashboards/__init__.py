@@ -6,13 +6,16 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.routers.dashboards import shared_names
+from app.routers.dashboards import idea_timeline, shared_names
 
 # Each dashboard adds its own ``<slug>.py`` router module in this package (an ``APIRouter`` with
 # ``prefix="/<slug>"``, its compute in ``backend/dashboards/<slug>.py``) and ONE line to the tuple below.
 # Its wire models live in its own module — NOT ``app/schemas_api.py`` — so cutting a dashboard deletes
 # cleanly: the module, its tuple line, and a contract regen.
-_DASHBOARD_ROUTERS: tuple[APIRouter, ...] = (shared_names.router,)
+_DASHBOARD_ROUTERS: tuple[APIRouter, ...] = (
+    shared_names.router,
+    idea_timeline.router,
+)
 
 router = APIRouter(prefix="/dashboards", tags=["dashboards"])
 for _r in _DASHBOARD_ROUTERS:

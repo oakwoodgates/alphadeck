@@ -3908,6 +3908,28 @@
         }
       }
     },
+    "/dashboards/idea-timeline": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Idea Timeline",
+        "description": "Each live card's recorded state over time (the calls log as runs of one state), with its dated\ncatalysts, the logged decisions and the latest call's exit-by and entry window. A \"now\" view; archived\ncards are excluded.",
+        "operationId": "idea_timeline_dashboards_idea_timeline_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdeaTimelineOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/backtest/runs": {
       "get": {
         "tags": [
@@ -12581,6 +12603,514 @@
         "type": "object",
         "title": "HealthResponse",
         "description": "The ``/health`` body. ``status`` is ``\"ok\"`` or ``\"degraded\"``; ``degraded`` maps each degraded\nsubsystem to a short reason (empty when healthy). The compose healthcheck only needs the HTTP 200 \u2014\n``degraded`` is a body flag an operator or agent can SEE, never a failed check (fail-open)."
+      },
+      "IdeaTimelineCatalystOut": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "when_date": {
+            "type": "string",
+            "format": "date",
+            "title": "When Date"
+          },
+          "when_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "When Label"
+          },
+          "past": {
+            "type": "boolean",
+            "title": "Past"
+          }
+        },
+        "type": "object",
+        "required": [
+          "label",
+          "kind",
+          "when_date",
+          "when_label",
+          "past"
+        ],
+        "title": "IdeaTimelineCatalystOut"
+      },
+      "IdeaTimelineDecisionOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "take",
+              "close",
+              "pass"
+            ],
+            "title": "Action"
+          },
+          "decision_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Decision Date"
+          },
+          "security_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "voided": {
+            "type": "boolean",
+            "title": "Voided"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "action",
+          "decision_date",
+          "security_id",
+          "ticker",
+          "reason",
+          "voided"
+        ],
+        "title": "IdeaTimelineDecisionOut",
+        "description": "A take / close / pass at its ``decision_date``; ``voided`` = a later void row names it (shown grayed,\nnever hidden)."
+      },
+      "IdeaTimelineHatchOut": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "reconstructed",
+              "excluded"
+            ],
+            "title": "Kind"
+          },
+          "start": {
+            "type": "string",
+            "format": "date",
+            "title": "Start"
+          },
+          "end": {
+            "type": "string",
+            "format": "date",
+            "title": "End"
+          },
+          "nights": {
+            "type": "integer",
+            "title": "Nights"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "start",
+          "end",
+          "nights",
+          "reason"
+        ],
+        "title": "IdeaTimelineHatchOut",
+        "description": "A stretch of a segment whose nights' winning rows are ``reconstructed`` (reported, never scored) or\ncarry an active ``exclude`` annotation (``excluded``: set aside on the Scoreboard, ``reason`` its\nreason). ``end`` is exclusive."
+      },
+      "IdeaTimelineMultiRowNightOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "rows"
+        ],
+        "title": "IdeaTimelineMultiRowNightOut"
+      },
+      "IdeaTimelineOut": {
+        "properties": {
+          "today": {
+            "type": "string",
+            "format": "date",
+            "title": "Today"
+          },
+          "axis_start": {
+            "type": "string",
+            "format": "date",
+            "title": "Axis Start"
+          },
+          "axis_end": {
+            "type": "string",
+            "format": "date",
+            "title": "Axis End"
+          },
+          "future_cap": {
+            "type": "string",
+            "format": "date",
+            "title": "Future Cap"
+          },
+          "live_cards": {
+            "type": "integer",
+            "title": "Live Cards"
+          },
+          "cards_without_calls": {
+            "type": "integer",
+            "title": "Cards Without Calls"
+          },
+          "recorded_calls": {
+            "type": "integer",
+            "title": "Recorded Calls"
+          },
+          "nights": {
+            "type": "integer",
+            "title": "Nights"
+          },
+          "multi_row_nights": {
+            "type": "integer",
+            "title": "Multi Row Nights"
+          },
+          "reconstructed_nights": {
+            "type": "integer",
+            "title": "Reconstructed Nights"
+          },
+          "excluded_nights": {
+            "type": "integer",
+            "title": "Excluded Nights"
+          },
+          "first_recorded": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Recorded"
+          },
+          "last_recorded": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Recorded"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/IdeaTimelineRowOut"
+            },
+            "type": "array",
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "today",
+          "axis_start",
+          "axis_end",
+          "future_cap",
+          "live_cards",
+          "cards_without_calls",
+          "recorded_calls",
+          "nights",
+          "multi_row_nights",
+          "reconstructed_nights",
+          "excluded_nights",
+          "first_recorded",
+          "last_recorded",
+          "rows"
+        ],
+        "title": "IdeaTimelineOut",
+        "description": "The whole page. The axis runs from the earliest recorded night to today, then on to the latest future\nmarker, capped at ``future_cap`` (today + 90 days). The counts are the work shown on its quiet line."
+      },
+      "IdeaTimelineRowOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "current_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current State"
+          },
+          "current_verdict": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Verdict"
+          },
+          "days_in_state": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days In State"
+          },
+          "total_days_armed": {
+            "type": "integer",
+            "title": "Total Days Armed"
+          },
+          "times_armed": {
+            "type": "integer",
+            "title": "Times Armed"
+          },
+          "first_recorded": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Recorded"
+          },
+          "last_recorded": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Recorded"
+          },
+          "recorded_calls": {
+            "type": "integer",
+            "title": "Recorded Calls"
+          },
+          "nights": {
+            "type": "integer",
+            "title": "Nights"
+          },
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/IdeaTimelineSegmentOut"
+            },
+            "type": "array",
+            "title": "Segments"
+          },
+          "catalysts": {
+            "items": {
+              "$ref": "#/components/schemas/IdeaTimelineCatalystOut"
+            },
+            "type": "array",
+            "title": "Catalysts"
+          },
+          "undated_catalysts": {
+            "type": "integer",
+            "title": "Undated Catalysts"
+          },
+          "decisions": {
+            "items": {
+              "$ref": "#/components/schemas/IdeaTimelineDecisionOut"
+            },
+            "type": "array",
+            "title": "Decisions"
+          },
+          "exit_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit By"
+          },
+          "arm_until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arm Until"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "thesis_name",
+          "current_state",
+          "current_verdict",
+          "days_in_state",
+          "total_days_armed",
+          "times_armed",
+          "first_recorded",
+          "last_recorded",
+          "recorded_calls",
+          "nights",
+          "segments",
+          "catalysts",
+          "undated_catalysts",
+          "decisions",
+          "exit_by",
+          "arm_until"
+        ],
+        "title": "IdeaTimelineRowOut",
+        "description": "One live card. ``current_state`` is ``null`` for a card with no recorded call yet (no segments)."
+      },
+      "IdeaTimelineSegmentOut": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "title": "State"
+          },
+          "verdict": {
+            "type": "string",
+            "title": "Verdict"
+          },
+          "start": {
+            "type": "string",
+            "format": "date",
+            "title": "Start"
+          },
+          "end": {
+            "type": "string",
+            "format": "date",
+            "title": "End"
+          },
+          "days": {
+            "type": "integer",
+            "title": "Days"
+          },
+          "current": {
+            "type": "boolean",
+            "title": "Current"
+          },
+          "nights": {
+            "type": "integer",
+            "title": "Nights"
+          },
+          "hatches": {
+            "items": {
+              "$ref": "#/components/schemas/IdeaTimelineHatchOut"
+            },
+            "type": "array",
+            "title": "Hatches"
+          },
+          "multi_row_nights": {
+            "items": {
+              "$ref": "#/components/schemas/IdeaTimelineMultiRowNightOut"
+            },
+            "type": "array",
+            "title": "Multi Row Nights"
+          }
+        },
+        "type": "object",
+        "required": [
+          "state",
+          "verdict",
+          "start",
+          "end",
+          "days",
+          "current",
+          "nights",
+          "hatches",
+          "multi_row_nights"
+        ],
+        "title": "IdeaTimelineSegmentOut",
+        "description": "One run of the same recorded state. ``verdict`` = its first night's; ``end`` is exclusive (the next\nrun's first night, or today for the current run); ``days`` = ``end - start`` in calendar days."
       },
       "IngestJobResultOut": {
         "properties": {

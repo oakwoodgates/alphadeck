@@ -2018,6 +2018,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboards/idea-timeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Idea Timeline
+         * @description Each live card's recorded state over time (the calls log as runs of one state), with its dated
+         *     catalysts, the logged decisions and the latest call's exit-by and entry window. A "now" view; archived
+         *     cards are excluded.
+         */
+        get: operations["idea_timeline_dashboards_idea_timeline_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/backtest/runs": {
         parameters: {
             query?: never;
@@ -6425,6 +6447,210 @@ export interface components {
             degraded?: {
                 [key: string]: string;
             };
+        };
+        /** IdeaTimelineCatalystOut */
+        IdeaTimelineCatalystOut: {
+            /** Label */
+            label: string;
+            /** Kind */
+            kind: string | null;
+            /**
+             * When Date
+             * Format: date
+             */
+            when_date: string;
+            /** When Label */
+            when_label: string | null;
+            /** Past */
+            past: boolean;
+        };
+        /**
+         * IdeaTimelineDecisionOut
+         * @description A take / close / pass at its ``decision_date``; ``voided`` = a later void row names it (shown grayed,
+         *     never hidden).
+         */
+        IdeaTimelineDecisionOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "take" | "close" | "pass";
+            /**
+             * Decision Date
+             * Format: date
+             */
+            decision_date: string;
+            /** Security Id */
+            security_id: string | null;
+            /** Ticker */
+            ticker: string | null;
+            /** Reason */
+            reason: string | null;
+            /** Voided */
+            voided: boolean;
+        };
+        /**
+         * IdeaTimelineHatchOut
+         * @description A stretch of a segment whose nights' winning rows are ``reconstructed`` (reported, never scored) or
+         *     carry an active ``exclude`` annotation (``excluded``: set aside on the Scoreboard, ``reason`` its
+         *     reason). ``end`` is exclusive.
+         */
+        IdeaTimelineHatchOut: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "reconstructed" | "excluded";
+            /**
+             * Start
+             * Format: date
+             */
+            start: string;
+            /**
+             * End
+             * Format: date
+             */
+            end: string;
+            /** Nights */
+            nights: number;
+            /** Reason */
+            reason: string | null;
+        };
+        /** IdeaTimelineMultiRowNightOut */
+        IdeaTimelineMultiRowNightOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /** Rows */
+            rows: number;
+        };
+        /**
+         * IdeaTimelineOut
+         * @description The whole page. The axis runs from the earliest recorded night to today, then on to the latest future
+         *     marker, capped at ``future_cap`` (today + 90 days). The counts are the work shown on its quiet line.
+         */
+        IdeaTimelineOut: {
+            /**
+             * Today
+             * Format: date
+             */
+            today: string;
+            /**
+             * Axis Start
+             * Format: date
+             */
+            axis_start: string;
+            /**
+             * Axis End
+             * Format: date
+             */
+            axis_end: string;
+            /**
+             * Future Cap
+             * Format: date
+             */
+            future_cap: string;
+            /** Live Cards */
+            live_cards: number;
+            /** Cards Without Calls */
+            cards_without_calls: number;
+            /** Recorded Calls */
+            recorded_calls: number;
+            /** Nights */
+            nights: number;
+            /** Multi Row Nights */
+            multi_row_nights: number;
+            /** Reconstructed Nights */
+            reconstructed_nights: number;
+            /** Excluded Nights */
+            excluded_nights: number;
+            /** First Recorded */
+            first_recorded: string | null;
+            /** Last Recorded */
+            last_recorded: string | null;
+            /** Rows */
+            rows: components["schemas"]["IdeaTimelineRowOut"][];
+        };
+        /**
+         * IdeaTimelineRowOut
+         * @description One live card. ``current_state`` is ``null`` for a card with no recorded call yet (no segments).
+         */
+        IdeaTimelineRowOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /** Current State */
+            current_state: string | null;
+            /** Current Verdict */
+            current_verdict: string | null;
+            /** Days In State */
+            days_in_state: number | null;
+            /** Total Days Armed */
+            total_days_armed: number;
+            /** Times Armed */
+            times_armed: number;
+            /** First Recorded */
+            first_recorded: string | null;
+            /** Last Recorded */
+            last_recorded: string | null;
+            /** Recorded Calls */
+            recorded_calls: number;
+            /** Nights */
+            nights: number;
+            /** Segments */
+            segments: components["schemas"]["IdeaTimelineSegmentOut"][];
+            /** Catalysts */
+            catalysts: components["schemas"]["IdeaTimelineCatalystOut"][];
+            /** Undated Catalysts */
+            undated_catalysts: number;
+            /** Decisions */
+            decisions: components["schemas"]["IdeaTimelineDecisionOut"][];
+            /** Exit By */
+            exit_by: string | null;
+            /** Arm Until */
+            arm_until: string | null;
+        };
+        /**
+         * IdeaTimelineSegmentOut
+         * @description One run of the same recorded state. ``verdict`` = its first night's; ``end`` is exclusive (the next
+         *     run's first night, or today for the current run); ``days`` = ``end - start`` in calendar days.
+         */
+        IdeaTimelineSegmentOut: {
+            /** State */
+            state: string;
+            /** Verdict */
+            verdict: string;
+            /**
+             * Start
+             * Format: date
+             */
+            start: string;
+            /**
+             * End
+             * Format: date
+             */
+            end: string;
+            /** Days */
+            days: number;
+            /** Current */
+            current: boolean;
+            /** Nights */
+            nights: number;
+            /** Hatches */
+            hatches: components["schemas"]["IdeaTimelineHatchOut"][];
+            /** Multi Row Nights */
+            multi_row_nights: components["schemas"]["IdeaTimelineMultiRowNightOut"][];
         };
         /**
          * IngestJobResultOut
@@ -11356,6 +11582,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    idea_timeline_dashboards_idea_timeline_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdeaTimelineOut"];
                 };
             };
         };

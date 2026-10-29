@@ -1,0 +1,76 @@
+/* Idea Timeline (docs/dashboards/idea-timeline.md) — its own sheet, imported by the component, never index.css
+   (docs/DASHBOARDS.md rule 8). Dense and quiet: the only color is the Board's four state tokens
+   (--incub / --warm / --armed / --manage, the Board columns' swatches), and the hatches are drawn in the page
+   background (--bg), so nothing here adds a color. Armed is the loudest fill because it is the loudest state
+   (invariant #7); every marker stays in the muted grays. */
+
+.it { display: flex; flex-direction: column; gap: 8px; }
+.it-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.it-group { display: inline-flex; flex-wrap: wrap; gap: 5px; }
+.it-chip { font: inherit; font-size: 11px; color: var(--txt-3); background: transparent; border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 9px; cursor: pointer; }
+.it-chip:hover { color: var(--txt-2); }
+.it-chip.on { color: var(--txt); background: var(--panel-2); }
+.it-state-chip::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 2px; margin-right: 6px; background: var(--st, var(--txt-4)); vertical-align: 0; }
+.it-sort { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--txt-3); }
+.it-sort select { font: inherit; font-size: 11px; color: var(--txt-2); background: var(--panel); border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 6px; }
+.it-work { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); line-height: 1.5; }
+
+/* the state colors, once: every swatch, chip and segment reads --st */
+.st-incub { --st: var(--incub); }
+.st-warm { --st: var(--warm); }
+.st-armed { --st: var(--armed); }
+.st-manage { --st: var(--manage); }
+.st-none, .st-other { --st: var(--txt-4); }
+
+.it-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 10px; color: var(--txt-4); }
+.it-lg { display: inline-flex; align-items: center; gap: 5px; }
+.it-sw { display: inline-block; width: 14px; height: 7px; border-radius: 1px; background: var(--st); }
+.it-sw-cat { display: inline-block; width: 1.5px; height: 9px; background: var(--txt-2); }
+.it-sw-entry { display: inline-block; width: 14px; height: 1.5px; background: var(--txt-2); }
+
+table.it-table { width: 100%; min-width: 960px; border-collapse: collapse; font-size: 12px; }
+table.it-table th { position: sticky; top: 0; z-index: 2; background: var(--bg); text-align: left; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); font-weight: 600; padding: 0 10px 6px 0; border-bottom: 1px solid var(--line); white-space: nowrap; vertical-align: bottom; }
+table.it-table td { padding: 3px 10px 3px 0; border-bottom: 1px solid var(--line); vertical-align: middle; white-space: nowrap; }
+table.it-table .it-num { text-align: right; padding-right: 14px; }
+table.it-table td.it-num, table.it-table td.it-date { font-family: var(--mono); font-size: 11px; color: var(--txt-2); }
+table.it-table .it-card { width: 210px; max-width: 210px; }
+table.it-table .it-line { width: 100%; min-width: 380px; padding-right: 0; }
+
+.it-name { font: inherit; font-weight: 600; color: var(--txt); background: none; border: 0; padding: 0; cursor: pointer; text-align: left; display: block; max-width: 210px; overflow: hidden; text-overflow: ellipsis; }
+.it-name:hover { text-decoration: underline; text-underline-offset: 2px; }
+.it-rownote { display: block; font-size: 9.5px; color: var(--txt-4); cursor: help; }
+.it-state { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--st); cursor: help; }
+.it-state.st-incub { color: var(--incub); }
+.it-state.st-none { font-weight: 400; letter-spacing: 0.02em; text-transform: none; color: var(--txt-4); }
+
+/* the axis header: month labels + today, on the same percent scale as every track below */
+.it-axis { position: relative; height: 14px; }
+.it-tick { position: absolute; bottom: 0; transform: translateX(-50%); font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.02em; text-transform: none; color: var(--txt-3); font-weight: 400; }
+.it-tick.today { color: var(--txt-2); }
+
+/* one track per card */
+.it-track { position: relative; height: 22px; overflow: hidden; }
+.it-grid { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--line); }
+.it-future { position: absolute; top: 0; bottom: 0; right: 0; background: var(--panel); }
+.it-today { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--txt-3); z-index: 4; }
+
+.it-seg { position: absolute; top: 8px; height: 8px; min-width: 2px; background: var(--st); border-radius: 1px; cursor: help; z-index: 1; }
+.it-seg.st-incub { opacity: 0.8; }
+/* the hatches lie over the segment's nights; the segment's own hover carries their notes */
+.it-hatch { position: absolute; top: 8px; height: 8px; pointer-events: none; z-index: 2; }
+.it-hatch.reconstructed { background: repeating-linear-gradient(45deg, var(--bg) 0 1.5px, transparent 1.5px 4px); }
+.it-hatch.excluded { background: repeating-linear-gradient(-45deg, var(--bg) 0 1.5px, transparent 1.5px 4px), repeating-linear-gradient(45deg, var(--bg) 0 1px, transparent 1px 6px); }
+.it-sw-hatch { position: relative; }
+.it-sw-hatch.reconstructed { background: repeating-linear-gradient(45deg, var(--bg) 0 1.5px, transparent 1.5px 4px), var(--st); }
+.it-sw-hatch.excluded { background: repeating-linear-gradient(-45deg, var(--bg) 0 1.5px, transparent 1.5px 4px), repeating-linear-gradient(45deg, var(--bg) 0 1px, transparent 1px 6px), var(--st); }
+
+/* markers: quiet grays, above the bars */
+.it-cat { position: absolute; top: 5px; height: 14px; width: 1.5px; transform: translateX(-50%); background: var(--txt-2); cursor: help; z-index: 3; }
+.it-cat.past { background: var(--txt-4); }
+.it-dec { position: absolute; top: 0; transform: translateX(-50%); font-size: 8.5px; line-height: 1; color: var(--txt); cursor: help; z-index: 3; }
+.it-dec.pass { color: var(--txt-2); }
+.it-dec.voided { color: var(--txt-4); opacity: 0.6; }
+/* exit-by: a closing bracket whose stroke sits on the date */
+.it-exit { position: absolute; top: 6px; height: 12px; width: 4px; transform: translateX(-100%); border: 1.5px solid var(--txt-2); border-left: 0; cursor: help; z-index: 3; }
+/* the entry window: a thin underline beneath the bar */
+.it-entry { position: absolute; top: 19px; height: 1.5px; min-width: 2px; background: var(--txt-2); cursor: help; z-index: 3; }

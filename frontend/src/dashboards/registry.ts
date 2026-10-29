@@ -36,4 +36,12 @@ export const DASHBOARDS: readonly DashboardEntry[] = [
     asofAware: false,
     component: lazy(() => import("./shared-names/SharedNames")),
   },
+  {
+    slug: "idea-timeline",
+    label: "Idea Timeline",
+    description: "Each card's recorded state over time, with its catalysts and your logged decisions.",
+    status: "experimental",
+    asofAware: false,
+    component: lazy(() => import("./idea-timeline/IdeaTimeline")),
+  },
 ];
