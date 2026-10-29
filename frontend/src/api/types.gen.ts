@@ -2109,6 +2109,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboards/catalyst-calendar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Catalyst Calendar
+         * @description Every live card's dated catalysts and its latest call's entry window and exit-by, bucketed from today,
+         *     with the passed catalysts and the undated ones per card. A "now" view; archived cards are excluded.
+         */
+        get: operations["catalyst_calendar_dashboards_catalyst_calendar_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/backtest/runs": {
         parameters: {
             query?: never;
@@ -5173,6 +5194,139 @@ export interface components {
             when_date?: string | null;
             /** When Label */
             when_label?: string | null;
+        };
+        /**
+         * CatalystCalendarBucketOut
+         * @description One stretch of the upcoming calendar, ``start`` to ``end`` inclusive (``end`` is ``null`` for "later").
+         *     A week starts on Monday. Items by date, then card name.
+         */
+        CatalystCalendarBucketOut: {
+            /**
+             * Key
+             * @enum {string}
+             */
+            key: "this_week" | "next_week" | "next_30_days" | "days_31_90" | "later";
+            /** Label */
+            label: string;
+            /**
+             * Start
+             * Format: date
+             */
+            start: string;
+            /** End */
+            end: string | null;
+            /** Items */
+            items: components["schemas"]["CatalystCalendarItemOut"][];
+        };
+        /**
+         * CatalystCalendarItemOut
+         * @description One dated line: a catalyst (``item = catalyst``) or one of a card's two deadlines from its latest call
+         *     (``entry_window`` = "entry window ends" at ``arm_until``, ``exit_by`` = "exit-by"). ``days`` = calendar
+         *     days from today (0 = today, negative = passed). ``kind`` / ``when_label`` / ``catalyst_id`` are the
+         *     catalyst's own (``null`` on a deadline). ``state`` = the card's latest recorded state (``null`` = no
+         *     recorded call yet).
+         */
+        CatalystCalendarItemOut: {
+            /**
+             * Item
+             * @enum {string}
+             */
+            item: "catalyst" | "entry_window" | "exit_by";
+            /**
+             * On
+             * Format: date
+             */
+            on: string;
+            /** Days */
+            days: number;
+            /** Label */
+            label: string;
+            /** Kind */
+            kind: string | null;
+            /** When Label */
+            when_label: string | null;
+            /** Catalyst Id */
+            catalyst_id: string | null;
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /** State */
+            state: string | null;
+        };
+        /**
+         * CatalystCalendarOut
+         * @description The whole page: the five upcoming buckets (empty ones included), the passed catalysts (newest first;
+         *     a passed deadline is never listed) and the undated catalysts per card (most first). The counts are the
+         *     work shown on its quiet line.
+         */
+        CatalystCalendarOut: {
+            /**
+             * Today
+             * Format: date
+             */
+            today: string;
+            /** Live Cards */
+            live_cards: number;
+            /** Cards Without Calls */
+            cards_without_calls: number;
+            /** Cards Without Catalysts */
+            cards_without_catalysts: number;
+            /** Catalysts */
+            catalysts: number;
+            /** Dated */
+            dated: number;
+            /** Upcoming Catalysts */
+            upcoming_catalysts: number;
+            /** Passed Catalysts */
+            passed_catalysts: number;
+            /** Undated */
+            undated: number;
+            /** Deadlines */
+            deadlines: number;
+            /** Buckets */
+            buckets: components["schemas"]["CatalystCalendarBucketOut"][];
+            /** Passed */
+            passed: components["schemas"]["CatalystCalendarItemOut"][];
+            /** Undated Groups */
+            undated_groups: components["schemas"]["CatalystCalendarUndatedGroupOut"][];
+        };
+        /**
+         * CatalystCalendarUndatedGroupOut
+         * @description One card's catalysts with no date, in the card's own order (a ``when_label`` is never turned into a
+         *     date).
+         */
+        CatalystCalendarUndatedGroupOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /** State */
+            state: string | null;
+            /** Count */
+            count: number;
+            /** Catalysts */
+            catalysts: components["schemas"]["CatalystCalendarUndatedOut"][];
+        };
+        /** CatalystCalendarUndatedOut */
+        CatalystCalendarUndatedOut: {
+            /**
+             * Catalyst Id
+             * Format: uuid
+             */
+            catalyst_id: string;
+            /** Label */
+            label: string;
+            /** Kind */
+            kind: string | null;
+            /** When Label */
+            when_label: string | null;
         };
         /**
          * CatalystIn
@@ -12358,6 +12512,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    catalyst_calendar_dashboards_catalyst_calendar_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CatalystCalendarOut"];
                 };
             };
         };
