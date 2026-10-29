@@ -1,0 +1,55 @@
+/* Rotation Map (docs/dashboards/rotation-map.md) — its own sheet, imported by the component, never index.css
+   (docs/DASHBOARDS.md rule 8). A dense dark table in the Cockpit basket table's style (without reusing its
+   `.basket` class, which carries the Cockpit's view-transition name): mono numbers, uppercase quiet headers.
+   Loudness marks the exception only (#7 / WB#3): a return median is green / red ONLY when the server tones it
+   (top / bottom 10% of the groups in view, in the Cockpit's own --pos / --neg); every other cell stays gray. */
+
+.rm { display: flex; flex-direction: column; gap: 8px; }
+.rm-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
+.rm-seg { display: inline-flex; align-items: center; gap: 4px; }
+.rm-seg-label { font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); margin-right: 4px; }
+.rm-seg-btn { font: inherit; font-size: 11px; color: var(--txt-3); background: transparent; border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 9px; cursor: pointer; }
+.rm-seg-btn:hover:not(:disabled) { color: var(--txt-2); }
+.rm-seg-btn.on { color: var(--txt); background: var(--panel-2); }
+.rm-seg-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.rm-check { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--txt-2); cursor: pointer; }
+.rm-check input { accent-color: var(--txt-3); margin: 0; }
+.rm-work, .rm-legend { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
+.rm-legend { font-family: inherit; color: var(--txt-4); }
+
+.rm-scroll { overflow-x: auto; margin-top: 6px; }
+table.rm-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+table.rm-table th { text-align: left; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); font-weight: 600; padding: 0 10px 8px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
+table.rm-table td { padding: 7px 10px 7px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.rm-table .rm-num { text-align: right; }
+table.rm-table th.rm-num .rm-sort { justify-content: flex-end; }
+.rm-sort { font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; display: inline-flex; align-items: center; gap: 3px; }
+.rm-sort:hover, .rm-sort.active { color: var(--txt-2); }
+.rm-sort:focus-visible { outline: 1px solid var(--line-2); outline-offset: 2px; border-radius: 2px; }
+.rm-arrow { font-size: 8px; line-height: 1; }
+
+/* a group row: click to show its names */
+tr.rm-group { cursor: pointer; }
+tr.rm-group:hover td { background: var(--panel); }
+tr.rm-group:focus-visible { outline: 1px solid var(--line-2); outline-offset: -1px; }
+tr.rm-group.open td { background: var(--panel); }
+tr.rm-group.quiet .rm-label { color: var(--txt-3); }
+.rm-label { color: var(--txt); font-weight: 600; white-space: nowrap; max-width: 340px; overflow: hidden; text-overflow: ellipsis; }
+.rm-chev { display: inline-block; width: 14px; color: var(--txt-4); font-size: 10px; }
+
+/* numbers: mono, gray by default; the toned median is the only color on the page */
+.rm-v, .rm-ret { font-family: var(--mono); font-size: 11px; color: var(--txt-3); white-space: nowrap; }
+.rm-ret { display: block; }
+.rm-ret.pos { color: var(--pos); }
+.rm-ret.neg { color: var(--neg); }
+.rm-sub { display: block; margin-top: 2px; font-family: var(--mono); font-size: 9.5px; color: var(--txt-4); white-space: nowrap; }
+
+/* a group's names, under its row: quieter and indented */
+tr.rm-name td { padding-top: 4px; padding-bottom: 4px; background: color-mix(in srgb, var(--panel) 50%, transparent); }
+.rm-name-id { padding-left: 14px; white-space: nowrap; }
+.rm-tk { font-family: var(--mono); font-weight: 700; font-size: 11px; color: var(--txt-2); margin-right: 8px; }
+.rm-chips { display: inline-flex; flex-wrap: wrap; gap: 4px; vertical-align: middle; }
+.rm-chip { font: inherit; font-size: 10.5px; padding: 1px 7px; border: 1px solid var(--line-2); border-radius: 6px; background: transparent; color: var(--txt-3); cursor: pointer; }
+.rm-chip:hover { color: var(--txt); border-color: var(--txt-4); background: var(--panel-2); }
+.rm-chip-links { color: var(--txt-4); }
+.rm-x { color: var(--txt-2); cursor: help; }

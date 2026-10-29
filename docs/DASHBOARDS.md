@@ -72,6 +72,9 @@ dashboard. Every link carries `?asof=` like the rest of the app.
    and after any basket edit, and it keys on "a new run happened", never on a clock (the run schedule
    will grow: market open, market close, nightly, pre-market). It is built once, with the first
    dashboard that needs it, then shared, never reinvented per dashboard.
+   It lives in `backend/dashboards/cache.py` (built with the Rotation Map): a dashboard's router calls
+   `cached(conn, "<slug>", params, asof, compute)` and gets back the value with `status` ("hit" /
+   "computed") and `compute_ms`; cache the expensive read per as-of and derive each view from it.
 
 8. **Self-contained layout**, so dashboards build in parallel and delete cleanly. A slug is lowercase
    letters, digits and `-` (`tape-breadth`); the Python module name swaps `-` for `_`
@@ -131,3 +134,4 @@ dashboard. Every link carries `?asof=` like the rest of the app.
 | --- | --- | --- | --- |
 | Shared Names | `shared-names` | experimental | [`docs/dashboards/shared-names.md`](dashboards/shared-names.md) |
 | Idea Timeline | `idea-timeline` | experimental | [`docs/dashboards/idea-timeline.md`](dashboards/idea-timeline.md) |
+| Rotation Map | `rotation-map` | experimental | [`docs/dashboards/rotation-map.md`](dashboards/rotation-map.md) |
