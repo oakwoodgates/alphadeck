@@ -4,8 +4,9 @@ import { AppHeader } from "../AppHeader";
 import { dashboardPath } from "../nav";
 import { DASHBOARDS } from "./registry";
 
-// The /dashboards page: every registry entry, in registry order, each linking to its page with ?asof=
-// carried. No as-of dial of its own (a list of pages, not a view of data). See docs/DASHBOARDS.md.
+// The /dashboards page: every registry entry, in registry order (the Board first), each linking to its
+// page with ?asof= carried. No as-of dial of its own (a list of pages, not a view of data). See
+// docs/DASHBOARDS.md.
 
 type Props = {
   /** The raw ?asof= (null when absent), carried onto every link so the operator's as-of survives. */
@@ -18,7 +19,7 @@ export function DashboardsIndex({ asofParam }: Props) {
       <AppHeader current="dashboards" />
       <div className="dash-title">
         <h1>Dashboards</h1>
-        <span className="dash-desc">Experimental views across the cards.</span>
+        <span className="dash-desc">Views across the cards.</span>
       </div>
       <main className="dash-body">
         {DASHBOARDS.length === 0 ? (

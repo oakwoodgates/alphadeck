@@ -7,13 +7,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppHeader, type NavKey } from "../AppHeader";
 import type { DashboardEntry } from "../dashboards/registry";
 
-// The Dashboards ▾ menu in the shared top bar (docs/DASHBOARDS.md). The registry is mocked and mutated IN
-// PLACE per test (empty by default, exactly like the real registry today); a probe prints the router's
-// location so a navigation is asserted on the URL itself.
+// The Home tab and the Dashboards ▾ menu in the shared top bar (docs/DASHBOARDS.md). The registry is mocked
+// and mutated IN PLACE per test (empty by default); a probe prints the router's location so a navigation is
+// asserted on the URL itself.
 
 const h = vi.hoisted(() => ({ dashboards: [] as unknown[] }));
 
 vi.mock("../dashboards/registry", () => ({ DASHBOARDS: h.dashboards }));
+
+// The real registry (vi.importActual skips the mock above), for the menu's real order.
+const REAL = await vi.importActual<typeof import("../dashboards/registry")>("../dashboards/registry");
 
 const FAKE: DashboardEntry = {
   slug: "fake-dash",
@@ -29,7 +32,7 @@ function Where() {
   return <span data-testid="where">{loc.pathname + loc.search}</span>;
 }
 
-function renderAt(url: string, current: NavKey = "board") {
+function renderAt(url: string, current: NavKey = "home") {
   return render(
     <MemoryRouter initialEntries={[url]}>
       <AppHeader current={current} />
@@ -39,19 +42,64 @@ function renderAt(url: string, current: NavKey = "board") {
 }
 
 const trigger = () => screen.getByRole("button", { name: "Dashboards" });
+const homeTab = () => screen.getByText("Home");
 
 beforeEach(() => {
   h.dashboards.length = 0;
 });
 
+describe("AppHeader — the Home tab", () => {
+  it("is the first tab, labeled Home (no Board tab: the Board is the home dashboard)", () => {
+    renderAt("/");
+    const order = Array.from(screen.getByRole("navigation").children).map((c) => c.textContent);
+    expect(order[0]).toBe("Home");
+    expect(order).not.toContain("Board");
+  });
+
+  it("is lit at / (current home) and nothing else is", () => {
+    renderAt("/", "home");
+    expect(homeTab()).toHaveClass("on");
+    expect(trigger()).not.toHaveClass("on");
+  });
+
+  it("navigates to / with ?asof= carried from another page", async () => {
+    const user = userEvent.setup();
+    renderAt("/scoreboard?asof=2026-06-01", "scoreboard");
+    expect(homeTab()).not.toHaveClass("on");
+    await user.click(homeTab());
+    expect(screen.getByTestId("where").textContent).toBe("/?asof=2026-06-01");
+  });
+
+  it("on a dashboard page, the Board's own included, the Dashboards menu is lit and Home is not", () => {
+    renderAt("/dashboards/board", "dashboards");
+    expect(trigger()).toHaveClass("on");
+    expect(homeTab()).not.toHaveClass("on");
+  });
+});
+
 describe("AppHeader — the Dashboards menu", () => {
-  it("is a closed menu button placed right after Board", () => {
+  it("is a closed menu button placed right after Home", () => {
     renderAt("/");
     expect(trigger()).toHaveAttribute("aria-haspopup", "menu");
     expect(trigger()).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
     const order = Array.from(screen.getByRole("navigation").children).map((c) => c.textContent);
-    expect(order.slice(0, 3)).toEqual(["Board", "Dashboards ▾", "Workbench"]);
+    expect(order.slice(0, 3)).toEqual(["Home", "Dashboards ▾", "Workbench"]);
+  });
+
+  it("with the real registry, lists the Board first, right after All dashboards", async () => {
+    const user = userEvent.setup();
+    h.dashboards.push(...REAL.DASHBOARDS);
+    renderAt("/?asof=2026-06-01");
+    await user.click(trigger());
+    const items = screen.getAllByRole("menuitem");
+    expect(items[0]).toHaveTextContent("All dashboards");
+    expect(items[1].textContent).toBe(
+      "BoardEvery card in its lifecycle column, with the Decision Queue.",
+    );
+    expect(items).toHaveLength(REAL.DASHBOARDS.length + 1);
+    await user.click(items[1]);
+    expect(screen.getByTestId("where").textContent).toBe("/dashboards/board?asof=2026-06-01");
   });
 
   it("opens on click and lists All dashboards first, then each registry entry with its description", async () => {
@@ -130,7 +178,7 @@ describe("AppHeader — the Dashboards menu", () => {
   it("the trigger wears the on style only when a dashboards page is current", () => {
     renderAt("/dashboards", "dashboards");
     expect(trigger()).toHaveClass("on");
-    expect(screen.getByText("Board")).not.toHaveClass("on");
+    expect(homeTab()).not.toHaveClass("on");
   });
 
   it("on any other page the trigger is not on", () => {

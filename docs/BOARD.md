@@ -9,6 +9,11 @@
 > Code: `frontend/src/board/` · `frontend/src/cockpit/` · `frontend/src/components/{CallCard,MemberMenu,
 > DecisionActions}.tsx` · the reads they render come from `GET /theses` + `GET /theses/{id}/call`.
 >
+> **The Board is the `board` dashboard and the default Home** (2026-10-29): `/` renders it, set by
+> `HOME_DASHBOARD` in `frontend/src/dashboards/registry.ts`, and `/dashboards/board` renders the same Board
+> (`docs/DASHBOARDS.md` §"The Board is the home dashboard"). The top nav's first tab is **Home**. Everything
+> else in this doc still holds.
+>
 > **The design law of the whole surface is inverse loudness (invariant #7):** quietness scales with how
 > early it is. Incubating must not nag; loudness is reserved for Armed. Every element below is calibrated
 > to that — if something reads loud, it should be the exception demanding action, never the rule.

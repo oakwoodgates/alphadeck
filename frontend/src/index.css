@@ -629,7 +629,10 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
    Board (home) — the four lifecycle columns + Decision Queue. Inverse loudness:
    Incubating dormant, Warming a gentle glow, Armed loud, Managing a steady panel.
    =========================================================================== */
-.board-shell { height: 100vh; display: flex; flex-direction: column; }
+/* The Board fills the box it is given: the dashboard shell's `fill` body (`.dash-body.fill` below), which sits
+   under the top bar in a 100vh column. `min-height: 0` lets it shrink to that box, so the columns scroll inside
+   themselves and the page never does. */
+.board-shell { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 /* F11 — one quiet line for the whole board (every card shares the as-of dial); muted, no alarm
    color, thin hairline so it reads as a caption, not an error strip like .board-errs below. */
 .board-recompute { padding: 7px 18px; font-size: 10.5px; font-style: italic; letter-spacing: 0.02em; color: var(--txt-4); background: var(--panel-2); border-bottom: 1px solid var(--line); }
@@ -2151,6 +2154,11 @@ tr.adm-row-bad td { background: color-mix(in srgb, var(--warm) 5%, transparent);
 .dash-status { font-family: var(--mono); font-size: 9.5px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--txt-3); border: 1px solid var(--line-2); border-radius: 6px; padding: 1px 7px; }
 .dash-desc { font-size: 11.5px; color: var(--txt-3); }
 .dash-body { flex: 1; padding: 16px 18px 28px; }
+/* `layout: "fill"` (the Board): no title row, and a fixed-height 100vh column whose body takes everything under
+   the top bar, unpadded, for a page that scrolls inside itself. */
+.dash-shell.fill { height: 100vh; }
+.dash-body.fill { min-height: 0; padding: 0; display: flex; flex-direction: column; }
+.dash-body.fill > .dash-note { padding: 16px 18px; }
 .dash-note { font-size: 11px; color: var(--txt-4); }
 .dash-index { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
 .dash-tile { display: flex; flex-direction: column; gap: 6px; height: 100%; padding: 13px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: inherit; text-decoration: none; transition: border-color 0.14s, background 0.14s; }

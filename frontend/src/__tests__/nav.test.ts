@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   adminPath,
-  boardPath,
   dashboardPath,
   dashboardsPath,
+  homePath,
   scoreboardPath,
   thesisPath,
   validAsof,
@@ -33,7 +33,7 @@ describe("validAsof — the ?asof= guard", () => {
 
 describe("path builders", () => {
   it("omit params that are absent", () => {
-    expect(boardPath(null)).toBe("/");
+    expect(homePath(null)).toBe("/");
     expect(scoreboardPath(null)).toBe("/scoreboard");
     expect(workbenchPath(null)).toBe("/workbench");
     expect(adminPath(null)).toBe("/admin");
@@ -42,7 +42,7 @@ describe("path builders", () => {
   });
 
   it("carry asof when set", () => {
-    expect(boardPath("2026-06-01")).toBe("/?asof=2026-06-01");
+    expect(homePath("2026-06-01")).toBe("/?asof=2026-06-01");
     expect(scoreboardPath("2026-06-01")).toBe("/scoreboard?asof=2026-06-01");
     expect(adminPath("2026-06-01")).toBe("/admin?asof=2026-06-01");
     expect(thesisPath("t-1", { asof: "2026-06-01" })).toBe("/thesis/t-1?asof=2026-06-01");
