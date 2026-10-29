@@ -4199,6 +4199,108 @@
         }
       }
     },
+    "/dashboards/evidence-ledger/cards": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Evidence Ledger Cards",
+        "description": "The card picker: the live cards that existed by the as-of, A\u2192Z, each with its link count today. Display\nonly.",
+        "operationId": "evidence_ledger_cards_dashboards_evidence_ledger_cards_get",
+        "parameters": [
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; only the cards that existed by then are listed",
+              "title": "Asof"
+            },
+            "description": "as-of date; only the cards that existed by then are listed"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvidenceLedgerCardsOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboards/evidence-ledger/{thesis_id}": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Evidence Ledger For Card",
+        "description": "Everything one card's call and facts rest on, in one list: the recorded call's triggers and risk signals\nwith their sources, the ratified and stored facts, the card's catalysts, kill criteria and evidence links and\nits context roles, each row marked by who put it there (a person, a computation, an ingest leg, the card).\nDisplay only; a past as-of reads the call recorded for that night or the last one before it and the facts\npublic by the end of that date (a fact ratified after it never appears). The card's own entries are read live.\n404 when the card is not counted at the as-of.",
+        "operationId": "evidence_ledger_for_card_dashboards_evidence_ledger__thesis_id__get",
+        "parameters": [
+          {
+            "name": "thesis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thesis Id"
+            }
+          },
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; no call recorded for a later night, no fact public after it",
+              "title": "Asof"
+            },
+            "description": "as-of date; no call recorded for a later night, no fact public after it"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvidenceLedgerOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/dashboards/filing-stream/cards": {
       "get": {
         "tags": [
@@ -15837,6 +15939,619 @@
         ],
         "title": "Evidence",
         "description": "Immutable reference to a filing / data point."
+      },
+      "EvidenceLedgerCardOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "links": {
+            "type": "integer",
+            "title": "Links"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "name",
+          "links"
+        ],
+        "title": "EvidenceLedgerCardOut",
+        "description": "A card in the picker: its name and its real links today (Context and Bench not counted)."
+      },
+      "EvidenceLedgerCardsOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "live_cards": {
+            "type": "integer",
+            "title": "Live Cards"
+          },
+          "not_yet_created": {
+            "type": "integer",
+            "title": "Not Yet Created"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceLedgerCardOut"
+            },
+            "type": "array",
+            "title": "Cards"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "live_cards",
+          "not_yet_created",
+          "cards",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "EvidenceLedgerCardsOut",
+        "description": "The picker: the cards counted at the as-of (the live cards that existed by then), A\u2192Z. ``cache`` /\n``compute_ms`` = whether the list came from the shared dashboard cache and how long it took when computed."
+      },
+      "EvidenceLedgerCountOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "rows"
+        ],
+        "title": "EvidenceLedgerCountOut"
+      },
+      "EvidenceLedgerDayOut": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceLedgerRowOut"
+            },
+            "type": "array",
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "rows"
+        ],
+        "title": "EvidenceLedgerDayOut"
+      },
+      "EvidenceLedgerNameOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "security_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Security Id"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContextRole"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "silent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Silent"
+          },
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "ticker",
+          "security_id",
+          "role",
+          "silent",
+          "rows"
+        ],
+        "title": "EvidenceLedgerNameOut",
+        "description": "A roster company (each once) with its rows; a name with none is still listed. ``key`` = its\n``security_id`` (``ticker:<T>`` for a row with no resolved security)."
+      },
+      "EvidenceLedgerNightOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "reconstructed": {
+            "type": "boolean",
+            "title": "Reconstructed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "reconstructed"
+        ],
+        "title": "EvidenceLedgerNightOut",
+        "description": "The recorded call the triggers come from: the night it was recorded for and whether it was reconstructed."
+      },
+      "EvidenceLedgerOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "clock": {
+            "type": "string",
+            "enum": [
+              "record",
+              "public"
+            ],
+            "title": "Clock"
+          },
+          "roster_fallback": {
+            "type": "boolean",
+            "title": "Roster Fallback"
+          },
+          "night": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EvidenceLedgerNightOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "night_unreadable": {
+            "type": "boolean",
+            "title": "Night Unreadable"
+          },
+          "basket_rows": {
+            "type": "integer",
+            "title": "Basket Rows"
+          },
+          "silent_rows": {
+            "type": "integer",
+            "title": "Silent Rows"
+          },
+          "unresolved": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Unresolved"
+          },
+          "facts_days": {
+            "type": "integer",
+            "title": "Facts Days"
+          },
+          "names": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceLedgerNameOut"
+            },
+            "type": "array",
+            "title": "Names"
+          },
+          "standing": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceLedgerRowOut"
+            },
+            "type": "array",
+            "title": "Standing"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceLedgerDayOut"
+            },
+            "type": "array",
+            "title": "Groups"
+          },
+          "tallies": {
+            "$ref": "#/components/schemas/EvidenceLedgerTalliesOut"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "thesis_id",
+          "thesis_name",
+          "clock",
+          "roster_fallback",
+          "night",
+          "night_unreadable",
+          "basket_rows",
+          "silent_rows",
+          "unresolved",
+          "facts_days",
+          "names",
+          "standing",
+          "groups",
+          "tallies",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "EvidenceLedgerOut",
+        "description": "One card's ledger at the as-of. ``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was\npublic by the end of that date). ``night`` = the recorded call the triggers come from (``null`` = none\nrecorded by the as-of); ``night_unreadable`` = a row was found but its card did not read. ``standing`` = the\nrows with no date; ``groups`` = the dated rows, newest day first. ``facts_days`` = how far back the stored\nfacts are read. ``roster_fallback`` = no roster snapshot by the as-of: today's roster stands in.\n``unresolved`` = tickers of roster rows with no resolved security (they can carry no fact: counted, never\nlisted as one). ``cache`` / ``compute_ms`` = whether the heavy read came from the shared dashboard cache and\nhow long it took when computed (the card's own entries are read live either way)."
+      },
+      "EvidenceLedgerRowOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "authority": {
+            "type": "string",
+            "enum": [
+              "operator",
+              "system",
+              "automatic",
+              "card"
+            ],
+            "title": "Authority"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "trigger",
+              "risk_signal",
+              "ratified",
+              "catalyst_fact",
+              "card_catalyst",
+              "kill",
+              "evidence",
+              "role"
+            ],
+            "title": "Kind"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date"
+          },
+          "security_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "form": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Form"
+          },
+          "silent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Silent"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContextRole"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "By"
+          },
+          "on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "On"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceLedgerSourceOut"
+            },
+            "type": "array",
+            "title": "Sources"
+          },
+          "detail": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Detail"
+          },
+          "edgar": {
+            "type": "boolean",
+            "title": "Edgar"
+          },
+          "reconstructed": {
+            "type": "boolean",
+            "title": "Reconstructed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "authority",
+          "kind",
+          "label",
+          "date",
+          "security_id",
+          "ticker",
+          "form",
+          "silent",
+          "role",
+          "by",
+          "on",
+          "sources",
+          "detail",
+          "edgar",
+          "reconstructed"
+        ],
+        "title": "EvidenceLedgerRowOut",
+        "description": "One piece of evidence. ``authority`` = WHO put it there, never a judgment of it: ``operator`` (a person\nratified or set it), ``system`` (a computation on public data), ``automatic`` (an ingest leg stored it, nobody\nratified it), ``card`` (an entry the operator maintains on the card). ``kind``: ``trigger`` | ``risk_signal``\n(the recorded card's) | ``ratified`` (a ratified or stored fact) | ``catalyst_fact`` | ``card_catalyst`` |\n``kill`` | ``evidence`` | ``role``. ``date`` = the day it counts under (``null`` = standing). ``form`` = the\nrow's own kind word. ``silent`` = Context / Bench when its company sits there. ``role`` = the context role\n(a role row). ``by`` / ``on`` = who ratified or set it and the day. ``edgar`` = a source links to EDGAR.\n``reconstructed`` = from a night ``pipeline.backfill`` wrote (reported, never scored)."
+      },
+      "EvidenceLedgerSourceOut": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ref"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "detail": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "ref",
+          "url",
+          "detail"
+        ],
+        "title": "EvidenceLedgerSourceOut",
+        "description": "A place a row points at. ``source`` = the kind as stored (``form4``, ``price``, ``xbrl``, a form), ``ref``\n= its reference (an accession, a price reference), ``url`` = a link (``null`` = none known), ``detail`` = the\ncomputation's inputs as stored, one ``key: value`` line each."
+      },
+      "EvidenceLedgerTalliesOut": {
+        "properties": {
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          },
+          "by_authority": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceLedgerCountOut"
+            },
+            "type": "array",
+            "title": "By Authority"
+          },
+          "by_kind": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceLedgerCountOut"
+            },
+            "type": "array",
+            "title": "By Kind"
+          },
+          "signals": {
+            "type": "integer",
+            "title": "Signals"
+          },
+          "trace_accession": {
+            "type": "integer",
+            "title": "Trace Accession"
+          },
+          "trace_price": {
+            "type": "integer",
+            "title": "Trace Price"
+          },
+          "trace_other": {
+            "type": "integer",
+            "title": "Trace Other"
+          },
+          "trace_none": {
+            "type": "integer",
+            "title": "Trace None"
+          },
+          "facts_ratified": {
+            "type": "integer",
+            "title": "Facts Ratified"
+          },
+          "facts_stored": {
+            "type": "integer",
+            "title": "Facts Stored"
+          },
+          "catalysts_dated": {
+            "type": "integer",
+            "title": "Catalysts Dated"
+          },
+          "catalysts_undated": {
+            "type": "integer",
+            "title": "Catalysts Undated"
+          },
+          "roles_dated": {
+            "type": "integer",
+            "title": "Roles Dated"
+          },
+          "roles_undated": {
+            "type": "integer",
+            "title": "Roles Undated"
+          }
+        },
+        "type": "object",
+        "required": [
+          "rows",
+          "by_authority",
+          "by_kind",
+          "signals",
+          "trace_accession",
+          "trace_price",
+          "trace_other",
+          "trace_none",
+          "facts_ratified",
+          "facts_stored",
+          "catalysts_dated",
+          "catalysts_undated",
+          "roles_dated",
+          "roles_undated"
+        ],
+        "title": "EvidenceLedgerTalliesOut",
+        "description": "Every row, whatever the page's filters. ``trace_*`` = how the fired signals (triggers and risk signals)\ntrace: an EDGAR accession, a price reference only, another source, or no source stated. ``facts_ratified`` /\n``facts_stored`` = the fact rows a person ratified / nobody did."
       },
       "ExcludedName": {
         "properties": {

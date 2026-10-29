@@ -2134,6 +2134,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboards/evidence-ledger/cards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Evidence Ledger Cards
+         * @description The card picker: the live cards that existed by the as-of, A→Z, each with its link count today. Display
+         *     only.
+         */
+        get: operations["evidence_ledger_cards_dashboards_evidence_ledger_cards_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboards/evidence-ledger/{thesis_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Evidence Ledger For Card
+         * @description Everything one card's call and facts rest on, in one list: the recorded call's triggers and risk signals
+         *     with their sources, the ratified and stored facts, the card's catalysts, kill criteria and evidence links and
+         *     its context roles, each row marked by who put it there (a person, a computation, an ingest leg, the card).
+         *     Display only; a past as-of reads the call recorded for that night or the last one before it and the facts
+         *     public by the end of that date (a fact ratified after it never appears). The card's own entries are read live.
+         *     404 when the card is not counted at the as-of.
+         */
+        get: operations["evidence_ledger_for_card_dashboards_evidence_ledger__thesis_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dashboards/filing-stream/cards": {
         parameters: {
             query?: never;
@@ -7705,6 +7751,253 @@ export interface components {
             ref: string;
             /** Date Label */
             date_label?: string | null;
+        };
+        /**
+         * EvidenceLedgerCardOut
+         * @description A card in the picker: its name and its real links today (Context and Bench not counted).
+         */
+        EvidenceLedgerCardOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Name */
+            name: string;
+            /** Links */
+            links: number;
+        };
+        /**
+         * EvidenceLedgerCardsOut
+         * @description The picker: the cards counted at the as-of (the live cards that existed by then), A→Z. ``cache`` /
+         *     ``compute_ms`` = whether the list came from the shared dashboard cache and how long it took when computed.
+         */
+        EvidenceLedgerCardsOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /** Live Cards */
+            live_cards: number;
+            /** Not Yet Created */
+            not_yet_created: number;
+            /** Cards */
+            cards: components["schemas"]["EvidenceLedgerCardOut"][];
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /** EvidenceLedgerCountOut */
+        EvidenceLedgerCountOut: {
+            /** Key */
+            key: string;
+            /** Rows */
+            rows: number;
+        };
+        /** EvidenceLedgerDayOut */
+        EvidenceLedgerDayOut: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Rows */
+            rows: components["schemas"]["EvidenceLedgerRowOut"][];
+        };
+        /**
+         * EvidenceLedgerNameOut
+         * @description A roster company (each once) with its rows; a name with none is still listed. ``key`` = its
+         *     ``security_id`` (``ticker:<T>`` for a row with no resolved security).
+         */
+        EvidenceLedgerNameOut: {
+            /** Key */
+            key: string;
+            /** Ticker */
+            ticker: string;
+            /** Security Id */
+            security_id: string | null;
+            role: components["schemas"]["ContextRole"] | null;
+            /** Silent */
+            silent: string | null;
+            /** Rows */
+            rows: number;
+        };
+        /**
+         * EvidenceLedgerNightOut
+         * @description The recorded call the triggers come from: the night it was recorded for and whether it was reconstructed.
+         */
+        EvidenceLedgerNightOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /** Reconstructed */
+            reconstructed: boolean;
+        };
+        /**
+         * EvidenceLedgerOut
+         * @description One card's ledger at the as-of. ``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was
+         *     public by the end of that date). ``night`` = the recorded call the triggers come from (``null`` = none
+         *     recorded by the as-of); ``night_unreadable`` = a row was found but its card did not read. ``standing`` = the
+         *     rows with no date; ``groups`` = the dated rows, newest day first. ``facts_days`` = how far back the stored
+         *     facts are read. ``roster_fallback`` = no roster snapshot by the as-of: today's roster stands in.
+         *     ``unresolved`` = tickers of roster rows with no resolved security (they can carry no fact: counted, never
+         *     listed as one). ``cache`` / ``compute_ms`` = whether the heavy read came from the shared dashboard cache and
+         *     how long it took when computed (the card's own entries are read live either way).
+         */
+        EvidenceLedgerOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /**
+             * Clock
+             * @enum {string}
+             */
+            clock: "record" | "public";
+            /** Roster Fallback */
+            roster_fallback: boolean;
+            night: components["schemas"]["EvidenceLedgerNightOut"] | null;
+            /** Night Unreadable */
+            night_unreadable: boolean;
+            /** Basket Rows */
+            basket_rows: number;
+            /** Silent Rows */
+            silent_rows: number;
+            /** Unresolved */
+            unresolved: string[];
+            /** Facts Days */
+            facts_days: number;
+            /** Names */
+            names: components["schemas"]["EvidenceLedgerNameOut"][];
+            /** Standing */
+            standing: components["schemas"]["EvidenceLedgerRowOut"][];
+            /** Groups */
+            groups: components["schemas"]["EvidenceLedgerDayOut"][];
+            tallies: components["schemas"]["EvidenceLedgerTalliesOut"];
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * EvidenceLedgerRowOut
+         * @description One piece of evidence. ``authority`` = WHO put it there, never a judgment of it: ``operator`` (a person
+         *     ratified or set it), ``system`` (a computation on public data), ``automatic`` (an ingest leg stored it, nobody
+         *     ratified it), ``card`` (an entry the operator maintains on the card). ``kind``: ``trigger`` | ``risk_signal``
+         *     (the recorded card's) | ``ratified`` (a ratified or stored fact) | ``catalyst_fact`` | ``card_catalyst`` |
+         *     ``kill`` | ``evidence`` | ``role``. ``date`` = the day it counts under (``null`` = standing). ``form`` = the
+         *     row's own kind word. ``silent`` = Context / Bench when its company sits there. ``role`` = the context role
+         *     (a role row). ``by`` / ``on`` = who ratified or set it and the day. ``edgar`` = a source links to EDGAR.
+         *     ``reconstructed`` = from a night ``pipeline.backfill`` wrote (reported, never scored).
+         */
+        EvidenceLedgerRowOut: {
+            /** Key */
+            key: string;
+            /**
+             * Authority
+             * @enum {string}
+             */
+            authority: "operator" | "system" | "automatic" | "card";
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "trigger" | "risk_signal" | "ratified" | "catalyst_fact" | "card_catalyst" | "kill" | "evidence" | "role";
+            /** Label */
+            label: string;
+            /** Date */
+            date: string | null;
+            /** Security Id */
+            security_id: string | null;
+            /** Ticker */
+            ticker: string | null;
+            /** Form */
+            form: string | null;
+            /** Silent */
+            silent: string | null;
+            role: components["schemas"]["ContextRole"] | null;
+            /** By */
+            by: string | null;
+            /** On */
+            on: string | null;
+            /** Sources */
+            sources: components["schemas"]["EvidenceLedgerSourceOut"][];
+            /** Detail */
+            detail: string[];
+            /** Edgar */
+            edgar: boolean;
+            /** Reconstructed */
+            reconstructed: boolean;
+        };
+        /**
+         * EvidenceLedgerSourceOut
+         * @description A place a row points at. ``source`` = the kind as stored (``form4``, ``price``, ``xbrl``, a form), ``ref``
+         *     = its reference (an accession, a price reference), ``url`` = a link (``null`` = none known), ``detail`` = the
+         *     computation's inputs as stored, one ``key: value`` line each.
+         */
+        EvidenceLedgerSourceOut: {
+            /** Source */
+            source: string;
+            /** Ref */
+            ref: string | null;
+            /** Url */
+            url: string | null;
+            /** Detail */
+            detail: string[];
+        };
+        /**
+         * EvidenceLedgerTalliesOut
+         * @description Every row, whatever the page's filters. ``trace_*`` = how the fired signals (triggers and risk signals)
+         *     trace: an EDGAR accession, a price reference only, another source, or no source stated. ``facts_ratified`` /
+         *     ``facts_stored`` = the fact rows a person ratified / nobody did.
+         */
+        EvidenceLedgerTalliesOut: {
+            /** Rows */
+            rows: number;
+            /** By Authority */
+            by_authority: components["schemas"]["EvidenceLedgerCountOut"][];
+            /** By Kind */
+            by_kind: components["schemas"]["EvidenceLedgerCountOut"][];
+            /** Signals */
+            signals: number;
+            /** Trace Accession */
+            trace_accession: number;
+            /** Trace Price */
+            trace_price: number;
+            /** Trace Other */
+            trace_other: number;
+            /** Trace None */
+            trace_none: number;
+            /** Facts Ratified */
+            facts_ratified: number;
+            /** Facts Stored */
+            facts_stored: number;
+            /** Catalysts Dated */
+            catalysts_dated: number;
+            /** Catalysts Undated */
+            catalysts_undated: number;
+            /** Roles Dated */
+            roles_dated: number;
+            /** Roles Undated */
+            roles_undated: number;
         };
         /**
          * ExcludedName
@@ -15582,6 +15875,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CrossRadarOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    evidence_ledger_cards_dashboards_evidence_ledger_cards_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; only the cards that existed by then are listed */
+                asof: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvidenceLedgerCardsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    evidence_ledger_for_card_dashboards_evidence_ledger__thesis_id__get: {
+        parameters: {
+            query: {
+                /** @description as-of date; no call recorded for a later night, no fact public after it */
+                asof: string;
+            };
+            header?: never;
+            path: {
+                thesis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvidenceLedgerOut"];
                 };
             };
             /** @description Validation Error */

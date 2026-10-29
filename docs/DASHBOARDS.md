@@ -130,7 +130,8 @@ the data flags). Its plan is `docs/BOARD.md`.
    the Read-Throughs table): every filing-derived fact the system stores, normalized to one `FilingRow` shape
    (`read_filing_rows`: the point-in-time view plus the Form 4/A SELECT, both on the request's one
    `serve_view(asof)` pair). A page that lists what a company filed reuses it rather than re-reading the fact
-   tables.
+   tables. A ratified fact, and a catalyst a person ratified, carry who ratified them and the day
+   (`ratifier`, `ratified_on`; the Evidence Ledger's authority classes read them).
 
 8. **Self-contained layout, self-registering**, so dashboards build in parallel and delete cleanly. A slug
    is lowercase letters, digits and `-` (`tape-breadth`); the Python module name swaps `-` for `_`

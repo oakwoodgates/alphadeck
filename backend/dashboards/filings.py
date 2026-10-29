@@ -128,7 +128,10 @@ class FilingRow:
     neutral line; ``detail`` = the lines the expanded row shows. ``url`` = the filing's EDGAR index (or the
     stored source), ``None`` when none is known. ``routine`` = a fold candidate (a Form 4 holding no code-P
     purchase). ``usd`` = the row's dollar size when it has one (a Form 4's purchases minus sales, a dilution's
-    principal)."""
+    principal). ``ratifier`` / ``ratified_on`` = who ratified the row and the market-time day they did, on a
+    "ratified fact" and on a catalyst a person ratified (``None`` on every other row, and on a row the machine
+    applied or a feed stored: nobody ratified it); the Evidence Ledger's authority classes read them.
+    """
 
     security_id: UUID
     ticker: str
@@ -142,6 +145,8 @@ class FilingRow:
     tags: tuple[str, ...] = ()
     routine: bool = False
     usd: float | None = None
+    ratifier: str | None = None
+    ratified_on: date | None = None
 
 
 class Who(NamedTuple):
@@ -262,6 +267,10 @@ def _accession_of(source_ref: Any) -> str | None:
         return None
     ref = source_ref.strip()
     return ref if _ACCESSION.fullmatch(ref.replace("-", "")) else None
+
+
+# the public name for a page that classifies a reference (the Evidence Ledger's "traces to an EDGAR accession")
+accession_of = _accession_of
 
 
 # --- 8-K ----------------------------------------------------------------------------------------------------
@@ -964,8 +973,10 @@ def rows_from_catalysts(facts: Iterable[Mapping[str, Any]], who: Who) -> list[Fi
         if horizon:
             detail.append(f"Signal horizon ends {horizon}")
         detail.append(_source_line(f))
-        if _ratifier(f) is None:
+        ratifier = _ratifier(f)
+        if ratifier is None:
             detail.append(_not_ratified_line(f))
+        stamped = f.get("recorded_at")
         out.append(
             FilingRow(
                 security_id=who.security_id,
@@ -977,6 +988,10 @@ def rows_from_catalysts(facts: Iterable[Mapping[str, Any]], who: Who) -> list[Fi
                 detail=tuple(detail),
                 url=source_url(f.get("source_ref"), who.cik),
                 accession=_accession_of(f.get("source_ref")),
+                ratifier=ratifier,
+                ratified_on=(
+                    et_date(stamped) if ratifier and isinstance(stamped, datetime) else None
+                ),
             )
         )
     return out
@@ -1017,6 +1032,8 @@ def _ratified_row(f: Mapping[str, Any], who: Who, headline: str) -> FilingRow | 
             detail=tuple(detail),
             url=url,
             accession=accession,
+            ratifier=_ratifier(f),
+            ratified_on=stored,
         )
     cover = _day(f.get("valid_from"))
     day = cover or stored

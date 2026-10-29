@@ -111,3 +111,65 @@ Any judgment of the evidence; editing anything (the Workbench is the editor); th
 The build lists here every choice it made that this plan does not spell out, each the operator's to confirm or change.
 Pre-decided here for the operator's review: the four authority classes; roles as ledger rows; card entries live; the
 What Changed "in effect at D" rule for the recorded card.
+
+The first four below are plan details that turned out different against the code; the build fixed them sensibly
+and says how. The rest are choices the plan does not spell out.
+
+1. **The row's `class` is `authority` on the wire (plan detail corrected).** `class` is a reserved word in Python and
+   a poor field name in TypeScript, so the field is `authority` (`operator` | `system` | `automatic` | `card`). The
+   page's quiet words are the plan's: "your", "computed", "stored", "card".
+2. **The Filing Stream's reader now says who ratified a row (plan detail corrected).** The plan reads the class off
+   `ratified_by`, but the shared `FilingRow` carried only text ("ratified by operator" inside a detail line), and
+   parsing words would break on the next rewording. `filings.py` gains two optional fields, `ratifier` and
+   `ratified_on` (default `None`), set only by the catalyst and the ratified-fact normalizers: the ratifier is the
+   stored `ratified_by` when it names anyone but `auto`. The Filing Stream's wire ignores them (the OpenAPI diff holds
+   only the new routes), and one public alias, `accession_of`, names the existing accession test. The class rule is
+   one function, `fact_authority`: a ratifier means `operator`, none means `automatic`.
+3. **"Who ratified it and when" (plan detail corrected).** A ratified fact's row date IS the day it was ratified, so
+   `on` repeats it. A catalyst fact keeps its EVENT date as the row date (as the Filing Stream dates it), and the day
+   it was ratified rides in `on` (the market-time date of the fact's stored instant). A stored fact names no ratifier.
+4. **The recorded card is read by its night, not by when it was written (plan detail corrected).** The plan says "the
+   last row recorded on or before the as-of". The log's rows are keyed by the night they describe (`asof`), and a
+   reconstructed night is written later than the night it describes, so the page uses What Changed's rule exactly
+   (the greatest `(asof, seq)` with `asof <=` the as-of). A reconstructed night therefore counts under its night and
+   is marked on its rows, "reported, never scored". The `call_annotation` rows (a set-aside phantom arm) are not
+   applied: the ledger shows what the log recorded.
+5. **Card entries are read live, per request; only the heavy read is cached.** The plan has the cache hold one card's
+   ledger, but editing a catalyst or a kill criterion moves none of the cache's tokens (a run, a basket edit, a card
+   rename), so a cached ledger would show a stale entry while saying "loads live". The cache holds the triggers,
+   facts, roles and roster; the entries come from `thesis_repo.get` on every request.
+6. **"N of M triggers trace to an accession" counts triggers and risk signals.** The ledger lists both, so the
+   header's sentence is over the "fired signals": N trace to an EDGAR accession, K to a price reference only, J to
+   another source, L state no source. A signal traces to an accession when ANY of its sources' references is
+   accession-shaped.
+7. **One row per `TriggerRef`, all its sources on it.** An insider cluster cites one accession per filing; the row
+   lists each (with its inputs under it) and the line links the first, EDGAR before any other. An accession links
+   through the ISSUER's CIK from the master (never the accession's own prefix, which is the filing agent's); a
+   company with no CIK gets the reference as text and no link. A price reference is text. A trigger with no event date
+   sits in the standing section and a trigger's "inputs" are the detector's own `detail`, sorted by key, a value it
+   did not state left out.
+8. **Evidence links sit in the standing section.** `Evidence.date_label` is free text ("Oct 2026"), not a date, so a
+   link is never dated; its label shows in the row. Its reference is a link only when it is a stored URL (an accession
+   alone names no company here).
+9. **A role is dated by the first snapshot of the unbroken run that carries its CURRENT role.** The plan says "the
+   roster snapshot that first carried the role". A role that changed or was dropped and came back would otherwise be
+   dated by an earlier, different role, so the run restarts on a change. The snapshot's `taken_at` is our own store
+   time of the promote (the only record of when a roster edit happened), read in market time, and only snapshots taken
+   by the as-of are read. A role no snapshot dates (today's roster standing in, or a roster never snapshotted) is
+   undated and says so.
+10. **Context and Bench companies are on the roster and tagged, with a "Counting names only" check (not in the plan).**
+    The facts are read for every roster row, as the Filing Stream does, and a row of a Context or Bench company carries
+    the quiet "Context" / "Bench" tag. The check leaves them out; it renders only when such a row exists. The
+    triggers of the recorded card are voting names by construction.
+11. **The date window defaults to "All rows held".** 30 / 90 / 365 days cut DATED rows by their date from the as-of;
+    a standing row has no date and is never cut, and a row dated after the as-of (a future card catalyst) is never
+    cut either. The stored and ratified facts are read for the last 365 days only, so "all" never reaches further back
+    than that for them (the work line says "the last 365 days").
+12. **A card catalyst dated after the as-of is in the dated list at its date** ("Dated 2026-11-20, after the as-of").
+    The entries load live, so at a past as-of this can list an entry the operator added later; the page's limits line
+    says entries are today's.
+13. **A recorded row the call model cannot read is said, not raised.** The page shows "a call is recorded for this
+    as-of but its card could not be read" and no triggers, and the rest of the ledger stands.
+14. **Controls that cannot discriminate do not render** (WB#3): the class and kind filters with one value held, the
+    company type-ahead on a one-company roster, "Only rows with an EDGAR link" with no such row, the window with no
+    dated row. A filter hides rows from the page, never from the tallies or the work line.

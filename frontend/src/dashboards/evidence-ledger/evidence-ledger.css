@@ -1,0 +1,78 @@
+/* Evidence Ledger (docs/dashboards/evidence-ledger.md) — its own sheet, imported by the component, never index.css
+   (docs/DASHBOARDS.md rule 8). A document, not a card grid: one column, full-width day headers, one line per row,
+   tabular numbers, the expanded row as an indented block. Loudness marks the exception only (#7 / WB#3): the class
+   is a quiet gray word and no row is louder than another; no badges, no color by class or kind. Colors are the
+   app's tokens only. */
+
+.el { display: flex; flex-direction: column; gap: 8px; max-width: 1080px; }
+.el-controls, .el-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
+.el-pick, .el-seg, .el-field { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.el-seg-label { font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); margin-right: 2px; }
+.el-search, .el-select { font: inherit; font-size: 11.5px; color: var(--txt-2); background: transparent; border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 7px; }
+.el-search { width: 140px; }
+.el-select { max-width: 320px; }
+.el-select option { background: var(--panel); color: var(--txt-2); }
+.el-seg-btn { font: inherit; font-size: 11px; color: var(--txt-3); background: transparent; border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 9px; cursor: pointer; }
+.el-seg-btn:hover { color: var(--txt-2); }
+.el-seg-btn.on { color: var(--txt); background: var(--panel-2); }
+.el-check { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--txt-2); cursor: pointer; }
+.el-check input { accent-color: var(--txt-3); margin: 0; }
+
+.el-title { display: flex; align-items: baseline; gap: 10px; margin-top: 2px; }
+.el-card { font: inherit; font-size: 14px; font-weight: 600; color: var(--txt); background: none; border: 0; padding: 0; cursor: pointer; }
+.el-card:hover { text-decoration: underline; text-underline-offset: 3px; }
+.el-n { font-family: var(--mono); font-size: 9.5px; font-weight: 400; color: var(--txt-4); font-variant-numeric: tabular-nums; }
+.el-seg-btn .el-n { color: inherit; opacity: 0.7; }
+.el-night, .el-trace { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
+.el-empty { padding: 14px 0; }
+
+/* the ledger: the standing section, then a day header over its rows */
+.el-ledger { display: flex; flex-direction: column; gap: 14px; margin-top: 6px; }
+.el-day-head { margin: 0 0 4px; padding-bottom: 3px; border-bottom: 1px solid var(--line); font-size: 12px; font-weight: 600; color: var(--txt-2); letter-spacing: 0.02em; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.el-sub { font-size: 10.5px; font-weight: 400; color: var(--txt-4); letter-spacing: 0; }
+.el-list { list-style: none; margin: 0; padding: 0; }
+.el-row { padding: 2px 0; }
+.el-line { display: grid; grid-template-columns: 62px 104px minmax(0, 1fr) 62px; align-items: baseline; gap: 0 10px; }
+.el-chip { justify-self: start; font-family: var(--mono); font-size: 10.5px; font-weight: 700; padding: 0 7px; border: 1px solid var(--line-2); border-radius: 6px; background: transparent; color: var(--txt-3); cursor: pointer; }
+.el-chip:hover { color: var(--txt); border-color: var(--txt-4); background: var(--panel-2); }
+.el-chip.none { border: 0; cursor: default; }
+.el-form { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.el-main { min-width: 0; font-size: 12px; line-height: 1.45; color: var(--txt-2); }
+/* Interaction states are NEUTRAL, never a state color (#7 / WB#3: loudness marks the exception, not hover or open).
+   Every state of the headline and the source link is set here from the text tokens, so none is left to a browser
+   default (a button's :active, a link's :visited / :active): rest = --txt-2, hover and open = the brighter --txt
+   with a faint underline, the open row on a faint panel ground. Never --pos / --neg / --armed. */
+.el-head { font: inherit; text-align: left; color: var(--txt-2); -webkit-text-fill-color: currentcolor; background: none; border: 0; padding: 0; cursor: pointer; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; text-decoration: none; }
+.el-head:focus, .el-head:active { color: var(--txt-2); }
+.el-head:hover, .el-head[aria-expanded="true"] { color: var(--txt); text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 3px; }
+.el-head:focus-visible { outline: 1px solid var(--line-2); outline-offset: 2px; border-radius: 2px; }
+.el-head.plain, .el-head.plain:hover { cursor: default; color: var(--txt-2); text-decoration: none; }
+.el-row.open { background: color-mix(in srgb, var(--panel) 70%, transparent); border-radius: 4px; }
+.el-chev { display: inline-block; width: 12px; color: var(--txt-4); font-size: 10px; }
+.el-tag { margin-left: 8px; font-family: var(--mono); font-size: 9.5px; color: var(--txt-3); white-space: nowrap; }
+.el-src, .el-src:visited, .el-src:active { font-family: var(--mono); font-size: 10px; color: var(--txt-3); text-align: right; text-decoration: none; white-space: nowrap; }
+.el-src:hover { color: var(--txt); text-decoration: underline; text-underline-offset: 3px; }
+
+/* the expanded row: an indented block under its line */
+.el-detail { margin: 3px 0 6px 72px; padding-left: 12px; border-left: 1px solid var(--line); font-size: 11.5px; line-height: 1.5; color: var(--txt-3); font-variant-numeric: tabular-nums; }
+.el-detail ul { list-style: none; margin: 0; padding: 0; }
+.el-detail li { padding: 1px 0; overflow-wrap: anywhere; }
+.el-detail a, .el-detail a:visited { color: var(--txt-2); text-underline-offset: 3px; }
+.el-inputs { margin: 1px 0 3px 14px !important; font-family: var(--mono); font-size: 10.5px; }
+
+.el-work { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
+.el-limits { margin: 4px 0 0; padding-left: 16px; font-size: 10.5px; line-height: 1.5; color: var(--txt-4); }
+
+/* a phone: the ticker chip keeps its column, the form and the source link sit on the first line and the label
+   wraps on the line under them */
+@media (max-width: 640px) {
+  .el-search { width: 110px; }
+  .el-select { max-width: 220px; }
+  .el-line { grid-template-columns: 62px minmax(0, 1fr) auto; row-gap: 1px; }
+  .el-chip { grid-column: 1; grid-row: 1 / span 2; align-self: start; }
+  .el-form { grid-column: 2; grid-row: 1; }
+  .el-src { grid-column: 3; grid-row: 1; }
+  .el-src.none { display: none; }
+  .el-main { grid-column: 2 / -1; grid-row: 2; }
+  .el-detail { margin-left: 24px; }
+}
