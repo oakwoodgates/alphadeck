@@ -1,0 +1,51 @@
+/* Shared Names (docs/dashboards/shared-names.md) — its own sheet, imported by the component, never index.css
+   (docs/DASHBOARDS.md rule 8). The tables mirror the Cockpit basket table's quiet dark style without reusing
+   its `.basket` class (that one carries the Cockpit's view-transition name). Everything here is quiet: the
+   only marks are lowercase tags, and the one row marker ("opposite sides") stays in the muted grays. */
+
+.sn { display: flex; flex-direction: column; gap: 10px; }
+.sn-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.sn-check { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--txt-2); cursor: pointer; }
+.sn-check input { accent-color: var(--txt-3); margin: 0; }
+.sn-toggle { font: inherit; font-size: 11px; color: var(--txt-3); background: transparent; border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 9px; cursor: pointer; }
+.sn-toggle:hover { color: var(--txt-2); }
+.sn-toggle.on { color: var(--txt); background: var(--panel-2); }
+.sn-work { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
+
+.sn-sec { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; scroll-margin-top: 12px; }
+.sn-h { margin: 0; font-size: 10px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--txt-3); display: flex; align-items: center; }
+.sn-h::after { content: ""; flex: 1; height: 1px; background: var(--line); margin-left: 8px; }
+.sn-ct { font-family: var(--mono); font-weight: 400; letter-spacing: 0.02em; text-transform: none; color: var(--txt-2); white-space: pre; }
+
+.sn-filter { display: flex; align-items: center; gap: 10px; font-size: 11.5px; color: var(--txt-2); padding: 5px 10px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--panel); align-self: flex-start; }
+.sn-clear { font: inherit; font-size: 11px; color: var(--txt-3); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.sn-clear:hover { color: var(--txt); }
+
+table.sn-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+table.sn-table th { text-align: left; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); font-weight: 600; padding: 0 10px 8px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
+table.sn-table td { padding: 8px 10px 8px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.sn-table .tk { font-family: var(--mono); font-weight: 700; white-space: nowrap; }
+table.sn-table .co { color: var(--txt-2); }
+table.sn-table .sn-num { text-align: right; padding-right: 16px; }
+table.sn-table td.sn-num { font-family: var(--mono); color: var(--txt-2); }
+.sn-co-name { display: block; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sn-opp { display: block; margin-top: 3px; font-family: var(--sans); font-weight: 400; font-size: 9.5px; letter-spacing: 0.02em; color: var(--txt-3); cursor: help; }
+
+/* the flex wrapper sits INSIDE the cell: a flex td stops being a table cell and its border drifts off the row */
+.sn-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.sn-chip { font: inherit; font-size: 11px; display: inline-flex; align-items: baseline; gap: 6px; max-width: 100%; padding: 2px 8px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--panel); color: var(--txt-2); cursor: pointer; text-align: left; transition: border-color 0.14s, background 0.14s; }
+.sn-chip:hover { border-color: var(--txt-4); background: var(--panel-2); color: var(--txt); }
+.sn-chip .sn-card { font-weight: 600; }
+.sn-chip .sn-links { color: var(--txt-3); }
+.sn-chip .silent-tag, .sn-chip .role-tag { margin-left: 0; }
+/* a membership that never counts (Context / Bench) is the quietest chip, like its Cockpit row */
+.sn-chip.quiet { border-style: dashed; color: var(--txt-3); background: transparent; }
+
+.sn-pairs-scroll { max-height: 420px; overflow: auto; }
+.sn-pairs-scroll table.sn-table thead th { position: sticky; top: 0; background: var(--bg); z-index: 1; padding-top: 2px; }
+table.sn-pairs tbody tr { cursor: pointer; }
+table.sn-pairs tbody tr:hover td { color: var(--txt); }
+table.sn-pairs tbody tr:focus-visible { outline: 1px solid var(--line-2); outline-offset: -1px; }
+table.sn-pairs tbody tr.on td { background: var(--panel-2); color: var(--txt); }
+table.sn-pairs td { color: var(--txt-2); }
+table.sn-pairs .sn-tickers { font-family: var(--mono); font-size: 11px; color: var(--txt-3); }

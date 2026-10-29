@@ -1997,6 +1997,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboards/shared-names": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Shared Names
+         * @description The companies on more than one live card (matched by security), the cards each sits on, and every
+         *     pair of cards that shares a company. A "now" view of today's baskets; archived cards are excluded.
+         */
+        get: operations["shared_names_dashboards_shared_names_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/backtest/runs": {
         parameters: {
             query?: never;
@@ -8286,6 +8307,97 @@ export interface components {
         SetBusinessTypeRequest: {
             business_type?: components["schemas"]["BusinessType"] | null;
         };
+        /** SharedNameCardRefOut */
+        SharedNameCardRefOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+        };
+        /**
+         * SharedNameChipOut
+         * @description One card a company sits on. ``links`` = its links there (basket order; ``null`` = no link);
+         *     ``silent_link`` = "Context" / "Bench" when that is its membership there; ``counts`` = it has a
+         *     non-silent row on that card. ``ticker`` = its ticker on that card (the Cockpit's ``?name=`` key).
+         */
+        SharedNameChipOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /** Ticker */
+            ticker: string;
+            /** Links */
+            links: (string | null)[];
+            /** Silent Link */
+            silent_link: string | null;
+            context_role: components["schemas"]["ContextRole"] | null;
+            /** Counts */
+            counts: boolean;
+        };
+        /** SharedNamePairOut */
+        SharedNamePairOut: {
+            card_a: components["schemas"]["SharedNameCardRefOut"];
+            card_b: components["schemas"]["SharedNameCardRefOut"];
+            /** Shared Count */
+            shared_count: number;
+            /** Tickers */
+            tickers: string[];
+            /** Security Ids */
+            security_ids: string[];
+        };
+        /**
+         * SharedNameRowOut
+         * @description A company on 2+ cards. ``opposite_sides``: it counts on one card and is tagged counter-case on a
+         *     different card.
+         */
+        SharedNameRowOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Name */
+            name: string | null;
+            /** Card Count */
+            card_count: number;
+            /** Opposite Sides */
+            opposite_sides: boolean;
+            /** Cards */
+            cards: components["schemas"]["SharedNameChipOut"][];
+        };
+        /**
+         * SharedNamesOut
+         * @description The whole page. The counts are the work shown on its quiet line: every basket row on the live cards,
+         *     the Context / Bench rows a ``counting_only`` read left out, and the rows with no resolved security
+         *     (counted, not matched).
+         */
+        SharedNamesOut: {
+            /** Counting Only */
+            counting_only: boolean;
+            /** Live Cards */
+            live_cards: number;
+            /** Basket Rows */
+            basket_rows: number;
+            /** Silent Rows Left Out */
+            silent_rows_left_out: number;
+            /** Unresolved Rows */
+            unresolved_rows: number;
+            /** Companies */
+            companies: number;
+            /** Names */
+            names: components["schemas"]["SharedNameRowOut"][];
+            /** Pairs */
+            pairs: components["schemas"]["SharedNamePairOut"][];
+        };
         /**
          * Slice
          * @description One ALGORITHM slice. ``key`` names only algorithm dimensions — see SLICE_KEYS.
@@ -11203,6 +11315,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SpacAttachOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    shared_names_dashboards_shared_names_get: {
+        parameters: {
+            query?: {
+                /** @description drop Context and Bench memberships before both sections are computed */
+                counting_only?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedNamesOut"];
                 };
             };
             /** @description Validation Error */

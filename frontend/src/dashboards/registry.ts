@@ -1,4 +1,4 @@
-import type { ComponentType, LazyExoticComponent } from "react";
+import { lazy, type ComponentType, type LazyExoticComponent } from "react";
 
 // The ONE list of dashboards (docs/DASHBOARDS.md): experimental, self-contained cross-card views. The
 // top nav's Dashboards menu, the /dashboards index and the /dashboards/:slug route all read this list, so
@@ -27,4 +27,13 @@ export type DashboardEntry = {
 };
 
 // One line per dashboard; order = menu order; see docs/DASHBOARDS.md.
-export const DASHBOARDS: readonly DashboardEntry[] = [];
+export const DASHBOARDS: readonly DashboardEntry[] = [
+  {
+    slug: "shared-names",
+    label: "Shared Names",
+    description: "Companies that sit on more than one card, and which cards share them.",
+    status: "experimental",
+    asofAware: false,
+    component: lazy(() => import("./shared-names/SharedNames")),
+  },
+];
