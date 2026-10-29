@@ -105,8 +105,8 @@ the data flags). Its plan is `docs/BOARD.md`.
 6. **Event-outcome views** ("what happened after X") slice by the fixed market-cap bands in
    `CLAUDE.md` (nano < $50M · micro $50M–$300M · small $300M–$2B · mid $2B–$10B · large ≥ $10B),
    measured at the event, with the horizon, the comparison, n and the hit rate stated per tier. See
-   `docs/BACKTEST.md` §"Sliced by market cap". The first dashboard that needs the bands defines them
-   once in `domain/`.
+   `docs/BACKTEST.md` §"Sliced by market cap". The bands are defined once, in
+   `backend/domain/market_cap.py` (`CapTier`, `cap_tier`; built with the Peer Table, which slices its names by them).
 
 7. **Cache.** Allowed, in-process, used only by dashboards. It must refresh after every new cron run
    and after any basket edit, and it keys on "a new run happened", never on a clock (the run schedule

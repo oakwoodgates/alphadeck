@@ -132,3 +132,67 @@ is the drill-in); any write.
 The build lists here every choice it made that this plan does not spell out, each the operator's to confirm or change.
 Pre-decided here for the operator's review: business type is the default scope; "All live cards" is offered with a
 cold-load note rather than withheld; medians only in group rows; the band module lives in `domain/market_cap.py`.
+
+### Corrections made while building (the plan was silent or wrong against the code)
+
+- **The cap rule has a third part the plan did not name.** `workbench/scoring._market_cap` also puts the shares count on the
+  close's split scale when a split in force has a first session between the count's date and the close's
+  (`domain.splits.scale_after`: "never mix a split-adjusted price with a pre-split count", a 1-for-16 reverse split is a
+  x16 error otherwise). The page applies it exactly as the Workbench does and says so in the cell's hover.
+- **The scope lists are not a separate read.** `("scopes", clock)` holds the cheap roster-level read (the counted cards' rosters
+  and the master identity of their companies) AND the lists derived from it; every scope's table starts from that one cached
+  read, and a business-type scope reads facts only for its own companies.
+- **"The sort keys" are client side.** The plan's own frontend section puts the sort in `tableView.ts`, so the backend carries
+  only the default order (group order, names A to Z inside); the blank-sorts-last rule is tested in the frontend.
+- **Coverage is computed with the table,** for every name and for the names that count (the group rows and the toggle need both
+  readings); `tableView.ts` words it ("41 of 58", the blanks by reason in the hover).
+
+### The numbered choices
+
+1. **Scope picks.** Business types and supersectors are listed biggest first (companies), then A to Z; Unclassified (no
+   business type or supersector, key `unclassified`) is always last. The page opens on the first business type with two or
+   more companies; if none has two, the first real type; Unclassified only when nothing else exists.
+2. **Group order.** Supersectors and leaves run A to Z by key, with `other` (the visible tail leaf) after the rest and
+   Unclassified at the very end; names run A to Z by ticker inside a group. A card scope runs the card's real links in chain
+   order, a roster link no longer on the card ("not on the card now"), No link, Context, Bench.
+3. **A card scope** reads that card's rows only. A company in several links of it is listed once, under the first of them in
+   that order, and its other links ride in its Links cell. A real link with no names is still shown as a header row alone.
+4. **A company is one row per scope** by `security_id`. In the other scopes its row folds every counted card it sits on; its
+   context roles (distinct, in the enum's order) ride as a quiet lowercase tag, and "silent on N cards" replaces them when every
+   row is Context or Bench.
+5. **Columns.** Cards is its own column (a count that opens its chips; the whole list is also its hover); the pinned Company
+   column holds only the ticker chip and the name. Revenue and YoY are two columns, and so are 50d and 200d (one mark each, the
+   percent on hover), so each carries its own coverage and sorts on its own. Cap tier and cap share one column
+   ("micro · $250M").
+6. **Group figures and coverage count the names the toggle names.** The server sends two readings of each, every name in the
+   group and the names that count (not silent-only); "Counting names only" switches between them. The narrowing filters (cap tier,
+   revenue, Workbench fact, search) only hide rows: they never change a figure, and the group row says "N shown".
+7. **Group figure words** follow the plan: "median of N priced", "median of N with a prior year", "9 of 12 priced"; a group with
+   one stated value shows it with "1 name", never a median label; a group with none shows nothing (never a zero). Above the 50d
+   means a positive percent; a name exactly on the average counts as priced, not above.
+8. **A flagged price history** blanks the price-derived cells (cap and tier, off 52w high, 50d, 200d, RVOL 20, 20-day dollar
+   volume, 30D vs SPY) with the flags' reason; the cells that read no price (revenue, YoY, runway, overhang, purity) and the
+   insider cell stay, as the plan lists them, so a flagged name still counts in the YoY median and the runway count. The shared
+   FlaggedNote's hover says "left out of every number on this page", which is stricter than this page's behavior (the row and
+   its non-price cells stay); the page's notes state the real rule.
+9. **Revenue** is the latest period by period end (ties by filing date); YoY needs a positive prior-year row in the same read,
+   else "no prior year". Cash-positive runway is a stated figure, sorts as the longest, and the Runway column's first click sorts
+   shortest first. Overhang is rounded to one decimal as the Workbench meter shows it; a matured or share-less convert is blank
+   ("no live convert"), never 0.
+10. **Insider buys.** A stated 0 (Form 4s on file, none an open-market buy) shows quietly as 0; no Form 4 ingested is a dash.
+    The column sorts by dollars.
+11. **Cap and tier edges.** A cap on a band's boundary belongs to the higher band ($50M is micro, $10B is large); a missing,
+    non-finite or non-positive cap gets no tier (never nano); a computed cap at or below zero is blank ("not positive"). The
+    cap tier filter offers only the tiers present plus "no cap", so the names with no cap can be found.
+12. **Cap blanks ride in the cell** ("awaiting price", "awaiting shares", "ADS ratio unread", "flagged") because they are the
+    operator's "mark for data" to-do list; every other blank is a dash with its reason in the hover and its count in the
+    column's coverage line.
+13. **Unresolved roster rows** are counted in the work line and listed on expand, never a row. A row with no security has no
+    business type, so in a business-type, supersector or all scope the list is every counted card's; in a card scope, that card's.
+14. **Defaults.** "Counting names only" is off (Context and Bench included, as the plan says); no sort is applied (group order);
+    the filters and sort are component state only, nothing in the URL or browser storage.
+15. **The wire.** `scope` is required; `key` is required for every scope but `all` (422), ignored for `all`, and a key that is
+    not on the rosters at the as-of is a 404 that reads nothing. Gap codes, scope kinds and column names are typed unions in the
+    generated contract.
+16. **Cost.** Every scope, "All live cards" included, is cached per (scope, key, clock, as-of) exactly like the others; the page
+    says "the first load after a run can take a minute" and shows `compute_ms`. Nothing was measured live in this build.
