@@ -3862,6 +3862,52 @@
         }
       }
     },
+    "/dashboards/shared-names": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Shared Names",
+        "description": "The companies on more than one live card (matched by security), the cards each sits on, and every\npair of cards that shares a company. A \"now\" view of today's baskets; archived cards are excluded.",
+        "operationId": "shared_names_dashboards_shared_names_get",
+        "parameters": [
+          {
+            "name": "counting_only",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "drop Context and Bench memberships before both sections are computed",
+              "default": false,
+              "title": "Counting Only"
+            },
+            "description": "drop Context and Bench memberships before both sections are computed"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedNamesOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/backtest/runs": {
       "get": {
         "tags": [
@@ -16660,6 +16706,236 @@
         "type": "object",
         "title": "SetBusinessTypeRequest",
         "description": "Body for ``POST /workbench/securities/{security_id}/business-type`` \u2014 the operator's per-security\nbusiness-type RE-TAG (Business-Type M1). ``business_type`` is the leaf to tag, or ``null`` to CLEAR the\nre-tag (the visible revert back to the maps-derived classification \u2014 reversibility, WB #1). Identity\nmetadata, never a fact (#3); the server stores it ONLY when it differs from the derived leaf (0033\nstore-on-diff) and stamps ``operator:retag`` as the basis."
+      },
+      "SharedNameCardRefOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "thesis_name"
+        ],
+        "title": "SharedNameCardRefOut"
+      },
+      "SharedNameChipOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "links": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Links"
+          },
+          "silent_link": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Silent Link"
+          },
+          "context_role": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContextRole"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "counts": {
+            "type": "boolean",
+            "title": "Counts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "thesis_name",
+          "ticker",
+          "links",
+          "silent_link",
+          "context_role",
+          "counts"
+        ],
+        "title": "SharedNameChipOut",
+        "description": "One card a company sits on. ``links`` = its links there (basket order; ``null`` = no link);\n``silent_link`` = \"Context\" / \"Bench\" when that is its membership there; ``counts`` = it has a\nnon-silent row on that card. ``ticker`` = its ticker on that card (the Cockpit's ``?name=`` key)."
+      },
+      "SharedNamePairOut": {
+        "properties": {
+          "card_a": {
+            "$ref": "#/components/schemas/SharedNameCardRefOut"
+          },
+          "card_b": {
+            "$ref": "#/components/schemas/SharedNameCardRefOut"
+          },
+          "shared_count": {
+            "type": "integer",
+            "title": "Shared Count"
+          },
+          "tickers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tickers"
+          },
+          "security_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Security Ids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "card_a",
+          "card_b",
+          "shared_count",
+          "tickers",
+          "security_ids"
+        ],
+        "title": "SharedNamePairOut"
+      },
+      "SharedNameRowOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "card_count": {
+            "type": "integer",
+            "title": "Card Count"
+          },
+          "opposite_sides": {
+            "type": "boolean",
+            "title": "Opposite Sides"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/SharedNameChipOut"
+            },
+            "type": "array",
+            "title": "Cards"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "name",
+          "card_count",
+          "opposite_sides",
+          "cards"
+        ],
+        "title": "SharedNameRowOut",
+        "description": "A company on 2+ cards. ``opposite_sides``: it counts on one card and is tagged counter-case on a\ndifferent card."
+      },
+      "SharedNamesOut": {
+        "properties": {
+          "counting_only": {
+            "type": "boolean",
+            "title": "Counting Only"
+          },
+          "live_cards": {
+            "type": "integer",
+            "title": "Live Cards"
+          },
+          "basket_rows": {
+            "type": "integer",
+            "title": "Basket Rows"
+          },
+          "silent_rows_left_out": {
+            "type": "integer",
+            "title": "Silent Rows Left Out"
+          },
+          "unresolved_rows": {
+            "type": "integer",
+            "title": "Unresolved Rows"
+          },
+          "companies": {
+            "type": "integer",
+            "title": "Companies"
+          },
+          "names": {
+            "items": {
+              "$ref": "#/components/schemas/SharedNameRowOut"
+            },
+            "type": "array",
+            "title": "Names"
+          },
+          "pairs": {
+            "items": {
+              "$ref": "#/components/schemas/SharedNamePairOut"
+            },
+            "type": "array",
+            "title": "Pairs"
+          }
+        },
+        "type": "object",
+        "required": [
+          "counting_only",
+          "live_cards",
+          "basket_rows",
+          "silent_rows_left_out",
+          "unresolved_rows",
+          "companies",
+          "names",
+          "pairs"
+        ],
+        "title": "SharedNamesOut",
+        "description": "The whole page. The counts are the work shown on its quiet line: every basket row on the live cards,\nthe Context / Bench rows a ``counting_only`` read left out, and the rows with no resolved security\n(counted, not matched)."
       },
       "Slice": {
         "properties": {

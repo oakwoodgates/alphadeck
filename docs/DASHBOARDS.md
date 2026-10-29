@@ -129,4 +129,4 @@ dashboard. Every link carries `?asof=` like the rest of the app.
 
 | Dashboard | Slug | Status | Plan |
 | --- | --- | --- | --- |
-| None yet. | | | |
+| Shared Names | `shared-names` | experimental | [`docs/dashboards/shared-names.md`](dashboards/shared-names.md) |
