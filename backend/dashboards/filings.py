@@ -262,11 +262,54 @@ def _accession_of(source_ref: Any) -> str | None:
 # unlabeled here (computed from an impossible code, so a reworded fallback cannot desync this)
 _UNLABELED = item_label("")
 
+# The standard 8-K items with the SEC's own short titles (Form 8-K, sections 1-9), neutral lowercase. DISPLAY ONLY,
+# like ``signals.corporate_events.ITEM_LABELS`` (which this page cannot edit and which only knows seven items):
+# nothing here fires, grades or scores anything. ``item_label``'s own wording wins for the codes it knows (1.01, 1.03,
+# 3.01, 3.02, 4.01, 4.02, 5.02), this table fills the rest, and a code in neither (an item the SEC adds later, a
+# mistyped one) still shows as its bare code, never a guessed label.
+STANDARD_8K_ITEMS: dict[str, str] = {
+    "1.01": "entry into a material definitive agreement",
+    "1.02": "termination of a material definitive agreement",
+    "1.03": "bankruptcy or receivership",
+    "1.04": "mine safety: shutdowns and patterns of violations",
+    "1.05": "material cybersecurity incidents",
+    "2.01": "completion of acquisition or disposition of assets",
+    "2.02": "results of operations and financial condition",
+    "2.03": "creation of a direct financial obligation",
+    "2.04": "triggering events that accelerate a financial obligation",
+    "2.05": "costs of exit or disposal activities",
+    "2.06": "material impairments",
+    "3.01": "notice of delisting or failure to satisfy a listing rule",
+    "3.02": "unregistered sales of equity securities",
+    "3.03": "material modification to rights of security holders",
+    "4.01": "change in certifying accountant",
+    "4.02": "non-reliance on previously issued financial statements",
+    "5.01": "change in control of registrant",
+    "5.02": "departure or appointment of directors or certain officers",
+    "5.03": "amendments to articles or bylaws; change in fiscal year",
+    "5.04": "temporary suspension of trading under employee benefit plans",
+    "5.05": "amendment to the code of ethics, or a waiver of it",
+    "5.06": "change in shell company status",
+    "5.07": "submission of matters to a vote of security holders",
+    "5.08": "shareholder director nominations",
+    "6.01": "ABS informational and computational material",
+    "6.02": "change of servicer or trustee",
+    "6.03": "change in credit enhancement or other external support",
+    "6.04": "failure to make a required distribution",
+    "6.05": "securities act updating disclosure",
+    "7.01": "Regulation FD disclosure",
+    "8.01": "other events",
+    "9.01": "financial statements and exhibits",
+}
+
 
 def item_words(code: str) -> str:
-    """ "5.02 officer/director departure or appointment"; an item without a label shows as its bare code."""
+    """ "5.02 officer/director departure or appointment": the code with its label, ``item_label``'s own wording
+    first, then the standard SEC item table above; an item in neither shows as its bare code."""
     label = item_label(code)
-    return code if label == _UNLABELED else f"{code} {label}"
+    if label == _UNLABELED:
+        label = STANDARD_8K_ITEMS.get(code, "")
+    return f"{code} {label}" if label else code
 
 
 def rows_from_corporate_events(facts: Iterable[Mapping[str, Any]], who: Who) -> list[FilingRow]:
