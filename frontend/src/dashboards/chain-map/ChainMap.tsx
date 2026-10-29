@@ -445,9 +445,9 @@ export default function ChainMap({ asof, onSelectThesis }: DashboardProps) {
               descriptions are today's (only the roster is snapshotted).
             </li>
             <li>
-              The 50-day side and the filing age are display context and never feed a call. The filing age counts the
-              filings the system stores (8-Ks, Form 4s and 4/As, 13D/G stakes, 10-Q and 10-K revenue), not every
-              filing; a split, a catalyst or a ratified or stored fact is never counted as one.
+              The 50-day side and the filing age are display context and never feed a call. The filing age counts
+              every form in the company's EDGAR index (its recent window: at least a year, or the last 1,000
+              filings); a split, a catalyst or a ratified or stored fact is never counted as one.
             </li>
           </ul>
         </>

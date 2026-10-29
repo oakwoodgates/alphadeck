@@ -14,14 +14,15 @@ import type {
 
 export type StreamKind = FilingStreamRowOut["kind"];
 
-/** The kinds in a day's order (the server's `KIND_ORDER`): 8-K, 13D/G, Form 4, 4/A, revenue, split, dilution,
- *  catalyst, ratified or stored fact. */
+/** The kinds in a day's order (the server's `KIND_ORDER`): 8-K, 13D/G, Form 4, 4/A, revenue, other forms from the
+ *  EDGAR index, split, dilution, catalyst, ratified or stored fact. */
 export const KIND_ORDER: readonly StreamKind[] = [
   "8k",
   "stake",
   "form4",
   "form4a",
   "revenue",
+  "filing",
   "split",
   "dilution",
   "catalyst",
@@ -36,6 +37,7 @@ export const KIND_LABEL: Record<StreamKind, string> = {
   form4: "Form 4",
   form4a: "4/A",
   revenue: "Revenue",
+  filing: "Other forms",
   split: "Split",
   dilution: "Dilution",
   catalyst: "Catalyst",
@@ -49,6 +51,7 @@ const KIND_WORDS: Record<StreamKind, readonly [string, string]> = {
   form4: ["Form 4", "Form 4s"],
   form4a: ["4/A", "4/As"],
   revenue: ["revenue print", "revenue prints"],
+  filing: ["other form", "other forms"],
   split: ["split", "splits"],
   dilution: ["dilution row", "dilution rows"],
   catalyst: ["catalyst", "catalysts"],
@@ -280,7 +283,7 @@ export const ROSTER_PIT_FROM = "2026-09-15";
 
 /** The page's known limits, stated on the page (docs/dashboards/filing-stream.md). */
 export const LIMITS: readonly string[] = [
-  "Ingested facts only: forms other than 8-K, Form 4 and 4/A, 13D/G and the 10-Q/10-K revenue series are not stored yet, so they are not listed.",
+  "Every form in each company's EDGAR index is listed, from its recent window (at least a year, or the last 1,000 filings, whichever reaches further). A form the system does not read into (an S-1, a 424B5, a DEF 14A) shows as its form and primary document under Other forms, nothing quoted from it; each filing shows once, as its richest row.",
   "The Cockpit's day-low and implausible-data insider screens are not applied here: a purchase is shown as a purchase, nothing more. 13D/G stakes are listed as stored, without the call's control screens.",
   "A 4/A is shown as a filing; its standing (applied, kept, pending) is on Admin › Insider amendments. Form 4s come through the Cockpit's resolved read: an applied 4/A's rows replace the original's.",
   "A Form 4 is dated by its SEC acceptance in market time; a split by its own publication as the view knows it, its status as stored. The card-level catalysts are the Catalyst Calendar's.",

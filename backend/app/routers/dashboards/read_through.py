@@ -76,7 +76,8 @@ class ReadThroughCardOut(_Wire):
 
 class ReadThroughFilingOut(_Wire):
     """The company's newest SEC filing in the last ``filing_days`` days: ``kind`` (``8k`` | ``stake`` | ``form4`` |
-    ``form4a`` | ``revenue``; never a split, a catalyst or a ratified or stored fact), ``form`` (the form as
+    ``form4a`` | ``revenue`` | ``filing``, any other form in the company's EDGAR index; never a split, a catalyst
+    or a ratified or stored fact), ``form`` (the form as
     filed), its public ``date`` (``days_ago`` before the as-of), one neutral ``headline``, and ``url`` (the EDGAR
     filing index or the stored source; ``null`` = none known).
     """

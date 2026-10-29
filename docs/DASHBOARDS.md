@@ -127,10 +127,11 @@ the data flags). Its plan is `docs/BOARD.md`.
    and the chain; built with the Narrative Index, shared since the Rotation Quadrant): a dashboard that draws
    a basket as one line reuses it.
    What each company filed lives in `backend/dashboards/filings.py` (built with the Filing Stream, shared with
-   the Read-Throughs table): every filing-derived fact the system stores, normalized to one `FilingRow` shape
-   (`read_filing_rows`: the point-in-time view plus the Form 4/A SELECT, both on the request's one
-   `serve_view(asof)` pair). A page that lists what a company filed reuses it rather than re-reading the fact
-   tables.
+   the Read-Throughs table): every filing-derived fact the system stores, plus every other form in the company's
+   EDGAR index (`fact_filing_index`, migration 0070: display only, each filing shown once as its richest row),
+   normalized to one `FilingRow` shape (`read_filing_rows`: the point-in-time view plus the Form 4/A SELECT, both on
+   the request's one `serve_view(asof)` pair). A page that lists what a company filed reuses it rather than
+   re-reading the fact tables.
 
 8. **Self-contained layout, self-registering**, so dashboards build in parallel and delete cleanly. A slug
    is lowercase letters, digits and `-` (`tape-breadth`); the Python module name swaps `-` for `_`

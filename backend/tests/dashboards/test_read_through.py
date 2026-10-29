@@ -299,10 +299,10 @@ def test_the_last_filing_is_the_newest_row_by_date():
 
 def test_a_tie_on_the_date_goes_by_the_readers_kind_order_then_accession():
     d = date(2026, 10, 27)
-    # the kind order is the reader's: 8-K before 13D/G before Form 4 before 4/A before the revenue print (the
-    # filing kinds; the others are never picked at all, see the test below)
+    # the kind order is the reader's: 8-K before 13D/G before Form 4 before 4/A before the revenue print before
+    # any other form in the EDGAR index (the filing kinds; the others are never picked at all, see below)
     filing_kinds = [k for k in KIND_ORDER if k in SEC_FILING_KINDS]
-    assert filing_kinds == ["8k", "stake", "form4", "form4a", "revenue"]
+    assert filing_kinds == ["8k", "stake", "form4", "form4a", "revenue", "filing"]
     for first, later in zip(filing_kinds, filing_kinds[1:]):
         got = last_filing([fr(SX, later, d), fr(SX, first, d)], ASOF)
         assert got is not None and got.kind == first
@@ -327,7 +327,7 @@ def test_the_last_filing_is_a_filing_never_a_split_a_catalyst_or_a_stored_or_rat
     assert got is not None and (got.kind, got.date, got.days_ago) == ("8k", date(2026, 9, 1), 57)
     assert last_filing(own, ASOF) is None  # only the system's own rows: no filing, the cell says so
     # each SEC kind counts, even against newer rows of the system's own
-    for kind in ("stake", "form4", "form4a", "revenue"):
+    for kind in ("stake", "form4", "form4a", "revenue", "filing"):
         got = last_filing([*own, fr(SX, kind, date(2026, 10, 1))], ASOF)
         assert got is not None and got.kind == kind
     # it reaches the page's row the same way, and the count of rows with a filing follows
@@ -335,6 +335,24 @@ def test_the_last_filing_is_a_filing_never_a_split_a_catalyst_or_a_stored_or_rat
     assert row_of(page, SX, "payer").last_filing.kind == "8k"
     assert row_of(page, SY, "payer").last_filing is None
     assert page.rows_with_filing == 1
+
+
+def test_a_lone_424B5_from_the_EDGAR_index_is_the_last_filing_when_it_is_the_newest():
+    """The filing index (0070): a form nothing reads into still IS a filing — the newest one is picked over an
+    older 8-K and over the system's own newer rows."""
+    rows = [
+        fr(SX, "8k", date(2026, 10, 1), form="8-K"),
+        fr(SX, "filing", date(2026, 10, 22), form="424B5", headline="424B5 · d424b5.htm"),
+        fr(SX, "split", date(2026, 10, 27), form="split"),
+    ]
+    got = last_filing(rows, ASOF)
+    assert got is not None
+    assert (got.kind, got.form, got.headline, got.days_ago) == (
+        "filing",
+        "424B5",
+        "424B5 · d424b5.htm",
+        6,
+    )
 
 
 def test_a_company_with_no_filing_has_none_and_a_row_after_the_asof_is_never_picked():

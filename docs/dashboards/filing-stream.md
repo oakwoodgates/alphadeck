@@ -8,18 +8,22 @@
 
 **Label:** Filing Stream. **Description:** "Every filing-derived fact the system holds for one card's names, newest
 first, as it was readable that night: 8-Ks with their items, Form 4s with the filer's words, 13D/G stakes, revenue
-prints, splits, dilution, catalysts, ratified and stored facts."
+prints, every other form in the EDGAR index, splits, dilution, catalysts, ratified and stored facts."
 
 It shows ONE card at a time: a dated stream, newest day first, of every fact the ingest has stored for the card's
 names, each row opening to its EDGAR source. It is the analyst's reading queue: what did my names just file, and
 what did the system make of it. Display only: it never feeds a call, never writes to the database and never calls
 the LLM. At a past as-of it shows what was readable by the end of that night, on the public clock.
 
-**It shows ingested facts, not every filing.** The system stores 8-Ks (with item codes), Form 4s and 4/As, 13D/G
-stakes, the revenue series from 10-Qs and 10-Ks, splits, convertible-note dilution, catalysts, and the ratified or
-stored facts. Other forms (S-1, 424B, DEF 14A, 10-Q text beyond revenue, …) are not stored yet; the page says so in its
-work line. A later change stores the full filing index per basket company from the submissions index the nightly
-already fetches (its own PR, a pipeline change, not dashboard code); the stream picks it up as one more row kind.
+**It shows every form in each company's EDGAR index, plus what the system read from it.** The system reads INTO
+8-Ks (item codes), Form 4s and 4/As, 13D/G stakes and the revenue series from 10-Qs and 10-Ks, and holds splits,
+convertible-note dilution, catalysts and the ratified or stored facts. Since 2026-10-29 it also stores each basket
+company's whole EDGAR filing index (`fact_filing_index`, migration 0070: every form `filings.recent` lists, written by
+the nightly's filing-index leg off the submissions document it already reads, zero extra requests,
+`docs/FEED_LOOP.md`). Every other form (an S-1, a 424B5, a DEF 14A, a 10-Q beyond its revenue print, ...) is one
+`filing` row ("Other forms"): its form and primary document, nothing read from inside it. The index is EDGAR's
+`recent` window: at least a year, or the last 1,000 filings, whichever reaches further; older filings are not stored.
+Each filing shows once, as its richest row: an index row whose accession another row carries is dropped.
 
 ## The rows
 
@@ -29,7 +33,7 @@ shows "what did this company file" reads the same rows.
 
 ```
 FilingRow(security_id, ticker, kind, form, date, headline, detail, url, accession, tags, routine, usd)
-  kind      8k | form4 | form4a | stake | revenue | split | dilution | catalyst | ratified
+  kind      8k | form4 | form4a | stake | revenue | filing | split | dilution | catalyst | ratified
   form      the form as filed ("8-K", "8-K/A", "4", "4/A", "SC 13D", "SC 13G/A", "10-Q", "10-K", ...) or the row's
             own label ("split", "catalyst", "ratified fact", "stored fact")
   date      the PUBLIC date the row counts from (its filing / acceptance date; a split's own publication; a
@@ -99,6 +103,14 @@ with the request's `known_at, clock = serve_view(asof)`; invariant #1):
    row each, headline = the fact and its value ("cash $41.2M · burn $8.1M/qtr", "shares outstanding 84.2M", "revenue
    mix: nuclear 61%"), with `source_ref` and `ratified_by`. Whether it is a "ratified fact" or a "stored fact" turns on
    `ratified_by`: choice 16.
+10. **Other forms** (kind `filing`, 2026-10-29): `pit.filing_index`, the company's EDGAR index (`form`, `accession`,
+   `filed`, `primary_doc`, `source_ref`), dated `filed`. Headline: "<form> · <primary document>" (just the form when
+   EDGAR left the document blank); no detail, no tags, never routine; the link is the stored EDGAR index page. Built
+   AFTER every other kind and only for an accession no other row carries (an 8-K, a Form 4 or 4/A, a 13D/G, a revenue
+   print, a split, a dilution or a catalyst; accessions compared as stored, whitespace removed), so each filing shows
+   once. A display accessor, off the detectors' protocol (the `fund_shares` precedent), with both clocks from the
+   point-in-time view: the live read gates on `recorded_at <= known_at`, a history view on the filing date. Within a
+   day it sorts right after the revenue print; its filter chip reads "Other forms".
 
 Unresolved basket rows (no `security_id`) can carry no facts: they are counted in the work line and listed in the
 roster note, never in the stream (invariant #9: counted, never silently dropped).
@@ -117,7 +129,7 @@ before its first snapshot, said in a quiet note), `memberships_of` (with each ro
 - **Window: the last 30 · 90 (default) · 365 days** before the as-of, inclusive. The server slices the window from ONE
   cached 365-day read per (card, clock, as-of). No "all": a year is the research horizon here.
 - **Order:** by `date` descending, grouped under a day header; within a day by kind (8-K, 13D/G, Form 4, 4/A,
-  revenue, split, dilution, catalyst, ratified or stored fact), then by ticker.
+  revenue, other forms, split, dilution, catalyst, ratified or stored fact), then by ticker.
 - **The fold (honest loudness, Workbench principle 3):** on any card, Form 4 sales, grants, exercises and tax
   withholdings outnumber everything else. A day's `routine` Form 4 rows collapse into ONE quiet line, "N routine Form 4
   filings (sales, grants, exercises, withholding)", that expands in place; a Form 4 holding a code-P purchase is
@@ -144,9 +156,10 @@ Wave re-exports them under their old names and uses the shared one), so the next
 
 The card and the as-of; the window's dates; the clock ("live" or "as it was public by <date>"); roster rows / resolved /
 unresolved / silent; rows in the window by kind (8-Ks, Form 4s with how many hold a purchase, 4/As, stakes, revenue
-prints, splits, dilution, catalysts, ratified or stored facts); folded routine rows; the cache state. Below it, the honest notes:
-"ingested facts only: forms other than 8-K, Form 4 and 4/A, 13D/G and the 10-Q/10-K revenue series are not stored
-yet"; "the Cockpit's day-low and implausible-data insider screens are not applied here"; "4/As are shown as filings,
+prints, other forms, splits, dilution, catalysts, ratified or stored facts); folded routine rows; the cache state. Below
+it, the honest notes: "every form in each company's EDGAR index is listed, from its recent window (at least a year, or
+the last 1,000 filings); a form the system does not read into shows as its form and primary document under Other forms,
+each filing once, as its richest row"; "the Cockpit's day-low and implausible-data insider screens are not applied here"; "4/As are shown as filings,
 their standing is on Admin › Insider amendments"; the roster note when today's roster stands in ("rosters are
 point-in-time only from Sep 15, 2026").
 
@@ -186,7 +199,10 @@ is cached as `("cards", clock)`. The shared cache clears on a new run or a baske
 
 ## Known limits (stated on the page too)
 
-- Ingested facts only (above). The full filing index is a later pipeline change.
+- The EDGAR index is its `recent` window (at least a year, or the last 1,000 filings): older filings are not stored
+  (reading EDGAR's older index pages would cost extra requests). A form nothing reads into is listed by its form and
+  primary document only. The index is insert-only: a filing EDGAR later re-lists with a changed form or document keeps
+  its first-seen row (SEC's listed fields drift; re-versioning would churn the table nightly).
 - The Cockpit's day-low and implausible-data insider screens are not applied; the stream never says "open market".
 - A 4/A is shown as a filing, not resolved against its original.
 - A split is dated by its own publication as the view knows it; its status is as stored.
@@ -196,7 +212,8 @@ is cached as `("cards", clock)`. The shared cache clears on a new run or a baske
 
 ## Out of scope
 
-The full filing index (its own PR); located passages; any LLM summary; a cross-card stream (the Read-Throughs table
+Reading inside the other forms (an S-1's terms, a 424B5's size); EDGAR's index pages older than its `recent`
+window; located passages; any LLM summary; a cross-card stream (the Read-Throughs table
 is the cross-card lens); resolving amendments; any write.
 
 ## Choices to confirm

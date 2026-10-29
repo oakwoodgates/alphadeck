@@ -37,7 +37,7 @@ the row's link.
 | Role | the role as a quiet lowercase tag with its operator-approved hover description | `CONTEXT_ROLE_LABEL`, `CONTEXT_ROLE_DESCRIPTION` (`workbench/format.ts`) |
 | Cards | one single-line pill per card: the card's name (cut with an ellipsis when long), then the link the company sits in after it in the quiet style (Context / Bench by label when silent); the pill's hover shows the full name and links; the pill opens that card; the pills wrap as a row of pills and the column keeps a minimum width | the memberships |
 | Business type | the leaf business type derived on read from the master (the operator's re-tag wins), blank when unknown | `security_master.business_type` / `securities.business_type.resolve_business_type` |
-| Last filing | the newest SEC filing (an 8-K, 13D/G, Form 4, 4/A or a 10-Q / 10-K revenue print: `filings.SEC_FILING_KINDS`) in the last 365 days before the as-of: its date · form · headline, hover the full line, click the EDGAR link; "none stored in the last year" when none | `filings.read_filing_rows(..., days=365)` |
+| Last filing | the newest SEC filing (an 8-K, 13D/G, Form 4, 4/A, a 10-Q / 10-K revenue print, or any other form in the EDGAR index: `filings.SEC_FILING_KINDS`) in the last 365 days before the as-of: its date · form · headline, hover the full line, click the EDGAR link; "none stored in the last year" when none | `filings.read_filing_rows(..., days=365)` |
 | Next dated catalyst | the nearest card-level catalyst with `when_date >= asof` across the row's cards, with its card and days to go; "—" when none | the cards' `Catalyst.when_date` (today's list; see limits) |
 | 1W vs SPY · 1M vs SPY | the company's 1-week and 1-month trailing return minus SPY's, in percentage points; blank when unpriced; grayed with the reason when its price history is flagged | `display_members(["trailing_returns"])` through `per_company`, SPY via `pit.benchmark_prices` (the Leaders pattern); `baskets.price_flags` |
 
@@ -95,8 +95,10 @@ its bars); the first load may take seconds, like the Leaders. The page shows `co
   link it reads through to is a later spine change (deferred to Phase 2).
 - **Catalysts are today's list:** card-level catalysts load live (they are not snapshotted), so a past as-of shows the
   catalysts as entered today.
-- **Last filing = ingested filings only**, with the Filing Stream's limits (no full filing index yet; the Cockpit's
-  insider price screens not applied). A split, a catalyst or a ratified or stored fact is never counted as a filing.
+- **Last filing = the newest form in the company's EDGAR index** (its `recent` window: at least a year, or the last
+  1,000 filings; stored since 2026-10-29, migration 0070), shown as its richest row, with the Filing Stream's limits
+  (the Cockpit's insider price screens not applied). A split, a catalyst or a ratified or stored fact is never counted
+  as a filing.
 - **The cold read is heavy** (MEASURED 2026-10-29 on dev with a prod data copy: 18.2 s for the live as-of). It is
   dominated by the 365-day filing read over every role-tagged company, which builds one point-in-time view per company
   (214 of them on that read). It runs once per as-of per run (the shared cache then serves it in ~40 ms); a shared
@@ -131,7 +133,8 @@ The page was built against fixtures and a two-company DB test; the measurements 
 4. **Last filing is an SEC filing only (revised 2026-10-29 after dev with a prod data copy).** The first build took the
    newest `FilingRow` of any kind, as the plan's wording read. On dev that column was dominated by rows that are not
    filings: the machine-applied and feed-stored facts (856 `auto` shares rows), whose store date was an ingest batch, and
-   splits and catalysts. The pick now considers only the kinds `8k`, `form4`, `form4a`, `stake` and `revenue`
+   splits and catalysts. The pick now considers only the kinds `8k`, `form4`, `form4a`, `stake` and `revenue` (and,
+   since the filing index of 2026-10-29, `filing`: any other form in the EDGAR index)
    (`filings.SEC_FILING_KINDS`, shared with the Chain Map); a split, a dilution fact, a catalyst and a ratified or stored
    fact are never picked, whatever their date. A company with only those rows reads "none stored in the last year". The
    column and the glyph are still called "last filing". Ties on the date still go by the reader's kind order (8-K,

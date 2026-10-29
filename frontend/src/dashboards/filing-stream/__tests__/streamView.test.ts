@@ -62,13 +62,25 @@ const filters = (over: Partial<Filters> = {}): Filters => ({ ...DEFAULT_FILTERS,
 
 describe("the kinds", () => {
   it("lists every kind in a day's order, each with a label", () => {
-    expect(KIND_ORDER).toEqual(["8k", "stake", "form4", "form4a", "revenue", "split", "dilution", "catalyst", "ratified"]);
+    expect(KIND_ORDER).toEqual([
+      "8k",
+      "stake",
+      "form4",
+      "form4a",
+      "revenue",
+      "filing",
+      "split",
+      "dilution",
+      "catalyst",
+      "ratified",
+    ]);
     expect(KIND_ORDER.map((k) => KIND_LABEL[k])).toEqual([
       "8-K",
       "13D/G",
       "Form 4",
       "4/A",
       "Revenue",
+      "Other forms",
       "Split",
       "Dilution",
       "Catalyst",
@@ -255,6 +267,7 @@ describe("workLines", () => {
         { kind: "form4", rows: 22 },
         { kind: "form4a", rows: 1 },
         { kind: "revenue", rows: 3 },
+        { kind: "filing", rows: 0 },
         { kind: "split", rows: 0 },
         { kind: "dilution", rows: 0 },
         { kind: "catalyst", rows: 1 },
@@ -278,7 +291,7 @@ describe("workLines", () => {
       "57 roster rows · 2 companies resolved · 2 without a resolved security · 8 in Context or Bench",
     );
     expect(c).toBe(
-      "41 rows in the window: 12 8-Ks · 2 13D/G stakes · 22 Form 4s (3 hold a purchase) · 1 4/A · 3 revenue prints · 0 splits · 0 dilution rows · 1 catalyst · 0 ratified or stored facts · 19 routine Form 4 rows folded (counted above)",
+      "41 rows in the window: 12 8-Ks · 2 13D/G stakes · 22 Form 4s (3 hold a purchase) · 1 4/A · 3 revenue prints · 0 other forms · 0 splits · 0 dilution rows · 1 catalyst · 0 ratified or stored facts · 19 routine Form 4 rows folded (counted above)",
     );
   });
 
