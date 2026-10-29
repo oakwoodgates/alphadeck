@@ -196,3 +196,10 @@ cold-load note rather than withheld; medians only in group rows; the band module
     generated contract.
 16. **Cost.** Every scope, "All live cards" included, is cached per (scope, key, clock, as-of) exactly like the others; the page
     says "the first load after a run can take a minute" and shows `compute_ms`. Nothing was measured live in this build.
+17. **Measured on dev with a prod data copy (2026-10-29, 62 live cards, 1,489 companies, as-of 2026-10-29):** the scope
+    list 384 ms; a business-type scope cold in 10.1 s (biotech/pharma, 237 companies, 367 KB); a supersector in 13.8 s
+    (healthcare, 349 companies, 542 KB); one card in 2.0 s (36 KB); "All live cards" cold in 69 s (2.3 MB), then 195 ms
+    from the cache. Coverage across all live cards: cap 852, revenue 1,130, YoY 1,046, runway 55, overhang 1, purity 18,
+    off-52w-high 1,459, 50d 1,449, 200d 1,378, RVOL 1,450, ADV 1,454, vs SPY 1,420: the Workbench facts are the to-do
+    list the plan expected. The cold cost is the per-company point-in-time view (ten fact lists plus six display
+    members, read once each); it runs once per scope per as-of per run.
