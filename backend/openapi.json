@@ -4097,6 +4097,119 @@
         }
       }
     },
+    "/dashboards/filing-stream/cards": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Filing Stream Cards",
+        "description": "The card picker: the live cards that existed by the as-of, A\u2192Z, each with its link count today. Display\nonly.",
+        "operationId": "filing_stream_cards_dashboards_filing_stream_cards_get",
+        "parameters": [
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; only the cards that existed by then are listed",
+              "title": "Asof"
+            },
+            "description": "as-of date; only the cards that existed by then are listed"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilingStreamCardsOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboards/filing-stream/{thesis_id}": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Filing Stream For Card",
+        "description": "One card's names' filing-derived facts, newest day first: 8-Ks with their items, Form 4s with the filer's\nown words, Form 4/As, 13D/G stakes, revenue prints, splits, dilution and the operator's ratified facts, each\nrow opening to its EDGAR source. Only facts the ingest stores are listed (not every filing). Display only; a\npast as-of reads what was public by the end of that date (a fact public after it never appears). 404 when\nthe card is not counted at the as-of.",
+        "operationId": "filing_stream_for_card_dashboards_filing_stream__thesis_id__get",
+        "parameters": [
+          {
+            "name": "thesis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thesis Id"
+            }
+          },
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; no filing public after it is read",
+              "title": "Asof"
+            },
+            "description": "as-of date; no filing public after it is read"
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/FilingStreamDays",
+              "description": "the window: the last 30 | 90 | 365 days",
+              "default": 90
+            },
+            "description": "the window: the last 30 | 90 | 365 days"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilingStreamOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/dashboards/idea-timeline": {
       "get": {
         "tags": [
@@ -14979,6 +15092,557 @@
         "type": "object",
         "title": "ExtractionResult",
         "description": "The extract endpoint's envelope (Retrieval Slice 1): the candidates plus an HONEST reason when\nthere are none. The three empty states are DISTINCT (interaction #2 \u2014 \"we couldn't read it\" must\nnever masquerade as \"there is nothing\"; the old bare ``[]`` + the FE's *\"nothing to extract or\nratify here\"* copy was false for 44 of the 48 dark names):\n\n- ``facts`` non-empty \u2192 covered. For an annual-cover name that is SHARES ONLY \u2014 cash + purity are\n  still not covered for it (the FE says so rather than implying the data doesn't exist).\n- ``empty_reason=\"no-annual-filing\"`` \u2192 no 10-K/10-Q AND no 20-F/40-F: genuinely nothing on EDGAR\n  the extractor can read (SKHY, a brand-new F-1/DRS listing). The only case where \"nothing to\n  extract\" is true.\n- ``empty_reason=\"cover-not-located\"`` \u2192 an annual filing EXISTS but its cover instruction could\n  not be matched: the name is UNREAD, not empty \u2014 it stays a visible candidate for the next\n  pass, and companyfacts alone is deliberately NOT served (a fact without its located passage\n  would break the no-passage-no-fact contract).\n\n``runway_empty_reason`` (Retrieval Slice A) is the RUNWAY leg's own honest state for an annual\nfiler whose filing exists but yielded no cash_burn candidate \u2014 kept SEPARATE from ``empty_reason``\nbecause the shares leg usually still emits (facts non-empty), and the three states must stay\ndistinct (interaction #2):\n\n- ``\"cash-generative\"`` \u2192 operating cash flow is positive: a STATE, not a gap \u2014 no runway applies\n  and none is computed (a finite number here would be bogus).\n- ``\"financials-in-exhibit\"`` \u2192 a BURNING name whose financial statements were found in NEITHER\n  the main document NOR any EX-99 exhibit the bounded scan read (Retrieval Slice A-2 hunts the\n  exhibits by content signature \u2014 both statement rows \u2014 before this reason fires): deferred,\n  never a companyfacts-only number (no passage \u2192 no fact).\n- ``\"exhibit-ambiguous\"`` \u2192 MORE THAN ONE exhibit carries the statement signature (Slice A-2's\n  fail-closed rule): deferred rather than guessed \u2014 a wrong statement source is the runway\n  analog of a confident-wrong cover match.\n- ``\"statements-not-located\"`` \u2192 neither the statements nor a companyfacts sign could be read:\n  unread, not empty."
+      },
+      "FilingStreamCardOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "links": {
+            "type": "integer",
+            "title": "Links"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "name",
+          "links"
+        ],
+        "title": "FilingStreamCardOut",
+        "description": "A card in the picker: its name and its real links today (Context and Bench not counted)."
+      },
+      "FilingStreamCardsOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "live_cards": {
+            "type": "integer",
+            "title": "Live Cards"
+          },
+          "not_yet_created": {
+            "type": "integer",
+            "title": "Not Yet Created"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/FilingStreamCardOut"
+            },
+            "type": "array",
+            "title": "Cards"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "live_cards",
+          "not_yet_created",
+          "cards",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "FilingStreamCardsOut",
+        "description": "The picker: the cards counted at the as-of (the live cards that existed by then), A\u2192Z. ``cache`` /\n``compute_ms`` = whether the list came from the shared dashboard cache and how long it took when computed."
+      },
+      "FilingStreamCountsOut": {
+        "properties": {
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          },
+          "by_kind": {
+            "items": {
+              "$ref": "#/components/schemas/FilingStreamKindOut"
+            },
+            "type": "array",
+            "title": "By Kind"
+          },
+          "form4_purchases": {
+            "type": "integer",
+            "title": "Form4 Purchases"
+          },
+          "routine": {
+            "type": "integer",
+            "title": "Routine"
+          }
+        },
+        "type": "object",
+        "required": [
+          "rows",
+          "by_kind",
+          "form4_purchases",
+          "routine"
+        ],
+        "title": "FilingStreamCountsOut",
+        "description": "What the window holds, folded rows included. ``form4_purchases`` = Form 4s holding a code-P purchase;\n``routine`` = the rows the fold covers."
+      },
+      "FilingStreamDayOut": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "routine": {
+            "type": "integer",
+            "title": "Routine"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/FilingStreamRowOut"
+            },
+            "type": "array",
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "routine",
+          "rows"
+        ],
+        "title": "FilingStreamDayOut",
+        "description": "One day of the stream, its rows in stream order; ``routine`` = how many of them the fold covers."
+      },
+      "FilingStreamDays": {
+        "type": "integer",
+        "enum": [
+          30,
+          90,
+          365
+        ],
+        "title": "FilingStreamDays",
+        "description": "The window: the last 30, 90 or 365 days."
+      },
+      "FilingStreamKindOut": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "8k",
+              "stake",
+              "form4",
+              "form4a",
+              "revenue",
+              "split",
+              "dilution",
+              "catalyst",
+              "ratified"
+            ],
+            "title": "Kind"
+          },
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "rows"
+        ],
+        "title": "FilingStreamKindOut"
+      },
+      "FilingStreamLinkOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "link",
+              "old_link",
+              "no_link",
+              "silent"
+            ],
+            "title": "Kind"
+          },
+          "names": {
+            "type": "integer",
+            "title": "Names"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "kind",
+          "names"
+        ],
+        "title": "FilingStreamLinkOut",
+        "description": "A link a page can filter by (``names`` = the companies on it today's roster, each once)."
+      },
+      "FilingStreamNameOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "security_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Security Id"
+          },
+          "links": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Links"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContextRole"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "silent": {
+            "type": "boolean",
+            "title": "Silent"
+          },
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "ticker",
+          "security_id",
+          "links",
+          "role",
+          "silent",
+          "rows"
+        ],
+        "title": "FilingStreamNameOut",
+        "description": "A roster company (each once) with its rows in the window; a name with none is still listed.\n``key`` = its ``security_id`` (``ticker:<T>`` for a row with no resolved security)."
+      },
+      "FilingStreamOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "days": {
+            "type": "integer",
+            "title": "Days"
+          },
+          "window_start": {
+            "type": "string",
+            "format": "date",
+            "title": "Window Start"
+          },
+          "clock": {
+            "type": "string",
+            "enum": [
+              "record",
+              "public"
+            ],
+            "title": "Clock"
+          },
+          "roster_fallback": {
+            "type": "boolean",
+            "title": "Roster Fallback"
+          },
+          "links_today": {
+            "type": "integer",
+            "title": "Links Today"
+          },
+          "basket_rows": {
+            "type": "integer",
+            "title": "Basket Rows"
+          },
+          "silent_rows": {
+            "type": "integer",
+            "title": "Silent Rows"
+          },
+          "unresolved": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Unresolved"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/FilingStreamLinkOut"
+            },
+            "type": "array",
+            "title": "Links"
+          },
+          "roles": {
+            "items": {
+              "$ref": "#/components/schemas/ContextRole"
+            },
+            "type": "array",
+            "title": "Roles"
+          },
+          "names": {
+            "items": {
+              "$ref": "#/components/schemas/FilingStreamNameOut"
+            },
+            "type": "array",
+            "title": "Names"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/FilingStreamDayOut"
+            },
+            "type": "array",
+            "title": "Groups"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/FilingStreamCountsOut"
+          },
+          "windows": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Windows"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "thesis_id",
+          "thesis_name",
+          "days",
+          "window_start",
+          "clock",
+          "roster_fallback",
+          "links_today",
+          "basket_rows",
+          "silent_rows",
+          "unresolved",
+          "links",
+          "roles",
+          "names",
+          "groups",
+          "counts",
+          "windows",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "FilingStreamOut",
+        "description": "One card's stream for one window, newest day first. ``clock``: ``record`` (the live read) or ``public``\n(a past as-of: what was public by the end of that date). ``roster_fallback`` = no roster snapshot by the\nas-of: today's roster stands in. ``unresolved`` = tickers of basket rows with no resolved security (they can\ncarry no facts: counted, never in the stream). ``cache`` / ``compute_ms`` = whether the 365-day rows came\nfrom the shared dashboard cache and how long they took when computed."
+      },
+      "FilingStreamRowOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "8k",
+              "stake",
+              "form4",
+              "form4a",
+              "revenue",
+              "split",
+              "dilution",
+              "catalyst",
+              "ratified"
+            ],
+            "title": "Kind"
+          },
+          "form": {
+            "type": "string",
+            "title": "Form"
+          },
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "headline": {
+            "type": "string",
+            "title": "Headline"
+          },
+          "detail": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Detail"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "accession": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accession"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags"
+          },
+          "routine": {
+            "type": "boolean",
+            "title": "Routine"
+          },
+          "usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Usd"
+          },
+          "links": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Links"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContextRole"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "silent": {
+            "type": "boolean",
+            "title": "Silent"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "security_id",
+          "ticker",
+          "kind",
+          "form",
+          "date",
+          "headline",
+          "detail",
+          "url",
+          "accession",
+          "tags",
+          "routine",
+          "usd",
+          "links",
+          "role",
+          "silent"
+        ],
+        "title": "FilingStreamRowOut",
+        "description": "One filing-derived fact. ``kind``: ``8k`` | ``form4`` | ``form4a`` | ``stake`` | ``revenue`` | ``split`` |\n``dilution`` | ``catalyst`` | ``ratified``. ``form`` = the form as filed or the row's own label; ``date`` = the\npublic date it counts from; ``headline`` = one neutral line; ``detail`` = the lines the expanded row shows;\n``url`` = the filing's EDGAR index or the stored source (``null`` = none known); ``tags`` = quiet field\npredicates; ``routine`` = a fold candidate (a Form 4 holding no code-P purchase); ``usd`` = the row's dollar\nsize when it has one (a Form 4's purchases minus sales, a dilution's principal). ``links`` / ``role`` /\n``silent`` = the company's place on the card at the as-of (``null`` in ``links`` = no link)."
       },
       "FiringDiagnostics": {
         "properties": {

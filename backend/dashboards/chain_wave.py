@@ -51,7 +51,14 @@ from datetime import date, timedelta
 from typing import Literal
 from uuid import UUID
 
-from dashboards.baskets import FlaggedCompany, Membership, flagged_in_view
+from dashboards.baskets import (  # noqa: F401  (CardChoice / card_choices: the picker, moved to baskets)
+    CardChoice,
+    FlaggedCompany,
+    Membership,
+    card_choices,
+    flagged_in_view,
+    link_count,
+)
 from dashboards.series import (
     Chain,
     SessionSource,
@@ -60,7 +67,7 @@ from dashboards.series import (
     line_start,
     session_calendar,
 )
-from domain.thesis import SILENT_LABELS, Thesis
+from domain.thesis import SILENT_LABELS
 
 # the week columns built (and cached); a window is the last WINDOWS[i] of them
 WEEKS = 52
@@ -345,11 +352,6 @@ class WaveInputs:
     flagged: tuple[FlaggedCompany, ...]  # the card's companies left out for a flagged price history
 
 
-def link_count(labels: Iterable[str]) -> int:
-    """A card's real links (Discovered included; Context and Bench not), from its chain's labels."""
-    return sum(1 for s in dict.fromkeys(labels) if s not in SILENT_LABELS)
-
-
 def wave_inputs(
     *,
     thesis_id: UUID,
@@ -580,20 +582,3 @@ def chain_wave(
         flagged=inputs.flagged,
         roles_set=sum(1 for r in inputs.rows if r.kind == "role"),
     )
-
-
-# --- the picker ---------------------------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class CardChoice:
-    thesis_id: UUID
-    name: str
-    links: int  # real links today (Context and Bench not counted)
-
-
-def card_choices(theses: Iterable[Thesis]) -> tuple[CardChoice, ...]:
-    """The picker: each card with its link count, A→Z (ties by id)."""
-    out = [CardChoice(t.id, t.name, link_count(s.label for s in t.segments)) for t in theses]
-    out.sort(key=lambda c: (c.name.casefold(), str(c.thesis_id)))
-    return tuple(out)

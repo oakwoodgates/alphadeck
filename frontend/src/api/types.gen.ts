@@ -2088,6 +2088,51 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboards/filing-stream/cards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Filing Stream Cards
+         * @description The card picker: the live cards that existed by the as-of, A→Z, each with its link count today. Display
+         *     only.
+         */
+        get: operations["filing_stream_cards_dashboards_filing_stream_cards_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboards/filing-stream/{thesis_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Filing Stream For Card
+         * @description One card's names' filing-derived facts, newest day first: 8-Ks with their items, Form 4s with the filer's
+         *     own words, Form 4/As, 13D/G stakes, revenue prints, splits, dilution and the operator's ratified facts, each
+         *     row opening to its EDGAR source. Only facts the ingest stores are listed (not every filing). Display only; a
+         *     past as-of reads what was public by the end of that date (a fact public after it never appears). 404 when
+         *     the card is not counted at the as-of.
+         */
+        get: operations["filing_stream_for_card_dashboards_filing_stream__thesis_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dashboards/idea-timeline": {
         parameters: {
             query?: never;
@@ -7347,6 +7392,243 @@ export interface components {
             empty_reason?: string | null;
             /** Runway Empty Reason */
             runway_empty_reason?: string | null;
+        };
+        /**
+         * FilingStreamCardOut
+         * @description A card in the picker: its name and its real links today (Context and Bench not counted).
+         */
+        FilingStreamCardOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Name */
+            name: string;
+            /** Links */
+            links: number;
+        };
+        /**
+         * FilingStreamCardsOut
+         * @description The picker: the cards counted at the as-of (the live cards that existed by then), A→Z. ``cache`` /
+         *     ``compute_ms`` = whether the list came from the shared dashboard cache and how long it took when computed.
+         */
+        FilingStreamCardsOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /** Live Cards */
+            live_cards: number;
+            /** Not Yet Created */
+            not_yet_created: number;
+            /** Cards */
+            cards: components["schemas"]["FilingStreamCardOut"][];
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * FilingStreamCountsOut
+         * @description What the window holds, folded rows included. ``form4_purchases`` = Form 4s holding a code-P purchase;
+         *     ``routine`` = the rows the fold covers.
+         */
+        FilingStreamCountsOut: {
+            /** Rows */
+            rows: number;
+            /** By Kind */
+            by_kind: components["schemas"]["FilingStreamKindOut"][];
+            /** Form4 Purchases */
+            form4_purchases: number;
+            /** Routine */
+            routine: number;
+        };
+        /**
+         * FilingStreamDayOut
+         * @description One day of the stream, its rows in stream order; ``routine`` = how many of them the fold covers.
+         */
+        FilingStreamDayOut: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Routine */
+            routine: number;
+            /** Rows */
+            rows: components["schemas"]["FilingStreamRowOut"][];
+        };
+        /**
+         * FilingStreamDays
+         * @description The window: the last 30, 90 or 365 days.
+         * @enum {integer}
+         */
+        FilingStreamDays: 30 | 90 | 365;
+        /** FilingStreamKindOut */
+        FilingStreamKindOut: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "8k" | "stake" | "form4" | "form4a" | "revenue" | "split" | "dilution" | "catalyst" | "ratified";
+            /** Rows */
+            rows: number;
+        };
+        /**
+         * FilingStreamLinkOut
+         * @description A link a page can filter by (``names`` = the companies on it today's roster, each once).
+         */
+        FilingStreamLinkOut: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "link" | "old_link" | "no_link" | "silent";
+            /** Names */
+            names: number;
+        };
+        /**
+         * FilingStreamNameOut
+         * @description A roster company (each once) with its rows in the window; a name with none is still listed.
+         *     ``key`` = its ``security_id`` (``ticker:<T>`` for a row with no resolved security).
+         */
+        FilingStreamNameOut: {
+            /** Key */
+            key: string;
+            /** Ticker */
+            ticker: string;
+            /** Security Id */
+            security_id: string | null;
+            /** Links */
+            links: (string | null)[];
+            role: components["schemas"]["ContextRole"] | null;
+            /** Silent */
+            silent: boolean;
+            /** Rows */
+            rows: number;
+        };
+        /**
+         * FilingStreamOut
+         * @description One card's stream for one window, newest day first. ``clock``: ``record`` (the live read) or ``public``
+         *     (a past as-of: what was public by the end of that date). ``roster_fallback`` = no roster snapshot by the
+         *     as-of: today's roster stands in. ``unresolved`` = tickers of basket rows with no resolved security (they can
+         *     carry no facts: counted, never in the stream). ``cache`` / ``compute_ms`` = whether the 365-day rows came
+         *     from the shared dashboard cache and how long they took when computed.
+         */
+        FilingStreamOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /** Days */
+            days: number;
+            /**
+             * Window Start
+             * Format: date
+             */
+            window_start: string;
+            /**
+             * Clock
+             * @enum {string}
+             */
+            clock: "record" | "public";
+            /** Roster Fallback */
+            roster_fallback: boolean;
+            /** Links Today */
+            links_today: number;
+            /** Basket Rows */
+            basket_rows: number;
+            /** Silent Rows */
+            silent_rows: number;
+            /** Unresolved */
+            unresolved: string[];
+            /** Links */
+            links: components["schemas"]["FilingStreamLinkOut"][];
+            /** Roles */
+            roles: components["schemas"]["ContextRole"][];
+            /** Names */
+            names: components["schemas"]["FilingStreamNameOut"][];
+            /** Groups */
+            groups: components["schemas"]["FilingStreamDayOut"][];
+            counts: components["schemas"]["FilingStreamCountsOut"];
+            /** Windows */
+            windows: number[];
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * FilingStreamRowOut
+         * @description One filing-derived fact. ``kind``: ``8k`` | ``form4`` | ``form4a`` | ``stake`` | ``revenue`` | ``split`` |
+         *     ``dilution`` | ``catalyst`` | ``ratified``. ``form`` = the form as filed or the row's own label; ``date`` = the
+         *     public date it counts from; ``headline`` = one neutral line; ``detail`` = the lines the expanded row shows;
+         *     ``url`` = the filing's EDGAR index or the stored source (``null`` = none known); ``tags`` = quiet field
+         *     predicates; ``routine`` = a fold candidate (a Form 4 holding no code-P purchase); ``usd`` = the row's dollar
+         *     size when it has one (a Form 4's purchases minus sales, a dilution's principal). ``links`` / ``role`` /
+         *     ``silent`` = the company's place on the card at the as-of (``null`` in ``links`` = no link).
+         */
+        FilingStreamRowOut: {
+            /** Key */
+            key: string;
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "8k" | "stake" | "form4" | "form4a" | "revenue" | "split" | "dilution" | "catalyst" | "ratified";
+            /** Form */
+            form: string;
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Headline */
+            headline: string;
+            /** Detail */
+            detail: string[];
+            /** Url */
+            url: string | null;
+            /** Accession */
+            accession: string | null;
+            /** Tags */
+            tags: string[];
+            /** Routine */
+            routine: boolean;
+            /** Usd */
+            usd: number | null;
+            /** Links */
+            links: (string | null)[];
+            role: components["schemas"]["ContextRole"] | null;
+            /** Silent */
+            silent: boolean;
         };
         /**
          * FiringDiagnostics
@@ -13796,6 +14078,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CrossRadarOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    filing_stream_cards_dashboards_filing_stream_cards_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; only the cards that existed by then are listed */
+                asof: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FilingStreamCardsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    filing_stream_for_card_dashboards_filing_stream__thesis_id__get: {
+        parameters: {
+            query: {
+                /** @description as-of date; no filing public after it is read */
+                asof: string;
+                /** @description the window: the last 30 | 90 | 365 days */
+                days?: components["schemas"]["FilingStreamDays"];
+            };
+            header?: never;
+            path: {
+                thesis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FilingStreamOut"];
                 };
             };
             /** @description Validation Error */

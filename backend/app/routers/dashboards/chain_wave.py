@@ -11,7 +11,7 @@ here, not in ``app/schemas_api.py`` (rule 8).
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from datetime import date, datetime
 from enum import IntEnum
 from typing import Literal
@@ -22,10 +22,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
 
 from app.deps import get_conn
-from dashboards.baskets import (
-    cards_that_existed,
+from dashboards.baskets import (  # noqa: F401  (CardChoice: re-exported under its old name)
+    CardChoice,
+    CardsRead,
     memberships_of,
     per_company,
+    picker_cards,
     price_flags,
     resolved_ids,
 )
@@ -35,15 +37,13 @@ from dashboards.chain_wave import (
     READOUT_WEEKS,
     THIN_BELOW,
     WINDOWS,
-    CardChoice,
     WaveInputs,
-    card_choices,
     wave_inputs,
 )
 from dashboards.chain_wave import chain_wave as compute_chain_wave
 from db.session import DEFAULT_TENANT_ID
 from domain.enums import ContextRole
-from domain.market_time import market_tz, serve_view
+from domain.market_time import serve_view
 from repositories import thesis_repo
 from signals.base import PointInTimeData
 from signals.display import trailing_returns
@@ -214,19 +214,9 @@ class ChainWaveOut(_Wire):
 # --- the reads (SELECT only, through the point-in-time view) -----------------------------------------------
 
 
-@dataclass(frozen=True)
-class CardsRead:
-    live_cards: int
-    not_yet_created: int
-    cards: tuple[CardChoice, ...]
-
-
-def read_cards(conn: psycopg.Connection, asof: date) -> CardsRead:
-    """The live cards that existed by the as-of (``baskets.cards_that_existed``), each with its link count."""
-    live = thesis_repo.list_all(conn)
-    created = thesis_repo.created_at_for(conn, [t.id for t in live])
-    kept, later = cards_that_existed(live, created, asof, market_tz())
-    return CardsRead(len(live), later, card_choices(kept))
+# the picker is the shared basket read (``baskets.picker_cards``); ``read_cards`` is its old name here (the tests
+# stub it on this module)
+read_cards = picker_cards
 
 
 def _closes(
