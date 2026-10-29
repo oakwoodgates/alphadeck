@@ -191,9 +191,16 @@ def test_nothing_on_the_call_path_imports_the_extractor(pkg):
 def test_the_one_reader_of_the_stored_cash_fact_is_the_runway_meter():
     """VERIFIED 2026-10-24 and pinned: ``fact_cash_burn`` (what a ratified cash reading becomes) is read
     through ``cash_burn_facts`` only by the Workbench runway meter, never by a detector or the call.
+    Since 2026-10-29 the display-only dashboards (``dashboards/``) may read it too, to LIST the stored
+    fact as a row (the Filing Stream's shared reader, the Peer Table's runway column): a dashboard is a
+    leaf the call path can never import (``docs/DASHBOARDS.md`` rule 1, enforced by
+    ``tests/dashboards/test_isolation.py``), so the pin holds: no detector, no call.
     """
     readers = [p for p in _product_sources() if "cash_burn_facts(" in p.read_text(encoding="utf-8")]
-    assert sorted(p.relative_to(_BACKEND).as_posix() for p in readers) == [
+    paths = sorted(p.relative_to(_BACKEND).as_posix() for p in readers)
+    display_only = [r for r in paths if r.startswith("dashboards/")]
+    assert [r for r in paths if r not in display_only] == [
         "signals/base.py",  # the accessor's own definition on the concrete point-in-time view
         "workbench/scoring.py",  # _runway — the runway meter
     ]
+    assert display_only, "the dashboards' readers moved: re-pin this list"
