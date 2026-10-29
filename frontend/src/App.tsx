@@ -14,6 +14,9 @@ import { useTheses } from "./api/hooks";
 import { Backtest } from "./backtest/Backtest";
 import { Board } from "./board/Board";
 import { Cockpit } from "./cockpit/Cockpit";
+import { DashboardShell } from "./dashboards/DashboardShell";
+import { DashboardsIndex } from "./dashboards/DashboardsIndex";
+import { DASHBOARDS } from "./dashboards/registry";
 import {
   ASOF,
   EDITION,
@@ -21,6 +24,7 @@ import {
   RAIL,
   RUN,
   boardPath,
+  dashboardsPath,
   editionFrom,
   railOpenFrom,
   thesisPath,
@@ -162,6 +166,35 @@ function RadarRoute() {
   return <Radar header={<AppHeader current="radar" />} />;
 }
 
+function DashboardsIndexRoute() {
+  // A list of pages, not a view of data: no as-of dial; the index carries ?asof= onto every link.
+  const { asofParam } = useAsof();
+  return <DashboardsIndex asofParam={asofParam} />;
+}
+
+function DashboardRoute() {
+  const navigate = useNavigate();
+  const here = useHere();
+  const { slug } = useParams();
+  const { asof, asofParam, setAsof } = useAsof();
+  // The registry (dashboards/registry.ts) is the only list: a slug it does not name (a cut dashboard, a
+  // typo) lands on the index, keeping the operator's as-of.
+  const entry = DASHBOARDS.find((d) => d.slug === slug);
+  if (!entry) return <Navigate to={dashboardsPath(asofParam)} replace />;
+  return (
+    <DashboardShell
+      entry={entry}
+      asof={asof}
+      onAsofChange={setAsof}
+      onSelectThesis={(id, nameKey) =>
+        navigate(thesisPath(id, { asof: asofParam, name: nameKey ?? null }), {
+          state: { from: here },
+        })
+      }
+    />
+  );
+}
+
 function CockpitRoute() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -234,6 +267,8 @@ export function App() {
       <Route path="/backtest" element={<BacktestRoute />} />
       <Route path="/admin" element={<AdminRoute />} />
       <Route path="/radar" element={<RadarRoute />} />
+      <Route path="/dashboards" element={<DashboardsIndexRoute />} />
+      <Route path="/dashboards/:slug" element={<DashboardRoute />} />
       <Route path="/thesis/:thesisId" element={<CockpitRoute />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

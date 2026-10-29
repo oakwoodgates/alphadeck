@@ -642,6 +642,18 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .nav a { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--txt-3); padding: 6px 11px; border-radius: 6px; }
 .nav a.on { color: var(--txt); background: var(--panel-2); }
 .nav a.stub { opacity: 0.45; cursor: default; }
+/* The Dashboards ▾ menu (AppHeader.tsx): the trigger wears the .nav a look (and its .on when a dashboard page
+   is open); the menu is a quiet dark panel, no accent color: dashboards are experimental views, not alerts. */
+.nav-menu-wrap { position: relative; display: flex; }
+.nav-menu-btn { font-family: inherit; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--txt-3); background: none; border: 0; padding: 6px 11px; border-radius: 6px; cursor: pointer; }
+.nav-menu-btn:hover, .nav-menu-btn[aria-expanded="true"] { color: var(--txt-2); }
+.nav-menu-btn.on { color: var(--txt); background: var(--panel-2); }
+.nav-menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 50; min-width: 260px; max-width: 360px; display: flex; flex-direction: column; gap: 2px; padding: 5px; background: var(--panel); border: 1px solid var(--line-2); border-radius: 9px; box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5); }
+.nav-menu-item { display: flex; flex-direction: column; gap: 2px; text-align: left; font-family: inherit; color: var(--txt-2); background: none; border: 0; border-radius: 6px; padding: 7px 10px; cursor: pointer; }
+.nav-menu-item:hover, .nav-menu-item:focus-visible { background: var(--panel-2); color: var(--txt); outline: none; }
+.nav-menu-label { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+.nav-menu-desc { font-size: 11px; line-height: 1.35; color: var(--txt-3); }
+.nav-menu-empty { font-size: 11px; color: var(--txt-4); padding: 4px 10px 7px; }
 
 .dq { display: flex; align-items: center; gap: 14px; padding: 9px 18px; border-bottom: 1px solid var(--line); background: linear-gradient(90deg, rgba(255, 87, 51, 0.07), rgba(255, 87, 51, 0.02) 60%, transparent); }
 .dq-label { display: flex; align-items: center; gap: 8px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase; color: var(--armed); white-space: nowrap; }
@@ -2112,3 +2124,21 @@ tr.adm-row-bad td { background: color-mix(in srgb, var(--warm) 5%, transparent);
 .bt-method-body { display: flex; flex-direction: column; gap: 8px; padding-left: 10px; border-left: 2px solid var(--line); }
 /* the breadth lines in the drawer — this run's own fields, which the record's ledger has no concept of */
 .bt-breadth { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); border: 1px dashed var(--line); border-radius: 8px; padding: 7px 10px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 2px; }
+
+/* ===========================================================================
+   Dashboards (docs/DASHBOARDS.md) — the shared frame for /dashboards and /dashboards/:slug: a quiet title
+   row (label, status tag, one-line description) over the body. A dashboard's OWN styles live with it, in
+   its folder, so cutting one is a clean delete; only the shared frame lives here.
+   =========================================================================== */
+.dash-shell { min-height: 100vh; display: flex; flex-direction: column; }
+.dash-title { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 12px; padding: 12px 18px 11px; border-bottom: 1px solid var(--line); }
+.dash-title h1 { margin: 0; font-size: 14px; font-weight: 700; letter-spacing: 0.04em; }
+.dash-status { font-family: var(--mono); font-size: 9.5px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--txt-3); border: 1px solid var(--line-2); border-radius: 6px; padding: 1px 7px; }
+.dash-desc { font-size: 11.5px; color: var(--txt-3); }
+.dash-body { flex: 1; padding: 16px 18px 28px; }
+.dash-note { font-size: 11px; color: var(--txt-4); }
+.dash-index { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.dash-tile { display: flex; flex-direction: column; gap: 6px; height: 100%; padding: 13px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: inherit; text-decoration: none; transition: border-color 0.14s, background 0.14s; }
+.dash-tile:hover { border-color: var(--line-2); background: var(--panel-2); }
+.dash-tile-head { display: flex; align-items: center; gap: 9px; }
+.dash-tile-label { font-size: 13px; font-weight: 600; }
