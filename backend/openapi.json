@@ -4748,6 +4748,133 @@
         }
       }
     },
+    "/dashboards/peer-table/scopes": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Peer Table Scopes",
+        "description": "What the Peer Table can be scoped to at the as-of: the business-type leaves and supersectors present on the\ncounted cards' rosters (each with its distinct companies) and the counted cards, plus the leaf to open on.\nDisplay only; a past as-of reads the rosters as they were by the end of that date.",
+        "operationId": "peer_table_scopes_dashboards_peer_table_scopes_get",
+        "parameters": [
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; only the cards that existed by then, with their rosters then",
+              "title": "Asof"
+            },
+            "description": "as-of date; only the cards that existed by then, with their rosters then"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PeerScopesOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboards/peer-table": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Peer Table",
+        "description": "The names of one scope side by side, each company once: approximate market cap and tier, latest revenue and\nits year-over-year change, runway, convert overhang, revenue purity, the tape (off the 52-week high, the\n50- and 200-day averages, RVOL, dollar volume, the 30-day return against SPY) and the insider buys of the\n90-day window, grouped by business type, link or card, with every blank counted by column and reason. A\ncompany whose data flags reach its price readings keeps its row and its price cells name the reason. Display\nonly; a past as-of reads what was public by the end of that date (a fact public after it never reaches a\ncell). 404 when the scope's key is not present at the as-of.",
+        "operationId": "peer_table_dashboards_peer_table_get",
+        "parameters": [
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; nothing published after it is read",
+              "title": "Asof"
+            },
+            "description": "as-of date; nothing published after it is read"
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "enum": [
+                "business_type",
+                "supersector",
+                "card",
+                "all"
+              ],
+              "type": "string",
+              "description": "business_type | supersector | card | all",
+              "title": "Scope"
+            },
+            "description": "business_type | supersector | card | all"
+          },
+          {
+            "name": "key",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "the scope's pick: a business-type leaf, a supersector, or a card id (``unclassified`` = none); ignored for ``all``",
+              "title": "Key"
+            },
+            "description": "the scope's pick: a business-type leaf, a supersector, or a card id (``unclassified`` = none); ignored for ``all``"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PeerTableOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/dashboards/read-through": {
       "get": {
         "tags": [
@@ -10937,6 +11064,18 @@
         ],
         "title": "CallCardResponse",
         "description": "The CallCard as served \u2014 the domain card plus resolved provenance URLs."
+      },
+      "CapTier": {
+        "type": "string",
+        "enum": [
+          "nano",
+          "micro",
+          "small",
+          "mid",
+          "large"
+        ],
+        "title": "CapTier",
+        "description": "The five fixed market-cap bands, smallest first (the enum's order is the band order)."
       },
       "Catalyst": {
         "properties": {
@@ -20784,6 +20923,1557 @@
         ],
         "title": "OperatorSpanOut",
         "description": "An off-record take\u2192close span (answering no armed episode), with the stance FROZEN on the\ntake row at logging time. ``override`` = entered while the platform said not-armed \u2014 the\ngate's logged override, now carrying its outcome."
+      },
+      "PeerBlankOut": {
+        "properties": {
+          "gap": {
+            "type": "string",
+            "enum": [
+              "flagged",
+              "no_price",
+              "no_reading",
+              "no_shares",
+              "ads_unread",
+              "no_cap",
+              "no_revenue",
+              "no_prior_year",
+              "no_burn",
+              "no_convert",
+              "no_mix",
+              "no_form4",
+              "no_spy",
+              "ends_differ"
+            ],
+            "title": "Gap"
+          },
+          "n": {
+            "type": "integer",
+            "title": "N"
+          }
+        },
+        "type": "object",
+        "required": [
+          "gap",
+          "n"
+        ],
+        "title": "PeerBlankOut"
+      },
+      "PeerCapOut": {
+        "properties": {
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "tier": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CapTier"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "gap": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "flagged",
+                  "no_price",
+                  "no_reading",
+                  "no_shares",
+                  "ads_unread",
+                  "no_cap",
+                  "no_revenue",
+                  "no_prior_year",
+                  "no_burn",
+                  "no_convert",
+                  "no_mix",
+                  "no_form4",
+                  "no_spy",
+                  "ends_differ"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "close": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close"
+          },
+          "close_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close Date"
+          },
+          "shares": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shares"
+          },
+          "shares_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shares Date"
+          },
+          "ads_ratio": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ads Ratio"
+          },
+          "split_factor": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Split Factor"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "tier",
+          "gap",
+          "note",
+          "close",
+          "close_date",
+          "shares",
+          "shares_date",
+          "ads_ratio",
+          "split_factor"
+        ],
+        "title": "PeerCapOut",
+        "description": "The approximate market cap (USD) and its tier: the latest close times the latest shares fact, the\nWorkbench's rule (``ads_ratio_status`` known divides the ordinary count by ``ads_ratio``, unread withholds the\ncap, none counts 1:1), with ``split_factor`` = the multiplier put on the count when a split in force sits\nbetween the count's date and the close's. ``shares`` = the ordinary count on file."
+      },
+      "PeerCardChipOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "links": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Links"
+          },
+          "silent": {
+            "type": "boolean",
+            "title": "Silent"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContextRole"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "thesis_name",
+          "ticker",
+          "links",
+          "silent",
+          "role"
+        ],
+        "title": "PeerCardChipOut",
+        "description": "A card the company sits on: its ticker there (the Cockpit's ``?name=`` key), its links there (``null`` = no\nlink; Context / Bench by their labels), whether it is silent there and its context role there."
+      },
+      "PeerCardOptionOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "links": {
+            "type": "integer",
+            "title": "Links"
+          },
+          "companies": {
+            "type": "integer",
+            "title": "Companies"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "name",
+          "links",
+          "companies"
+        ],
+        "title": "PeerCardOptionOut",
+        "description": "A counted card in the picker: its real links today (Context and Bench not counted) and its distinct\ncompanies on the roster at the as-of."
+      },
+      "PeerCellOut": {
+        "properties": {
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "gap": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "flagged",
+                  "no_price",
+                  "no_reading",
+                  "no_shares",
+                  "ads_unread",
+                  "no_cap",
+                  "no_revenue",
+                  "no_prior_year",
+                  "no_burn",
+                  "no_convert",
+                  "no_mix",
+                  "no_form4",
+                  "no_spy",
+                  "ends_differ"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "gap",
+          "note"
+        ],
+        "title": "PeerCellOut",
+        "description": "A number cell: ``value`` is stated, or ``gap`` says why it is blank (``flagged`` | ``no_price`` |\n``no_reading`` | ``no_shares`` | ``ads_unread`` | ``no_cap`` | ``no_revenue`` | ``no_prior_year`` | ``no_burn`` |\n``no_convert`` | ``no_mix`` | ``no_form4`` | ``no_spy`` | ``ends_differ``) and ``note`` is the reader's own\nwords (a display member's \"n/a: 120/200 bars\", the flags' labels). Blank is never zero. The unit is the\ncolumn's: 52-week-high and the two averages in percent, RVOL as a ratio, dollar volume in USD, overhang in\npercent of shares."
+      },
+      "PeerCompanyOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "business_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Type"
+          },
+          "supersector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supersector"
+          },
+          "royalty": {
+            "type": "boolean",
+            "title": "Royalty"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/PeerCardChipOut"
+            },
+            "type": "array",
+            "title": "Cards"
+          },
+          "roles": {
+            "items": {
+              "$ref": "#/components/schemas/ContextRole"
+            },
+            "type": "array",
+            "title": "Roles"
+          },
+          "silent_only": {
+            "type": "boolean",
+            "title": "Silent Only"
+          },
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          },
+          "workbench_facts": {
+            "type": "boolean",
+            "title": "Workbench Facts"
+          },
+          "flag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flag"
+          },
+          "cap": {
+            "$ref": "#/components/schemas/PeerCapOut"
+          },
+          "revenue": {
+            "$ref": "#/components/schemas/PeerRevenueOut"
+          },
+          "yoy": {
+            "$ref": "#/components/schemas/PeerYoyOut"
+          },
+          "runway": {
+            "$ref": "#/components/schemas/PeerRunwayOut"
+          },
+          "overhang": {
+            "$ref": "#/components/schemas/PeerCellOut"
+          },
+          "purity": {
+            "$ref": "#/components/schemas/PeerPurityOut"
+          },
+          "off_high": {
+            "$ref": "#/components/schemas/PeerCellOut"
+          },
+          "sma50": {
+            "$ref": "#/components/schemas/PeerCellOut"
+          },
+          "sma200": {
+            "$ref": "#/components/schemas/PeerCellOut"
+          },
+          "rvol20": {
+            "$ref": "#/components/schemas/PeerCellOut"
+          },
+          "adv": {
+            "$ref": "#/components/schemas/PeerCellOut"
+          },
+          "vs_spy": {
+            "$ref": "#/components/schemas/PeerSpyOut"
+          },
+          "insider": {
+            "$ref": "#/components/schemas/PeerInsiderOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "security_id",
+          "ticker",
+          "name",
+          "business_type",
+          "supersector",
+          "royalty",
+          "cards",
+          "roles",
+          "silent_only",
+          "rows",
+          "workbench_facts",
+          "flag",
+          "cap",
+          "revenue",
+          "yoy",
+          "runway",
+          "overhang",
+          "purity",
+          "off_high",
+          "sma50",
+          "sma200",
+          "rvol20",
+          "adv",
+          "vs_spy",
+          "insider"
+        ],
+        "title": "PeerCompanyOut",
+        "description": "One company, once. ``key`` = its ``security_id``. ``business_type`` / ``supersector`` = today's identity\n(``null`` = unclassified), ``royalty`` = the royalty/streaming overlay. ``roles`` = the distinct context roles\nit holds; ``silent_only`` = every row is Context or Bench; ``workbench_facts`` = it holds a shares, cash/burn,\nrevenue-mix or convertible-note fact; ``flag`` = why its price-derived cells are blank (its row stays)."
+      },
+      "PeerCoverageOut": {
+        "properties": {
+          "column": {
+            "type": "string",
+            "enum": [
+              "cap",
+              "revenue",
+              "yoy",
+              "runway",
+              "overhang",
+              "purity",
+              "off_high",
+              "sma50",
+              "sma200",
+              "rvol20",
+              "adv",
+              "vs_spy",
+              "insider"
+            ],
+            "title": "Column"
+          },
+          "stated": {
+            "type": "integer",
+            "title": "Stated"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "blanks": {
+            "items": {
+              "$ref": "#/components/schemas/PeerBlankOut"
+            },
+            "type": "array",
+            "title": "Blanks"
+          }
+        },
+        "type": "object",
+        "required": [
+          "column",
+          "stated",
+          "total",
+          "blanks"
+        ],
+        "title": "PeerCoverageOut",
+        "description": "A column's coverage: ``stated`` of ``total`` names, the blanks by reason (most first)."
+      },
+      "PeerFlaggedOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "reason"
+        ],
+        "title": "PeerFlaggedOut",
+        "description": "A company in scope whose data flags reach its price readings at the as-of: its row stays, its price-derived\ncells name ``reason`` (the flags' labels)."
+      },
+      "PeerGroupOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "supersector",
+              "business_type",
+              "link",
+              "old_link",
+              "no_link",
+              "silent"
+            ],
+            "title": "Kind"
+          },
+          "depth": {
+            "type": "integer",
+            "title": "Depth"
+          },
+          "members": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Members"
+          },
+          "stats": {
+            "$ref": "#/components/schemas/PeerGroupStatsOut"
+          },
+          "stats_counting": {
+            "$ref": "#/components/schemas/PeerGroupStatsOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "kind",
+          "depth",
+          "members",
+          "stats",
+          "stats_counting"
+        ],
+        "title": "PeerGroupOut",
+        "description": "A group header row. ``kind``: ``supersector`` | ``business_type`` (the leaf) | ``link`` | ``old_link`` (a\nroster link no longer on the card) | ``no_link`` | ``silent`` (Context or Bench); ``label`` = the key (the page\nwords it). ``depth`` 1 = a leaf under a supersector (the all-cards scope). ``members`` = the keys of the\ncompanies listed under it, names A to Z (a supersector header lists none: its leaves do). ``stats`` = every name\nin the group; ``stats_counting`` = the names that count (not silent-only)."
+      },
+      "PeerGroupStatsOut": {
+        "properties": {
+          "names": {
+            "type": "integer",
+            "title": "Names"
+          },
+          "cap": {
+            "$ref": "#/components/schemas/PeerMedianOut"
+          },
+          "above_50d": {
+            "type": "integer",
+            "title": "Above 50D"
+          },
+          "priced_50d": {
+            "type": "integer",
+            "title": "Priced 50D"
+          },
+          "vs_spy": {
+            "$ref": "#/components/schemas/PeerMedianOut"
+          },
+          "yoy": {
+            "$ref": "#/components/schemas/PeerMedianOut"
+          },
+          "runway": {
+            "type": "integer",
+            "title": "Runway"
+          }
+        },
+        "type": "object",
+        "required": [
+          "names",
+          "cap",
+          "above_50d",
+          "priced_50d",
+          "vs_spy",
+          "yoy",
+          "runway"
+        ],
+        "title": "PeerGroupStatsOut",
+        "description": "What a group row says, each figure with its n: the names; the median approximate cap; the names above the\n50-day average of those with a 50-day reading; the median 30-day return minus SPY's; the median YoY; the names\nwith a runway figure. Medians only, equal weight, no score."
+      },
+      "PeerInsiderOut": {
+        "properties": {
+          "buys": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Buys"
+          },
+          "usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Usd"
+          },
+          "buyers": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Buyers"
+          },
+          "gap": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "flagged",
+                  "no_price",
+                  "no_reading",
+                  "no_shares",
+                  "ads_unread",
+                  "no_cap",
+                  "no_revenue",
+                  "no_prior_year",
+                  "no_burn",
+                  "no_convert",
+                  "no_mix",
+                  "no_form4",
+                  "no_spy",
+                  "ends_differ"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "buys",
+          "usd",
+          "buyers",
+          "gap",
+          "note"
+        ],
+        "title": "PeerInsiderOut",
+        "description": "Open-market buys in the member's 90-day window as the Cockpit's column screens them: count, dollars and\ndistinct buyers. ``buys`` 0 is a stated zero; ``gap`` ``no_form4`` = no Form 4 ingested (a blank)."
+      },
+      "PeerKeyOptionOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "companies": {
+            "type": "integer",
+            "title": "Companies"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "companies"
+        ],
+        "title": "PeerKeyOptionOut",
+        "description": "A business-type leaf or a supersector present on the counted rosters (``unclassified`` = no business type),\nwith the distinct companies on it."
+      },
+      "PeerMedianOut": {
+        "properties": {
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "n": {
+            "type": "integer",
+            "title": "N"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "n"
+        ],
+        "title": "PeerMedianOut",
+        "description": "A median and the n it rests on (``value`` null with ``n`` 0)."
+      },
+      "PeerPurityOut": {
+        "properties": {
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "segment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Segment"
+          },
+          "gap": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "flagged",
+                  "no_price",
+                  "no_reading",
+                  "no_shares",
+                  "ads_unread",
+                  "no_cap",
+                  "no_revenue",
+                  "no_prior_year",
+                  "no_burn",
+                  "no_convert",
+                  "no_mix",
+                  "no_form4",
+                  "no_spy",
+                  "ends_differ"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "segment",
+          "gap"
+        ],
+        "title": "PeerPurityOut",
+        "description": "The largest revenue-mix line, in percent, with its segment label."
+      },
+      "PeerRevenueOut": {
+        "properties": {
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "period_end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period End"
+          },
+          "gap": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "flagged",
+                  "no_price",
+                  "no_reading",
+                  "no_shares",
+                  "ads_unread",
+                  "no_cap",
+                  "no_revenue",
+                  "no_prior_year",
+                  "no_burn",
+                  "no_convert",
+                  "no_mix",
+                  "no_form4",
+                  "no_spy",
+                  "ends_differ"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "period_end",
+          "gap"
+        ],
+        "title": "PeerRevenueOut",
+        "description": "The latest period's revenue (USD) from the XBRL series, with its period end."
+      },
+      "PeerRunwayOut": {
+        "properties": {
+          "months": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Months"
+          },
+          "cash_positive": {
+            "type": "boolean",
+            "title": "Cash Positive"
+          },
+          "cash_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cash Usd"
+          },
+          "burn_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Burn Usd"
+          },
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "gap": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "flagged",
+                  "no_price",
+                  "no_reading",
+                  "no_shares",
+                  "ads_unread",
+                  "no_cap",
+                  "no_revenue",
+                  "no_prior_year",
+                  "no_burn",
+                  "no_convert",
+                  "no_mix",
+                  "no_form4",
+                  "no_spy",
+                  "ends_differ"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap"
+          }
+        },
+        "type": "object",
+        "required": [
+          "months",
+          "cash_positive",
+          "cash_usd",
+          "burn_usd",
+          "as_of",
+          "gap"
+        ],
+        "title": "PeerRunwayOut",
+        "description": "Months of cash at the current burn (cash / (quarterly burn / 3)); ``cash_positive`` when the burn is zero or\nnegative (no finite figure). ``as_of`` = the fact's date."
+      },
+      "PeerScopesOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "clock": {
+            "type": "string",
+            "enum": [
+              "record",
+              "public"
+            ],
+            "title": "Clock"
+          },
+          "live_cards": {
+            "type": "integer",
+            "title": "Live Cards"
+          },
+          "cards_counted": {
+            "type": "integer",
+            "title": "Cards Counted"
+          },
+          "cards_not_yet_created": {
+            "type": "integer",
+            "title": "Cards Not Yet Created"
+          },
+          "roster_fallback_cards": {
+            "type": "integer",
+            "title": "Roster Fallback Cards"
+          },
+          "companies": {
+            "type": "integer",
+            "title": "Companies"
+          },
+          "unresolved_rows": {
+            "type": "integer",
+            "title": "Unresolved Rows"
+          },
+          "business_types": {
+            "items": {
+              "$ref": "#/components/schemas/PeerKeyOptionOut"
+            },
+            "type": "array",
+            "title": "Business Types"
+          },
+          "supersectors": {
+            "items": {
+              "$ref": "#/components/schemas/PeerKeyOptionOut"
+            },
+            "type": "array",
+            "title": "Supersectors"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/PeerCardOptionOut"
+            },
+            "type": "array",
+            "title": "Cards"
+          },
+          "default_scope": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "business_type",
+                  "supersector",
+                  "card",
+                  "all"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Scope"
+          },
+          "default_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Key"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "clock",
+          "live_cards",
+          "cards_counted",
+          "cards_not_yet_created",
+          "roster_fallback_cards",
+          "companies",
+          "unresolved_rows",
+          "business_types",
+          "supersectors",
+          "cards",
+          "default_scope",
+          "default_key",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "PeerScopesOut",
+        "description": "What can be picked at the as-of: the business-type leaves and supersectors present on the live rosters\n(biggest first, Unclassified last) and the counted cards (A to Z), each with its companies. ``default_scope`` /\n``default_key`` = the leaf to open on (the first with two or more companies); ``null`` with no company at all.\n``cards_counted`` = the live cards that existed by the as-of; ``roster_fallback_cards`` = counted cards with no\nroster snapshot by then (today's roster stands in). ``companies`` = distinct resolved companies on them;\n``unresolved_rows`` = roster rows with no resolved security (never a company). ``clock``: ``record`` (the live\nread) or ``public`` (a past as-of: what was public by the end of that date). ``cache`` / ``compute_ms`` = whether\nthe lists came from the shared dashboard cache and how long they took when computed."
+      },
+      "PeerSpyOut": {
+        "properties": {
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "ret_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ret Pct"
+          },
+          "spy_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spy Pct"
+          },
+          "last_close": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Close"
+          },
+          "gap": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "flagged",
+                  "no_price",
+                  "no_reading",
+                  "no_shares",
+                  "ads_unread",
+                  "no_cap",
+                  "no_revenue",
+                  "no_prior_year",
+                  "no_burn",
+                  "no_convert",
+                  "no_mix",
+                  "no_form4",
+                  "no_spy",
+                  "ends_differ"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "ret_pct",
+          "spy_pct",
+          "last_close",
+          "gap",
+          "note"
+        ],
+        "title": "PeerSpyOut",
+        "description": "The 30-trading-day return minus SPY's, in percentage points (``value``), the two returns it is made of and\nthe date of the company's last close."
+      },
+      "PeerSpyRefOut": {
+        "properties": {
+          "ret_30d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ret 30D"
+          },
+          "end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ret_30d",
+          "end"
+        ],
+        "title": "PeerSpyRefOut",
+        "description": "SPY's own 30-trading-day return at the as-of, the benchmark every vs-SPY cell subtracts."
+      },
+      "PeerTableOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "clock": {
+            "type": "string",
+            "enum": [
+              "record",
+              "public"
+            ],
+            "title": "Clock"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "business_type",
+              "supersector",
+              "card",
+              "all"
+            ],
+            "title": "Scope"
+          },
+          "key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key"
+          },
+          "scope_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope Name"
+          },
+          "live_cards": {
+            "type": "integer",
+            "title": "Live Cards"
+          },
+          "cards_counted": {
+            "type": "integer",
+            "title": "Cards Counted"
+          },
+          "cards_not_yet_created": {
+            "type": "integer",
+            "title": "Cards Not Yet Created"
+          },
+          "roster_fallback_cards": {
+            "type": "integer",
+            "title": "Roster Fallback Cards"
+          },
+          "scope_cards": {
+            "type": "integer",
+            "title": "Scope Cards"
+          },
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          },
+          "silent_only": {
+            "type": "integer",
+            "title": "Silent Only"
+          },
+          "companies": {
+            "items": {
+              "$ref": "#/components/schemas/PeerCompanyOut"
+            },
+            "type": "array",
+            "title": "Companies"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/PeerGroupOut"
+            },
+            "type": "array",
+            "title": "Groups"
+          },
+          "unresolved": {
+            "items": {
+              "$ref": "#/components/schemas/PeerUnresolvedOut"
+            },
+            "type": "array",
+            "title": "Unresolved"
+          },
+          "unresolved_rows": {
+            "type": "integer",
+            "title": "Unresolved Rows"
+          },
+          "flagged": {
+            "items": {
+              "$ref": "#/components/schemas/PeerFlaggedOut"
+            },
+            "type": "array",
+            "title": "Flagged"
+          },
+          "coverage": {
+            "items": {
+              "$ref": "#/components/schemas/PeerCoverageOut"
+            },
+            "type": "array",
+            "title": "Coverage"
+          },
+          "coverage_counting": {
+            "items": {
+              "$ref": "#/components/schemas/PeerCoverageOut"
+            },
+            "type": "array",
+            "title": "Coverage Counting"
+          },
+          "spy": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PeerSpyRefOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "benchmark": {
+            "type": "string",
+            "title": "Benchmark"
+          },
+          "columns": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "cap",
+                "revenue",
+                "yoy",
+                "runway",
+                "overhang",
+                "purity",
+                "off_high",
+                "sma50",
+                "sma200",
+                "rvol20",
+                "adv",
+                "vs_spy",
+                "insider"
+              ]
+            },
+            "type": "array",
+            "title": "Columns"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "clock",
+          "scope",
+          "key",
+          "scope_name",
+          "live_cards",
+          "cards_counted",
+          "cards_not_yet_created",
+          "roster_fallback_cards",
+          "scope_cards",
+          "rows",
+          "silent_only",
+          "companies",
+          "groups",
+          "unresolved",
+          "unresolved_rows",
+          "flagged",
+          "coverage",
+          "coverage_counting",
+          "spy",
+          "benchmark",
+          "columns",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "PeerTableOut",
+        "description": "One scope's table. ``scope`` + ``key``: the picked scope (``key`` null for ``all``); ``scope_name`` = the\ncard's name in a card scope. ``companies`` = every company in scope once, in the default order (group order,\nnames A to Z inside); ``groups`` list their keys. ``coverage`` / ``coverage_counting`` = every column's coverage\nover every company / over the names that count. ``scope_cards`` = counted cards holding at least one company in\nscope; ``rows`` = their roster rows in view; ``silent_only`` = companies whose every row is Context or Bench.\n``unresolved`` = roster rows with no resolved security (a card scope: that card's; else every counted card's).\n``flagged`` = companies in scope with a data flag that reaches their price readings. ``clock``: ``record`` (the\nlive read) or ``public`` (a past as-of). ``cache`` / ``compute_ms`` = whether the table came from the shared\ndashboard cache and how long it took when computed."
+      },
+      "PeerUnresolvedOut": {
+        "properties": {
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ticker",
+          "thesis_id",
+          "thesis_name"
+        ],
+        "title": "PeerUnresolvedOut",
+        "description": "A roster row with no resolved security: counted and listed, never a row."
+      },
+      "PeerYoyOut": {
+        "properties": {
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "prior_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prior Value"
+          },
+          "prior_period_end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prior Period End"
+          },
+          "gap": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "flagged",
+                  "no_price",
+                  "no_reading",
+                  "no_shares",
+                  "ads_unread",
+                  "no_cap",
+                  "no_revenue",
+                  "no_prior_year",
+                  "no_burn",
+                  "no_convert",
+                  "no_mix",
+                  "no_form4",
+                  "no_spy",
+                  "ends_differ"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "prior_value",
+          "prior_period_end",
+          "gap"
+        ],
+        "title": "PeerYoyOut",
+        "description": "The change in percent against the row for the same period end a year earlier (within 10 days) in the same\nread, with the prior figure it rests on."
       },
       "PlacementStatus": {
         "type": "string",

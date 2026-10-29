@@ -2341,6 +2341,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboards/peer-table/scopes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Peer Table Scopes
+         * @description What the Peer Table can be scoped to at the as-of: the business-type leaves and supersectors present on the
+         *     counted cards' rosters (each with its distinct companies) and the counted cards, plus the leaf to open on.
+         *     Display only; a past as-of reads the rosters as they were by the end of that date.
+         */
+        get: operations["peer_table_scopes_dashboards_peer_table_scopes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboards/peer-table": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Peer Table
+         * @description The names of one scope side by side, each company once: approximate market cap and tier, latest revenue and
+         *     its year-over-year change, runway, convert overhang, revenue purity, the tape (off the 52-week high, the
+         *     50- and 200-day averages, RVOL, dollar volume, the 30-day return against SPY) and the insider buys of the
+         *     90-day window, grouped by business type, link or card, with every blank counted by column and reason. A
+         *     company whose data flags reach its price readings keeps its row and its price cells name the reason. Display
+         *     only; a past as-of reads what was public by the end of that date (a fact public after it never reaches a
+         *     cell). 404 when the scope's key is not present at the as-of.
+         */
+        get: operations["peer_table_dashboards_peer_table_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dashboards/read-through": {
         parameters: {
             query?: never;
@@ -5507,6 +5555,12 @@ export interface components {
              */
             watch_members: components["schemas"]["MemberCallOut"][];
         };
+        /**
+         * CapTier
+         * @description The five fixed market-cap bands, smallest first (the enum's order is the band order).
+         * @enum {string}
+         */
+        CapTier: "nano" | "micro" | "small" | "mid" | "large";
         /** Catalyst */
         Catalyst: {
             /**
@@ -9832,6 +9886,493 @@ export interface components {
             operator_return?: number | null;
             /** Reason */
             reason?: string | null;
+        };
+        /** PeerBlankOut */
+        PeerBlankOut: {
+            /**
+             * Gap
+             * @enum {string}
+             */
+            gap: "flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ";
+            /** N */
+            n: number;
+        };
+        /**
+         * PeerCapOut
+         * @description The approximate market cap (USD) and its tier: the latest close times the latest shares fact, the
+         *     Workbench's rule (``ads_ratio_status`` known divides the ordinary count by ``ads_ratio``, unread withholds the
+         *     cap, none counts 1:1), with ``split_factor`` = the multiplier put on the count when a split in force sits
+         *     between the count's date and the close's. ``shares`` = the ordinary count on file.
+         */
+        PeerCapOut: {
+            /** Value */
+            value: number | null;
+            tier: components["schemas"]["CapTier"] | null;
+            /** Gap */
+            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
+            /** Note */
+            note: string | null;
+            /** Close */
+            close: number | null;
+            /** Close Date */
+            close_date: string | null;
+            /** Shares */
+            shares: number | null;
+            /** Shares Date */
+            shares_date: string | null;
+            /** Ads Ratio */
+            ads_ratio: number | null;
+            /** Split Factor */
+            split_factor: number | null;
+        };
+        /**
+         * PeerCardChipOut
+         * @description A card the company sits on: its ticker there (the Cockpit's ``?name=`` key), its links there (``null`` = no
+         *     link; Context / Bench by their labels), whether it is silent there and its context role there.
+         */
+        PeerCardChipOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /** Ticker */
+            ticker: string;
+            /** Links */
+            links: (string | null)[];
+            /** Silent */
+            silent: boolean;
+            role: components["schemas"]["ContextRole"] | null;
+        };
+        /**
+         * PeerCardOptionOut
+         * @description A counted card in the picker: its real links today (Context and Bench not counted) and its distinct
+         *     companies on the roster at the as-of.
+         */
+        PeerCardOptionOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Name */
+            name: string;
+            /** Links */
+            links: number;
+            /** Companies */
+            companies: number;
+        };
+        /**
+         * PeerCellOut
+         * @description A number cell: ``value`` is stated, or ``gap`` says why it is blank (``flagged`` | ``no_price`` |
+         *     ``no_reading`` | ``no_shares`` | ``ads_unread`` | ``no_cap`` | ``no_revenue`` | ``no_prior_year`` | ``no_burn`` |
+         *     ``no_convert`` | ``no_mix`` | ``no_form4`` | ``no_spy`` | ``ends_differ``) and ``note`` is the reader's own
+         *     words (a display member's "n/a: 120/200 bars", the flags' labels). Blank is never zero. The unit is the
+         *     column's: 52-week-high and the two averages in percent, RVOL as a ratio, dollar volume in USD, overhang in
+         *     percent of shares.
+         */
+        PeerCellOut: {
+            /** Value */
+            value: number | null;
+            /** Gap */
+            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
+            /** Note */
+            note: string | null;
+        };
+        /**
+         * PeerCompanyOut
+         * @description One company, once. ``key`` = its ``security_id``. ``business_type`` / ``supersector`` = today's identity
+         *     (``null`` = unclassified), ``royalty`` = the royalty/streaming overlay. ``roles`` = the distinct context roles
+         *     it holds; ``silent_only`` = every row is Context or Bench; ``workbench_facts`` = it holds a shares, cash/burn,
+         *     revenue-mix or convertible-note fact; ``flag`` = why its price-derived cells are blank (its row stays).
+         */
+        PeerCompanyOut: {
+            /** Key */
+            key: string;
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Name */
+            name: string | null;
+            /** Business Type */
+            business_type: string | null;
+            /** Supersector */
+            supersector: string | null;
+            /** Royalty */
+            royalty: boolean;
+            /** Cards */
+            cards: components["schemas"]["PeerCardChipOut"][];
+            /** Roles */
+            roles: components["schemas"]["ContextRole"][];
+            /** Silent Only */
+            silent_only: boolean;
+            /** Rows */
+            rows: number;
+            /** Workbench Facts */
+            workbench_facts: boolean;
+            /** Flag */
+            flag: string | null;
+            cap: components["schemas"]["PeerCapOut"];
+            revenue: components["schemas"]["PeerRevenueOut"];
+            yoy: components["schemas"]["PeerYoyOut"];
+            runway: components["schemas"]["PeerRunwayOut"];
+            overhang: components["schemas"]["PeerCellOut"];
+            purity: components["schemas"]["PeerPurityOut"];
+            off_high: components["schemas"]["PeerCellOut"];
+            sma50: components["schemas"]["PeerCellOut"];
+            sma200: components["schemas"]["PeerCellOut"];
+            rvol20: components["schemas"]["PeerCellOut"];
+            adv: components["schemas"]["PeerCellOut"];
+            vs_spy: components["schemas"]["PeerSpyOut"];
+            insider: components["schemas"]["PeerInsiderOut"];
+        };
+        /**
+         * PeerCoverageOut
+         * @description A column's coverage: ``stated`` of ``total`` names, the blanks by reason (most first).
+         */
+        PeerCoverageOut: {
+            /**
+             * Column
+             * @enum {string}
+             */
+            column: "cap" | "revenue" | "yoy" | "runway" | "overhang" | "purity" | "off_high" | "sma50" | "sma200" | "rvol20" | "adv" | "vs_spy" | "insider";
+            /** Stated */
+            stated: number;
+            /** Total */
+            total: number;
+            /** Blanks */
+            blanks: components["schemas"]["PeerBlankOut"][];
+        };
+        /**
+         * PeerFlaggedOut
+         * @description A company in scope whose data flags reach its price readings at the as-of: its row stays, its price-derived
+         *     cells name ``reason`` (the flags' labels).
+         */
+        PeerFlaggedOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * PeerGroupOut
+         * @description A group header row. ``kind``: ``supersector`` | ``business_type`` (the leaf) | ``link`` | ``old_link`` (a
+         *     roster link no longer on the card) | ``no_link`` | ``silent`` (Context or Bench); ``label`` = the key (the page
+         *     words it). ``depth`` 1 = a leaf under a supersector (the all-cards scope). ``members`` = the keys of the
+         *     companies listed under it, names A to Z (a supersector header lists none: its leaves do). ``stats`` = every name
+         *     in the group; ``stats_counting`` = the names that count (not silent-only).
+         */
+        PeerGroupOut: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "supersector" | "business_type" | "link" | "old_link" | "no_link" | "silent";
+            /** Depth */
+            depth: number;
+            /** Members */
+            members: string[];
+            stats: components["schemas"]["PeerGroupStatsOut"];
+            stats_counting: components["schemas"]["PeerGroupStatsOut"];
+        };
+        /**
+         * PeerGroupStatsOut
+         * @description What a group row says, each figure with its n: the names; the median approximate cap; the names above the
+         *     50-day average of those with a 50-day reading; the median 30-day return minus SPY's; the median YoY; the names
+         *     with a runway figure. Medians only, equal weight, no score.
+         */
+        PeerGroupStatsOut: {
+            /** Names */
+            names: number;
+            cap: components["schemas"]["PeerMedianOut"];
+            /** Above 50D */
+            above_50d: number;
+            /** Priced 50D */
+            priced_50d: number;
+            vs_spy: components["schemas"]["PeerMedianOut"];
+            yoy: components["schemas"]["PeerMedianOut"];
+            /** Runway */
+            runway: number;
+        };
+        /**
+         * PeerInsiderOut
+         * @description Open-market buys in the member's 90-day window as the Cockpit's column screens them: count, dollars and
+         *     distinct buyers. ``buys`` 0 is a stated zero; ``gap`` ``no_form4`` = no Form 4 ingested (a blank).
+         */
+        PeerInsiderOut: {
+            /** Buys */
+            buys: number | null;
+            /** Usd */
+            usd: number | null;
+            /** Buyers */
+            buyers: number | null;
+            /** Gap */
+            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
+            /** Note */
+            note: string | null;
+        };
+        /**
+         * PeerKeyOptionOut
+         * @description A business-type leaf or a supersector present on the counted rosters (``unclassified`` = no business type),
+         *     with the distinct companies on it.
+         */
+        PeerKeyOptionOut: {
+            /** Key */
+            key: string;
+            /** Companies */
+            companies: number;
+        };
+        /**
+         * PeerMedianOut
+         * @description A median and the n it rests on (``value`` null with ``n`` 0).
+         */
+        PeerMedianOut: {
+            /** Value */
+            value: number | null;
+            /** N */
+            n: number;
+        };
+        /**
+         * PeerPurityOut
+         * @description The largest revenue-mix line, in percent, with its segment label.
+         */
+        PeerPurityOut: {
+            /** Value */
+            value: number | null;
+            /** Segment */
+            segment: string | null;
+            /** Gap */
+            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
+        };
+        /**
+         * PeerRevenueOut
+         * @description The latest period's revenue (USD) from the XBRL series, with its period end.
+         */
+        PeerRevenueOut: {
+            /** Value */
+            value: number | null;
+            /** Period End */
+            period_end: string | null;
+            /** Gap */
+            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
+        };
+        /**
+         * PeerRunwayOut
+         * @description Months of cash at the current burn (cash / (quarterly burn / 3)); ``cash_positive`` when the burn is zero or
+         *     negative (no finite figure). ``as_of`` = the fact's date.
+         */
+        PeerRunwayOut: {
+            /** Months */
+            months: number | null;
+            /** Cash Positive */
+            cash_positive: boolean;
+            /** Cash Usd */
+            cash_usd: number | null;
+            /** Burn Usd */
+            burn_usd: number | null;
+            /** As Of */
+            as_of: string | null;
+            /** Gap */
+            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
+        };
+        /**
+         * PeerScopesOut
+         * @description What can be picked at the as-of: the business-type leaves and supersectors present on the live rosters
+         *     (biggest first, Unclassified last) and the counted cards (A to Z), each with its companies. ``default_scope`` /
+         *     ``default_key`` = the leaf to open on (the first with two or more companies); ``null`` with no company at all.
+         *     ``cards_counted`` = the live cards that existed by the as-of; ``roster_fallback_cards`` = counted cards with no
+         *     roster snapshot by then (today's roster stands in). ``companies`` = distinct resolved companies on them;
+         *     ``unresolved_rows`` = roster rows with no resolved security (never a company). ``clock``: ``record`` (the live
+         *     read) or ``public`` (a past as-of: what was public by the end of that date). ``cache`` / ``compute_ms`` = whether
+         *     the lists came from the shared dashboard cache and how long they took when computed.
+         */
+        PeerScopesOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Clock
+             * @enum {string}
+             */
+            clock: "record" | "public";
+            /** Live Cards */
+            live_cards: number;
+            /** Cards Counted */
+            cards_counted: number;
+            /** Cards Not Yet Created */
+            cards_not_yet_created: number;
+            /** Roster Fallback Cards */
+            roster_fallback_cards: number;
+            /** Companies */
+            companies: number;
+            /** Unresolved Rows */
+            unresolved_rows: number;
+            /** Business Types */
+            business_types: components["schemas"]["PeerKeyOptionOut"][];
+            /** Supersectors */
+            supersectors: components["schemas"]["PeerKeyOptionOut"][];
+            /** Cards */
+            cards: components["schemas"]["PeerCardOptionOut"][];
+            /** Default Scope */
+            default_scope: ("business_type" | "supersector" | "card" | "all") | null;
+            /** Default Key */
+            default_key: string | null;
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * PeerSpyOut
+         * @description The 30-trading-day return minus SPY's, in percentage points (``value``), the two returns it is made of and
+         *     the date of the company's last close.
+         */
+        PeerSpyOut: {
+            /** Value */
+            value: number | null;
+            /** Ret Pct */
+            ret_pct: number | null;
+            /** Spy Pct */
+            spy_pct: number | null;
+            /** Last Close */
+            last_close: string | null;
+            /** Gap */
+            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
+            /** Note */
+            note: string | null;
+        };
+        /**
+         * PeerSpyRefOut
+         * @description SPY's own 30-trading-day return at the as-of, the benchmark every vs-SPY cell subtracts.
+         */
+        PeerSpyRefOut: {
+            /** Ret 30D */
+            ret_30d: number | null;
+            /** End */
+            end: string | null;
+        };
+        /**
+         * PeerTableOut
+         * @description One scope's table. ``scope`` + ``key``: the picked scope (``key`` null for ``all``); ``scope_name`` = the
+         *     card's name in a card scope. ``companies`` = every company in scope once, in the default order (group order,
+         *     names A to Z inside); ``groups`` list their keys. ``coverage`` / ``coverage_counting`` = every column's coverage
+         *     over every company / over the names that count. ``scope_cards`` = counted cards holding at least one company in
+         *     scope; ``rows`` = their roster rows in view; ``silent_only`` = companies whose every row is Context or Bench.
+         *     ``unresolved`` = roster rows with no resolved security (a card scope: that card's; else every counted card's).
+         *     ``flagged`` = companies in scope with a data flag that reaches their price readings. ``clock``: ``record`` (the
+         *     live read) or ``public`` (a past as-of). ``cache`` / ``compute_ms`` = whether the table came from the shared
+         *     dashboard cache and how long it took when computed.
+         */
+        PeerTableOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Clock
+             * @enum {string}
+             */
+            clock: "record" | "public";
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "business_type" | "supersector" | "card" | "all";
+            /** Key */
+            key: string | null;
+            /** Scope Name */
+            scope_name: string | null;
+            /** Live Cards */
+            live_cards: number;
+            /** Cards Counted */
+            cards_counted: number;
+            /** Cards Not Yet Created */
+            cards_not_yet_created: number;
+            /** Roster Fallback Cards */
+            roster_fallback_cards: number;
+            /** Scope Cards */
+            scope_cards: number;
+            /** Rows */
+            rows: number;
+            /** Silent Only */
+            silent_only: number;
+            /** Companies */
+            companies: components["schemas"]["PeerCompanyOut"][];
+            /** Groups */
+            groups: components["schemas"]["PeerGroupOut"][];
+            /** Unresolved */
+            unresolved: components["schemas"]["PeerUnresolvedOut"][];
+            /** Unresolved Rows */
+            unresolved_rows: number;
+            /** Flagged */
+            flagged: components["schemas"]["PeerFlaggedOut"][];
+            /** Coverage */
+            coverage: components["schemas"]["PeerCoverageOut"][];
+            /** Coverage Counting */
+            coverage_counting: components["schemas"]["PeerCoverageOut"][];
+            spy: components["schemas"]["PeerSpyRefOut"] | null;
+            /** Benchmark */
+            benchmark: string;
+            /** Columns */
+            columns: ("cap" | "revenue" | "yoy" | "runway" | "overhang" | "purity" | "off_high" | "sma50" | "sma200" | "rvol20" | "adv" | "vs_spy" | "insider")[];
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * PeerUnresolvedOut
+         * @description A roster row with no resolved security: counted and listed, never a row.
+         */
+        PeerUnresolvedOut: {
+            /** Ticker */
+            ticker: string;
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+        };
+        /**
+         * PeerYoyOut
+         * @description The change in percent against the row for the same period end a year earlier (within 10 days) in the same
+         *     read, with the prior figure it rests on.
+         */
+        PeerYoyOut: {
+            /** Value */
+            value: number | null;
+            /** Prior Value */
+            prior_value: number | null;
+            /** Prior Period End */
+            prior_period_end: string | null;
+            /** Gap */
+            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
         };
         /**
          * PlacementStatus
@@ -15341,6 +15882,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NarrativeCardDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    peer_table_scopes_dashboards_peer_table_scopes_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; only the cards that existed by then, with their rosters then */
+                asof: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PeerScopesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    peer_table_dashboards_peer_table_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; nothing published after it is read */
+                asof: string;
+                /** @description business_type | supersector | card | all */
+                scope: "business_type" | "supersector" | "card" | "all";
+                /** @description the scope's pick: a business-type leaf, a supersector, or a card id (``unclassified`` = none); ignored for ``all`` */
+                key?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PeerTableOut"];
                 };
             };
             /** @description Validation Error */
