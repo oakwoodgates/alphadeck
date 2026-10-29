@@ -12,20 +12,19 @@ import { Admin } from "./admin/Admin";
 import { AppHeader } from "./AppHeader";
 import { useTheses } from "./api/hooks";
 import { Backtest } from "./backtest/Backtest";
-import { Board } from "./board/Board";
 import { Cockpit } from "./cockpit/Cockpit";
 import { DashboardShell } from "./dashboards/DashboardShell";
 import { DashboardsIndex } from "./dashboards/DashboardsIndex";
-import { DASHBOARDS } from "./dashboards/registry";
+import { DASHBOARDS, HOME_DASHBOARD } from "./dashboards/registry";
 import {
   ASOF,
   EDITION,
   NAME,
   RAIL,
   RUN,
-  boardPath,
   dashboardsPath,
   editionFrom,
+  homePath,
   railOpenFrom,
   thesisPath,
   validAsof,
@@ -59,28 +58,11 @@ function useAsof() {
 }
 
 /** The current URL, pushed as location.state.from so the Cockpit's Back returns to the
- *  originating view (Board, Scoreboard, …) — the old tab-state fall-back behavior. A fresh-tab
- *  deep link carries no state and falls back to the Board. */
+ *  originating view (Home, a dashboard, the Scoreboard, …) — the old tab-state fall-back behavior.
+ *  A fresh-tab deep link carries no state and falls back to Home (`/`). */
 function useHere(): string {
   const location = useLocation();
   return location.pathname + location.search;
-}
-
-function BoardRoute() {
-  const navigate = useNavigate();
-  const here = useHere();
-  const { asof, asofParam, setAsof } = useAsof();
-  return (
-    <Board
-      header={<AppHeader current="board" asof={asof} onAsofChange={setAsof} />}
-      asof={asof}
-      onSelect={(id, nameKey) =>
-        navigate(thesisPath(id, { asof: asofParam, name: nameKey ?? null }), {
-          state: { from: here },
-        })
-      }
-    />
-  );
 }
 
 function ScoreboardRoute() {
@@ -172,10 +154,14 @@ function DashboardsIndexRoute() {
   return <DashboardsIndex asofParam={asofParam} />;
 }
 
-function DashboardRoute() {
+/** One dashboard in its shell. `home` = the route at `/`: it renders HOME_DASHBOARD in place (no redirect, so
+ *  a `/` bookmark and its ?asof= keep working) with the Home tab lit. At /dashboards/:slug it renders that
+ *  slug's entry with the Dashboards menu lit, the home dashboard included. */
+function DashboardRoute({ home = false }: { home?: boolean }) {
   const navigate = useNavigate();
   const here = useHere();
-  const { slug } = useParams();
+  const params = useParams();
+  const slug = home ? HOME_DASHBOARD : params.slug;
   const { asof, asofParam, setAsof } = useAsof();
   // The registry (dashboards/registry.ts) is the only list: a slug it does not name (a cut dashboard, a
   // typo) lands on the index, keeping the operator's as-of.
@@ -184,6 +170,7 @@ function DashboardRoute() {
   return (
     <DashboardShell
       entry={entry}
+      navKey={home ? "home" : "dashboards"}
       asof={asof}
       onAsofChange={setAsof}
       onSelectThesis={(id, nameKey) =>
@@ -236,7 +223,7 @@ function CockpitRoute() {
       thesisId={thesisId}
       asof={asof}
       onAsofChange={setAsof}
-      onBack={() => navigate(from ?? boardPath(asofParam))}
+      onBack={() => navigate(from ?? homePath(asofParam))}
       selectedName={selectedName}
       onSelectName={onSelectName}
       railOpen={railOpen}
@@ -261,7 +248,7 @@ export function App() {
 
   return (
     <Routes>
-      <Route path="/" element={<BoardRoute />} />
+      <Route path="/" element={<DashboardRoute home />} />
       <Route path="/workbench" element={<WorkbenchRoute />} />
       <Route path="/scoreboard" element={<ScoreboardRoute />} />
       <Route path="/backtest" element={<BacktestRoute />} />

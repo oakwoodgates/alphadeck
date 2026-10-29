@@ -1,9 +1,10 @@
 import { lazy, type ComponentType, type LazyExoticComponent } from "react";
 
-// The ONE list of dashboards (docs/DASHBOARDS.md): experimental, self-contained cross-card views. The
-// top nav's Dashboards menu, the /dashboards index and the /dashboards/:slug route all read this list, so
-// adding a dashboard is one line here (plus its folder, frontend/src/dashboards/<slug>/) and cutting one is
-// deleting that line and the folder. Every entry is lazy-loaded, so the Board never pays for dashboard code.
+// The ONE list of dashboards (docs/DASHBOARDS.md): self-contained cross-card views, the Board first. The
+// top nav's Dashboards menu, the /dashboards index, the /dashboards/:slug route and the home page (`/`,
+// HOME_DASHBOARD below) all read this list, so adding a dashboard is one line here (plus its folder,
+// frontend/src/dashboards/<slug>/) and cutting one is deleting that line and the folder. Every entry is
+// lazy-loaded, so a page loads only the dashboard it shows.
 
 /** What the shell hands a dashboard body. `asof` is the app's as-of date (YYYY-MM-DD) for an as-of
  *  aware dashboard and today's date for a "now" one. `onSelectThesis` opens the Cockpit (optionally on one
@@ -19,15 +20,35 @@ export type DashboardEntry = {
   label: string;
   /** One line, shown under the title and in the menu. */
   description: string;
-  status: "experimental";
+  /** "core" = a standing page of the app (the Board); "experimental" = a brainstorm view that may be cut.
+   *  Both show as the same quiet tag. */
+  status: "core" | "experimental";
   /** true = the page follows the app's as-of dial (the dial shows); false = a "now" view (no dial). */
   asofAware: boolean;
+  /** "page" (the default) = the title row over a padded body that grows with its content. "fill" = no title
+   *  row, and the body takes the rest of the viewport with no padding: for a page that scrolls inside
+   *  itself, like the Board's columns. */
+  layout?: "page" | "fill";
   /** React.lazy(() => import("./<slug>/<Component>")) — the component file default-exports its body. */
   component: LazyExoticComponent<ComponentType<DashboardProps>>;
 };
 
-// One line per dashboard; order = menu order; see docs/DASHBOARDS.md.
+/** The dashboard `/` renders (the top nav's Home tab), in place, never a redirect. Changing the home page
+ *  is this one line: any slug in DASHBOARDS below. */
+export const HOME_DASHBOARD = "board";
+
+// One line per dashboard; order = menu order (the Board first; a new dashboard appends at the end); see
+// docs/DASHBOARDS.md.
 export const DASHBOARDS: readonly DashboardEntry[] = [
+  {
+    slug: "board",
+    label: "Board",
+    description: "Every card in its lifecycle column, with the Decision Queue.",
+    status: "core",
+    asofAware: true,
+    layout: "fill",
+    component: lazy(() => import("./board/BoardDashboard")),
+  },
   {
     slug: "shared-names",
     label: "Shared Names",

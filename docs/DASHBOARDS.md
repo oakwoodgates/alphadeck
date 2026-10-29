@@ -7,12 +7,36 @@ the cards: one page that reads many theses (or many names) at once and shows wha
 them together.
 
 This is a brainstorming phase. Some dashboards will be improved and some will be cut, so each one is
-built to stand alone and to delete cleanly. Every dashboard carries a **status**, `experimental` to
-start, shown as a quiet tag beside its title and on the index.
+built to stand alone and to delete cleanly. Every dashboard carries a **status**, shown as the same
+quiet tag beside its title and on the index: `experimental` for a new view (it may be cut), `core` for
+a standing page of the app (today only the Board).
 
-Where they live in the app: the top nav's **Dashboards ▾** menu (right after Board) lists
+Where they live in the app: the top nav's **Dashboards ▾** menu (right after Home) lists
 "All dashboards" and then each dashboard; `/dashboards` is the index; `/dashboards/<slug>` is one
 dashboard. Every link carries `?asof=` like the rest of the app.
+
+## The Board is the home dashboard (operator decision, 2026-10-29)
+
+The Board is a registry entry like any other, the FIRST one: slug `board`, status `core`, as-of aware,
+`layout: "fill"`. Its body is a thin wrapper (`frontend/src/dashboards/board/BoardDashboard.tsx`) around
+the unchanged Board in `frontend/src/board/`, which keeps its own tests. It has no backend files under
+`dashboards/`: it reads through the app's existing endpoints (`GET /theses`, `GET /theses/{id}/call`,
+the data flags). Its plan is `docs/BOARD.md`.
+
+- **Home.** `HOME_DASHBOARD` in `frontend/src/dashboards/registry.ts` names the dashboard `/` renders.
+  Changing the home page is that one line. `/` renders the home dashboard's shell in place, never a
+  redirect, so `/` bookmarks and `?asof=` links keep working; `/dashboards/<slug>` renders the same
+  dashboard. The top nav's first tab is **Home** (`/`), lit only at `/`; the same dashboard at
+  `/dashboards/<slug>` lights the Dashboards menu instead. A `HOME_DASHBOARD` the registry does not name
+  lands on the index.
+- **`layout`** (optional, default `"page"`). `"page"` is the title row over a padded body that grows with
+  its content. `"fill"` draws no title row and gives the body the rest of the viewport (a fixed-height
+  100vh column under the top bar), unpadded: for a page that scrolls inside itself, like the Board's
+  columns.
+- **Cockpit links are unchanged.** Every dashboard opens the Cockpit through the shell's
+  `onSelectThesis`: `/thesis/:id?name=<key>&asof=…` with `state.from` set to the current URL, so the
+  Cockpit's Back returns to the page the click came from (`/` or `/dashboards/<slug>`), or to Home when
+  there is no `state.from` (a fresh-tab link).
 
 ## The rules (operator decisions, 2026-10-28)
 
@@ -35,6 +59,12 @@ dashboard. Every link carries `?asof=` like the rest of the app.
 
    The scans are a floor, not a proof: a write through an imported writer function (a `repositories`
    save) is not caught by them, so review checks every import a dashboard adds.
+
+   **Amendment (operator decision, 2026-10-29): a dashboard PAGE may use an operator action the app
+   already exposes elsewhere.** Today that is one action: archiving and restoring a card through the
+   existing theses endpoints (`POST /theses/{id}/archive` and `/unarchive`), which the Board does. The
+   rest of the rule stands: dashboard BACKEND code still never writes, the three isolation tests above
+   are unchanged, and a dashboard never adds a write of its own, in the frontend or the backend.
 
 2. **As-of.** A dashboard follows the app's as-of dial unless its plan makes it a "now" view (like
    Admin and Radar). The registry entry's `asofAware` flag decides: `true` shows the dial and hands
@@ -119,13 +149,15 @@ dashboard. Every link carries `?asof=` like the rest of the app.
 5. Frontend: `frontend/src/dashboards/<slug>/` with the body component (default export) and its hooks,
    CSS and tests; add ONE line to `DASHBOARDS` in `frontend/src/dashboards/registry.ts`
    (`React.lazy(() => import("./<slug>/<Component>"))`, `status: "experimental"`, `asofAware` per the
-   plan). Order in the array is menu order.
+   plan, `layout` only if the plan needs `"fill"`). Order in the array is menu order; the Board stays
+   first, so add a new line at the end.
 6. Regenerate the contract pair (rule 9) and commit it with the change.
 7. Add the dashboard's row to the Index below.
 
 ## Remove a dashboard: the checklist
 
-1. Delete `frontend/src/dashboards/<slug>/` and its line in `frontend/src/dashboards/registry.ts`.
+1. Delete `frontend/src/dashboards/<slug>/` and its line in `frontend/src/dashboards/registry.ts`. If
+   `HOME_DASHBOARD` names it, point that line at another slug first.
 2. Delete `backend/dashboards/<slug>.py` (or its subpackage), `backend/app/routers/dashboards/<slug>.py`
    and its line in `_DASHBOARD_ROUTERS`, and `backend/tests/dashboards/test_<slug>.py`.
 3. Delete `docs/dashboards/<slug>.md` and its row in the Index below.
@@ -137,6 +169,7 @@ dashboard. Every link carries `?asof=` like the rest of the app.
 
 | Dashboard | Slug | Status | Plan |
 | --- | --- | --- | --- |
+| Board | `board` | core | [`docs/BOARD.md`](BOARD.md) |
 | Shared Names | `shared-names` | experimental | [`docs/dashboards/shared-names.md`](dashboards/shared-names.md) |
 | Idea Timeline | `idea-timeline` | experimental | [`docs/dashboards/idea-timeline.md`](dashboards/idea-timeline.md) |
 | Rotation Map | `rotation-map` | experimental | [`docs/dashboards/rotation-map.md`](dashboards/rotation-map.md) |

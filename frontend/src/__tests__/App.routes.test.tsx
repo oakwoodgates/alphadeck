@@ -1,7 +1,7 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { lazy } from "react";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "../App";
@@ -12,6 +12,9 @@ import { todayISO } from "../util/format";
 // AppHeader) plus its key props as text and its own onSelect button — so what's under test is App's
 // URL ↔ props translation AND the shared top-nav wiring: paths render the right page, params reach
 // props, and AppHeader's links move the URL (carrying ?asof=). Page internals have their own suites.
+// The Board is the home dashboard: `/` and /dashboards/board render the REAL registry entry and its real
+// wrapper (dashboards/board/BoardDashboard) inside the real shell; only the Board component under it is
+// stubbed (its own suites in board/__tests__ cover it).
 
 const h = vi.hoisted(() => ({
   theses: {
@@ -19,16 +22,27 @@ const h = vi.hoisted(() => ({
     error: null as unknown,
     data: [{ id: "t-1", name: "Thesis One" }] as unknown,
   },
-  // the dashboards registry, mutated IN PLACE per test (the mock holds this array's reference); empty by
-  // default, exactly like the real registry today
+  // the dashboards registry, mutated IN PLACE per test (the mock holds this array's reference); reset to
+  // the real Board entry before each test, like the real registry's first line
   dashboards: [] as unknown[],
+  // HOME_DASHBOARD, read through a getter so a test can point Home at another slug
+  home: "board",
 }));
 
 vi.mock("../api/hooks", () => ({
   useTheses: () => h.theses,
 }));
 
-vi.mock("../dashboards/registry", () => ({ DASHBOARDS: h.dashboards }));
+vi.mock("../dashboards/registry", () => ({
+  DASHBOARDS: h.dashboards,
+  get HOME_DASHBOARD() {
+    return h.home;
+  },
+}));
+
+// The real registry, for its Board entry and its home slug (vi.importActual skips the mock above).
+const REAL = await vi.importActual<typeof import("../dashboards/registry")>("../dashboards/registry");
+const BOARD = REAL.DASHBOARDS.find((d) => d.slug === "board") as DashboardEntry;
 
 // A fake dashboard body: its props as text and an onSelectThesis button — the shell + route wiring is what's
 // under test, not any real dashboard.
@@ -65,9 +79,10 @@ vi.mock("../board/Board", () => ({
   Board: (p: any) => (
     <div>
       {p.header}
-      <h1>BOARD</h1>
+      <h2>BOARD</h2>
       <span data-testid="board-asof">{p.asof}</span>
       <button onClick={() => p.onSelect("t-9")}>board-select</button>
+      <button onClick={() => p.onSelect("t-9", "HIMS")}>board-select-name</button>
     </div>
   ),
 }));
@@ -134,23 +149,36 @@ vi.mock("../cockpit/Cockpit", () => ({
 }));
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
+// prints the router's location, so a navigation is asserted on the URL itself
+function Where() {
+  const loc = useLocation();
+  return <span data-testid="where">{loc.pathname + loc.search}</span>;
+}
+
 function renderAt(url: string) {
   return render(
     <MemoryRouter initialEntries={[url]}>
       <App />
+      <Where />
     </MemoryRouter>,
   );
 }
 
+const where = () => screen.getByTestId("where").textContent;
+const homeTab = () => screen.getByText("Home");
+const dashboardsMenu = () => screen.getByRole("button", { name: "Dashboards" });
+
 beforeEach(() => {
   h.theses = { isLoading: false, error: null, data: [{ id: "t-1", name: "Thesis One" }] };
   h.dashboards.length = 0;
+  h.dashboards.push(BOARD);
+  h.home = REAL.HOME_DASHBOARD;
 });
 
 describe("App routes — path → page", () => {
-  it("/ renders the Board", () => {
+  it("/ renders the Board", async () => {
     renderAt("/");
-    expect(screen.getByText("BOARD")).toBeInTheDocument();
+    expect(await screen.findByText("BOARD")).toBeInTheDocument();
   });
 
   it("/scoreboard renders the Scoreboard", () => {
@@ -179,9 +207,10 @@ describe("App routes — path → page", () => {
     expect(screen.getByTestId("cp-thesis")).toHaveTextContent("t-42");
   });
 
-  it("an unknown path redirects to the Board", () => {
+  it("an unknown path redirects Home (the Board)", async () => {
     renderAt("/no/such/place");
-    expect(screen.getByText("BOARD")).toBeInTheDocument();
+    expect(await screen.findByText("BOARD")).toBeInTheDocument();
+    expect(where()).toBe("/");
   });
 });
 
@@ -191,20 +220,20 @@ describe("App routes — ?asof=", () => {
     expect(screen.getByTestId("sb-asof")).toHaveTextContent("2026-06-01");
   });
 
-  it("falls back to today when malformed", () => {
+  it("falls back to today when malformed", async () => {
     renderAt("/?asof=junk");
-    expect(screen.getByTestId("board-asof")).toHaveTextContent(todayISO());
+    expect(await screen.findByTestId("board-asof")).toHaveTextContent(todayISO());
   });
 
-  it("defaults to today when absent", () => {
+  it("defaults to today when absent", async () => {
     renderAt("/");
-    expect(screen.getByTestId("board-asof")).toHaveTextContent(todayISO());
+    expect(await screen.findByTestId("board-asof")).toHaveTextContent(todayISO());
   });
 
   it("is carried across a Board → Cockpit navigation", async () => {
     const user = userEvent.setup();
     renderAt("/?asof=2026-06-01");
-    await user.click(screen.getByText("board-select"));
+    await user.click(await screen.findByText("board-select"));
     expect(screen.getByTestId("cp-thesis")).toHaveTextContent("t-9");
     expect(screen.getByTestId("cp-asof")).toHaveTextContent("2026-06-01");
   });
@@ -222,13 +251,13 @@ describe("App routes — ?asof=", () => {
 });
 
 describe("App routes — the Admin tab", () => {
-  it("Board → Admin → Back round-trips with asof intact", async () => {
+  it("Home → Admin → Home round-trips with asof intact", async () => {
     const user = userEvent.setup();
     renderAt("/?asof=2026-06-01");
     await user.click(screen.getByText("Admin"));
     expect(screen.getByText("ADMIN")).toBeInTheDocument();
-    await user.click(screen.getByText("Board"));
-    expect(screen.getByText("BOARD")).toBeInTheDocument();
+    await user.click(homeTab());
+    expect(await screen.findByText("BOARD")).toBeInTheDocument();
     expect(screen.getByTestId("board-asof")).toHaveTextContent("2026-06-01");
   });
 
@@ -239,13 +268,13 @@ describe("App routes — the Admin tab", () => {
     expect(screen.getByTestId("wb-asof")).toHaveTextContent("2026-06-01");
   });
 
-  it("Board → Radar → Back round-trips with asof intact", async () => {
+  it("Home → Radar → Home round-trips with asof intact", async () => {
     const user = userEvent.setup();
     renderAt("/?asof=2026-06-01");
     await user.click(screen.getByText("Radar"));
     expect(screen.getByText("RADAR")).toBeInTheDocument();
-    await user.click(screen.getByText("Board"));
-    expect(screen.getByText("BOARD")).toBeInTheDocument();
+    await user.click(homeTab());
+    expect(await screen.findByText("BOARD")).toBeInTheDocument();
     expect(screen.getByTestId("board-asof")).toHaveTextContent("2026-06-01");
   });
 });
@@ -261,11 +290,12 @@ describe("App routes — Back returns to the originating view", () => {
     expect(screen.getByTestId("sb-asof")).toHaveTextContent("2026-06-01");
   });
 
-  it("a fresh-tab Cockpit deep link (no state) Backs to the Board", async () => {
+  it("a fresh-tab Cockpit deep link (no state) Backs to Home, `/`", async () => {
     const user = userEvent.setup();
     renderAt("/thesis/t-42?asof=2026-06-01");
     await user.click(screen.getByText("cp-back"));
-    expect(screen.getByText("BOARD")).toBeInTheDocument();
+    expect(await screen.findByText("BOARD")).toBeInTheDocument();
+    expect(where()).toBe("/?asof=2026-06-01");
     expect(screen.getByTestId("board-asof")).toHaveTextContent("2026-06-01");
   });
 });
@@ -372,13 +402,16 @@ describe("App routes — the Scoreboard's ?edition= dial (editions S4)", () => {
 
 describe("App routes — the Dashboards (docs/DASHBOARDS.md)", () => {
   it("/dashboards renders the index's empty state while the registry is empty", () => {
+    h.dashboards.length = 0;
     renderAt("/dashboards");
     expect(screen.getByText("No dashboards yet.")).toBeInTheDocument();
   });
 
   it("an unknown slug redirects to /dashboards", () => {
     renderAt("/dashboards/no-such-dashboard");
-    expect(screen.getByText("No dashboards yet.")).toBeInTheDocument();
+    expect(where()).toBe("/dashboards");
+    expect(screen.getByRole("heading", { name: "Dashboards" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Board/ })).toHaveAttribute("href", "/dashboards/board");
   });
 
   it("the unknown-slug redirect keeps ?asof= (the index's links carry it)", () => {
@@ -440,6 +473,106 @@ describe("App routes — the Dashboards (docs/DASHBOARDS.md)", () => {
     await user.click(screen.getByRole("menuitem", { name: /Fake Dash/ }));
     expect(await screen.findByText("FAKE BODY")).toBeInTheDocument();
     expect(screen.getByTestId("dash-asof")).toHaveTextContent("2026-06-01");
+  });
+});
+
+describe("App routes — the Board as the home dashboard", () => {
+  it("the real registry: the Board is the first entry, core, as-of aware, fill, and the home slug", () => {
+    expect(REAL.DASHBOARDS[0]).toBe(BOARD);
+    expect(BOARD).toMatchObject({
+      slug: "board",
+      label: "Board",
+      description: "Every card in its lifecycle column, with the Decision Queue.",
+      status: "core",
+      asofAware: true,
+      layout: "fill",
+    });
+    expect(REAL.HOME_DASHBOARD).toBe("board");
+  });
+
+  it("/ renders the Board through the shell in place: no redirect, no title row, Home lit, the dial on", async () => {
+    const { container } = renderAt("/?asof=2026-06-01");
+    expect(await screen.findByText("BOARD")).toBeInTheDocument();
+    expect(where()).toBe("/?asof=2026-06-01");
+    expect(container.querySelector(".dash-shell")).toHaveClass("fill");
+    expect(container.querySelector(".dash-title")).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Board" })).not.toBeInTheDocument();
+    expect(homeTab()).toHaveClass("on");
+    expect(dashboardsMenu()).not.toHaveClass("on");
+    expect(screen.getByLabelText("as-of")).toHaveValue("2026-06-01");
+    expect(screen.getByTestId("board-asof")).toHaveTextContent("2026-06-01");
+    // one top bar: the shell's; the Board is handed no header of its own
+    expect(screen.getAllByRole("navigation")).toHaveLength(1);
+  });
+
+  it("/dashboards/board renders the same Board, with the Dashboards menu lit instead of Home", async () => {
+    const { container } = renderAt("/dashboards/board?asof=2026-06-01");
+    expect(await screen.findByText("BOARD")).toBeInTheDocument();
+    expect(container.querySelector(".dash-title")).toBeNull();
+    expect(dashboardsMenu()).toHaveClass("on");
+    expect(homeTab()).not.toHaveClass("on");
+    expect(screen.getByTestId("board-asof")).toHaveTextContent("2026-06-01");
+  });
+
+  it("the as-of dial at / rewrites ?asof= in place and the Board follows", async () => {
+    renderAt("/?asof=2026-06-01");
+    await screen.findByText("BOARD");
+    fireEvent.change(screen.getByLabelText("as-of"), { target: { value: "2026-05-15" } });
+    expect(where()).toBe("/?asof=2026-05-15");
+    expect(screen.getByTestId("board-asof")).toHaveTextContent("2026-05-15");
+  });
+
+  it("a card click at / opens the Cockpit with ?name= and ?asof=, and Back returns to state.from", async () => {
+    const user = userEvent.setup();
+    renderAt("/?asof=2026-06-01");
+    await user.click(await screen.findByText("board-select-name"));
+    expect(where()).toBe("/thesis/t-9?asof=2026-06-01&name=HIMS");
+    expect(screen.getByTestId("cp-thesis")).toHaveTextContent("t-9");
+    expect(screen.getByTestId("cp-name")).toHaveTextContent("HIMS");
+    expect(screen.getByTestId("cp-asof")).toHaveTextContent("2026-06-01");
+    await user.click(screen.getByText("cp-back"));
+    expect(await screen.findByText("BOARD")).toBeInTheDocument();
+    expect(where()).toBe("/?asof=2026-06-01");
+  });
+
+  it("a card click at /dashboards/board opens the Cockpit, and Back returns to /dashboards/board", async () => {
+    const user = userEvent.setup();
+    renderAt("/dashboards/board?asof=2026-06-01");
+    await user.click(await screen.findByText("board-select-name"));
+    expect(where()).toBe("/thesis/t-9?asof=2026-06-01&name=HIMS");
+    await user.click(screen.getByText("cp-back"));
+    expect(await screen.findByText("BOARD")).toBeInTheDocument();
+    expect(where()).toBe("/dashboards/board?asof=2026-06-01");
+  });
+
+  it("a column card (no name) opens the bare Cockpit, and with no ?asof= none is invented", async () => {
+    const user = userEvent.setup();
+    renderAt("/");
+    await user.click(await screen.findByText("board-select"));
+    expect(where()).toBe("/thesis/t-9");
+    expect(screen.getByTestId("cp-name").textContent).toBe("");
+    await user.click(screen.getByText("cp-back"));
+    expect(where()).toBe("/");
+  });
+
+  it("with HOME_DASHBOARD pointed at another slug, / renders that dashboard (its own layout) with Home lit", async () => {
+    h.home = "fake-dash";
+    h.dashboards.push(FAKE);
+    renderAt("/?asof=2026-06-01");
+    expect(await screen.findByText("FAKE BODY")).toBeInTheDocument();
+    expect(where()).toBe("/?asof=2026-06-01");
+    expect(screen.queryByText("BOARD")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Fake Dash" })).toBeInTheDocument();
+    expect(screen.getByTestId("dash-asof")).toHaveTextContent("2026-06-01");
+    expect(homeTab()).toHaveClass("on");
+    expect(dashboardsMenu()).not.toHaveClass("on");
+  });
+
+  it("a HOME_DASHBOARD the registry does not name lands on the index, as-of kept", () => {
+    h.home = "no-such-dashboard";
+    renderAt("/?asof=2026-06-01");
+    expect(where()).toBe("/dashboards?asof=2026-06-01");
+    expect(screen.getByRole("heading", { name: "Dashboards" })).toBeInTheDocument();
   });
 });
 

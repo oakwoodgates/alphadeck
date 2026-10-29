@@ -6,9 +6,9 @@ import {
   ASOF,
   adminPath,
   backtestPath,
-  boardPath,
   dashboardPath,
   dashboardsPath,
+  homePath,
   radarPath,
   scoreboardPath,
   validAsof,
@@ -21,7 +21,7 @@ import {
 // never import a path or a navigate, and their tests need no Router. The active tab is inert; the rest
 // navigate themselves, carrying ?asof= straight off the URL so even a "now" surface hands the param on.
 export type NavKey =
-  | "board"
+  | "home"
   | "dashboards"
   | "workbench"
   | "scoreboard"
@@ -30,7 +30,9 @@ export type NavKey =
   | "admin";
 
 const LINKS: readonly { key: NavKey; label: string; to: (asof: string | null) => string }[] = [
-  { key: "board", label: "Board", to: boardPath },
+  // Home is `/`: the home dashboard (HOME_DASHBOARD in dashboards/registry.ts; today the Board). Lit only at
+  // `/`; the same dashboard at /dashboards/<slug> lights the Dashboards menu instead.
+  { key: "home", label: "Home", to: homePath },
   // A MENU, not a tab (DashboardsMenu below): "All dashboards" (this `to`, the index) and then one item per
   // entry in dashboards/registry.ts — the menu reads the registry, so a new dashboard adds no line here.
   { key: "dashboards", label: "Dashboards", to: dashboardsPath },
@@ -46,7 +48,7 @@ const LINKS: readonly { key: NavKey; label: string; to: (asof: string | null) =>
 
 type Props = {
   current: NavKey;
-  // The as-of dial rides the bar on the as-of views (Board/Workbench/Scoreboard). The "now" surfaces
+  // The as-of dial rides the bar on the as-of views (Home/Workbench/Scoreboard). The "now" surfaces
   // (Admin/Radar) pass neither and it is omitted — but the nav still carries ?asof= (read below).
   asof?: string;
   onAsofChange?: (v: string) => void;

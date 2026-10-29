@@ -1,12 +1,14 @@
 // The URL scheme, in one pure router-free module — the single place paths and params are spelled.
 //
-//   /                    the Board
+//   /                    Home: the home dashboard (HOME_DASHBOARD in dashboards/registry.ts; today the
+//                        Board), rendered in place, never a redirect, so `/` bookmarks and ?asof= links work
 //   /scoreboard          the Scoreboard (the API's own /scoreboard lives behind /api — see api/client.ts)
 //   /workbench           the Workbench
 //   /admin               the Operator Admin (ops: record freshness, cron health, run-now)
 //   /radar               the SPAC Radar (the blank-check transition tape)
-//   /dashboards          the Dashboards index (experimental cross-card views; docs/DASHBOARDS.md)
-//   /dashboards/:slug    one dashboard (its registry entry in dashboards/registry.ts)
+//   /dashboards          the Dashboards index (cross-card views, the Board first; docs/DASHBOARDS.md)
+//   /dashboards/:slug    one dashboard (its registry entry in dashboards/registry.ts); /dashboards/board
+//                        is the Board
 //   /thesis/:thesisId    the Cockpit (singular, deliberately outside the API's /theses namespace)
 //   ?asof=YYYY-MM-DD     any view; absent or malformed = today
 //   ?name=<key>          Cockpit only; the NamePanel open on that member (ticker or security_id)
@@ -61,7 +63,8 @@ function withParams(path: string, params: Record<string, string | null | undefin
   return qs ? `${path}?${qs}` : path;
 }
 
-export const boardPath = (asof: string | null) => withParams("/", { [ASOF]: asof });
+// Home: whichever dashboard HOME_DASHBOARD names (dashboards/registry.ts), so the path never names one.
+export const homePath = (asof: string | null) => withParams("/", { [ASOF]: asof });
 
 export const scoreboardPath = (asof: string | null) => withParams("/scoreboard", { [ASOF]: asof });
 
