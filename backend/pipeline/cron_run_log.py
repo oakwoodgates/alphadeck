@@ -648,6 +648,23 @@ def build_run_payload(
                 "form4_skipped": sum(x.form4_skipped for x in r.ingested),
                 # the ETF sleeves' fund-shares samples (net flow F2) — 0 on an all-equity thesis
                 "fund_shares_appended": sum(x.fund_shares_appended for x in r.ingested),
+                # the filing index (migration 0070, display only): filings stored for the first time tonight,
+                # and the companies whose leg FAILED (a passenger: not a name error, `ingest_fresh` untouched),
+                # one row per company. Readers use `.get` (an older artifact lacks both).
+                "filing_index_appended": sum(
+                    getattr(x, "filing_index_appended", 0) or 0 for x in r.ingested
+                ),
+                "filing_index_errors": list(
+                    {
+                        str(x.security_id): {
+                            "security_id": str(x.security_id),
+                            "ticker": x.ticker,
+                            "error": x.filing_index_error,
+                        }
+                        for x in r.ingested
+                        if getattr(x, "filing_index_error", None)
+                    }.values()
+                ),
                 # G5a/F1 — this thesis's STALE feeds: the durable inventory the Admin panel renders and the
                 # next run's diff keys on. `edge` is the latest stored date for that feed (null = none at
                 # all); `kind` says WHICH feed stopped, because the two are repaired differently. A row

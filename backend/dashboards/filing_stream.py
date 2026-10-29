@@ -16,10 +16,22 @@ The rules, in one place. This is our own simple listing, stated here and on the 
 - **The window.** The last 30, 90 (default) or 365 days: dates from ``asof - N days`` through ``asof``,
   inclusive. The cached read holds the 365-day rows; a window is sliced per request.
 - **The order.** Newest day first; within a day by kind (``filings.KIND_ORDER``: 8-K, 13D/G, Form 4, 4/A,
-  revenue, split, dilution, catalyst, ratified or stored fact), then by ticker.
-- **The fold.** A day's ``routine`` rows (a Form 4 holding no code-P purchase) collapse into one quiet line on the
-  page (a client toggle). The counts here are of EVERY row, folded or not (``Counts.routine`` says how many rows
+  revenue, other forms from the EDGAR index, split, dilution, catalyst, ratified or stored fact), then by ticker.
+- **Every form.** Besides the facts the ingest reads INTO (8-K items, Form 4 rows, ...), the stream lists every
+  other form in each company's EDGAR index (an S-1, a 424B5, a DEF 14A: its form and primary document), each
+  filing once, as its richest row (``filings.rows_for_company``). The index is EDGAR's recent window: at least a
+  year, or the last 1,000 filings, whichever reaches further.
+- **The fold.** ``routine`` rows collapse into quiet lines on the page (a client toggle): a day's Form 4s holding no
+  code-P purchase into one line, and per (day, company) its prospectus supplements and its index-only Form 3/4/5s
+  (``filings.FOLD_GROUPS``). The counts here are of EVERY row, folded or not (``Counts.routine`` says how many rows
   the fold covers); nothing is hidden from the numbers.
+- **The cap.** Per (company, fold group), at most ``ROUTINE_CAP`` routine rows of the window are LISTED, newest
+  first (the stream order). A non-routine row is never cut: the cap never hides an exception (a purchase, an 8-K,
+  an S-1, a stake). The rows cut are COUNTED per (company, group) in ``FilingStream.not_listed`` and in
+  ``Counts.not_listed``, and ``Counts.rows`` / ``by_kind`` keep counting every row in the window, listed or not.
+  Why: one shelf issuer (JPM, a Context name) lists ~26,000 prospectus supplements a year; MEASURED on a dev copy
+  of prod (2026-10-29) the worst 365-day payload went from 5.00 MB to 15.07 MB when the EDGAR index landed. The cut
+  is per request window, so a 30-day window counts only the rows cut from inside it.
 - **Links.** The card's real links in today's chain order (links load live, only the roster is snapshotted), then
   a roster link that is not on the card today, "No link", Context and Bench (the silent links, last).
 """
@@ -33,12 +45,14 @@ from typing import Literal
 from uuid import UUID
 
 from dashboards.baskets import Membership, link_count
-from dashboards.filings import KIND_ORDER, FilingKind, FilingRow
+from dashboards.filings import KIND_ORDER, FilingKind, FilingRow, FoldGroup
 from domain.enums import ContextRole
 from domain.thesis import SILENT_LABELS
 
 WINDOWS: tuple[int, ...] = (30, 90, 365)
 DEFAULT_DAYS = 90
+# at most this many ROUTINE rows per (company, fold group) are listed in one window; the rest are counted
+ROUTINE_CAP = 200
 # the cached read's span: the longest window
 READ_DAYS = max(WINDOWS)
 # the card roster's role tags in the enum's own order, so a role added to ``ContextRole`` lists itself
@@ -181,7 +195,8 @@ def in_window(rows: Iterable[StreamRow], asof: date, days: int) -> tuple[StreamR
 
 @dataclass(frozen=True)
 class Day:
-    """One day of the stream: its rows in stream order; ``routine`` = how many the fold covers."""
+    """One day of the stream: its LISTED rows in stream order (the cap applied); ``routine`` = how many of them
+    the fold covers."""
 
     date: date
     rows: tuple[StreamRow, ...]
@@ -207,16 +222,19 @@ class KindCount:
 
 @dataclass(frozen=True)
 class Counts:
-    """What the window holds, folded rows included: every kind (a zero too), the Form 4s holding a purchase, and
-    the rows the fold covers."""
+    """What the window holds, folded rows AND rows the cap did not list included: every kind (a zero too), the
+    Form 4s holding a purchase, the routine rows (folded or cut), and ``not_listed`` = how many routine rows the cap
+    left out of the list (``FilingStream.not_listed`` says whose)."""
 
     rows: int
     by_kind: tuple[KindCount, ...]
     form4_purchases: int
     routine: int
+    not_listed: int = 0
 
 
-def counts_of(rows: Iterable[StreamRow]) -> Counts:
+def counts_of(rows: Iterable[StreamRow], *, not_listed: int = 0) -> Counts:
+    """Counts over ``rows`` (pass EVERY row in the window, listed or not); ``not_listed`` = the cap's cut."""
     got = list(rows)
     tally = {k: 0 for k in KIND_ORDER}
     for r in got:
@@ -226,7 +244,49 @@ def counts_of(rows: Iterable[StreamRow]) -> Counts:
         by_kind=tuple(KindCount(k, tally[k]) for k in KIND_ORDER),
         form4_purchases=sum(1 for r in got if r.row.kind == "form4" and not r.row.routine),
         routine=sum(1 for r in got if r.row.routine),
+        not_listed=not_listed,
     )
+
+
+@dataclass(frozen=True)
+class NotListed:
+    """Routine rows of one company and one fold group the cap left out of the window's list (counted, never
+    vanished): ``rows`` of them."""
+
+    security_id: UUID
+    ticker: str
+    fold: FoldGroup | None
+    rows: int
+
+
+def cap_routine(
+    rows: Sequence[StreamRow], cap: int = ROUTINE_CAP
+) -> tuple[tuple[StreamRow, ...], tuple[NotListed, ...]]:
+    """THE CAP: ``rows`` in stream order (newest first) -> ``(listed, not_listed)``. Every NON-routine row is
+    listed, whatever the count (the cap never hides an exception). Per (company, fold group) the first ``cap``
+    routine rows are listed — the newest, ties by the stream's stable order — and the rest are counted in
+    ``not_listed``, largest first (then ticker, then group)."""
+    seen: dict[tuple[UUID, str | None], int] = {}
+    cut: dict[tuple[UUID, str | None], int] = {}
+    who: dict[tuple[UUID, str | None], tuple[str, FoldGroup | None]] = {}
+    listed: list[StreamRow] = []
+    for r in rows:
+        if not r.row.routine:
+            listed.append(r)
+            continue
+        key = (r.row.security_id, r.row.fold)
+        n = seen.get(key, 0)
+        if n < cap:
+            seen[key] = n + 1
+            listed.append(r)
+        else:
+            cut[key] = cut.get(key, 0) + 1
+            who.setdefault(key, (r.row.ticker, r.row.fold))
+    not_listed = sorted(
+        (NotListed(key[0], who[key][0], who[key][1], n) for key, n in cut.items()),
+        key=lambda x: (-x.rows, x.ticker.casefold(), x.fold or ""),
+    )
+    return tuple(listed), tuple(not_listed)
 
 
 # --- the cached read, and one view --------------------------------------------------------------------------
@@ -282,7 +342,8 @@ def stream_inputs(
 
 @dataclass(frozen=True)
 class NameView:
-    """A roster company with how many rows it holds in the window (a name with none is still listed)."""
+    """A roster company with how many rows it holds in the window, listed or not (a name with none is still
+    listed)."""
 
     company: Company
     rows: int
@@ -290,6 +351,9 @@ class NameView:
 
 @dataclass(frozen=True)
 class FilingStream:
+    """One window: ``groups`` = the LISTED rows by day (the cap applied); ``counts`` = every row in the window;
+    ``not_listed`` = the routine rows the cap left out, per (company, fold group)."""
+
     asof: date
     days: int
     window_start: date
@@ -297,13 +361,17 @@ class FilingStream:
     groups: tuple[Day, ...]
     counts: Counts
     names: tuple[NameView, ...]
+    not_listed: tuple[NotListed, ...] = ()
 
 
 def filing_stream(inputs: StreamInputs, *, asof: date, days: int = DEFAULT_DAYS) -> FilingStream:
-    """The page for one window (the last ``days`` days)."""
+    """The page for one window (the last ``days`` days): the window sliced from the cached rows, then the cap
+    (``cap_routine``) applied to THIS window's rows — so a 30-day window counts only the rows cut inside it.
+    """
     if days not in WINDOWS:
         raise ValueError(f"days must be one of {WINDOWS}, not {days}")
     rows = in_window(inputs.rows, asof, days)
+    listed, not_listed = cap_routine(rows)
     held: dict[UUID, int] = {}
     for r in rows:
         held[r.row.security_id] = held.get(r.row.security_id, 0) + 1
@@ -312,10 +380,11 @@ def filing_stream(inputs: StreamInputs, *, asof: date, days: int = DEFAULT_DAYS)
         days=days,
         window_start=asof - timedelta(days=days),
         inputs=inputs,
-        groups=group_by_day(rows),
-        counts=counts_of(rows),
+        groups=group_by_day(listed),
+        counts=counts_of(rows, not_listed=sum(n.rows for n in not_listed)),
         names=tuple(
             NameView(c, held.get(c.security_id, 0) if c.security_id is not None else 0)
             for c in inputs.companies
         ),
+        not_listed=not_listed,
     )

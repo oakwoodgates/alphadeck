@@ -5,13 +5,14 @@ from datetime import date, datetime, timezone
 
 import pytest
 
-from db.bitemporal import _FACT_IDENTITY, append_fact
+from db.bitemporal import _FACT_IDENTITY, DISPLAY_ONLY_FACT_TABLES, append_fact
 from db.public_clock import PUBLIC_TIME
 from db.session import DEFAULT_TENANT_ID
 from domain.market_time import known_at_for_asof, market_tz
 from replay import export as export_mod
 from replay.export import (
     _PUBLIC_CLOCK,
+    FACT_TABLES,
     export_snapshot,
 )
 from replay.pit import ReplayPointInTimeData, connect_mirror
@@ -429,7 +430,10 @@ def test_every_fact_table_has_a_clock_so_nothing_is_excluded(db, tmp_path):
     excludes nothing and blinds nothing."""
     m = export_snapshot(db, tmp_path, clock="public")
     assert m["excluded_tables"] == [] and m["blind_detectors"] == []
-    assert set(m["tables"]) == set(_FACT_IDENTITY)
+    # every MIRROR table (the display-only ones — the filing index, 0070 — never enter a mirror at all:
+    # ``db.bitemporal.DISPLAY_ONLY_FACT_TABLES``, ``tests/replay/test_display_only_tables.py``)
+    assert set(m["tables"]) == set(FACT_TABLES)
+    assert set(_FACT_IDENTITY) - set(FACT_TABLES) == set(DISPLAY_ONLY_FACT_TABLES)
 
 
 def test_a_table_without_a_clock_is_excluded_whole_and_named(db, tmp_path, monkeypatch):

@@ -57,6 +57,7 @@ from domain.settings import get_settings
 from domain.thesis import BasketMember
 from ingest.edgar.acceptance import AcceptanceTally, resolve_filing_acceptance
 from ingest.edgar.client import EdgarClient
+from ingest.edgar.filing_index import FilingIndexResult, ingest_filing_index
 from ingest.edgar.form4 import existing_accessions, ingest_form4, other_issuer_cik
 from ingest.edgar.form4a import form4_leg_filings, ingest_amendments
 from ingest.edgar.form8k import ingest_form8k
@@ -73,6 +74,7 @@ from ingest.edgar.submissions import (
     form4_doc_url,
     form8k_filings,
     former_names,
+    index_filings,
     name_change_filings,
     schedule13_filings,
 )
@@ -261,6 +263,18 @@ class NameResult:
     # (#7); 0 when the Form 4 leg failed (its writes rolled back).
     acceptance_header: int = 0
     acceptance_bounded: int = 0
+    # THE FILING INDEX (``_filing_index_leg``, migration 0070) — every form in the company's EDGAR index, stored
+    # for the research dashboards (display only). A PASSENGER, like the nightly's fundamentals refresh: its
+    # failure is recorded HERE (``filing_index_error``), never on ``error`` / ``leg_errors`` (which feed the R2
+    # recording gate, ``ingest_fresh`` and the name-error pages) — it can never cost a name its ingest or a
+    # thesis its call. ``filing_index_skipped`` / ``filing_index_skips`` = the index rows it could not store, each
+    # ``(accession or "row N", reason)``; ``filing_index_accepted_set_aside`` = the appended rows whose listed
+    # acceptance time was not trusted (stored NULL). All loud only when nonzero (#7).
+    filing_index_appended: int = 0
+    filing_index_skipped: int = 0
+    filing_index_skips: tuple[tuple[str, str], ...] = ()
+    filing_index_accepted_set_aside: int = 0
+    filing_index_error: str | None = None
 
 
 def _tolerable_filing_error(e: Exception) -> bool:
@@ -481,6 +495,26 @@ def _schedule13_leg(
         for acc, why in res.identity_failures
     )
     return res.appended, res.reversioned, res.identity_skipped, skips
+
+
+@timed("filing_index")
+def _filing_index_leg(
+    conn: psycopg.Connection, client: EdgarClient, sec: Security, *, tenant_id: UUID
+) -> FilingIndexResult:
+    """Store the security's EDGAR filing index (migration 0070): every form ``filings.recent`` lists — an S-1, a
+    424B5, a DEF 14A, a 10-Q — for the research dashboards' Filing Stream (DISPLAY data; no detector reads it).
+    Needs the issuer CIK; a name without one contributes nothing (the other EDGAR legs' guard).
+
+    Reads the SAME submissions document the Form 4 / 8-K / 13D/G legs read moments earlier (the client's cache
+    makes it free), so it costs ZERO extra SEC requests on a normal pass. Never windowed by an onboarding
+    ``filed_since``: the read is free and a cold name's index (at most ~1,000 rows) is one batched insert.
+    INSERT-ONLY (``ingest.edgar.filing_index``): only the not-yet-stored accessions append — a stored one is
+    never re-versioned, so a re-run appends ZERO rows. The caller runs it as a PASSENGER (``_ingest_one``).
+    """
+    if not sec.cik:
+        return FilingIndexResult()
+    rows = index_filings(fetch_submissions(client, sec.cik))
+    return ingest_filing_index(conn, sec.id, sec.cik, rows, tenant_id=tenant_id)
 
 
 # The price leg lives in ``ingest.prices.ingest_security.ingest_bars_for_security`` now — ONE
@@ -927,6 +961,19 @@ def _ingest_one(
         conn.rollback()
         errs.append(f"schedule13: {e}")
         leg_errs.append(("schedule13", str(e)))
+    # THE FILING INDEX (migration 0070) — every form the company's EDGAR index lists, off the submissions the
+    # legs above just read (zero extra requests). A PASSENGER: its own transaction, and a failure lands on
+    # ``filing_index_error`` ONLY — never on ``errs`` / ``leg_errs`` (the R2 recording gate, ``ingest_fresh``
+    # and the name-error pages read those), so a display table can never cost a name its ingest.
+    fi = FilingIndexResult()
+    fi_error: str | None = None
+    try:
+        fi = _filing_index_leg(conn, client, sec, tenant_id=tenant_id)
+        conn.commit()
+    except Exception as e:  # noqa: BLE001 — a passenger: recorded, rolled back, never a name error
+        conn.rollback()
+        fi = FilingIndexResult()  # nothing it counted was stored
+        fi_error = str(e) or type(e).__name__
     # S4 — THE SPLIT DETECTION (``pipeline/detect_splits.py``, the nightly only): after the 8-K leg stored
     # today's filings and BEFORE the price leg, so a split filed today with a second source is on the split
     # list before this company's price leg and tonight's call. Its own transaction; a fault is the
@@ -1032,6 +1079,11 @@ def _ingest_one(
         edgar_cik=sec.cik or None,
         acceptance_header=acceptance.header,
         acceptance_bounded=acceptance.bound,
+        filing_index_appended=fi.appended,
+        filing_index_skipped=len(fi.skipped),
+        filing_index_skips=fi.skipped,
+        filing_index_accepted_set_aside=fi.accepted_set_aside,
+        filing_index_error=fi_error,
     )
 
 
@@ -1099,9 +1151,18 @@ def _report(results: list[NameResult]) -> int:
             if r.onboarding and r.filed_since
             else ""
         )
+        # the filing index (0070) — rides only when something landed or was skipped; its failure is its OWN
+        # fragment, never folded into the name's ERROR (a passenger: it never fails the name)
+        fi = f", +{r.filing_index_appended} filings indexed" if r.filing_index_appended else ""
+        fi += (
+            f", {r.filing_index_skipped} filing index row(s) skipped"
+            if r.filing_index_skipped
+            else ""
+        )
+        fi += f"   filing index ERROR: {r.filing_index_error}" if r.filing_index_error else ""
         print(
             f"  {r.ticker or r.security_id}: +{r.form4_appended} form4, "
-            f"+{r.price_bars_appended} bars{backfill}{f8k}{s13}{fund}{skips}{rejects}{tail}{lk}{ob}"
+            f"+{r.price_bars_appended} bars{backfill}{f8k}{s13}{fund}{skips}{rejects}{fi}{tail}{lk}{ob}"
         )
     busy = {r.security_id for r in results if r.lock_busy}
     sk = f", {total_sk} form4 skipped" if total_sk else ""
@@ -1111,9 +1172,13 @@ def _report(results: list[NameResult]) -> int:
     s13 = f", +{total_s13} 13D/G" if total_s13 else ""
     s13 += f" ({total_s13_sk} identity unresolved)" if total_s13_sk else ""
     bz = f", {len(busy)} NOT ingested (company held by another writer)" if busy else ""
+    total_fi = sum(r.filing_index_appended for r in results)
+    fi_err = sum(1 for r in results if r.filing_index_error)
+    efi = f", +{total_fi} filings indexed" if total_fi else ""
+    efi += f", {fi_err} filing index error(s)" if fi_err else ""
     print(
         f"done: {len(results)} names, +{total_f4} insider txns, +{total_px} price bars{e8k}{s13}"
-        f"{fs}{sk}{rj}, {len(errored)} errored{bz}"
+        f"{fs}{efi}{sk}{rj}, {len(errored)} errored{bz}"
     )
     print_withheld_line(results)
     print_held_lines(results)

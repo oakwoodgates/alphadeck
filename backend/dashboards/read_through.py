@@ -18,10 +18,10 @@ The rules, in one place. This is our own simple listing, stated here and on the 
 - **The chip.** One per card the company holds the role on: the card, and the links its rows with that role sit in
   (Context / Bench by their labels when silent; ``None`` = no link).
 - **Last filing.** The newest SEC filing in the last ``FILING_DAYS`` (365) days through the as-of: only a
-  ``FilingRow`` whose kind is an 8-K, a 13D/G, a Form 4, a 4/A or a 10-Q / 10-K revenue print
-  (``filings.SEC_FILING_KINDS``). A split, a dilution fact, a catalyst and a ratified or stored fact are rows the
-  system holds, not filings, and are never picked. Ties by the reader's kind order (``filings.KIND_ORDER``: 8-K,
-  13D/G, Form 4, 4/A, revenue), then accession / form / headline.
+  ``FilingRow`` whose kind is an 8-K, a 13D/G, a Form 4, a 4/A, a 10-Q / 10-K revenue print or any other form in
+  the company's EDGAR index (``filings.SEC_FILING_KINDS``). A split, a dilution fact, a catalyst and a ratified or
+  stored fact are rows the system holds, not filings, and are never picked. Ties by the reader's kind order
+  (``filings.KIND_ORDER``: 8-K, 13D/G, Form 4, 4/A, revenue, other forms), then accession / form / headline.
 - **Next dated catalyst.** The nearest card-level catalyst with ``when_date >= asof`` across the row's cards (the
   as-of day counts); ties by card name then label. A dated catalyst in the past and an undated one are ignored.
   Catalysts load live with the card (they are not snapshotted), so a past as-of shows them as entered today.
@@ -184,8 +184,9 @@ class LastFiling:
 
 
 def last_filing(rows: Iterable[FilingRow], asof: date) -> LastFiling | None:
-    """The newest SEC filing by date (an 8-K, 13D/G, Form 4 or 4/A, or a 10-Q / 10-K revenue print:
-    ``filings.SEC_FILING_KINDS``; never a split, dilution fact, catalyst, or ratified or stored fact), ties by
+    """The newest SEC filing by date (an 8-K, 13D/G, Form 4 or 4/A, a 10-Q / 10-K revenue print, or any other form
+    in the EDGAR index: ``filings.SEC_FILING_KINDS``; never a split, dilution fact, catalyst, or ratified or stored
+    fact), ties by
     the reader's kind order, then accession / form / headline. A row dated after the as-of cannot occur on a
     well-formed clock; one is never picked (#1). ``None`` = no such row."""
     best = min(

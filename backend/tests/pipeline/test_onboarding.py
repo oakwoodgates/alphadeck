@@ -283,9 +283,11 @@ def test_a_queued_name_is_loaded_leg_by_leg_to_DONE(db, offline):
     row = _row(db, a)
     assert row.status == "done" and set(row.legs_done) == set(onboarding.LEGS)
     assert row.attempts == 0 and row.last_error is None and row.finished_at is not None
-    # COUNT THE TABLES: the WHOLE history — both Form 4s, every bar
+    # COUNT THE TABLES: the WHOLE history — both Form 4s, every bar, the whole filing index
     assert _count(db, "fact_insider_txn", a) == len(_FILINGS) * _F4_PER_ACCESSION
     assert _count(db, "fact_price_eod", a) == len(_BAR_DATES)
+    assert _count(db, "fact_filing_index", a) == len(_FILINGS)
+    assert out.names[0].appended["filing_index"] == len(_FILINGS)
     # its own artifact, pass_kind "onboard" — never in the nightly's cron_runs
     assert out.log_path is not None and out.log_path.parent.name == "onboard_runs_home"
     doc = onboarding.list_runs(runs_dir=out.log_path.parent)[0]
@@ -339,7 +341,13 @@ def test_a_CRASH_mid_batch_RESUMES_at_the_next_leg_and_appends_nothing_twice(
 
     assert [(n.ticker, n.outcome) for n in out.names] == [("AAA", "done"), ("BBB", "done")]
     # the resumed name ran ONLY the legs it had not finished: its Form 4 leg did not run again
-    assert out.names[0].legs_run == ["schedule13", "price", "fund_shares", "fundamentals"]
+    assert out.names[0].legs_run == [
+        "schedule13",
+        "filing_index",
+        "price",
+        "fund_shares",
+        "fundamentals",
+    ]
     assert form4_calls == [a, b]
     # COUNT THE TABLES: nothing appended twice
     assert _count(db, "fact_insider_txn", a) == f4_after_crash
@@ -400,6 +408,31 @@ def test_a_TAIL_leg_failure_never_blocks_done(db, offline, monkeypatch):
     row = _row(db, a)
     assert row.status == "done" and "price" not in row.legs_done
     assert row.last_error.startswith("done; tail leg(s) failed") and "404" in row.last_error
+
+
+def test_a_FILING_INDEX_failure_is_a_tail_leg_failure_and_never_blocks_done(
+    db, offline, monkeypatch
+):
+    """The filing index (0070) is the FIRST tail leg: display data, so its failure is recorded as a tail-leg
+    failure (the name still goes ``done``) and the leg is not checkpointed — the nightly re-runs it.
+    """
+    a = _add_master(db, ticker="AAA", cik="0001000001")
+    _thesis(db, [("AAA", a)])
+    _queue(db, a)
+
+    def boom(conn, client, sec, **k):
+        raise RuntimeError("index exploded")
+
+    monkeypatch.setattr(IT, "_filing_index_leg", boom)
+    out = _batch()
+
+    assert out.names[0].outcome == "done" and set(out.names[0].legs_failed) == {"filing_index"}
+    assert out.names[0].legs_run.index("filing_index") == 3  # right after the three history legs
+    row = _row(db, a)
+    assert row.status == "done" and "filing_index" not in row.legs_done
+    assert "filing_index: index exploded" in row.last_error
+    assert _count(db, "fact_filing_index", a) == 0
+    assert _count(db, "fact_insider_txn", a) == len(_FILINGS) * _F4_PER_ACCESSION
 
 
 def test_a_company_another_writer_holds_is_SKIPPED_not_waited_for(db, offline, other_session):
@@ -906,3 +939,30 @@ def test_mark_from_results_finishes_a_fully_ingested_name_and_leaves_a_failed_on
     assert "form8k" in bad.legs_done  # what did land is checkpointed
     assert _row(db, c).status == "queued" and _row(db, c).legs_done == ()
     assert _queue_rows(db) == 3  # a warm name is never given a row
+    assert "filing_index" in _row(db, a).legs_done  # the passenger leg ran clean: checkpointed
+
+
+def test_mark_from_results_checkpoints_the_FILING_INDEX_only_when_it_succeeded(db, offline):
+    """The filing index is a passenger in ``ingest_thesis`` (its failure rides ``filing_index_error``, never
+    ``leg_errors``), so the fast lane checkpoints it only when NO result for the name carries an error — and
+    the name still finishes ``done`` (a tail leg), with the failure noted."""
+    a = _add_master(db, ticker="OK", cik="0001000001")
+    b = _add_master(db, ticker="IDX", cik="0001000002")
+    _queue(db, a, b)
+    results = [
+        IT.NameResult("OK", a, 2, 2, filing_index_appended=4),
+        IT.NameResult("IDX", b, 2, 2),  # one basket row clean...
+        IT.NameResult(
+            "IDX", b, 0, 0, filing_index_error="index exploded"
+        ),  # ...its other row failed
+    ]
+
+    marked = onboarding.mark_from_results(
+        db, results, tenant_id=DEFAULT_TENANT_ID, security_ids={a, b}
+    )
+
+    assert marked == {a: "done", b: "done"}
+    assert "filing_index" in _row(db, a).legs_done
+    bad = _row(db, b)
+    assert "filing_index" not in bad.legs_done and "form4" in bad.legs_done
+    assert "filing_index: index exploded" in bad.last_error

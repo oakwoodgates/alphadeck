@@ -12,7 +12,10 @@ import {
   fmtDay,
   fmtDayHeader,
   foldEntries,
+  foldEntryWords,
   foldWords,
+  foldedByGroup,
+  notListedWords,
   rowMatches,
   unresolvedWords,
   usdHint,
@@ -44,6 +47,7 @@ const row = (over: Partial<FilingStreamRowOut> = {}): FilingStreamRowOut => ({
   accession: null,
   tags: [],
   routine: false,
+  fold: null,
   usd: null,
   links: ["Reactors"],
   role: null,
@@ -62,13 +66,25 @@ const filters = (over: Partial<Filters> = {}): Filters => ({ ...DEFAULT_FILTERS,
 
 describe("the kinds", () => {
   it("lists every kind in a day's order, each with a label", () => {
-    expect(KIND_ORDER).toEqual(["8k", "stake", "form4", "form4a", "revenue", "split", "dilution", "catalyst", "ratified"]);
+    expect(KIND_ORDER).toEqual([
+      "8k",
+      "stake",
+      "form4",
+      "form4a",
+      "revenue",
+      "filing",
+      "split",
+      "dilution",
+      "catalyst",
+      "ratified",
+    ]);
     expect(KIND_ORDER.map((k) => KIND_LABEL[k])).toEqual([
       "8-K",
       "13D/G",
       "Form 4",
       "4/A",
       "Revenue",
+      "Other forms",
       "Split",
       "Dilution",
       "Catalyst",
@@ -147,6 +163,58 @@ describe("foldEntries", () => {
       "c",
       "e",
     ]);
+  });
+
+  it("folds a company's prospectus and ownership rows per company and group, the Form 4 fold unchanged", () => {
+    const p = (key: string, ticker: string, form = "424B2") =>
+      row({ key, ticker, security_id: `s-${ticker}`, kind: "filing", form, routine: true, fold: "prospectus" });
+    const o = (key: string, ticker: string, form: string) =>
+      row({ key, ticker, security_id: `s-${ticker}`, kind: "filing", form, routine: true, fold: "ownership" });
+    const day = [
+      row({ key: "a", kind: "8k" }),
+      p("p1", "JPM"),
+      row({ key: "f1", kind: "form4", routine: true, fold: "form4", ticker: "AAA", security_id: "s-AAA" }),
+      p("p2", "META", "FWP"),
+      o("o1", "META", "4"),
+      p("p3", "JPM", "FWP"),
+      row({ key: "s1", kind: "filing", form: "S-1", ticker: "JPM", security_id: "s-JPM" }), // loud, never folded
+      o("o2", "META", "144"),
+      row({ key: "f2", kind: "form4", routine: true, fold: "form4", ticker: "BBB", security_id: "s-BBB" }),
+      p("p4", "JPM", "497K"),
+    ];
+    const got = foldEntries(day, false);
+    expect(got.map((e) => (e.type === "row" ? e.row.key : `${e.key}(${e.rows.map((r) => r.key).join(",")})`))).toEqual([
+      "a",
+      "prospectus:s-JPM(p1,p3,p4)",
+      "form4(f1,f2)", // the day's ONE Form 4 fold, across companies, as before
+      "prospectus:s-META(p2)",
+      "ownership:s-META(o1,o2)",
+      "s1",
+    ]);
+    const words = got.flatMap((e) => (e.type === "fold" ? [foldEntryWords(e)] : []));
+    expect(words).toEqual([
+      "JPM · 3 prospectus supplements (424B, FWP)",
+      foldWords(2),
+      "META · 1 prospectus supplement (424B, FWP)",
+      "META · 2 insider ownership filings (Forms 3/4/5 with no transaction rows stored, 144 notices)",
+    ]);
+    // the ownership words name only what the line holds
+    const only144 = foldEntries([o("x", "IBM", "144"), o("y", "IBM", "144/A")], false)[0];
+    const onlyForms = foldEntries([o("z", "IBM", "3")], false)[0];
+    expect(only144.type === "fold" && foldEntryWords(only144)).toBe("IBM · 2 insider ownership filings (144 notices)");
+    expect(onlyForms.type === "fold" && foldEntryWords(onlyForms)).toBe(
+      "IBM · 1 insider ownership filing (Forms 3/4/5 with no transaction rows stored)",
+    );
+    // a routine row sent without a group folds with the day's Form 4s (today's rule)
+    const legacy = foldEntries([row({ key: "l", kind: "form4", routine: true, fold: null })], false)[0];
+    expect(legacy.type === "fold" && legacy.group).toBe("form4");
+    // shown in place: every row is a line
+    expect(foldEntries(day, true)).toHaveLength(day.length);
+    expect(foldedByGroup([{ date: "2026-10-28", routine: 8, rows: day }])).toEqual({
+      form4: 2,
+      prospectus: 4,
+      ownership: 2,
+    });
   });
 
   it("shows every row in place when the routine ones are shown, and folds nothing when none is routine", () => {
@@ -255,6 +323,7 @@ describe("workLines", () => {
         { kind: "form4", rows: 22 },
         { kind: "form4a", rows: 1 },
         { kind: "revenue", rows: 3 },
+        { kind: "filing", rows: 0 },
         { kind: "split", rows: 0 },
         { kind: "dilution", rows: 0 },
         { kind: "catalyst", rows: 1 },
@@ -262,7 +331,10 @@ describe("workLines", () => {
       ],
       form4_purchases: 3,
       routine: 19,
+      not_listed: 0,
     },
+    not_listed: [],
+    routine_cap: 200,
     windows: [30, 90, 365],
     cache: "hit",
     compute_ms: 900,
@@ -270,7 +342,7 @@ describe("workLines", () => {
   });
 
   it("shows the work: the window and clock, the roster, and every kind's count with the purchases", () => {
-    const [a, b, c] = workLines(data(), 41, 19, false);
+    const [a, b, c] = workLines(data(), 41, { form4: 19 }, false);
     expect(a).toBe(
       "as of Oct 28, 2026 · window Jul 30, 2026 – Oct 28, 2026 (the last 90 days) · as it was public by Oct 28, 2026 · cached",
     );
@@ -278,16 +350,37 @@ describe("workLines", () => {
       "57 roster rows · 2 companies resolved · 2 without a resolved security · 8 in Context or Bench",
     );
     expect(c).toBe(
-      "41 rows in the window: 12 8-Ks · 2 13D/G stakes · 22 Form 4s (3 hold a purchase) · 1 4/A · 3 revenue prints · 0 splits · 0 dilution rows · 1 catalyst · 0 ratified or stored facts · 19 routine Form 4 rows folded (counted above)",
+      "41 rows in the window: 12 8-Ks · 2 13D/G stakes · 22 Form 4s (3 hold a purchase) · 1 4/A · 3 revenue prints · 0 other forms · 0 splits · 0 dilution rows · 1 catalyst · 0 ratified or stored facts · 19 routine Form 4 rows folded (counted above)",
     );
   });
 
   it("says live for the record clock, notes the filters, and says how long a first load took", () => {
-    const [a, , c] = workLines(data({ clock: "record", cache: "computed", compute_ms: 8400 }), 7, 0, true);
+    const [a, , c] = workLines(data({ clock: "record", cache: "computed", compute_ms: 8400 }), 7, {}, true);
     expect(a).toContain("live read");
     expect(a).not.toContain("as it was public by");
     expect(a).toContain("computed in 8.4 s — first load since the last run or basket edit");
     expect(c).toContain("7 shown after the filters");
     expect(c).not.toContain("folded");
+  });
+
+  it("names every folded group, and adds the cap's not-listed line only when the server cut rows", () => {
+    const lines = workLines(data(), 41, { form4: 19, prospectus: 87, ownership: 1 }, false);
+    expect(lines).toHaveLength(3); // nothing cut: no fourth line
+    expect(lines[2]).toContain(
+      "19 routine Form 4 rows, 87 prospectus supplement rows, 1 insider ownership row folded (counted above)",
+    );
+    const cut = data({
+      not_listed: [
+        { security_id: "s-JPM", ticker: "JPM", fold: "prospectus", rows: 25835 },
+        { security_id: "s-JPM", ticker: "JPM", fold: "ownership", rows: 199 },
+        { security_id: "s-BAC", ticker: "BAC", fold: "prospectus", rows: 1 },
+      ],
+    });
+    const all = workLines(cut, 41, {}, false);
+    expect(all).toHaveLength(4);
+    expect(all[3]).toBe(
+      "26,035 routine rows not listed (over 200 of one kind for one company in this window): JPM 25,835 prospectus supplements, JPM 199 insider ownership filings, BAC 1 prospectus supplement",
+    );
+    expect(notListedWords({ not_listed: [], routine_cap: 200 })).toBeNull();
   });
 });
