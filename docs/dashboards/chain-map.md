@@ -191,7 +191,7 @@ rest are choices the plan left open.
 22. **The registry test** gained this slug and order 140 only. The Read-Throughs table (order 130) is the sibling build's
     line; after the two merge the pinned list reads both.
 23. **Measured on dev with a prod data copy (2026-10-29, 62 live cards):** all 62 of 62 cards serve. The median cold
-    compute is 1.6 s and the maximum 4.9 s (AI Power Crunch, 72 roster rows); no payload is larger than 66 KB. The year of
+    compute is 1.6 s and the maximum 4.9 s (the largest card, 72 roster rows); no payload is larger than 66 KB. The year of
     filing facts is still the heaviest read (the Filing Stream's 365-day case); the cache holds the finished page once per
     card and as-of.
 24. **Not verified in the live app:** the picture was checked by rendering the component's markup (from the test

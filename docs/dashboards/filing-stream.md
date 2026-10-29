@@ -325,8 +325,8 @@ the build fixed them sensibly and says how.
     registry test, which pins the full dashboard list, gained this slug and order (the one shared test line a new
     dashboard edits).
 27. **Measured on dev with a prod data copy (2026-10-29, 62 live cards, as-of 2026-10-29):** every card serves at the
-    365-day window (0 failures after the zero-share fix). Cold compute: median 1.3 s, the heaviest card (AI Power Crunch:
-    72 roster rows, 4,699 rows over 250 days) 6.0 s with a 4.8 MB payload; Next-Gen Compute 3.3 s / 3.3 MB; the 90-day
+    365-day window (0 failures after the zero-share fix). Cold compute: median 1.3 s, the heaviest card (the largest card:
+    72 roster rows, 4,699 rows over 250 days) 6.0 s with a 4.8 MB payload; the second largest 3.3 s / 3.3 MB; the 90-day
     window is a cache hit on every card (50–90 ms, payloads 0.3–1.1 MB). The 365-day payload is large because every
     row carries its detail lines; a per-row detail read is the lever if it matters off localhost.
 28. **A row states only what it states (found on dev with a prod copy).** A real Form 4 row can state a price against a

@@ -85,7 +85,7 @@ describe("ReadThrough — the table", () => {
   });
 
   it("gives a long card name and a card with no link row the same chip: the full name in the title, no links part when none", () => {
-    const long = "Defense Software, Cybersecurity & Services";
+    const long = "A Long Card Name With Several Words";
     setup(
       payload({
         rows: [

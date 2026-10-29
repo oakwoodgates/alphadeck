@@ -158,6 +158,6 @@ each. The first is the one place the plan's wording and the shared axis could no
 12. **The wire carries `quarters`, `thin_below` and `min_median_names`** so the page states the rules it was built
     with and the numbers never drift from the compute's constants.
 13. **Measured on dev with a prod data copy (2026-10-29, 62 live cards, as-of 2026-10-29):** every card serves; cold
-    compute median 160 ms, max 545 ms (AI Power Crunch, 72 roster rows), payload at most 297 KB. Across the cards: 2,004
+    compute median 160 ms, max 545 ms (the largest card, 72 roster rows), payload at most 297 KB. Across the cards: 2,004
     roster companies, 1,571 with a revenue series, 433 without, 136 thin, 51 stale, 100 periods under an active set-aside.
     A past as-of (2026-09-15) reads on the public clock with that night's roster (the first card: 7 old links, 90 names).
