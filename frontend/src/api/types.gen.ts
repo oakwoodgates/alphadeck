@@ -2086,6 +2086,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboards/cross-radar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Cross Radar
+         * @description Golden and death crosses (the 50-day SMA crossing the 200-day) by link, business type, sector or card:
+         *     clusters (several names crossing the same way within 10 sessions), first movers (exactly one), names
+         *     within 2% of a cross and narrowing, and every cross of the last 90 sessions with each group's posture.
+         *     Display only; a past as-of reads what was public by the end of that date.
+         */
+        get: operations["cross_radar_dashboards_cross_radar_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/backtest/runs": {
         parameters: {
             query?: never;
@@ -5244,6 +5267,335 @@ export interface components {
              * Format: date
              */
             ingested: string;
+        };
+        /**
+         * CrossCardOut
+         * @description A card a name sits on in this group: its ticker there (the Cockpit's ``?name=`` key) and its links
+         *     there (``null`` = Unsegmented).
+         */
+        CrossCardOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /** Ticker */
+            ticker: string;
+            /** Links */
+            links: (string | null)[];
+        };
+        /**
+         * CrossClusterOut
+         * @description A group where ``count`` of its ``priced`` names crossed ``direction`` within ``recent_sessions`` (at
+         *     least ``cluster_min_names`` and ``cluster_min_share_pct``% of them), all within ``within`` sessions, with
+         *     ``rs_leaders`` of them at a 13-week relative-strength high.
+         */
+        CrossClusterOut: {
+            group: components["schemas"]["CrossGroupOut"];
+            /**
+             * Direction
+             * @enum {string}
+             */
+            direction: "golden" | "death";
+            /** Count */
+            count: number;
+            /** Priced */
+            priced: number;
+            /** Share */
+            share: number;
+            /** Within */
+            within: number;
+            /** Rs Leaders */
+            rs_leaders: number;
+            /** Names */
+            names: components["schemas"]["CrossNameOut"][];
+        };
+        /**
+         * CrossFirstMoverOut
+         * @description A group where exactly one priced name crossed ``direction`` within ``recent_sessions``. The group's
+         *     ``rest`` priced names: ``closing_in`` (near-crossing the same way), ``already`` (on the far side with no
+         *     recent cross: above the 200d for golden, below for death) and ``not_yet``.
+         */
+        CrossFirstMoverOut: {
+            group: components["schemas"]["CrossGroupOut"];
+            /**
+             * Direction
+             * @enum {string}
+             */
+            direction: "golden" | "death";
+            leader: components["schemas"]["CrossNameOut"];
+            /** Rest */
+            rest: number;
+            /** Closing In */
+            closing_in: number;
+            /** Already */
+            already: number;
+            /** Not Yet */
+            not_yet: number;
+        };
+        /**
+         * CrossGroupOut
+         * @description One group. Link view: ``link`` (``null`` = Unsegmented) + its card. Card view: the card. Business type
+         *     / Sector view: ``business_type`` / ``supersector`` (``null`` = Unclassified). ``names`` = the companies in
+         *     the group, each counted once; ``priced`` of them have a 200-day SMA at the as-of.
+         */
+        CrossGroupOut: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Link */
+            link: string | null;
+            /** Thesis Id */
+            thesis_id: string | null;
+            /** Thesis Name */
+            thesis_name: string | null;
+            /** Business Type */
+            business_type: string | null;
+            /** Supersector */
+            supersector: string | null;
+            /** Names */
+            names: number;
+            /** Priced */
+            priced: number;
+            /** Not Priced */
+            not_priced: number;
+        };
+        /**
+         * CrossMarkOut
+         * @description One cross on the timeline: ``pos`` is its column on ``sessions`` (0 = the oldest).
+         */
+        CrossMarkOut: {
+            /**
+             * D
+             * Format: date
+             */
+            d: string;
+            /**
+             * Direction
+             * @enum {string}
+             */
+            direction: "golden" | "death" | "up" | "down";
+            /** Sessions Ago */
+            sessions_ago: number;
+            /** Pos */
+            pos: number;
+        };
+        /**
+         * CrossNameOut
+         * @description A name's recent cross: its date and how many sessions before the as-of it printed.
+         */
+        CrossNameOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Cards */
+            cards: components["schemas"]["CrossCardOut"][];
+            /**
+             * D
+             * Format: date
+             */
+            d: string;
+            /** Sessions Ago */
+            sessions_ago: number;
+            /** Rs Leading */
+            rs_leading: boolean | null;
+        };
+        /** CrossNearGroupOut */
+        CrossNearGroupOut: {
+            group: components["schemas"]["CrossGroupOut"];
+            /** Names */
+            names: components["schemas"]["CrossNearNameOut"][];
+        };
+        /**
+         * CrossNearNameOut
+         * @description A name whose 50d sits within ``near_band_pct``% of its 200d, the gap smaller than ``near_lookback``
+         *     sessions before, with no cross within ``recent_sessions``. ``gap_pct`` = (SMA50 / SMA200 − 1) %;
+         *     ``change`` = ``gap_pct − gap_pct_then``, in points. The tape only, never a forecast.
+         */
+        CrossNearNameOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Cards */
+            cards: components["schemas"]["CrossCardOut"][];
+            /**
+             * Toward
+             * @enum {string}
+             */
+            toward: "golden" | "death";
+            /** Gap Pct */
+            gap_pct: number;
+            /** Gap Pct Then */
+            gap_pct_then: number;
+            /** Change */
+            change: number;
+        };
+        /**
+         * CrossPostureOut
+         * @description The group's names by ``sma_position`` posture; ``other`` = every other posture and every name not
+         *     priced.
+         */
+        CrossPostureOut: {
+            /** Above Rising */
+            above_rising: number;
+            /** Above Falling */
+            above_falling: number;
+            /** Below Rising */
+            below_rising: number;
+            /** Below Falling */
+            below_falling: number;
+            /** Other */
+            other: number;
+        };
+        /**
+         * CrossRadarOut
+         * @description The whole page in one view, each list in its default order (clusters by share then count; first
+         *     movers newest cross first; near-cross by the smallest gap; the timeline by total crosses). The counts are
+         *     the work shown on its quiet line; the rule dials ride along. ``sessions`` = the timeline's axis.
+         *     ``cache`` / ``compute_ms`` = whether the heavy read was served from the shared dashboard cache and how
+         *     long it took when it ran.
+         */
+        CrossRadarOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Group By
+             * @enum {string}
+             */
+            group_by: "link" | "business_type" | "sector" | "card";
+            /** Include Silent */
+            include_silent: boolean;
+            /** Price 200D */
+            price_200d: boolean;
+            /** Live Cards */
+            live_cards: number;
+            /** Cards Counted */
+            cards_counted: number;
+            /** Cards Not Yet Created */
+            cards_not_yet_created: number;
+            /** Roster Fallback Cards */
+            roster_fallback_cards: number;
+            /** Basket Rows */
+            basket_rows: number;
+            /** Silent Rows Left Out */
+            silent_rows_left_out: number;
+            /** Unresolved Rows */
+            unresolved_rows: number;
+            /** Companies */
+            companies: number;
+            /** Priced Companies */
+            priced_companies: number;
+            /** Short Tape Companies */
+            short_tape_companies: number;
+            /** Stale Tape Companies */
+            stale_tape_companies: number;
+            /** Sessions */
+            sessions: string[];
+            /** Clusters */
+            clusters: components["schemas"]["CrossClusterOut"][];
+            /** First Movers */
+            first_movers: components["schemas"]["CrossFirstMoverOut"][];
+            /** Near Cross */
+            near_cross: components["schemas"]["CrossNearGroupOut"][];
+            /** Timeline */
+            timeline: components["schemas"]["CrossTimelineRowOut"][];
+            /** Recent Sessions */
+            recent_sessions: number;
+            /** History Sessions */
+            history_sessions: number;
+            /** Cluster Min Names */
+            cluster_min_names: number;
+            /** Cluster Min Share Pct */
+            cluster_min_share_pct: number;
+            /** First Mover Min Priced */
+            first_mover_min_priced: number;
+            /** Near Band Pct */
+            near_band_pct: number;
+            /** Near Lookback */
+            near_lookback: number;
+            /** Stale Gap Days */
+            stale_gap_days: number;
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * CrossTimelineNameOut
+         * @description One company of a timeline row. ``crosses`` = every 50d × 200d cross of the last ``history_sessions``
+         *     sessions, newest first (``readable_sessions`` of them could be read: a name with a shorter tape reads a
+         *     shorter history); ``price_200d`` = its price × 200d crosses when that layer is on. A name ``not_priced``
+         *     (``short_tape`` / ``stale_tape``) reads no crosses.
+         */
+        CrossTimelineNameOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Cards */
+            cards: components["schemas"]["CrossCardOut"][];
+            /** Priced */
+            priced: boolean;
+            /** Not Priced */
+            not_priced: ("short_tape" | "stale_tape") | null;
+            /** Bars */
+            bars: number;
+            /** Last Bar */
+            last_bar: string | null;
+            /** Readable Sessions */
+            readable_sessions: number;
+            /** Crosses */
+            crosses: components["schemas"]["CrossMarkOut"][];
+            /** Price 200D */
+            price_200d: components["schemas"]["CrossMarkOut"][];
+            /** Gap Pct */
+            gap_pct: number | null;
+            /**
+             * Posture
+             * @enum {string}
+             */
+            posture: "above_rising" | "above_falling" | "below_rising" | "below_falling" | "other";
+            /** Rs Leading */
+            rs_leading: boolean | null;
+        };
+        /**
+         * CrossTimelineRowOut
+         * @description One group's crosses over the last ``history_sessions`` sessions (``golden`` / ``death`` count every
+         *     cross), the price × 200d counts when that layer is on, and its posture bar.
+         */
+        CrossTimelineRowOut: {
+            group: components["schemas"]["CrossGroupOut"];
+            /** Golden */
+            golden: number;
+            /** Death */
+            death: number;
+            /** Price Up */
+            price_up: number;
+            /** Price Down */
+            price_down: number;
+            posture: components["schemas"]["CrossPostureOut"];
+            /** Members */
+            members: components["schemas"]["CrossTimelineNameOut"][];
         };
         /**
          * DataFlagEvidenceOut
@@ -11959,6 +12311,44 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WhatChangedOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cross_radar_dashboards_cross_radar_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; no price published after it is read */
+                asof: string;
+                /** @description the groups: link | business_type | sector | card */
+                group_by?: "link" | "business_type" | "sector" | "card";
+                /** @description add Context and Bench memberships (their own groups in the Link view) */
+                include_silent?: boolean;
+                /** @description add price-crosses-the-200d ticks to the timeline (never counted in a cluster) */
+                price_200d?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CrossRadarOut"];
                 };
             };
             /** @description Validation Error */

@@ -18,7 +18,8 @@ The rules, in one place:
   view a company in two links of a card counts in both; in the Business type, Sector and Card views each
   company counts ONCE per group (by ``security_id``). A row with no link groups as "Unsegmented" (``None``);
   a company with no business type / sector as "Unclassified" (``None``). A basket row with no resolved
-  security is counted on the quiet line, never dropped (rule 5 / invariant #9).
+  security is counted on the quiet line, never dropped (rule 5 / invariant #9). These rules live in
+  ``dashboards/baskets.py``, shared with the Cross Radar.
 - **Color only the unusual.** A return median is toned ``pos`` / ``neg`` only when it sits in the top /
   bottom ``TONE_SHARE`` of the groups in view with a value in that column (cross-sectional, ties included,
   ``len // 10`` groups each side, so a view of fewer than 10 groups colors nothing). The vs-SPY view
@@ -28,19 +29,23 @@ The rules, in one place:
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from datetime import date, datetime, timedelta, tzinfo
+from datetime import date, timedelta
 from statistics import median
 from typing import Literal
 from uuid import UUID
 
-from domain.thesis import Thesis, is_silent
-from pipeline.backfill import thesis_existed_on
+# the cards, rosters, groups and who counts: shared with the Cross Radar (``dashboards/baskets.py``), and
+# re-exported here under their old names
+from dashboards.baskets import GROUP_BYS as GROUP_BYS
+from dashboards.baskets import GroupBy as GroupBy
+from dashboards.baskets import Membership as Membership
+from dashboards.baskets import NameCard as NameCard
+from dashboards.baskets import buckets, companies_in, counted_rows, display_ticker
+from dashboards.baskets import cards_that_existed as cards_that_existed
+from dashboards.baskets import memberships_of as memberships_of
 from signals.display.base import DisplaySignal
-
-GroupBy = Literal["link", "business_type", "sector", "card"]
-GROUP_BYS: tuple[GroupBy, ...] = ("link", "business_type", "sector", "card")
 
 # the Cockpit's own windows and keys (the trailing_returns member: 1/7/30/90/252 trading bars)
 WINDOWS: tuple[str, ...] = ("ret_1d", "ret_7d", "ret_30d", "ret_90d", "ret_1y")
@@ -126,18 +131,6 @@ def recent_cross(tape: CompanyTape, asof: date) -> Cross | None:
 
 
 @dataclass(frozen=True)
-class Membership:
-    """One basket row of a counted card, as of the as-of (its roster then)."""
-
-    thesis_id: UUID
-    thesis_name: str
-    ticker: str
-    security_id: UUID | None
-    segment: str | None
-    silent: bool
-
-
-@dataclass(frozen=True)
 class RotationInputs:
     """Everything the heavy read produces: cached per as-of, shared by every grouping and toggle."""
 
@@ -154,39 +147,6 @@ class RotationInputs:
     spy: Mapping[str, float | None] | None  # SPY's own trailing returns; None = no SPY tape
 
 
-def cards_that_existed(
-    theses: Iterable[Thesis], created_at: Mapping[UUID, datetime], asof: date, tz: tzinfo
-) -> tuple[list[Thesis], int]:
-    """The cards that existed by ``asof`` (``pipeline.backfill.thesis_existed_on``: created on or before the
-    as-of day, market time) and how many were created after it. A missing ``created_at`` (impossible for a
-    loaded row) keeps the card: the backfill's own recall-first rule."""
-    kept: list[Thesis] = []
-    later = 0
-    for t in theses:
-        born = created_at.get(t.id)
-        if born is not None and not thesis_existed_on(born, asof, tz):
-            later += 1
-        else:
-            kept.append(t)
-    return kept, later
-
-
-def memberships_of(theses: Iterable[Thesis]) -> tuple[Membership, ...]:
-    """Every basket row of the counted cards, silent ones included (each view filters its own)."""
-    return tuple(
-        Membership(
-            thesis_id=t.id,
-            thesis_name=t.name,
-            ticker=m.ticker,
-            security_id=m.security_id,
-            segment=m.segment,
-            silent=is_silent(m),
-        )
-        for t in theses
-        for m in t.basket
-    )
-
-
 # --- the payload -----------------------------------------------------------------------------------------
 
 
@@ -198,14 +158,6 @@ class WindowStat:
     up: int  # of those, names with a positive return
     above_spy: int | None  # of those, names whose return beats SPY's (None = no SPY return for it)
     tone: Tone | None
-
-
-@dataclass(frozen=True)
-class NameCard:
-    thesis_id: UUID
-    thesis_name: str
-    ticker: str  # the company's ticker on that card (the Cockpit's ?name= key)
-    links: tuple[str | None, ...]  # its links on that card in this group (None = Unsegmented)
 
 
 @dataclass(frozen=True)
@@ -279,13 +231,6 @@ def _window_stat(key: str, tapes: Sequence[CompanyTape], spy: float | None) -> W
     )
 
 
-def _display_ticker(cards: Sequence[NameCard]) -> str:
-    counts: dict[str, int] = {}
-    for c in cards:
-        counts[c.ticker] = counts.get(c.ticker, 0) + 1
-    return min(counts, key=lambda t: (-counts[t], t))
-
-
 def _name_sort_key(row: NameRow) -> tuple:
     v = row.returns.get(DEFAULT_SORT)
     return (v is None, -(v or 0.0), row.ticker.casefold(), str(row.security_id))
@@ -301,29 +246,17 @@ def _group(
     **ident: object,
 ) -> GroupRow:
     """One group over its membership rows: each company once (its rows' cards and links folded together)."""
-    by_company: dict[UUID, dict[UUID, list[Membership]]] = {}
-    for m in rows:
-        assert m.security_id is not None
-        by_company.setdefault(m.security_id, {}).setdefault(m.thesis_id, []).append(m)
     members: list[NameRow] = []
     group_tapes: list[CompanyTape] = []
-    for sid, per_card in by_company.items():
+    for sid, cards in companies_in(rows):
         tape = tapes.get(sid, NO_TAPE)
         group_tapes.append(tape)
-        cards: list[NameCard] = []
-        for tid, ms in per_card.items():
-            links: list[str | None] = []
-            for m in ms:
-                if m.segment not in links:
-                    links.append(m.segment)
-            cards.append(NameCard(tid, ms[0].thesis_name, ms[0].ticker, tuple(links)))
-        cards.sort(key=lambda c: (c.thesis_name.casefold(), str(c.thesis_id)))
         cross = recent_cross(tape, asof)
         members.append(
             NameRow(
                 security_id=sid,
-                ticker=_display_ticker(cards),
-                cards=tuple(cards),
+                ticker=display_ticker(cards),
+                cards=cards,
                 returns=dict(tape.returns),
                 above_50d=None if tape.pct_vs_50d is None else tape.pct_vs_50d > 0,
                 rvol20=tape.rvol20,
@@ -391,10 +324,6 @@ def group_sort_key(g: GroupRow, col: str = DEFAULT_SORT) -> tuple:
     return (v is None, -(v or 0.0), g.label, g.key)
 
 
-def _link_label(segment: str | None) -> str:
-    return segment if segment is not None else "Unsegmented"
-
-
 def rotation_map(
     inputs: RotationInputs,
     identity: Mapping[UUID, Mapping[str, object]],
@@ -406,46 +335,11 @@ def rotation_map(
     """The Rotation Map payload for one view. ``identity`` maps a security to its ``business_type`` and
     ``business_supersector`` (``securities.master.identity_for``); only the type and sector views read it.
     """
-    rows = list(inputs.memberships)
-    basket_rows = len(rows)
-    silent_left_out = 0
-    if not include_silent:
-        silent_left_out = sum(1 for m in rows if m.silent)
-        rows = [m for m in rows if not m.silent]
-    unresolved = sum(1 for m in rows if m.security_id is None)
-    rows = [m for m in rows if m.security_id is not None]
-
-    def ident(sid: UUID, field_name: str) -> str | None:
-        v = (identity.get(sid) or {}).get(field_name)
-        return str(v) if v else None
-
-    buckets: dict[str, tuple[list[Membership], str, dict[str, object]]] = {}
-    for m in rows:
-        sid = m.security_id
-        assert sid is not None
-        if group_by == "link":
-            key = f"link:{m.thesis_id}:{m.segment if m.segment is not None else ''}"
-            label = f"{_link_label(m.segment)} · {m.thesis_name}"
-            meta: dict[str, object] = {
-                "link": m.segment,
-                "thesis_id": m.thesis_id,
-                "thesis_name": m.thesis_name,
-            }
-        elif group_by == "card":
-            key = f"card:{m.thesis_id}"
-            label = m.thesis_name
-            meta = {"thesis_id": m.thesis_id, "thesis_name": m.thesis_name}
-        elif group_by == "business_type":
-            bt = ident(sid, "business_type")
-            key, label, meta = f"type:{bt or ''}", bt or "Unclassified", {"business_type": bt}
-        else:
-            ss = ident(sid, "business_supersector")
-            key, label, meta = f"sector:{ss or ''}", ss or "Unclassified", {"supersector": ss}
-        buckets.setdefault(key, ([], label, meta))[0].append(m)
-
+    counted = counted_rows(inputs.memberships, include_silent)
+    rows = counted.rows
     groups = [
         _group(key, members, inputs.tapes, inputs.spy, asof, label, **meta)
-        for key, (members, label, meta) in buckets.items()
+        for key, (members, label, meta) in buckets(rows, group_by, identity).items()
     ]
     groups = _tones(groups)
     groups.sort(key=group_sort_key)
@@ -459,9 +353,9 @@ def rotation_map(
         cards_counted=inputs.cards_counted,
         cards_not_yet_created=inputs.cards_not_yet_created,
         roster_fallback_cards=inputs.roster_fallback_cards,
-        basket_rows=basket_rows,
-        silent_rows_left_out=silent_left_out,
-        unresolved_rows=unresolved,
+        basket_rows=counted.basket_rows,
+        silent_rows_left_out=counted.silent_rows_left_out,
+        unresolved_rows=counted.unresolved_rows,
         companies=len(companies),
         priced_companies=sum(1 for sid in companies if inputs.tapes.get(sid, NO_TAPE).priced),
         spy=inputs.spy,

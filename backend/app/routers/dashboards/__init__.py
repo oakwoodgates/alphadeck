@@ -6,7 +6,13 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.routers.dashboards import idea_timeline, rotation_map, shared_names, what_changed
+from app.routers.dashboards import (
+    cross_radar,
+    idea_timeline,
+    rotation_map,
+    shared_names,
+    what_changed,
+)
 
 # Each dashboard adds its own ``<slug>.py`` router module in this package (an ``APIRouter`` with
 # ``prefix="/<slug>"``, its compute in ``backend/dashboards/<slug>.py``) and ONE line to the tuple below.
@@ -17,6 +23,7 @@ _DASHBOARD_ROUTERS: tuple[APIRouter, ...] = (
     idea_timeline.router,
     rotation_map.router,
     what_changed.router,
+    cross_radar.router,
 )
 
 router = APIRouter(prefix="/dashboards", tags=["dashboards"])

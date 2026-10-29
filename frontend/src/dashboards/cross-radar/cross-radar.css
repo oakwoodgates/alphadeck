@@ -1,0 +1,102 @@
+/* Cross Radar (docs/dashboards/cross-radar.md) — its own sheet, imported by the component, never index.css
+   (docs/DASHBOARDS.md rule 8). The Rotation Map's dense dark table style (mono numbers, uppercase quiet
+   headers), its own `xr-` classes. Golden / death read in the Cockpit's return green / red (--pos / --neg).
+   Loudness marks the exception only (#7 / WB#3): a cluster row carries the full accent; a first mover a quiet
+   (mixed) one; the near-cross watch, the counts and the posture bar stay gray or muted; the timeline's ticks
+   are thin marks in the two tones. */
+
+.xr { display: flex; flex-direction: column; gap: 8px; }
+.xr-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
+.xr-seg-group { display: inline-flex; align-items: center; gap: 4px; }
+.xr-seg-label { font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); margin-right: 4px; }
+.xr-seg-btn { font: inherit; font-size: 11px; color: var(--txt-3); background: transparent; border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 9px; cursor: pointer; }
+.xr-seg-btn:hover { color: var(--txt-2); }
+.xr-seg-btn.on { color: var(--txt); background: var(--panel-2); }
+.xr-check { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--txt-2); cursor: pointer; }
+.xr-check input { accent-color: var(--txt-3); margin: 0; }
+.xr-work, .xr-legend, .xr-rule { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
+.xr-legend, .xr-rule { font-family: inherit; color: var(--txt-4); }
+.xr-empty { padding: 4px 0 2px; }
+
+/* the four sections, loudest first */
+.xr-sec { display: flex; flex-direction: column; gap: 4px; margin-top: 14px; }
+.xr-h { margin: 0; font-size: 10px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--txt-3); display: flex; align-items: center; }
+.xr-h::after { content: ""; flex: 1; height: 1px; background: var(--line); margin-left: 8px; }
+
+.xr-scroll { overflow-x: auto; margin-top: 4px; }
+table.xr-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+table.xr-table th { text-align: left; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); font-weight: 600; padding: 0 10px 8px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
+table.xr-table td { padding: 6px 10px 6px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.xr-table .xr-num { text-align: right; }
+table.xr-table th.xr-num .xr-sort { justify-content: flex-end; }
+.xr-sort { font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; display: inline-flex; align-items: center; gap: 3px; }
+.xr-sort:hover, .xr-sort.active { color: var(--txt-2); }
+.xr-sort:focus-visible { outline: 1px solid var(--line-2); outline-offset: 2px; border-radius: 2px; }
+.xr-arrow { font-size: 8px; line-height: 1; }
+
+.xr-label { color: var(--txt); font-weight: 600; white-space: nowrap; max-width: 340px; overflow: hidden; text-overflow: ellipsis; }
+.xr-v { font-family: var(--mono); font-size: 11px; color: var(--txt-3); white-space: nowrap; }
+.xr-sub { display: block; margin-top: 2px; font-family: var(--mono); font-size: 9.5px; font-weight: 400; color: var(--txt-4); white-space: nowrap; }
+.xr-tag { margin-left: 6px; font-size: 9.5px; color: var(--txt-4); border: 1px solid var(--line-2); border-radius: 5px; padding: 0 5px; white-space: nowrap; }
+
+/* a name: the ticker opens its card; chips for its other cards */
+.xr-nm { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; vertical-align: middle; }
+.xr-tk { font: inherit; font-family: var(--mono); font-weight: 700; font-size: 11px; color: var(--txt-2); background: none; border: 0; padding: 0; margin-right: 4px; cursor: pointer; }
+.xr-tk:hover { color: var(--txt); text-decoration: underline; }
+.xr-chip { font: inherit; font-size: 10.5px; padding: 1px 7px; border: 1px solid var(--line-2); border-radius: 6px; background: transparent; color: var(--txt-3); cursor: pointer; }
+.xr-chip:hover { color: var(--txt); border-color: var(--txt-4); background: var(--panel-2); }
+.xr-chip-links { color: var(--txt-4); }
+.xr-names { display: inline-flex; flex-wrap: wrap; gap: 4px 12px; }
+.xr-name { display: inline-flex; flex-direction: column; }
+
+/* golden / death: the full accent on a cluster (the loud exception), a mixed one on a first mover */
+.xr-dir { font-family: var(--mono); font-size: 11px; font-weight: 700; white-space: nowrap; }
+.xr-dir.golden { color: var(--pos); }
+.xr-dir.death { color: var(--neg); }
+.xr-dir.quiet { font-weight: 400; margin-left: 2px; }
+.xr-dir.quiet.golden { color: color-mix(in srgb, var(--pos) 55%, var(--txt-3)); }
+.xr-dir.quiet.death { color: color-mix(in srgb, var(--neg) 55%, var(--txt-3)); }
+tr.xr-cluster td:first-child { box-shadow: inset 2px 0 0 var(--gc, var(--line-2)); padding-left: 9px; }
+tr.xr-cluster.golden { --gc: var(--pos); }
+tr.xr-cluster.death { --gc: var(--neg); }
+tr.xr-mover td:first-child { box-shadow: inset 2px 0 0 var(--gc, var(--line-2)); padding-left: 9px; }
+tr.xr-mover.golden { --gc: color-mix(in srgb, var(--pos) 40%, var(--line-2)); }
+tr.xr-mover.death { --gc: color-mix(in srgb, var(--neg) 40%, var(--line-2)); }
+
+/* the near-cross watch: a quiet list under each group */
+tr.xr-near-group td { padding-top: 8px; padding-bottom: 3px; border-bottom: 0; font-weight: 600; color: var(--txt-2); }
+tr.xr-near-name td { padding-top: 3px; padding-bottom: 3px; }
+.xr-name-id { padding-left: 14px; white-space: nowrap; }
+
+/* the timeline: a group row, click to show its names */
+tr.xr-tl { cursor: pointer; }
+tr.xr-tl:hover td, tr.xr-tl.open td { background: var(--panel); }
+tr.xr-tl:focus-visible { outline: 1px solid var(--line-2); outline-offset: -1px; }
+tr.xr-tl.quiet .xr-label { color: var(--txt-3); }
+.xr-chev { display: inline-block; width: 14px; color: var(--txt-4); font-size: 10px; }
+tr.xr-tl-name td { padding-top: 3px; padding-bottom: 3px; background: color-mix(in srgb, var(--panel) 50%, transparent); }
+tr.xr-tl-name.unpriced .xr-dates { color: var(--txt-4); }
+.xr-dates { white-space: normal; max-width: 360px; }
+.xr-counts { display: inline-flex; gap: 8px; font-family: var(--mono); font-size: 11px; color: var(--txt-4); white-space: nowrap; }
+.xr-c.golden { color: color-mix(in srgb, var(--pos) 55%, var(--txt-3)); }
+.xr-c.death { color: color-mix(in srgb, var(--neg) 55%, var(--txt-3)); }
+th.xr-axis { width: 46%; min-width: 220px; }
+.xr-axis-ends { display: flex; justify-content: space-between; font-family: var(--mono); letter-spacing: 0; text-transform: none; }
+.xr-strip-cell { width: 46%; min-width: 220px; vertical-align: middle; }
+svg.xr-strip { display: block; width: 100%; height: 16px; overflow: visible; }
+.xr-base { stroke: var(--line-2); stroke-width: 1; }
+.xr-tick { stroke-width: 1.5; }
+.xr-tick.golden { stroke: var(--pos); }
+.xr-tick.death { stroke: var(--neg); }
+.xr-tick.layer { stroke-width: 1; opacity: 0.45; }
+.xr-tick.layer.up { stroke: var(--pos); }
+.xr-tick.layer.down { stroke: var(--neg); }
+
+/* the posture bar: a thin stacked bar of the four postures plus other, muted */
+.xr-posture { display: flex; width: 120px; height: 6px; margin-top: 5px; border-radius: 3px; overflow: hidden; background: var(--line); cursor: help; }
+.xr-seg { display: block; min-width: 2px; }
+.xr-seg.above_rising { background: color-mix(in srgb, var(--pos) 60%, var(--txt-4)); }
+.xr-seg.above_falling { background: color-mix(in srgb, var(--pos) 25%, var(--txt-4)); }
+.xr-seg.below_rising { background: color-mix(in srgb, var(--neg) 25%, var(--txt-4)); }
+.xr-seg.below_falling { background: color-mix(in srgb, var(--neg) 60%, var(--txt-4)); }
+.xr-seg.other { background: var(--line-2); }

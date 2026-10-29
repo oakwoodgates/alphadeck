@@ -61,4 +61,13 @@ export const DASHBOARDS: readonly DashboardEntry[] = [
     asofAware: false,
     component: lazy(() => import("./what-changed/WhatChanged")),
   },
+  {
+    slug: "cross-radar",
+    label: "Cross Radar",
+    description:
+      "Golden and death crosses by group: clusters, first movers, names closing in, and the last 90 sessions.",
+    status: "experimental",
+    asofAware: true,
+    component: lazy(() => import("./cross-radar/CrossRadar")),
+  },
 ];
