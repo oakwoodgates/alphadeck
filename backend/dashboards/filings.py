@@ -48,6 +48,7 @@ Display only (rule 1): this module READS (the point-in-time view, one SELECT) an
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -149,13 +150,16 @@ class Who(NamedTuple):
 
 
 def _f(v: Any) -> float | None:
-    """A stored number (Decimal / int / float) as a float; ``None`` and anything else stay ``None``."""
+    """A stored number (Decimal / int / float) as a float; ``None``, a non-number and a non-finite value (a
+    Postgres ``numeric`` can hold NaN) stay ``None``: a column the row does not state is left out of the words,
+    never filled in, and never fed to arithmetic that would raise."""
     if v is None or isinstance(v, bool):
         return None
     try:
-        return float(v)
+        out = float(v)
     except (TypeError, ValueError):
         return None
+    return out if math.isfinite(out) else None
 
 
 def fmt_shares(v: float) -> str:
@@ -163,7 +167,7 @@ def fmt_shares(v: float) -> str:
 
 
 def fmt_price(v: float) -> str:
-    return f"${v:,.2f}" if abs(v) >= 1 else f"${v:.4f}"
+    return f"${v:,.2f}" if abs(v) >= 1 or v == 0 else f"${v:.4f}"
 
 
 def fmt_usd(v: float) -> str:
@@ -171,22 +175,37 @@ def fmt_usd(v: float) -> str:
     return f"-${abs(v):,.0f}" if v < 0 else f"${v:,.0f}"
 
 
+# the units of a compact figure: (suffix, size, decimals shown)
+_UNITS: tuple[tuple[str, float, int], ...] = (
+    ("", 1.0, 0),
+    ("K", 1e3, 1),
+    ("M", 1e6, 1),
+    ("B", 1e9, 1),
+)
+
+
 def fmt_compact(v: float, *, dollars: bool = True) -> str:
-    """A big number in one figure ("$41.2M", "84.2M", "$845K")."""
+    """A big number in one figure ("$41.2M", "84.2M", "$845.0K"). THE ROLLOVER RULE: the figure is rounded to what
+    the page shows (a whole number below a thousand, one decimal above), and one that rounds up to 1,000 moves
+    to the next unit, so 999,949 reads "$999.9K" and 999,950 reads "$1.0M", never "$1000.0K"."""
     sign = "-" if v < 0 else ""
     a = abs(v)
-    mark = "$" if dollars else ""
-    for cut, suffix in ((1e9, "B"), (1e6, "M"), (1e3, "K")):
-        if a >= cut:
-            return f"{sign}{mark}{a / cut:.1f}{suffix}"
-    return f"{sign}{mark}{a:,.0f}"
+    i = max(k for k, (_, size, _) in enumerate(_UNITS) if a >= size or k == 0)
+    while i < len(_UNITS) - 1 and round(a / _UNITS[i][1], _UNITS[i][2]) >= 1000:
+        i += 1
+    suffix, size, decimals = _UNITS[i]
+    return f"{sign}{'$' if dollars else ''}{a / size:,.{decimals}f}{suffix}"
+
+
+def _instant(v: datetime) -> datetime:
+    """An instant as an aware UTC datetime (a naive one is read as UTC), so instants can be compared and
+    ordered whatever mix a filing's rows hold."""
+    return v.replace(tzinfo=timezone.utc) if v.tzinfo is None else v.astimezone(timezone.utc)
 
 
 def et_date(instant: datetime) -> date:
     """The market-time (ET) calendar date of an instant; a naive datetime is read as UTC."""
-    if instant.tzinfo is None:
-        instant = instant.replace(tzinfo=timezone.utc)
-    return instant.astimezone(market_tz()).date()
+    return _instant(instant).astimezone(market_tz()).date()
 
 
 def _day(v: Any) -> date | None:
@@ -325,7 +344,7 @@ def _text_list(rows: Sequence[Mapping[str, Any]], key: str) -> tuple[bool, list[
         if v is None:
             continue
         captured = True
-        for t in v:
+        for t in [v] if isinstance(v, str) else v:
             t = " ".join(str(t).split())
             if t and t not in out:
                 out.append(t)
@@ -356,22 +375,27 @@ def _txn_line(r: Mapping[str, Any]) -> str:
     return " · ".join(parts)
 
 
-def _code_summary(code: str, rows: Sequence[Mapping[str, Any]]) -> tuple[str, float]:
-    """ "P purchase 12,000 sh @ $4.10 · $49,200" for one code's rows, and its dollar total. The price is the
+def _code_summary(code: str, rows: Sequence[Mapping[str, Any]]) -> tuple[str, float | None]:
+    """ "P purchase 12,000 sh @ $4.10 · $49,200" for one code's rows, and its dollar total (``None`` when no row
+    states dollars, or shares and a price to make them from: a total is never filled in). The price is the
     shares-weighted mean over the rows that state both."""
     label = FORM4_CODE_LABELS.get(code)
     head = f"{code} {label}" if label else code
     shares = [(_f(r.get("shares")), _f(r.get("price")), _f(r.get("usd"))) for r in rows]
     total_sh = sum(s for s, _, _ in shares if s is not None)
     priced = [(s, p) for s, p, _ in shares if s is not None and p is not None]
-    mean_px = sum(s * p for s, p in priced) / sum(s for s, _ in priced) if priced else None
-    if not any(u is not None for _, _, u in shares) and priced:
-        total_usd = sum(s * p for s, p in priced)
-    else:
-        total_usd = sum(u for _, _, u in shares if u is not None)
+    # The mean price is weighted by shares, so it needs a positive weight: a real Form 4 row can state a price
+    # against a share count of zero (the stream's first 500 on dev). With no weight there is no mean to state,
+    # and a column the rows do not state is left out of the phrase, never filled in.
+    weight = sum(s for s, _ in priced if s > 0)
+    mean_px = sum(s * p for s, p in priced if s > 0) / weight if weight > 0 else None
+    stated = [u for _, _, u in shares if u is not None]
+    total_usd = sum(stated) if stated else (sum(s * p for s, p in priced) if priced else None)
     # "P purchase 12,000 sh @ $4.10 · $49,200": the code and its shares read as one phrase, the dollars after
     if any(s is not None for s, _, _ in shares):
-        head += f" {fmt_shares(total_sh)} sh" + (f" @ {fmt_price(mean_px)}" if mean_px else "")
+        head += f" {fmt_shares(total_sh)} sh" + (
+            f" @ {fmt_price(mean_px)}" if mean_px is not None else ""
+        )
     return (f"{head} · {fmt_usd(total_usd)}" if total_usd else head), total_usd
 
 
@@ -391,10 +415,8 @@ def _form4_group(accession: str, rows: Sequence[Mapping[str, Any]], who: Who) ->
     for code in sorted(by_code, key=_code_key):
         text, total = _code_summary(code, by_code[code])
         summaries.append(text)
-        if code == "P":
-            net, has_net = net + total, True
-        elif code == "S":
-            net, has_net = net - total, True
+        if total is not None and code in ("P", "S"):
+            net, has_net = net + (total if code == "P" else -total), True
 
     detail = [_txn_line(r) for r in rows]
     joint = list(
@@ -430,8 +452,11 @@ def _form4_group(accession: str, rows: Sequence[Mapping[str, Any]], who: Who) ->
     if any(r.get("aff_10b5_1") is True for r in rows):
         tags.append(TAG_10B5_1)
 
-    accepted = [a for a in (r.get("accepted") for r in rows) if isinstance(a, datetime)]
-    held_since = [r["recorded_at"] for r in rows if isinstance(r.get("recorded_at"), datetime)]
+    # instants are read as aware UTC before they are ordered, so a mix of aware and naive stamps cannot raise
+    accepted = [_instant(a) for a in (r.get("accepted") for r in rows) if isinstance(a, datetime)]
+    held_since = [
+        _instant(r["recorded_at"]) for r in rows if isinstance(r.get("recorded_at"), datetime)
+    ]
     # the public date: SEC acceptance (market time); a filing with none counts from the instant we first held it
     # (the public clock's own never-early rule for it)
     if accepted:
@@ -837,6 +862,14 @@ def rows_from_dilution(facts: Iterable[Mapping[str, Any]], who: Who) -> list[Fil
 # --- ratified catalysts and facts ---------------------------------------------------------------------------
 
 
+def _source_line(f: Mapping[str, Any]) -> str:
+    """ "Source: ratified, ratified by operator": only the parts the row states."""
+    parts = [str(f["source"])] if f.get("source") else []
+    if f.get("ratified_by"):
+        parts.append(f"ratified by {f['ratified_by']}")
+    return "Source: " + (", ".join(parts) if parts else "not stated")
+
+
 def rows_from_catalysts(facts: Iterable[Mapping[str, Any]], who: Who) -> list[FilingRow]:
     """One row per ratified catalyst, dated by its event date (``valid_from``; a future-dated one appears once
     its day passes, the as-of read sees to that). The card-level catalysts are the Catalyst Calendar's.
@@ -847,12 +880,13 @@ def rows_from_catalysts(facts: Iterable[Mapping[str, Any]], who: Who) -> list[Fi
         if day is None:
             continue
         ctype = str(f.get("catalyst_type") or "catalyst").replace("_", " ")
-        detail = [f"Type: {ctype}", f"Grade: {f.get('grade')}"]
+        detail = [f"Type: {ctype}"]
+        if f.get("grade"):
+            detail.append(f"Grade: {f['grade']}")
         horizon = _day(f.get("horizon_end"))
         if horizon:
             detail.append(f"Signal horizon ends {horizon}")
-        by = f", ratified by {f['ratified_by']}" if f.get("ratified_by") else ""
-        detail.append(f"Source: {f.get('source')}{by}")
+        detail.append(_source_line(f))
         out.append(
             FilingRow(
                 security_id=who.security_id,
@@ -860,7 +894,7 @@ def rows_from_catalysts(facts: Iterable[Mapping[str, Any]], who: Who) -> list[Fi
                 kind="catalyst",
                 form="catalyst",
                 date=day,
-                headline=f"{ctype}: {f.get('label')}",
+                headline=f"{ctype}: {f.get('label') or 'no label stated'}",
                 detail=tuple(detail),
                 url=source_url(f.get("source_ref"), who.cik),
                 accession=_accession_of(f.get("source_ref")),
@@ -879,8 +913,7 @@ def _ratified_row(f: Mapping[str, Any], who: Who, headline: str) -> FilingRow | 
     detail = []
     if _day(f.get("valid_from")):
         detail.append(f"Period or cover date: {_day(f.get('valid_from'))}")
-    by = f", ratified by {f['ratified_by']}" if f.get("ratified_by") else ""
-    detail.append(f"Source: {f.get('source')}{by}")
+    detail.append(_source_line(f))
     return FilingRow(
         security_id=who.security_id,
         ticker=who.ticker,

@@ -184,6 +184,30 @@ describe("the words", () => {
     expect(usdHint({ kind: "revenue", usd: 5 })).toBeNull();
   });
 
+  it.each([
+    [0, "$0"],
+    [999.4, "$999"],
+    [999.5, "$1.0K"],
+    [999_949, "$999.9K"],
+    [999_950, "$1.0M"],
+    [999_949_999, "$999.9M"],
+    [999_950_000, "$1.0B"],
+    [-999_949, "-$999.9K"],
+    [-999_950, "-$1.0M"],
+  ])(
+    "rolls to the next unit once the shown figure rounds to 1,000 (one decimal above a thousand): %d is %s, never $1000.0K",
+    (value, words) => {
+      expect(compactUsd(value)).toBe(words);
+    },
+  );
+
+  it("shows the dollar hint's rollover too: a $999,950 net sale is -$1.0M net, not -$1000.0K", () => {
+    expect(usdHint({ kind: "form4", usd: -999_950 })).toBe("-$1.0M net");
+    expect(usdHint({ kind: "form4", usd: 999_950 })).toBe("+$1.0M net");
+    expect(usdHint({ kind: "form4", usd: -999_949 })).toBe("-$999.9K net");
+    expect(usdHint({ kind: "dilution", usd: 999_950_000 })).toBe("$1.0B");
+  });
+
   it("filters the picker by name (any case), in the server's order", () => {
     const cards = [
       { thesis_id: "1", name: "Copper", links: 4 },

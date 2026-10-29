@@ -35,15 +35,20 @@
 .fs-chip:hover { color: var(--txt); border-color: var(--txt-4); background: var(--panel-2); }
 .fs-form { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .fs-main { min-width: 0; font-size: 12px; line-height: 1.45; color: var(--txt-2); }
-.fs-head { font: inherit; text-align: left; color: var(--txt-2); background: none; border: 0; padding: 0; cursor: pointer; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
-.fs-head:hover { color: var(--txt); }
+/* Interaction states are NEUTRAL, never a state color (#7 / WB#3: loudness marks the exception, not hover or open).
+   Every state of the headline, the fold line and the source link is set here from the text tokens, so none is left
+   to a browser default (a button's :active, a link's :visited / :active): rest = --txt-2, hover and open = the
+   brighter --txt with a faint underline, the open row on a faint panel ground. Never --pos / --neg / --armed. */
+.fs-head { font: inherit; text-align: left; color: var(--txt-2); -webkit-text-fill-color: currentcolor; background: none; border: 0; padding: 0; cursor: pointer; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; text-decoration: none; }
+.fs-head:focus, .fs-head:active { color: var(--txt-2); }
+.fs-head:hover, .fs-head[aria-expanded="true"] { color: var(--txt); text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 3px; }
 .fs-head:focus-visible, .fs-fold:focus-visible { outline: 1px solid var(--line-2); outline-offset: 2px; border-radius: 2px; }
-.fs-head.plain { cursor: default; }
-.fs-head.plain:hover { color: var(--txt-2); }
+.fs-head.plain, .fs-head.plain:hover { cursor: default; color: var(--txt-2); text-decoration: none; }
+.fs-row.open { background: color-mix(in srgb, var(--panel) 70%, transparent); border-radius: 4px; }
 .fs-chev { display: inline-block; width: 12px; color: var(--txt-4); font-size: 10px; }
 .fs-tag { margin-left: 8px; font-family: var(--mono); font-size: 9.5px; color: var(--txt-3); white-space: nowrap; }
 .fs-usd { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.fs-src { font-family: var(--mono); font-size: 10px; color: var(--txt-3); text-align: right; text-decoration: none; white-space: nowrap; }
+.fs-src, .fs-src:visited, .fs-src:active { font-family: var(--mono); font-size: 10px; color: var(--txt-3); text-align: right; text-decoration: none; white-space: nowrap; }
 .fs-src:hover { color: var(--txt); text-decoration: underline; text-underline-offset: 3px; }
 
 /* the expanded row: an indented block under its line */
@@ -54,8 +59,8 @@
 
 /* the fold: a day's routine Form 4s as one quiet line that expands in place */
 .fs-fold-item { padding: 2px 0; }
-.fs-fold { font: inherit; font-size: 11.5px; color: var(--txt-3); background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
-.fs-fold:hover { color: var(--txt-2); }
+.fs-fold, .fs-fold:focus, .fs-fold:active { font: inherit; font-size: 11.5px; color: var(--txt-3); background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
+.fs-fold:hover, .fs-fold[aria-expanded="true"] { color: var(--txt-2); }
 .fs-folded { margin: 2px 0 4px 12px; padding-left: 10px; border-left: 1px solid var(--line); }
 
 .fs-work { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }

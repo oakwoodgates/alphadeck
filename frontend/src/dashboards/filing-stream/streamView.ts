@@ -91,14 +91,24 @@ export function fmtDayHeader(d: string): string {
   });
 }
 
-/** A dollar figure in one short piece ("$49.2K", "$350.0M"). */
+// the units of a compact figure: its suffix, its size and the decimals shown
+const UNITS = [
+  { suffix: "", size: 1, decimals: 0 },
+  { suffix: "K", size: 1e3, decimals: 1 },
+  { suffix: "M", size: 1e6, decimals: 1 },
+  { suffix: "B", size: 1e9, decimals: 1 },
+] as const;
+
+/** A dollar figure in one short piece ("$49.2K", "$350.0M"). THE ROLLOVER RULE (the server's `fmt_compact`): the
+ *  figure is rounded to what is shown (a whole number below a thousand, one decimal above) and one that rounds up
+ *  to 1,000 moves to the next unit, so 999,949 is "$999.9K" and 999,950 is "$1.0M", never "$1000.0K". */
 export function compactUsd(v: number): string {
   const a = Math.abs(v);
-  const sign = v < 0 ? "-" : "";
-  if (a >= 1e9) return `${sign}$${(a / 1e9).toFixed(1)}B`;
-  if (a >= 1e6) return `${sign}$${(a / 1e6).toFixed(1)}M`;
-  if (a >= 1e3) return `${sign}$${(a / 1e3).toFixed(1)}K`;
-  return `${sign}$${a.toFixed(0)}`;
+  let i = 0;
+  while (i < UNITS.length - 1 && a >= UNITS[i + 1].size) i++;
+  while (i < UNITS.length - 1 && Number((a / UNITS[i].size).toFixed(UNITS[i].decimals)) >= 1000) i++;
+  const u = UNITS[i];
+  return `${v < 0 ? "-" : ""}$${(a / u.size).toFixed(u.decimals)}${u.suffix}`;
 }
 
 /** The row's dollar size for the compact hint at the line's end: a Form 4's purchases minus sales (signed) and a

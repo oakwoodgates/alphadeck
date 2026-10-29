@@ -296,3 +296,21 @@ the build fixed them sensibly and says how.
 27. **Not measured:** the payload and compute time of a 365-day window on a large card with real data (this build ran on
     hand-built rows and the test database). A 365-day Form 4 history for a 150-name card is the heaviest case; the
     cache computes it once per card and as-of. Check it on dev with a prod copy before relying on it.
+28. **A row states only what it states (found on dev with a prod copy).** A real Form 4 row can state a price against a
+    share count of zero, which broke the shares-weighted mean price (a 500 on two large cards). The mean now needs a
+    positive share weight; without one the "@ $price" is left out of the phrase (the row's own detail line still shows
+    its stated price). A Form 4's net dollars are empty unless some row states dollars (or shares and a price to make
+    them from), never `$0`. A stored number that is NaN or infinite reads as not stated; a stated price of exactly zero
+    (a grant) reads "$0.00". The aware and naive stamps of one filing are read as UTC before they are ordered. Nothing
+    in the reader catches an exception: a bug stays visible, so the normalizers are made total over what a row can hold
+    instead (a test runs every mix of stated, zero, missing and non-finite numbers).
+29. **Compact figures roll over:** a figure is rounded to what is shown (a whole number below a thousand, one decimal
+    above) and one that rounds up to 1,000 moves to the next unit, so 999,949 reads "$999.9K" and 999,950 reads "$1.0M"
+    (the dollar hint on a row said "-$1000.0K net"). The server's `fmt_compact` and the page's `compactUsd` share the
+    rule. They differ only on an exact binary tie such as 1.25 (Python rounds to even, the browser up).
+30. **Hover and open are neutral.** The headline, the fold line and the source link set every state from the text tokens
+    (brighter text, a faint underline, a faint panel ground on the open row) and never `--pos` / `--neg` / `--armed`; a
+    test scans the stylesheet for any state color. The red headline seen on dev could not be reproduced here (the
+    computed color of the open headline is `--txt`, and no rule in the app's sheets reaches it), so every state is now
+    explicit instead of left to a default; if it shows again, the computed color in the browser's inspector says which
+    rule it is.
