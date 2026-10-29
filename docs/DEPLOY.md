@@ -46,6 +46,11 @@ bash scripts/deploy.sh --label pre-deploy-pr123 --dry-run backend cron    # the 
 bash scripts/deploy.sh --label pre-deploy-pr123 backend cron              # backup, build, restart rule, verify
 bash scripts/deploy.sh --env-only cron                                    # a cron ENV change: recreate, no build
 ```
+- **Run it from Git Bash, not PowerShell's `bash`.** On this Windows host, `bash` typed in PowerShell
+  or cmd resolves to `C:\Windows\System32\bash.exe` (and a `WindowsApps` alias), which is **WSL**:
+  another filesystem and PATH world in which this checkout's Windows paths and tools do not exist.
+  Open a Git Bash terminal, or from PowerShell call it by path:
+  `& "C:\Program Files\Git\bin\bash.exe" scripts/deploy.sh --label pre-deploy-pr123 backend cron`.
 - **Services:** any of `frontend`, `backend`, `cron`, chosen by "The load-bearing fact" above and the
   cron caveat below. A build needs `--label`, which names the pre-deploy backup (a labeled dump is
   prune-exempt).
@@ -78,13 +83,22 @@ bash scripts/deploy.sh --env-only cron                                    # a cr
 
   It lists every refusal in one run. A bad invocation, such as an unknown service or no `--label`,
   exits 2.
+- **Local reads try two addresses.** Every read of the stack (`/admin/status` on :8000, `/api/health` on
+  :8080) tries `[::1]` first, then `127.0.0.1`, with one short retry at each (`DEPLOY_RETRY_S`, default
+  1 s), and fails only when every address fails; the `ok:` line says which one answered. It never uses
+  plain `localhost`. On 2026-10-29 Docker Desktop's IPv4 loopback forward reset
+  (`curl: (56) Recv failure: Connection was reset`) while the same stack answered on `[::1]` in 0.3 s,
+  and a deploy refused a healthy prod twice. Nothing else loosened: an unreadable status still
+  refuses (fail-closed), and an address that answers with something the script cannot read as a known
+  `cron.status` refuses rather than falling through to the next. If `curl http://localhost:8000/...`
+  resets by hand, use `curl -g "http://[::1]:8000/..."` (`-g`, so curl does not glob the brackets).
 - **Then:** the backup (step 1 below), then the rebuild with `GIT_SHA` read from
   `git rev-parse HEAD` (never an argument; a `GIT_SHA` already in the shell is ignored). If the
   backend was rebuilt without the frontend, it runs `docker restart alphadeck-frontend-1`. Then it
   verifies.
 - **Verification** exits 0 only if every check passes, else 5:
   - the backend is `healthy`;
-  - `:8080/api/health` answers 200 (the proxy);
+  - `:8080/api/health` answers 200 at `[::1]` or `127.0.0.1` (the proxy);
   - `ALPHADECK_IMAGE_SHA` in each REBUILT backend/cron container equals the sha built (after an
     env-only recreate: unchanged);
   - the cron container is running and, when recreated, printed its boot lines (the tail is shown);
