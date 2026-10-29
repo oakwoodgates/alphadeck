@@ -178,3 +178,4 @@ the data flags). Its plan is `docs/BOARD.md`.
 | Catalyst Calendar | `catalyst-calendar` | experimental | [`docs/dashboards/catalyst-calendar.md`](dashboards/catalyst-calendar.md) |
 | Leaders | `leaders` | experimental | [`docs/dashboards/leaders.md`](dashboards/leaders.md) |
 | Price & Volume Landing | `landing` | experimental | [`docs/dashboards/landing.md`](dashboards/landing.md) |
+| Narrative Index | `narrative-index` | experimental | [`docs/dashboards/narrative-index.md`](dashboards/narrative-index.md) |
