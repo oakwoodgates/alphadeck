@@ -7,6 +7,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from app.routers.dashboards import (
+    catalyst_calendar,
     cross_radar,
     idea_timeline,
     rotation_map,
@@ -24,6 +25,7 @@ _DASHBOARD_ROUTERS: tuple[APIRouter, ...] = (
     rotation_map.router,
     what_changed.router,
     cross_radar.router,
+    catalyst_calendar.router,
 )
 
 router = APIRouter(prefix="/dashboards", tags=["dashboards"])

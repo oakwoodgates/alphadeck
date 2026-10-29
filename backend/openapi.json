@@ -4141,6 +4141,28 @@
         }
       }
     },
+    "/dashboards/catalyst-calendar": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Catalyst Calendar",
+        "description": "Every live card's dated catalysts and its latest call's entry window and exit-by, bucketed from today,\nwith the passed catalysts and the undated ones per card. A \"now\" view; archived cards are excluded.",
+        "operationId": "catalyst_calendar_dashboards_catalyst_calendar_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalystCalendarOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/backtest/runs": {
       "get": {
         "tags": [
@@ -10093,6 +10115,326 @@
           "label"
         ],
         "title": "Catalyst"
+      },
+      "CatalystCalendarBucketOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "enum": [
+              "this_week",
+              "next_week",
+              "next_30_days",
+              "days_31_90",
+              "later"
+            ],
+            "title": "Key"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "start": {
+            "type": "string",
+            "format": "date",
+            "title": "Start"
+          },
+          "end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CatalystCalendarItemOut"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "start",
+          "end",
+          "items"
+        ],
+        "title": "CatalystCalendarBucketOut",
+        "description": "One stretch of the upcoming calendar, ``start`` to ``end`` inclusive (``end`` is ``null`` for \"later\").\nA week starts on Monday. Items by date, then card name."
+      },
+      "CatalystCalendarItemOut": {
+        "properties": {
+          "item": {
+            "type": "string",
+            "enum": [
+              "catalyst",
+              "entry_window",
+              "exit_by"
+            ],
+            "title": "Item"
+          },
+          "on": {
+            "type": "string",
+            "format": "date",
+            "title": "On"
+          },
+          "days": {
+            "type": "integer",
+            "title": "Days"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "when_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "When Label"
+          },
+          "catalyst_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Catalyst Id"
+          },
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State"
+          }
+        },
+        "type": "object",
+        "required": [
+          "item",
+          "on",
+          "days",
+          "label",
+          "kind",
+          "when_label",
+          "catalyst_id",
+          "thesis_id",
+          "thesis_name",
+          "state"
+        ],
+        "title": "CatalystCalendarItemOut",
+        "description": "One dated line: a catalyst (``item = catalyst``) or one of a card's two deadlines from its latest call\n(``entry_window`` = \"entry window ends\" at ``arm_until``, ``exit_by`` = \"exit-by\"). ``days`` = calendar\ndays from today (0 = today, negative = passed). ``kind`` / ``when_label`` / ``catalyst_id`` are the\ncatalyst's own (``null`` on a deadline). ``state`` = the card's latest recorded state (``null`` = no\nrecorded call yet)."
+      },
+      "CatalystCalendarOut": {
+        "properties": {
+          "today": {
+            "type": "string",
+            "format": "date",
+            "title": "Today"
+          },
+          "live_cards": {
+            "type": "integer",
+            "title": "Live Cards"
+          },
+          "cards_without_calls": {
+            "type": "integer",
+            "title": "Cards Without Calls"
+          },
+          "cards_without_catalysts": {
+            "type": "integer",
+            "title": "Cards Without Catalysts"
+          },
+          "catalysts": {
+            "type": "integer",
+            "title": "Catalysts"
+          },
+          "dated": {
+            "type": "integer",
+            "title": "Dated"
+          },
+          "upcoming_catalysts": {
+            "type": "integer",
+            "title": "Upcoming Catalysts"
+          },
+          "passed_catalysts": {
+            "type": "integer",
+            "title": "Passed Catalysts"
+          },
+          "undated": {
+            "type": "integer",
+            "title": "Undated"
+          },
+          "deadlines": {
+            "type": "integer",
+            "title": "Deadlines"
+          },
+          "buckets": {
+            "items": {
+              "$ref": "#/components/schemas/CatalystCalendarBucketOut"
+            },
+            "type": "array",
+            "title": "Buckets"
+          },
+          "passed": {
+            "items": {
+              "$ref": "#/components/schemas/CatalystCalendarItemOut"
+            },
+            "type": "array",
+            "title": "Passed"
+          },
+          "undated_groups": {
+            "items": {
+              "$ref": "#/components/schemas/CatalystCalendarUndatedGroupOut"
+            },
+            "type": "array",
+            "title": "Undated Groups"
+          }
+        },
+        "type": "object",
+        "required": [
+          "today",
+          "live_cards",
+          "cards_without_calls",
+          "cards_without_catalysts",
+          "catalysts",
+          "dated",
+          "upcoming_catalysts",
+          "passed_catalysts",
+          "undated",
+          "deadlines",
+          "buckets",
+          "passed",
+          "undated_groups"
+        ],
+        "title": "CatalystCalendarOut",
+        "description": "The whole page: the five upcoming buckets (empty ones included), the passed catalysts (newest first;\na passed deadline is never listed) and the undated catalysts per card (most first). The counts are the\nwork shown on its quiet line."
+      },
+      "CatalystCalendarUndatedGroupOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          },
+          "catalysts": {
+            "items": {
+              "$ref": "#/components/schemas/CatalystCalendarUndatedOut"
+            },
+            "type": "array",
+            "title": "Catalysts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "thesis_name",
+          "state",
+          "count",
+          "catalysts"
+        ],
+        "title": "CatalystCalendarUndatedGroupOut",
+        "description": "One card's catalysts with no date, in the card's own order (a ``when_label`` is never turned into a\ndate)."
+      },
+      "CatalystCalendarUndatedOut": {
+        "properties": {
+          "catalyst_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Catalyst Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "when_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "When Label"
+          }
+        },
+        "type": "object",
+        "required": [
+          "catalyst_id",
+          "label",
+          "kind",
+          "when_label"
+        ],
+        "title": "CatalystCalendarUndatedOut"
       },
       "CatalystIn": {
         "properties": {

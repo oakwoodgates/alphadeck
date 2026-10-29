@@ -70,4 +70,13 @@ export const DASHBOARDS: readonly DashboardEntry[] = [
     asofAware: true,
     component: lazy(() => import("./cross-radar/CrossRadar")),
   },
+  {
+    slug: "catalyst-calendar",
+    label: "Catalyst Calendar",
+    description:
+      "Every dated catalyst and card deadline across your cards, with passed ones to prune and undated ones to date.",
+    status: "experimental",
+    asofAware: false,
+    component: lazy(() => import("./catalyst-calendar/CatalystCalendar")),
+  },
 ];
