@@ -62,3 +62,5 @@ table.ld-table td.ld-name-id { padding-left: 14px; white-space: nowrap; }
 .ld-chip:hover { color: var(--txt); border-color: var(--txt-4); background: var(--panel-2); }
 .ld-chip-links { color: var(--txt-4); }
 .ld-off { margin-left: 8px; font-family: var(--mono); font-size: 9.5px; color: var(--txt-4); }
+/* a name left out for a flagged price history: grayed, never gone (WB#2) */
+tr.ld-name.flagged td { opacity: 0.6; }

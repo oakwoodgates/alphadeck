@@ -19,6 +19,7 @@ from dashboards.baskets import (
     counted_rows,
     display_members,
     display_ticker,
+    flagged_in_view,
     group_of,
     link_label,
     memberships_of,
@@ -360,3 +361,21 @@ def test_reaches_price_is_the_price_group_cells_and_nothing_else():
     )  # history only: the kind could reach price, this flag does not
     assert price_reason([flag(()), flag(("rvol8",))]) is None
     assert price_reason([flag(("ret_1y",)), flag(("ret_90d",))]) == "mixed-scale price history"
+
+
+def test_flagged_in_view_names_each_flagged_company_once_by_ticker_under_its_display_ticker():
+    """A company on two cards is named once, under the ticker most of its cards use; a flagged company out of
+    view (not on the rows) is not named; no flags = nothing."""
+    out_of_view = uuid.uuid4()
+    rows = [
+        ms(T1, "Grid", "ZZZ", A),
+        ms(T2, "Nuclear", "ZZZ", A, "Fuel"),
+        ms(T2, "Nuclear", "AAA", B, "Fuel"),
+    ]
+    flagged = {A: "mixed-scale price history", B: "price feed stopped", out_of_view: "x"}
+    got = flagged_in_view(rows, flagged)
+    assert [(f.security_id, f.ticker, f.reason) for f in got] == [
+        (B, "AAA", "price feed stopped"),
+        (A, "ZZZ", "mixed-scale price history"),
+    ]
+    assert flagged_in_view(rows, {}) == ()

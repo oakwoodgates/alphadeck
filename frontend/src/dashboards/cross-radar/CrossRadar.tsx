@@ -1,6 +1,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 
 import { fmtDate } from "../../util/format";
+import { FlaggedNote, leftOutWords } from "../FlaggedNote";
 import type { DashboardProps } from "../registry";
 import "./cross-radar.css";
 import {
@@ -68,7 +69,7 @@ function workLine(d: CrossRadarOut): string {
     d.cards_not_yet_created > 0
       ? `${plural(d.cards_counted, "live card", "live cards")} counted (${d.cards_not_yet_created} created after the as-of left out)`
       : `${plural(d.cards_counted, "live card", "live cards")} counted`;
-  const notPriced = d.companies - d.priced_companies;
+  const notPriced = d.companies - d.priced_companies - d.flagged.length;
   return [
     cards,
     plural(d.companies, "company", "companies"),
@@ -461,6 +462,7 @@ function PostureBar({ p }: { p: CrossPostureOut }) {
 }
 
 function crossWords(m: CrossTimelineNameOut, d: CrossRadarOut): string {
+  if (m.flag != null) return leftOutWords(m.flag);
   if (!m.priced) {
     return m.not_priced === "stale_tape" && m.last_bar
       ? `not priced: last bar ${fmtDay(m.last_bar)}`
@@ -523,6 +525,7 @@ function TimelineRow({
           <span className="xr-sub">
             {plural(row.group.names, "name", "names")}
             {row.group.not_priced > 0 ? ` · ${row.group.not_priced} not priced` : ""}
+            {row.group.flagged > 0 ? ` · ${row.group.flagged} left out` : ""}
           </span>
         </td>
         <td className="xr-num">
@@ -539,7 +542,10 @@ function TimelineRow({
         row.members.map((m) => {
           const g = m.crosses.filter((c) => c.direction === "golden").length;
           return (
-            <tr key={m.security_id} className={`xr-tl-name${m.priced ? "" : " unpriced"}`}>
+            <tr
+              key={m.security_id}
+              className={`xr-tl-name${m.priced ? "" : " unpriced"}${m.flag != null ? " flagged" : ""}`}
+            >
               <td className="xr-name-id">
                 <NameLink ticker={m.ticker} cards={m.cards} groupBy={view} onSelect={onSelect} />
               </td>
@@ -681,6 +687,7 @@ export default function CrossRadar({ asof, onSelectThesis }: DashboardProps) {
         )}
       </div>
       <div className="dash-note xr-work">{workLine(data)}</div>
+      <FlaggedNote flagged={data.flagged} />
       {data.roster_fallback_cards > 0 && (
         <div className="dash-note xr-work">
           Today's roster stands in for {plural(data.roster_fallback_cards, "card", "cards")}: rosters are

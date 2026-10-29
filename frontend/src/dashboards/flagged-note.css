@@ -1,0 +1,7 @@
+/* The shared "left out for a flagged price history" note (FlaggedNote.tsx): quiet gray, one line until opened. */
+
+.dash-flagged { font-family: var(--mono); font-size: 10.5px; color: var(--txt-4); }
+.dash-flagged summary { cursor: pointer; width: fit-content; }
+.dash-flagged summary:hover { color: var(--txt-3); }
+.dash-flagged-list { list-style: none; margin: 4px 0 2px; padding: 0 0 0 14px; display: flex; flex-direction: column; gap: 2px; }
+.dash-flagged-tk { display: inline-block; min-width: 56px; font-weight: 700; color: var(--txt-3); }

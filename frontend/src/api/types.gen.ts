@@ -1997,7 +1997,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/dashboards/shared-names": {
+    "/dashboards/catalyst-calendar": {
         parameters: {
             query?: never;
             header?: never;
@@ -2005,11 +2005,35 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Shared Names
-         * @description The companies on more than one live card (matched by security), the cards each sits on, and every
-         *     pair of cards that shares a company. A "now" view of today's baskets; archived cards are excluded.
+         * Catalyst Calendar
+         * @description Every live card's dated catalysts and its latest call's entry window and exit-by, bucketed from today,
+         *     with the passed catalysts and the undated ones per card. A "now" view; archived cards are excluded.
          */
-        get: operations["shared_names_dashboards_shared_names_get"];
+        get: operations["catalyst_calendar_dashboards_catalyst_calendar_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboards/cross-radar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Cross Radar
+         * @description Golden and death crosses (the 50-day SMA crossing the 200-day) by link, business type, sector or card:
+         *     clusters (several names crossing the same way within 10 sessions), first movers (exactly one), names
+         *     within 2% of a cross and narrowing, and every cross of the last 90 sessions with each group's posture. A
+         *     name whose data flags reach its price readings is left out of everything and listed. Display only; a
+         *     past as-of reads what was public by the end of that date.
+         */
+        get: operations["cross_radar_dashboards_cross_radar_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2040,7 +2064,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/dashboards/rotation-map": {
+    "/dashboards/landing": {
         parameters: {
             query?: never;
             header?: never;
@@ -2048,80 +2072,15 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Rotation Map
-         * @description Which links, business types, sectors or cards have price moving: per group, the median 1d / 7d /
-         *     30d / 90d / 1Y return with how many names are up, the share above the 50-day SMA, the median 20-day
-         *     RVOL, golden / death crosses in the last 30 days and RS leaders, with each group's names. Display only;
-         *     a past as-of reads what was public by the end of that date.
+         * Landing
+         * @description Where price closed in each window's range, and whether volume backed the move, by link, business
+         *     type, sector or card: per group and per window (1D / 7D / 30D / 90D trading bars), the median range
+         *     position, the split of names by return x volume (accumulation, thin rally, distribution, rest, flat)
+         *     and the median up/down-day volume, with each group's names. A name whose data flags reach its price
+         *     readings is left out of every aggregate and listed. Display only; a past as-of reads what was public by
+         *     the end of that date.
          */
-        get: operations["rotation_map_dashboards_rotation_map_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/dashboards/what-changed": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * What Changed
-         * @description What moved on the live cards between the baseline night and the newest recorded night (states, keys,
-         *     armed and watch names, triggers and risk signals), plus the clocks coming due on the newest one. A "now"
-         *     view of the recorded calls; archived cards are excluded. A picked date after the newest recorded night,
-         *     or before the first, is a 422.
-         */
-        get: operations["what_changed_dashboards_what_changed_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/dashboards/cross-radar": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Cross Radar
-         * @description Golden and death crosses (the 50-day SMA crossing the 200-day) by link, business type, sector or card:
-         *     clusters (several names crossing the same way within 10 sessions), first movers (exactly one), names
-         *     within 2% of a cross and narrowing, and every cross of the last 90 sessions with each group's posture.
-         *     Display only; a past as-of reads what was public by the end of that date.
-         */
-        get: operations["cross_radar_dashboards_cross_radar_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/dashboards/catalyst-calendar": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Catalyst Calendar
-         * @description Every live card's dated catalysts and its latest call's entry window and exit-by, bucketed from today,
-         *     with the passed catalysts and the undated ones per card. A "now" view; archived cards are excluded.
-         */
-        get: operations["catalyst_calendar_dashboards_catalyst_calendar_get"];
+        get: operations["landing_dashboards_landing_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2141,34 +2100,11 @@ export interface paths {
          * Leaders
          * @description Names across every card within 2% of their 52-week high, with relative strength at a 13-week high,
          *     coiling, with open-market insider buys in the last 30 days, or with RVOL 20D at 1.5 or more; the names on
-         *     several of those lists; and the groups where at least two names had insider buys. One row per company.
-         *     Display only; a past as-of reads what was public by the end of that date.
+         *     several of those lists; and the groups where at least two names had insider buys. One row per company. A
+         *     name whose data flags reach its price readings is on no list and in no group, and is listed. Display
+         *     only; a past as-of reads what was public by the end of that date.
          */
         get: operations["leaders_dashboards_leaders_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/dashboards/landing": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Landing
-         * @description Where price closed in each window's range, and whether volume backed the move, by link, business
-         *     type, sector or card: per group and per window (1D / 7D / 30D / 90D trading bars), the median range
-         *     position, the split of names by return x volume (accumulation, thin rally, distribution, rest, flat)
-         *     and the median up/down-day volume, with each group's names. Display only; a past as-of reads what was
-         *     public by the end of that date.
-         */
-        get: operations["landing_dashboards_landing_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2223,6 +2159,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboards/rotation-map": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Rotation Map
+         * @description Which links, business types, sectors or cards have price moving: per group, the median 1d / 7d /
+         *     30d / 90d / 1Y return with how many names are up, the share above the 50-day SMA, the median 20-day
+         *     RVOL, golden / death crosses in the last 30 days and RS leaders, with each group's names. A name whose
+         *     data flags reach its price readings is left out of every aggregate and listed. Display only; a past
+         *     as-of reads what was public by the end of that date.
+         */
+        get: operations["rotation_map_dashboards_rotation_map_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dashboards/rotation-quadrant": {
         parameters: {
             query?: never;
@@ -2239,6 +2199,50 @@ export interface paths {
          *     listed on its group. Display only; a past as-of reads what was public by the end of that date.
          */
         get: operations["rotation_quadrant_dashboards_rotation_quadrant_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboards/shared-names": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Shared Names
+         * @description The companies on more than one live card (matched by security), the cards each sits on, and every
+         *     pair of cards that shares a company. A "now" view of today's baskets; archived cards are excluded.
+         */
+        get: operations["shared_names_dashboards_shared_names_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboards/what-changed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What Changed
+         * @description What moved on the live cards between the baseline night and the newest recorded night (states, keys,
+         *     armed and watch names, triggers and risk signals), plus the clocks coming due on the newest one. A "now"
+         *     view of the recorded calls; archived cards are excluded. A picked date after the newest recorded night,
+         *     or before the first, is a 422.
+         */
+        get: operations["what_changed_dashboards_what_changed_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -5607,10 +5611,28 @@ export interface components {
             not_yet: number;
         };
         /**
+         * CrossFlaggedOut
+         * @description A company in view left out of everything: its data flags reach its price readings at the as-of (the
+         *     reason the Cockpit grays its price cells; a scale break makes fake crosses). ``reason`` = the flags'
+         *     labels.
+         */
+        CrossFlaggedOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Reason */
+            reason: string;
+        };
+        /**
          * CrossGroupOut
          * @description One group. Link view: ``link`` (``null`` = Unsegmented) + its card. Card view: the card. Business type
          *     / Sector view: ``business_type`` / ``supersector`` (``null`` = Unclassified). ``names`` = the companies in
-         *     the group, each counted once; ``priced`` of them have a 200-day SMA at the as-of.
+         *     the group, each counted once; ``priced`` of them have a 200-day SMA at the as-of, ``not_priced`` have a
+         *     short or stale tape, ``flagged`` are left out of everything for a flagged price history.
          */
         CrossGroupOut: {
             /** Key */
@@ -5633,6 +5655,8 @@ export interface components {
             priced: number;
             /** Not Priced */
             not_priced: number;
+            /** Flagged */
+            flagged: number;
         };
         /**
          * CrossMarkOut
@@ -5715,7 +5739,7 @@ export interface components {
         /**
          * CrossPostureOut
          * @description The group's names by ``sma_position`` posture; ``other`` = every other posture and every name not
-         *     priced.
+         *     priced (a flagged name is in none).
          */
         CrossPostureOut: {
             /** Above Rising */
@@ -5734,6 +5758,7 @@ export interface components {
          * @description The whole page in one view, each list in its default order (clusters by share then count; first
          *     movers newest cross first; near-cross by the smallest gap; the timeline by total crosses). The counts are
          *     the work shown on its quiet line; the rule dials ride along. ``sessions`` = the timeline's axis.
+         *     ``flagged`` = the companies in view left out of everything for a flagged price history, by ticker.
          *     ``cache`` / ``compute_ms`` = whether the heavy read was served from the shared dashboard cache and how
          *     long it took when it ran.
          */
@@ -5784,6 +5809,8 @@ export interface components {
             near_cross: components["schemas"]["CrossNearGroupOut"][];
             /** Timeline */
             timeline: components["schemas"]["CrossTimelineRowOut"][];
+            /** Flagged */
+            flagged: components["schemas"]["CrossFlaggedOut"][];
             /** Recent Sessions */
             recent_sessions: number;
             /** History Sessions */
@@ -5813,7 +5840,8 @@ export interface components {
          * @description One company of a timeline row. ``crosses`` = every 50d × 200d cross of the last ``history_sessions``
          *     sessions, newest first (``readable_sessions`` of them could be read: a name with a shorter tape reads a
          *     shorter history); ``price_200d`` = its price × 200d crosses when that layer is on. A name ``not_priced``
-         *     (``short_tape`` / ``stale_tape``) reads no crosses.
+         *     (``short_tape`` / ``stale_tape``) reads no crosses. ``flag`` = why it is left out of everything (a flagged
+         *     price history; it then reads no crosses and is neither priced nor ``not_priced``); ``null`` = read.
          */
         CrossTimelineNameOut: {
             /**
@@ -5848,6 +5876,8 @@ export interface components {
             posture: "above_rising" | "above_falling" | "below_rising" | "below_falling" | "other";
             /** Rs Leading */
             rs_leading: boolean | null;
+            /** Flag */
+            flag: string | null;
         };
         /**
          * CrossTimelineRowOut
@@ -7573,10 +7603,27 @@ export interface components {
             links: (string | null)[];
         };
         /**
+         * LandingFlaggedOut
+         * @description A company in view left out of every aggregate: its data flags reach its price readings at the as-of
+         *     (the reason the Cockpit grays its price cells). ``reason`` = the flags' labels.
+         */
+        LandingFlaggedOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Reason */
+            reason: string;
+        };
+        /**
          * LandingGroupOut
          * @description One row. Link view: ``link`` (``null`` = Unsegmented) + its card. Card view: the card. Business type /
          *     Sector view: ``business_type`` / ``supersector`` (``null`` = Unclassified). ``names`` = the companies in
-         *     the group, each counted once; ``priced`` of them have a recent close.
+         *     the group, each counted once; ``priced`` of them have a recent close; ``flagged`` of them are left out of
+         *     every aggregate for a flagged price history.
          */
         LandingGroupOut: {
             /** Key */
@@ -7595,6 +7642,8 @@ export interface components {
             names: number;
             /** Priced */
             priced: number;
+            /** Flagged */
+            flagged: number;
             /** Windows */
             windows: components["schemas"]["LandingGroupWindowOut"][];
             /** Members */
@@ -7622,7 +7671,9 @@ export interface components {
         /**
          * LandingNameOut
          * @description One company in a group. A name ``not_priced`` (``no_tape``: no close by the as-of; ``stale_tape``: its
-         *     last close is more than ``stale_gap_days`` before it) reads no window.
+         *     last close is more than ``stale_gap_days`` before it) reads no window. ``flag`` = why it is left out of
+         *     every aggregate (a flagged price history; it then reads no window and is neither priced nor
+         *     ``not_priced``); ``null`` = read.
          */
         LandingNameOut: {
             /**
@@ -7642,6 +7693,8 @@ export interface components {
             last_bar: string | null;
             /** Windows */
             windows: components["schemas"]["LandingNameWindowOut"][];
+            /** Flag */
+            flag: string | null;
         };
         /**
          * LandingNameWindowOut
@@ -7668,7 +7721,8 @@ export interface components {
         /**
          * LandingOut
          * @description The whole page in one view, groups in the default order (the 7D median range position, highest
-         *     first, "—" last). The counts are the work shown on its quiet line; the rule dials ride along. ``cache``
+         *     first, "—" last). The counts are the work shown on its quiet line; the rule dials ride along. ``flagged`` =
+         *     the companies in view left out of every aggregate for a flagged price history, by ticker. ``cache``
          *     / ``compute_ms`` = whether the heavy read was served from the shared dashboard cache and how long it took
          *     when it ran.
          */
@@ -7709,6 +7763,8 @@ export interface components {
             stale_tape_companies: number;
             /** Groups */
             groups: components["schemas"]["LandingGroupOut"][];
+            /** Flagged */
+            flagged: components["schemas"]["LandingFlaggedOut"][];
             /** Windows */
             windows: components["schemas"]["LandingWindowDefOut"][];
             /** Min Priced */
@@ -7842,12 +7898,29 @@ export interface components {
             cluster: boolean;
         };
         /**
+         * LeadersFlaggedOut
+         * @description A company in view on no list and in no group: its data flags reach its price readings at the as-of
+         *     (the reason the Cockpit grays its price cells). ``reason`` = the flags' labels.
+         */
+        LeadersFlaggedOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Reason */
+            reason: string;
+        };
+        /**
          * LeadersInsiderGroupOut
          * @description A group where at least ``group_min_names`` names had open-market buys in the last 30 days. Link view:
          *     ``link`` (``null`` = Unsegmented) + its card. Card view: the card. Business type / Sector view:
          *     ``business_type`` / ``supersector`` (``null`` = Unclassified). ``with_buys`` of its ``names`` (each counted
          *     once) bought, ``share`` = ``with_buys / names``; ``no_insider_data`` of them have no Form 4 ingested;
-         *     ``buys`` = the group's buys.
+         *     ``buys`` = the group's buys. ``flagged`` = the group's companies left out for a flagged price history (not
+         *     in ``names``).
          */
         LeadersInsiderGroupOut: {
             /** Key */
@@ -7876,6 +7949,8 @@ export interface components {
             buys: number;
             /** Members */
             members: components["schemas"]["LeadersClusterNameOut"][];
+            /** Flagged */
+            flagged: number;
         };
         /**
          * LeadersListOut
@@ -7950,7 +8025,8 @@ export interface components {
          * @description The whole page in one view. ``names`` = every company on at least one list, in the several-lists order
          *     (the number of lists, then the 30D return); ``several`` = those on ``multi_min_lists`` or more; ``lists`` =
          *     each list's names in its default order and its no-reading count; ``insider_groups`` by names with buys,
-         *     then share. The counts are the work shown on its quiet line; the rule dials ride along. ``cache`` /
+         *     then share; ``flagged`` = the companies in view left out of every list and group for a flagged price
+         *     history, by ticker. The counts are the work shown on its quiet line; the rule dials ride along. ``cache`` /
          *     ``compute_ms`` = whether the heavy read was served from the shared dashboard cache and how long it took
          *     when it ran.
          */
@@ -7991,6 +8067,8 @@ export interface components {
             lists: components["schemas"]["LeadersListOut"][];
             /** Insider Groups */
             insider_groups: components["schemas"]["LeadersInsiderGroupOut"][];
+            /** Flagged */
+            flagged: components["schemas"]["LeadersFlaggedOut"][];
             /** Near High Pct */
             near_high_pct: number;
             /** Rvol Loud */
@@ -9189,10 +9267,27 @@ export interface components {
             descriptor?: string | null;
         };
         /**
+         * RotationFlaggedOut
+         * @description A company in view left out of every aggregate: its data flags reach its price readings at the as-of
+         *     (the reason the Cockpit grays its price cells). ``reason`` = the flags' labels.
+         */
+        RotationFlaggedOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Reason */
+            reason: string;
+        };
+        /**
          * RotationGroupOut
          * @description One row of the map. Link view: ``link`` (``null`` = Unsegmented) + its card. Card view: the card.
          *     Business type / Sector view: ``business_type`` / ``supersector`` (``null`` = Unclassified). ``names`` =
-         *     the companies in the group, each counted once.
+         *     the companies in the group, each counted once; ``flagged`` = of those, left out of every aggregate for a
+         *     flagged price history.
          */
         RotationGroupOut: {
             /** Key */
@@ -9209,6 +9304,8 @@ export interface components {
             supersector: string | null;
             /** Names */
             names: number;
+            /** Flagged */
+            flagged: number;
             /** Windows */
             windows: components["schemas"]["RotationWindowOut"][];
             /** Above 50D */
@@ -9234,7 +9331,8 @@ export interface components {
          * RotationMapOut
          * @description The whole page in one view, groups in the default order (the 7d median, highest first, "—" last).
          *     The counts are the work shown on its quiet line. ``spy`` = SPY's own trailing returns (``null`` = no
-         *     SPY tape at the as-of). ``cache`` / ``compute_ms`` = whether the heavy read was served from the shared
+         *     SPY tape at the as-of). ``flagged`` = the companies in view left out of every aggregate for a flagged
+         *     price history, by ticker. ``cache`` / ``compute_ms`` = whether the heavy read was served from the shared
          *     dashboard cache and how long it took when it ran.
          */
         RotationMapOut: {
@@ -9274,6 +9372,8 @@ export interface components {
             } | null;
             /** Groups */
             groups: components["schemas"]["RotationGroupOut"][];
+            /** Flagged */
+            flagged: components["schemas"]["RotationFlaggedOut"][];
             /** Min Priced */
             min_priced: number;
             /** Cross Days */
@@ -9307,7 +9407,8 @@ export interface components {
         /**
          * RotationNameOut
          * @description One company in a group. ``cross`` is its golden / death cross when it printed within ``cross_days``
-         *     of the as-of.
+         *     of the as-of. ``flag`` = why it is left out of every aggregate (a flagged price history; it then carries
+         *     no reading); ``null`` = read.
          */
         RotationNameOut: {
             /**
@@ -9333,6 +9434,8 @@ export interface components {
             cross_date: string | null;
             /** Rs Leading */
             rs_leading: boolean | null;
+            /** Flag */
+            flag: string | null;
         };
         /**
          * RotationQuadrantOut
@@ -13287,39 +13390,7 @@ export interface operations {
             };
         };
     };
-    shared_names_dashboards_shared_names_get: {
-        parameters: {
-            query?: {
-                /** @description drop Context and Bench memberships before both sections are computed */
-                counting_only?: boolean;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SharedNamesOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    idea_timeline_dashboards_idea_timeline_get: {
+    catalyst_calendar_dashboards_catalyst_calendar_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -13334,75 +13405,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IdeaTimelineOut"];
-                };
-            };
-        };
-    };
-    rotation_map_dashboards_rotation_map_get: {
-        parameters: {
-            query: {
-                /** @description as-of date; no price published after it is read */
-                asof: string;
-                /** @description the rows: link | business_type | sector | card */
-                group_by?: "link" | "business_type" | "sector" | "card";
-                /** @description add Context and Bench memberships (their own rows in the Link view) */
-                include_silent?: boolean;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RotationMapOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    what_changed_dashboards_what_changed_get: {
-        parameters: {
-            query?: {
-                /** @description the baseline night: last_night (the previous recorded night), 7d (7 calendar days before the newest night) or a YYYY-MM-DD date between the first recorded night and the newest */
-                since?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WhatChangedOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["CatalystCalendarOut"];
                 };
             };
         };
@@ -13445,7 +13448,7 @@ export interface operations {
             };
         };
     };
-    catalyst_calendar_dashboards_catalyst_calendar_get: {
+    idea_timeline_dashboards_idea_timeline_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -13460,43 +13463,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CatalystCalendarOut"];
-                };
-            };
-        };
-    };
-    leaders_dashboards_leaders_get: {
-        parameters: {
-            query: {
-                /** @description as-of date; nothing published after it is read */
-                asof: string;
-                /** @description add Context and Bench memberships */
-                include_silent?: boolean;
-                /** @description the insider-cluster groups: link | business_type | sector | card */
-                group_by?: "link" | "business_type" | "sector" | "card";
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LeadersOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["IdeaTimelineOut"];
                 };
             };
         };
@@ -13524,6 +13491,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LandingOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    leaders_dashboards_leaders_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; nothing published after it is read */
+                asof: string;
+                /** @description add Context and Bench memberships */
+                include_silent?: boolean;
+                /** @description the insider-cluster groups: link | business_type | sector | card */
+                group_by?: "link" | "business_type" | "sector" | "card";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadersOut"];
                 };
             };
             /** @description Validation Error */
@@ -13611,6 +13614,42 @@ export interface operations {
             };
         };
     };
+    rotation_map_dashboards_rotation_map_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; no price published after it is read */
+                asof: string;
+                /** @description the rows: link | business_type | sector | card */
+                group_by?: "link" | "business_type" | "sector" | "card";
+                /** @description add Context and Bench memberships (their own rows in the Link view) */
+                include_silent?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RotationMapOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     rotation_quadrant_dashboards_rotation_quadrant_get: {
         parameters: {
             query: {
@@ -13634,6 +13673,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RotationQuadrantOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    shared_names_dashboards_shared_names_get: {
+        parameters: {
+            query?: {
+                /** @description drop Context and Bench memberships before both sections are computed */
+                counting_only?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedNamesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    what_changed_dashboards_what_changed_get: {
+        parameters: {
+            query?: {
+                /** @description the baseline night: last_night (the previous recorded night), 7d (7 calendar days before the newest night) or a YYYY-MM-DD date between the first recorded night and the newest */
+                since?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WhatChangedOut"];
                 };
             };
             /** @description Validation Error */

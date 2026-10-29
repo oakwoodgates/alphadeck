@@ -58,6 +58,7 @@ function FakeBody(p: DashboardProps) {
 
 const FAKE: DashboardEntry = {
   slug: "fake-dash",
+  order: 1000,
   label: "Fake Dash",
   description: "One fake dashboard for the route tests.",
   status: "experimental",
@@ -67,6 +68,7 @@ const FAKE: DashboardEntry = {
 
 const FAKE_NOW: DashboardEntry = {
   slug: "fake-now",
+  order: 1010,
   label: "Fake Now",
   description: "A fake now view.",
   status: "experimental",
@@ -481,6 +483,7 @@ describe("App routes — the Board as the home dashboard", () => {
     expect(REAL.DASHBOARDS[0]).toBe(BOARD);
     expect(BOARD).toMatchObject({
       slug: "board",
+      order: 0,
       label: "Board",
       description: "Every card in its lifecycle column, with the Decision Queue.",
       status: "core",

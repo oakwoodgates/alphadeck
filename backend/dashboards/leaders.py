@@ -25,18 +25,24 @@ The rules, in one place:
   In the insider-cluster Link view a company in two links of a card counts in both; elsewhere once per group.
 - **Insider clusters by group:** a group shows when at least ``GROUP_MIN_NAMES`` (2) of its companies have an
   open-market buy in the last 30 days; its share is those names out of every company in the group.
+- **A flagged price history.** A company whose data flags reach its price readings at the as-of
+  (``dashboards.baskets.price_flags``, the reader the Cockpit's grayed price cells come from) is on NO list
+  (insider buying included: every list row shows its price columns), never in a list's no-reading count, and
+  out of every insider group (neither its names nor its buyers; the group counts it in ``flagged``). It still
+  counts in ``companies``, and the page names it (``flagged``).
 - **Sort.** Each list carries a default order (the page re-sorts); wording stays neutral.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from typing import Literal
 from uuid import UUID
 
 from dashboards.baskets import (
+    FlaggedCompany,
     GroupBy,
     Membership,
     NameCard,
@@ -44,6 +50,7 @@ from dashboards.baskets import (
     companies_in,
     counted_rows,
     display_ticker,
+    flagged_in_view,
 )
 from signals.display import range52w, relative_strength, rvol
 from signals.display.base import DisplaySignal
@@ -223,6 +230,9 @@ class LeadersInputs:
     readings: Mapping[
         UUID, CompanyReading
     ]  # every resolved company on the counted cards, silent included
+    # companies whose data flags reach their price readings at the as-of, each with its reason
+    # (``dashboards.baskets.price_flags``): on no list, in no group
+    flagged: Mapping[UUID, str] = field(default_factory=dict)
 
 
 # --- the payload -----------------------------------------------------------------------------------------
@@ -284,12 +294,15 @@ class InsiderGroup:
     thesis_name: str | None = None
     business_type: str | None = None  # Business type view (None = Unclassified)
     supersector: str | None = None  # Sector view (None = Unclassified)
-    names: int = 0  # companies in the group, each once
+    names: int = 0  # companies in the group, each once (never a flagged one)
     with_buys: int = 0  # of those, names with an open-market buy in the last 30 days
     no_insider_data: int = 0  # of those, names with no Form 4 ingested
     share: float = 0.0  # with_buys / names
     buys: int = 0  # the group's open-market buys in the last 30 days
     members: tuple[ClusterName, ...] = ()  # the names with buys, most buys first
+    flagged: int = (
+        0  # the group's companies left out for a flagged price history (not in ``names``)
+    )
 
 
 @dataclass(frozen=True)
@@ -304,11 +317,13 @@ class Leaders:
     basket_rows: int  # every row on the counted cards, before any filter
     silent_rows_left_out: int
     unresolved_rows: int  # rows in view with no resolved security: counted, never listed
-    companies: int  # distinct resolved companies in view
+    companies: int  # distinct resolved companies in view (flagged ones included)
     names: tuple[LeaderName, ...]  # every company on at least one list, in the several-lists order
     several: tuple[UUID, ...]  # names on MULTI_MIN_LISTS or more lists, in their default order
     lists: tuple[LeaderList, ...]
     insider_groups: tuple[InsiderGroup, ...]
+    # companies in view left out for a flagged price history, by ticker
+    flagged: tuple[FlaggedCompany, ...] = ()
 
 
 def _ret_desc(v: float | None) -> tuple[bool, float]:
@@ -375,8 +390,13 @@ def _insider_group(
     companies: Sequence[tuple[UUID, tuple[NameCard, ...]]],
     readings: Mapping[UUID, CompanyReading],
     identity: Mapping[UUID, Mapping[str, object]],
+    flagged: Mapping[UUID, str],
 ) -> InsiderGroup | None:
-    """One group's insider read, or ``None`` when fewer than ``GROUP_MIN_NAMES`` of its names bought."""
+    """One group's insider read, or ``None`` when fewer than ``GROUP_MIN_NAMES`` of its names bought. A
+    flagged company is out of the group's read (its names, buyers and share), counted in ``flagged``.
+    """
+    left_out = sum(1 for sid, _ in companies if sid in flagged)
+    companies = [(sid, cards) for sid, cards in companies if sid not in flagged]
     buyers: list[ClusterName] = []
     no_data = 0
     for sid, cards in companies:
@@ -410,6 +430,7 @@ def _insider_group(
         share=round(len(buyers) / len(companies), 4),
         buys=sum(c.buys_30d for c in buyers),
         members=tuple(buyers),
+        flagged=left_out,
         **meta,  # type: ignore[arg-type]
     )
 
@@ -419,11 +440,14 @@ def insider_groups(
     readings: Mapping[UUID, CompanyReading],
     identity: Mapping[UUID, Mapping[str, object]],
     group_by: GroupBy,
+    flagged: Mapping[UUID, str] | None = None,
 ) -> list[InsiderGroup]:
     """The groups where at least ``GROUP_MIN_NAMES`` names bought, by names with buys, then share, then label."""
     out: list[InsiderGroup] = []
     for key, (members, label, meta) in buckets(rows, group_by, identity).items():
-        g = _insider_group(key, label, meta, companies_in(members), readings, identity)
+        g = _insider_group(
+            key, label, meta, companies_in(members), readings, identity, flagged or {}
+        )
         if g is not None:
             out.append(g)
     out.sort(key=lambda g: (-g.with_buys, -g.share, g.label.casefold(), g.key))
@@ -442,11 +466,14 @@ def leaders(
     ``business_supersector`` (``securities.master.identity_for``)."""
     counted = counted_rows(inputs.memberships, include_silent)
     companies = companies_in(counted.rows)
-    readings = {sid: inputs.readings.get(sid, NO_READING) for sid, _ in companies}
+    flagged = inputs.flagged
+    # a flagged company is on no list and in no list's no-reading count: only the kept ones are read
+    kept = [(sid, cards) for sid, cards in companies if sid not in flagged]
+    readings = {sid: inputs.readings.get(sid, NO_READING) for sid, _ in kept}
 
     names = [
         _leader_name(sid, cards, readings[sid], identity)
-        for sid, cards in companies
+        for sid, cards in kept
         if lists_of(readings[sid])
     ]
     names.sort(key=_several_order)
@@ -479,5 +506,6 @@ def leaders(
         names=tuple(names),
         several=tuple(n.security_id for n in names if len(n.lists) >= MULTI_MIN_LISTS),
         lists=lists,
-        insider_groups=tuple(insider_groups(counted.rows, readings, identity, group_by)),
+        insider_groups=tuple(insider_groups(counted.rows, readings, identity, group_by, flagged)),
+        flagged=flagged_in_view(counted.rows, flagged),
     )

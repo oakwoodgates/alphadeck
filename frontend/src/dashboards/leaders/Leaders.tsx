@@ -1,6 +1,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 
 import { fmtDate } from "../../util/format";
+import { FlaggedNote } from "../FlaggedNote";
 import type { DashboardProps } from "../registry";
 import "./leaders.css";
 import {
@@ -456,6 +457,11 @@ function InsiderGroups({
                     {g.no_insider_data > 0 && (
                       <span className="ld-sub">{g.no_insider_data} without insider data</span>
                     )}
+                    {g.flagged > 0 && (
+                      <span className="ld-sub" title="not counted in this group: a flagged price history">
+                        {g.flagged} left out
+                      </span>
+                    )}
                   </td>
                   <td className="ld-num ld-v">{pct(g.share)}</td>
                   <td className="ld-num ld-v">{g.buys}</td>
@@ -517,6 +523,7 @@ export default function Leaders({ asof, onSelectThesis }: DashboardProps) {
       </div>
       <div className="dash-note ld-work">{workLine(data)}</div>
       <div className="dash-note ld-work">{noReadingLine(data)}</div>
+      <FlaggedNote flagged={data.flagged} />
       {data.roster_fallback_cards > 0 && (
         <div className="dash-note ld-work">
           Today's roster stands in for {plural(data.roster_fallback_cards, "card", "cards")}: rosters are

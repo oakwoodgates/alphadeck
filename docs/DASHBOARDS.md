@@ -17,8 +17,8 @@ dashboard. Every link carries `?asof=` like the rest of the app.
 
 ## The Board is the home dashboard (operator decision, 2026-10-29)
 
-The Board is a registry entry like any other, the FIRST one: slug `board`, status `core`, as-of aware,
-`layout: "fill"`. Its body is a thin wrapper (`frontend/src/dashboards/board/BoardDashboard.tsx`) around
+The Board is a registry entry like any other, the FIRST one (`frontend/src/dashboards/board/entry.ts`,
+`order: 0`): slug `board`, status `core`, as-of aware, `layout: "fill"`. Its body is a thin wrapper (`frontend/src/dashboards/board/BoardDashboard.tsx`) around
 the unchanged Board in `frontend/src/board/`, which keeps its own tests. It has no backend files under
 `dashboards/`: it reads through the app's existing endpoints (`GET /theses`, `GET /theses/{id}/call`,
 the data flags). Its plan is `docs/BOARD.md`.
@@ -92,6 +92,16 @@ the data flags). Its plan is `docs/BOARD.md`.
    ("median of 4 priced names"). Names left out for thin data are counted or listed, never silently
    dropped (invariant #9).
 
+   **A flagged price history is left out (2026-10-29).** Every price dashboard (the Rotation Map, the Cross
+   Radar, Leaders, the Price & Volume Landing and the Narrative Index) leaves out a company whose data flags
+   reach its price readings at the as-of (`dashboards.baskets.price_flags`, the reader behind the Cockpit's
+   grayed price cells): a scale break chains fake returns and fake crosses. It is read inside each page's
+   cached read with the request's one `serve_view(asof)` pair, and the company is out of every aggregate and
+   list on the page. It is never vanished: the page shows a quiet "N names left out for a flagged price
+   history" that opens to each ticker and the flags' labels (`frontend/src/dashboards/FlaggedNote.tsx`), and
+   an expanded group lists the name grayed as "left out: <reason>". Measured on dev with a prod data copy
+   before the change: 6 of the 31 flagged names showed on the Leaders lists.
+
 6. **Event-outcome views** ("what happened after X") slice by the fixed market-cap bands in
    `CLAUDE.md` (nano < $50M · micro $50M–$300M · small $300M–$2B · mid $2B–$10B · large ≥ $10B),
    measured at the event, with the horizon, the comparison, n and the hit rate stated per tier. See
@@ -109,34 +119,43 @@ the data flags). Its plan is `docs/BOARD.md`.
    Map, shared since the Cross Radar): the counted cards and their rosters at the as-of (`cards_as_of`), the
    membership rows, the four groupings and who counts in each (`counted_rows`, `buckets`, `companies_in`),
    the chunked point-in-time read (`per_company`), and the companies whose data flags reach their price
-   readings (`price_flags`, the `/data-flags` reader; built with the Narrative Index's fix, read by it and the
-   Rotation Quadrant, not yet by the other price dashboards). A dashboard that groups cards' names reuses it
-   rather than re-deriving the rule. The equal-weighted line math lives in `backend/dashboards/series.py` (the
-   session calendar, the alignment and the chain; built with the Narrative Index, shared since the Rotation
-   Quadrant): a dashboard that draws a basket as one line reuses it.
+   readings (`price_flags`, the `/data-flags` reader, read by every price dashboard; `flagged_in_view` names
+   them on a page, rule 5). A dashboard that groups cards' names reuses it rather than re-deriving the rule.
+   The equal-weighted line math lives in `backend/dashboards/series.py` (the session calendar, the alignment
+   and the chain; built with the Narrative Index, shared since the Rotation Quadrant): a dashboard that draws
+   a basket as one line reuses it.
 
-8. **Self-contained layout**, so dashboards build in parallel and delete cleanly. A slug is lowercase
-   letters, digits and `-` (`tape-breadth`); the Python module name swaps `-` for `_`
+8. **Self-contained layout, self-registering**, so dashboards build in parallel and delete cleanly. A slug
+   is lowercase letters, digits and `-` (`tape-breadth`); the Python module name swaps `-` for `_`
    (`tape_breadth`). Everything a dashboard owns lives in these paths:
    - `frontend/src/dashboards/<slug>/`: the body component (default export, takes `DashboardProps`),
-     its query hooks (TanStack Query over the shared `api/client.ts`, not in `api/hooks.ts`), its own
-     CSS (imported by the component, not in `index.css`) and its tests.
+     its `entry.ts` (below), its query hooks (TanStack Query over the shared `api/client.ts`, not in
+     `api/hooks.ts`), its own CSS (imported by the component, not in `index.css`) and its tests.
    - `backend/dashboards/<slug>.py` (or a subpackage, `backend/dashboards/<slug>/`): the compute.
-   - `backend/app/routers/dashboards/<slug>.py`: its router (`APIRouter(prefix="/<slug>")`, GET
-     only) with its wire models in that same module, not `app/schemas_api.py`.
+   - `backend/app/routers/dashboards/<slug>.py`: its router (a module-level
+     `router = APIRouter(prefix="/<slug>")`, GET only) with its wire models in that same module, not
+     `app/schemas_api.py`.
    - `backend/tests/dashboards/test_<slug>.py`: its backend tests.
    - `docs/dashboards/<slug>.md`: its plan.
 
-   The only shared lines are one registry line on each side: `DASHBOARDS` in
-   `frontend/src/dashboards/registry.ts` and `_DASHBOARD_ROUTERS` in
-   `backend/app/routers/dashboards/__init__.py`. The shell (`DashboardShell.tsx`) draws the header,
-   the title row and the status tag, so a dashboard component renders only its body.
+   **There is no shared line to edit.** The frontend registry (`frontend/src/dashboards/registry.ts`) builds
+   `DASHBOARDS` from every `<slug>/entry.ts` (`import.meta.glob`): each exports
+   `entry: DashboardEntry` (its slug = its folder name, its label, description, status, `asofAware`,
+   `layout`, a numeric menu `order` and `component: React.lazy(() => import("./<Component>"))`), sorted by
+   `order` then label; the Board is 0 and the rest step by 10, so a new dashboard picks a free number. A
+   duplicate slug, a slug that is not its folder, or an `entry.ts` without `entry` fails loud. The backend
+   package (`backend/app/routers/dashboards/__init__.py`) mounts every module in itself that defines a
+   module-level `router` (an `APIRouter`), in sorted module-name order; a module without one (a shared
+   helper) is skipped, and one that fails to import fails the app's start. `HOME_DASHBOARD` (one line in
+   `registry.ts`) is the only dashboard name outside a dashboard's own paths. The shell
+   (`DashboardShell.tsx`) draws the header, the title row and the status tag, so a dashboard component
+   renders only its body.
 
 9. **Contract regen in the same PR** (`CLAUDE.md`). A dashboard's routes change
    `backend/openapi.json` and `frontend/src/api/types.gen.ts`; regenerate both
    (`python -m app.openapi_export` from `backend/`, `npm run gen:api` from `frontend/`) in the same
    PR. Parallel dashboard PRs will conflict in those two files: after a rebase, regenerate both
-   rather than hand-merging. A conflict on a registry line is two adjacent additions; keep both.
+   rather than hand-merging. They are the only shared files a new dashboard touches (rule 8).
 
 ## Add a dashboard: the checklist
 
@@ -145,42 +164,30 @@ the data flags). Its plan is `docs/BOARD.md`.
    does, and whether it needs the shared cache. The operator signs off the plan before the build.
 2. Backend compute: `backend/dashboards/<slug>.py`. Reads only; threads `serve_view(asof)` into every
    read (rule 2).
-3. Backend router: `backend/app/routers/dashboards/<slug>.py` with `router = APIRouter(prefix="/<slug>")`
-   and its wire models; add ONE line to `_DASHBOARD_ROUTERS` in
-   `backend/app/routers/dashboards/__init__.py`.
+3. Backend router: `backend/app/routers/dashboards/<slug>.py` with a module-level
+   `router = APIRouter(prefix="/<slug>")` and its wire models. That is all: the package mounts it.
 4. Backend tests: `backend/tests/dashboards/test_<slug>.py`, including a past-as-of case where a fact
-   published after the as-of stays invisible. The isolation tests already cover the new files.
-5. Frontend: `frontend/src/dashboards/<slug>/` with the body component (default export) and its hooks,
-   CSS and tests; add ONE line to `DASHBOARDS` in `frontend/src/dashboards/registry.ts`
-   (`React.lazy(() => import("./<slug>/<Component>"))`, `status: "experimental"`, `asofAware` per the
-   plan, `layout` only if the plan needs `"fill"`). Order in the array is menu order; the Board stays
-   first, so add a new line at the end.
+   published after the as-of stays invisible. The isolation and discovery tests already cover the new
+   files.
+5. Frontend: `frontend/src/dashboards/<slug>/` with the body component (default export), its hooks, CSS
+   and tests, and its `entry.ts` exporting `entry: DashboardEntry` (`slug` = the folder name,
+   `order` = a free menu place after the Board's 0, `component: React.lazy(() => import("./<Component>"))`,
+   `status: "experimental"`, `asofAware` per the plan, `layout` only if the plan needs `"fill"`). That is
+   all: the registry collects it.
 6. Regenerate the contract pair (rule 9) and commit it with the change.
-7. Add the dashboard's row to the Index below.
 
 ## Remove a dashboard: the checklist
 
-1. Delete `frontend/src/dashboards/<slug>/` and its line in `frontend/src/dashboards/registry.ts`. If
-   `HOME_DASHBOARD` names it, point that line at another slug first.
+1. Delete `frontend/src/dashboards/<slug>/` (its `entry.ts` goes with it). If `HOME_DASHBOARD` names it,
+   point that line at another slug first.
 2. Delete `backend/dashboards/<slug>.py` (or its subpackage), `backend/app/routers/dashboards/<slug>.py`
-   and its line in `_DASHBOARD_ROUTERS`, and `backend/tests/dashboards/test_<slug>.py`.
-3. Delete `docs/dashboards/<slug>.md` and its row in the Index below.
+   and `backend/tests/dashboards/test_<slug>.py`.
+3. Delete `docs/dashboards/<slug>.md`.
 4. Regenerate the contract pair (rule 9) and commit it with the removal.
 5. A search for the slug returns nothing. An old link to the dashboard lands on the index (an unknown
    slug redirects there).
 
 ## Index
 
-| Dashboard | Slug | Status | Plan |
-| --- | --- | --- | --- |
-| Board | `board` | core | [`docs/BOARD.md`](BOARD.md) |
-| Shared Names | `shared-names` | experimental | [`docs/dashboards/shared-names.md`](dashboards/shared-names.md) |
-| Idea Timeline | `idea-timeline` | experimental | [`docs/dashboards/idea-timeline.md`](dashboards/idea-timeline.md) |
-| Rotation Map | `rotation-map` | experimental | [`docs/dashboards/rotation-map.md`](dashboards/rotation-map.md) |
-| What Changed | `what-changed` | experimental | [`docs/dashboards/what-changed.md`](dashboards/what-changed.md) |
-| Cross Radar | `cross-radar` | experimental | [`docs/dashboards/cross-radar.md`](dashboards/cross-radar.md) |
-| Catalyst Calendar | `catalyst-calendar` | experimental | [`docs/dashboards/catalyst-calendar.md`](dashboards/catalyst-calendar.md) |
-| Leaders | `leaders` | experimental | [`docs/dashboards/leaders.md`](dashboards/leaders.md) |
-| Price & Volume Landing | `landing` | experimental | [`docs/dashboards/landing.md`](dashboards/landing.md) |
-| Narrative Index | `narrative-index` | experimental | [`docs/dashboards/narrative-index.md`](dashboards/narrative-index.md) |
-| Rotation Quadrant | `rotation-quadrant` | experimental | [`docs/dashboards/rotation-quadrant.md`](dashboards/rotation-quadrant.md) |
+The `/dashboards` page is the index; each plan lives in `docs/dashboards/<slug>.md` (the Board's is
+`docs/BOARD.md`).

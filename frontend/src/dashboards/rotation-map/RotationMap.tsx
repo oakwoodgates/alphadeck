@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 
 import { fmtDate } from "../../util/format";
+import { FlaggedNote, leftOutWords } from "../FlaggedNote";
 import type { DashboardProps } from "../registry";
 import "./rotation-map.css";
 import {
@@ -117,7 +118,7 @@ function NameRow({
   onSelect: DashboardProps["onSelectThesis"];
 }) {
   return (
-    <tr className="rm-name">
+    <tr className={`rm-name${name.flag != null ? " flagged" : ""}`}>
       <td className="rm-name-id">
         <span className="rm-tk">{name.ticker}</span>
         <span className="rm-chips">
@@ -137,6 +138,7 @@ function NameRow({
             );
           })}
         </span>
+        {name.flag != null && <span className="rm-off">{leftOutWords(name.flag)}</span>}
       </td>
       <td />
       {WINDOWS.map((w) => (
@@ -214,7 +216,14 @@ function GroupRow({
           </span>
           {label}
         </td>
-        <td className="rm-num rm-v">{g.names}</td>
+        <td className="rm-num">
+          <span className="rm-v">{g.names}</span>
+          {g.flagged > 0 && (
+            <span className="rm-sub" title="left out of every number: a flagged price history">
+              {g.flagged} left out
+            </span>
+          )}
+        </td>
         {WINDOWS.map((w) => {
           const s = windowOf(g, w.key);
           const v = shown(s?.median, w.key, vsSpy, data.spy);
@@ -354,6 +363,7 @@ export default function RotationMap({ asof, onSelectThesis }: DashboardProps) {
         )}
       </div>
       <div className="dash-note rm-work">{workLine(data, groups.length, vsSpy)}</div>
+      <FlaggedNote flagged={data.flagged} />
       {data.roster_fallback_cards > 0 && (
         <div className="dash-note rm-work">
           Today's roster stands in for {plural(data.roster_fallback_cards, "card", "cards")}: rosters are

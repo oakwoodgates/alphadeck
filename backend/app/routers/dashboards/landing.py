@@ -1,7 +1,8 @@
 """The Price & Volume Landing dashboard's API (``docs/dashboards/landing.md``): one GET over every live card, at
 the as-of dial. It READS the cards and their rosters as of the as-of (``dashboards/baskets.py``, the Rotation
-Map's own read), reads each company's price bars once on the public clock, and hands the readings to the pure
-grouping in ``dashboards/landing.py``. The heavy read is cached per as-of in the shared dashboard cache
+Map's own read), reads each company's price bars once on the public clock, reads which companies' data flags
+reach their price readings (``dashboards.baskets.price_flags``, on the same view), and hands the readings to
+the pure grouping in ``dashboards/landing.py``. The heavy read is cached per as-of in the shared dashboard cache
 (``dashboards/cache.py``, ``docs/DASHBOARDS.md`` rule 7), so one cold compute serves every grouping and
 toggle. Its wire models live here, not in ``app/schemas_api.py`` (rule 8)."""
 
@@ -17,7 +18,14 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict
 
 from app.deps import get_conn
-from dashboards.baskets import GroupBy, cards_as_of, memberships_of, per_company, resolved_ids
+from dashboards.baskets import (
+    GroupBy,
+    cards_as_of,
+    memberships_of,
+    per_company,
+    price_flags,
+    resolved_ids,
+)
 from dashboards.cache import cached
 from dashboards.landing import (
     LOOKBACK_DAYS,
@@ -72,7 +80,9 @@ class LandingNameWindowOut(_Wire):
 
 class LandingNameOut(_Wire):
     """One company in a group. A name ``not_priced`` (``no_tape``: no close by the as-of; ``stale_tape``: its
-    last close is more than ``stale_gap_days`` before it) reads no window."""
+    last close is more than ``stale_gap_days`` before it) reads no window. ``flag`` = why it is left out of
+    every aggregate (a flagged price history; it then reads no window and is neither priced nor
+    ``not_priced``); ``null`` = read."""
 
     security_id: UUID
     ticker: str
@@ -81,6 +91,16 @@ class LandingNameOut(_Wire):
     not_priced: Literal["no_tape", "stale_tape"] | None
     last_bar: date | None
     windows: list[LandingNameWindowOut]
+    flag: str | None
+
+
+class LandingFlaggedOut(_Wire):
+    """A company in view left out of every aggregate: its data flags reach its price readings at the as-of
+    (the reason the Cockpit grays its price cells). ``reason`` = the flags' labels."""
+
+    security_id: UUID
+    ticker: str
+    reason: str
 
 
 class LandingSplitOut(_Wire):
@@ -111,7 +131,8 @@ class LandingGroupWindowOut(_Wire):
 class LandingGroupOut(_Wire):
     """One row. Link view: ``link`` (``null`` = Unsegmented) + its card. Card view: the card. Business type /
     Sector view: ``business_type`` / ``supersector`` (``null`` = Unclassified). ``names`` = the companies in
-    the group, each counted once; ``priced`` of them have a recent close."""
+    the group, each counted once; ``priced`` of them have a recent close; ``flagged`` of them are left out of
+    every aggregate for a flagged price history."""
 
     key: str
     link: str | None
@@ -121,6 +142,7 @@ class LandingGroupOut(_Wire):
     supersector: str | None
     names: int
     priced: int
+    flagged: int
     windows: list[LandingGroupWindowOut]
     members: list[LandingNameOut]
 
@@ -134,7 +156,8 @@ class LandingWindowDefOut(_Wire):
 
 class LandingOut(_Wire):
     """The whole page in one view, groups in the default order (the 7D median range position, highest
-    first, "—" last). The counts are the work shown on its quiet line; the rule dials ride along. ``cache``
+    first, "—" last). The counts are the work shown on its quiet line; the rule dials ride along. ``flagged`` =
+    the companies in view left out of every aggregate for a flagged price history, by ticker. ``cache``
     / ``compute_ms`` = whether the heavy read was served from the shared dashboard cache and how long it took
     when it ran."""
 
@@ -153,6 +176,7 @@ class LandingOut(_Wire):
     no_tape_companies: int
     stale_tape_companies: int
     groups: list[LandingGroupOut]
+    flagged: list[LandingFlaggedOut]
     windows: list[LandingWindowDefOut]
     min_priced: int
     rising_mult: float
@@ -187,17 +211,19 @@ def read_inputs(
     known_at: datetime | None,
     clock: Literal["record", "public"],
 ) -> LandingInputs:
-    """The heavy read the cache holds: the counted cards' rosters as of the as-of and every company's
-    readings."""
+    """The heavy read the cache holds: the counted cards' rosters as of the as-of, every company's readings
+    and its price flags (``price_flags``, on the same view)."""
     counted = cards_as_of(conn, asof, known_at)
     memberships = memberships_of(counted.cards)
+    sids = resolved_ids(memberships)
     return LandingInputs(
         live_cards=counted.live_count,
         cards_counted=len(counted.cards),
         cards_not_yet_created=counted.not_yet_created,
         roster_fallback_cards=counted.roster_fallback,
         memberships=memberships,
-        readings=_readings(conn, resolved_ids(memberships), asof, known_at, clock),
+        readings=_readings(conn, sids, asof, known_at, clock),
+        flagged=price_flags(conn, sids, asof, known_at=known_at, clock=clock),
     )
 
 
@@ -213,8 +239,9 @@ def landing(
     """Where price closed in each window's range, and whether volume backed the move, by link, business
     type, sector or card: per group and per window (1D / 7D / 30D / 90D trading bars), the median range
     position, the split of names by return x volume (accumulation, thin rally, distribution, rest, flat)
-    and the median up/down-day volume, with each group's names. Display only; a past as-of reads what was
-    public by the end of that date."""
+    and the median up/down-day volume, with each group's names. A name whose data flags reach its price
+    readings is left out of every aggregate and listed. Display only; a past as-of reads what was public by
+    the end of that date."""
     known_at, clock = serve_view(asof)
     # the clock is part of the key: the same date read live today and on the public clock tomorrow are two
     # reads (a new run clears the cache anyway; this holds even on a night with no run)

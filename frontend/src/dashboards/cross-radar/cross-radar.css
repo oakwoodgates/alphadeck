@@ -76,6 +76,8 @@ tr.xr-tl.quiet .xr-label { color: var(--txt-3); }
 .xr-chev { display: inline-block; width: 14px; color: var(--txt-4); font-size: 10px; }
 tr.xr-tl-name td { padding-top: 3px; padding-bottom: 3px; background: color-mix(in srgb, var(--panel) 50%, transparent); }
 tr.xr-tl-name.unpriced .xr-dates { color: var(--txt-4); }
+/* a name left out for a flagged price history: grayed, never gone (WB#2) */
+tr.xr-tl-name.flagged td { opacity: 0.6; }
 .xr-dates { white-space: normal; max-width: 360px; }
 .xr-counts { display: inline-flex; gap: 8px; font-family: var(--mono); font-size: 11px; color: var(--txt-4); white-space: nowrap; }
 .xr-c.golden { color: color-mix(in srgb, var(--pos) 55%, var(--txt-3)); }

@@ -72,6 +72,12 @@ companies had **no reading** per member, so a missing name is a visible count, n
   caveat).
 - `rvol`: no reading for the 20-bar window (fewer than 20 base bars, no volume on the as-of bar, or a zero base).
 
+**A flagged price history** (`docs/DASHBOARDS.md` rule 5): a company whose data flags reach its price readings
+at the as-of (`dashboards.baskets.price_flags`) is on **no list**, the insider list included (every list row
+shows its price columns), counted in no member's no-reading tally, and out of every insider group's names,
+buyers and share (the group shows "N left out"). The page shows a quiet "N names left out for a flagged price
+history" that opens to each ticker and reason, so it is never silently gone.
+
 ## Clicks
 
 A ticker opens its first card's Cockpit on it; each card chip opens that card's Cockpit on the name:
@@ -143,7 +149,9 @@ flip:
   a buy in this net-flow read (the deferred re-base); an offer-price subscription is set aside only when a day
   low is on file.
 - **Business type, sector and company names come from today's master**, at any as-of.
-- **Data flags are not applied** (as on the Rotation Map and the Cross Radar).
+- **The price flags are read inside the cached read** (as on the Narrative Index), so an operator's split
+  review in Admin (which clears a flag) reaches this page at the next run or roster edit; the flags are
+  read once per as-of, so a flag on any price cell leaves the name out of every window.
 - **The cache refreshes on a new run, a roster edit, or a card created, archived or renamed** (the shared
   cache's rule).
 - **Load time is unmeasured until review.** It runs seven members per company (the Rotation Map runs four),

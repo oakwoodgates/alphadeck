@@ -7,8 +7,8 @@
 //   /admin               the Operator Admin (ops: record freshness, cron health, run-now)
 //   /radar               the SPAC Radar (the blank-check transition tape)
 //   /dashboards          the Dashboards index (cross-card views, the Board first; docs/DASHBOARDS.md)
-//   /dashboards/:slug    one dashboard (its registry entry in dashboards/registry.ts); /dashboards/board
-//                        is the Board
+//   /dashboards/:slug    one dashboard (its dashboards/<slug>/entry.ts, collected by dashboards/registry.ts);
+//                        /dashboards/board is the Board
 //   /thesis/:thesisId    the Cockpit (singular, deliberately outside the API's /theses namespace)
 //   ?asof=YYYY-MM-DD     any view; absent or malformed = today
 //   ?name=<key>          Cockpit only; the NamePanel open on that member (ticker or security_id)

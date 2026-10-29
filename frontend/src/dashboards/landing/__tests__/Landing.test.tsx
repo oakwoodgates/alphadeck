@@ -66,6 +66,7 @@ const name = (ticker: string, pos7: number | null, over: Partial<LandingNameOut>
   not_priced: null,
   last_bar: "2026-10-28",
   windows: nwins(pos7),
+  flag: null,
   ...over,
 });
 
@@ -78,6 +79,7 @@ const group = (key: string, link: string, pos7: number | null, over: Partial<Lan
   supersector: null,
   names: 4,
   priced: 4,
+  flagged: 0,
   windows: gwins(pos7),
   members: [],
   ...over,
@@ -134,6 +136,7 @@ const DATA: LandingOut = {
   no_tape_companies: 0,
   stale_tape_companies: 0,
   groups: GROUPS,
+  flagged: [],
   windows: [
     { key: "1d", bars: 1 },
     { key: "7d", bars: 7 },
@@ -409,5 +412,56 @@ describe("Price & Volume Landing — a row's names", () => {
     expect(screen.getByRole("button", { name: "Grid · Turbines, Unsegmented" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Nuclear · Fuel" }));
     expect(onSelectThesis).toHaveBeenCalledWith("t-nuc", "AAA");
+  });
+});
+
+describe("Price & Volume Landing — a flagged price history", () => {
+  const MIXED = "mixed-scale price history";
+  const BLANK = KEYS.map((key) => ({ key, ret: null, range_pos: null, vol_ratio: null, quadrant: null, up_down: null }));
+  const FLAGGED: LandingOut = {
+    ...DATA,
+    flagged: [{ security_id: "s-RBOT", ticker: "RBOT", reason: MIXED }],
+    groups: [
+      {
+        ...GROUPS[0],
+        names: 5,
+        flagged: 1,
+        members: [
+          ...GROUPS[0].members,
+          name("RBOT", null, { priced: false, not_priced: null, last_bar: null, windows: BLANK, flag: MIXED }),
+        ],
+      },
+      ...GROUPS.slice(1),
+    ],
+  };
+
+  it("names the left-out companies on one quiet line that opens to each ticker and reason", async () => {
+    const user = userEvent.setup();
+    h.useLanding.mockReturnValue(query(FLAGGED));
+    renderPage();
+    const note = screen.getByText("1 name left out for a flagged price history");
+    await user.click(note);
+    expect(note.closest("details")).toHaveAttribute("open");
+    expect((screen.getByText("RBOT").closest("li") as HTMLElement).textContent).toBe(`RBOT ${MIXED}`);
+  });
+
+  it("a group counts its left-out names, and expanded it lists the flagged name grayed with its reason", async () => {
+    const user = userEvent.setup();
+    h.useLanding.mockReturnValue(query(FLAGGED));
+    renderPage();
+    const row = groupRow("Turbines");
+    expect(within(row).getByText("1 left out")).toBeInTheDocument();
+    await user.click(row);
+    const names = [...document.querySelectorAll("tr.ld-name .ld-tk")].map((n) => n.textContent);
+    expect(names).toEqual(["TOP", "LOW", "OFF", "RBOT"]);
+    const rbot = [...document.querySelectorAll("tr.ld-name")].find((r) => r.textContent?.startsWith("RBOT"));
+    expect(rbot).toHaveClass("flagged");
+    expect(within(rbot as HTMLElement).getByText(`left out: ${MIXED}`)).toBeInTheDocument();
+  });
+
+  it("shows no note when nothing is left out", () => {
+    renderPage();
+    expect(screen.queryByText(/left out for a flagged price history/)).toBeNull();
+    expect(screen.queryByText("1 left out")).toBeNull();
   });
 });
