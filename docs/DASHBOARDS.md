@@ -1,0 +1,132 @@
+# Dashboards: experimental views across the cards
+
+## What a dashboard is
+
+The Board shows one card per thesis. A **dashboard** is an experimental, self-contained view *across*
+the cards: one page that reads many theses (or many names) at once and shows what the data says about
+them together.
+
+This is a brainstorming phase. Some dashboards will be improved and some will be cut, so each one is
+built to stand alone and to delete cleanly. Every dashboard carries a **status**, `experimental` to
+start, shown as a quiet tag beside its title and on the index.
+
+Where they live in the app: the top nav's **Dashboards ▾** menu (right after Board) lists
+"All dashboards" and then each dashboard; `/dashboards` is the index; `/dashboards/<slug>` is one
+dashboard. Every link carries `?asof=` like the rest of the app.
+
+## The rules (operator decisions, 2026-10-28)
+
+1. **Display only.** A dashboard never feeds a call, never changes a card's state, never writes to the
+   database, never sends a notification and never calls the LLM. It may READ anything, including the
+   recorded calls (the `calls` log) and the live call. Reading the live call goes through
+   `call_for_thesis(..., record=False)`, exactly as the Board's read does: its default is
+   `record=True`, which appends the card to the `calls` log (the nightly's write, never a dashboard's).
+   Three tests in `backend/tests/dashboards/test_isolation.py` enforce this, each a source scan over
+   the real tree:
+   - `test_leaf_rule_nothing_outside_app_dashboards_and_tests_imports_a_dashboard` (with its twin
+     `test_leaf_rule_inside_app_only_main_mounts_dashboards_and_only_their_routers_import_them`):
+     a dashboard is a leaf, so the call path, the pipeline, signals, calls and editions can never
+     depend on one.
+   - `test_no_dashboard_imports_the_llm_or_notify`: no `llm`, `notify` or `anthropic` import, and
+     no LLM client from `app.deps`.
+   - `test_no_dashboard_writes_to_the_database`: no SQL write (`INSERT INTO`, `UPDATE … SET`,
+     `DELETE FROM`, `TRUNCATE`, `ALTER`, `CREATE`, `DROP`, `MERGE INTO`) in the dashboard code's
+     strings, and no `call_for_thesis` without an explicit `record=False`.
+
+   The scans are a floor, not a proof: a write through an imported writer function (a `repositories`
+   save) is not caught by them, so review checks every import a dashboard adds.
+
+2. **As-of.** A dashboard follows the app's as-of dial unless its plan makes it a "now" view (like
+   Admin and Radar). The registry entry's `asofAware` flag decides: `true` shows the dial and hands
+   the body the app's as-of; `false` shows no dial and hands the body today's date. At a past as-of a
+   dashboard reads only what was public by the end of that date: the same public-clock read the
+   Board's `GET /theses/{id}/call?asof=` uses. `app/routers/theses.py` takes
+   `known_at, clock = serve_view(asof)` (`domain.market_time.serve_view`) and threads both into the
+   read, `call_for_thesis(conn, thesis.id, asof, known_at=known_at, clock=clock, record=False)`; its
+   display-signals route hands the same pair to `PointInTimeData`. A live as-of gets
+   `(None, "record")`, the unchanged live read. A past one gets `(known_at_for_asof(asof), "public")`:
+   each fact counts from when it became public, up to the end of that market day (invariant #1). A
+   dashboard calls `serve_view` once per request and threads that pair into every read; it never
+   builds its own cutoff.
+
+3. **Rankings and sorts are allowed** when they are computed by code from data, never sourced from an
+   LLM, and their wording stays neutral. Say what the numbers show ("largest 1W move", "most names
+   above the 50d"), never an instruction or a verdict ("buy", "must watch", "best idea"). A dashboard
+   ranks by what the data shows; it never judges whether an idea is good (invariant #4).
+
+4. **Each dashboard's plan decides** its own loudness, which names count (for example whether
+   Context and Bench names are included) and how groups are combined, and the page states those
+   choices in a quiet line.
+
+5. **Show the work.** Every aggregate says how many names it rests on and how it was combined
+   ("median of 4 priced names"). Names left out for thin data are counted or listed, never silently
+   dropped (invariant #9).
+
+6. **Event-outcome views** ("what happened after X") slice by the fixed market-cap bands in
+   `CLAUDE.md` (nano < $50M · micro $50M–$300M · small $300M–$2B · mid $2B–$10B · large ≥ $10B),
+   measured at the event, with the horizon, the comparison, n and the hit rate stated per tier. See
+   `docs/BACKTEST.md` §"Sliced by market cap". The first dashboard that needs the bands defines them
+   once in `domain/`.
+
+7. **Cache.** Allowed, in-process, used only by dashboards. It must refresh after every new cron run
+   and after any basket edit, and it keys on "a new run happened", never on a clock (the run schedule
+   will grow: market open, market close, nightly, pre-market). It is built once, with the first
+   dashboard that needs it, then shared, never reinvented per dashboard.
+
+8. **Self-contained layout**, so dashboards build in parallel and delete cleanly. A slug is lowercase
+   letters, digits and `-` (`tape-breadth`); the Python module name swaps `-` for `_`
+   (`tape_breadth`). Everything a dashboard owns lives in these paths:
+   - `frontend/src/dashboards/<slug>/`: the body component (default export, takes `DashboardProps`),
+     its query hooks (TanStack Query over the shared `api/client.ts`, not in `api/hooks.ts`), its own
+     CSS (imported by the component, not in `index.css`) and its tests.
+   - `backend/dashboards/<slug>.py` (or a subpackage, `backend/dashboards/<slug>/`): the compute.
+   - `backend/app/routers/dashboards/<slug>.py`: its router (`APIRouter(prefix="/<slug>")`, GET
+     only) with its wire models in that same module, not `app/schemas_api.py`.
+   - `backend/tests/dashboards/test_<slug>.py`: its backend tests.
+   - `docs/dashboards/<slug>.md`: its plan.
+
+   The only shared lines are one registry line on each side: `DASHBOARDS` in
+   `frontend/src/dashboards/registry.ts` and `_DASHBOARD_ROUTERS` in
+   `backend/app/routers/dashboards/__init__.py`. The shell (`DashboardShell.tsx`) draws the header,
+   the title row and the status tag, so a dashboard component renders only its body.
+
+9. **Contract regen in the same PR** (`CLAUDE.md`). A dashboard's routes change
+   `backend/openapi.json` and `frontend/src/api/types.gen.ts`; regenerate both
+   (`python -m app.openapi_export` from `backend/`, `npm run gen:api` from `frontend/`) in the same
+   PR. Parallel dashboard PRs will conflict in those two files: after a rebase, regenerate both
+   rather than hand-merging. A conflict on a registry line is two adjacent additions; keep both.
+
+## Add a dashboard: the checklist
+
+1. Write the plan, `docs/dashboards/<slug>.md`: what it shows, as-of or "now", its loudness, which
+   names count (Context and Bench included or not), how groups are combined, what a thin-data name
+   does, and whether it needs the shared cache. The operator signs off the plan before the build.
+2. Backend compute: `backend/dashboards/<slug>.py`. Reads only; threads `serve_view(asof)` into every
+   read (rule 2).
+3. Backend router: `backend/app/routers/dashboards/<slug>.py` with `router = APIRouter(prefix="/<slug>")`
+   and its wire models; add ONE line to `_DASHBOARD_ROUTERS` in
+   `backend/app/routers/dashboards/__init__.py`.
+4. Backend tests: `backend/tests/dashboards/test_<slug>.py`, including a past-as-of case where a fact
+   published after the as-of stays invisible. The isolation tests already cover the new files.
+5. Frontend: `frontend/src/dashboards/<slug>/` with the body component (default export) and its hooks,
+   CSS and tests; add ONE line to `DASHBOARDS` in `frontend/src/dashboards/registry.ts`
+   (`React.lazy(() => import("./<slug>/<Component>"))`, `status: "experimental"`, `asofAware` per the
+   plan). Order in the array is menu order.
+6. Regenerate the contract pair (rule 9) and commit it with the change.
+7. Add the dashboard's row to the Index below.
+
+## Remove a dashboard: the checklist
+
+1. Delete `frontend/src/dashboards/<slug>/` and its line in `frontend/src/dashboards/registry.ts`.
+2. Delete `backend/dashboards/<slug>.py` (or its subpackage), `backend/app/routers/dashboards/<slug>.py`
+   and its line in `_DASHBOARD_ROUTERS`, and `backend/tests/dashboards/test_<slug>.py`.
+3. Delete `docs/dashboards/<slug>.md` and its row in the Index below.
+4. Regenerate the contract pair (rule 9) and commit it with the removal.
+5. A search for the slug returns nothing. An old link to the dashboard lands on the index (an unknown
+   slug redirects there).
+
+## Index
+
+| Dashboard | Slug | Status | Plan |
+| --- | --- | --- | --- |
+| None yet. | | | |

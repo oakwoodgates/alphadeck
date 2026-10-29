@@ -1,9 +1,11 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { lazy } from "react";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "../App";
+import type { DashboardEntry, DashboardProps } from "../dashboards/registry";
 import { todayISO } from "../util/format";
 
 // The route-mapping suite. The pages are stubbed — each renders its `header` slot (the real shared
@@ -17,11 +19,46 @@ const h = vi.hoisted(() => ({
     error: null as unknown,
     data: [{ id: "t-1", name: "Thesis One" }] as unknown,
   },
+  // the dashboards registry, mutated IN PLACE per test (the mock holds this array's reference); empty by
+  // default, exactly like the real registry today
+  dashboards: [] as unknown[],
 }));
 
 vi.mock("../api/hooks", () => ({
   useTheses: () => h.theses,
 }));
+
+vi.mock("../dashboards/registry", () => ({ DASHBOARDS: h.dashboards }));
+
+// A fake dashboard body: its props as text and an onSelectThesis button — the shell + route wiring is what's
+// under test, not any real dashboard.
+function FakeBody(p: DashboardProps) {
+  return (
+    <div>
+      <h2>FAKE BODY</h2>
+      <span data-testid="dash-asof">{p.asof}</span>
+      <button onClick={() => p.onSelectThesis("t-9", "HIMS")}>dash-select</button>
+    </div>
+  );
+}
+
+const FAKE: DashboardEntry = {
+  slug: "fake-dash",
+  label: "Fake Dash",
+  description: "One fake dashboard for the route tests.",
+  status: "experimental",
+  asofAware: true,
+  component: lazy(() => Promise.resolve({ default: FakeBody })),
+};
+
+const FAKE_NOW: DashboardEntry = {
+  slug: "fake-now",
+  label: "Fake Now",
+  description: "A fake now view.",
+  status: "experimental",
+  asofAware: false,
+  component: lazy(() => Promise.resolve({ default: FakeBody })),
+};
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 vi.mock("../board/Board", () => ({
@@ -107,6 +144,7 @@ function renderAt(url: string) {
 
 beforeEach(() => {
   h.theses = { isLoading: false, error: null, data: [{ id: "t-1", name: "Thesis One" }] };
+  h.dashboards.length = 0;
 });
 
 describe("App routes — path → page", () => {
@@ -329,6 +367,79 @@ describe("App routes — the Scoreboard's ?edition= dial (editions S4)", () => {
     expect(screen.getByTestId("sb-asof")).toHaveTextContent("2026-06-01"); // the dial rides alongside
     await user.click(screen.getByText("sb-pick-edition-0"));
     expect(screen.getByTestId("sb-edition")).toHaveTextContent("0");
+  });
+});
+
+describe("App routes — the Dashboards (docs/DASHBOARDS.md)", () => {
+  it("/dashboards renders the index's empty state while the registry is empty", () => {
+    renderAt("/dashboards");
+    expect(screen.getByText("No dashboards yet.")).toBeInTheDocument();
+  });
+
+  it("an unknown slug redirects to /dashboards", () => {
+    renderAt("/dashboards/no-such-dashboard");
+    expect(screen.getByText("No dashboards yet.")).toBeInTheDocument();
+  });
+
+  it("the unknown-slug redirect keeps ?asof= (the index's links carry it)", () => {
+    h.dashboards.push(FAKE);
+    renderAt("/dashboards/no-such-dashboard?asof=2026-06-01");
+    expect(screen.getByRole("link", { name: /Fake Dash/ })).toHaveAttribute(
+      "href",
+      "/dashboards/fake-dash?asof=2026-06-01",
+    );
+  });
+
+  it("the index lists every registry entry (label, status, description), linking with ?asof= carried", () => {
+    h.dashboards.push(FAKE);
+    renderAt("/dashboards?asof=2026-06-01");
+    const link = screen.getByRole("link", { name: /Fake Dash/ });
+    expect(link).toHaveAttribute("href", "/dashboards/fake-dash?asof=2026-06-01");
+    expect(link).toHaveTextContent("experimental");
+    expect(link).toHaveTextContent("One fake dashboard for the route tests.");
+    expect(screen.queryByText("No dashboards yet.")).not.toBeInTheDocument();
+  });
+
+  it("/dashboards/<slug> renders the entry's body inside the shell, with the as-of dial for an as-of view", async () => {
+    h.dashboards.push(FAKE);
+    renderAt("/dashboards/fake-dash?asof=2026-06-01");
+    expect(await screen.findByText("FAKE BODY")).toBeInTheDocument();
+    expect(screen.getByTestId("dash-asof")).toHaveTextContent("2026-06-01");
+    expect(screen.getByRole("heading", { name: "Fake Dash" })).toBeInTheDocument();
+    expect(screen.getByText("One fake dashboard for the route tests.")).toBeInTheDocument();
+    expect(screen.getByLabelText("as-of")).toHaveValue("2026-06-01");
+    expect(screen.getByRole("button", { name: "Dashboards" })).toHaveClass("on");
+  });
+
+  it("a now dashboard (asofAware false) shows no dial and its body reads today, whatever ?asof= says", async () => {
+    h.dashboards.push(FAKE_NOW);
+    renderAt("/dashboards/fake-now?asof=2026-06-01");
+    expect(await screen.findByText("FAKE BODY")).toBeInTheDocument();
+    expect(screen.getByTestId("dash-asof")).toHaveTextContent(todayISO());
+    expect(screen.queryByLabelText("as-of")).not.toBeInTheDocument();
+  });
+
+  it("onSelectThesis opens the Cockpit (asof + name carried) and Back returns to the dashboard", async () => {
+    const user = userEvent.setup();
+    h.dashboards.push(FAKE);
+    renderAt("/dashboards/fake-dash?asof=2026-06-01");
+    await user.click(await screen.findByText("dash-select"));
+    expect(screen.getByTestId("cp-thesis")).toHaveTextContent("t-9");
+    expect(screen.getByTestId("cp-name")).toHaveTextContent("HIMS");
+    expect(screen.getByTestId("cp-asof")).toHaveTextContent("2026-06-01");
+    await user.click(screen.getByText("cp-back"));
+    expect(await screen.findByText("FAKE BODY")).toBeInTheDocument();
+    expect(screen.getByTestId("dash-asof")).toHaveTextContent("2026-06-01");
+  });
+
+  it("the top nav's menu reaches a dashboard from the Board with ?asof= carried", async () => {
+    const user = userEvent.setup();
+    h.dashboards.push(FAKE);
+    renderAt("/?asof=2026-06-01");
+    await user.click(screen.getByRole("button", { name: "Dashboards" }));
+    await user.click(screen.getByRole("menuitem", { name: /Fake Dash/ }));
+    expect(await screen.findByText("FAKE BODY")).toBeInTheDocument();
+    expect(screen.getByTestId("dash-asof")).toHaveTextContent("2026-06-01");
   });
 });
 

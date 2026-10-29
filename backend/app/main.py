@@ -13,6 +13,7 @@ from app.routers import (
     admin_price_feed,
     admin_splits,
     backtest,
+    dashboards,
     data_flags,
     radar,
     scoreboard,
@@ -56,6 +57,9 @@ app.include_router(admin_onboarding.router)  # X1 — the staged cold-ingest que
 # split plan S3 — the shared "is this real?" data flags (compute-on-read, display-only)
 app.include_router(data_flags.router)
 app.include_router(radar.router)
+# The Dashboards (docs/DASHBOARDS.md) — experimental, display-only cross-card views. ONE include: each
+# dashboard mounts its own router inside app/routers/dashboards/, never here.
+app.include_router(dashboards.router)
 # /backtest is ARTIFACT-served and dev/sig-only BY DATA AVAILABILITY -- it is registered
 # unconditionally and reports `available: false` where no store exists (prod), so there is no
 # build flag or env var anyone can get wrong. It never writes and is never linked from

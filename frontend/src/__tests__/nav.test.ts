@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { adminPath, boardPath, scoreboardPath, thesisPath, validAsof, workbenchPath } from "../nav";
+import {
+  adminPath,
+  boardPath,
+  dashboardPath,
+  dashboardsPath,
+  scoreboardPath,
+  thesisPath,
+  validAsof,
+  workbenchPath,
+} from "../nav";
 
 describe("validAsof — the ?asof= guard", () => {
   it("accepts a well-formed ISO date", () => {
@@ -37,6 +46,19 @@ describe("path builders", () => {
     expect(scoreboardPath("2026-06-01")).toBe("/scoreboard?asof=2026-06-01");
     expect(adminPath("2026-06-01")).toBe("/admin?asof=2026-06-01");
     expect(thesisPath("t-1", { asof: "2026-06-01" })).toBe("/thesis/t-1?asof=2026-06-01");
+  });
+
+  it("the Dashboards builders: the index and one dashboard, asof carried exactly like the other paths", () => {
+    expect(dashboardsPath(null)).toBe("/dashboards");
+    expect(dashboardsPath("2026-06-01")).toBe("/dashboards?asof=2026-06-01");
+    expect(dashboardPath("tape-breadth", null)).toBe("/dashboards/tape-breadth");
+    expect(dashboardPath("tape-breadth", "2026-06-01")).toBe(
+      "/dashboards/tape-breadth?asof=2026-06-01",
+    );
+  });
+
+  it("dashboardPath URL-encodes the slug", () => {
+    expect(dashboardPath("a b/c?d", "2026-06-01")).toBe("/dashboards/a%20b%2Fc%3Fd?asof=2026-06-01");
   });
 
   it("thesisPath combines asof + name and URL-encodes both the id and the name", () => {
