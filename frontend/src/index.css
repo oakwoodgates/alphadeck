@@ -655,15 +655,30 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .nav-menu-desc { font-size: 11px; line-height: 1.35; color: var(--txt-3); }
 .nav-menu-empty { font-size: 11px; color: var(--txt-4); padding: 4px 10px 7px; }
 
-.dq { display: flex; align-items: center; gap: 14px; padding: 9px 18px; border-bottom: 1px solid var(--line); background: linear-gradient(90deg, rgba(255, 87, 51, 0.07), rgba(255, 87, 51, 0.02) 60%, transparent); }
-.dq-label { display: flex; align-items: center; gap: 8px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase; color: var(--armed); white-space: nowrap; }
+.dq { display: flex; align-items: flex-start; gap: 14px; padding: 9px 18px; border-bottom: 1px solid var(--line); background: linear-gradient(90deg, rgba(255, 87, 51, 0.07), rgba(255, 87, 51, 0.02) 60%, transparent); }
+.dq-label { display: flex; align-items: center; gap: 8px; min-height: 35px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase; color: var(--armed); white-space: nowrap; }
 .dq-label .pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--armed); box-shadow: 0 0 0 0 rgba(255, 87, 51, 0.6); animation: pulse 2s infinite; }
 @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(255, 87, 51, 0.55); } 70% { box-shadow: 0 0 0 7px rgba(255, 87, 51, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 87, 51, 0); } }
-.dq-items { display: flex; gap: 10px; flex: 1; overflow: hidden; }
-.dq-item { display: flex; align-items: center; gap: 10px; padding: 5px 12px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--panel); cursor: pointer; white-space: nowrap; transition: 0.15s; font: inherit; color: inherit; }
+/* The strip wraps — it never clips an armed item off the right edge. Collapsed it is held to two rows by an inline
+   max-height (measured off the laid-out rows, see useRowCap) and the rest is `.held`; `.open` shows every row,
+   bounded by the viewport so the columns below keep their room. `position: relative` is what makes the items'
+   offsetTop row-relative for that measurement. `.dq` is top-aligned so the label and the fold control sit on the
+   FIRST row however tall the strip grows; their 35px is a graded item's height (the grade chip sets it). */
+.dq-items { position: relative; display: flex; flex-wrap: wrap; gap: 8px 10px; flex: 1; min-width: 0; overflow: hidden; }
+.dq-items.open { max-height: 50vh; overflow-y: auto; }
+.dq-item { display: flex; align-items: center; gap: 10px; max-width: 100%; padding: 5px 12px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--panel); cursor: pointer; white-space: nowrap; transition: 0.15s; font: inherit; color: inherit; }
 .dq-item:hover { border-color: var(--armed); background: var(--panel-2); }
+/* a folded item is still laid out (the measurement needs its row) but is clipped from view: hidden also takes it
+   out of the tab order and the accessibility tree, so focus never scrolls the clipped strip */
+.dq-item.held { visibility: hidden; }
+/* the fold control is quiet on purpose (#7): the strip is the one loud element, and this only counts and reveals */
+.dq-toggle { flex: none; box-sizing: border-box; height: 35px; padding: 0 12px; border: 1px solid var(--line-2); border-radius: 8px; background: transparent; font: inherit; font-family: var(--mono); font-size: 11px; color: var(--txt-2); cursor: pointer; white-space: nowrap; }
+.dq-toggle:hover, .dq-toggle:focus-visible { color: var(--txt); border-color: var(--txt-3); outline: none; }
 .dq-item b { font-family: var(--mono); font-weight: 700; font-size: 12px; }
 .dq-item span { color: var(--txt-2); font-size: 11.5px; }
+/* a long thesis name is cut with an ellipsis (its full text is the span's title and the card's): one 70-character
+   name made a single item 840px wide, which wrapped alone onto a row and left the rest of the row blank */
+.dq-item .dq-nm { min-width: 0; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
 /* the act-by clock: muted mono; warm only when the call flags the entry window closing (#7) */
 .dq-item .dq-clock { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
 .dq-item .dq-clock.closing { color: var(--warm); font-weight: 700; }

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { ReactNode } from "react";
 
 import type { CallCardResponse, ThesisSummary } from "../api/hooks";
@@ -14,6 +15,10 @@ import {
   verdictLabel,
 } from "../util/format";
 import { ThesisCard } from "./ThesisCard";
+import { useRowCap } from "./useRowCap";
+
+/** The Decision Queue wraps; collapsed it holds to this many rows and says how many it is holding back. */
+const DQ_ROWS = 2;
 
 const COLUMNS = [
   { state: "incubating", cls: "incub", label: "Incubating", hint: "quiet · do not act" },
@@ -76,6 +81,13 @@ export function Board({ header, asof, onSelect }: Props) {
   // date: a placeholder (previous as-of) call is barred from it. Its dimmed card still shows in the
   // column — column = context, queue = the action prompt.
   const armedRows = rows.filter((r) => r.call.state === "armed" && !r.stale);
+  // keep-it-visible (#2 + the #9 instinct): the strip wraps, and past DQ_ROWS rows it folds the rest behind a
+  // "+N more" that is always on screen and one click from showing every item. The queue ORDER is never touched —
+  // the fold is by position in the existing order, not by any ranking of the theses (#4).
+  const [dqOpen, setDqOpen] = useState(false);
+  const { ref: dqRef, cap: dqCap } = useRowCap<HTMLDivElement>(DQ_ROWS);
+  const dqFolded = dqCap.height !== null && !dqOpen;
+  const dqHeld = Math.max(0, armedRows.length - dqCap.firstClipped);
   // "Still working" must stay honest now that the calls are QUEUED (C3): a query waiting for a slot
   // is pending with fetchStatus idle, so `isLoading` (v5 = pending AND fetching) reads false for it
   // — keying the all-clear off isLoading alone would flash "Nothing to do ✓" with eight calls still
@@ -113,9 +125,14 @@ export function Board({ header, asof, onSelect }: Props) {
           <span className="pulse" />
           Decision Queue
         </div>
-        <div className="dq-items">
+        <div
+          id="dq-items"
+          ref={dqRef}
+          className={`dq-items${dqOpen ? " open" : ""}`}
+          style={dqFolded ? { maxHeight: dqCap.height ?? undefined } : undefined}
+        >
           {armedRows.length > 0 ? (
-            armedRows.map(({ thesis, call }) => {
+            armedRows.map(({ thesis, call }, i) => {
               // deep-link the headline armed NAME (?name=) so the Cockpit opens on it — ticker
               // preferred, security_id as the precise fallback (the Scoreboard row idiom + what
               // resolveNameKey resolves against); a single-name thesis just carries its own ticker
@@ -130,7 +147,7 @@ export function Board({ header, asof, onSelect }: Props) {
               return (
                 <button
                   type="button"
-                  className="dq-item"
+                  className={`dq-item${dqFolded && i >= dqCap.firstClipped ? " held" : ""}`}
                   key={thesis.id}
                   onClick={() => onSelect(thesis.id, nameKey)}
                 >
@@ -148,7 +165,7 @@ export function Board({ header, asof, onSelect }: Props) {
                       {call.conviction_grade.toUpperCase()}
                     </span>
                   )}
-                  <span>
+                  <span className="dq-nm" title={thesis.name}>
                     {verdictLabel(call.verdict)} · {thesis.name}
                   </span>
                   {armDays !== null && (
@@ -171,6 +188,22 @@ export function Board({ header, asof, onSelect }: Props) {
             <span className="dq-empty">{dqNote}</span>
           )}
         </div>
+        {dqCap.height !== null && (
+          <button
+            type="button"
+            className="dq-toggle"
+            aria-expanded={dqOpen}
+            aria-controls="dq-items"
+            title={
+              dqOpen
+                ? `fold the queue back to ${DQ_ROWS} rows`
+                : `${armedRows.length} armed — show every one`
+            }
+            onClick={() => setDqOpen((o) => !o)}
+          >
+            {dqOpen ? "show fewer" : `+${dqHeld} more`}
+          </button>
+        )}
       </div>
 
       <div className="board">
