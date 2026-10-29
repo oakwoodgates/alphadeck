@@ -475,7 +475,7 @@ def test_the_freeze_ceiling_reads_the_acceptance_as_it_stood_at_the_cut(db, secu
 def test_the_basket_read_equals_the_per_security_read_on_the_public_clock(db, security_id):
     _mixed_history(db, security_id)
     for asof in (date(2026, 6, 1), date(2026, 6, 3), date(2026, 6, 5), date(2026, 9, 2)):
-        for table in (t for t in _FACT_IDENTITY if t != "fact_theme_conviction"):
+        for table in (t for t in _FACT_IDENTITY if SCOPE_COL[t] == "security_id"):
             for lower in (None, asof - timedelta(days=10)):
                 many = as_of_many(
                     db,

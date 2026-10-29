@@ -24,7 +24,7 @@ untouched (`docs/DISCOVERY.md`): the job counts, it never places a name.
   (`efts.sec.gov/LATEST/search-index?q="<term>"&dateRange=custom&startdt=<first>&enddt=<last>`, the same endpoint,
   client, cache, User-Agent and global budget the discovery walk uses: `ingest/edgar/fulltext.py`, `ingest/sec_budget.py`,
   lane `recurring`). One response gives everything the row needs: `hits.total.value` (documents), the `form_filter`
-  aggregation (documents per form type), the `entity_filter` aggregation (filers, top 20 buckets) and the first page
+  aggregation (documents per form type), the `entity_filter` aggregation (filers, top 30 buckets) and the first page
   of hits with each document's `ciks`, `form`, `file_date`, `adsh`.
 - **The stored row** (`fact_term_mentions`, one per (thesis, term, month); append-only; `valid_from` = the month's
   last day, `recorded_at` stamped now; natural key (tenant, thesis, term, month)): `documents` (the total), the
@@ -43,8 +43,9 @@ untouched (`docs/DISCOVERY.md`): the job counts, it never places a name.
   card's CURRENT terms.
 - **Idempotency is proven by counting the table** (the repo's rule), and a re-run after a finished month changes
   nothing. Honesty rules: a failed request leaves the month unstored and listed in the run report (never a zero);
-  a 429 pauses the lane like every other SEC client; the run writes a journal line and a `data/term_mentions/`
-  artifact the Admin page can show.
+  a 429 pauses the lane like every other SEC client; the run writes a summary line and a `data/term_mentions/`
+  artifact the Admin page can show (no `data_repair` journal row: that journal starts a Scoreboard editions repair
+  trial, and this is ordinary display data flow).
 - **The read:** `PointInTimeData.term_mentions(thesis_id)` as a THESIS-scoped DISPLAY accessor (like
   `theme_conviction_facts`; not on the detectors' protocol), gated by `valid_from <= asof` and the record clock's
   `recorded_at <= known_at`: at a past as-of the curve ends at the last month that had closed by then.
@@ -85,7 +86,7 @@ its term table and its index line. The cache clears on a new run or a basket edi
 
 ## Backend and frontend
 
-- Job PR: `backend/db/migrations/00xx_fact_term_mentions.sql`, `backend/pipeline/term_mentions.py` (the CLI: `--backfill
+- Job PR: `backend/db/migrations/0071_fact_term_mentions.sql`, `backend/pipeline/term_mentions.py` (the CLI: `--backfill
   --months 36`, `--weekly`, `--thesis`, `--dry-run` default, `--no-live` for the cache), its `daily_cron.sh` loop and
   env kill switch, the `PointInTimeData.term_mentions` accessor, `backend/tests/pipeline/test_term_mentions.py` (the
   form grouping on a recorded EFTS response fixture, the filer rule exact vs sampled, new filers, idempotency by
@@ -122,3 +123,40 @@ has months); any change to discovery; any write from the page.
 The build lists here every choice it made that this plan does not spell out, each the operator's to confirm or change.
 Pre-decided here for the operator's review: SIGNAL terms only; one request per term-month; the four form groups;
 filers exact only under 100 documents; the weekly refresh of two months; the 36-month window.
+
+**Made by the job's build (2026-10-29; `pipeline/term_mentions.py`, migration 0071):**
+
+- **`filer_ciks` is stored** on every row (the CIK set `filers` counted), so a later month's `new_filers` is
+  computed from stored data, never re-fetched.
+- **`new_filers` is NULL for a term's first stored month** (no earlier month to compare with), never "all new".
+  Earlier = every stored month before it, the newest version each, including months stored earlier in the same run.
+- **Filers are also exact by the entity aggregation:** when `entity_filter` lists every filer
+  (`sum_other_doc_count = 0`) and every key carries its CIK, the union of the page's CIKs and those keys is the
+  whole set, even above 100 documents (MEASURED: on all 72 cached replies where both rules apply, the two CIK
+  sets are identical; on the 106-document "classic psychedelics" reply the page shows 8 filers, the aggregation 9).
+- **A capped total counts from the form aggregation:** when EFTS reports `hits.total` as "gte 10,000", `documents`
+  is the `form_filter` aggregation's total (its buckets + `sum_other_doc_count`), which is not capped (MEASURED:
+  equal to the exact total on all 126 cached exact replies). A capped month is rarer than the plan assumed:
+  MEASURED, "artificial intelligence" in August 2026 matched 5,706 documents (an exact total).
+- **Issuance includes the variants:** S-1 / S-3 / F-1 / F-3 / S-11 with `/A`, MEF and ASR (S-3ASR, F-3ASR,
+  S-1MEF ...), every 424B*, FWP. 8-K12B, S-4, 424H, DRS and POS AM sit in other; so do the retired small-business
+  forms (10-KSB, SB-2), which cannot occur in a 36-month window.
+- **The groups are EFTS's aggregation counts** over `root_forms` (an amendment rolls into its form). Above the
+  top 30 forms they are Elasticsearch's per-bucket counts, which it marks approximate
+  (`doc_count_error_upper_bound`); whatever they leave lands in other, so the four still sum to the total.
+- **Store-on-diff:** a re-fetched month appends a version only when a value changed; a re-run appends nothing.
+  A stored month whose `new_filers` changes because an earlier month was filled after it (a larger `--months`
+  later) is re-derived from the stored CIK sets: a new version, no request.
+- **Deferral after a failed month:** when a month that is not stored fails, the card-term's later months are held
+  back (listed as deferred) so `new_filers` is never computed across a gap; they are written on the next run that
+  fills the gap. A failed month that IS stored keeps its older version.
+- **The weekly empty-table guard:** `--weekly` with no stored row for the tenant is a no-op line naming the
+  backfill's cost, so the Saturday loop can never start the ~hour-long first backfill on its own.
+- **Cross-card de-duplication:** cards sharing a term (compared case-insensitively) share its request; each card's
+  row stores its own spelling, and `source_ref` is the URL actually requested. A card's own duplicate spellings
+  count once. A term whose spelling the operator later edits (case included) is a new term to the job (its 36
+  months are fetched again); the old spelling's months stay stored.
+- **Saturday 10:00 market time** for the weekly loop: after the 09:00 company-list refresh (bounded at 900 s),
+  far outside the nightly window. A run refused or stopped (exit 75) retries hourly, at most six times.
+- **The page's month boundary:** `valid_from` is the month's last day, so on the live read the current
+  (partial) month appears only from its last day; until the first weekly run after it closes it reads partial.

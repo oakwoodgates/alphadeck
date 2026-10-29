@@ -1,0 +1,1097 @@
+{
+ "hits": {
+  "total": {
+   "value": 5706,
+   "relation": "eq"
+  },
+  "hits": [
+   {
+    "_source": {
+     "ciks": [
+      "0001452937"
+     ],
+     "file_date": "2026-08-28"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001498148"
+     ],
+     "file_date": "2026-08-26"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001498148"
+     ],
+     "file_date": "2026-08-03"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001843974"
+     ],
+     "file_date": "2026-08-28"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001843974"
+     ],
+     "file_date": "2026-08-31"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001498148"
+     ],
+     "file_date": "2026-08-11"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0002109814"
+     ],
+     "file_date": "2026-08-07"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001547576"
+     ],
+     "file_date": "2026-08-25"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0002109814"
+     ],
+     "file_date": "2026-08-07"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001498148"
+     ],
+     "file_date": "2026-08-27"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001498148"
+     ],
+     "file_date": "2026-08-26"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0002109814"
+     ],
+     "file_date": "2026-08-03"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001498148"
+     ],
+     "file_date": "2026-08-24"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001498148"
+     ],
+     "file_date": "2026-08-05"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001498148"
+     ],
+     "file_date": "2026-08-12"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001498148"
+     ],
+     "file_date": "2026-08-25"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001498148"
+     ],
+     "file_date": "2026-08-18"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001498148"
+     ],
+     "file_date": "2026-08-10"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001498148"
+     ],
+     "file_date": "2026-08-11"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001785237",
+      "0001778114"
+     ],
+     "file_date": "2026-08-18"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001785237",
+      "0001778114"
+     ],
+     "file_date": "2026-08-26"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001892492"
+     ],
+     "file_date": "2026-08-06"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001860434"
+     ],
+     "file_date": "2026-08-11"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0000096021"
+     ],
+     "file_date": "2026-08-20"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001594968"
+     ],
+     "file_date": "2026-08-14"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001928581"
+     ],
+     "file_date": "2026-08-11"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001095981"
+     ],
+     "file_date": "2026-08-14"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001892492"
+     ],
+     "file_date": "2026-08-20"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0002038439"
+     ],
+     "file_date": "2026-08-05"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001547950"
+     ],
+     "file_date": "2026-08-19"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001498148"
+     ],
+     "file_date": "2026-08-03"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001785549",
+      "0001778114"
+     ],
+     "file_date": "2026-08-26"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001547576"
+     ],
+     "file_date": "2026-08-25"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001785549",
+      "0001778114"
+     ],
+     "file_date": "2026-08-17"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001846715"
+     ],
+     "file_date": "2026-08-11"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001630212"
+     ],
+     "file_date": "2026-08-31"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001498148"
+     ],
+     "file_date": "2026-08-05"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001498148"
+     ],
+     "file_date": "2026-08-18"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001498148"
+     ],
+     "file_date": "2026-08-12"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001498148"
+     ],
+     "file_date": "2026-08-10"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001983736"
+     ],
+     "file_date": "2026-08-11"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001811216"
+     ],
+     "file_date": "2026-08-20"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001860434"
+     ],
+     "file_date": "2026-08-11"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001860434"
+     ],
+     "file_date": "2026-08-11"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001860434"
+     ],
+     "file_date": "2026-08-11"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001432353"
+     ],
+     "file_date": "2026-08-06"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0002018529"
+     ],
+     "file_date": "2026-08-07"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001498148"
+     ],
+     "file_date": "2026-08-25"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001860434"
+     ],
+     "file_date": "2026-08-11"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001547950"
+     ],
+     "file_date": "2026-08-28"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001722388"
+     ],
+     "file_date": "2026-08-06"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001425355"
+     ],
+     "file_date": "2026-08-06"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001498148"
+     ],
+     "file_date": "2026-08-31"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001498148"
+     ],
+     "file_date": "2026-08-27"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001425355"
+     ],
+     "file_date": "2026-08-06"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001812727"
+     ],
+     "file_date": "2026-08-05"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001498148"
+     ],
+     "file_date": "2026-08-24"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001547950"
+     ],
+     "file_date": "2026-08-28"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001547576"
+     ],
+     "file_date": "2026-08-20"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0002038439"
+     ],
+     "file_date": "2026-08-19"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001996192"
+     ],
+     "file_date": "2026-08-05"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001848275"
+     ],
+     "file_date": "2026-08-04"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001750264"
+     ],
+     "file_date": "2026-08-04"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0002030763"
+     ],
+     "file_date": "2026-08-18"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001812727"
+     ],
+     "file_date": "2026-08-04"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001547576"
+     ],
+     "file_date": "2026-08-20"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001848275"
+     ],
+     "file_date": "2026-08-04"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001655589"
+     ],
+     "file_date": "2026-08-03"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001655589"
+     ],
+     "file_date": "2026-08-03"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0000874866"
+     ],
+     "file_date": "2026-08-06"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0002011208"
+     ],
+     "file_date": "2026-08-18"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001278027"
+     ],
+     "file_date": "2026-08-11"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001711786"
+     ],
+     "file_date": "2026-08-11"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001437424"
+     ],
+     "file_date": "2026-08-03"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001132597"
+     ],
+     "file_date": "2026-08-05"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0000816761"
+     ],
+     "file_date": "2026-08-04"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001587982"
+     ],
+     "file_date": "2026-08-18"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001630212"
+     ],
+     "file_date": "2026-08-31"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0002122325",
+      "0002119292"
+     ],
+     "file_date": "2026-08-24"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001240810",
+      "0001778114"
+     ],
+     "file_date": "2026-08-18"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001240810",
+      "0001778114"
+     ],
+     "file_date": "2026-08-26"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001778114"
+     ],
+     "file_date": "2026-08-27"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001945619"
+     ],
+     "file_date": "2026-08-19"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0002151907"
+     ],
+     "file_date": "2026-08-27"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001932737"
+     ],
+     "file_date": "2026-08-21"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0002082471"
+     ],
+     "file_date": "2026-08-12"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001856437"
+     ],
+     "file_date": "2026-08-20"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001682149"
+     ],
+     "file_date": "2026-08-19"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001209466"
+     ],
+     "file_date": "2026-08-28"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001976322"
+     ],
+     "file_date": "2026-08-10"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0000802257"
+     ],
+     "file_date": "2026-08-05"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001498148"
+     ],
+     "file_date": "2026-08-31"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001432353",
+      "0000713676"
+     ],
+     "file_date": "2026-08-07"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001846715"
+     ],
+     "file_date": "2026-08-17"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001045520"
+     ],
+     "file_date": "2026-08-20"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0002097163"
+     ],
+     "file_date": "2026-08-28"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0000927971"
+     ],
+     "file_date": "2026-08-26"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001445815"
+     ],
+     "file_date": "2026-08-11"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0002055301"
+     ],
+     "file_date": "2026-08-11"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001813783"
+     ],
+     "file_date": "2026-08-26"
+    }
+   }
+  ]
+ },
+ "aggregations": {
+  "form_filter": {
+   "doc_count_error_upper_bound": 0,
+   "sum_other_doc_count": 230,
+   "buckets": [
+    {
+     "key": "10-Q",
+     "doc_count": 1281
+    },
+    {
+     "key": "N-PX",
+     "doc_count": 963
+    },
+    {
+     "key": "8-K",
+     "doc_count": 717
+    },
+    {
+     "key": "424B2",
+     "doc_count": 433
+    },
+    {
+     "key": "497K",
+     "doc_count": 336
+    },
+    {
+     "key": "6-K",
+     "doc_count": 313
+    },
+    {
+     "key": "485BPOS",
+     "doc_count": 180
+    },
+    {
+     "key": "424B3",
+     "doc_count": 100
+    },
+    {
+     "key": "10-K",
+     "doc_count": 91
+    },
+    {
+     "key": "485APOS",
+     "doc_count": 88
+    },
+    {
+     "key": "S-1",
+     "doc_count": 84
+    },
+    {
+     "key": "13F-HR",
+     "doc_count": 79
+    },
+    {
+     "key": "NPORT-P",
+     "doc_count": 79
+    },
+    {
+     "key": "497",
+     "doc_count": 77
+    },
+    {
+     "key": "N-CSRS",
+     "doc_count": 77
+    },
+    {
+     "key": "424B5",
+     "doc_count": 72
+    },
+    {
+     "key": "DRS",
+     "doc_count": 61
+    },
+    {
+     "key": "487",
+     "doc_count": 60
+    },
+    {
+     "key": "N-CSR",
+     "doc_count": 60
+    },
+    {
+     "key": "425",
+     "doc_count": 56
+    },
+    {
+     "key": "S-4",
+     "doc_count": 43
+    },
+    {
+     "key": "DEF 14A",
+     "doc_count": 37
+    },
+    {
+     "key": "ARS",
+     "doc_count": 34
+    },
+    {
+     "key": "F-1",
+     "doc_count": 31
+    },
+    {
+     "key": "N-2",
+     "doc_count": 27
+    },
+    {
+     "key": "S-6",
+     "doc_count": 23
+    },
+    {
+     "key": "20-F",
+     "doc_count": 21
+    },
+    {
+     "key": "424B4",
+     "doc_count": 19
+    },
+    {
+     "key": "S-3",
+     "doc_count": 18
+    },
+    {
+     "key": "DEFA14A",
+     "doc_count": 16
+    }
+   ]
+  },
+  "entity_filter": {
+   "doc_count_error_upper_bound": 50,
+   "sum_other_doc_count": 5211,
+   "buckets": [
+    {
+     "key": "GOLDMAN SACHS GROUP INC  (GS, GSCE, GS-PA, GS-PC, GS-PD)  (CIK 0000886982)",
+     "doc_count": 150
+    },
+    {
+     "key": "GS Finance Corp.  (CIK 0001419828)",
+     "doc_count": 148
+    },
+    {
+     "key": "Franklin Templeton ETF Trust  (CIK 0001655589)",
+     "doc_count": 55
+    },
+    {
+     "key": "BANK OF NOVA SCOTIA  (BNS)  (CIK 0000009631)",
+     "doc_count": 38
+    },
+    {
+     "key": "FIRST TRUST EXCHANGE-TRADED FUND VI  (CIK 0001552740)",
+     "doc_count": 38
+    },
+    {
+     "key": "Investment Managers Series Trust II  (CIK 0001587982)",
+     "doc_count": 36
+    },
+    {
+     "key": "MORGAN STANLEY  (MS, MS-PA, MS-PE, MS-PF, MS-PI, MS-PK, MS-PL, MS-PO, MS-PP, MS-PQ)  (CIK 0000895421)",
+     "doc_count": 30
+    },
+    {
+     "key": "JPMORGAN CHASE & CO  (JPM, AMJB, VYLD, JPM-PC, JPM-PD, JPM-PJ, JPM-PK, JPM-PL, JPM-PM)  (CIK 0000019617)",
+     "doc_count": 29
+    },
+    {
+     "key": "Morgan Stanley Finance LLC  (CIK 0001666268)",
+     "doc_count": 28
+    },
+    {
+     "key": "DBX ETF TRUST  (CIK 0001503123)",
+     "doc_count": 27
+    },
+    {
+     "key": "Themes ETF Trust  (CIK 0001976322)",
+     "doc_count": 26
+    },
+    {
+     "key": "BARCLAYS BANK PLC  (DJP, GRN, VXX, VXZ, ATMP, GBUG, TAPR, BWVTF, JJETF)  (CIK 0000312070)",
+     "doc_count": 25
+    },
+    {
+     "key": "BANK OF MONTREAL /CAN/  (BMO, AIQD, AIQU, BERZ, BNKD, BNKU, BULZ, CARD, CARU, DULL, FLYD, FLYU, FNGD, FNGO, FNGS, FNGU, GDXD)  (CIK 0000927971)",
+     "doc_count": 24
+    },
+    {
+     "key": "FIRST TRUST EXCHANGE-TRADED FUND VIII  (CIK 0001667919)",
+     "doc_count": 24
+    },
+    {
+     "key": "JPMorgan Chase Financial Co. LLC  (CIK 0001665650)",
+     "doc_count": 24
+    },
+    {
+     "key": "CITIGROUP INC  (C, C-PN, C-PR)  (CIK 0000831001)",
+     "doc_count": 23
+    },
+    {
+     "key": "Artificial Intelligence Technology Solutions Inc.  (AITX)  (CIK 0001498148)",
+     "doc_count": 22
+    },
+    {
+     "key": "Citigroup Global Markets Holdings Inc.  (CIK 0000200245)",
+     "doc_count": 22
+    },
+    {
+     "key": "Krane Shares Trust  (CIK 0001547576)",
+     "doc_count": 22
+    },
+    {
+     "key": "iSHARES TRUST  (CIK 0001100663)",
+     "doc_count": 20
+    },
+    {
+     "key": "EA Series Trust  (CIK 0001592900)",
+     "doc_count": 19
+    },
+    {
+     "key": "EXCHANGE TRADED CONCEPTS TRUST  (CIK 0001452937)",
+     "doc_count": 18
+    },
+    {
+     "key": "ROYAL BANK OF CANADA  (RY, RYLBF)  (CIK 0001000275)",
+     "doc_count": 16
+    },
+    {
+     "key": "BlackRock ETF Trust  (CIK 0001761055)",
+     "doc_count": 15
+    },
+    {
+     "key": "GraniteShares ETF Trust  (CIK 0001689873)",
+     "doc_count": 14
+    },
+    {
+     "key": "Tidal Trust II  (CIK 0001924868)",
+     "doc_count": 14
+    },
+    {
+     "key": "Bleichroeder Acquisition Corp. II  (BBCQ, BBCQU, BBCQW)  (CIK 0002088295)",
+     "doc_count": 12
+    },
+    {
+     "key": "E-Valuator Funds Trust  (CIK 0001821505)",
+     "doc_count": 12
+    },
+    {
+     "key": "ETF Series Solutions  (CIK 0001540305)",
+     "doc_count": 12
+    },
+    {
+     "key": "UBS AG  (AMUB, BDCX, BDCZ, CEFD, HDLB, IFED, IWDL, IWFL, IWML, MLPB, MLPR, MTUL, MVRL, PFFL, QULL, SCDL)  (CIK 0001114446)",
+     "doc_count": 11
+    }
+   ]
+  }
+ },
+ "query": {
+  "query": {
+   "bool": {
+    "must": [
+     {
+      "match_phrase": {
+       "doc_text": "artificial intelligence"
+      }
+     }
+    ],
+    "must_not": [],
+    "should": [],
+    "filter": [
+     {
+      "range": {
+       "file_date": {
+        "gte": "2026-08-01",
+        "lte": "2026-08-31"
+       }
+      }
+     }
+    ]
+   }
+  }
+ }
+}

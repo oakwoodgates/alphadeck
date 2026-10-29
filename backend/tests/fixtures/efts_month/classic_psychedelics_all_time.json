@@ -1,0 +1,940 @@
+{
+ "hits": {
+  "total": {
+   "value": 106,
+   "relation": "eq"
+  },
+  "hits": [
+   {
+    "_source": {
+     "ciks": [
+      "0001813814"
+     ],
+     "file_date": "2021-08-13"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001833141"
+     ],
+     "file_date": "2024-04-18"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001813814"
+     ],
+     "file_date": "2022-04-26"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001840904"
+     ],
+     "file_date": "2025-01-10"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001827401"
+     ],
+     "file_date": "2022-05-02"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0000890821"
+     ],
+     "file_date": "2024-05-15"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001941771"
+     ],
+     "file_date": "2022-11-01"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0000890821"
+     ],
+     "file_date": "2024-08-12"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001865482"
+     ],
+     "file_date": "2023-06-29"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001865482"
+     ],
+     "file_date": "2023-02-14"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001865482"
+     ],
+     "file_date": "2021-11-16"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0000890821"
+     ],
+     "file_date": "2023-05-15"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0000890821"
+     ],
+     "file_date": "2023-08-11"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0000890821"
+     ],
+     "file_date": "2023-11-13"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001813814"
+     ],
+     "file_date": "2021-08-13"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001813814"
+     ],
+     "file_date": "2021-11-12"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001865482"
+     ],
+     "file_date": "2023-01-09"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0000890821"
+     ],
+     "file_date": "2024-07-08"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0000890821"
+     ],
+     "file_date": "2023-12-06"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0000890821"
+     ],
+     "file_date": "2022-05-13"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0000890821"
+     ],
+     "file_date": "2024-09-12"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0000890821"
+     ],
+     "file_date": "2024-03-26"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001840904"
+     ],
+     "file_date": "2024-11-13"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0000890821"
+     ],
+     "file_date": "2024-03-11"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0000890821"
+     ],
+     "file_date": "2024-05-03"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0000890821"
+     ],
+     "file_date": "2022-08-12"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0000890821"
+     ],
+     "file_date": "2023-11-08"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0000890821"
+     ],
+     "file_date": "2023-12-01"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0000890821"
+     ],
+     "file_date": "2024-09-04"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001813814"
+     ],
+     "file_date": "2021-03-30"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0000890821"
+     ],
+     "file_date": "2022-11-14"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001813814"
+     ],
+     "file_date": "2021-04-09"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0000890821"
+     ],
+     "file_date": "2022-02-15"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0000890821"
+     ],
+     "file_date": "2022-02-10"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0000890821"
+     ],
+     "file_date": "2022-02-11"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0000890821"
+     ],
+     "file_date": "2023-03-31"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0000890821"
+     ],
+     "file_date": "2023-09-18"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001833141"
+     ],
+     "file_date": "2025-09-17"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001833141"
+     ],
+     "file_date": "2025-09-17"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001833141"
+     ],
+     "file_date": "2025-09-18"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001833141"
+     ],
+     "file_date": "2025-09-18"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001833141"
+     ],
+     "file_date": "2025-12-30"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0000890821"
+     ],
+     "file_date": "2022-03-31"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0000890821"
+     ],
+     "file_date": "2025-02-03"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001833141"
+     ],
+     "file_date": "2025-07-31"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001833141"
+     ],
+     "file_date": "2025-09-17"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001833141"
+     ],
+     "file_date": "2025-10-29"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0000890821"
+     ],
+     "file_date": "2025-01-14"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0000890821"
+     ],
+     "file_date": "2025-01-30"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001833141"
+     ],
+     "file_date": "2023-11-13"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001833141"
+     ],
+     "file_date": "2025-12-19"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001833141"
+     ],
+     "file_date": "2024-02-15"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001833141"
+     ],
+     "file_date": "2024-02-14"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001833141"
+     ],
+     "file_date": "2023-11-15"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0000890821"
+     ],
+     "file_date": "2021-06-22"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001833141"
+     ],
+     "file_date": "2025-08-14"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001833141"
+     ],
+     "file_date": "2025-07-01"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001833141"
+     ],
+     "file_date": "2024-06-26"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001833141"
+     ],
+     "file_date": "2025-02-11"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001833141"
+     ],
+     "file_date": "2024-11-13"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001833141"
+     ],
+     "file_date": "2024-08-08"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001833141"
+     ],
+     "file_date": "2023-11-13"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0000890821"
+     ],
+     "file_date": "2021-08-06"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001833141"
+     ],
+     "file_date": "2023-11-13"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001833141"
+     ],
+     "file_date": "2025-11-13"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001833141"
+     ],
+     "file_date": "2024-04-18"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001813814"
+     ],
+     "file_date": "2021-03-30"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0000890821"
+     ],
+     "file_date": "2021-08-04"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001833141"
+     ],
+     "file_date": "2025-02-11"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001833141"
+     ],
+     "file_date": "2025-07-14"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0000890821"
+     ],
+     "file_date": "2026-03-27"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0000890821"
+     ],
+     "file_date": "2026-04-14"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0000890821"
+     ],
+     "file_date": "2025-03-28"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0000890821"
+     ],
+     "file_date": "2025-04-16"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001985062"
+     ],
+     "file_date": "2025-11-03"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001985062"
+     ],
+     "file_date": "2026-06-22"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001985062"
+     ],
+     "file_date": "2025-06-25"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001985062"
+     ],
+     "file_date": "2024-07-29"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0000890821"
+     ],
+     "file_date": "2026-02-18"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001985062"
+     ],
+     "file_date": "2024-08-30"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001985062"
+     ],
+     "file_date": "2024-08-19"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001985062"
+     ],
+     "file_date": "2024-10-02"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001985062"
+     ],
+     "file_date": "2024-10-10"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001985062"
+     ],
+     "file_date": "2024-12-31"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001985062"
+     ],
+     "file_date": "2025-10-06"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001985062"
+     ],
+     "file_date": "2024-11-12"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001985062"
+     ],
+     "file_date": "2024-02-09"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001985062"
+     ],
+     "file_date": "2024-08-19"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001985062"
+     ],
+     "file_date": "2025-10-14"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001985062"
+     ],
+     "file_date": "2025-01-30"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001985062"
+     ],
+     "file_date": "2024-08-12"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001985062"
+     ],
+     "file_date": "2024-05-07"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0000890821"
+     ],
+     "file_date": "2026-02-10"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001985062"
+     ],
+     "file_date": "2024-10-30"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001985062"
+     ],
+     "file_date": "2024-04-18"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001985062"
+     ],
+     "file_date": "2024-12-20"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001985062"
+     ],
+     "file_date": "2025-01-24"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001985062"
+     ],
+     "file_date": "2024-05-10"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001985062"
+     ],
+     "file_date": "2023-08-01"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001985062"
+     ],
+     "file_date": "2023-10-16"
+    }
+   }
+  ]
+ },
+ "aggregations": {
+  "form_filter": {
+   "doc_count_error_upper_bound": 0,
+   "sum_other_doc_count": 0,
+   "buckets": [
+    {
+     "key": "6-K",
+     "doc_count": 19
+    },
+    {
+     "key": "F-1",
+     "doc_count": 11
+    },
+    {
+     "key": "424B3",
+     "doc_count": 10
+    },
+    {
+     "key": "SUPPL",
+     "doc_count": 10
+    },
+    {
+     "key": "10-Q",
+     "doc_count": 8
+    },
+    {
+     "key": "F-10",
+     "doc_count": 6
+    },
+    {
+     "key": "F-4",
+     "doc_count": 6
+    },
+    {
+     "key": "S-1",
+     "doc_count": 6
+    },
+    {
+     "key": "10-K",
+     "doc_count": 5
+    },
+    {
+     "key": "424B5",
+     "doc_count": 5
+    },
+    {
+     "key": "20-F",
+     "doc_count": 3
+    },
+    {
+     "key": "40-F",
+     "doc_count": 3
+    },
+    {
+     "key": "424B4",
+     "doc_count": 3
+    },
+    {
+     "key": "8-K",
+     "doc_count": 3
+    },
+    {
+     "key": "ARS",
+     "doc_count": 3
+    },
+    {
+     "key": "S-4",
+     "doc_count": 2
+    },
+    {
+     "key": "DEFM14A",
+     "doc_count": 1
+    },
+    {
+     "key": "POS AM",
+     "doc_count": 1
+    },
+    {
+     "key": "S-3",
+     "doc_count": 1
+    }
+   ]
+  },
+  "entity_filter": {
+   "doc_count_error_upper_bound": 0,
+   "sum_other_doc_count": 0,
+   "buckets": [
+    {
+     "key": "Enveric Biosciences, Inc.  (ENVB)  (CIK 0000890821)",
+     "doc_count": 35
+    },
+    {
+     "key": "PSYENCE BIOMEDICAL LTD.  (PBM, PBMWW)  (CIK 0001985062)",
+     "doc_count": 29
+    },
+    {
+     "key": "CYBIN INC.  (CYBN)  (CIK 0001833141)",
+     "doc_count": 26
+    },
+    {
+     "key": "Mind Medicine (MindMed) Inc.  (MNMD)  (CIK 0001813814)",
+     "doc_count": 7
+    },
+    {
+     "key": "Reunion Neuroscience Inc.  (CIK 0001865482)",
+     "doc_count": 3
+    },
+    {
+     "key": "ATAI Life Sciences N.V.  (ATAI)  (CIK 0001840904)",
+     "doc_count": 2
+    },
+    {
+     "key": "BRIGHT MINDS BIOSCIENCES INC.  (DRUG)  (CIK 0001827401)",
+     "doc_count": 1
+    },
+    {
+     "key": "Field Trip Health & Wellness Ltd.  (CIK 0001941771)",
+     "doc_count": 1
+    },
+    {
+     "key": "Field Trip Health Ltd.  (CIK 0001865482)",
+     "doc_count": 1
+    },
+    {
+     "key": "Newcourt Acquisition Corp  (CIK 0001849475)",
+     "doc_count": 1
+    }
+   ]
+  }
+ }
+}

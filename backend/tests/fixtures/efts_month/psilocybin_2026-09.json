@@ -1,0 +1,205 @@
+{
+ "hits": {
+  "total": {
+   "value": 14,
+   "relation": "eq"
+  },
+  "hits": [
+   {
+    "_source": {
+     "ciks": [
+      "0002027329"
+     ],
+     "file_date": "2026-09-23"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0002027329"
+     ],
+     "file_date": "2026-09-10"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0002027329"
+     ],
+     "file_date": "2026-09-22"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001985062"
+     ],
+     "file_date": "2026-09-28"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001985062"
+     ],
+     "file_date": "2026-09-14"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001985062"
+     ],
+     "file_date": "2026-09-23"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001873875"
+     ],
+     "file_date": "2026-09-09"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0002027329"
+     ],
+     "file_date": "2026-09-16"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001873875"
+     ],
+     "file_date": "2026-09-25"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0002027329"
+     ],
+     "file_date": "2026-09-08"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0002027329"
+     ],
+     "file_date": "2026-09-29"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001813814"
+     ],
+     "file_date": "2026-09-14"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001408970"
+     ],
+     "file_date": "2026-09-01"
+    }
+   },
+   {
+    "_source": {
+     "ciks": [
+      "0001492448"
+     ],
+     "file_date": "2026-09-04"
+    }
+   }
+  ]
+ },
+ "aggregations": {
+  "form_filter": {
+   "doc_count_error_upper_bound": 0,
+   "sum_other_doc_count": 0,
+   "buckets": [
+    {
+     "key": "6-K",
+     "doc_count": 9
+    },
+    {
+     "key": "8-K",
+     "doc_count": 2
+    },
+    {
+     "key": "10-K",
+     "doc_count": 1
+    },
+    {
+     "key": "253G1",
+     "doc_count": 1
+    },
+    {
+     "key": "N-CSR",
+     "doc_count": 1
+    }
+   ]
+  },
+  "entity_filter": {
+   "doc_count_error_upper_bound": 0,
+   "sum_other_doc_count": 0,
+   "buckets": [
+    {
+     "key": "Optimi Health Corp.  (OPTH)  (CIK 0002027329)",
+     "doc_count": 6
+    },
+    {
+     "key": "PSYENCE BIOMEDICAL LTD.  (PBM, PBMWW)  (CIK 0001985062)",
+     "doc_count": 3
+    },
+    {
+     "key": "Incannex Healthcare Inc.  (IXHL)  (CIK 0001873875)",
+     "doc_count": 2
+    },
+    {
+     "key": "AdvisorShares Trust  (CIK 0001408970)",
+     "doc_count": 1
+    },
+    {
+     "key": "Definium Therapeutics, Inc.  (DFTX)  (CIK 0001813814)",
+     "doc_count": 1
+    },
+    {
+     "key": "Nextel Medical Corp.  (MAJI)  (CIK 0001492448)",
+     "doc_count": 1
+    }
+   ]
+  }
+ },
+ "query": {
+  "query": {
+   "bool": {
+    "must": [
+     {
+      "match_phrase": {
+       "doc_text": "psilocybin"
+      }
+     }
+    ],
+    "must_not": [],
+    "should": [],
+    "filter": [
+     {
+      "range": {
+       "file_date": {
+        "gte": "2026-09-01",
+        "lte": "2026-09-30"
+       }
+      }
+     }
+    ]
+   }
+  }
+ }
+}

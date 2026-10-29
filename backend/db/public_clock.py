@@ -55,6 +55,8 @@ fact_cash_burn                            earlier than the filing was public, an
                                           (an operator decision counts from when the operator made it)
 fact_fund_shares               recorded   ``recorded_at`` — a scraped issuer page states an as-of ``d`` but no
                                           publication time; we cannot know it earlier than we read it
+fact_term_mentions             date       ``valid_from`` (= the counted month's LAST day; THESIS-scoped,
+                                          display only, 0071)
 ============================  =========  ==================================================================
 
 THE SPLIT LIST (``security_split``, split plan S2 — not a fact table; ``split_versions_sql``): every version
@@ -149,13 +151,20 @@ PUBLIC_TIME: dict[str, PublicTime] = {
     "fact_shares_outstanding": PublicTime("recorded", "recorded_at"),
     "fact_cash_burn": PublicTime("recorded", "recorded_at"),
     "fact_fund_shares": PublicTime("recorded", "recorded_at"),
+    "fact_term_mentions": PublicTime("date", "valid_from"),
 }
+
+# The fact tables keyed by THESIS, not co-located on a security (the theme conviction is basket-level; the
+# term-mentions count is a card's own term set, 0071). Every other fact table is security-scoped.
+THESIS_SCOPED_FACT_TABLES: frozenset[str] = frozenset(
+    {"fact_theme_conviction", "fact_term_mentions"}
+)
 
 # The SCOPE each fact is partitioned within — a table's identity is unique only WITHIN one scope
 # (``fact_insider_txn``'s is shared across securities — the 0037 lesson). Keyed on the registry, which a test
 # pins equal to ``db.bitemporal._FACT_IDENTITY`` (every fact table has a public clock).
 SCOPE_COL: dict[str, str] = {
-    t: "thesis_id" if t == "fact_theme_conviction" else "security_id" for t in PUBLIC_TIME
+    t: "thesis_id" if t in THESIS_SCOPED_FACT_TABLES else "security_id" for t in PUBLIC_TIME
 }
 
 # The extra column every public read adds (the version's public instant) — stripped before a row is returned.
