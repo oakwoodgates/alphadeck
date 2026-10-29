@@ -293,9 +293,11 @@ the build fixed them sensibly and says how.
     `link_count`. The Chain Wave re-exports each under its old name and its tests pass unchanged. The frontend
     registry test, which pins the full dashboard list, gained this slug and order (the one shared test line a new
     dashboard edits).
-27. **Not measured:** the payload and compute time of a 365-day window on a large card with real data (this build ran on
-    hand-built rows and the test database). A 365-day Form 4 history for a 150-name card is the heaviest case; the
-    cache computes it once per card and as-of. Check it on dev with a prod copy before relying on it.
+27. **Measured on dev with a prod data copy (2026-10-29, 62 live cards, as-of 2026-10-29):** every card serves at the
+    365-day window (0 failures after the zero-share fix). Cold compute: median 1.3 s, the heaviest card (AI Power Crunch:
+    72 roster rows, 4,699 rows over 250 days) 6.0 s with a 4.8 MB payload; Next-Gen Compute 3.3 s / 3.3 MB; the 90-day
+    window is a cache hit on every card (50–90 ms, payloads 0.3–1.1 MB). The 365-day payload is large because every
+    row carries its detail lines; a per-row detail read is the lever if it matters off localhost.
 28. **A row states only what it states (found on dev with a prod copy).** A real Form 4 row can state a price against a
     share count of zero, which broke the shares-weighted mean price (a 500 on two large cards). The mean now needs a
     positive share weight; without one the "@ $price" is left out of the phrase (the row's own detail line still shows
