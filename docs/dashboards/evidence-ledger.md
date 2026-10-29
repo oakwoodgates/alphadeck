@@ -173,3 +173,8 @@ and says how. The rest are choices the plan does not spell out.
 14. **Controls that cannot discriminate do not render** (WB#3): the class and kind filters with one value held, the
     company type-ahead on a one-company roster, "Only rows with an EDGAR link" with no such row, the window with no
     dated row. A filter hides rows from the page, never from the tallies or the work line.
+15. **Measured on dev with a prod data copy (2026-10-29, 62 live cards, as-of 2026-10-29):** every card serves; cold
+    compute median 1.2 s, max 4.8 s; payload at most 164 KB. Every card's triggers came from the call recorded for
+    2026-10-28. The heaviest card: 174 rows, 97 fired signals (45 tracing to an EDGAR accession, 52 to a price
+    reference), 50 stored facts, 2 ratified, 8 dated and 4 undated catalysts, 8 dated roles. A past as-of (2026-09-15)
+    reads the card in effect that night on the public clock (the first card: 280 rows, 99 ratified facts then).
