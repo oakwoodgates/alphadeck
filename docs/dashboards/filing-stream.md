@@ -197,4 +197,102 @@ is the cross-card lens); resolving amendments; any write.
 ## Choices to confirm
 
 The build lists here every choice it made that this plan does not spell out (the Chain Wave's plan shows the form),
-each the operator's to confirm or change.
+each the operator's to confirm or change. The first four are plan details that turned out different against the code;
+the build fixed them sensibly and says how.
+
+1. **Unlabeled 8-K items show as the bare code (plan detail corrected).** `item_label` answers "corporate event" for a
+   code it has no label for (it knows seven items), which would read "9.01 corporate event". The reader treats that
+   fallback as "unlabeled" and shows `9.01` alone, as the plan's own example does. The common items 2.02, 7.01, 8.01
+   and 9.01 therefore show bare; a fuller label table is a one-line change in `filings.py` if you want it.
+2. **The 4/A SELECT lives in the shared reader, not the router module (plan detail corrected).** The plan puts it in
+   the router and also puts it inside `read_filing_rows`. It is in `filings.py` (`read_amendments`, a plain SELECT
+   scoped by tenant), so the Read-Throughs table gets the same 4/A rows without a copy. The router only calls
+   `read_filing_rows`.
+3. **The 4/A gate falls back instead of dropping (plan detail corrected).** The plan's gate is `filed <= asof` on both
+   clocks, plus `recorded_at <= known_at` on the record clock only. `insider_amendment.filed` is nullable, so a 4/A
+   with no `filed` would vanish. The gate dates it by `COALESCE(filed, its acceptance in market time, the instant we
+   first held it)`, the public clock's own order for a 4/A (`db.public_clock`). It is identical to the plan whenever
+   `filed` is stored, which the ingest does unless the filing date fails to parse. The live record clock bounds `recorded_at` by the database clock
+   (`db_now`), like every other live read. The newest stored version of each accession is the one read.
+4. **`aff_10b5_1` exists, and it is filing-level (checked).** `fact_insider_txn.aff_10b5_1` (migration 0022) is a
+   per-filing flag, so a Form 4 gets the "10b5-1 plan" tag when any of its rows says `True`; `False` and `NULL` assert
+   nothing. Nothing is left out.
+5. **The window includes both ends:** dates from `asof - N days` through `asof`, so "90 days" is 91 calendar dates.
+   The same cut is made in three places (the SELECT, the reader and the page's window), so a row dated after the as-of
+   cannot reach the page even if one of them were wrong.
+6. **A Form 4 is dated by its SEC acceptance as a market-time date,** not by its trade date (`valid_from`, which rides
+   in the detail line of each transaction). A filing with no acceptance counts from the first instant we held it, the
+   public clock's rule for it. An 8-K and a 13D/G sort under SEC's `filed` date, so an after-hours acceptance sorts
+   under the acceptance day for a Form 4 and under the next business day for an 8-K, each by its own public clock.
+7. **Form 4 words:** the headline is `<filer> (<role>): ` then one phrase per code, "P purchase 12,000 sh @ $4.10 ·
+   $49,200", in the order P, S, A, M, F, G, then any other code A to Z. The price is the shares-weighted mean over the
+   rows that state both; dollars are the stored `usd` (else shares times price). The filer is the first row's owner,
+   "and N more" when the filing holds other owners; a joint report's co-reporters are named in the detail. A column
+   the row does not state is left out of the phrase, never filled in.
+8. **`routine` = the filing holds no code-P row.** A purchase leg the internal-transfer screen tags, or an
+   issuer-self purchase, is still a purchase and is never routine; it carries its tag. The fold line says "N routine
+   Form 4 filings (none holds a purchase: sales, grants, exercises, withholding, other codes)": the plan's
+   parenthetical named four codes, but "no purchase" also covers every other code (J, X, C, ...).
+9. **A Form 4's `usd` is code-P dollars minus code-S dollars** (signed; empty when the filing holds neither; other
+   codes are not counted). The page shows it at the line's right edge as "+$34.2K net", and a dilution's principal
+   there as "$350.0M". No other row shows a figure there.
+10. **An applied 4/A shows once.** An applied 4/A's rows replace the original's on the Form 4 tape and carry the 4/A's
+    accession (`amends_accession`). They are folded into the 4/A's own row (detail lines, net dollars, an "applied 4/A"
+    tag) instead of making a second filing row. The replaced original's Form 4 no longer shows, because the tape the
+    Cockpit reads has replaced it. A tape group with no 4/A record in view stays a row of its own: a filing is never
+    dropped.
+11. **Quiet tags added beyond the plan's list:** "applied 4/A" (above), and "rejected" / "revoked" on a split with that
+    status. A `needs_review` split gets "needs review" as planned; `confirmed` and `announced` get no tag (the status is
+    in the detail either way).
+12. **13D/G rows are listed as stored,** without the call's control screens (a 50%+ holder, an officer or director, a
+    mis-attributed filer). The page says so beside the insider-screens note.
+13. **Revenue words:** the form is the 10-K for a fiscal Q4 or FY row and the 10-Q for Q1 to Q3 (the stored series is
+    quarterly, Q4 derived from the annual); a row with no fiscal period reads "10-Q / 10-K". The prior-year row is the one
+    whose period end is nearest one year earlier within 10 days (a 52/53-week filer drifts a few days), from the same
+    as-of read, with a positive value. The change shows as a whole percent from 10% up and one decimal below. A filing
+    that states several periods makes one row headed by its latest period, the others in the detail. Revenue rows show
+    no figure at the line's end.
+14. **Splits:** every status is listed as stored. The date is the split's publication per clock: on the public clock the
+    row's own public instant (`recorded_at` as `db.public_clock` rewrites it), on the live record clock the earlier of
+    its `valid_from` and its effective date (`recorded_at` there is only when we stored it). The detail carries the
+    status, the SEC filing's ratio and the Massive.com split that agreed, as stored; the link is the SEC URL when one is
+    stored.
+15. **Dilution overhang** = principal ÷ $1,000 × the conversion rate, as a percent of the offering's own stored
+    `shares_outstanding` basis, per offering (the dilution signal sums the live offerings against the latest basis;
+    this page shows each issuance on its own). It is left out unless the principal, the rate and a positive basis are all
+    stored. A matured note is still listed (it is a filing).
+16. **Ratified facts are dated by the ratification,** the market-time date of their `recorded_at` (the public clock's own
+    instant for these three tables), not by the period or cover date (`valid_from`), which precedes the filing's
+    publication; that date rides in the detail. A cash and burn fact with a burn of zero or less reads "cash-positive
+    quarter". A ratified catalyst reads "<type>: <label>", with its grade, horizon and source in the detail.
+17. **A source link is made only from a real reference:** a stored http(s) URL as is, an accession-shaped reference
+    through the EDGAR index, nothing for an award id or free text. A catalyst's non-EDGAR link reads "source" instead of
+    "EDGAR".
+18. **The roster:** a company is one entry whatever its rows (links folded, the role the first one set, silent when any
+    row is). Its ticker on a row is the card's own (the Cockpit's `?name=` key). The link filter offers the card's real
+    links in today's chain order (a link nobody sits in is still offered), then a roster link that is not on the card
+    today, "No link", then Context and Bench when a company sits there. A company in two links matches both.
+19. **Controls that cannot discriminate do not render** (Workbench principle 3): kind chips only for kinds the window
+    holds (and only when it holds two or more), the Link select with one link, the Name box with one name, the Role
+    select when no role is set, "Counting names only" with no silent name, "Show routine Form 4s" with nothing to fold.
+    Switching card clears the link, name and role filters (the kinds and the two checkboxes stay).
+20. **The fold is per day,** one line standing where the day's first routine row was; each day's fold opens on its own.
+    The filters apply first, so a fold counts only the routine rows that pass them. The kind chips show the window's
+    totals; the work line says how many rows the filters leave.
+21. **The date is not repeated on each row:** the day header carries it. A row is chip, form, headline (opens the
+    detail), quiet tags, dollar hint, source link.
+22. **The 4/A's standing link** is a plain app link to `/admin`: the Admin page has no tab address for "Insider
+    amendments".
+23. **The window is an integer enum on the wire** (`FilingStreamDays`: 30 | 90 | 365), default 90. The 404 reads the
+    cached picker list before the stream's read, like the Chain Wave.
+24. **Within a day** rows sort by kind, then ticker, then accession, form and headline (a fixed order, so a page never
+    reshuffles).
+25. **The reader's signature has one addition:** `read_filing_rows(..., tickers=None)`, so the Filing Stream can show the
+    card's own ticker; without it the master's ticker stands in.
+26. **The shared picker moved with its helpers:** `baskets.picker_cards`, `CardChoice`, `CardsRead`, `card_choices` and
+    `link_count`. The Chain Wave re-exports each under its old name and its tests pass unchanged. The frontend
+    registry test, which pins the full dashboard list, gained this slug and order (the one shared test line a new
+    dashboard edits).
+27. **Not measured:** the payload and compute time of a 365-day window on a large card with real data (this build ran on
+    hand-built rows and the test database). A 365-day Form 4 history for a 150-name card is the heaviest case; the
+    cache computes it once per card and as-of. Check it on dev with a prod copy before relying on it.

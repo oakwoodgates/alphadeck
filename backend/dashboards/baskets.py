@@ -13,6 +13,8 @@ The rules, in one place:
   type, Sector and Card. Inside a group each company counts ONCE (by ``security_id``), its rows' cards and
   links folded together. A row with no link groups as "Unsegmented" (``None``); a company with no business
   type / sector as "Unclassified" (``None``).
+- **The picker.** ``picker_cards``: the counted cards A→Z with their link counts (``card_choices``), the read
+  every one-card dashboard starts from.
 - **A flagged price history.** ``price_flags``: the companies whose data flags reach their PRICE readings at
   the as-of, each with the flags' labels: the same reader the ``/data-flags`` routes serve
   (``pipeline.data_flags.read_flags``), and the domain's own reach rule: a flag whose ``columns`` (the
@@ -38,7 +40,7 @@ from db.session import DEFAULT_TENANT_ID
 from domain.data_flags import PRICE_CELLS, DataFlag
 from domain.market_time import market_tz
 from domain.settings import get_settings
-from domain.thesis import Thesis, is_silent
+from domain.thesis import SILENT_LABELS, Thesis, is_silent
 from pipeline import data_flags as flags_reader
 from pipeline.backfill import thesis_existed_on
 from repositories import thesis_repo
@@ -92,6 +94,46 @@ def cards_that_existed(
         else:
             kept.append(t)
     return kept, later
+
+
+# --- the one-card picker ---------------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class CardChoice:
+    thesis_id: UUID
+    name: str
+    links: int  # real links today (Context and Bench not counted)
+
+
+@dataclass(frozen=True)
+class CardsRead:
+    """The picker's read: the live cards, how many were created after the as-of, and the counted cards."""
+
+    live_cards: int
+    not_yet_created: int
+    cards: tuple[CardChoice, ...]
+
+
+def link_count(labels: Iterable[str]) -> int:
+    """A card's real links (Discovered included; Context and Bench not), from its chain's labels."""
+    return sum(1 for s in dict.fromkeys(labels) if s not in SILENT_LABELS)
+
+
+def card_choices(theses: Iterable[Thesis]) -> tuple[CardChoice, ...]:
+    """The picker: each card with its link count, A→Z (ties by id)."""
+    out = [CardChoice(t.id, t.name, link_count(s.label for s in t.segments)) for t in theses]
+    out.sort(key=lambda c: (c.name.casefold(), str(c.thesis_id)))
+    return tuple(out)
+
+
+def picker_cards(conn: psycopg.Connection, asof: date) -> CardsRead:
+    """The picker every one-card dashboard shares (the Chain Wave, the Filing Stream): the live cards that
+    existed by the as-of (``cards_that_existed``), each with its link count today, A→Z."""
+    live = thesis_repo.list_all(conn)
+    created = thesis_repo.created_at_for(conn, [t.id for t in live])
+    kept, later = cards_that_existed(live, created, asof, market_tz())
+    return CardsRead(len(live), later, card_choices(kept))
 
 
 def memberships_of(theses: Iterable[Thesis]) -> tuple[Membership, ...]:

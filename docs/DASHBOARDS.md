@@ -121,9 +121,16 @@ the data flags). Its plan is `docs/BOARD.md`.
    the chunked point-in-time read (`per_company`), and the companies whose data flags reach their price
    readings (`price_flags`, the `/data-flags` reader, read by every price dashboard; `flagged_in_view` names
    them on a page, rule 5). A dashboard that groups cards' names reuses it rather than re-deriving the rule.
+   A one-card dashboard starts from its picker, `picker_cards` (the counted cards A→Z with their link counts;
+   built with the Chain Wave, shared since the Filing Stream).
    The equal-weighted line math lives in `backend/dashboards/series.py` (the session calendar, the alignment
    and the chain; built with the Narrative Index, shared since the Rotation Quadrant): a dashboard that draws
    a basket as one line reuses it.
+   What each company filed lives in `backend/dashboards/filings.py` (built with the Filing Stream, shared with
+   the Read-Throughs table): every filing-derived fact the system stores, normalized to one `FilingRow` shape
+   (`read_filing_rows`: the point-in-time view plus the Form 4/A SELECT, both on the request's one
+   `serve_view(asof)` pair). A page that lists what a company filed reuses it rather than re-reading the fact
+   tables.
 
 8. **Self-contained layout, self-registering**, so dashboards build in parallel and delete cleanly. A slug
    is lowercase letters, digits and `-` (`tape-breadth`); the Python module name swaps `-` for `_`
