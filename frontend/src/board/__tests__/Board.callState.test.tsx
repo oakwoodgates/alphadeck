@@ -1,6 +1,6 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // The network boundary, mocked. Real component under test: the Decision Queue's deep-link (#4 —
 // the armed headline name rides ?name= into the Cockpit) and the errored-call surfacing (#2 — a
@@ -27,17 +27,18 @@ import { Board } from "../Board";
 
 const noop = () => {};
 
-const renderBoard = (onSelect: (id: string, name?: string) => void = noop) =>
-  render(
-    <Board
-      asof="2026-07-21"
-      onAsofChange={noop}
-      onSelect={onSelect}
-      onOpenWorkbench={noop}
-      onOpenScoreboard={noop}
-      onOpenAdmin={noop}
-    />,
-  );
+const boardEl = (onSelect: (id: string, name?: string) => void = noop) => (
+  <Board
+    asof="2026-07-21"
+    onAsofChange={noop}
+    onSelect={onSelect}
+    onOpenWorkbench={noop}
+    onOpenScoreboard={noop}
+    onOpenAdmin={noop}
+  />
+);
+
+const renderBoard = (onSelect: (id: string, name?: string) => void = noop) => render(boardEl(onSelect));
 
 const armedCall = (
   members: { ticker: string | null; security_id: string; entry_window_closing?: boolean }[],
@@ -163,6 +164,127 @@ describe("Board — Decision Queue act-by clock", () => {
 
   it("draws no clock at all when the card carries no entry window", () => {
     expect(clock(queue([{ ticker: "OKLO", security_id: "s-oklo" }], { asof: "2026-10-13" }))).toBeNull();
+  });
+});
+
+// The queue wraps instead of clipping (BOARD.md "Known gaps", closed): past two rows it folds the rest behind an
+// always-visible "+N more" that shows every item, and it never reorders or ranks the theses to do it (#4). jsdom
+// does no layout, so these tests lay the strip out themselves — `perRow` items to a row — and the real wrap is
+// checked by eye in the browser.
+describe("Board — Decision Queue overflow: no armed item is ever hidden", () => {
+  const ROW = 38; // a 28px item + the 10px row gap
+  const ITEM = 28;
+  const spies: { mockRestore: () => void }[] = [];
+  const layout = (perRow: number) => {
+    spies.splice(0).forEach((s) => s.mockRestore());
+    spies.push(
+      vi
+        .spyOn(HTMLElement.prototype, "offsetTop", "get")
+        .mockImplementation(function (this: HTMLElement) {
+          const strip = this.parentElement;
+          if (!strip?.classList.contains("dq-items")) return 0;
+          return Math.floor(Array.prototype.indexOf.call(strip.children, this) / perRow) * ROW;
+        }),
+      vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(ITEM),
+    );
+  };
+  afterEach(() => spies.splice(0).forEach((s) => s.mockRestore()));
+
+  // n armed single-name cards; the LATER the card, the SOONER its act-by date — a queue sorted by deadline
+  // would come back reversed, so an unchanged order is a real assertion, not an accident of the fixture
+  const seedArmed = (n: number) => {
+    const ids = Array.from({ length: n }, (_, i) => `t-${i}`);
+    h.theses = ids.map((id, i) => ({
+      id,
+      name: `Thesis ${i}`,
+      ticker: `T${i}`,
+      basket_size: 1,
+      narrative: "n",
+      archived: false,
+    }));
+    h.calls = Object.fromEntries(
+      ids.map((id, i) => [
+        id,
+        {
+          data: armedCall([{ ticker: `T${i}`, security_id: `s-${i}` }], {
+            asof: "2026-10-13",
+            arm_until: `2026-10-${String(30 - i).padStart(2, "0")}`,
+          }),
+        },
+      ]),
+    );
+  };
+  const tickers = () =>
+    [...dq().querySelectorAll(".dq-item b")].map((b) => b.textContent);
+  const held = () => [...dq().querySelectorAll(".dq-item.held b")].map((b) => b.textContent);
+  const inOrder = (n: number) => Array.from({ length: n }, (_, i) => `T${i}`);
+
+  it("renders every armed item in the existing order, holds all past two rows behind a visible count", () => {
+    seedArmed(12);
+    layout(3); // four rows of three
+    renderBoard();
+
+    expect(tickers()).toEqual(inOrder(12)); // all twelve rendered, order unchanged
+    expect(held()).toEqual(inOrder(12).slice(6)); // rows three and four are held
+    const more = within(dq()).getByRole("button", { name: "+6 more" });
+    expect(more).toHaveAttribute("aria-expanded", "false");
+    expect(more).toHaveAttribute("title", "12 armed — show every one");
+    // held to exactly the two rows: row two's bottom edge (38 + 28)
+    expect(dq().querySelector<HTMLElement>(".dq-items")?.style.maxHeight).toBe("66px");
+  });
+
+  it("'+N more' shows every item and puts the last one within reach; 'show fewer' folds it back", async () => {
+    const onSelect = vi.fn();
+    seedArmed(12);
+    layout(3);
+    renderBoard(onSelect);
+    const user = userEvent.setup();
+
+    await user.click(within(dq()).getByRole("button", { name: "+6 more" }));
+    expect(held()).toEqual([]);
+    expect(tickers()).toEqual(inOrder(12)); // opening reorders nothing
+    expect(dq().querySelector<HTMLElement>(".dq-items")?.style.maxHeight).toBe("");
+    await user.click(within(dq()).getByText("T11").closest("button") as HTMLElement);
+    expect(onSelect).toHaveBeenCalledWith("t-11", "T11"); // the last armed name is reachable
+
+    await user.click(within(dq()).getByRole("button", { name: "show fewer" }));
+    expect(held()).toEqual(inOrder(12).slice(6));
+    expect(within(dq()).getByRole("button", { name: "+6 more" })).toBeInTheDocument();
+  });
+
+  it("draws no fold control when the whole queue fits in two rows", () => {
+    seedArmed(12);
+    layout(6); // two rows of six
+    renderBoard();
+    expect(tickers()).toEqual(inOrder(12));
+    expect(held()).toEqual([]);
+    expect(within(dq()).queryByRole("button", { name: /more|show fewer/ })).toBeNull();
+    expect(dq().querySelector<HTMLElement>(".dq-items")?.style.maxHeight).toBe("");
+  });
+
+  it("re-counts when the strip re-flows (a window resize), not only on first paint", () => {
+    seedArmed(12);
+    layout(3);
+    const { rerender } = renderBoard();
+    expect(within(dq()).getByRole("button", { name: "+6 more" })).toBeInTheDocument();
+
+    layout(4); // wider: three rows of four
+    rerender(boardEl());
+    expect(within(dq()).getByRole("button", { name: "+4 more" })).toBeInTheDocument();
+    expect(held()).toEqual(inOrder(12).slice(8));
+
+    layout(6); // wider still: it all fits
+    rerender(boardEl());
+    expect(held()).toEqual([]);
+    expect(within(dq()).queryByRole("button", { name: /more/ })).toBeNull();
+  });
+
+  it("leaves the all-clear and the withheld all-clear alone (no fold control without items)", () => {
+    layout(3);
+    h.calls = { "t-a": { data: incubCall() }, "t-b": { data: undefined, isError: true } };
+    renderBoard();
+    expect(within(dq()).getByText(/didn't compute/)).toBeInTheDocument();
+    expect(within(dq()).queryByRole("button")).toBeNull();
   });
 });
 

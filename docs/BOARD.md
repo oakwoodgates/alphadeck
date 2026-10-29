@@ -48,6 +48,13 @@ persisted for display. Change the as-of, and the whole board re-derives — it i
   `arm_until` (the headline name's entry window) — muted, and warm with "· entry window closing" only when the
   call's own `entry_window_closing` flag on the headline name is set (Q14; read, never re-derived). It states
   the clock; it never reorders the queue by it (columns and queue do not rank theses, #4).
+  **No armed item is ever clipped away.** The strip wraps; past **two rows** it folds the rest behind a quiet
+  **"+N more"** at its right edge (N = the items held back, always on screen), and one click opens every item
+  (**"show fewer"** folds it back — reversible, WB#1). The fold is by position in the existing order, never by
+  any ranking (#4). The row count comes off the laid-out rows (`useRowCap`: a row is a distinct `offsetTop`,
+  re-measured on every render, a strip resize and font load), not from a width estimate; a folded item stays in
+  the layout but is `visibility: hidden`, so it is out of the tab order and the accessibility tree until opened.
+  The control is deliberately quiet — the strip stays the one loud element (#7).
 - **"Calls that didn't compute" (keep-it-visible, #216)** — when a thesis's `/call` errors, it lands in a
   **visible strip at the bottom of the Board** ("⚠ Calls that didn't compute (N)") instead of silently
   vanishing from every column, and the Decision Queue **withholds its all-clear** ("Some calls didn't
@@ -478,10 +485,17 @@ yet confirmed. Nothing here changes a call, and none of it touches the edition e
   estimate of that header's height, not a measurement.
 
 **The Decision Queue**
-- **The strip clips, it does not wrap or scroll** (`.dq-items` is `overflow: hidden`, items are no-wrap): more armed
-  items than fit are cut off at the right edge. That predates the act-by clock, but the clock lengthens every item,
-  so fewer fit. Not measured at real widths. A hidden armed item is a visibility risk (#9's instinct applied to
-  the queue); the fix — wrap or scroll — is a design call, not made here.
+- **Folded, the strip shows few items — the count does the work.** An item is wide (ticker, grade, verdict, name,
+  act-by clock: measured 410–640 px on the 2026-10-29 dev copy, 40 armed), so two rows hold about **2 items at
+  900 px, 4 at 1440 px, 6 at 1920 px**; the rest sit behind "+N more". Open, the strip is capped at 50% of the
+  window height and scrolls inside itself (40 items ≈ 20 rows at 1440 px), so the columns keep their room; the
+  scrollbar is the cue. The open/closed state is plain component state — it folds again on a reload.
+- **A long thesis name is cut at 260 px with an ellipsis** (the full name is the span's `title` and on the
+  card) — an 840 px item otherwise wrapped alone onto a row and left the rest of it blank. A display choice,
+  not a spec'd one.
+- **Verified in a real browser, not by jsdom.** jsdom does no layout, so the tests lay the strip out themselves
+  (`perRow` items to a row); the real wrap, the count at each width and the live re-count on a window resize were
+  checked by eye against the dev copy.
 - A theme shows only the **headline** name's clock (the card's `arm_until`); the other armed names' clocks are on
   the rail's ranked menu. The queue's order is deliberately unchanged (it does not rank theses by deadline, #4).
 
