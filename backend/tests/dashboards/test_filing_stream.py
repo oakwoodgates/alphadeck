@@ -38,6 +38,7 @@ from dashboards.filing_stream import (
 )
 from dashboards.filings import (
     KIND_ORDER,
+    STANDARD_8K_ITEMS,
     TAG_10B5_1,
     TAG_FILER_UNRESOLVED,
     TAG_INTERNAL_TRANSFER,
@@ -75,6 +76,7 @@ from domain.insider_internal_transfers import INTERNAL_TRANSFER
 from domain.market_time import market_today
 from domain.thesis import BENCH_LABEL, CONTEXT_LABEL, BasketMember, Segment, Thesis
 from repositories import thesis_repo
+from signals.corporate_events import ITEM_LABELS
 
 UTC = timezone.utc
 SID = uuid.UUID("00000000-0000-0000-0000-0000000000a1")
@@ -144,14 +146,46 @@ def event(**over):
     return {**base, **over}
 
 
-def test_an_8k_row_labels_the_items_it_can_and_leaves_the_rest_as_the_bare_code():
+def test_an_8k_row_labels_every_standard_item_and_leaves_an_unknown_one_as_the_bare_code():
     (r,) = rows_from_corporate_events([event()], W)
     assert (r.kind, r.form, r.date, r.accession) == ("8k", "8-K", date(2026, 10, 20), ACC)
-    assert r.headline == "8-K · 5.02 officer/director departure or appointment · 9.01"
-    assert r.detail == ("Item 5.02 officer/director departure or appointment", "Item 9.01")
+    assert r.headline == (
+        "8-K · 5.02 officer/director departure or appointment · 9.01 financial statements and exhibits"
+    )
+    assert r.detail == (
+        "Item 5.02 officer/director departure or appointment",
+        "Item 9.01 financial statements and exhibits",
+    )
     assert r.url == "https://www.sec.gov/Archives/edgar/data/876543/000087654326000010/"
     assert (r.security_id, r.ticker, r.tags, r.routine, r.usd) == (SID, "ACME", (), False, None)
-    assert item_words("9.01") == "9.01" and item_words("3.02").startswith("3.02 unregistered")
+    assert item_words("3.02").startswith("3.02 unregistered")
+    # a code in neither table is shown as the bare code, never a guessed label
+    (u,) = rows_from_corporate_events([event(items=["5.02", "10.01"])], W)
+    assert u.headline == "8-K · 5.02 officer/director departure or appointment · 10.01"
+
+
+def test_the_standard_8k_items_have_display_labels_and_the_signal_modules_own_words_win():
+    # every item of Form 8-K, sections 1-9 (SEC's numbering): a label, never the bare code
+    standard = [
+        *(f"1.0{i}" for i in range(1, 6)),
+        *(f"2.0{i}" for i in range(1, 7)),
+        *(f"3.0{i}" for i in range(1, 4)),
+        *(f"4.0{i}" for i in range(1, 3)),
+        *(f"5.0{i}" for i in range(1, 9)),
+        *(f"6.0{i}" for i in range(1, 6)),
+        "7.01",
+        "8.01",
+        "9.01",
+    ]
+    assert sorted(STANDARD_8K_ITEMS) == sorted(standard)
+    for code in standard:
+        assert item_words(code).startswith(f"{code} ") and len(item_words(code)) > len(code) + 1
+    assert item_words("2.02") == "2.02 results of operations and financial condition"
+    assert item_words("7.01") == "7.01 Regulation FD disclosure"
+    assert item_words("8.01") == "8.01 other events"
+    # the seven items the call-side module knows keep ITS wording (the table only fills the rest)
+    for code, label in ITEM_LABELS.items():
+        assert item_words(code) == f"{code} {label}"
 
 
 def test_an_8k_with_unresolved_items_says_so_and_never_invents_a_label():
@@ -1261,7 +1295,9 @@ def test_a_fact_published_after_a_past_asof_never_reaches_the_stream(db, pinned_
     )
     assert f4["headline"] == "Jane Roe (CEO): P purchase 1,000 sh @ $4.00 · $4,000"
     e8 = next(r for g in past["groups"] for r in g["rows"] if r["kind"] == "8k")
-    assert e8["headline"] == "8-K · 5.02 officer/director departure or appointment · 9.01"
+    assert e8["headline"] == (
+        "8-K · 5.02 officer/director departure or appointment · 9.01 financial statements and exhibits"
+    )
     a4 = next(r for g in past["groups"] for r in g["rows"] if r["accession"] == EARLY_4A)
     assert a4["headline"] == "4/A by Jane Roe amends the Form 4 filed 2026-06-01"
     assert (a4["ticker"], a4["links"], a4["silent"]) == ("FSA", ["Core"], False)

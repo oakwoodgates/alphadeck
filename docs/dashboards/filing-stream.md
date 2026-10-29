@@ -48,8 +48,9 @@ The sources, each through the SAME point-in-time view the Cockpit builds (`baske
 with the request's `known_at, clock = serve_view(asof)`; invariant #1):
 
 1. **8-K**: `pit.corporate_event_facts`, one row per filing (`form`, `items`, `filed`, `accession`, `source_ref`).
-   Headline: the items with their labels from `signals.corporate_events.item_label` ("5.02 officer/director departure
-   or appointment · 9.01"); items `NULL` = tag "items not yet resolved". An `8-K/A` says so in `form`.
+   Headline: the items with their labels, `signals.corporate_events.item_label`'s own wording first and then the
+   standard-item table in `filings.py` ("5.02 officer/director departure or appointment · 9.01 financial statements
+   and exhibits"); items `NULL` = tag "items not yet resolved". An `8-K/A` says so in `form`.
 2. **Form 4**: `pit.insider_txns`, the stored transaction rows GROUPED BY ACCESSION into one row per filing. Headline:
    the filer's name and role, then the transactions summed by code ("P 12,000 sh @ $4.10 · $49,200"; codes labeled
    P purchase · S sale · A grant/award · M option exercise · F tax withholding · G gift · others by their code).
@@ -203,7 +204,10 @@ the build fixed them sensibly and says how.
 1. **Unlabeled 8-K items show as the bare code (plan detail corrected).** `item_label` answers "corporate event" for a
    code it has no label for (it knows seven items), which would read "9.01 corporate event". The reader treats that
    fallback as "unlabeled" and shows `9.01` alone, as the plan's own example does. The common items 2.02, 7.01, 8.01
-   and 9.01 therefore show bare; a fuller label table is a one-line change in `filings.py` if you want it.
+   and 9.01 therefore showed bare. **Superseded by the Read-Throughs build:** `filings.py` now carries a display-only
+   table of the standard Form 8-K items (1.01 to 9.01, SEC's short titles), used after `item_label`'s own wording and
+   before the bare-code fallback, so 9.01 reads "9.01 financial statements and exhibits"; only a code in neither table
+   still shows bare.
 2. **The 4/A SELECT lives in the shared reader, not the router module (plan detail corrected).** The plan puts it in
    the router and also puts it inside `read_filing_rows`. It is in `filings.py` (`read_amendments`, a plain SELECT
    scoped by tenant), so the Read-Throughs table gets the same 4/A rows without a copy. The router only calls

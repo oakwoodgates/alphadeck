@@ -108,3 +108,67 @@ any score or ranking beyond sorting by what the data shows; any write.
 ## Choices to confirm
 
 The build lists here every choice it made that this plan does not spell out, each the operator's to confirm or change.
+The first three are plan details that turned out different against the code; the build fixed them sensibly and says how.
+Nothing below was timed on real data: the page was built against fixtures and a two-company DB test, and the heavy
+read (a year of facts plus bars for every role-tagged company) is the cold first load the plan already warns about.
+
+1. **The tape windows are 7 and 30 trading days, labeled "7D vs SPY" and "30D vs SPY" (plan detail corrected).** The
+   plan asks for a 1-week and 1-month return from the `trailing_returns` display member, but that member's windows are
+   1, 7, 30, 90 and 252 trading BARS; it has no week or month. The build uses its `ret_7d` and `ret_30d`, the same
+   numbers the Cockpit's 7d / 30d columns and the Leaders show, so every figure reconciles with them, and labels them
+   the way those pages do. The hover says "trading days" and shows the working. SPY's side is the member's own pure rule
+   (`trailing_returns.compute`) over SPY's bars from `pit.benchmark_prices`, so both sides use one definition. If you
+   want true calendar weeks and months, it is a different measure (the Chain Wave's weekly one) and a small change.
+2. **Business type and name come from `master.identity_for`, not `names_for` plus `resolve_business_type` (plan detail
+   corrected).** `identity_for` is one SELECT that already runs `resolve_business_type` over the stored sector (the
+   operator's re-tag wins) and returns the master's name, so the values are the ones the plan names with no second read.
+3. **The cache holds the finished table, not the raw reads (plan detail corrected).** The other research pages cache
+   inputs and slice per request. This page has no request parameter but the as-of, so the cached value is the table
+   itself, keyed by clock and as-of, as the plan's "holds the whole table" says.
+4. **Last filing is any row the shared reader stores, a split, a catalyst or a ratified fact included.** The plan says
+   "the newest `FilingRow`". Those three are not SEC filings (a ratified fact is dated at the instant the operator
+   ratified it, a catalyst at its event date), so one of them can be the row's newest "filing"; its `form` column says
+   which it is ("split", "catalyst", "ratified fact"). The alternative is to count only SEC forms (8-K, 13D/G, Form 4,
+   4/A, the 10-Q / 10-K revenue print) and leave those three out of the pick. Your call.
+5. **A tie on the date goes by the reader's kind order, then accession, form and headline.** So an 8-K beats a Form 4
+   filed the same day; the pick never depends on the order the rows arrive in.
+6. **A vs-SPY cell is blank when the company's last close is not SPY's last close.** Not in the plan. The two returns
+   would otherwise end on different days (a halted or late-pulled tape against SPY's as-of bar). The cell's hover says
+   both dates and the company's own return, and the work line counts the rows (`ends_differ`). A short window is blank
+   on that window alone.
+7. **A flagged price history shows the word "flagged" in both tape cells and no number at all.** The plan says "grayed
+   with the reason". The reason is in the cell's hover and in the shared "left out for a flagged price history" note
+   under the table; the returns are not sent to the page, so a chained bad bar is never on screen.
+8. **One row per (company, role); the chip's links are the links of the rows that carry that role.** A company that holds
+   two different roles on one card (the promote refuses it, a stored roster could still carry it) is two rows, each with
+   that card's chip. A company with no link on a card shows "No link" in its chip.
+9. **The company's ticker is the one most of its cards use** (`baskets.display_ticker`, ties by ticker). The ticker chip
+   opens the Cockpit name panel on the company's first card A to Z by name, with that card's own ticker as the `?name=`
+   key; a card chip opens the card.
+10. **Role rows with no resolved security are counted and listed, and only role rows.** A basket row with no security and
+    no role has nothing to do with this page, so it is not in the work line. "Roles set" counts one per (card, company);
+    "companies" counts distinct resolved role companies.
+11. **Only the companies that carry a role are read.** Filings, tape, flags and identity are read for them alone, not for
+    every roster company, so the cold read scales with the roles the operator has set.
+12. **The tab counts follow the filters** (a tab's count is the rows it would show), and a role with no rows stays a
+    grayed tab with 0, also when a filter is what emptied it. An empty tab says so in a line.
+13. **The filters are a card-name substring (a type-ahead over the card names in the table), a business-type select
+    (with "Unclassified" for the rows with none) and "Filed in the last" Any / 30 / 90 / 365 days.** A row with no
+    filing never passes a 30 / 90 / 365 window. A control that cannot tell rows apart (one card, one business type, no
+    filing in the table) does not render; "clear filters" shows only while one is on.
+14. **Sorting.** The page opens in the server's order (newest last filing first, none last A to Z). A click starts a
+    column in its natural direction (text A to Z, filing newest first, catalyst nearest first, tape largest first) and a
+    second click flips it. A blank value is last in either direction. "Cards" sorts by the first card's name. Ties break
+    by ticker, then the role order.
+15. **The as-of day counts for a catalyst** (`when_date >= asof`, as the plan says), worded "on the as-of date" at 0 days.
+    A tie on the date goes by card name, then the catalyst's label.
+16. **Cell words.** The last-filing cell reads "Oct 20 · 4 · <headline>" (the form is not said twice when the headline
+    already opens with it, as an 8-K's does) with the year in the hover; the catalyst cell
+    reads "Nov 12 · in 15 days · Q3 earnings · Grid". The EDGAR link is "EDGAR" for a sec.gov URL and "source" for any
+    other stored source (the Filing Stream's wording).
+17. **Adjacent fix: the 8-K headline now labels every standard item.** `signals.corporate_events.item_label` knows seven
+    items, so the Filing Stream and this page showed 9.01, 2.02, 7.01 and 8.01 as bare codes. `filings.py` now carries a
+    display-only table of the standard Form 8-K items (1.01 to 9.01), SEC's short titles in neutral lowercase words;
+    `item_label`'s own wording still wins for the seven it knows, and a code in neither (an item the SEC adds later) still
+    shows as the bare code. This supersedes choice 1 of the Filing Stream's list and changes its headline for 9.01
+    ("9.01 financial statements and exhibits"). `signals/` is untouched.

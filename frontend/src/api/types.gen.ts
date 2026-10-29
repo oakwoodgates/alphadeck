@@ -2250,6 +2250,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboards/read-through": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Through
+         * @description Every company tagged with a context role on a card counted at the as-of (payers, counter-cases, direct
+         *     reads, participants, financiers, benchmarks), one row per company and role, with the card chips it sits on, its
+         *     business type, the newest filing-derived fact in the last year, the nearest dated card catalyst and its 7 and
+         *     30 trading-day return minus SPY's. A company whose data flags reach its price readings shows no tape and is
+         *     named. Sorted by newest last filing. Display only; a past as-of reads what was public by the end of that
+         *     date.
+         */
+        get: operations["read_through_dashboards_read_through_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dashboards/rotation-map": {
         parameters: {
             query?: never;
@@ -9734,6 +9759,251 @@ export interface components {
             ads_ratio_status?: ("known" | "unread") | null;
         };
         /**
+         * ReadThroughCardOut
+         * @description A card a company holds the role on. ``ticker`` = its ticker there (the Cockpit's ``?name=`` key);
+         *     ``links`` = its links there (``null`` = no link; Context / Bench by their labels); ``silent`` = it is in
+         *     Context or Bench there (it never counts toward the call).
+         */
+        ReadThroughCardOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /** Ticker */
+            ticker: string;
+            /** Links */
+            links: (string | null)[];
+            /** Silent */
+            silent: boolean;
+        };
+        /** ReadThroughCardRefOut */
+        ReadThroughCardRefOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+        };
+        /**
+         * ReadThroughCatalystOut
+         * @description The nearest dated card-level catalyst on or after the as-of among the row's cards; ``days`` = its date
+         *     minus the as-of (0 = the as-of day).
+         */
+        ReadThroughCatalystOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /**
+             * Catalyst Id
+             * Format: uuid
+             */
+            catalyst_id: string;
+            /** Label */
+            label: string;
+            /** Kind */
+            kind: string | null;
+            /**
+             * When Date
+             * Format: date
+             */
+            when_date: string;
+            /** When Label */
+            when_label: string | null;
+            /** Days */
+            days: number;
+        };
+        /**
+         * ReadThroughFilingOut
+         * @description The company's newest filing-derived row in the last ``filing_days`` days: ``kind`` (``8k`` | ``stake`` |
+         *     ``form4`` | ``form4a`` | ``revenue`` | ``split`` | ``dilution`` | ``catalyst`` | ``ratified``), ``form`` (the form
+         *     as filed or the row's own label), its public ``date`` (``days_ago`` before the as-of), one neutral
+         *     ``headline``, and ``url`` (the EDGAR filing index or the stored source; ``null`` = none known).
+         */
+        ReadThroughFilingOut: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "8k" | "stake" | "form4" | "form4a" | "revenue" | "split" | "dilution" | "catalyst" | "ratified";
+            /** Form */
+            form: string;
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Days Ago */
+            days_ago: number;
+            /** Headline */
+            headline: string;
+            /** Url */
+            url: string | null;
+            /** Accession */
+            accession: string | null;
+        };
+        /**
+         * ReadThroughFlaggedOut
+         * @description A role company whose data flags reach its price readings at the as-of: its row stays, its tape cells name
+         *     ``reason`` (the flags' labels).
+         */
+        ReadThroughFlaggedOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * ReadThroughOut
+         * @description The whole table for the as-of, in the default order (newest last filing first; no filing last, A to Z).
+         *     ``cards_counted`` = the live cards that existed by the as-of; ``cards_with_roles`` of them hold at least one
+         *     role, ``cards_without_roles`` hold none (listed: the page is also the to-do list for roles); ``role_tags`` =
+         *     the roles set (one per card and company), ``companies`` = distinct role companies, ``by_role`` = the rows per
+         *     role (a role with none included). ``unresolved`` = tickers of the role rows with no resolved security
+         *     (``unresolved_rows``: counted, never a row). ``flagged`` = role companies whose data flags reach their price
+         *     readings. ``tape_ends_differ`` = rows whose last close is not SPY's. ``roster_fallback_cards`` = counted cards
+         *     with no roster snapshot by the as-of (today's roster stands in). ``clock``: ``record`` (the live read) or
+         *     ``public`` (a past as-of: what was public by the end of that date). ``cache`` / ``compute_ms`` = whether the
+         *     table came from the shared dashboard cache and how long it took when computed.
+         */
+        ReadThroughOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Clock
+             * @enum {string}
+             */
+            clock: "record" | "public";
+            /** Live Cards */
+            live_cards: number;
+            /** Cards Counted */
+            cards_counted: number;
+            /** Cards Not Yet Created */
+            cards_not_yet_created: number;
+            /** Roster Fallback Cards */
+            roster_fallback_cards: number;
+            /** Cards With Roles */
+            cards_with_roles: number;
+            /** Cards Without Roles */
+            cards_without_roles: components["schemas"]["ReadThroughCardRefOut"][];
+            /** Role Tags */
+            role_tags: number;
+            /** Companies */
+            companies: number;
+            /** By Role */
+            by_role: components["schemas"]["ReadThroughRoleCountOut"][];
+            /** Rows */
+            rows: components["schemas"]["ReadThroughRowOut"][];
+            /** Rows With Filing */
+            rows_with_filing: number;
+            /** Unresolved */
+            unresolved: string[];
+            /** Unresolved Rows */
+            unresolved_rows: number;
+            /** Flagged */
+            flagged: components["schemas"]["ReadThroughFlaggedOut"][];
+            /** Tape Ends Differ */
+            tape_ends_differ: number;
+            spy: components["schemas"]["ReadThroughSpyOut"] | null;
+            /** Benchmark */
+            benchmark: string;
+            /** Tape Windows */
+            tape_windows: number[];
+            /** Filing Days */
+            filing_days: number;
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /** ReadThroughRoleCountOut */
+        ReadThroughRoleCountOut: {
+            role: components["schemas"]["ContextRole"];
+            /** Rows */
+            rows: number;
+        };
+        /**
+         * ReadThroughRowOut
+         * @description One (company, role). ``key`` = ``<security_id>:<role>``; ``ticker`` = the one most of its cards use;
+         *     ``business_type`` = the leaf derived on read from the master (the operator's re-tag wins; ``null`` = unknown).
+         */
+        ReadThroughRowOut: {
+            /** Key */
+            key: string;
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Name */
+            name: string | null;
+            role: components["schemas"]["ContextRole"];
+            /** Cards */
+            cards: components["schemas"]["ReadThroughCardOut"][];
+            /** Business Type */
+            business_type: string | null;
+            last_filing: components["schemas"]["ReadThroughFilingOut"] | null;
+            next_catalyst: components["schemas"]["ReadThroughCatalystOut"] | null;
+            tape: components["schemas"]["ReadThroughTapeOut"];
+        };
+        /**
+         * ReadThroughSpyOut
+         * @description SPY's own trailing returns at the as-of, the benchmark every vs-SPY cell subtracts.
+         */
+        ReadThroughSpyOut: {
+            /** Ret 7D */
+            ret_7d: number | null;
+            /** Ret 30D */
+            ret_30d: number | null;
+            /** End */
+            end: string | null;
+        };
+        /**
+         * ReadThroughTapeOut
+         * @description The company's tape. ``ret_7d`` / ``ret_30d`` = its trailing return in percent over the last 7 / 30 trading
+         *     days; ``vs_spy_*`` = that minus SPY's over the same window, in percentage points; ``last_close`` = the date of
+         *     its last close. ``gap`` = why the vs-SPY cells are blank: ``flagged`` (its data flags reach its price readings;
+         *     ``reason`` = the flags' labels, and no return is shown), ``no_tape`` (no bars), ``no_spy`` (SPY has none) or
+         *     ``ends_differ`` (its last close is not SPY's last close). ``null`` = shown, or only that window is short.
+         */
+        ReadThroughTapeOut: {
+            /** Ret 7D */
+            ret_7d: number | null;
+            /** Ret 30D */
+            ret_30d: number | null;
+            /** Vs Spy 7D */
+            vs_spy_7d: number | null;
+            /** Vs Spy 30D */
+            vs_spy_30d: number | null;
+            /** Last Close */
+            last_close: string | null;
+            /** Gap */
+            gap: ("flagged" | "no_tape" | "no_spy" | "ends_differ") | null;
+            /** Reason */
+            reason: string | null;
+        };
+        /**
          * ResolveEtfRequest
          * @description Body for ``POST /workbench/securities/resolve-etf`` (ETF Sleeve, Slice 1) — the operator-supplied ETF
          *     ticker to surface as a ``fund`` sleeve. Just the ticker: the server resolves it (lookup-or-create) and
@@ -14312,6 +14582,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NarrativeCardDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_through_dashboards_read_through_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; nothing published after it is read */
+                asof: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReadThroughOut"];
                 };
             };
             /** @description Validation Error */
