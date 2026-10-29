@@ -25,7 +25,8 @@ and never calls the LLM. At a past as-of it draws the roster as of that night.
   - its **50-day side**: above or below the 50-day average, from the `sma_position` display member (a small up or
     down mark; none when unpriced or too few bars);
   - its **last filing age** in days, from `filings.read_filing_rows(..., days=365)` (the date of the newest SEC filing:
-    an 8-K, 13D/G, Form 4, 4/A or a 10-Q / 10-K revenue print; "no filing stored in the last year" when none).
+    an 8-K, 13D/G, Form 4, 4/A, a 10-Q / 10-K revenue print or any other form in the EDGAR index; "no filing stored
+    in the last year" when none).
   A company whose data flags reach its price readings is drawn grayed with its reason on hover and in the shared
   `FlaggedNote`; it stays on the map. A roster row whose link is not on the card today sits in an "old link" column
   after the real links, labeled "not a link today"; rows with no link in a "No link" column after those. Never
@@ -149,8 +150,8 @@ rest are choices the plan left open.
 9. **The last-filing glyph is the newest SEC filing in the year (revised 2026-10-29 after dev with a prod data copy).**
    The first build took the newest `FilingRow` of ANY kind, as the plan's wording read, which let a split, a dilution
    fact, a catalyst and a ratified or machine-stored fact (dated by an ingest batch) stand for a filing. The glyph now
-   considers only the kinds `8k`, `form4`, `form4a`, `stake` and `revenue` (`filings.SEC_FILING_KINDS`, shared with
-   Read-Throughs); a company with only the others has no filing glyph ("—"). The glyph is still called "last filing".
+   considers only the kinds `8k`, `form4`, `form4a`, `stake` and `revenue` (and, since the filing index of
+   2026-10-29, `filing`: any other form in the EDGAR index) (`filings.SEC_FILING_KINDS`, shared with Read-Throughs); a company with only the others has no filing glyph ("—"). The glyph is still called "last filing".
    Two filings on the newest day: the first by kind order, form, headline, accession.
 10. **A flagged price history leaves out the 50-day side only.** The name stays on the map, drawn gray (45% opacity) with
     its reason in the tooltip, the readout and the shared note; its bars are never read; its business type and its filing

@@ -2211,10 +2211,11 @@ export interface paths {
         /**
          * Filing Stream For Card
          * @description One card's names' filing-derived facts, newest day first: 8-Ks with their items, Form 4s with the filer's
-         *     own words, Form 4/As, 13D/G stakes, revenue prints, splits, dilution, catalysts and the ratified or stored
-         *     facts, each row opening to its EDGAR source. Only facts the ingest stores are listed (not every filing).
-         *     Display only; a past as-of reads what was public by the end of that date (a fact public after it never
-         *     appears). 404 when the card is not counted at the as-of.
+         *     own words, Form 4/As, 13D/G stakes, revenue prints, every other form in the company's EDGAR index (its
+         *     recent window: at least a year, or the last 1,000 filings), splits, dilution, catalysts and the ratified or
+         *     stored facts, each row opening to its EDGAR source; a filing shows once, as its richest row. Display only; a
+         *     past as-of reads what was public by the end of that date (a fact public after it never appears). 404 when
+         *     the card is not counted at the as-of.
          */
         get: operations["filing_stream_for_card_dashboards_filing_stream__thesis_id__get"];
         put?: never;
@@ -5923,8 +5924,9 @@ export interface components {
         };
         /**
          * ChainMapFilingOut
-         * @description A company's newest SEC filing in the last ``filing_days`` days (an 8-K, 13D/G, Form 4 or 4/A, or a 10-Q /
-         *     10-K revenue print; never a split, a catalyst or a ratified or stored fact): its public ``date``
+         * @description A company's newest SEC filing in the last ``filing_days`` days (an 8-K, 13D/G, Form 4 or 4/A, a 10-Q / 10-K
+         *     revenue print, or any other form in the EDGAR index; never a split, a catalyst or a ratified or stored fact):
+         *     its public ``date``
          *     (``age_days`` before the as-of), the ``form`` as filed and its one-line ``headline``.
          */
         ChainMapFilingOut: {
@@ -8198,7 +8200,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "8k" | "stake" | "form4" | "form4a" | "revenue" | "split" | "dilution" | "catalyst" | "ratified";
+            kind: "8k" | "stake" | "form4" | "form4a" | "revenue" | "filing" | "split" | "dilution" | "catalyst" | "ratified";
             /** Rows */
             rows: number;
         };
@@ -8303,7 +8305,8 @@ export interface components {
         };
         /**
          * FilingStreamRowOut
-         * @description One filing-derived fact. ``kind``: ``8k`` | ``form4`` | ``form4a`` | ``stake`` | ``revenue`` | ``split`` |
+         * @description One filing-derived fact. ``kind``: ``8k`` | ``form4`` | ``form4a`` | ``stake`` | ``revenue`` | ``filing``
+         *     (any other form in the company's EDGAR index, shown as its form and primary document) | ``split`` |
          *     ``dilution`` | ``catalyst`` | ``ratified`` (a ratified fact, ``form`` "ratified fact", or a stored fact nobody
          *     ratified, ``form`` "stored fact"). ``form`` = the form as filed or the row's own label; ``date`` = the
          *     public date it counts from; ``headline`` = one neutral line; ``detail`` = the lines the expanded row shows;
@@ -8326,7 +8329,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "8k" | "stake" | "form4" | "form4a" | "revenue" | "split" | "dilution" | "catalyst" | "ratified";
+            kind: "8k" | "stake" | "form4" | "form4a" | "revenue" | "filing" | "split" | "dilution" | "catalyst" | "ratified";
             /** Form */
             form: string;
             /**
@@ -11285,7 +11288,8 @@ export interface components {
         /**
          * ReadThroughFilingOut
          * @description The company's newest SEC filing in the last ``filing_days`` days: ``kind`` (``8k`` | ``stake`` | ``form4`` |
-         *     ``form4a`` | ``revenue``; never a split, a catalyst or a ratified or stored fact), ``form`` (the form as
+         *     ``form4a`` | ``revenue`` | ``filing``, any other form in the company's EDGAR index; never a split, a catalyst
+         *     or a ratified or stored fact), ``form`` (the form as
          *     filed), its public ``date`` (``days_ago`` before the as-of), one neutral ``headline``, and ``url`` (the EDGAR
          *     filing index or the stored source; ``null`` = none known).
          */
@@ -11294,7 +11298,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "8k" | "stake" | "form4" | "form4a" | "revenue" | "split" | "dilution" | "catalyst" | "ratified";
+            kind: "8k" | "stake" | "form4" | "form4a" | "revenue" | "filing" | "split" | "dilution" | "catalyst" | "ratified";
             /** Form */
             form: string;
             /**

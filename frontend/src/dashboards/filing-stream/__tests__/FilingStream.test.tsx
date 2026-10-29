@@ -127,6 +127,7 @@ const COUNTS = {
     { kind: "form4", rows: 3 },
     { kind: "form4a", rows: 1 },
     { kind: "revenue", rows: 0 },
+    { kind: "filing", rows: 0 },
     { kind: "split", rows: 0 },
     { kind: "dilution", rows: 1 },
     { kind: "catalyst", rows: 0 },
@@ -306,6 +307,31 @@ describe("FilingStream", () => {
     expect(headlines().some((t) => t?.includes("P purchase"))).toBe(true);
   });
 
+  it("lists a form from the EDGAR index as its form and document, under an 'Other forms' chip", async () => {
+    const s1 = row("8", {
+      kind: "filing",
+      form: "S-1",
+      headline: "S-1 · s1.htm",
+      detail: [],
+      accession: "0000876543-26-000050",
+      url: "https://www.sec.gov/Archives/edgar/data/876543/000087654326000050/0000876543-26-000050-index.htm",
+    });
+    const day: FilingStreamDayOut = { date: "2026-10-28", routine: 2, rows: [...D1.rows, s1] };
+    const counts = {
+      ...COUNTS,
+      rows: COUNTS.rows + 1,
+      by_kind: COUNTS.by_kind.map((c) => (c.kind === "filing" ? { ...c, rows: 1 } : c)),
+    };
+    setup(payload({ groups: [day, D2, D3], counts }));
+    const kinds = screen.getByRole("group", { name: "Kinds" });
+    const chip = within(kinds).getByRole("button", { name: /^Other forms/ });
+    expect(chip.textContent?.replace(/\s+/g, " ").trim()).toBe("Other forms 1");
+    expect(headlines()).toContain("S-1 · s1.htm");
+    expect(screen.getByText(/1 other form ·/)).toBeInTheDocument(); // the work line counts it
+    await userEvent.click(chip);
+    expect(headlines()).not.toContain("S-1 · s1.htm");
+  });
+
   it("filters by link, name, role and 'Counting names only'", async () => {
     setup();
     await userEvent.selectOptions(screen.getByRole("combobox", { name: "Link" }), "link:Fuel");
@@ -382,7 +408,7 @@ describe("FilingStream", () => {
     expect(screen.getByText(/5 roster rows · 3 companies resolved · 1 without a resolved security · 1 in Context or Bench/)).toBeInTheDocument();
     expect(screen.getByText("1 roster name has no resolved security, so no filing can be attached to it: ZZZ.")).toBeInTheDocument();
     expect(screen.getByText(/Today's roster stands in for this card: rosters are point-in-time only from Sep 15, 2026/)).toBeInTheDocument();
-    expect(screen.getByText(/Ingested facts only: forms other than 8-K, Form 4 and 4\/A/)).toBeInTheDocument();
+    expect(screen.getByText(/Every form in each company's EDGAR index is listed/)).toBeInTheDocument();
     expect(screen.getByText(/day-low and implausible-data insider screens are not applied here/)).toBeInTheDocument();
     expect(screen.getByText(/its standing \(applied, kept, pending\) is on Admin › Insider amendments/)).toBeInTheDocument();
   });

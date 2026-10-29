@@ -4353,7 +4353,7 @@
           "dashboards"
         ],
         "summary": "Filing Stream For Card",
-        "description": "One card's names' filing-derived facts, newest day first: 8-Ks with their items, Form 4s with the filer's\nown words, Form 4/As, 13D/G stakes, revenue prints, splits, dilution, catalysts and the ratified or stored\nfacts, each row opening to its EDGAR source. Only facts the ingest stores are listed (not every filing).\nDisplay only; a past as-of reads what was public by the end of that date (a fact public after it never\nappears). 404 when the card is not counted at the as-of.",
+        "description": "One card's names' filing-derived facts, newest day first: 8-Ks with their items, Form 4s with the filer's\nown words, Form 4/As, 13D/G stakes, revenue prints, every other form in the company's EDGAR index (its\nrecent window: at least a year, or the last 1,000 filings), splits, dilution, catalysts and the ratified or\nstored facts, each row opening to its EDGAR source; a filing shows once, as its richest row. Display only; a\npast as-of reads what was public by the end of that date (a fact public after it never appears). 404 when\nthe card is not counted at the as-of.",
         "operationId": "filing_stream_for_card_dashboards_filing_stream__thesis_id__get",
         "parameters": [
           {
@@ -11915,7 +11915,7 @@
           "headline"
         ],
         "title": "ChainMapFilingOut",
-        "description": "A company's newest SEC filing in the last ``filing_days`` days (an 8-K, 13D/G, Form 4 or 4/A, or a 10-Q /\n10-K revenue print; never a split, a catalyst or a ratified or stored fact): its public ``date``\n(``age_days`` before the as-of), the ``form`` as filed and its one-line ``headline``."
+        "description": "A company's newest SEC filing in the last ``filing_days`` days (an 8-K, 13D/G, Form 4 or 4/A, a 10-Q / 10-K\nrevenue print, or any other form in the EDGAR index; never a split, a catalyst or a ratified or stored fact):\nits public ``date``\n(``age_days`` before the as-of), the ``form`` as filed and its one-line ``headline``."
       },
       "ChainMapFlaggedOut": {
         "properties": {
@@ -16948,6 +16948,7 @@
               "form4",
               "form4a",
               "revenue",
+              "filing",
               "split",
               "dilution",
               "catalyst",
@@ -17225,6 +17226,7 @@
               "form4",
               "form4a",
               "revenue",
+              "filing",
               "split",
               "dilution",
               "catalyst",
@@ -17345,7 +17347,7 @@
           "silent"
         ],
         "title": "FilingStreamRowOut",
-        "description": "One filing-derived fact. ``kind``: ``8k`` | ``form4`` | ``form4a`` | ``stake`` | ``revenue`` | ``split`` |\n``dilution`` | ``catalyst`` | ``ratified`` (a ratified fact, ``form`` \"ratified fact\", or a stored fact nobody\nratified, ``form`` \"stored fact\"). ``form`` = the form as filed or the row's own label; ``date`` = the\npublic date it counts from; ``headline`` = one neutral line; ``detail`` = the lines the expanded row shows;\n``url`` = the filing's EDGAR index or the stored source (``null`` = none known); ``tags`` = quiet field\npredicates; ``routine`` = a fold candidate (a Form 4 holding no code-P purchase); ``usd`` = the row's dollar\nsize when it has one (a Form 4's purchases minus sales, a dilution's principal). ``links`` / ``role`` /\n``silent`` = the company's place on the card at the as-of (``null`` in ``links`` = no link)."
+        "description": "One filing-derived fact. ``kind``: ``8k`` | ``form4`` | ``form4a`` | ``stake`` | ``revenue`` | ``filing``\n(any other form in the company's EDGAR index, shown as its form and primary document) | ``split`` |\n``dilution`` | ``catalyst`` | ``ratified`` (a ratified fact, ``form`` \"ratified fact\", or a stored fact nobody\nratified, ``form`` \"stored fact\"). ``form`` = the form as filed or the row's own label; ``date`` = the\npublic date it counts from; ``headline`` = one neutral line; ``detail`` = the lines the expanded row shows;\n``url`` = the filing's EDGAR index or the stored source (``null`` = none known); ``tags`` = quiet field\npredicates; ``routine`` = a fold candidate (a Form 4 holding no code-P purchase); ``usd`` = the row's dollar\nsize when it has one (a Form 4's purchases minus sales, a dilution's principal). ``links`` / ``role`` /\n``silent`` = the company's place on the card at the as-of (``null`` in ``links`` = no link)."
       },
       "FiringDiagnostics": {
         "properties": {
@@ -24586,6 +24588,7 @@
               "form4",
               "form4a",
               "revenue",
+              "filing",
               "split",
               "dilution",
               "catalyst",
@@ -24644,7 +24647,7 @@
           "accession"
         ],
         "title": "ReadThroughFilingOut",
-        "description": "The company's newest SEC filing in the last ``filing_days`` days: ``kind`` (``8k`` | ``stake`` | ``form4`` |\n``form4a`` | ``revenue``; never a split, a catalyst or a ratified or stored fact), ``form`` (the form as\nfiled), its public ``date`` (``days_ago`` before the as-of), one neutral ``headline``, and ``url`` (the EDGAR\nfiling index or the stored source; ``null`` = none known)."
+        "description": "The company's newest SEC filing in the last ``filing_days`` days: ``kind`` (``8k`` | ``stake`` | ``form4`` |\n``form4a`` | ``revenue`` | ``filing``, any other form in the company's EDGAR index; never a split, a catalyst\nor a ratified or stored fact), ``form`` (the form as\nfiled), its public ``date`` (``days_ago`` before the as-of), one neutral ``headline``, and ``url`` (the EDGAR\nfiling index or the stored source; ``null`` = none known)."
       },
       "ReadThroughFlaggedOut": {
         "properties": {

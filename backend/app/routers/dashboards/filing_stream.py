@@ -83,7 +83,8 @@ class FilingStreamCardsOut(_Wire):
 
 
 class FilingStreamRowOut(_Wire):
-    """One filing-derived fact. ``kind``: ``8k`` | ``form4`` | ``form4a`` | ``stake`` | ``revenue`` | ``split`` |
+    """One filing-derived fact. ``kind``: ``8k`` | ``form4`` | ``form4a`` | ``stake`` | ``revenue`` | ``filing``
+    (any other form in the company's EDGAR index, shown as its form and primary document) | ``split`` |
     ``dilution`` | ``catalyst`` | ``ratified`` (a ratified fact, ``form`` "ratified fact", or a stored fact nobody
     ratified, ``form`` "stored fact"). ``form`` = the form as filed or the row's own label; ``date`` = the
     public date it counts from; ``headline`` = one neutral line; ``detail`` = the lines the expanded row shows;
@@ -268,10 +269,11 @@ def filing_stream_for_card(
     conn: psycopg.Connection = Depends(get_conn),
 ) -> FilingStreamOut:
     """One card's names' filing-derived facts, newest day first: 8-Ks with their items, Form 4s with the filer's
-    own words, Form 4/As, 13D/G stakes, revenue prints, splits, dilution, catalysts and the ratified or stored
-    facts, each row opening to its EDGAR source. Only facts the ingest stores are listed (not every filing).
-    Display only; a past as-of reads what was public by the end of that date (a fact public after it never
-    appears). 404 when the card is not counted at the as-of."""
+    own words, Form 4/As, 13D/G stakes, revenue prints, every other form in the company's EDGAR index (its
+    recent window: at least a year, or the last 1,000 filings), splits, dilution, catalysts and the ratified or
+    stored facts, each row opening to its EDGAR source; a filing shows once, as its richest row. Display only; a
+    past as-of reads what was public by the end of that date (a fact public after it never appears). 404 when
+    the card is not counted at the as-of."""
     known_at, clock = serve_view(asof)
     if not any(c.thesis_id == thesis_id for c in _cards(conn, asof, clock).value.cards):
         raise HTTPException(status_code=404, detail="card not counted at this as-of")

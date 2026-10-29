@@ -25,6 +25,7 @@ from dashboards.cache import CACHE
 from dashboards.filing_stream import (
     READ_DAYS,
     WINDOWS,
+    StreamRow,
     companies_of,
     counts_of,
     filing_stream,
@@ -38,6 +39,7 @@ from dashboards.filing_stream import (
 )
 from dashboards.filings import (
     KIND_ORDER,
+    SEC_FILING_KINDS,
     STANDARD_8K_ITEMS,
     TAG_10B5_1,
     TAG_FILER_UNRESOLVED,
@@ -61,6 +63,7 @@ from dashboards.filings import (
     rows_from_catalysts,
     rows_from_corporate_events,
     rows_from_dilution,
+    rows_from_filing_index,
     rows_from_insider_txns,
     rows_from_ratified,
     rows_from_revenue,
@@ -911,6 +914,9 @@ class StubPit(SimpleNamespace):
     def revenue_mix_facts(self, sid):
         return []
 
+    def filing_index(self, sid):
+        return getattr(self, "index", [])
+
 
 def test_every_source_reaches_the_company_rows_with_the_4a_folded_once():
     pit = StubPit(
@@ -937,6 +943,108 @@ def test_every_source_reaches_the_company_rows_with_the_4a_folded_once():
     )
     assert [r.accession for r in rows if r.kind == "form4a"] == [A_ACC]  # one 4/A row, not two
     assert set(KIND_ORDER) >= set(kinds)
+
+
+# ---------------------------------------------------------------------------------------------------------
+# the EDGAR filing index (migration 0070): every other form, each filing once
+# ---------------------------------------------------------------------------------------------------------
+
+IDX_ACC = "0000876543-26-000050"
+F4_ACC = "0000876543-26-000060"
+
+
+def index_row(**over):
+    base = {
+        "form": "S-1",
+        "accession": IDX_ACC,
+        "filed": date(2026, 10, 21),
+        "valid_from": date(2026, 10, 21),
+        "primary_doc": "s1.htm",
+        "accepted": None,
+        "source_ref": f"https://www.sec.gov/Archives/edgar/data/876543/000087654326000050/{IDX_ACC}-index.htm",
+    }
+    return {**base, **over}
+
+
+def test_an_index_row_is_its_form_and_primary_document_with_its_edgar_link():
+    (r,) = rows_from_filing_index([index_row()], W)
+    assert (r.kind, r.form, r.date, r.headline) == (
+        "filing",
+        "S-1",
+        date(2026, 10, 21),
+        "S-1 · s1.htm",
+    )
+    assert r.url == index_row()["source_ref"] and r.accession == IDX_ACC
+    assert r.detail == () and r.tags == () and r.routine is False and r.usd is None
+    # EDGAR left the document blank: just the form; no stored link: the EDGAR index built from the accession
+    (bare,) = rows_from_filing_index(
+        [index_row(form="424B5", primary_doc=None, source_ref=None)], W
+    )
+    assert bare.headline == "424B5" and bare.url == filing_index_url(W.cik, IDX_ACC)
+    assert rows_from_filing_index([index_row(filed=None, valid_from=None)], W) == []  # undatable
+    # the kind sits right after the revenue print and counts as an SEC filing (the "last filing" picks)
+    assert KIND_ORDER.index("filing") == KIND_ORDER.index("revenue") + 1
+    assert "filing" in SEC_FILING_KINDS
+
+
+def test_each_filing_shows_ONCE_an_index_row_a_richer_row_carries_is_dropped():
+    """An index row whose accession an 8-K, a Form 4, a 13D/G or a revenue print already carries is dropped
+    (compared as stored, whitespace removed); a filing nothing else shows (the S-1) stays."""
+    pit = StubPit(
+        events=[event()],  # ACC
+        insider=[txn(accession=F4_ACC)],
+        stakes=[stake()],  # 0000555555-26-000003
+        fundamentals=[NOW],  # 0000876543-26-000030
+        splits=[],
+        dilution=[],
+        catalysts=[],
+        cash=[],
+        index=[
+            index_row(form="8-K", accession=ACC),
+            index_row(form="4", accession=f"  {F4_ACC} "),
+            index_row(form="SC 13D", accession="0000555555-26-000003"),
+            index_row(form="10-Q", accession="0000876543-26-000030"),
+            index_row(),  # the lone S-1
+        ],
+    )
+    rows = rows_for_company(pit, W, clock="public")
+    assert [(r.form, r.accession) for r in rows if r.kind == "filing"] == [("S-1", IDX_ACC)]
+    assert sorted(r.kind for r in rows if r.kind != "filing") == sorted(
+        ["8k", "form4", "stake", "revenue"]
+    )
+    # with nothing richer, every index row is its own row
+    alone = StubPit(
+        events=[],
+        insider=[],
+        stakes=[],
+        fundamentals=[],
+        splits=[],
+        dilution=[],
+        catalysts=[],
+        cash=[],
+        index=[index_row(form="8-K", accession=ACC), index_row()],
+    )
+    assert sorted(r.form for r in rows_for_company(alone, W, clock="public")) == ["8-K", "S-1"]
+
+
+def test_an_index_row_is_in_the_window_from_its_filing_date_and_never_after_the_asof():
+    days = 90
+    rows = rows_from_filing_index(
+        [
+            index_row(accession="0000876543-26-000071", filed=ASOF - timedelta(days=days)),
+            index_row(accession="0000876543-26-000072", filed=ASOF - timedelta(days=days + 1)),
+            index_row(accession="0000876543-26-000073", filed=ASOF),
+            index_row(accession="0000876543-26-000074", filed=ASOF + timedelta(days=1)),
+        ],
+        W,
+    )
+    kept = in_window(
+        [StreamRow(str(i), r, ("Core",), None, False) for i, r in enumerate(rows)], ASOF, days
+    )
+    assert sorted(r.row.accession for r in kept) == [
+        "0000876543-26-000071",
+        "0000876543-26-000073",
+    ]
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -1454,6 +1562,47 @@ def test_a_fact_published_after_a_past_asof_never_reaches_the_stream(db, pinned_
     assert past["roster_fallback"] is True and past["unresolved"] == []
 
 
+EARLY_S1, LATE_424 = "0000876543-26-000131", "0000876543-26-000132"
+
+
+def test_an_index_filing_published_after_a_past_asof_never_reaches_the_stream(db, pinned_today):
+    """The filing index (0070) on the same card: an S-1 filed June 2 is visible at the earlier as-of, a 424B5
+    filed June 10 only at the later one — every row INGESTED after both as-ofs (the public clock reads the
+    filing date, never our ingest). The index row for the stored 8-K is never shown: that filing is its 8-K row.
+    """
+    from ingest.edgar.filing_index import ingest_filing_index
+
+    thesis_id, sid = _seed_card(db)
+    rows = [
+        {"form": "S-1", "accession": EARLY_S1, "primary_doc": "s1.htm", "filed": "2026-06-02"},
+        {"form": "424B5", "accession": LATE_424, "primary_doc": "", "filed": "2026-06-10"},
+        {"form": "8-K", "accession": EARLY_8K, "primary_doc": "k.htm", "filed": "2026-06-03"},
+    ]
+    ingest_filing_index(db, sid, CIK, rows, recorded_at=INGESTED)
+    db.commit()
+    url = f"/dashboards/filing-stream/{thesis_id}"
+    CACHE.clear()
+    app.dependency_overrides[get_conn] = lambda: db
+    try:
+        client = TestClient(app)
+        past = client.get(url, params={"asof": PAST.isoformat(), "days": 365}).json()
+        later = client.get(url, params={"asof": LATER.isoformat(), "days": 365}).json()
+    finally:
+        app.dependency_overrides.clear()
+        CACHE.clear()
+
+    assert _accessions(past, "filing") == [EARLY_S1]
+    assert _accessions(later, "filing") == sorted([EARLY_S1, LATE_424])
+    assert _accessions(later, "8k") == sorted([EARLY_8K, LATE_8K])  # the 8-K shows as its 8-K row
+    s1 = next(r for g in past["groups"] for r in g["rows"] if r["kind"] == "filing")
+    assert (s1["form"], s1["headline"], s1["date"]) == ("S-1", "S-1 · s1.htm", "2026-06-02")
+    assert s1["url"].endswith(f"/{EARLY_S1}-index.htm")
+    p424 = next(r for g in later["groups"] for r in g["rows"] if r["accession"] == LATE_424)
+    assert p424["headline"] == "424B5"
+    by_kind = {c["kind"]: c["rows"] for c in later["counts"]["by_kind"]}
+    assert by_kind["filing"] == 2
+
+
 def test_the_4a_select_applies_the_two_clock_gate_on_its_own(db):
     """``read_amendments`` called DIRECTLY (no window filter after it): on the PUBLIC clock the filing must be
     dated by the as-of and ``recorded_at`` is never read (the 4/A recorded in the future is in); on the RECORD
@@ -1638,9 +1787,10 @@ def test_a_row_that_states_nothing_but_its_accession_never_raises_in_any_normali
     assert isinstance(rows_from_dilution([bare], W), list)
     assert isinstance(rows_from_catalysts([bare], W), list)
     assert isinstance(rows_from_ratified([bare], [bare], [bare], W), list)
+    assert isinstance(rows_from_filing_index([bare], W), list)
     pit = StubPit(
         events=[bare], insider=[bare], stakes=[bare], fundamentals=[bare], splits=[bare],
-        dilution=[bare], catalysts=[bare], cash=[bare],
+        dilution=[bare], catalysts=[bare], cash=[bare], index=[bare],
     )  # fmt: skip
     assert isinstance(rows_for_company(pit, W, clock="public", amendments=[bare]), list)
 

@@ -14,6 +14,10 @@ pair; invariant #1), plus one plain SELECT for the Form 4/A filings:
 - ``stake``: ``pit.activist_stake_facts``, under ``filed``.
 - ``revenue``: ``pit.fundamentals_facts`` (``revenue``) grouped by accession, under ``valid_from`` (the 10-Q /
   10-K filing date).
+- ``filing``: ``pit.filing_index``, the company's EDGAR filing index (migration 0070: every form its submissions
+  index lists, ``filings.recent``), under ``filed``. One row per filing NOT already shown by a richer row: an index
+  row whose accession any other row carries (an 8-K, a Form 4 or 4/A, a 13D/G, a revenue print, a split, a
+  dilution or a catalyst) is dropped, so each filing shows once (``rows_for_company``).
 - ``split``: ``pit.split_events``, under the split's own publication as the view knows it.
 - ``dilution``: ``pit.dilution_facts``, under ``valid_from`` (the issuance date).
 - ``catalyst``: ``pit.catalyst_facts``, under ``valid_from`` (its event date).
@@ -32,8 +36,10 @@ The rules, in one place:
   (``issuer self-filing``, ``internal transfer``, ``10b5-1 plan``): it never mutates a row, and a missing field
   asserts nothing (a ``NULL`` ``aff_10b5_1`` is not "no plan"; a ``NULL`` footnote list is not "none stated").
 - **Facts only.** The reader holds what the ingest stores: 8-Ks (with item codes), Form 4s and 4/As, 13D/G
-  stakes, the 10-Q / 10-K revenue series, splits, convertible-note dilution, catalysts, and the ratified or stored
-  facts. Other forms are not stored yet; the page says so.
+  stakes, the 10-Q / 10-K revenue series, splits, convertible-note dilution, catalysts, the ratified or stored
+  facts, and every other form in the company's EDGAR index (an S-1, a 424B5, a DEF 14A, ...) as a bare
+  ``filing`` row: its form and primary document, nothing read from inside it. The index is EDGAR's ``recent``
+  window (at least a year, or the last 1,000 filings, whichever reaches further); older filings are not stored.
 - **Not applied here.** The Cockpit's insider column screens a code-P row against the day's low price and an
   implausible dollar size (they need the price bars and the split scale). The reader does not: it never writes
   "open market", a code-P row with no tag is a purchase and nothing more.
@@ -75,25 +81,38 @@ from securities import master
 from signals.corporate_events import item_label
 
 FilingKind = Literal[
-    "8k", "stake", "form4", "form4a", "revenue", "split", "dilution", "catalyst", "ratified"
+    "8k",
+    "stake",
+    "form4",
+    "form4a",
+    "revenue",
+    "filing",
+    "split",
+    "dilution",
+    "catalyst",
+    "ratified",
 ]
-# the order of kinds within a day (the page's words: 8-K, 13D/G, Form 4, 4/A, revenue, split, dilution,
-# catalyst, ratified or stored fact)
+# the order of kinds within a day (the page's words: 8-K, 13D/G, Form 4, 4/A, revenue, other forms, split,
+# dilution, catalyst, ratified or stored fact)
 KIND_ORDER: tuple[FilingKind, ...] = (
     "8k",
     "stake",
     "form4",
     "form4a",
     "revenue",
+    "filing",
     "split",
     "dilution",
     "catalyst",
     "ratified",
 )
-# The kinds that ARE an SEC filing (an 8-K, a 13D/G, a Form 4 or 4/A, a 10-Q / 10-K revenue print), as against the
-# system's own rows (a split, a dilution fact, a catalyst, a ratified or stored fact). "Last filing" on the pages
-# that show one (Read-Throughs, Chain Map) picks among these alone, whatever else the reader stores.
-SEC_FILING_KINDS: frozenset[FilingKind] = frozenset({"8k", "stake", "form4", "form4a", "revenue"})
+# The kinds that ARE an SEC filing (an 8-K, a 13D/G, a Form 4 or 4/A, a 10-Q / 10-K revenue print, any other form
+# in the company's EDGAR index), as against the system's own rows (a split, a dilution fact, a catalyst, a ratified
+# or stored fact). "Last filing" on the pages that show one (Read-Throughs, Chain Map) picks among these alone,
+# whatever else the reader stores.
+SEC_FILING_KINDS: frozenset[FilingKind] = frozenset(
+    {"8k", "stake", "form4", "form4a", "revenue", "filing"}
+)
 
 # The Form 4 transaction codes the page labels; any other code shows as the code itself.
 FORM4_CODE_LABELS: dict[str, str] = {
@@ -776,6 +795,48 @@ def rows_from_revenue(facts: Iterable[Mapping[str, Any]], who: Who) -> list[Fili
     return out
 
 
+# --- the EDGAR filing index ---------------------------------------------------------------------------------
+
+
+def rows_from_filing_index(facts: Iterable[Mapping[str, Any]], who: Who) -> list[FilingRow]:
+    """One row per filing in the company's EDGAR index (migration 0070), under its ``filed`` date: the form as
+    filed and its primary document ("S-1 · s1.htm"; the bare form when EDGAR left the document blank). Nothing
+    is read from inside the filing: no detail lines, no tags, never routine. The link is the stored
+    ``source_ref`` (the EDGAR filing-index page), else the index URL built from the CIK and the accession.
+    ``rows_for_company`` drops a row whose accession a richer row already shows."""
+    out: list[FilingRow] = []
+    for f in facts:
+        filed = _day(f.get("filed")) or _day(f.get("valid_from"))
+        form = str(f.get("form") or "").strip()
+        if filed is None or not form:
+            continue
+        doc = str(f.get("primary_doc") or "").strip()
+        accession = f.get("accession")
+        out.append(
+            FilingRow(
+                security_id=who.security_id,
+                ticker=who.ticker,
+                kind="filing",
+                form=form,
+                date=filed,
+                headline=f"{form} · {doc}" if doc else form,
+                url=source_url(f.get("source_ref"), who.cik)
+                or filing_index_url(who.cik, accession),
+                accession=str(accession).strip() or None if accession else None,
+            )
+        )
+    return out
+
+
+def _accession_key(accession: str | None) -> str | None:
+    """An accession as compared across rows: exactly as stored, whitespace removed (both sides carry EDGAR's
+    dashed form); ``None`` for none."""
+    if not accession:
+        return None
+    key = "".join(str(accession).split())
+    return key or None
+
+
 # --- splits -------------------------------------------------------------------------------------------------
 
 
@@ -1146,14 +1207,19 @@ def rows_for_company(
     amendments: Sequence[Mapping[str, Any]] = (),
 ) -> list[FilingRow]:
     """Every source's rows for one company, through the point-in-time view ``pit`` (the accessors
-    ``PointInTimeData`` serves), the 4/A records folded in. The window is the caller's."""
+    ``PointInTimeData`` serves), the 4/A records folded in. The window is the caller's.
+
+    The EDGAR index rows come LAST and only for a filing no other row shows: an index row whose accession any
+    other row carries (an 8-K, a Form 4 or 4/A, a 13D/G, a revenue print, a split, a dilution, a catalyst) is
+    dropped, so each filing appears once, as its richest row. The comparison is over EVERY row built here,
+    before the caller's window, so a richer row just outside the window still claims its filing."""
     sid = who.security_id
     revenue = pit.fundamentals_facts(sid)
     tape_4a: list[FilingRow] = []
     form4: list[FilingRow] = []
     for row in rows_from_insider_txns(pit.insider_txns(sid), who):
         (tape_4a if row.kind == "form4a" else form4).append(row)
-    return [
+    rows = [
         *rows_from_corporate_events(pit.corporate_event_facts(sid), who),
         *rows_from_stakes(pit.activist_stake_facts(sid), who),
         *form4,
@@ -1169,6 +1235,13 @@ def rows_for_company(
             who,
         ),
     ]
+    shown = {k for r in rows if (k := _accession_key(r.accession)) is not None}
+    index = [
+        r
+        for r in rows_from_filing_index(pit.filing_index(sid), who)
+        if _accession_key(r.accession) not in shown
+    ]
+    return [*rows, *index]
 
 
 def read_filing_rows(

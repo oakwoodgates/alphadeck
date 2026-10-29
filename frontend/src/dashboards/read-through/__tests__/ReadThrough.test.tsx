@@ -323,7 +323,7 @@ describe("ReadThrough — the work and the notes", () => {
     setup();
     expect(screen.getByText(/A role names a part, not a target/)).toBeInTheDocument();
     expect(screen.getByText(/Catalysts are today's list/)).toBeInTheDocument();
-    expect(screen.getByText(/Last filing means ingested filings only/)).toBeInTheDocument();
+    expect(screen.getByText(/Last filing means the newest form in the company's EDGAR index/)).toBeInTheDocument();
     expect(screen.getByText(/each card's roster as of the as-of/)).toBeInTheDocument();
   });
 
