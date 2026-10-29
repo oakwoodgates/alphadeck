@@ -112,3 +112,48 @@ Other metrics (EPS, margins, cash flow); any ranking; estimates or consensus; an
 The build lists here every choice it made that this plan does not spell out, each the operator's to confirm or change.
 Pre-decided here for the operator's review: twelve period ends; the calendar-quarter axis; the link median drawn only
 with two or more contributors; Context and Bench never in a median.
+
+### Built choices to confirm (the build, 2026-10-29)
+
+Each is the build's own call where the plan was silent or the code said otherwise; the operator confirms or changes
+each. The first is the one place the plan's wording and the shared axis could not both hold.
+
+1. **The axis is shared, so a name's window is the card's twelve quarters, not its own twelve period ends.** The axis
+   is the twelve calendar quarters ending at the newest quarter ANY roster name's latest print falls in (Context and
+   Bench included, so the toggle never moves it); a name's bars are its period ends inside that axis. A name a
+   quarter behind the rest draws eleven bars, and the oldest print falls off the left. A name whose series ends
+   before the axis draws an empty frame reading "no revenue in these quarters", keeps its last print in the text under
+   it and is counted ("stale"). The plan's literal reading (each name's own last twelve period ends) would widen the
+   axis past twelve whenever fiscal calendars differ, or run it for years when one name has a sparse series.
+2. **The dots sit on one fixed scale, -100% to +100%, on every chart and on the median lines.** The plan fixed
+   "dots above the bars" and the sign as the only tone, not the height. A change past the scale is pinned to the edge
+   and drawn as a ring (off the scale), so a +900% never flattens the rest. The sign tone is the Rotation Quadrant's
+   recipe (the app's positive and negative mixed 55% into gray), set again in this page's CSS because that page's tokens
+   are its own.
+3. **Median lines also draw for an old-link row and a "No link" row** (the plan names real links). Context and Bench
+   rows have no median row. A row's "names" is every counting name in it, so an unresolved row and a name with no series
+   count in the denominator and never contribute: a link with one resolved name and one unresolved row needs two names
+   with a change, so it draws no line. Only a row with exactly one counting name shows that name's dots as the line.
+4. **Two prints in one calendar quarter** (a fiscal-year change) draw side by side in the quarter's slot; the later
+   period end is that quarter's dot in a median, and a later print with no dot leaves the quarter without one.
+5. **"Thin" counts the bars drawn on the axis (fewer than five), not every stored period end.** A name with ten stored
+   periods and three inside the axis is thin.
+6. **The set-aside count is revenue rows only, public by the as-of.** An active set-aside covers a stored version
+   whose own `valid_from` is the date it counts from, so one on a version filed after the as-of is not on that view's
+   chart and not in its count. The chart draws what the as-of read returns (checked in the DB test: the read falls back
+   to the version the set-aside superseded).
+7. **The last print is the newest period end**, even when it is older than the axis, stated as "Q2 2026 · filed Aug 7 ·
+   83 days before the as-of" (the year added only when the filing is in an earlier year than the as-of) with its change
+   on the year before as a second line.
+8. **The readout is sticky:** it stays on the last bar looked at (so its EDGAR link can be reached) until another bar or
+   Escape. Keyboard: the arrows move between charts in reading order (left and right) and to the next or previous
+   row's first chart (up and down); Shift with left or right steps the bars of the focused chart (starting at the
+   newest); Enter on a name opens the Cockpit on it. One tab stop for the whole page.
+9. **An empty real link is still a section**, reading "Nobody sits in this link on the roster at this as-of", with no
+   median cell. The Context and Bench rows exist only when somebody sits in them, and the toggle ("Show Context and
+   Bench (N)") renders only when N is above zero.
+10. **Bars start at zero on each name's own scale**; a zero or negative print draws no height, and a name whose prints
+    are all zero or less draws no top label. The top value is written above the bars ("$1.6B").
+11. **A company in two links is a chart in each row** (each with its own tab stop), and once in the card line.
+12. **The wire carries `quarters`, `thin_below` and `min_median_names`** so the page states the rules it was built
+    with and the numbers never drift from the compute's constants.
