@@ -13,6 +13,11 @@ The rules, in one place:
   type, Sector and Card. Inside a group each company counts ONCE (by ``security_id``), its rows' cards and
   links folded together. A row with no link groups as "Unsegmented" (``None``); a company with no business
   type / sector as "Unclassified" (``None``).
+- **A flagged price history.** ``price_flags``: the companies whose data flags reach their PRICE readings at
+  the as-of, each with the flags' labels: the same reader the ``/data-flags`` routes serve
+  (``pipeline.data_flags.read_flags``), and the domain's own reach rule: a flag whose ``columns`` (the
+  Cockpit cells it reaches, ``domain.data_flags.cells_for``) include a price cell (``PRICE_CELLS``, the
+  price group's cells). A price dashboard leaves such a company out rather than chain a bad bar.
 
 Display only (rule 1): this module READS the cards, their roster snapshots and the point-in-time facts; it
 writes nothing.
@@ -29,10 +34,14 @@ from uuid import UUID
 import psycopg
 
 from db.session import DEFAULT_TENANT_ID
+from domain.data_flags import PRICE_CELLS, DataFlag
 from domain.market_time import market_tz
+from domain.settings import get_settings
 from domain.thesis import Thesis, is_silent
+from pipeline import data_flags as flags_reader
 from pipeline.backfill import thesis_existed_on
 from repositories import thesis_repo
+from securities import master
 from signals.base import PointInTimeData
 from signals.display import registered_display_members
 from signals.display.base import DisplayMember
@@ -169,6 +178,70 @@ def per_company(
         )
         for sid in chunk:
             out[sid] = read(pit, sid)
+    return out
+
+
+# --- the data flags that reach a price reading ----------------------------------------------------------------
+
+
+def reaches_price(flag: DataFlag) -> bool:
+    """Does the flag reach a PRICE reading? The domain's own rule: its ``columns`` (the Cockpit cells whose
+    window reads a marked date, ``domain.data_flags.cells_for``; every cell of a stopped feed) include a price
+    cell (``PRICE_CELLS``, the price group's cells, the 1Y return among them). A flag whose dates no price
+    cell reads (history only, a split within the vendor's noise, a market cap, fundamentals) reaches none.
+    """
+    return any(cell in PRICE_CELLS for cell in flag.columns)
+
+
+def price_reason(flags: Iterable[DataFlag]) -> str | None:
+    """The labels of the flags that reach a price reading, in the reader's order (``sort_flags``: a known
+    wrong number first), each once; ``None`` when none does."""
+    labels = list(dict.fromkeys(f.label for f in flags if reaches_price(f)))
+    return "; ".join(labels) if labels else None
+
+
+def price_flags(
+    conn: psycopg.Connection,
+    security_ids: Sequence[UUID],
+    asof: date,
+    *,
+    known_at: datetime | None,
+    clock: Literal["record", "public"],
+    tenant_id: UUID = DEFAULT_TENANT_ID,
+) -> dict[UUID, str]:
+    """``security_id -> reason`` for each company whose data flags reach its price readings at ``asof``
+    (``reaches_price``; the reason is the flags' labels, e.g. "mixed-scale price history").
+
+    The SAME read the ``/data-flags`` routes serve (``app/routers/data_flags._read``): ``read_flags`` with the
+    nightly's readings and corrections (``run_reads``), the master's tickers and ``tape_stale_days``, on the
+    view's clock. ``known_at`` + ``clock`` are the request's ``serve_view(asof)`` pair (the route takes the
+    same pair; a dashboard calls ``serve_view`` once per request, ``docs/DASHBOARDS.md`` rule 2). Read
+    ``CHUNK`` companies per call: each company's flags are its own reads, so a chunk changes nothing but the
+    memory one view holds."""
+    ids = list(dict.fromkeys(security_ids))
+    if not ids:
+        return {}
+    readings, corrections = flags_reader.run_reads()
+    tickers = master.tickers_for(conn, ids, tenant_id=tenant_id)
+    stale_days = get_settings().tape_stale_days
+    out: dict[UUID, str] = {}
+    for i in range(0, len(ids), CHUNK):
+        got = flags_reader.read_flags(
+            conn,
+            tenant_id=tenant_id,
+            security_ids=ids[i : i + CHUNK],
+            tickers=tickers,
+            asof=asof,
+            known_at=known_at,
+            clock=clock,
+            stale_days=stale_days,
+            readings=readings,
+            corrections=corrections,
+        )
+        for sid, member in got.items():
+            reason = price_reason(member.flags)
+            if reason is not None:
+                out[sid] = reason
     return out
 
 

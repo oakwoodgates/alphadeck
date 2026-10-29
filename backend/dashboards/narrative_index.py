@@ -12,6 +12,11 @@ The rules, in one place:
 - **The basket.** Each counted card's roster AS OF the as-of, looking back (not the basket as it stood on each
   past day). Context and Bench are left out unless ``include_silent``. Each company counts ONCE per card (by
   ``security_id``); a basket row with no resolved security is counted as a name, never priced.
+- **A flagged price history.** A company whose data flags reach its price readings at the as-of
+  (``dashboards.baskets.price_flags``: the reader the Cockpit's grayed price cells come from) is left out of
+  every card's line for the WHOLE 1Y read, so every window: its bars are never read (neither the line nor the
+  session calendar), it never contributes a daily return. It still counts in ``names``, never in ``priced``,
+  and each card lists it (``flagged``: its ticker and the flags' labels). A bad bar is never chained.
 - **The sessions.** One calendar for every card: the dates the SPY / IWM tapes have a bar on, ending at the
   as-of, plus any company bar dated after the benchmarks' last bar (a late benchmark never cuts the lines
   short). With no benchmark tape at all, the union of the counted companies' bar dates. The 1Y window is the
@@ -131,6 +136,7 @@ class MemberSeries:
     ticker: str
     security_id: UUID | None
     contributed: tuple[int, ...] = ()  # 1Y session indices it contributed a step into
+    flag: str | None = None  # why its price history is left out (``price_flags``); None = read
 
 
 @dataclass(frozen=True)
@@ -168,6 +174,7 @@ class IndexInputs:
     priced_companies: int  # of those, companies with at least one daily return in the 1Y sessions
     silent_rows_left_out: int
     unresolved_rows: int
+    flagged_companies: int  # distinct companies in view left out for a flagged price history
 
 
 def card_members(
@@ -204,25 +211,33 @@ def index_inputs(
     live_cards: int,
     cards_not_yet_created: int,
     roster_fallback_cards: int,
+    flagged: Mapping[UUID, str] | None = None,
 ) -> IndexInputs:
     """Every counted card's 1Y series and the benchmarks', over one shared calendar. ``cards`` = the counted
     cards ``(id, name)``; ``closes`` = each company's ``{day: close}`` up to the as-of; ``benchmarks`` = each
-    benchmark symbol's (an empty mapping = no tape); ``created`` = each card's creation day (market time).
+    benchmark symbol's (an empty mapping = no tape); ``created`` = each card's creation day (market time);
+    ``flagged`` = the companies whose data flags reach their price readings, each with its reason
+    (``dashboards.baskets.price_flags``): their closes are never read.
     """
+    flags = dict(flagged or {})
     rows_by_card: dict[UUID, list[Membership]] = {tid: [] for tid, _ in cards}
     for m in memberships:
         if m.thesis_id in rows_by_card:
             rows_by_card[m.thesis_id].append(m)
     per_card = {tid: card_members(rows, include_silent) for tid, rows in rows_by_card.items()}
     in_view = {sid for companies, _, _ in per_card.values() for sid, _ in companies}
+    read = {sid for sid in in_view if sid not in flags}  # a flagged company's bars are never read
 
     sessions, source = session_calendar(
         (d for symbol in BENCHMARKS for d in benchmarks.get(symbol, {})),
-        (d for sid in in_view for d in closes.get(sid, {})),
+        (d for sid in read for d in closes.get(sid, {})),
         asof,
     )
     n = len(sessions)
-    aligned_closes = {sid: aligned(closes.get(sid, {}), sessions) for sid in in_view}
+    no_bars: tuple[float | None, ...] = (None,) * n
+    aligned_closes = {
+        sid: aligned(closes.get(sid, {}), sessions) if sid in read else no_bars for sid in in_view
+    }
 
     out_cards: list[CardSeries] = []
     priced: set[UUID] = set()
@@ -230,7 +245,9 @@ def index_inputs(
         companies, unresolved, silent_out = per_card[tid]
         ch = chain([aligned_closes[sid] for sid, _ in companies], n)
         members = tuple(
-            MemberSeries(ticker=ticker, security_id=sid, contributed=ch.contributed[j])
+            MemberSeries(
+                ticker=ticker, security_id=sid, contributed=ch.contributed[j], flag=flags.get(sid)
+            )
             for j, (sid, ticker) in enumerate(companies)
         )
         priced.update(m.security_id for m in members if m.contributed and m.security_id)
@@ -268,6 +285,7 @@ def index_inputs(
         priced_companies=len(priced),
         silent_rows_left_out=sum(s for _, _, s in per_card.values()),
         unresolved_rows=sum(len(u) for _, u, _ in per_card.values()),
+        flagged_companies=len(in_view) - len(read),
     )
 
 
@@ -314,6 +332,15 @@ class MemberView:
     sessions: int  # daily returns it contributed in the window
     first: date | None  # the first / last session it contributed in the window
     last: date | None
+    flag: str | None = None  # why it is left out (a flagged price history); None = read
+
+
+@dataclass(frozen=True)
+class FlaggedName:
+    """A company on a card left out of its line: its price history is flagged at the as-of."""
+
+    ticker: str
+    reason: str  # the flags' labels ("mixed-scale price history")
 
 
 @dataclass(frozen=True)
@@ -324,8 +351,8 @@ class CardView:
     created: date | None
     created_in_window: bool
     created_base: date | None  # the session whose close "since creation" runs from
-    names: int  # companies on the card (each once) + unresolved rows
-    priced: int  # of those, names with at least one daily return in the window
+    names: int  # companies on the card (each once) + unresolved rows; flagged names included
+    priced: int  # of those, names with a daily return in the window (never a flagged one)
     unresolved: int
     silent_left_out: int
     ret: float | None  # the window return (%); None when no name is priced in the window
@@ -333,6 +360,7 @@ class CardView:
     since_created: float | None  # from the creation base to the as-of; None outside the window
     sessions_flat: int  # window sessions no member could contribute to
     points: tuple[float, ...]  # the rebased index, one per window session
+    flagged: tuple[FlaggedName, ...]  # names left out for a flagged price history, card order
 
 
 @dataclass(frozen=True)
@@ -352,6 +380,7 @@ class NarrativeIndex:
     priced_companies: int
     silent_rows_left_out: int
     unresolved_rows: int
+    flagged_companies: int
     benchmarks: tuple[BenchmarkView, ...]
     cards: tuple[CardView, ...]
 
@@ -406,6 +435,7 @@ def card_view(
         since_created=since,
         sessions_flat=sum(1 for n in steps if n == 0),
         points=pts,
+        flagged=tuple(FlaggedName(m.ticker, m.flag) for m in c.members if m.flag is not None),
     )
 
 
@@ -432,6 +462,7 @@ def narrative_index(inputs: IndexInputs, *, asof: date, window: Window) -> Narra
         priced_companies=inputs.priced_companies,
         silent_rows_left_out=inputs.silent_rows_left_out,
         unresolved_rows=inputs.unresolved_rows,
+        flagged_companies=inputs.flagged_companies,
         benchmarks=benches,
         cards=tuple(card_view(c, inputs.sessions, start, spy) for c in inputs.cards),
     )
@@ -466,6 +497,7 @@ def card_detail(
                 sessions=len(inside),
                 first=inputs.sessions[inside[0]] if inside else None,
                 last=inputs.sessions[inside[-1]] if inside else None,
+                flag=m.flag,
             )
         )
     members += [MemberView(t, None, 0, None, None) for t in card.unresolved]

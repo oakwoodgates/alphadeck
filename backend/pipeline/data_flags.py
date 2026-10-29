@@ -330,6 +330,22 @@ def first_night_corrections(
     return out
 
 
+def run_reads() -> tuple[dict[UUID, StopReading], dict[tuple[str, date], Correction]]:
+    """``(readings, corrections)`` for ``read_flags``: the nightly's readings the flags borrow on TODAY's view
+    (read from the run artifacts on disk, the same carry-forward the Admin price-feed panel renders) and the
+    "history corrected" record (the repair tool's provenance + the price leg's first-night application).
+    Fail-open: no artifacts -> neither. ONE definition for every caller of ``read_flags`` that serves a view
+    (the ``/data-flags`` routes, the dashboards' ``price_flags``)."""
+    # lazy: the run-artifact module is the nightly's writer; keep this reader's import graph unchanged
+    from pipeline.cron_run_log import carried_inventory, list_run_logs
+
+    logs = list_run_logs(limit=20)
+    inv = carried_inventory(logs, evaluated_key="tape_evaluated")
+    readings = stop_readings(inv.as_doc() if inv else None)
+    corrections = {**first_night_corrections(logs), **repair_corrections()}
+    return readings, corrections
+
+
 # --- the pure composition --------------------------------------------------------------------------------
 
 

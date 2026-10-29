@@ -22,6 +22,7 @@ const card = (name: string, ret: number | null, over: Partial<NarrativeCardOut> 
   since_created: null,
   sessions_flat: 0,
   points: [100],
+  flagged: [],
   ...over,
 });
 

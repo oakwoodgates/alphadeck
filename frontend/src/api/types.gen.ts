@@ -2188,8 +2188,9 @@ export interface paths {
          * Narrative Index
          * @description Each card's basket as of the as-of as one equal-weighted line (rebalanced daily, from 100 at the window
          *     start) against SPY and IWM over the same sessions, with the card's creation day and the window return,
-         *     the return vs SPY and the return since creation. Display only; a past as-of reads what was public by the
-         *     end of that date.
+         *     the return vs SPY and the return since creation. A name whose data flags reach its price readings is left
+         *     out of the line and listed on its card. Display only; a past as-of reads what was public by the end of
+         *     that date.
          */
         get: operations["narrative_index_dashboards_narrative_index_get"];
         put?: never;
@@ -8209,8 +8210,9 @@ export interface components {
          *     ``ret`` = the window return (``null`` with no priced name), ``vs_spy`` = it minus SPY's, ``since_created``
          *     = from the close of ``created_base`` (the last session on or before the creation day) to the as-of, only
          *     when ``created_in_window``. ``names`` = the companies on the card (each once) plus rows with no resolved
-         *     security; ``priced`` = names with at least one daily return in the window. ``state`` = the latest recorded
-         *     state at the as-of (``null`` = no recorded call).
+         *     security; ``priced`` = names with at least one daily return in the window. ``flagged`` = the names left
+         *     out of the line for a flagged price history (counted in ``names``, never in ``priced``). ``state`` = the
+         *     latest recorded state at the as-of (``null`` = no recorded call).
          */
         NarrativeCardOut: {
             /**
@@ -8246,14 +8248,28 @@ export interface components {
             sessions_flat: number;
             /** Points */
             points: number[];
+            /** Flagged */
+            flagged: components["schemas"]["NarrativeFlaggedOut"][];
+        };
+        /**
+         * NarrativeFlaggedOut
+         * @description A name left out of its card's line: its data flags reach its price readings at the as-of (the reason
+         *     the Cockpit grays its price cells). ``reason`` = the flags' labels.
+         */
+        NarrativeFlaggedOut: {
+            /** Ticker */
+            ticker: string;
+            /** Reason */
+            reason: string;
         };
         /**
          * NarrativeIndexOut
          * @description The whole page for one window, cards by name. ``sessions`` = daily returns in the window (fewer than
          *     the window's nominal count when the tape is short); ``dates`` = its sessions. ``session_source`` = where
          *     the session calendar came from (the SPY / IWM tapes, or the companies' bars when neither benchmark has a
-         *     tape). The counts are the work shown on its quiet line. ``cache`` / ``compute_ms`` = whether the 1Y
-         *     series came from the shared dashboard cache and how long it took when it ran.
+         *     tape). The counts are the work shown on its quiet line; ``flagged_companies`` = the companies left out of
+         *     every line for a flagged price history. ``cache`` / ``compute_ms`` = whether the 1Y series came from the
+         *     shared dashboard cache and how long it took when it ran.
          */
         NarrativeIndexOut: {
             /**
@@ -8293,6 +8309,8 @@ export interface components {
             silent_rows_left_out: number;
             /** Unresolved Rows */
             unresolved_rows: number;
+            /** Flagged Companies */
+            flagged_companies: number;
             /** Benchmarks */
             benchmarks: components["schemas"]["NarrativeBenchmarkOut"][];
             /** Cards */
@@ -8312,7 +8330,8 @@ export interface components {
         /**
          * NarrativeMemberOut
          * @description One name on the card: the daily returns it contributed in the window and the first / last session it
-         *     did (``security_id`` null = a basket row with no resolved security, never priced).
+         *     did (``security_id`` null = a basket row with no resolved security, never priced). ``flag`` = why it is
+         *     left out of the line (a flagged price history; ``null`` = its bars are read).
          */
         NarrativeMemberOut: {
             /** Ticker */
@@ -8325,6 +8344,8 @@ export interface components {
             first: string | null;
             /** Last */
             last: string | null;
+            /** Flag */
+            flag: string | null;
         };
         /**
          * OnboardingNameOut

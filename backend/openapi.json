@@ -4321,7 +4321,7 @@
           "dashboards"
         ],
         "summary": "Narrative Index",
-        "description": "Each card's basket as of the as-of as one equal-weighted line (rebalanced daily, from 100 at the window\nstart) against SPY and IWM over the same sessions, with the card's creation day and the window return,\nthe return vs SPY and the return since creation. Display only; a past as-of reads what was public by the\nend of that date.",
+        "description": "Each card's basket as of the as-of as one equal-weighted line (rebalanced daily, from 100 at the window\nstart) against SPY and IWM over the same sessions, with the card's creation day and the window return,\nthe return vs SPY and the return since creation. A name whose data flags reach its price readings is left\nout of the line and listed on its card. Display only; a past as-of reads what was public by the end of\nthat date.",
         "operationId": "narrative_index_dashboards_narrative_index_get",
         "parameters": [
           {
@@ -17002,6 +17002,13 @@
             },
             "type": "array",
             "title": "Points"
+          },
+          "flagged": {
+            "items": {
+              "$ref": "#/components/schemas/NarrativeFlaggedOut"
+            },
+            "type": "array",
+            "title": "Flagged"
           }
         },
         "type": "object",
@@ -17020,10 +17027,30 @@
           "vs_spy",
           "since_created",
           "sessions_flat",
-          "points"
+          "points",
+          "flagged"
         ],
         "title": "NarrativeCardOut",
-        "description": "One card's index over the window: ``points`` one per session of the page's ``dates``, from 100.\n``ret`` = the window return (``null`` with no priced name), ``vs_spy`` = it minus SPY's, ``since_created``\n= from the close of ``created_base`` (the last session on or before the creation day) to the as-of, only\nwhen ``created_in_window``. ``names`` = the companies on the card (each once) plus rows with no resolved\nsecurity; ``priced`` = names with at least one daily return in the window. ``state`` = the latest recorded\nstate at the as-of (``null`` = no recorded call)."
+        "description": "One card's index over the window: ``points`` one per session of the page's ``dates``, from 100.\n``ret`` = the window return (``null`` with no priced name), ``vs_spy`` = it minus SPY's, ``since_created``\n= from the close of ``created_base`` (the last session on or before the creation day) to the as-of, only\nwhen ``created_in_window``. ``names`` = the companies on the card (each once) plus rows with no resolved\nsecurity; ``priced`` = names with at least one daily return in the window. ``flagged`` = the names left\nout of the line for a flagged price history (counted in ``names``, never in ``priced``). ``state`` = the\nlatest recorded state at the as-of (``null`` = no recorded call)."
+      },
+      "NarrativeFlaggedOut": {
+        "properties": {
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ticker",
+          "reason"
+        ],
+        "title": "NarrativeFlaggedOut",
+        "description": "A name left out of its card's line: its data flags reach its price readings at the as-of (the reason\nthe Cockpit grays its price cells). ``reason`` = the flags' labels."
       },
       "NarrativeIndexOut": {
         "properties": {
@@ -17098,6 +17125,10 @@
             "type": "integer",
             "title": "Unresolved Rows"
           },
+          "flagged_companies": {
+            "type": "integer",
+            "title": "Flagged Companies"
+          },
           "benchmarks": {
             "items": {
               "$ref": "#/components/schemas/NarrativeBenchmarkOut"
@@ -17148,6 +17179,7 @@
           "priced_companies",
           "silent_rows_left_out",
           "unresolved_rows",
+          "flagged_companies",
           "benchmarks",
           "cards",
           "window_sessions",
@@ -17155,7 +17187,7 @@
           "compute_ms"
         ],
         "title": "NarrativeIndexOut",
-        "description": "The whole page for one window, cards by name. ``sessions`` = daily returns in the window (fewer than\nthe window's nominal count when the tape is short); ``dates`` = its sessions. ``session_source`` = where\nthe session calendar came from (the SPY / IWM tapes, or the companies' bars when neither benchmark has a\ntape). The counts are the work shown on its quiet line. ``cache`` / ``compute_ms`` = whether the 1Y\nseries came from the shared dashboard cache and how long it took when it ran."
+        "description": "The whole page for one window, cards by name. ``sessions`` = daily returns in the window (fewer than\nthe window's nominal count when the tape is short); ``dates`` = its sessions. ``session_source`` = where\nthe session calendar came from (the SPY / IWM tapes, or the companies' bars when neither benchmark has a\ntape). The counts are the work shown on its quiet line; ``flagged_companies`` = the companies left out of\nevery line for a flagged price history. ``cache`` / ``compute_ms`` = whether the 1Y series came from the\nshared dashboard cache and how long it took when it ran."
       },
       "NarrativeMemberOut": {
         "properties": {
@@ -17202,6 +17234,17 @@
               }
             ],
             "title": "Last"
+          },
+          "flag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flag"
           }
         },
         "type": "object",
@@ -17210,10 +17253,11 @@
           "security_id",
           "sessions",
           "first",
-          "last"
+          "last",
+          "flag"
         ],
         "title": "NarrativeMemberOut",
-        "description": "One name on the card: the daily returns it contributed in the window and the first / last session it\ndid (``security_id`` null = a basket row with no resolved security, never priced)."
+        "description": "One name on the card: the daily returns it contributed in the window and the first / last session it\ndid (``security_id`` null = a basket row with no resolved security, never priced). ``flag`` = why it is\nleft out of the line (a flagged price history; ``null`` = its bars are read)."
       },
       "OnboardingNameOut": {
         "properties": {

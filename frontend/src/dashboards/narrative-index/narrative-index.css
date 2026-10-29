@@ -36,6 +36,8 @@
 
 .ni-nums { display: flex; flex-wrap: wrap; gap: 2px 10px; font-family: var(--mono); font-size: 10px; color: var(--txt-3); }
 .ni-nums span { white-space: nowrap; cursor: help; }
+/* the names left out for a flagged price history: a quiet note, gray like the numbers (WB#3) */
+.ni-note { font-family: var(--mono); font-size: 10px; color: var(--txt-4); cursor: help; }
 
 /* the charts: the index solid, the benchmarks faint, the baseline fainter, the creation tick dotted */
 .ni-chart { display: block; width: 100%; padding: 0; margin: 0; border: 0; background: none; cursor: zoom-in; }

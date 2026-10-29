@@ -24,6 +24,7 @@ from dashboards.baskets import (
     counted_rows,
     memberships_of,
     per_company,
+    price_flags,
     resolved_ids,
 )
 from dashboards.cache import cached
@@ -79,13 +80,22 @@ class NarrativeBenchmarkOut(_Wire):
     sessions_flat: int
 
 
+class NarrativeFlaggedOut(_Wire):
+    """A name left out of its card's line: its data flags reach its price readings at the as-of (the reason
+    the Cockpit grays its price cells). ``reason`` = the flags' labels."""
+
+    ticker: str
+    reason: str
+
+
 class NarrativeCardOut(_Wire):
     """One card's index over the window: ``points`` one per session of the page's ``dates``, from 100.
     ``ret`` = the window return (``null`` with no priced name), ``vs_spy`` = it minus SPY's, ``since_created``
     = from the close of ``created_base`` (the last session on or before the creation day) to the as-of, only
     when ``created_in_window``. ``names`` = the companies on the card (each once) plus rows with no resolved
-    security; ``priced`` = names with at least one daily return in the window. ``state`` = the latest recorded
-    state at the as-of (``null`` = no recorded call)."""
+    security; ``priced`` = names with at least one daily return in the window. ``flagged`` = the names left
+    out of the line for a flagged price history (counted in ``names``, never in ``priced``). ``state`` = the
+    latest recorded state at the as-of (``null`` = no recorded call)."""
 
     thesis_id: UUID
     thesis_name: str
@@ -102,14 +112,16 @@ class NarrativeCardOut(_Wire):
     since_created: float | None
     sessions_flat: int
     points: list[float]
+    flagged: list[NarrativeFlaggedOut]
 
 
 class NarrativeIndexOut(_Wire):
     """The whole page for one window, cards by name. ``sessions`` = daily returns in the window (fewer than
     the window's nominal count when the tape is short); ``dates`` = its sessions. ``session_source`` = where
     the session calendar came from (the SPY / IWM tapes, or the companies' bars when neither benchmark has a
-    tape). The counts are the work shown on its quiet line. ``cache`` / ``compute_ms`` = whether the 1Y
-    series came from the shared dashboard cache and how long it took when it ran."""
+    tape). The counts are the work shown on its quiet line; ``flagged_companies`` = the companies left out of
+    every line for a flagged price history. ``cache`` / ``compute_ms`` = whether the 1Y series came from the
+    shared dashboard cache and how long it took when it ran."""
 
     asof: date
     window: Window
@@ -125,6 +137,7 @@ class NarrativeIndexOut(_Wire):
     priced_companies: int
     silent_rows_left_out: int
     unresolved_rows: int
+    flagged_companies: int
     benchmarks: list[NarrativeBenchmarkOut]
     cards: list[NarrativeCardOut]
     window_sessions: dict[str, int]
@@ -134,13 +147,15 @@ class NarrativeIndexOut(_Wire):
 
 class NarrativeMemberOut(_Wire):
     """One name on the card: the daily returns it contributed in the window and the first / last session it
-    did (``security_id`` null = a basket row with no resolved security, never priced)."""
+    did (``security_id`` null = a basket row with no resolved security, never priced). ``flag`` = why it is
+    left out of the line (a flagged price history; ``null`` = its bars are read)."""
 
     ticker: str
     security_id: UUID | None
     sessions: int
     first: date | None
     last: date | None
+    flag: str | None
 
 
 class NarrativeCardDetailOut(_Wire):
@@ -227,8 +242,8 @@ def read_inputs(
     include_silent: bool,
 ) -> IndexInputs:
     """The heavy read the cache holds: the counted cards' rosters as of the as-of, every counted company's
-    closes, the benchmarks', each card's creation day and latest recorded state, built into every card's 1Y
-    series."""
+    closes and price flags (``price_flags``, on the same view), the benchmarks', each card's creation day and
+    latest recorded state, built into every card's 1Y series."""
     counted = cards_as_of(conn, asof, known_at)
     memberships = memberships_of(counted.cards)
     sids = resolved_ids(counted_rows(memberships, include_silent).rows)
@@ -249,6 +264,7 @@ def read_inputs(
         live_cards=counted.live_count,
         cards_not_yet_created=counted.not_yet_created,
         roster_fallback_cards=counted.roster_fallback,
+        flagged=price_flags(conn, sids, asof, known_at=known_at, clock=clock),
     )
 
 
@@ -260,7 +276,7 @@ def _page_dict(page: NarrativeIndex) -> dict[str, Any]:
     return {
         **_payload(page),
         "benchmarks": [_payload(b) for b in page.benchmarks],
-        "cards": [_payload(c) for c in page.cards],
+        "cards": [{**_payload(c), "flagged": [_payload(f) for f in c.flagged]} for c in page.cards],
         "window_sessions": dict(WINDOWS),
     }
 
@@ -287,8 +303,9 @@ def narrative_index(
 ) -> NarrativeIndexOut:
     """Each card's basket as of the as-of as one equal-weighted line (rebalanced daily, from 100 at the window
     start) against SPY and IWM over the same sessions, with the card's creation day and the window return,
-    the return vs SPY and the return since creation. Display only; a past as-of reads what was public by the
-    end of that date."""
+    the return vs SPY and the return since creation. A name whose data flags reach its price readings is left
+    out of the line and listed on its card. Display only; a past as-of reads what was public by the end of
+    that date."""
     got = _inputs(conn, asof, include_silent)
     page = compute_narrative_index(got.value, asof=asof, window=window)
     return NarrativeIndexOut.model_validate(

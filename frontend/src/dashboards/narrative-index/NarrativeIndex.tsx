@@ -72,6 +72,9 @@ function workLine(d: NarrativeIndexOut): string {
       ? "Context and Bench included"
       : `Context and Bench left out (${plural(d.silent_rows_left_out, "basket row", "basket rows")})`,
     "equal weight, rebalanced daily, from 100",
+    d.flagged_companies > 0
+      ? `names with a flagged price history are left out (${plural(d.flagged_companies, "company", "companies")})`
+      : "names with a flagged price history are left out",
     `${plural(d.companies, "company", "companies")}, ${d.priced_companies.toLocaleString("en-US")} priced in the 1Y`,
     `${plural(d.unresolved_rows, "basket row", "basket rows")} without a resolved security (counted, never priced)`,
     benchWords(d.benchmarks),
@@ -115,6 +118,20 @@ function Numbers({ c, window }: { c: NarrativeCardOut; window: IndexWindow }) {
           {plural(c.sessions_flat, "session", "sessions")} flat
         </span>
       )}
+    </div>
+  );
+}
+
+/** The card's quiet note on the names left out of its line (a flagged price history); nothing when none is. */
+function FlaggedNote({ c }: { c: NarrativeCardOut }) {
+  if (c.flagged.length === 0) return null;
+  return (
+    <div
+      className="ni-note"
+      title="their data flags reach their price readings (the Cockpit grays those cells), so they never contribute a daily return"
+    >
+      {plural(c.flagged.length, "name", "names")} left out:{" "}
+      {c.flagged.map((f) => `${f.ticker}, ${f.reason}`).join(" · ")}
     </div>
   );
 }
@@ -328,6 +345,7 @@ function Enlarged({
         </button>
       </div>
       <Numbers c={c} window={data.window} />
+      <FlaggedNote c={c} />
       <div className="ni-legend">
         <span className="ni-key idx">— index</span>
         <span className="ni-key spy">-- SPY</span>
@@ -353,7 +371,11 @@ function Enlarged({
               <tr key={m.security_id ?? `u-${m.ticker}`} className={m.sessions === 0 ? "quiet" : undefined}>
                 <td className="ni-tk">{m.ticker}</td>
                 <td className="ni-num">
-                  {m.security_id == null ? "no resolved security" : `${m.sessions}/${detail.sessions}`}
+                  {m.security_id == null
+                    ? "no resolved security"
+                    : m.flag != null
+                      ? `left out: ${m.flag}`
+                      : `${m.sessions}/${detail.sessions}`}
                 </td>
                 <td>{m.first ? fmtDay(m.first) : "—"}</td>
                 <td>{m.last ? fmtDay(m.last) : "—"}</td>
@@ -391,6 +413,7 @@ function Tile({
         <StateChip state={c.state} />
       </div>
       <Numbers c={c} window={data.window} />
+      <FlaggedNote c={c} />
       <button type="button" className="ni-chart" onClick={onOpen} aria-label={`Enlarge ${c.thesis_name}`}>
         <MiniChart c={c} dates={data.dates} bench={data.benchmarks} />
       </button>

@@ -36,6 +36,13 @@ Display only: it never feeds a call, never writes to the database and never call
 - A session no member can contribute to **carries the index flat** and is counted.
 - The bars are the point-in-time view's (`PointInTimeData.price_history`, on its split scale), read with
   `serve_view(asof)`: at a past as-of only bars public by the end of that day count (invariant #1).
+- **A flagged price history is left out.** A company whose data flags reach its price readings at the as-of
+  (`dashboards.baskets.price_flags`: the same reader as `GET /theses/{id}/data-flags`, a flag marking one of
+  the Cockpit's price cells, the reason the Cockpit grays them) never contributes a daily return, in any
+  window, and its bars do not shape the session calendar. It still counts in the card's names, never in
+  priced, and the card's quiet notes list it ("1 name left out: RBOT, mixed-scale price history"). Measured
+  on dev with a prod data copy (as-of 2026-10-28, 90D): Medical & Surgical Robots read +310.6% because RBOT's
+  stored tape steps +8,900% on 2026-10-22, a scale break its `mixed_scale_history` flag already named.
 - **Benchmarks:** SPY and IWM over the same sessions, rebased to 100, from `pit.benchmark_prices`. If one is
   missing, its line is absent and the page says why.
 - **Windows:** **1Y (default) · 90D · 30D** in trading sessions (252 / 90 / 30 daily returns). The 1Y series
@@ -50,6 +57,7 @@ Display only: it never feeds a call, never writes to the database and never call
   "created before the window", or "—" when the day is unknown.
 - The names priced / in the basket.
 - The sessions carried flat.
+- The names left out for a flagged price history, each with the flag's label.
 
 ## Layout
 
@@ -62,14 +70,14 @@ Display only: it never feeds a call, never writes to the database and never call
 - **Clicking the card name** opens the card (`onSelectThesis(thesisId)`).
 - **Sort options:** Name (default), Window return, Return vs SPY, Since creation. Neutral labels only.
 - **The quiet "show the work" line:** the cards counted, the window (its sessions and dates), the toggle, the
-  index rule ("equal weight, rebalanced daily, from 100"), the basket-as-of note, benchmark availability, the
-  cache state and the as-of.
+  index rule ("equal weight, rebalanced daily, from 100"), "names with a flagged price history are left out"
+  (with their count), the basket-as-of note, benchmark availability, the cache state and the as-of.
 
 ## Cache
 
 `dashboards.cache.cached(conn, "narrative-index", (clock, include_silent), asof, ...)` computes every card's
-1Y series once, with the benchmarks; every window and the enlarged view are derived from it per request. The
-shared cache clears on a new run or a basket edit (rule 7).
+1Y series once, with the benchmarks and the price flags; every window and the enlarged view are derived from
+it per request. The shared cache clears on a new run or a basket edit (rule 7).
 
 ## Known limits
 
@@ -77,6 +85,14 @@ shared cache clears on a new run or a basket edit (rule 7).
   selection, labeled on the page.
 - Most cards were created Oct 26–28, 2026, and lineage is not built, so "since creation" is short for most.
 - Equal weight is not how anyone would size the basket.
+- **The price flags are read inside the cached read**, so an operator's split review in Admin (confirming or
+  rejecting a split, which clears a flag) reaches this page at the next run: a review moves no part of the
+  cache's generation token (a new run, a basket edit, the live cards). A flag that clears on its own (a
+  split-night hold after three sessions) clears here at that same next run.
+- A flagged name is left out of **every** window: the flags are read once per as-of for the 1Y read, so a
+  scale break 200 sessions back also leaves the name out of the 30D line.
+- A **stopped price feed** (renamed, delisted, a feed gap) is a flag on every price cell, so such a name is
+  left out too, including the sessions it traded before it stopped.
 
 ## Out of scope
 

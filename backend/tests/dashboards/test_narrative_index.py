@@ -1,7 +1,8 @@
 """Narrative Index (``docs/dashboards/narrative-index.md``): the equal-weighted index math on hand-computed
 numbers, joins and gaps, flat sessions, the window slice rebased to 100, since-creation inside and outside the
-window, a missing benchmark, the Context/Bench toggle and the per-card dedupe; the router off one cached read;
-and, DB-backed, a price published after a past as-of staying invisible to it."""
+window, a missing benchmark, the Context/Bench toggle and the per-card dedupe, a flagged price history left
+out of the line; the router off one cached read; and, DB-backed, a price published after a past as-of staying
+invisible to it, with the real data-flag read on both views."""
 
 from __future__ import annotations
 
@@ -20,6 +21,7 @@ from dashboards.cache import CACHE
 from dashboards.narrative_index import (
     BASE,
     WINDOWS,
+    card_detail,
     chain,
     creation_base,
     index_inputs,
@@ -73,6 +75,7 @@ def build(
     states=None,
     include_silent=False,
     asof=ASOF,
+    flagged=None,
 ):
     cards = cards or [(T1, "Card")]
     return index_inputs(
@@ -87,6 +90,7 @@ def build(
         live_cards=len(cards),
         cards_not_yet_created=0,
         roster_fallback_cards=0,
+        flagged=flagged,
     )
 
 
@@ -370,6 +374,91 @@ def test_cards_sort_by_name_and_carry_their_state():
 
 
 # ---------------------------------------------------------------------------------------------------------
+# a flagged price history: left out of the line, still a name, listed
+# ---------------------------------------------------------------------------------------------------------
+
+MIXED = "mixed-scale price history"
+
+
+def _robots(n: int = 40):
+    """``n`` sessions. RBOT's stored tape breaks scale on the 10th-last session (its close jumps ×90, the
+    +8,900% step the Narrative Index chained on dev, as-of 2026-10-28), then drifts down; BBB and CCC are
+    clean. SPY flat."""
+    ds = days(n)
+    rbot = [5.0 * 0.99**i for i in range(n)]
+    for i in range(n - 10, n):
+        rbot[i] *= 90.0
+    bbb = [10.0 * 1.002**i for i in range(n)]
+    ccc = [20.0 * 0.999**i for i in range(n)]
+    closes = {S[0]: tape(ds, rbot), S[1]: tape(ds, bbb), S[2]: tape(ds, ccc)}
+    rows = [ms(T1, "RBOT", S[0]), ms(T1, "BBB", S[1]), ms(T1, "CCC", S[2])]
+    return ds, rows, closes, {"SPY": tape(ds, [100.0] * n)}
+
+
+@pytest.mark.parametrize("window", ["1y", "90d", "30d"])
+def test_a_flagged_member_is_left_out_of_the_line_for_the_whole_window(window):
+    """RBOT is flagged: its +8,900% bar never reaches the line. The card's line IS the line of BBB and CCC
+    alone, in every window; RBOT still counts as a name, never priced, and is listed with the flag's label.
+    """
+    ds, rows, closes, bench = _robots()
+    unflagged = card(page(build(rows, closes, bench), window))
+    assert unflagged.ret is not None and unflagged.ret > 2_000  # the chained bad bar kept out below
+
+    inputs = build(rows, closes, bench, flagged={S[0]: MIXED})
+    c = card(page(inputs, window))
+    alone = card(page(build(rows[1:], {s: closes[s] for s in S[1:3]}, bench), window))
+    assert c.points == pytest.approx(alone.points)
+    assert c.ret == alone.ret and c.vs_spy == alone.vs_spy
+    assert c.names == 3 and c.priced == 2 and alone.priced == 2
+    assert [(f.ticker, f.reason) for f in c.flagged] == [("RBOT", MIXED)]
+    assert inputs.flagged_companies == 1 and inputs.priced_companies == 2
+    assert page(inputs, window).flagged_companies == 1
+
+    detail = card_detail(inputs, T1, asof=ASOF, window=window)
+    assert detail is not None
+    rbot = next(m for m in detail.members if m.ticker == "RBOT")
+    assert (rbot.sessions, rbot.first, rbot.last, rbot.flag) == (0, None, None, MIXED)
+    assert all(m.flag is None for m in detail.members if m.ticker != "RBOT")
+    assert detail.page.cards[0].flagged == c.flagged
+
+
+def test_an_unflagged_member_is_unaffected_by_a_flag_on_another_card():
+    """RBOT is flagged on card 1; card 2 (BBB and CCC) reads exactly as with no flag at all, and lists none."""
+    ds, rows, closes, bench = _robots()
+    other = [ms(T2, "BBB", S[1], card="Other"), ms(T2, "CCC", S[2], card="Other")]
+    cards = [(T1, "Card"), (T2, "Other")]
+    plain = card(page(build(rows + other, closes, bench, cards=cards)), T2)
+    flagged = card(page(build(rows + other, closes, bench, cards=cards, flagged={S[0]: MIXED})), T2)
+    assert flagged == plain and flagged.flagged == ()
+
+
+def test_a_flagged_company_never_reaches_the_session_calendar():
+    """A flagged company's bars are never read: its bar after the benchmarks' last one adds no session (an
+    unflagged company's would)."""
+    ds = days(4)
+    late = ds[-1] + timedelta(days=1)
+    rows = [ms(T1, "AAA", S[0]), ms(T1, "BBB", S[1])]
+    closes = {S[0]: {**tape(ds, [10, 11, 12, 13]), late: 14.0}, S[1]: tape(ds, [10, 10, 10, 10])}
+    bench = {"SPY": tape(ds, [100, 100, 100, 100])}
+    later = ds[-1] + timedelta(days=2)
+    assert page(build(rows, closes, bench, asof=later), asof=later).dates[-1] == late
+    flagged = page(build(rows, closes, bench, asof=later, flagged={S[0]: MIXED}), asof=later)
+    assert flagged.dates[-1] == ds[-1]
+
+
+def test_a_card_whose_only_member_is_flagged_shows_no_return_never_zero():
+    ds, rows, closes, bench = _robots()
+    inputs = build(
+        rows[:1], {S[0]: closes[S[0]]}, bench, created={T1: ds[-5]}, flagged={S[0]: MIXED}
+    )
+    c = card(page(inputs))
+    assert c.ret is None and c.vs_spy is None and c.since_created is None
+    assert c.names == 1 and c.priced == 0 and c.sessions_flat == len(ds) - 1
+    assert set(c.points) == {BASE}  # carried flat, shown as "—", never a 0% return
+    assert [(f.ticker, f.reason) for f in c.flagged] == [("RBOT", MIXED)]
+
+
+# ---------------------------------------------------------------------------------------------------------
 # the router (pure: the heavy read stubbed)
 # ---------------------------------------------------------------------------------------------------------
 
@@ -474,11 +563,13 @@ def _security(db, ticker: str) -> UUID:
     return sid
 
 
-def test_a_price_published_after_a_past_asof_stays_invisible(db):
+def test_a_price_published_after_a_past_asof_stays_invisible(db, monkeypatch):
     """60 daily bars ending at the as-of, each public at its own session. The as-of's own bar is then
     re-versioned a week after the thaw at double the close: the past view's index still steps on the
     ORIGINAL close (the correction was not public by the end of that day), a live view steps on the
-    correction."""
+    correction. The data flags ride the same views through the real reader: none at the past as-of; on
+    today's view the tape (it ends 2026-06-01) is a stopped feed, so the name is left out of the line.
+    """
     sid = _security(db, "NIDX")
     start = ASOF - timedelta(days=59)
     for i in range(60):
@@ -504,10 +595,15 @@ def test_a_price_published_after_a_past_asof_stays_invisible(db):
         client = TestClient(app)
         params = {"asof": ASOF.isoformat(), "window": "30d"}
         past = client.get("/dashboards/narrative-index", params=params).json()
-        live = client.get(
-            "/dashboards/narrative-index",
-            params={"asof": market_today().isoformat(), "window": "30d"},
+        live_params = {"asof": market_today().isoformat(), "window": "30d"}
+        live = client.get("/dashboards/narrative-index", params=live_params).json()
+        live_detail = client.get(
+            f"/dashboards/narrative-index/{thesis.id}", params=live_params
         ).json()
+        # the clock alone: the same live read with the flag read stubbed out
+        CACHE.clear()
+        monkeypatch.setattr(router_mod, "price_flags", lambda *a, **k: {})
+        unflagged = client.get("/dashboards/narrative-index", params=live_params).json()
     finally:
         app.dependency_overrides.clear()
         CACHE.clear()
@@ -520,5 +616,16 @@ def test_a_price_published_after_a_past_asof_stays_invisible(db):
     # created 2026-01-02: long before the 30-session window
     assert c["created_in_window"] is False and c["since_created"] is None
     assert past["cards_counted"] >= 1 and past["roster_fallback_cards"] >= 1
+    assert c["flagged"] == [] and past["flagged_companies"] == 0  # no flag at the past as-of
+
+    # today's view: no bar since 2026-06-01 is a stopped feed (``tape_stale_days``), a flag on every price
+    # cell, so the card's only name is left out: still a name, never priced, no return (never a flat 0%)
     (lc,) = [x for x in live["cards"] if x["thesis_id"] == str(thesis.id)]
-    assert lc["points"][-1] / lc["points"][-2] == pytest.approx(31.8 / 15.8, rel=1e-4)
+    assert lc["flagged"] == [{"ticker": "NIDX", "reason": "price feed stopped"}]
+    assert lc["names"] == 1 and lc["priced"] == 0 and lc["ret"] is None
+    assert live["flagged_companies"] >= 1
+    (m,) = live_detail["members"]
+    assert (m["ticker"], m["sessions"], m["flag"]) == ("NIDX", 0, "price feed stopped")
+    assert live_detail["card"]["flagged"] == lc["flagged"]
+    (uc,) = [x for x in unflagged["cards"] if x["thesis_id"] == str(thesis.id)]
+    assert uc["points"][-1] / uc["points"][-2] == pytest.approx(31.8 / 15.8, rel=1e-4)

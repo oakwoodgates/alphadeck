@@ -39,6 +39,7 @@ const card = (id: string, name: string, over: Partial<NarrativeCardOut> = {}): N
   since_created: 0.5,
   sessions_flat: 0,
   points: [100, 101, 102],
+  flagged: [],
   ...over,
 });
 
@@ -82,6 +83,7 @@ const payload = (over: Partial<NarrativeIndexOut> = {}): NarrativeIndexOut => ({
   priced_companies: 12,
   silent_rows_left_out: 4,
   unresolved_rows: 1,
+  flagged_companies: 0,
   benchmarks: [bench("SPY"), bench("IWM", { available: false, reason: "no IWM tape at this as-of", points: null, ret: null })],
   cards: CARDS,
   window_sessions: { "1y": 252, "90d": 90, "30d": 30 },
@@ -100,8 +102,8 @@ const detail = (c: NarrativeCardOut): NarrativeCardDetailOut => ({
   benchmarks: payload().benchmarks,
   contributors: [0, 3, 4],
   members: [
-    { ticker: "AAA", security_id: "s-a", sessions: 2, first: "2026-10-27", last: "2026-10-28" },
-    { ticker: "ZZZ", security_id: null, sessions: 0, first: null, last: null },
+    { ticker: "AAA", security_id: "s-a", sessions: 2, first: "2026-10-27", last: "2026-10-28", flag: null },
+    { ticker: "ZZZ", security_id: null, sessions: 0, first: null, last: null, flag: null },
   ],
   cache: "hit",
   compute_ms: 0,
@@ -156,7 +158,57 @@ describe("NarrativeIndex", () => {
     expect(work).toHaveTextContent("Context and Bench left out (4 basket rows)");
     expect(work).toHaveTextContent("IWM line absent: no IWM tape at this as-of");
     expect(work).toHaveTextContent("1Y window: 2 sessions, Oct 26, 2026 → Oct 28, 2026");
+    expect(work).toHaveTextContent("names with a flagged price history are left out ·");
     expect(work).toHaveTextContent("cached");
+    expect(screen.queryByText(/left out:/)).toBeNull(); // no flagged name: no note on any tile
+  });
+
+  it("notes a card's names left out for a flagged price history, on the mini and the enlarged view", async () => {
+    const robots = card("t-robots", "Robots", {
+      names: 3,
+      priced: 2,
+      unresolved: 0,
+      flagged: [{ ticker: "RBOT", reason: "mixed-scale price history" }],
+    });
+    const two = card("t-two", "Two flagged", {
+      flagged: [
+        { ticker: "AAA", reason: "price feed stopped" },
+        { ticker: "BBB", reason: "mixed-scale price history" },
+      ],
+    });
+    setup(payload({ cards: [robots, two, CARDS[0]], flagged_companies: 3 }));
+    h.useNarrativeCard.mockImplementation((_a: string, _w: string, _s: boolean, id: string | null) => ({
+      data: id
+        ? {
+            ...detail(robots),
+            members: [
+              { ticker: "RBOT", security_id: "s-r", sessions: 0, first: null, last: null, flag: "mixed-scale price history" },
+              { ticker: "AAA", security_id: "s-a", sessions: 2, first: "2026-10-27", last: "2026-10-28", flag: null },
+            ],
+          }
+        : undefined,
+      isLoading: false,
+      error: null,
+    }));
+
+    const tile = screen.getByRole("region", { name: "Robots" });
+    expect(within(tile).getByText("1 name left out: RBOT, mixed-scale price history")).toHaveClass("ni-note");
+    expect(within(tile).getByText("2/3 priced")).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("region", { name: "Two flagged" })).getByText(
+        "2 names left out: AAA, price feed stopped · BBB, mixed-scale price history",
+      ),
+    ).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Grid" })).queryByText(/left out/)).toBeNull();
+    expect(screen.getByText(/live cards counted/)).toHaveTextContent(
+      "names with a flagged price history are left out (3 companies)",
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Enlarge Robots" }));
+    const big = screen.getByRole("region", { name: "Robots, enlarged" });
+    expect(within(big).getByText("1 name left out: RBOT, mixed-scale price history")).toBeInTheDocument();
+    expect(within(big).getByText("left out: mixed-scale price history")).toBeInTheDocument();
+    expect(within(big).getByText("2/2")).toBeInTheDocument();
   });
 
   it("shows the slow first-load message while the first read computes", () => {
