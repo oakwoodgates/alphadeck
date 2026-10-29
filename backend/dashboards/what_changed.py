@@ -18,7 +18,12 @@ The rules, in one place:
   is counted (``unrecorded``), never silently dropped (rule 5).
 - Changes, comparing the two cards: the state (both directions); each key's ``turned`` (on and off); a
   name newly armed or no longer armed, and a name new on watch (matched by ``security_id``); a trigger
-  newly fired or no longer firing, and a new risk signal (identity = kind, security, event date, label).
+  newly fired or no longer firing, and a new risk signal.
+- A trigger's and a risk signal's identity = kind, security, event date. The label is NOT part of it: labels
+  carry numbers that move every night (a breakdown's close and 200-day base, a breakout's volume ratio), so
+  a continuing signal would read as new every night. A new or continuing signal shows the NOW card's label;
+  one no longer firing shows the BASELINE card's. Two signals with the same identity on one card are one
+  (the first in list order, and its label).
 - Clocks, on the now card only, counted from T in calendar days (the Decision Queue's "act within Nd"):
   the entry window (``arm_until``) closing within ``ENTRY_WINDOW_DAYS``, and ``exit_by`` reached inside the
   window (after the baseline night, on or before T).
@@ -183,12 +188,13 @@ class WhatChanged:
 # ---------------------------------------------------------------------------------------------------------
 
 
-def _trigger_id(t: TriggerRef) -> tuple[Kind, UUID, date | None, str]:
-    return (t.kind, t.security_id, t.event_date, t.label)
+def _trigger_id(t: TriggerRef) -> tuple[Kind, UUID, date | None]:
+    """Kind, security, event date: never the label, whose numbers move night to night."""
+    return (t.kind, t.security_id, t.event_date)
 
 
 def _triggers(refs: Iterable[TriggerRef]) -> dict[tuple, TriggerRef]:
-    """By identity; a re-listed identity keeps its first entry (the same trigger, once)."""
+    """By identity; a re-listed identity keeps its first entry and its label (the same signal, once)."""
     out: dict[tuple, TriggerRef] = {}
     for t in refs:
         out.setdefault(_trigger_id(t), t)
@@ -258,7 +264,8 @@ def _card_changes(
         for sid in sorted(sids, key=by_ticker):
             add("names", change, security_id=sid)
 
-    # 4. triggers (identity = kind, security, event date, label)
+    # 4. triggers (identity = kind, security, event date; a new line carries the now card's label, a gone
+    # line the baseline card's, since each comes from its own card's map)
     now_fired, base_fired = _triggers(n.triggers_fired), _triggers(b.triggers_fired)
     base_risk = _triggers(b.risk_signals)
     for change, refs in (

@@ -44,8 +44,13 @@ Comparing the two `CallCard`s (`calls.card`, parsed with `domain.call.CallCard.m
    - On `watch_members`: a new member on watch.
    - Members are matched by `security_id`.
 4. **Triggers:** in `triggers_fired`, newly fired or no longer firing. In `risk_signals`, new ones.
-   - Identity = `(kind, security_id, event_date, label)`.
-   - Shows the label, the kind and the ticker.
+   - Identity = `(kind, security_id, event_date)`, for triggers and risk signals alike. The label is not
+     part of it: labels carry numbers that move every night (a breakdown's close and 200-day base, a
+     breakout's volume ratio), so a continuing signal would otherwise read as new every night.
+   - Shows the label, the kind and the ticker: the now card's label for a new signal, the baseline card's
+     for one no longer firing.
+   - Two signals with the same identity on one card count as one (the first in list order, with its
+     label).
    - Wording is neutral: "no longer firing", never "expired" or "failed".
 5. **Clocks (on the now card only, as of T):**
    - `arm_until` within the next 3 calendar days ("entry window closes in N days")

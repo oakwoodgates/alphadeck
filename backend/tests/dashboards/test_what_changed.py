@@ -231,7 +231,7 @@ def test_a_new_risk_signal_and_a_cleared_one_is_not_a_line():
 
 
 def test_the_same_trigger_re_recorded_is_not_a_change():
-    # identity = (kind, security, event date, label): its grade and its sources are not part of it
+    # identity = (kind, security, event date): its grade and its sources are not part of it
     base = trig(A, grade=None, sources=[])
     now = trig(
         A, grade=Grade.CORE, sources=[Provenance(source="price", ref="price:AAA:2026-10-20")]
@@ -242,7 +242,6 @@ def test_the_same_trigger_re_recorded_is_not_a_change():
 @pytest.mark.parametrize(
     "changed",
     [
-        {"label": "20-day breakout"},
         {"kind": Kind.SQUEEZE},
         {"on": date(2026, 10, 21)},
         {"sid": B},
@@ -254,6 +253,54 @@ def test_each_part_of_the_trigger_identity_counts(changed):
     now = trig(args.pop("sid"), **args)
     result = diff(cc(triggers_fired=[now]), cc(asof=PREV, triggers_fired=[base]))
     assert [i.change for i in result.items] == ["trigger_new", "trigger_gone"]
+
+
+# the label is NOT part of the identity: labels carry numbers that move every night. The labels below are
+# the shapes MEASURED on dev (prod's data) on Oct 27 and Oct 28, where every continuing breakdown read as new.
+BREAKDOWN_OCT_27 = "Structural break: close 13.93 closed below the 200-day base 16.73"
+BREAKDOWN_OCT_28 = "Structural break: close 14.65 closed below the 200-day base 16.74"
+
+
+def test_a_continuing_risk_whose_label_numbers_moved_is_not_a_change():
+    on = date(2026, 10, 9)
+    base = trig(A, BREAKDOWN_OCT_27, Kind.BREAKDOWN, on)
+    now = trig(A, BREAKDOWN_OCT_28, Kind.BREAKDOWN, on)
+    assert diff(cc(risk_signals=[now]), cc(asof=PREV, risk_signals=[base])).items == ()
+
+
+def test_a_trigger_whose_label_changed_alone_is_neither_new_nor_gone():
+    on = date(2026, 10, 22)
+    base = trig(A, "8-day breakout on 0.1x avg volume", Kind.TECHNICAL_BREAKOUT, on)
+    now = trig(A, "8-day breakout on 0.6x avg volume", Kind.TECHNICAL_BREAKOUT, on)
+    assert diff(cc(triggers_fired=[now]), cc(asof=PREV, triggers_fired=[base])).items == ()
+
+
+def test_a_trigger_on_a_new_event_date_is_one_gone_and_one_new_each_with_its_own_cards_label():
+    base = trig(A, "8-day breakout on 0.6x avg volume", Kind.TECHNICAL_BREAKOUT, date(2026, 10, 20))
+    now = trig(A, "8-day breakout on 1.4x avg volume", Kind.TECHNICAL_BREAKOUT, date(2026, 10, 27))
+    result = diff(cc(triggers_fired=[now]), cc(asof=PREV, triggers_fired=[base]))
+    assert [(i.change, i.label, i.on) for i in result.items] == [
+        ("trigger_new", "8-day breakout on 1.4x avg volume", date(2026, 10, 27)),  # the now card's
+        ("trigger_gone", "8-day breakout on 0.6x avg volume", date(2026, 10, 20)),  # the baseline's
+    ]
+
+
+def test_two_same_identity_signals_on_one_card_are_one_with_the_first_label():
+    on = date(2026, 10, 9)
+    risk_1 = trig(A, BREAKDOWN_OCT_28, Kind.BREAKDOWN, on)
+    risk_2 = trig(A, BREAKDOWN_OCT_27, Kind.BREAKDOWN, on)
+    # a new risk listed twice: one line, the first entry's label
+    new = diff(cc(risk_signals=[risk_1, risk_2]), cc(asof=PREV))
+    assert lines(new) == [("risk_new", "AAA", (BREAKDOWN_OCT_28, Kind.BREAKDOWN))]
+    # against a baseline holding just one of the pair (either one), nothing changed
+    assert diff(cc(risk_signals=[risk_2, risk_1]), cc(asof=PREV, risk_signals=[risk_1])).items == ()
+
+    # a trigger listed twice on the baseline card and gone tonight: one line, the first entry's label
+    kind, d = Kind.TECHNICAL_BREAKOUT, date(2026, 10, 22)
+    fired_1 = trig(B, "8-day breakout on 0.6x avg volume", kind, d)
+    fired_2 = trig(B, "8-day breakout on 0.1x avg volume", kind, d)
+    gone = diff(cc(), cc(asof=PREV, triggers_fired=[fired_1, fired_2]))
+    assert lines(gone) == [("trigger_gone", "BBB", ("8-day breakout on 0.6x avg volume", kind))]
 
 
 # ---------------------------------------------------------------------------------------------------------
