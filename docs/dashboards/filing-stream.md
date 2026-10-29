@@ -161,6 +161,15 @@ before its first snapshot, said in a quiet note), `memberships_of` (with each ro
   the cap is applied when a window is sliced, so a 30-day window counts only the rows cut inside it. Why: the worst
   365-day payload went from 5.00 MB to 15.07 MB when the index landed (MEASURED on the dev copy). The Read-Throughs
   and the Chain Map carry no row lists (each picks ONE last filing per company), so the cap does not apply to them.
+- **Measured with the fold and the cap** (the same dev copy, as-of 2026-10-29, 365 days, cold per card; before = the
+  page without the index): the card holding JPM 3.35 MB / 2.3 s before, 15.07 MB / 4.7 s with the index
+  unfolded, 4.35 MB / 3.8 s with the fold and cap; a card holding BLK 1.74 MB -> 2.27 MB. All 62 cards: median
+  1.53 s / 1.23 MB -> 1.66 s / 1.77 MB; the worst card is now a 72-name card with no shelf issuer, 5.00 MB ->
+  5.88 MB, from ordinary filings across its names (most of it folded 144s and index-only Form 3/4s, none over the
+  cap). The cap left 592 routine Form 4 rows out of the 365-day lists, across the cards (counted; 6 basket companies
+  hold more than 200 Form 4 filings in that year). The Chain Map: median
+  1.78 s -> 2.20 s, max 6.25 s -> 7.91 s; the Read-Throughs' all-cards read: 20.1 s -> 23.7 s cold (both read each
+  company's whole stored index, not only its last year).
 - **Loudness:** no badges, no colors by kind. Each row is one line: date · ticker (a chip opening the Cockpit name panel
   via `onSelectThesis(thesisId, ticker)`) · form · headline · tags · the EDGAR link. The expanded row shows `detail`.
 
