@@ -1,0 +1,85 @@
+/* Chain Wave (docs/dashboards/chain-wave.md) — its own sheet, imported by the component, never index.css
+   (docs/DASHBOARDS.md rule 8). One card's rows down the side, week columns across, as a CSS grid of small cells.
+   Loudness marks the exception only (#7 / WB#3): a muted diverging scale (the Cockpit's --pos / --neg mixed toward
+   gray, the Rotation Quadrant's approach) whose strength grows with the difference up to ±10 pp, no badges; a thin
+   row (fewer than 3 priced names) is drawn at half strength; SPY's own week is a small gray bar; every number
+   stays gray and lives in the readout. */
+
+.cw {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  --cw-pos: color-mix(in srgb, var(--pos) 60%, var(--txt-3));
+  --cw-neg: color-mix(in srgb, var(--neg) 60%, var(--txt-3));
+  --cw-label: 240px;
+}
+.cw-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
+.cw-pick, .cw-seg { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.cw-seg-label { font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); margin-right: 2px; }
+.cw-search, .cw-select { font: inherit; font-size: 11.5px; color: var(--txt-2); background: transparent; border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 7px; }
+.cw-search { width: 140px; }
+.cw-select { max-width: 320px; }
+.cw-select option { background: var(--panel); color: var(--txt-2); }
+.cw-seg-btn { font: inherit; font-size: 11px; color: var(--txt-3); background: transparent; border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 9px; cursor: pointer; }
+.cw-seg-btn:hover { color: var(--txt-2); }
+.cw-seg-btn.on { color: var(--txt); background: var(--panel-2); }
+.cw-check { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--txt-2); cursor: pointer; }
+.cw-check input { accent-color: var(--txt-3); margin: 0; }
+
+.cw-title { display: flex; align-items: baseline; gap: 10px; margin-top: 2px; }
+.cw-card { font: inherit; font-size: 14px; font-weight: 600; color: var(--txt); background: none; border: 0; padding: 0; cursor: pointer; }
+.cw-card:hover { text-decoration: underline; text-underline-offset: 3px; }
+.cw-n { font-family: var(--mono); font-size: 9.5px; font-weight: 400; color: var(--txt-4); }
+.cw-readout { font-family: var(--mono); font-size: 11px; color: var(--txt-3); }
+.cw-focus { min-height: 15px; font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
+.cw-work, .cw-legend { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
+.cw-legend { font-family: inherit; color: var(--txt-4); }
+
+/* the grid: every row is its own grid on the same columns, so a row is one element (role="row") */
+.cw-scroll { overflow-x: auto; }
+.cw-grid { display: flex; flex-direction: column; min-width: calc(var(--cw-label) + var(--cw-n) * 10px); }
+.cw-row { display: grid; grid-template-columns: var(--cw-label) var(--cw-cols); align-items: stretch; }
+.cw-head .cw-week { font-size: 9.5px; color: var(--txt-4); white-space: nowrap; overflow: visible; padding-bottom: 4px; border-bottom: 1px solid var(--line); }
+.cw-head .cw-week.to-date { direction: rtl; text-align: right; }
+.cw-corner { font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); padding-bottom: 4px; border-bottom: 1px solid var(--line); }
+
+/* the labels stay in view while the weeks scroll sideways */
+.cw-label { position: sticky; left: 0; z-index: 1; background: var(--bg); display: flex; align-items: center; gap: 6px; min-width: 0; padding-right: 10px; font-size: 12px; white-space: nowrap; overflow: hidden; }
+.cw-label-text { overflow: hidden; text-overflow: ellipsis; color: var(--txt); font-weight: 600; }
+.cw-row-btn { font: inherit; display: flex; align-items: center; gap: 6px; min-width: 0; width: 100%; background: none; border: 0; padding: 0; color: inherit; cursor: pointer; text-align: left; }
+.cw-row-btn:focus-visible { outline: 1px solid var(--line-2); outline-offset: 1px; border-radius: 2px; }
+.cw-chev { display: inline-block; width: 12px; flex: none; color: var(--txt-4); font-size: 10px; }
+.cw-tag { font-family: var(--mono); font-size: 9.5px; color: var(--txt-4); }
+.cw-label-spy .cw-label-text { color: var(--txt-3); font-weight: 400; }
+.cw-line-row.thin .cw-label-text, .cw-line-row.kind-silent .cw-label-text { color: var(--txt-3); }
+.cw-line-row.kind-counting { margin-top: 8px; padding-top: 4px; border-top: 1px solid var(--line); }
+.cw-line-row:hover .cw-label, .cw-line-row.open .cw-label { background: var(--panel); }
+
+/* a row's companies, under it: quieter and indented */
+.cw-label-member { padding-left: 22px; }
+.cw-chip { font-family: var(--mono); font-size: 10.5px; font-weight: 700; padding: 0 7px; border: 1px solid var(--line-2); border-radius: 6px; background: transparent; color: var(--txt-3); cursor: pointer; }
+.cw-chip:hover { color: var(--txt); border-color: var(--txt-4); background: var(--panel-2); }
+.cw-off { align-self: center; padding-left: 6px; font-family: var(--mono); font-size: 10px; color: var(--txt-4); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* the cells: a muted diverging scale, full strength at ±10 pp (--cw-a set per cell) */
+.cw-cell { position: relative; height: 18px; margin: 1px; border-radius: 2px; background: color-mix(in srgb, var(--line) 35%, transparent); outline: none; cursor: default; }
+.cw-line-member .cw-cell { height: 14px; }
+.cw-cell.pos { background: color-mix(in srgb, var(--cw-pos) var(--cw-a), color-mix(in srgb, var(--line) 35%, transparent)); }
+.cw-cell.neg { background: color-mix(in srgb, var(--cw-neg) var(--cw-a), color-mix(in srgb, var(--line) 35%, transparent)); }
+.cw-cell.gap { background: transparent; color: var(--txt-4); font-size: 8px; line-height: 18px; text-align: center; overflow: hidden; opacity: 0.7; }
+.cw-line-member .cw-cell.gap { line-height: 14px; }
+.cw-cell:hover, .cw-cell:focus-visible { box-shadow: inset 0 0 0 1px var(--txt-4); }
+
+/* SPY's own week: a small gray bar up or down from the middle */
+.cw-cell.cw-spy { background: transparent; }
+.cw-cell.cw-spy::after { content: ""; position: absolute; left: 0; right: 0; top: 50%; border-top: 1px solid var(--line); }
+.cw-spybar { position: absolute; left: 20%; right: 20%; background: var(--txt-3); opacity: 0.75; border-radius: 1px; }
+.cw-spybar.up { bottom: 50%; }
+.cw-spybar.down { top: 50%; }
+
+/* a phone: a narrower label column, the weeks scroll inside the grid */
+@media (max-width: 600px) {
+  .cw { --cw-label: 150px; }
+  .cw-search { width: 110px; }
+  .cw-select { max-width: 200px; }
+}

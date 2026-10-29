@@ -2018,6 +2018,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboards/chain-wave/cards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Chain Wave Cards
+         * @description The card picker: the live cards that existed by the as-of, A→Z, each with its link count today. Display
+         *     only.
+         */
+        get: operations["chain_wave_cards_dashboards_chain_wave_cards_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboards/chain-wave/{thesis_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Chain Wave
+         * @description One card's links in chain order, week by week: each cell is the link's equal-weighted weekly return
+         *     (rebalanced daily) minus SPY's, in percentage points, so a move traveling along the chain shows as a
+         *     diagonal. Below the chain, its counting names and one row per context role (payers first), each with its
+         *     companies' own weekly cells. A name whose data flags reach its price readings is left out of every line and
+         *     listed. Display only; a past as-of reads what was public by the end of that date. 404 when the card is not
+         *     counted at the as-of.
+         */
+        get: operations["chain_wave_dashboards_chain_wave__thesis_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dashboards/cross-radar": {
         parameters: {
             query?: never;
@@ -5501,6 +5547,251 @@ export interface components {
             placements: components["schemas"]["ResolvedPlacement"][];
             report?: components["schemas"]["DraftReportOut"] | null;
         };
+        /**
+         * ChainWaveCardOut
+         * @description A card in the picker: its name and its real links today (Context and Bench not counted).
+         */
+        ChainWaveCardOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Name */
+            name: string;
+            /** Links */
+            links: number;
+        };
+        /**
+         * ChainWaveCardsOut
+         * @description The picker: the cards counted at the as-of (the live cards that existed by then), A→Z. ``cache`` /
+         *     ``compute_ms`` = whether the list came from the shared dashboard cache and how long it took when computed.
+         */
+        ChainWaveCardsOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /** Live Cards */
+            live_cards: number;
+            /** Not Yet Created */
+            not_yet_created: number;
+            /** Cards */
+            cards: components["schemas"]["ChainWaveCardOut"][];
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * ChainWaveCellOut
+         * @description One week of a row. ``diff`` = the row's weekly return minus SPY's, in percentage points (``null`` = "—",
+         *     ``gap`` says why: ``no_session`` no session that week, ``not_started`` the line had not started by last week's
+         *     close, ``no_return`` no name contributed a daily return that week, ``no_spy`` SPY had no return that week).
+         *     ``ret`` / ``spy`` = the two weekly returns in percent; ``names`` = names contributing a daily return that week.
+         *     On the SPY row ``ret`` is SPY's own return and ``diff`` is null.
+         */
+        ChainWaveCellOut: {
+            /** Diff */
+            diff: number | null;
+            /** Ret */
+            ret: number | null;
+            /** Spy */
+            spy: number | null;
+            /** Names */
+            names: number;
+            /** Gap */
+            gap: ("no_session" | "not_started" | "no_return" | "no_spy") | null;
+        };
+        /**
+         * ChainWaveFlaggedOut
+         * @description A company on the card left out of every line: its data flags reach its price readings at the as-of (the
+         *     reason the Cockpit grays its price cells). ``reason`` = the flags' labels.
+         */
+        ChainWaveFlaggedOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * ChainWaveMemberOut
+         * @description One company on a row, each once. ``key`` = its ``security_id`` (``ticker:<T>`` for a basket row with no
+         *     resolved security). ``ticker`` = its ticker on the card (the Cockpit's ``?name=`` key). ``flag`` = why it is
+         *     left out (a flagged price history); ``priced`` = a daily return in one of the window's weeks. ``cells`` = its
+         *     own weekly return vs SPY over the window; empty when never read (flagged, or no resolved security).
+         */
+        ChainWaveMemberOut: {
+            /** Key */
+            key: string;
+            /** Ticker */
+            ticker: string;
+            /** Security Id */
+            security_id: string | null;
+            /** Flag */
+            flag: string | null;
+            /** Priced */
+            priced: boolean;
+            /** Cells */
+            cells: components["schemas"]["ChainWaveCellOut"][];
+        };
+        /**
+         * ChainWaveOut
+         * @description One card's grid for one window: ``week_columns`` oldest first; ``spy`` = SPY's own weekly return per week;
+         *     ``rows`` in page order (the chain in today's link order, then Counting names, then one row per role set:
+         *     payers, counter-case, direct read, participant, financier, benchmark). ``sessions`` = daily returns read
+         *     (``first_session`` → ``last_session``); ``session_source`` = where the calendar came from (SPY's tape, or the
+         *     companies' bars when SPY has none). ``roster_fallback`` = no roster snapshot by the as-of: today's roster stands
+         *     in. ``cache`` / ``compute_ms`` = whether the 52 weeks came from the shared dashboard cache and how long they
+         *     took when computed.
+         */
+        ChainWaveOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /** Weeks */
+            weeks: number;
+            /** Include Silent */
+            include_silent: boolean;
+            /** Roster Fallback */
+            roster_fallback: boolean;
+            /** Links Today */
+            links_today: number;
+            /** Basket Rows */
+            basket_rows: number;
+            /** Silent Rows */
+            silent_rows: number;
+            /** Unresolved Rows */
+            unresolved_rows: number;
+            /** Sessions */
+            sessions: number;
+            /** First Session */
+            first_session: string | null;
+            /** Last Session */
+            last_session: string | null;
+            /**
+             * Session Source
+             * @enum {string}
+             */
+            session_source: "benchmarks" | "companies" | "none";
+            /** Spy Available */
+            spy_available: boolean;
+            /** Week Columns */
+            week_columns: components["schemas"]["ChainWaveWeekOut"][];
+            /** Spy */
+            spy: components["schemas"]["ChainWaveCellOut"][];
+            /** Rows */
+            rows: components["schemas"]["ChainWaveRowOut"][];
+            readout: components["schemas"]["ChainWaveReadoutOut"] | null;
+            /** Flagged */
+            flagged: components["schemas"]["ChainWaveFlaggedOut"][];
+            /** Roles Set */
+            roles_set: number;
+            /** Windows */
+            windows: number[];
+            /** Thin Below */
+            thin_below: number;
+            /** Readout Weeks */
+            readout_weeks: number;
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * ChainWaveReadoutOut
+         * @description Only when the card has payers: over the last ``weeks`` week columns (from the close ``start`` to the last
+         *     session ``end``), the payers' line and the counting names' line, each minus SPY's, in pp (``null`` = "—").
+         */
+        ChainWaveReadoutOut: {
+            /** Weeks */
+            weeks: number;
+            /** Start */
+            start: string | null;
+            /** End */
+            end: string | null;
+            /** Payers */
+            payers: number | null;
+            /** Counting */
+            counting: number | null;
+        };
+        /**
+         * ChainWaveRowOut
+         * @description One row. ``kind``: ``link`` (a real link today, chain order), ``old_link`` (a roster link that is not on the
+         *     card today), ``no_link``, ``silent`` (Context / Bench, only with the toggle), ``counting`` (every company that
+         *     counts toward the call) or ``role`` (``role``: one context role, Context and Bench names included). ``label`` =
+         *     the link's label (``role`` rows: the role's value). ``names`` = companies, each once (flagged and unresolved
+         *     included); ``priced`` = of those, priced in the window; ``thin`` = fewer than ``thin_below`` priced.
+         */
+        ChainWaveRowOut: {
+            /** Key */
+            key: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "link" | "old_link" | "no_link" | "silent" | "counting" | "role";
+            /** Label */
+            label: string;
+            role: components["schemas"]["ContextRole"] | null;
+            /** Names */
+            names: number;
+            /** Priced */
+            priced: number;
+            /** Thin */
+            thin: boolean;
+            /** Cells */
+            cells: components["schemas"]["ChainWaveCellOut"][];
+            /** Members */
+            members: components["schemas"]["ChainWaveMemberOut"][];
+        };
+        /**
+         * ChainWaveWeekOut
+         * @description One week column: its Monday, its first and last session (``close``, the week's close) and how many sessions
+         *     it holds (0 = none). ``to_date`` = the as-of's week, with the as-of before its Friday.
+         */
+        ChainWaveWeekOut: {
+            /**
+             * Monday
+             * Format: date
+             */
+            monday: string;
+            /** First Session */
+            first_session: string | null;
+            /** Close */
+            close: string | null;
+            /** Sessions */
+            sessions: number;
+            /** To Date */
+            to_date: boolean;
+        };
+        /**
+         * ChainWaveWeeks
+         * @description The window: the last 13, 26 or 52 week columns.
+         * @enum {integer}
+         */
+        ChainWaveWeeks: 13 | 26 | 52;
         /**
          * ContextRole
          * @description What part a company plays on THIS card — the operator-authored CONTEXT ROLE on a basket membership
@@ -13406,6 +13697,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CatalystCalendarOut"];
+                };
+            };
+        };
+    };
+    chain_wave_cards_dashboards_chain_wave_cards_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; only the cards that existed by then are listed */
+                asof: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChainWaveCardsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chain_wave_dashboards_chain_wave__thesis_id__get: {
+        parameters: {
+            query: {
+                /** @description as-of date; no price published after it is read */
+                asof: string;
+                /** @description the window: 13 | 26 | 52 weeks */
+                weeks?: components["schemas"]["ChainWaveWeeks"];
+                /** @description add Context and Bench as the last two chain rows */
+                include_silent?: boolean;
+            };
+            header?: never;
+            path: {
+                thesis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChainWaveOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

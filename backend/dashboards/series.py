@@ -13,6 +13,9 @@ The rules, in one place:
   ``level_t = level_{t-1} × (1 + mean of the daily close-to-close returns of the members with a bar on both
   t-1 and t)``. A member joins once it has two consecutive bars; a gap breaks only its own contribution. A
   session no member can contribute to carries the line flat (``contributors`` 0 there).
+- **The line's start** (``line_start``): the session before the first one any member contributed a daily
+  return to. Before it the line is only carried flat, which is not history. Moved here from the Rotation
+  Quadrant (which re-exports it) when the Chain Wave needed it too.
 
 PURE: no reads, no clock; the callers hand in the point-in-time bars (``PointInTimeData.price_history`` /
 ``benchmark_prices``, read with ``serve_view(asof)``). Display only (rule 1).
@@ -98,3 +101,12 @@ def chain(members: Sequence[Sequence[float | None]], n_sessions: int) -> Chain:
         counts.append(len(rets))
         levels.append(levels[-1] * (1.0 + sum(rets) / len(rets)) if rets else levels[-1])
     return Chain(tuple(levels), tuple(counts), tuple(tuple(c) for c in contributed))
+
+
+def line_start(ch: Chain | None) -> int | None:
+    """The session a line's first real step starts from (the one before the first session any member
+    contributed a daily return to); ``None`` = the line never steps."""
+    if ch is None:
+        return None
+    first = next((t for t, k in enumerate(ch.contributors) if k > 0), None)
+    return None if first is None else first - 1
