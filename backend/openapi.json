@@ -3884,6 +3884,108 @@
         }
       }
     },
+    "/dashboards/chain-map/cards": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Chain Map Cards",
+        "description": "The card picker: the live cards that existed by the as-of, A\u2192Z, each with its link count today. Display\nonly.",
+        "operationId": "chain_map_cards_dashboards_chain_map_cards_get",
+        "parameters": [
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; only the cards that existed by then are listed",
+              "title": "Asof"
+            },
+            "description": "as-of date; only the cards that existed by then are listed"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChainMapCardsOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboards/chain-map/{thesis_id}": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Chain Map For Card",
+        "description": "One card as a picture: its links in chain order as columns with the roster's companies inside (each with\nits business type, its side of the 50-day average and the age of its newest filing-derived fact), and the\ncompanies with a context role standing on two rails beside the chain, each with one edge to the chain as a\nwhole. A company whose data flags reach its price readings is drawn grayed with no 50-day side. Display only;\na past as-of reads the roster as of that date and what was public by the end of it. 404 when the card is not\ncounted at the as-of.",
+        "operationId": "chain_map_for_card_dashboards_chain_map__thesis_id__get",
+        "parameters": [
+          {
+            "name": "thesis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thesis Id"
+            }
+          },
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; nothing published after it is read",
+              "title": "Asof"
+            },
+            "description": "as-of date; nothing published after it is read"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChainMapOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/dashboards/chain-wave/cards": {
       "get": {
         "tags": [
@@ -11210,6 +11312,605 @@
         ],
         "title": "ChainDraftOut",
         "description": "The narrative\u2192chain draft (Slice 5b): the value-chain SEGMENTS the model proposed + each proposed name\nresolved against the master to PLACED / AMBIGUOUS / ABSENT (exact membership decides \u2014 INVARIANT #2).\n\nRESPONSE-ONLY and value-free: it carries NO score/number field, and the endpoint persists NOTHING \u2014 a\nplaced name is UNSCORED until the operator extract\u2192ratifies it, and the operator's promote is the only\nwriter. ``segments`` / ``placements`` reuse the resolver's domain result types directly (the wire is the\nresolver's output). ``report`` is the run's honesty report (coverage / capped terms / tail-sweep /\nnarration \u2014 ``DraftReportOut``): ALWAYS set by ``execute_draft``, optional on the wire only so a reader\nhandles its absence."
+      },
+      "ChainMapCardOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "links": {
+            "type": "integer",
+            "title": "Links"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "name",
+          "links"
+        ],
+        "title": "ChainMapCardOut",
+        "description": "A card in the picker: its name and its real links today (Context and Bench not counted)."
+      },
+      "ChainMapCardsOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "live_cards": {
+            "type": "integer",
+            "title": "Live Cards"
+          },
+          "not_yet_created": {
+            "type": "integer",
+            "title": "Not Yet Created"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/ChainMapCardOut"
+            },
+            "type": "array",
+            "title": "Cards"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "live_cards",
+          "not_yet_created",
+          "cards",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "ChainMapCardsOut",
+        "description": "The picker: the cards counted at the as-of (the live cards that existed by then), A\u2192Z. ``cache`` /\n``compute_ms`` = whether the list came from the shared dashboard cache and how long it took when computed."
+      },
+      "ChainMapColumnOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "link",
+              "old_link",
+              "no_link",
+              "silent"
+            ],
+            "title": "Kind"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "descriptor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Descriptor"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/ChainMapNodeOut"
+            },
+            "type": "array",
+            "title": "Nodes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "kind",
+          "label",
+          "descriptor",
+          "nodes"
+        ],
+        "title": "ChainMapColumnOut",
+        "description": "A column. ``kind``: ``link`` (a real link today, chain order), ``old_link`` (a roster link that is not on\nthe card today), ``no_link``, or ``silent`` (the Context or Bench names with no role; ``label`` says which,\nthe page shows them behind a toggle). ``descriptor`` = the link's descriptor when set."
+      },
+      "ChainMapCountsOut": {
+        "properties": {
+          "links_today": {
+            "type": "integer",
+            "title": "Links Today"
+          },
+          "old_links": {
+            "type": "integer",
+            "title": "Old Links"
+          },
+          "roster_rows": {
+            "type": "integer",
+            "title": "Roster Rows"
+          },
+          "resolved_rows": {
+            "type": "integer",
+            "title": "Resolved Rows"
+          },
+          "unresolved_rows": {
+            "type": "integer",
+            "title": "Unresolved Rows"
+          },
+          "silent_rows": {
+            "type": "integer",
+            "title": "Silent Rows"
+          },
+          "companies": {
+            "type": "integer",
+            "title": "Companies"
+          },
+          "on_rails": {
+            "type": "integer",
+            "title": "On Rails"
+          },
+          "untagged_silent": {
+            "type": "integer",
+            "title": "Untagged Silent"
+          },
+          "roles": {
+            "items": {
+              "$ref": "#/components/schemas/ChainMapRoleCountOut"
+            },
+            "type": "array",
+            "title": "Roles"
+          },
+          "with_side": {
+            "type": "integer",
+            "title": "With Side"
+          },
+          "without_side": {
+            "type": "integer",
+            "title": "Without Side"
+          },
+          "with_filing": {
+            "type": "integer",
+            "title": "With Filing"
+          },
+          "without_filing": {
+            "type": "integer",
+            "title": "Without Filing"
+          }
+        },
+        "type": "object",
+        "required": [
+          "links_today",
+          "old_links",
+          "roster_rows",
+          "resolved_rows",
+          "unresolved_rows",
+          "silent_rows",
+          "companies",
+          "on_rails",
+          "untagged_silent",
+          "roles",
+          "with_side",
+          "without_side",
+          "with_filing",
+          "without_filing"
+        ],
+        "title": "ChainMapCountsOut",
+        "description": "The work: ``companies`` = distinct roster companies; ``on_rails`` / ``untagged_silent`` = of those, the\nones on a rail and the ones in a Context or Bench column; ``roles`` = companies per role, rail order, only\nroles that are set; ``with_side`` / ``without_side`` and ``with_filing`` / ``without_filing`` split the\ncompanies (an unresolved or flagged one has no side)."
+      },
+      "ChainMapEdgeOut": {
+        "properties": {
+          "node_key": {
+            "type": "string",
+            "title": "Node Key"
+          },
+          "role": {
+            "$ref": "#/components/schemas/ContextRole"
+          },
+          "side": {
+            "type": "string",
+            "enum": [
+              "left",
+              "right"
+            ],
+            "title": "Side"
+          }
+        },
+        "type": "object",
+        "required": [
+          "node_key",
+          "role",
+          "side"
+        ],
+        "title": "ChainMapEdgeOut",
+        "description": "One rail node's edge to the chain's bracket (the whole chain, never a link or a name): the node, its role\nand the rail it stands on."
+      },
+      "ChainMapFilingOut": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "age_days": {
+            "type": "integer",
+            "title": "Age Days"
+          },
+          "form": {
+            "type": "string",
+            "title": "Form"
+          },
+          "headline": {
+            "type": "string",
+            "title": "Headline"
+          }
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "age_days",
+          "form",
+          "headline"
+        ],
+        "title": "ChainMapFilingOut",
+        "description": "A company's newest filing-derived fact in the last ``filing_days`` days: its public ``date`` (``age_days``\nbefore the as-of), the ``form`` as filed (or the row's own label) and its one-line ``headline``."
+      },
+      "ChainMapFlaggedOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "reason"
+        ],
+        "title": "ChainMapFlaggedOut",
+        "description": "A company on the card whose data flags reach its price readings at the as-of (the reason the Cockpit grays\nits price cells): drawn grayed with no 50-day side. ``reason`` = the flags' labels."
+      },
+      "ChainMapNodeOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "company_key": {
+            "type": "string",
+            "title": "Company Key"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "security_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Security Id"
+          },
+          "links": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Links"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContextRole"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "business_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Type"
+          },
+          "side_50d": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "above",
+                  "below",
+                  "at"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Side 50D"
+          },
+          "pct_vs_50d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pct Vs 50D"
+          },
+          "last_filing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChainMapFilingOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "flag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flag"
+          },
+          "thesis_fit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thesis Fit"
+          },
+          "authored_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Authorship"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "matched_terms": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Matched Terms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "company_key",
+          "ticker",
+          "name",
+          "security_id",
+          "links",
+          "role",
+          "business_type",
+          "side_50d",
+          "pct_vs_50d",
+          "last_filing",
+          "flag",
+          "thesis_fit",
+          "authored_by",
+          "matched_terms"
+        ],
+        "title": "ChainMapNodeOut",
+        "description": "One company in one place. ``key`` is unique on the page; ``company_key`` is the company's (``security_id``,\nor ``ticker:<T>`` with no resolved security). ``ticker`` = its ticker on the card (the Cockpit's ``?name=``\nkey). ``links`` = every link it sits in on the card (``null`` = no link). ``role`` = its context role (a tag on\na chain node, the reason it stands on a rail). ``business_type`` = the master's leaf (the operator's re-tag\nwinning). ``side_50d`` / ``pct_vs_50d`` = where it sits against its 50-day average (``null`` = no reading,\nor a flagged price history). ``last_filing`` = its newest filing-derived fact in the year (``null`` = none\nstored). ``flag`` = why its price readings are left out. ``thesis_fit`` / ``authored_by`` = the description\non the row this node stands for and who wrote it (``null`` when there is none); ``matched_terms`` = the\ndiscovery terms that surfaced the name."
+      },
+      "ChainMapOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "clock": {
+            "type": "string",
+            "enum": [
+              "record",
+              "public"
+            ],
+            "title": "Clock"
+          },
+          "roster_fallback": {
+            "type": "boolean",
+            "title": "Roster Fallback"
+          },
+          "columns": {
+            "items": {
+              "$ref": "#/components/schemas/ChainMapColumnOut"
+            },
+            "type": "array",
+            "title": "Columns"
+          },
+          "rails": {
+            "items": {
+              "$ref": "#/components/schemas/ChainMapRailOut"
+            },
+            "type": "array",
+            "title": "Rails"
+          },
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/ChainMapEdgeOut"
+            },
+            "type": "array",
+            "title": "Edges"
+          },
+          "flagged": {
+            "items": {
+              "$ref": "#/components/schemas/ChainMapFlaggedOut"
+            },
+            "type": "array",
+            "title": "Flagged"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/ChainMapCountsOut"
+          },
+          "filing_days": {
+            "type": "integer",
+            "title": "Filing Days"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "thesis_id",
+          "thesis_name",
+          "clock",
+          "roster_fallback",
+          "columns",
+          "rails",
+          "edges",
+          "flagged",
+          "counts",
+          "filing_days",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "ChainMapOut",
+        "description": "One card's picture. ``columns`` in chain order (real links, then a roster link that is not on the card\ntoday, then No link, then the silent Context/Bench columns); ``rails`` = the left rail, then the right (either\nmay be empty); ``edges`` = one per rail node. ``clock``: ``record`` (the live read) or ``public`` (a past\nas-of: what was public by the end of that date). ``roster_fallback`` = no roster snapshot by the as-of: today's\nroster stands in. ``filing_days`` = how far back the last-filing glyph looks. ``cache`` / ``compute_ms`` =\nwhether the page came from the shared dashboard cache and how long it took when computed."
+      },
+      "ChainMapRailOut": {
+        "properties": {
+          "side": {
+            "type": "string",
+            "enum": [
+              "left",
+              "right"
+            ],
+            "title": "Side"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/ChainMapNodeOut"
+            },
+            "type": "array",
+            "title": "Nodes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "side",
+          "label",
+          "nodes"
+        ],
+        "title": "ChainMapRailOut",
+        "description": "A rail: ``left`` (what pays and funds: payer, then financier) or ``right`` (what reads across: direct read,\ncounter-case, participant, benchmark). ``nodes`` = the role-tagged companies with no row in a real link, by\nrole then roster order."
+      },
+      "ChainMapRoleCountOut": {
+        "properties": {
+          "role": {
+            "$ref": "#/components/schemas/ContextRole"
+          },
+          "names": {
+            "type": "integer",
+            "title": "Names"
+          }
+        },
+        "type": "object",
+        "required": [
+          "role",
+          "names"
+        ],
+        "title": "ChainMapRoleCountOut"
       },
       "ChainWaveCardOut": {
         "properties": {
