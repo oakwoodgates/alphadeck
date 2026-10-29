@@ -2540,10 +2540,13 @@ distinct) · R requests (C from cache) · A rows appended · S unchanged · F fa
 failed term-month, and `data/term_mentions/<started>.json` (the plan, the counts, the network attempts, the
 failed and deferred lists, the status).
 
-**Cost (PROPOSED until the first backfill measures it).** The backfill is DISTINCT SIGNAL terms × 36 requests
-(775 terms across 62 cards on 2026-10-29, fewer once a term two cards share is fetched once: at most ~27,900,
-about an hour at the shared 8.5/s budget); the weekly run after it is distinct terms × 2 (at most ~1,550) plus
-any missing months. The dry run prints both numbers for the cards as they stand. **The first backfill is the operator's call:**
+**Cost.** The backfill is DISTINCT SIGNAL terms × 36 requests; the weekly run after it is distinct terms × 2 plus
+any missing months. MEASURED by the dry run (`python -m pipeline.term_mentions --backfill`, no SEC request) on a
+copy of dev's 62 live cards on 2026-10-29: 775 SIGNAL terms, 746 distinct, so the backfill needs **26,856
+requests** (the plan's PROPOSED 27,900 counted the 29 shared terms twice) and each weekly run after it **1,492**
+(PROPOSED 1,550). No month-ranged reply was cached, so every backfill request goes to SEC: about 53 minutes if the
+recurring lane runs alone at the 8.5/s budget, about twice that sharing it (PROPOSED; the first backfill's run
+artifact measures it). The dry run prints both numbers for the cards as they stand. **The first backfill is the operator's call:**
 `--weekly` on an EMPTY table (for the tenant) is a no-op line, so the Saturday loop can never start it on its
 own.
 

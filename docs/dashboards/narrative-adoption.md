@@ -34,7 +34,9 @@ untouched (`docs/DISCOVERY.md`): the job counts, it never places a name.
   "at least" the distinct CIKs of the first page, with `filers_sampled = true`), `new_filers` = filers not seen for
   that term in any earlier stored month, and the request's `fetched_at`.
 - **Request budget (PROPOSED, to be measured on the first run):** the backfill is 36 months × 775 terms = 27,900
-  requests, about 55 minutes if the lane runs alone at the 8.5/s budget and about two hours sharing it; it runs ONCE,
+  requests, about 55 minutes if the lane runs alone at the 8.5/s budget and about two hours sharing it
+  (MEASURED by the job's dry run on a copy of dev's 62 live cards, 2026-10-29: 746 distinct terms, so **26,856**
+  requests, and **1,492** per weekly run after it; the run time is still to be measured on the first run); it runs ONCE,
   on a weekend day outside the nightly's window, and is resumable (a stored month is never re-fetched). The weekly
   run re-fetches only the current month and the one before (a filing accepted late settles the prior month):
   about 1,550 requests, in the cron sidecar's weekly loop beside the company-list refresh (`scripts/daily_cron.sh`,

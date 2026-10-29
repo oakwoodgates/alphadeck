@@ -243,7 +243,7 @@ MASTER_REFRESH_RETRIES="${MASTER_REFRESH_RETRIES:-6}"
 # The term-mentions count — the FOURTH schedule (`term_mentions_loop`, below): weekly, on day TERM_MENTIONS_DOW
 # (`date +%u`; default 6 = Saturday) at TERM_MENTIONS_AT in the container TZ (default 10:00 — after the 09:00
 # company-list refresh, whose run is bounded at 900 s), each run bounded by TERM_MENTIONS_TIMEOUT_S (default an
-# hour; a weekly run is ~1,550 requests, minutes at the SEC budget — this only stops a HUNG run). A run REFUSED or
+# hour; a weekly run is ~1,500 requests — MEASURED 1,492 by the dry run on 2026-10-29 — minutes at the SEC budget — this only stops a HUNG run). A run REFUSED or
 # STOPPED (exit 75: the window, another run, a running pass) is retried every TERM_MENTIONS_RETRY_S, at most
 # TERM_MENTIONS_RETRIES times, then waits for the next week. TERM_MENTIONS=0 turns it OFF (an env-only cron
 # deploy). Same non-numeric guards as SLICE_S; an out-of-range day reads as Saturday.
