@@ -42,6 +42,7 @@ fact_insider_txn               instant    SEC ACCEPTANCE (``accepted``) — the 
                                           rule of excluding + COUNTING it.
 fact_corporate_event           date       ``filed`` (the 8-K's filing date, start of that market day)
 fact_activist_stake            date       ``filed`` (the 13D/G's filing date)
+fact_filing_index              date       ``filed`` (the EDGAR index row's filing date; display only, 0070)
 fact_fundamentals              date       ``valid_from`` (= the 10-Q/10-K ``filed`` date; a restatement is a
                                           new version with its own ``filed``, so it counts from its OWN
                                           publication)
@@ -141,6 +142,7 @@ PUBLIC_TIME: dict[str, PublicTime] = {
     "fact_insider_txn": PublicTime("instant", "accepted"),
     "fact_corporate_event": PublicTime("date", "filed"),
     "fact_activist_stake": PublicTime("date", "filed"),
+    "fact_filing_index": PublicTime("date", "filed"),
     "fact_fundamentals": PublicTime("date", "valid_from"),
     "fact_catalyst": PublicTime("date", "valid_from"),
     "fact_dilution": PublicTime("date", "valid_from"),

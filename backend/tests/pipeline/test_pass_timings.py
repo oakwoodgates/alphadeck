@@ -261,8 +261,9 @@ def test_the_REAL_ingest_legs_and_the_EDGAR_clients_cache_decisions(
     db, security_id, monkeypatch, tmp_path
 ):
     """The real ``EdgarClient`` (real cache, real recurring TTL; only ``_fetch`` stubbed) under the real
-    ``ingest_thesis``: every leg is timed, and the submissions index is ONE live fetch then three cache reads
-    (the 8-K leg, the 13D/G leg, the delisting read) — the property G1 pins, now visible per leg — while the
+    ``ingest_thesis``: every leg is timed, and the submissions index is ONE live fetch then four cache reads
+    (the 8-K leg, the 13D/G leg, the filing index, the delisting read) — the property G1 pins, now visible per
+    leg — while the
     one Form 4 document fetch counts on the form4 leg itself."""
     urls: list[str] = []
 
@@ -283,10 +284,18 @@ def test_the_REAL_ingest_legs_and_the_EDGAR_clients_cache_decisions(
         snap = timer.snapshot()
 
     assert results[0].error is None
-    assert {"form4", "form8k", "schedule13", "price", "fund_shares", "submissions"} <= set(
-        snap["legs"]
-    )
-    assert snap["counts"]["submissions"] == {"sec_cached": 3, "sec_live": 1}
+    assert {
+        "form4",
+        "form8k",
+        "schedule13",
+        "filing_index",
+        "price",
+        "fund_shares",
+        "submissions",
+    } <= set(snap["legs"])
+    # one live index fetch, then FOUR cache reads: the 8-K leg, the 13D/G leg, the filing index (0070 — zero
+    # extra requests) and the delisting read
+    assert snap["counts"]["submissions"] == {"sec_cached": 4, "sec_live": 1}
     assert snap["counts"]["form4"] == {"sec_live": 1}  # the Form 4 document
     assert client.live_fetches == len(urls) == 2  # the freeze counter agrees with the meter
 

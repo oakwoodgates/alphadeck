@@ -11,8 +11,8 @@ THE MODEL. One ``PassTimer`` per pass, made ACTIVE for the pass (``activate`` â€
 
 - ``per_thesis(theses)`` wraps the per-thesis loop's iterable: each thesis is a SCOPE, and every leg timed
   while it is open is that thesis's.
-- ``timed(leg)`` wraps a call: per thesis ``form4`` / ``form8k`` / ``schedule13`` / ``price`` /
-  ``fund_shares`` (``ingest_thesis``, summed over the thesis's names), ``submissions`` (the EDGAR client's
+- ``timed(leg)`` wraps a call: per thesis ``form4`` / ``form8k`` / ``schedule13`` / ``filing_index`` /
+  ``price`` / ``fund_shares`` (``ingest_thesis``, summed over the thesis's names), ``submissions`` (the EDGAR client's
   submissions-index reads, whichever leg made them), ``company_lock`` (W1 â€” a deferred company's bounded
   wait for another writer's per-company lock; absent on the common night), ``fundamentals`` (the Q17
   refresh), ``call`` (the

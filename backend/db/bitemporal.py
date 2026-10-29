@@ -56,7 +56,18 @@ _FACT_IDENTITY: dict[str, list[str]] = {
     "fact_activist_stake": [
         "accession"
     ],  # one 13D/G filing per accession (within the SUBJECT security scope) — filer/pct resolving is a new version (S5)
+    "fact_filing_index": [
+        "accession"
+    ],  # one EDGAR index row per accession (within the security scope) — insert-only, display only (0070)
 }
+
+# The fact tables NO detector reads — DISPLAY data only (the research dashboards), kept OUT of the replay mirror.
+# ``replay.export.FACT_TABLES`` (the mirror's table set) excludes them, because ``replay.pit.connect_mirror``
+# REQUIRES a parquet file for every table in that set: registering a display-only table there would make every
+# frozen mirror written before it (the backtest archives, the editions run dirs) fail to open, and no replay
+# reader could ever use the rows. They stay in ``_FACT_IDENTITY`` (the as-of read's whitelist, the public clock's
+# registry) so the live point-in-time view reads them with both clocks like any fact.
+DISPLAY_ONLY_FACT_TABLES: frozenset[str] = frozenset({"fact_filing_index"})
 
 # The KNOWABILITY axis per table — the SQL expression for the transaction-time no-lookahead gate
 # (``{expr} <= known_at``): "which rows had THIS SYSTEM actually recorded as of the pinned read time?".

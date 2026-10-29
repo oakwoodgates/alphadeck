@@ -13,7 +13,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from psycopg import sql
 
-from db.bitemporal import _FACT_IDENTITY
+from db.bitemporal import _FACT_IDENTITY, DISPLAY_ONLY_FACT_TABLES
 from db.public_clock import (
     CEILING_PARAM,
     INGESTED_COL,
@@ -30,8 +30,10 @@ from db.session import DEFAULT_TENANT_ID
 from db.set_aside import active_ids, exclusion_sql, has_set_aside
 
 # The bitemporal fact tables, taken from the as-of read's own whitelist (single source of truth — the
-# mirror can never drift from the set of tables the live reader knows).
-FACT_TABLES: tuple[str, ...] = tuple(_FACT_IDENTITY)
+# mirror can never drift from the set of tables the live reader knows) MINUS the display-only tables no detector
+# reads (``db.bitemporal.DISPLAY_ONLY_FACT_TABLES``): ``connect_mirror`` requires a file for every table in this
+# set, so one added here would make every frozen mirror written before it unreadable — for rows no replay reads.
+FACT_TABLES: tuple[str, ...] = tuple(t for t in _FACT_IDENTITY if t not in DISPLAY_ONLY_FACT_TABLES)
 
 MANIFEST_NAME = "manifest.json"
 

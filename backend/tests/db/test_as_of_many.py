@@ -47,6 +47,7 @@ ACCESSORS = {
     "shares_outstanding_facts": "fact_shares_outstanding",
     "cash_burn_facts": "fact_cash_burn",
     "fund_shares": "fact_fund_shares",
+    "filing_index": "fact_filing_index",
 }
 ASOFS = (date(2025, 8, 15), date(2026, 6, 1))
 _KNOWN_ATS = pytest.mark.parametrize("known_at", [PIN, MID], ids=["pin-sees-all", "mid-version"])

@@ -111,6 +111,31 @@ ingests insider + price facts — and, for an ETF sleeve member, a fund shares-o
   under each of three mutations of the handoff. Cache files are written atomically (`ingest.write_atomic`),
   so a reader never sees a document a worker is still writing.
 
+### The filing-index leg — every form, display only (migration 0070, 2026-10-29)  `[BUILT]`
+
+`ingest_thesis._filing_index_leg` stores each basket company's whole EDGAR filing index in `fact_filing_index`: every
+row of the submissions `filings.recent` arrays (`submissions.index_filings` — any form: an S-1, a 424B5, a DEF 14A, a
+10-Q; `recent` only, never the older `filings.files[]` pages), one row per accession with its form, filing date,
+primary document and the EDGAR index URL. It runs right after the 13D/G leg and reads the SAME cached submissions
+document the Form 4 / 8-K / 13D/G legs read moments earlier, so it costs **zero extra SEC requests** on a normal pass
+(pinned by a test that counts every URL the real client requests). **Insert-only:** one SELECT of the stored
+accessions, then the new ones in ONE batched insert; a stored accession is never re-versioned (SEC's listed fields
+drift — re-versioning would churn the table nightly). `valid_from = filed`, `recorded_at` the DB's `now()`.
+`accepted` is the listed SEC time only when it is trusted (`acceptance.trusted_listed`, request-free), else NULL and
+counted. A row with no accession, no form or an unreadable filing date is skipped and COUNTED with its reason. Never
+windowed for an onboarding name (the read is free); in the staged onboarding job it is the FIRST tail leg.
+**A passenger:** the research dashboards read it (the Filing Stream's "Other forms", the Read-Throughs / Chain Map
+"last filing"); no detector does (the PIT accessor is off the detectors' protocol, and the table is kept out of the
+replay mirror, `db.bitemporal.DISPLAY_ONLY_FACT_TABLES`). So its failure is recorded on
+`NameResult.filing_index_error` only — never on `error` / `leg_errors`, which feed the R2 recording gate,
+`ingest_fresh` and the name-error pages — and it can never withhold a call. Reported loud only when nonzero: one
+`filing index:` pass line (filings indexed, names, skipped rows by reason, set-aside acceptance times) plus one
+`filing index ERROR:` line per failed company, and `filing_index_appended` / `filing_index_errors` per thesis on the
+run artifact. The first pass after the deploy indexes up to ~1,000 rows per company (the whole `recent` window), one
+batched insert each; every pass after appends only that night's new filings. MEASURED on a local test database
+(2026-10-29): a 1,000-row company's batch 0.11 s, a warm re-run (nothing new) 0.005 s; PROPOSED, not measured on
+prod: roughly a minute of extra wall time on that first pass for ~700 companies.
+
 ## The price-source seam — `ingest/prices/source.py`  `[BUILT #72]`
 
 The EOD price source sits behind an interface, so swapping it is changing an **adapter**, not a rewrite:
@@ -910,11 +935,12 @@ the nightly itself, inside the window.
   cost thread; re-adding the name resumes it). Per name, under that company's W1 lock (TRIED once — a held
   company is skipped this run, never waited for), it re-reads the row (the fast lane may have finished it),
   then runs the legs NOT yet checkpointed — the SAME leg functions the nightly runs (`ingest_thesis._form4_leg`
-  incl. 4/A, `_form8k_leg`, `_schedule13_leg`, `ingest_bars_for_security`, `ingest_fund_shares_for_security`,
-  `ingest_fundamentals_for_securities`), in full — committing each leg and THEN its checkpoint. So a crash
+  incl. 4/A, `_form8k_leg`, `_schedule13_leg`, `_filing_index_leg`, `ingest_bars_for_security`,
+  `ingest_fund_shares_for_security`, `ingest_fundamentals_for_securities`), in full — committing each leg and THEN
+  its checkpoint. So a crash
   mid-batch resumes at the next leg and appends nothing twice (the legs are incremental / append-if-changed;
   the tests COUNT THE TABLES). The **history legs** (Form 4 + 4/A, 8-K, 13D/G) decide `done`; the **tail
-  legs** (price, fund shares, fundamentals) run for completeness and never block it — they cost the same cold
+  legs** (the filing index, price, fund shares, fundamentals) run for completeness and never block it — they cost the same cold
   or warm and the nightly runs them every night, with its own monitors. A history-leg failure re-queues the
   name (`attempts` + 1); `Settings.onboard_max_attempts` (3) failures mark it `failed` — loud on Admin, where
   **Retry** re-queues it (attempts reset, checkpoint kept).
@@ -1038,7 +1064,7 @@ sites need no new parameter and are a no-op wherever no pass runs (the Workbench
 suite): `per_thesis(...)` wraps the loop's iterable (each thesis is a scope), `timed(leg)` wraps a call, and
 `note(kind, n)` counts on the innermost open leg.
 
-- **Per-thesis legs** (summed over the thesis's names): `form4`, `form8k`, `schedule13`, `price`,
+- **Per-thesis legs** (summed over the thesis's names): `form4`, `form8k`, `schedule13`, `filing_index`, `price`,
   `fund_shares` (`ingest_thesis`), `submissions` (the EDGAR client's reads of a company's submissions index,
   fetch or cache read plus parse, whichever leg made them — mostly inside `form4`, the first reader),
   `fundamentals` (the Q17 filing-gated refresh), `call` (the assemble), `notify` (a transition push),

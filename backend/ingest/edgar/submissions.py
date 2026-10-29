@@ -139,6 +139,39 @@ def filings_of(submissions: dict[str, Any], form: str) -> list[dict[str, str]]:
     ]
 
 
+def index_filings(submissions: dict[str, Any]) -> list[dict[str, str]]:
+    """EVERY row of the submissions ``filings.recent`` arrays, ALL forms, in EDGAR's (reverse-chrono) order:
+    ``{form, accession, primary_doc, filed, accepted_raw}`` — the filing index the Filing Stream lists
+    (``pipeline.ingest_thesis._filing_index_leg``). Raw strings, never judged here: a blank or malformed field is
+    handed on as ``""`` so the leg can COUNT the row it cannot store (never silently dropped, #9).
+
+    ``recent`` ONLY — EDGAR's ``filings.files[]`` pages hold the older history, and reading them would cost extra
+    SEC requests; ``recent`` reaches back at least a year or 1,000 filings, whichever is further. Defensive on
+    short parallel arrays (a missing entry reads ``""``), like ``filings_of``. Pure."""
+    recent = submissions.get("filings", {}).get("recent", {})
+    forms = recent.get("form", []) or []
+    accns = recent.get("accessionNumber", []) or []
+    docs = recent.get("primaryDocument", []) or []
+    dates = recent.get("filingDate", []) or []
+    accepts = recent.get("acceptanceDateTime", []) or []
+
+    def at(arr: list[Any], i: int) -> str:
+        v = arr[i] if i < len(arr) else None
+        return "" if v is None else str(v)
+
+    n = max(len(forms), len(accns))
+    return [
+        {
+            "form": at(forms, i),
+            "accession": at(accns, i),
+            "primary_doc": at(docs, i),
+            "filed": at(dates, i),
+            "accepted_raw": at(accepts, i),
+        }
+        for i in range(n)
+    ]
+
+
 def form4_filings(submissions: dict[str, Any]) -> list[dict[str, str]]:
     """List Form 4 filings from a submissions JSON: ``{accession, primary_doc, filed, accepted}``
     (``accepted`` = the raw SEC ``acceptanceDateTime`` — the Form 4 leg stores it in the fact's ``accepted``

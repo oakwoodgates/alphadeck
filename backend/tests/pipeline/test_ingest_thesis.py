@@ -921,3 +921,164 @@ def test_the_fund_edge_survives_a_restated_sample_and_a_rerun(db, monkeypatch):
 
     assert first.fund_shares_edge == restated.fund_shares_edge == date(2026, 6, 16)
     assert restated.fund_shares_reversioned == 1  # it really was a second version
+
+
+# --- the FILING INDEX (migration 0070): every form, zero extra requests, a passenger ----------------------
+
+
+def _index_count(db, *, tenant=DEFAULT_TENANT_ID) -> int:
+    with db.cursor() as cur:
+        cur.execute("SELECT count(*) n FROM fact_filing_index WHERE tenant_id = %s", (tenant,))
+        return cur.fetchone()["n"]
+
+
+def test_the_filing_index_leg_stores_every_listed_filing_and_a_rerun_appends_ZERO_count_the_table(
+    db, security_id, monkeypatch
+):
+    """Every row the submissions index lists (here two Form 4s and an 8-K) is stored once; an identical second
+    run appends nothing (the TABLE is counted); one new filing later appends exactly one."""
+    _patch(
+        monkeypatch,
+        accessions=("ACC-1", "ACC-2"),
+        form8ks=(("8K-1", "2026-05-02", "2.02"),),
+    )
+    tid = _make_thesis(db, [("DEVCO", security_id)])
+
+    first = IT.ingest_thesis(db, tid, allow_live=False)[0]
+    assert first.filing_index_appended == 3 and first.filing_index_error is None
+    assert _index_count(db) == 3
+
+    before = _index_count(db)
+    again = IT.ingest_thesis(db, tid, allow_live=False)[0]
+    assert again.filing_index_appended == 0
+    assert _index_count(db) == before  # the TABLE did not grow
+
+    _patch(
+        monkeypatch,
+        accessions=("ACC-1", "ACC-2", "ACC-3"),
+        form8ks=(("8K-1", "2026-05-02", "2.02"),),
+    )
+    third = IT.ingest_thesis(db, tid, allow_live=False)[0]
+    assert third.filing_index_appended == 1 and _index_count(db) == before + 1
+
+
+def test_the_filing_index_is_NEVER_windowed_for_an_onboarding_name(db, security_id, monkeypatch):
+    """X1 windows the per-filing legs of a name still onboarding; the index is read from the same free document
+    and stored whole (a cold name's ~1,000 rows are one batched insert)."""
+    from domain.onboarding import OnboardingWindow
+
+    _patch(monkeypatch, accessions=("ACC-1", "ACC-2"))
+    tid = _make_thesis(db, [("DEVCO", security_id)])
+    window = OnboardingWindow(status="queued", filed_since=date(2026, 6, 1))  # after every filing
+
+    r = IT.ingest_thesis(db, tid, allow_live=False, onboarding={security_id: window})[0]
+
+    assert r.form4_appended == 0  # the windowed Form 4 leg read nothing (both filed 2026-05-01)
+    assert r.filing_index_appended == 2 and _index_count(db) == 2  # ...the index is whole
+
+
+def test_a_name_without_a_CIK_contributes_no_index_and_no_error(db, monkeypatch):
+    _patch(monkeypatch)
+    sid = _add_master(db, ticker="NOCIK", cik=None)
+    tid = _make_thesis(db, [("NOCIK", sid)])
+    r = IT.ingest_thesis(db, tid, allow_live=False)[0]
+    assert r.filing_index_appended == 0 and r.filing_index_error is None and _index_count(db) == 0
+
+
+def test_the_filing_index_leg_makes_NO_extra_SEC_request(db, security_id, monkeypatch, tmp_path):
+    """ZERO extra requests: the leg reads the SAME cached submissions document the Form 4 / 8-K / 13D/G legs
+    read, and never a filing header (its acceptance is request-free). The REAL ``EdgarClient`` (real cache,
+    real TTL) with only ``_fetch`` stubbed: the requests are exactly the one index pull and the one Form 4
+    document, while three index rows are stored — one with a listed time the header rule WOULD have read.
+    """
+    import json as _json
+
+    from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
+    from ingest.edgar.submissions import submissions_url
+
+    subs = {
+        "filings": {
+            "recent": {
+                "form": ["S-1", "424B5", "4"],
+                "accessionNumber": ["S1-ACC", "424-ACC", "ACC-1"],
+                "primaryDocument": ["s1.htm", "p.htm", "xslF345X05/ACC-1.xml"],
+                "filingDate": ["2026-05-03", "2026-05-02", "2026-05-01"],
+                # the S-1's listed time is 00:00:20 ET the NEXT day: untrusted (a Form 4's would read a header)
+                "acceptanceDateTime": ["2026-05-04T04:00:20.000Z", "", ""],
+                "items": ["", "", ""],
+            }
+        }
+    }
+    urls: list[str] = []
+
+    def _fetch(url: str) -> str:
+        urls.append(url)
+        if "submissions" in url:
+            return _json.dumps(subs)
+        return _XML
+
+    client = EdgarClient(
+        cache_dir=tmp_path, allow_live=True, user_agent="test ua", cache_ttl_s=RECURRING_CACHE_TTL_S
+    )
+    client._fetch = _fetch  # type: ignore[method-assign]
+    monkeypatch.setattr(IT, "YahooPriceSource", lambda: _FakePriceSource(lambda t: _bars(())))
+    tid = _make_thesis(db, [("DEVCO", security_id)])
+
+    r = IT.ingest_thesis(db, tid, allow_live=True, edgar_client=client)[0]
+
+    assert r.error is None and r.filing_index_appended == 3 and _index_count(db) == 3
+    assert r.filing_index_accepted_set_aside == 1
+    doc = IT.form4_doc_url("0001234567", "ACC-1", "xslF345X05/ACC-1.xml")
+    assert sorted(urls) == sorted([submissions_url("0001234567"), doc])  # nothing else requested
+    assert not any("index-headers" in u for u in urls)
+
+
+def test_a_FAILED_filing_index_leg_is_a_PASSENGER_never_a_name_error(
+    db, security_id, monkeypatch, capsys
+):
+    """The display-only leg can never cost a name its ingest: its failure rides ``filing_index_error`` only —
+    ``error`` and ``leg_errors`` (the R2 recording gate, ``ingest_fresh``, the name-error pages) stay clean,
+    every other leg's rows are stored, and the CLI's exit signal does not count it."""
+    _patch(
+        monkeypatch,
+        accessions=("ACC-1",),
+        bar_dates=(date(2026, 6, 15),),
+        form8ks=(("8K-1", "2026-05-02", "2.02"),),
+    )
+
+    def boom(conn, client, sec, **k):
+        raise RuntimeError("index exploded")
+
+    monkeypatch.setattr(IT, "_filing_index_leg", boom)
+    tid = _make_thesis(db, [("DEVCO", security_id)])
+
+    r = IT.ingest_thesis(db, tid, allow_live=False)[0]
+
+    assert r.error is None and r.leg_errors == ()
+    assert r.filing_index_error == "index exploded" and r.filing_index_appended == 0
+    assert _counts(db) == (_F4_PER_ACCESSION, 1)  # the Form 4 rows and the bar landed
+    assert _8k_count(db) == 1  # ...and the 8-K tape
+    assert _index_count(db) == 0
+    assert IT._report([r]) == 0  # not an errored name
+    out = capsys.readouterr().out
+    assert "filing index ERROR: index exploded" in out and "1 filing index error(s)" in out
+
+
+def test_report_names_the_filings_indexed_only_when_nonzero(capsys):
+    quiet = IT.NameResult(
+        ticker="QUIET", security_id=uuid.uuid4(), form4_appended=0, price_bars_appended=0
+    )
+    busy = IT.NameResult(
+        ticker="BUSY",
+        security_id=uuid.uuid4(),
+        form4_appended=0,
+        price_bars_appended=0,
+        filing_index_appended=12,
+        filing_index_skipped=1,
+    )
+    IT._report([quiet, busy])
+    out = capsys.readouterr().out
+    assert "BUSY: +0 form4, +0 bars, +12 filings indexed, 1 filing index row(s) skipped" in out
+    assert "QUIET: +0 form4, +0 bars\n" in out  # nothing said when nothing happened
+    done = [line for line in out.splitlines() if line.startswith("done:")]
+    assert "+12 filings indexed" in done[0]  # the done line's total
