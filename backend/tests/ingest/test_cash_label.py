@@ -198,7 +198,9 @@ def test_the_one_reader_of_the_stored_cash_fact_is_the_runway_meter():
     """
     readers = [p for p in _product_sources() if "cash_burn_facts(" in p.read_text(encoding="utf-8")]
     paths = sorted(p.relative_to(_BACKEND).as_posix() for p in readers)
-    display_only = [r for r in paths if r.startswith("dashboards/")]
+    display_only = [
+        r for r in paths if r.startswith(("dashboards/", "app/routers/dashboards/"))
+    ]  # a dashboard's compute and its router are both leaves (test_isolation.py)
     assert [r for r in paths if r not in display_only] == [
         "signals/base.py",  # the accessor's own definition on the concrete point-in-time view
         "workbench/scoring.py",  # _runway — the runway meter
