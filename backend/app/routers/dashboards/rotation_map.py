@@ -17,36 +17,36 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict
 
 from app.deps import get_conn
+from dashboards.baskets import (
+    GroupBy,
+    cards_as_of,
+    display_members,
+    memberships_of,
+    per_company,
+    resolved_ids,
+)
 from dashboards.cache import cached
 from dashboards.rotation_map import (
     CROSS_DAYS,
     MEMBERS,
     MIN_PRICED,
     CompanyTape,
-    GroupBy,
     RotationInputs,
-    cards_that_existed,
     company_tape,
-    memberships_of,
     returns_of,
 )
 from dashboards.rotation_map import rotation_map as compute_rotation_map
 from db.session import DEFAULT_TENANT_ID
-from domain.market_time import market_tz, serve_view
-from repositories import thesis_repo
+from domain.market_time import serve_view
 from securities import master
 from signals.base import PointInTimeData
-from signals.display import registered_display_members, trailing_returns
+from signals.display import trailing_returns
 from signals.display.base import DisplayMember
 from signals.horizons import display_bounds
 
 router = APIRouter(prefix="/rotation-map")
 
 SLUG = "rotation-map"
-# Companies per point-in-time view. One view over all ~1,500 companies would hold every company's whole
-# bounded price window (~630 calendar days) in memory at once; a view per chunk reads the same rows (the
-# prefetch scope only batches the reads, it never changes what a reader sees) and frees them as it goes.
-CHUNK = 100
 
 
 class _Wire(BaseModel):
@@ -144,11 +144,7 @@ class RotationMapOut(_Wire):
 
 
 def _members() -> dict[str, DisplayMember]:
-    by_name = {m.name: m for m in registered_display_members()}
-    missing = [n for n in MEMBERS if n not in by_name]
-    if missing:  # a renamed member must fail loud, never read as "no tape"
-        raise RuntimeError(f"Rotation Map: display members not registered: {missing}")
-    return {n: by_name[n] for n in MEMBERS}
+    return display_members(MEMBERS, "Rotation Map")
 
 
 def _tapes(
@@ -162,22 +158,14 @@ def _tapes(
     ``/display-signals`` builds (``known_at`` + ``clock`` from ``serve_view``: the public clock at a past
     as-of, the live read today)."""
     members = _members()
-    bounds = display_bounds()
-    out: dict[UUID, CompanyTape] = {}
-    for i in range(0, len(sids), CHUNK):
-        chunk = sids[i : i + CHUNK]
-        pit = PointInTimeData(
-            conn,
-            asof=asof,
-            known_at=known_at,
-            tenant_id=DEFAULT_TENANT_ID,
-            basket=chunk,
-            bounds=bounds,
-            clock=clock,
-        )
-        for sid in chunk:
-            out[sid] = company_tape({n: m(pit, sid, asof) for n, m in members.items()})
-    return out
+    return per_company(
+        conn,
+        sids,
+        asof,
+        known_at,
+        clock,
+        lambda pit, sid: company_tape({n: m(pit, sid, asof) for n, m in members.items()}),
+    )
 
 
 def _spy(
@@ -210,27 +198,14 @@ def read_inputs(
 ) -> RotationInputs:
     """The heavy read the cache holds: the counted cards' rosters as of the as-of, every company's readings,
     SPY's returns."""
-    live = thesis_repo.list_all(conn)
-    created = thesis_repo.created_at_for(conn, [t.id for t in live])
-    kept, later = cards_that_existed(live, created, asof, market_tz())
-    if known_at is None:
-        # the live view: today's roster IS the roster as of today (get_asof(now) is byte-identical to it)
-        cards, fallback = kept, 0
-    else:
-        cards, fallback = [], 0
-        for t in kept:
-            if not thesis_repo.snapshot_exists_asof(conn, t.id, known_at):
-                fallback += 1  # no roster snapshot by then: get_asof keeps today's roster
-            got = thesis_repo.get_asof(conn, t.id, known_at)
-            if got is not None:
-                cards.append(got)
-    memberships = memberships_of(cards)
-    sids = sorted({m.security_id for m in memberships if m.security_id is not None}, key=str)
+    counted = cards_as_of(conn, asof, known_at)
+    memberships = memberships_of(counted.cards)
+    sids = resolved_ids(memberships)
     return RotationInputs(
-        live_cards=len(live),
-        cards_counted=len(cards),
-        cards_not_yet_created=later,
-        roster_fallback_cards=fallback,
+        live_cards=counted.live_count,
+        cards_counted=len(counted.cards),
+        cards_not_yet_created=counted.not_yet_created,
+        roster_fallback_cards=counted.roster_fallback,
         memberships=memberships,
         tapes=_tapes(conn, sids, asof, known_at, clock),
         spy=_spy(conn, asof, known_at, clock),

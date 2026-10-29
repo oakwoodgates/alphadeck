@@ -4053,6 +4053,94 @@
         }
       }
     },
+    "/dashboards/cross-radar": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Cross Radar",
+        "description": "Golden and death crosses (the 50-day SMA crossing the 200-day) by link, business type, sector or card:\nclusters (several names crossing the same way within 10 sessions), first movers (exactly one), names\nwithin 2% of a cross and narrowing, and every cross of the last 90 sessions with each group's posture.\nDisplay only; a past as-of reads what was public by the end of that date.",
+        "operationId": "cross_radar_dashboards_cross_radar_get",
+        "parameters": [
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; no price published after it is read",
+              "title": "Asof"
+            },
+            "description": "as-of date; no price published after it is read"
+          },
+          {
+            "name": "group_by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "link",
+                "business_type",
+                "sector",
+                "card"
+              ],
+              "type": "string",
+              "description": "the groups: link | business_type | sector | card",
+              "default": "link",
+              "title": "Group By"
+            },
+            "description": "the groups: link | business_type | sector | card"
+          },
+          {
+            "name": "include_silent",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "add Context and Bench memberships (their own groups in the Link view)",
+              "default": false,
+              "title": "Include Silent"
+            },
+            "description": "add Context and Bench memberships (their own groups in the Link view)"
+          },
+          {
+            "name": "price_200d",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "add price-crosses-the-200d ticks to the timeline (never counted in a cluster)",
+              "default": false,
+              "title": "Price 200D"
+            },
+            "description": "add price-crosses-the-200d ticks to the timeline (never counted in a cluster)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CrossRadarOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/backtest/runs": {
       "get": {
         "tags": [
@@ -10166,6 +10254,790 @@
         ],
         "title": "CorporateEventOut",
         "description": "One stored 8-K filing inside an episode's window (Slice B) \u2014 an overlay chip / ledger row.\n\n``d`` = ``valid_from`` = ``filed`` (an 8-K is knowable exactly when EDGAR disseminates it, so the\none event clock plus ``ingested`` suffices \u2014 no separate ``disclosed``). ``items`` is the SEC's\nown item-code list; ``None`` = not-yet-resolved, rendered honestly as \"items unresolved\", never\ndropped (#9). ``url`` is the EDGAR filing-index URL (#6). EVERY stored 8-K in the window rides \u2014\nthere is NO server-side item cut (loudness is a display concern; a cut would be a silent filter).\nBoth time axes are asof-capped (no-lookahead #1)."
+      },
+      "CrossCardOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "links": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Links"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "thesis_name",
+          "ticker",
+          "links"
+        ],
+        "title": "CrossCardOut",
+        "description": "A card a name sits on in this group: its ticker there (the Cockpit's ``?name=`` key) and its links\nthere (``null`` = Unsegmented)."
+      },
+      "CrossClusterOut": {
+        "properties": {
+          "group": {
+            "$ref": "#/components/schemas/CrossGroupOut"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "golden",
+              "death"
+            ],
+            "title": "Direction"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          },
+          "priced": {
+            "type": "integer",
+            "title": "Priced"
+          },
+          "share": {
+            "type": "number",
+            "title": "Share"
+          },
+          "within": {
+            "type": "integer",
+            "title": "Within"
+          },
+          "rs_leaders": {
+            "type": "integer",
+            "title": "Rs Leaders"
+          },
+          "names": {
+            "items": {
+              "$ref": "#/components/schemas/CrossNameOut"
+            },
+            "type": "array",
+            "title": "Names"
+          }
+        },
+        "type": "object",
+        "required": [
+          "group",
+          "direction",
+          "count",
+          "priced",
+          "share",
+          "within",
+          "rs_leaders",
+          "names"
+        ],
+        "title": "CrossClusterOut",
+        "description": "A group where ``count`` of its ``priced`` names crossed ``direction`` within ``recent_sessions`` (at\nleast ``cluster_min_names`` and ``cluster_min_share_pct``% of them), all within ``within`` sessions, with\n``rs_leaders`` of them at a 13-week relative-strength high."
+      },
+      "CrossFirstMoverOut": {
+        "properties": {
+          "group": {
+            "$ref": "#/components/schemas/CrossGroupOut"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "golden",
+              "death"
+            ],
+            "title": "Direction"
+          },
+          "leader": {
+            "$ref": "#/components/schemas/CrossNameOut"
+          },
+          "rest": {
+            "type": "integer",
+            "title": "Rest"
+          },
+          "closing_in": {
+            "type": "integer",
+            "title": "Closing In"
+          },
+          "already": {
+            "type": "integer",
+            "title": "Already"
+          },
+          "not_yet": {
+            "type": "integer",
+            "title": "Not Yet"
+          }
+        },
+        "type": "object",
+        "required": [
+          "group",
+          "direction",
+          "leader",
+          "rest",
+          "closing_in",
+          "already",
+          "not_yet"
+        ],
+        "title": "CrossFirstMoverOut",
+        "description": "A group where exactly one priced name crossed ``direction`` within ``recent_sessions``. The group's\n``rest`` priced names: ``closing_in`` (near-crossing the same way), ``already`` (on the far side with no\nrecent cross: above the 200d for golden, below for death) and ``not_yet``."
+      },
+      "CrossGroupOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "link": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link"
+          },
+          "thesis_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thesis Name"
+          },
+          "business_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Type"
+          },
+          "supersector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supersector"
+          },
+          "names": {
+            "type": "integer",
+            "title": "Names"
+          },
+          "priced": {
+            "type": "integer",
+            "title": "Priced"
+          },
+          "not_priced": {
+            "type": "integer",
+            "title": "Not Priced"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "link",
+          "thesis_id",
+          "thesis_name",
+          "business_type",
+          "supersector",
+          "names",
+          "priced",
+          "not_priced"
+        ],
+        "title": "CrossGroupOut",
+        "description": "One group. Link view: ``link`` (``null`` = Unsegmented) + its card. Card view: the card. Business type\n/ Sector view: ``business_type`` / ``supersector`` (``null`` = Unclassified). ``names`` = the companies in\nthe group, each counted once; ``priced`` of them have a 200-day SMA at the as-of."
+      },
+      "CrossMarkOut": {
+        "properties": {
+          "d": {
+            "type": "string",
+            "format": "date",
+            "title": "D"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "golden",
+              "death",
+              "up",
+              "down"
+            ],
+            "title": "Direction"
+          },
+          "sessions_ago": {
+            "type": "integer",
+            "title": "Sessions Ago"
+          },
+          "pos": {
+            "type": "integer",
+            "title": "Pos"
+          }
+        },
+        "type": "object",
+        "required": [
+          "d",
+          "direction",
+          "sessions_ago",
+          "pos"
+        ],
+        "title": "CrossMarkOut",
+        "description": "One cross on the timeline: ``pos`` is its column on ``sessions`` (0 = the oldest)."
+      },
+      "CrossNameOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/CrossCardOut"
+            },
+            "type": "array",
+            "title": "Cards"
+          },
+          "d": {
+            "type": "string",
+            "format": "date",
+            "title": "D"
+          },
+          "sessions_ago": {
+            "type": "integer",
+            "title": "Sessions Ago"
+          },
+          "rs_leading": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rs Leading"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "cards",
+          "d",
+          "sessions_ago",
+          "rs_leading"
+        ],
+        "title": "CrossNameOut",
+        "description": "A name's recent cross: its date and how many sessions before the as-of it printed."
+      },
+      "CrossNearGroupOut": {
+        "properties": {
+          "group": {
+            "$ref": "#/components/schemas/CrossGroupOut"
+          },
+          "names": {
+            "items": {
+              "$ref": "#/components/schemas/CrossNearNameOut"
+            },
+            "type": "array",
+            "title": "Names"
+          }
+        },
+        "type": "object",
+        "required": [
+          "group",
+          "names"
+        ],
+        "title": "CrossNearGroupOut"
+      },
+      "CrossNearNameOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/CrossCardOut"
+            },
+            "type": "array",
+            "title": "Cards"
+          },
+          "toward": {
+            "type": "string",
+            "enum": [
+              "golden",
+              "death"
+            ],
+            "title": "Toward"
+          },
+          "gap_pct": {
+            "type": "number",
+            "title": "Gap Pct"
+          },
+          "gap_pct_then": {
+            "type": "number",
+            "title": "Gap Pct Then"
+          },
+          "change": {
+            "type": "number",
+            "title": "Change"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "cards",
+          "toward",
+          "gap_pct",
+          "gap_pct_then",
+          "change"
+        ],
+        "title": "CrossNearNameOut",
+        "description": "A name whose 50d sits within ``near_band_pct``% of its 200d, the gap smaller than ``near_lookback``\nsessions before, with no cross within ``recent_sessions``. ``gap_pct`` = (SMA50 / SMA200 \u2212 1) %;\n``change`` = ``gap_pct \u2212 gap_pct_then``, in points. The tape only, never a forecast."
+      },
+      "CrossPostureOut": {
+        "properties": {
+          "above_rising": {
+            "type": "integer",
+            "title": "Above Rising"
+          },
+          "above_falling": {
+            "type": "integer",
+            "title": "Above Falling"
+          },
+          "below_rising": {
+            "type": "integer",
+            "title": "Below Rising"
+          },
+          "below_falling": {
+            "type": "integer",
+            "title": "Below Falling"
+          },
+          "other": {
+            "type": "integer",
+            "title": "Other"
+          }
+        },
+        "type": "object",
+        "required": [
+          "above_rising",
+          "above_falling",
+          "below_rising",
+          "below_falling",
+          "other"
+        ],
+        "title": "CrossPostureOut",
+        "description": "The group's names by ``sma_position`` posture; ``other`` = every other posture and every name not\npriced."
+      },
+      "CrossRadarOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "group_by": {
+            "type": "string",
+            "enum": [
+              "link",
+              "business_type",
+              "sector",
+              "card"
+            ],
+            "title": "Group By"
+          },
+          "include_silent": {
+            "type": "boolean",
+            "title": "Include Silent"
+          },
+          "price_200d": {
+            "type": "boolean",
+            "title": "Price 200D"
+          },
+          "live_cards": {
+            "type": "integer",
+            "title": "Live Cards"
+          },
+          "cards_counted": {
+            "type": "integer",
+            "title": "Cards Counted"
+          },
+          "cards_not_yet_created": {
+            "type": "integer",
+            "title": "Cards Not Yet Created"
+          },
+          "roster_fallback_cards": {
+            "type": "integer",
+            "title": "Roster Fallback Cards"
+          },
+          "basket_rows": {
+            "type": "integer",
+            "title": "Basket Rows"
+          },
+          "silent_rows_left_out": {
+            "type": "integer",
+            "title": "Silent Rows Left Out"
+          },
+          "unresolved_rows": {
+            "type": "integer",
+            "title": "Unresolved Rows"
+          },
+          "companies": {
+            "type": "integer",
+            "title": "Companies"
+          },
+          "priced_companies": {
+            "type": "integer",
+            "title": "Priced Companies"
+          },
+          "short_tape_companies": {
+            "type": "integer",
+            "title": "Short Tape Companies"
+          },
+          "stale_tape_companies": {
+            "type": "integer",
+            "title": "Stale Tape Companies"
+          },
+          "sessions": {
+            "items": {
+              "type": "string",
+              "format": "date"
+            },
+            "type": "array",
+            "title": "Sessions"
+          },
+          "clusters": {
+            "items": {
+              "$ref": "#/components/schemas/CrossClusterOut"
+            },
+            "type": "array",
+            "title": "Clusters"
+          },
+          "first_movers": {
+            "items": {
+              "$ref": "#/components/schemas/CrossFirstMoverOut"
+            },
+            "type": "array",
+            "title": "First Movers"
+          },
+          "near_cross": {
+            "items": {
+              "$ref": "#/components/schemas/CrossNearGroupOut"
+            },
+            "type": "array",
+            "title": "Near Cross"
+          },
+          "timeline": {
+            "items": {
+              "$ref": "#/components/schemas/CrossTimelineRowOut"
+            },
+            "type": "array",
+            "title": "Timeline"
+          },
+          "recent_sessions": {
+            "type": "integer",
+            "title": "Recent Sessions"
+          },
+          "history_sessions": {
+            "type": "integer",
+            "title": "History Sessions"
+          },
+          "cluster_min_names": {
+            "type": "integer",
+            "title": "Cluster Min Names"
+          },
+          "cluster_min_share_pct": {
+            "type": "integer",
+            "title": "Cluster Min Share Pct"
+          },
+          "first_mover_min_priced": {
+            "type": "integer",
+            "title": "First Mover Min Priced"
+          },
+          "near_band_pct": {
+            "type": "number",
+            "title": "Near Band Pct"
+          },
+          "near_lookback": {
+            "type": "integer",
+            "title": "Near Lookback"
+          },
+          "stale_gap_days": {
+            "type": "integer",
+            "title": "Stale Gap Days"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "group_by",
+          "include_silent",
+          "price_200d",
+          "live_cards",
+          "cards_counted",
+          "cards_not_yet_created",
+          "roster_fallback_cards",
+          "basket_rows",
+          "silent_rows_left_out",
+          "unresolved_rows",
+          "companies",
+          "priced_companies",
+          "short_tape_companies",
+          "stale_tape_companies",
+          "sessions",
+          "clusters",
+          "first_movers",
+          "near_cross",
+          "timeline",
+          "recent_sessions",
+          "history_sessions",
+          "cluster_min_names",
+          "cluster_min_share_pct",
+          "first_mover_min_priced",
+          "near_band_pct",
+          "near_lookback",
+          "stale_gap_days",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "CrossRadarOut",
+        "description": "The whole page in one view, each list in its default order (clusters by share then count; first\nmovers newest cross first; near-cross by the smallest gap; the timeline by total crosses). The counts are\nthe work shown on its quiet line; the rule dials ride along. ``sessions`` = the timeline's axis.\n``cache`` / ``compute_ms`` = whether the heavy read was served from the shared dashboard cache and how\nlong it took when it ran."
+      },
+      "CrossTimelineNameOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/CrossCardOut"
+            },
+            "type": "array",
+            "title": "Cards"
+          },
+          "priced": {
+            "type": "boolean",
+            "title": "Priced"
+          },
+          "not_priced": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "short_tape",
+                  "stale_tape"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Not Priced"
+          },
+          "bars": {
+            "type": "integer",
+            "title": "Bars"
+          },
+          "last_bar": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Bar"
+          },
+          "readable_sessions": {
+            "type": "integer",
+            "title": "Readable Sessions"
+          },
+          "crosses": {
+            "items": {
+              "$ref": "#/components/schemas/CrossMarkOut"
+            },
+            "type": "array",
+            "title": "Crosses"
+          },
+          "price_200d": {
+            "items": {
+              "$ref": "#/components/schemas/CrossMarkOut"
+            },
+            "type": "array",
+            "title": "Price 200D"
+          },
+          "gap_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap Pct"
+          },
+          "posture": {
+            "type": "string",
+            "enum": [
+              "above_rising",
+              "above_falling",
+              "below_rising",
+              "below_falling",
+              "other"
+            ],
+            "title": "Posture"
+          },
+          "rs_leading": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rs Leading"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "cards",
+          "priced",
+          "not_priced",
+          "bars",
+          "last_bar",
+          "readable_sessions",
+          "crosses",
+          "price_200d",
+          "gap_pct",
+          "posture",
+          "rs_leading"
+        ],
+        "title": "CrossTimelineNameOut",
+        "description": "One company of a timeline row. ``crosses`` = every 50d \u00d7 200d cross of the last ``history_sessions``\nsessions, newest first (``readable_sessions`` of them could be read: a name with a shorter tape reads a\nshorter history); ``price_200d`` = its price \u00d7 200d crosses when that layer is on. A name ``not_priced``\n(``short_tape`` / ``stale_tape``) reads no crosses."
+      },
+      "CrossTimelineRowOut": {
+        "properties": {
+          "group": {
+            "$ref": "#/components/schemas/CrossGroupOut"
+          },
+          "golden": {
+            "type": "integer",
+            "title": "Golden"
+          },
+          "death": {
+            "type": "integer",
+            "title": "Death"
+          },
+          "price_up": {
+            "type": "integer",
+            "title": "Price Up"
+          },
+          "price_down": {
+            "type": "integer",
+            "title": "Price Down"
+          },
+          "posture": {
+            "$ref": "#/components/schemas/CrossPostureOut"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/CrossTimelineNameOut"
+            },
+            "type": "array",
+            "title": "Members"
+          }
+        },
+        "type": "object",
+        "required": [
+          "group",
+          "golden",
+          "death",
+          "price_up",
+          "price_down",
+          "posture",
+          "members"
+        ],
+        "title": "CrossTimelineRowOut",
+        "description": "One group's crosses over the last ``history_sessions`` sessions (``golden`` / ``death`` count every\ncross), the price \u00d7 200d counts when that layer is on, and its posture bar."
       },
       "DataFlagEvidenceOut": {
         "properties": {

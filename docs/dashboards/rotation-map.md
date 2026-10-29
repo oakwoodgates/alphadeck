@@ -119,6 +119,8 @@ cache state ("cached" / "computed in 41 s — first load since the last run or b
 
 - Compute (pure): `backend/dashboards/rotation_map.py`, `rotation_map(inputs, identity, ...)`.
 - The shared cache: `backend/dashboards/cache.py`.
+- The shared basket read (the cards, their rosters, the groupings and who counts, the chunked point-in-time
+  read; shared with the Cross Radar since it was built): `backend/dashboards/baskets.py`.
 - Router: `backend/app/routers/dashboards/rotation_map.py`,
   `GET /dashboards/rotation-map?asof=&group_by=link|business_type|sector|card&include_silent=`, its wire
   models in the same module.

@@ -75,6 +75,11 @@ dashboard. Every link carries `?asof=` like the rest of the app.
    It lives in `backend/dashboards/cache.py` (built with the Rotation Map): a dashboard's router calls
    `cached(conn, "<slug>", params, asof, compute)` and gets back the value with `status` ("hit" /
    "computed") and `compute_ms`; cache the expensive read per as-of and derive each view from it.
+   The cross-card basket read lives beside it in `backend/dashboards/baskets.py` (built with the Rotation
+   Map, shared since the Cross Radar): the counted cards and their rosters at the as-of (`cards_as_of`), the
+   membership rows, the four groupings and who counts in each (`counted_rows`, `buckets`, `companies_in`),
+   and the chunked point-in-time read (`per_company`). A dashboard that groups cards' names reuses it rather
+   than re-deriving the rule.
 
 8. **Self-contained layout**, so dashboards build in parallel and delete cleanly. A slug is lowercase
    letters, digits and `-` (`tape-breadth`); the Python module name swaps `-` for `_`
@@ -136,3 +141,4 @@ dashboard. Every link carries `?asof=` like the rest of the app.
 | Idea Timeline | `idea-timeline` | experimental | [`docs/dashboards/idea-timeline.md`](dashboards/idea-timeline.md) |
 | Rotation Map | `rotation-map` | experimental | [`docs/dashboards/rotation-map.md`](dashboards/rotation-map.md) |
 | What Changed | `what-changed` | experimental | [`docs/dashboards/what-changed.md`](dashboards/what-changed.md) |
+| Cross Radar | `cross-radar` | experimental | [`docs/dashboards/cross-radar.md`](dashboards/cross-radar.md) |
