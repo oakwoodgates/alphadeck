@@ -9334,7 +9334,8 @@ export interface components {
          * @description One line. ``section`` = its group on the page; ``change`` = what moved. ``security_id`` / ``ticker`` are
          *     set for a name or a trigger line (``null`` = a card-level line; ``ticker`` is ``null`` when the master has
          *     none). ``label`` = the key's own label, or the trigger's. ``on`` = the trigger's event date, or the clock's
-         *     date (``arm_until`` / ``exit_by``); ``days`` = calendar days from the newest night to ``arm_until``.
+         *     date (``arm_until`` / ``exit_by``); ``previous_on`` = a re-dated trigger's event date on the baseline night
+         *     (``null`` on every other line); ``days`` = calendar days from the newest night to ``arm_until``.
          *     ``reconstructed`` = the card's newest row was written by ``pipeline.backfill``.
          */
         WhatChangedItemOut: {
@@ -9347,7 +9348,7 @@ export interface components {
              * Change
              * @enum {string}
              */
-            change: "state" | "key_on" | "key_off" | "armed" | "no_longer_armed" | "new_watch" | "trigger_new" | "trigger_gone" | "risk_new" | "entry_window" | "exit_by" | "new_card";
+            change: "state" | "key_on" | "key_off" | "armed" | "no_longer_armed" | "new_watch" | "trigger_new" | "trigger_gone" | "risk_new" | "trigger_redated" | "entry_window" | "exit_by" | "new_card";
             /**
              * Thesis Id
              * Format: uuid
@@ -9368,6 +9369,8 @@ export interface components {
             signal_kind: components["schemas"]["Kind"] | null;
             /** On */
             on: string | null;
+            /** Previous On */
+            previous_on: string | null;
             /** Days */
             days: number | null;
         };

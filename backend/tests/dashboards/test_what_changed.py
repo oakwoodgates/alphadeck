@@ -118,6 +118,7 @@ def lines(result: WhatChanged) -> list[tuple]:
             "trigger_new": (i.label, i.signal_kind),
             "trigger_gone": (i.label, i.signal_kind),
             "risk_new": (i.label, i.signal_kind),
+            "trigger_redated": (i.label, i.signal_kind, i.previous_on, i.on),
             "entry_window": (i.on, i.days),
             "exit_by": i.on,
             "new_card": i.to_state,
@@ -240,19 +241,20 @@ def test_the_same_trigger_re_recorded_is_not_a_change():
 
 
 @pytest.mark.parametrize(
-    "changed",
+    "changed, changes",
     [
-        {"kind": Kind.SQUEEZE},
-        {"on": date(2026, 10, 21)},
-        {"sid": B},
+        ({"kind": Kind.SQUEEZE}, ["trigger_new", "trigger_gone"]),
+        ({"sid": B}, ["trigger_new", "trigger_gone"]),
+        # the same kind on the same security with only the date moved: one re-dated line (below)
+        ({"on": date(2026, 10, 21)}, ["trigger_redated"]),
     ],
 )
-def test_each_part_of_the_trigger_identity_counts(changed):
+def test_each_part_of_the_trigger_identity_counts(changed, changes):
     base = trig(A)
     args = {"sid": A, "label": base.label, "kind": base.kind, "on": base.event_date, **changed}
     now = trig(args.pop("sid"), **args)
     result = diff(cc(triggers_fired=[now]), cc(asof=PREV, triggers_fired=[base]))
-    assert [i.change for i in result.items] == ["trigger_new", "trigger_gone"]
+    assert [i.change for i in result.items] == changes
 
 
 # the label is NOT part of the identity: labels carry numbers that move every night. The labels below are
@@ -275,14 +277,67 @@ def test_a_trigger_whose_label_changed_alone_is_neither_new_nor_gone():
     assert diff(cc(triggers_fired=[now]), cc(asof=PREV, triggers_fired=[base])).items == ()
 
 
-def test_a_trigger_on_a_new_event_date_is_one_gone_and_one_new_each_with_its_own_cards_label():
-    base = trig(A, "8-day breakout on 0.6x avg volume", Kind.TECHNICAL_BREAKOUT, date(2026, 10, 20))
-    now = trig(A, "8-day breakout on 1.4x avg volume", Kind.TECHNICAL_BREAKOUT, date(2026, 10, 27))
-    result = diff(cc(triggers_fired=[now]), cc(asof=PREV, triggers_fired=[base]))
-    assert [(i.change, i.label, i.on) for i in result.items] == [
-        ("trigger_new", "8-day breakout on 1.4x avg volume", date(2026, 10, 27)),  # the now card's
-        ("trigger_gone", "8-day breakout on 0.6x avg volume", date(2026, 10, 20)),  # the baseline's
+def test_a_trigger_on_a_new_event_date_beside_another_is_gone_and_new_each_with_its_own_cards_label():
+    # two of one kind on one security went and one came: not a lone re-date, so separate lines, each
+    # carrying its own card's label
+    kind = Kind.TECHNICAL_BREAKOUT
+    base_1 = trig(A, "8-day breakout on 0.6x avg volume", kind, date(2026, 10, 20))
+    base_2 = trig(A, "8-day breakout on 0.9x avg volume", kind, date(2026, 10, 23))
+    now = trig(A, "8-day breakout on 1.4x avg volume", kind, date(2026, 10, 27))
+    result = diff(cc(triggers_fired=[now]), cc(asof=PREV, triggers_fired=[base_1, base_2]))
+    assert [(i.change, i.label, i.on, i.previous_on) for i in result.items] == [
+        ("trigger_new", "8-day breakout on 1.4x avg volume", date(2026, 10, 27), None),
+        ("trigger_gone", "8-day breakout on 0.6x avg volume", date(2026, 10, 20), None),
+        ("trigger_gone", "8-day breakout on 0.9x avg volume", date(2026, 10, 23), None),
     ]
+
+
+# a breakout re-dates to the newest bar on each new 8-day high: the label shapes MEASURED on dev (prod's
+# data) on Oct 27 and Oct 28, where 38 breakouts read as both "no longer firing" and "fired"
+BREAKOUT_OCT_27 = "close 10.80 cleared the 8-day high 10.15"
+BREAKOUT_OCT_28 = "close 11.11 cleared the 8-day high 10.80"
+
+
+def test_a_re_dated_breakout_is_one_re_dated_line_with_both_dates_and_the_now_label():
+    kind = Kind.TECHNICAL_BREAKOUT
+    base = trig(A, BREAKOUT_OCT_27, kind, PREV)
+    now = trig(A, BREAKOUT_OCT_28, kind, T)
+    result = diff(cc(triggers_fired=[now]), cc(asof=PREV, triggers_fired=[base]))
+    assert lines(result) == [("trigger_redated", "AAA", (BREAKOUT_OCT_28, kind, PREV, T))]
+    (item,) = result.items
+    assert (item.section, item.security_id) == ("triggers", A)
+    assert result.cards_with_change == 1
+
+
+def test_a_re_date_sits_after_the_other_trigger_lines_and_pairs_only_its_own_name():
+    kind = Kind.TECHNICAL_BREAKOUT
+    base = [trig(A, BREAKOUT_OCT_27, kind, PREV), trig(B, "Insider cluster buy", Kind.INSIDER)]
+    now = [trig(A, BREAKOUT_OCT_28, kind, T), trig(C, "8-day breakout", kind, T)]
+    result = diff(cc(triggers_fired=now), cc(asof=PREV, triggers_fired=base))
+    assert [(i.change, i.ticker) for i in result.items] == [
+        ("trigger_new", "CCC"),
+        ("trigger_gone", "BBB"),
+        ("trigger_redated", "AAA"),
+    ]
+
+
+@pytest.mark.parametrize("gone, new", [(2, 1), (1, 2), (2, 2)])
+def test_more_than_one_gone_or_new_on_a_name_stays_separate_lines(gone, new):
+    kind = Kind.TECHNICAL_BREAKOUT
+    base = [trig(A, f"breakout {d}", kind, date(2026, 10, d)) for d in (1, 2)[:gone]]
+    now = [trig(A, f"breakout {d}", kind, date(2026, 10, d)) for d in (27, 28)[:new]]
+    result = diff(cc(triggers_fired=now), cc(asof=PREV, triggers_fired=base))
+    assert [i.change for i in result.items] == ["trigger_new"] * new + ["trigger_gone"] * gone
+    assert all(i.previous_on is None for i in result.items)
+
+
+def test_a_risk_signal_is_never_re_dated():
+    base = trig(A, BREAKDOWN_OCT_27, Kind.BREAKDOWN, date(2026, 10, 9))
+    now = trig(A, BREAKDOWN_OCT_28, Kind.BREAKDOWN, date(2026, 10, 10))
+    result = diff(cc(risk_signals=[now]), cc(asof=PREV, risk_signals=[base]))
+    # a risk on a new date is a new risk signal (a cleared one is never a line), never a re-date
+    assert lines(result) == [("risk_new", "AAA", (BREAKDOWN_OCT_28, Kind.BREAKDOWN))]
+    assert result.items[0].previous_on is None
 
 
 def test_two_same_identity_signals_on_one_card_are_one_with_the_first_label():
@@ -625,6 +680,23 @@ def test_the_router_threads_each_since(stub_client):
         "2026-10-02",
         "2026-10-02",
     )
+
+
+def test_the_router_serves_a_re_dated_trigger_with_both_dates(stub_client, monkeypatch):
+    client, _ = stub_client
+    kind = Kind.TECHNICAL_BREAKOUT
+
+    def fake_in_effect(conn, ids, on):
+        fired = (
+            trig(A, BREAKOUT_OCT_28, kind, T) if on == T else trig(A, BREAKOUT_OCT_27, kind, PREV)
+        )
+        return {TID: rec(cc(asof=on, triggers_fired=[fired]))}
+
+    monkeypatch.setattr(router_mod, "_in_effect", fake_in_effect)
+    body = client.get("/dashboards/what-changed").json()
+    assert [
+        (i["change"], i["ticker"], i["label"], i["previous_on"], i["on"]) for i in body["items"]
+    ] == [("trigger_redated", "AAA", BREAKOUT_OCT_28, "2026-10-27", "2026-10-28")]
 
 
 @pytest.mark.parametrize(

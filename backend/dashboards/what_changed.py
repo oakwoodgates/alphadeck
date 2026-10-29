@@ -24,6 +24,10 @@ The rules, in one place:
   a continuing signal would read as new every night. A new or continuing signal shows the NOW card's label;
   one no longer firing shows the BASELINE card's. Two signals with the same identity on one card are one
   (the first in list order, and its label).
+- A fired trigger that only moved its event date (EXACTLY one gone and EXACTLY one new with the same kind and
+  security on a card; a breakout re-dates to the newest bar on every new 8-day high) is ONE "re-dated" line
+  with both dates and the now card's label, never a "no longer firing" + "fired" pair; any other count stays
+  separate lines, and risk signals are never re-dated.
 - Clocks, on the now card only, counted from T in calendar days (the Decision Queue's "act within Nd"):
   the entry window (``arm_until``) closing within ``ENTRY_WINDOW_DAYS``, and ``exit_by`` reached inside the
   window (after the baseline night, on or before T).
@@ -59,6 +63,7 @@ Change = Literal[
     "trigger_new",  # triggers
     "trigger_gone",
     "risk_new",
+    "trigger_redated",
     "entry_window",  # clocks
     "exit_by",
     "new_card",  # new_cards
@@ -154,8 +159,9 @@ class CardRef:
 class ChangeItem:
     """One line. ``security_id`` / ``ticker`` are set for a name or a trigger (``None`` = a card-level line);
     ``ticker`` is ``None`` when the master has no ticker for it. ``label`` = the key's own label, or the
-    trigger's. ``on`` = the trigger's event date, or the clock's date (``arm_until`` / ``exit_by``); ``days`` =
-    calendar days from T to ``arm_until``. ``reconstructed`` = the card's NOW row was written by
+    trigger's. ``on`` = the trigger's event date, or the clock's date (``arm_until`` / ``exit_by``);
+    ``previous_on`` = a re-dated trigger's event date on the baseline card (``None`` on every other line);
+    ``days`` = calendar days from T to ``arm_until``. ``reconstructed`` = the card's NOW row was written by
     ``pipeline.backfill``."""
 
     section: Section
@@ -170,6 +176,7 @@ class ChangeItem:
     label: str | None = None
     signal_kind: Kind | None = None
     on: date | None = None
+    previous_on: date | None = None
     days: int | None = None
 
 
@@ -199,6 +206,25 @@ def _triggers(refs: Iterable[TriggerRef]) -> dict[tuple, TriggerRef]:
     for t in refs:
         out.setdefault(_trigger_id(t), t)
     return out
+
+
+def _redated(new: list[TriggerRef], gone: list[TriggerRef]) -> list[tuple[TriggerRef, TriggerRef]]:
+    """The fired triggers that only moved their event date, as ``(now, baseline)`` pairs: per
+    ``(kind, security)``, EXACTLY one new and EXACTLY one gone. Any other count pairs nothing (those stay
+    separate new / gone lines)."""
+
+    def by_name(refs: list[TriggerRef]) -> dict[tuple[Kind, UUID], list[TriggerRef]]:
+        out: dict[tuple[Kind, UUID], list[TriggerRef]] = {}
+        for t in refs:
+            out.setdefault((t.kind, t.security_id), []).append(t)
+        return out
+
+    gone_by = by_name(gone)
+    return [
+        (now[0], gone_by[k][0])
+        for k, now in by_name(new).items()
+        if len(now) == 1 and len(gone_by.get(k, ())) == 1
+    ]
 
 
 def _members(members: Iterable[MemberCall]) -> list[UUID]:
@@ -265,23 +291,24 @@ def _card_changes(
             add("names", change, security_id=sid)
 
     # 4. triggers (identity = kind, security, event date; a new line carries the now card's label, a gone
-    # line the baseline card's, since each comes from its own card's map)
+    # line the baseline card's, since each comes from its own card's map). A fired trigger that only moved
+    # its event date is one re-dated line, never a gone + new pair; risk signals are never re-dated.
     now_fired, base_fired = _triggers(n.triggers_fired), _triggers(b.triggers_fired)
     base_risk = _triggers(b.risk_signals)
+    fired_new = [t for k, t in now_fired.items() if k not in base_fired]
+    fired_gone = [t for k, t in base_fired.items() if k not in now_fired]
+    redated = _redated(fired_new, fired_gone)
+    paired = {(t.kind, t.security_id) for t, _ in redated}
+
+    def trigger_order(t: TriggerRef) -> tuple:
+        return (*by_ticker(t.security_id), t.kind.value, t.label, t.event_date or date.min)
+
     for change, refs in (
-        ("trigger_new", [t for k, t in now_fired.items() if k not in base_fired]),
-        ("trigger_gone", [t for k, t in base_fired.items() if k not in now_fired]),
+        ("trigger_new", [t for t in fired_new if (t.kind, t.security_id) not in paired]),
+        ("trigger_gone", [t for t in fired_gone if (t.kind, t.security_id) not in paired]),
         ("risk_new", [t for k, t in _triggers(n.risk_signals).items() if k not in base_risk]),
     ):
-        for t in sorted(
-            refs,
-            key=lambda t: (
-                *by_ticker(t.security_id),
-                t.kind.value,
-                t.label,
-                t.event_date or date.min,
-            ),
-        ):
+        for t in sorted(refs, key=trigger_order):
             add(
                 "triggers",
                 change,
@@ -290,6 +317,16 @@ def _card_changes(
                 signal_kind=t.kind,
                 on=t.event_date,
             )
+    for t, was in sorted(redated, key=lambda pair: trigger_order(pair[0])):
+        add(
+            "triggers",
+            "trigger_redated",
+            security_id=t.security_id,
+            label=t.label,  # the now card's
+            signal_kind=t.kind,
+            on=t.event_date,
+            previous_on=was.event_date,
+        )
 
     # 5. clocks, on the now card as of T (calendar days)
     if n.arm_until is not None and 0 <= (days := (n.arm_until - latest).days) <= ENTRY_WINDOW_DAYS:

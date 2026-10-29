@@ -19006,6 +19006,7 @@
               "trigger_new",
               "trigger_gone",
               "risk_new",
+              "trigger_redated",
               "entry_window",
               "exit_by",
               "new_card"
@@ -19101,6 +19102,18 @@
             ],
             "title": "On"
           },
+          "previous_on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous On"
+          },
           "days": {
             "anyOf": [
               {
@@ -19127,10 +19140,11 @@
           "label",
           "signal_kind",
           "on",
+          "previous_on",
           "days"
         ],
         "title": "WhatChangedItemOut",
-        "description": "One line. ``section`` = its group on the page; ``change`` = what moved. ``security_id`` / ``ticker`` are\nset for a name or a trigger line (``null`` = a card-level line; ``ticker`` is ``null`` when the master has\nnone). ``label`` = the key's own label, or the trigger's. ``on`` = the trigger's event date, or the clock's\ndate (``arm_until`` / ``exit_by``); ``days`` = calendar days from the newest night to ``arm_until``.\n``reconstructed`` = the card's newest row was written by ``pipeline.backfill``."
+        "description": "One line. ``section`` = its group on the page; ``change`` = what moved. ``security_id`` / ``ticker`` are\nset for a name or a trigger line (``null`` = a card-level line; ``ticker`` is ``null`` when the master has\nnone). ``label`` = the key's own label, or the trigger's. ``on`` = the trigger's event date, or the clock's\ndate (``arm_until`` / ``exit_by``); ``previous_on`` = a re-dated trigger's event date on the baseline night\n(``null`` on every other line); ``days`` = calendar days from the newest night to ``arm_until``.\n``reconstructed`` = the card's newest row was written by ``pipeline.backfill``."
       },
       "WhatChangedOut": {
         "properties": {

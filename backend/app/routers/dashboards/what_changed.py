@@ -87,7 +87,8 @@ class WhatChangedItemOut(_Wire):
     """One line. ``section`` = its group on the page; ``change`` = what moved. ``security_id`` / ``ticker`` are
     set for a name or a trigger line (``null`` = a card-level line; ``ticker`` is ``null`` when the master has
     none). ``label`` = the key's own label, or the trigger's. ``on`` = the trigger's event date, or the clock's
-    date (``arm_until`` / ``exit_by``); ``days`` = calendar days from the newest night to ``arm_until``.
+    date (``arm_until`` / ``exit_by``); ``previous_on`` = a re-dated trigger's event date on the baseline night
+    (``null`` on every other line); ``days`` = calendar days from the newest night to ``arm_until``.
     ``reconstructed`` = the card's newest row was written by ``pipeline.backfill``."""
 
     section: Section
@@ -102,6 +103,7 @@ class WhatChangedItemOut(_Wire):
     label: str | None
     signal_kind: Kind | None
     on: date | None
+    previous_on: date | None
     days: int | None
 
 

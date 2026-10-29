@@ -58,6 +58,11 @@ function signal(i: Item): string {
     .join(" · ");
 }
 
+/** label · kind: a re-dated trigger's names, before its two dates */
+function redated(i: Item): string {
+  return [i.label, i.signal_kind?.replace(/_/g, " ")].filter(Boolean).join(" · ");
+}
+
 function entryWindow(i: Item): string {
   const days = i.days ?? 0;
   return days === 0
@@ -65,7 +70,8 @@ function entryWindow(i: Item): string {
     : `entry window closes in ${plural(days, "day", "days")} · ${fmtDate(i.on)}`;
 }
 
-/** The line's own words. Neutral throughout: a trigger that stopped is "no longer firing". */
+/** The line's own words. Neutral throughout: a trigger that stopped is "no longer firing", one still firing
+ *  on a newer event date is "re-dated". */
 function What({ item }: { item: Item }) {
   switch (item.change) {
     case "state":
@@ -91,6 +97,13 @@ function What({ item }: { item: Item }) {
       return <>no longer firing · {signal(item)}</>;
     case "risk_new":
       return <>new risk signal · {signal(item)}</>;
+    case "trigger_redated":
+      return (
+        <>
+          re-dated · {redated(item)} · {fmtDate(item.previous_on)}{" "}
+          <span className="wc-arrow">→</span> {fmtDate(item.on)}
+        </>
+      );
     case "entry_window":
       return <>{entryWindow(item)}</>;
     case "exit_by":
@@ -129,7 +142,8 @@ function Line({
     <li>
       <button
         type="button"
-        className={`wc-line${showCard ? "" : " in-card"}`}
+        // a re-dated trigger is still firing: quieter than a fired / no-longer-firing line (WB#3)
+        className={`wc-line${showCard ? "" : " in-card"}${item.change === "trigger_redated" ? " wc-redated" : ""}`}
         title={`Open ${item.thesis_name}${item.ticker ? ` on ${item.ticker}` : ""}`}
         onClick={open}
       >

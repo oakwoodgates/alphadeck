@@ -51,6 +51,11 @@ Comparing the two `CallCard`s (`calls.card`, parsed with `domain.call.CallCard.m
      for one no longer firing.
    - Two signals with the same identity on one card count as one (the first in list order, with its
      label).
+   - A fired trigger that only moved its event date (exactly one gone and exactly one new with the same
+     `kind` and `security_id` on a card, e.g. a breakout re-dating to the newest bar on each new 8-day high)
+     is one quiet "re-dated Oct 27 → Oct 28" line (`trigger_redated`, the now card's label, `previous_on` =
+     the old date), never "no longer firing" + "fired"; any other count stays separate lines, and risk
+     signals are never re-dated.
    - Wording is neutral: "no longer firing", never "expired" or "failed".
 5. **Clocks (on the now card only, as of T):**
    - `arm_until` within the next 3 calendar days ("entry window closes in N days")

@@ -36,6 +36,10 @@
 .wc-what { color: var(--txt-3); }
 .wc-line:hover .wc-what { color: var(--txt-2); }
 .wc-arrow { color: var(--txt-4); }
+/* a re-dated trigger (still firing, its event date moved): quieter than a fired / no-longer-firing line —
+   the ticker drops to the line's own gray, unbolded; hover lifts it like any line */
+.wc-line.wc-redated .wc-tk { color: var(--txt-3); font-weight: 400; }
+.wc-line.wc-redated:hover .wc-tk { color: var(--txt-2); }
 .wc-st { font-weight: 600; }
 .wc-st.incub { color: var(--incub); }
 .wc-st.warm { color: var(--warm); }

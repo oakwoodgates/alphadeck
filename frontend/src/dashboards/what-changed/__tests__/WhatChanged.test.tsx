@@ -35,6 +35,7 @@ const item = (
   label: null,
   signal_kind: null,
   on: null,
+  previous_on: null,
   days: null,
   ...over,
 });
@@ -155,6 +156,36 @@ describe("What Changed — group by kind (the default)", () => {
     const text = screen.getByRole("region", { name: "Triggers" }).textContent ?? "";
     expect(text).toContain("no longer firing");
     expect(text).not.toMatch(/expired|failed/i);
+  });
+
+  it("a re-dated trigger is one quiet line with both dates, never a stop and a fire", () => {
+    const redated = item(GRID, "triggers", "trigger_redated", {
+      security_id: "s-aaa",
+      ticker: "AAA",
+      label: "close 11.11 cleared the 8-day high 10.80",
+      signal_kind: "technical_breakout",
+      previous_on: "2026-10-27",
+      on: "2026-10-28",
+    });
+    const fired = ITEMS.find((i) => i.change === "trigger_new")!;
+    h.useWhatChanged.mockReturnValue(query({ ...DATA, items: [fired, redated] }));
+    renderPage();
+    const section = screen.getByRole("region", { name: "Triggers" });
+    expect(sections()).toEqual([
+      {
+        heading: "Triggers · 2",
+        lines: [
+          "GridAAAfired · 8-day breakout · technical breakout · Oct 28",
+          "GridAAAre-dated · close 11.11 cleared the 8-day high 10.80 · technical breakout · " +
+            "Oct 27 → Oct 28",
+        ],
+      },
+    ]);
+    const [firedLine, redatedLine] = within(section).getAllByRole("button");
+    // quieter than a fired line: the muted modifier, on the re-dated line only
+    expect(redatedLine).toHaveClass("wc-line", "wc-redated");
+    expect(firedLine).not.toHaveClass("wc-redated");
+    expect(section.textContent).not.toMatch(/no longer firing|expired|failed/i);
   });
 
   it("an entry window closing on the newest night says so", () => {
