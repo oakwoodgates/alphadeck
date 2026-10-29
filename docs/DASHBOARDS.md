@@ -177,3 +177,4 @@ the data flags). Its plan is `docs/BOARD.md`.
 | Cross Radar | `cross-radar` | experimental | [`docs/dashboards/cross-radar.md`](dashboards/cross-radar.md) |
 | Catalyst Calendar | `catalyst-calendar` | experimental | [`docs/dashboards/catalyst-calendar.md`](dashboards/catalyst-calendar.md) |
 | Leaders | `leaders` | experimental | [`docs/dashboards/leaders.md`](dashboards/leaders.md) |
+| Price & Volume Landing | `landing` | experimental | [`docs/dashboards/landing.md`](dashboards/landing.md) |

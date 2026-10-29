@@ -109,4 +109,12 @@ export const DASHBOARDS: readonly DashboardEntry[] = [
     asofAware: true,
     component: lazy(() => import("./leaders/Leaders")),
   },
+  {
+    slug: "landing",
+    label: "Price & Volume Landing",
+    description: "Where price closed in each window's range, and whether volume backed the move, by group.",
+    status: "experimental",
+    asofAware: true,
+    component: lazy(() => import("./landing/Landing")),
+  },
 ];

@@ -1,0 +1,64 @@
+/* Price & Volume Landing (docs/dashboards/landing.md) — its own sheet, imported by the component, never
+   index.css (docs/DASHBOARDS.md rule 8). The Rotation Map's dense dark table: mono numbers, uppercase quiet
+   headers. Loudness marks the exception only (#7 / WB#3): the range bars are thin gray fills, and of the
+   quadrant words only accumulation and distribution carry a quiet tone (the Cockpit's --pos / --neg, muted);
+   every other cell stays gray. */
+
+.ld { display: flex; flex-direction: column; gap: 8px; }
+.ld-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
+.ld-seg { display: inline-flex; align-items: center; gap: 4px; }
+.ld-seg-label { font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); margin-right: 4px; }
+.ld-seg-btn { font: inherit; font-size: 11px; color: var(--txt-3); background: transparent; border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 9px; cursor: pointer; }
+.ld-seg-btn:hover { color: var(--txt-2); }
+.ld-seg-btn.on { color: var(--txt); background: var(--panel-2); }
+.ld-check { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--txt-2); cursor: pointer; }
+.ld-check input { accent-color: var(--txt-3); margin: 0; }
+.ld-work, .ld-legend { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
+.ld-legend { font-family: inherit; color: var(--txt-4); }
+
+.ld-scroll { overflow-x: auto; margin-top: 6px; }
+table.ld-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+table.ld-table th { text-align: left; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); font-weight: 600; padding: 0 14px 8px 0; border-bottom: 1px solid var(--line); white-space: nowrap; vertical-align: bottom; }
+table.ld-table td { padding: 7px 14px 7px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.ld-table .ld-num { text-align: right; }
+table.ld-table th.ld-num .ld-sort { justify-content: flex-end; }
+.ld-sort { font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; display: inline-flex; align-items: center; gap: 3px; }
+.ld-sort:hover, .ld-sort.active { color: var(--txt-2); }
+.ld-sort:focus-visible { outline: 1px solid var(--line-2); outline-offset: 2px; border-radius: 2px; }
+.ld-arrow { font-size: 8px; line-height: 1; }
+.ld-win-label { display: block; color: var(--txt-3); margin-bottom: 3px; cursor: help; }
+.ld-win-sorts { display: inline-flex; gap: 8px; text-transform: none; letter-spacing: 0.02em; }
+
+/* a group row: click to show its names */
+tr.ld-group { cursor: pointer; }
+tr.ld-group:hover td { background: var(--panel); }
+tr.ld-group:focus-visible { outline: 1px solid var(--line-2); outline-offset: -1px; }
+tr.ld-group.open td { background: var(--panel); }
+tr.ld-group.quiet .ld-label { color: var(--txt-3); }
+.ld-label { color: var(--txt); font-weight: 600; white-space: nowrap; max-width: 340px; overflow: hidden; text-overflow: ellipsis; }
+.ld-chev { display: inline-block; width: 14px; color: var(--txt-4); font-size: 10px; }
+
+/* a window cell: the thin range bar + its %, then the split, then the volume line */
+.ld-cell { min-width: 132px; }
+.ld-pos { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.ld-bar { position: relative; display: inline-block; width: 54px; height: 3px; border-radius: 2px; background: var(--line-2); overflow: hidden; flex: none; }
+.ld-bar-fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--txt-3); }
+.ld-v { font-family: var(--mono); font-size: 11px; color: var(--txt-3); white-space: nowrap; }
+.ld-n { font-family: var(--mono); font-size: 9.5px; color: var(--txt-4); white-space: nowrap; }
+.ld-sub, .ld-split { display: block; margin-top: 3px; font-family: var(--mono); font-size: 9.5px; color: var(--txt-4); white-space: nowrap; }
+.ld-split { color: var(--txt-3); cursor: help; }
+.ld-dot { color: var(--txt-4); }
+/* the two toned quadrants: quiet, never the full return green / red */
+.ld-q.accumulation, .ld-chip-q.accumulation { color: color-mix(in srgb, var(--pos) 55%, var(--txt-3)); }
+.ld-q.distribution, .ld-chip-q.distribution { color: color-mix(in srgb, var(--neg) 55%, var(--txt-3)); }
+.ld-chip-q { display: inline-block; min-width: 34px; color: var(--txt-3); }
+
+/* a group's names, under its row: quieter and indented */
+tr.ld-name td { padding-top: 4px; padding-bottom: 4px; background: color-mix(in srgb, var(--panel) 50%, transparent); }
+table.ld-table td.ld-name-id { padding-left: 14px; white-space: nowrap; }
+.ld-tk { font-family: var(--mono); font-weight: 700; font-size: 11px; color: var(--txt-2); margin-right: 8px; }
+.ld-chips { display: inline-flex; flex-wrap: wrap; gap: 4px; vertical-align: middle; }
+.ld-chip { font: inherit; font-size: 10.5px; padding: 1px 7px; border: 1px solid var(--line-2); border-radius: 6px; background: transparent; color: var(--txt-3); cursor: pointer; }
+.ld-chip:hover { color: var(--txt); border-color: var(--txt-4); background: var(--panel-2); }
+.ld-chip-links { color: var(--txt-4); }
+.ld-off { margin-left: 8px; font-family: var(--mono); font-size: 9.5px; color: var(--txt-4); }
