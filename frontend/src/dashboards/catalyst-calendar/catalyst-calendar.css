@@ -1,0 +1,74 @@
+/* Catalyst Calendar (docs/dashboards/catalyst-calendar.md) — its own sheet, imported by the component, never
+   index.css (docs/DASHBOARDS.md rule 8). Dense, quiet one-line rows like What Changed: everything sits in the
+   muted grays except each line's state chip, which reads in its Board column's own color (--incub, --warm,
+   --armed, --manage). A card deadline wears a dashed "deadline" tag; the passed list is quieter still. */
+
+.ccal { display: flex; flex-direction: column; gap: 8px; }
+.ccal-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.ccal-text { font: inherit; font-size: 11.5px; color: var(--txt-2); background: var(--panel); border: 1px solid var(--line-2); border-radius: 6px; padding: 3px 8px; min-width: 220px; }
+.ccal-text::placeholder { color: var(--txt-4); }
+.ccal-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--txt-3); cursor: pointer; }
+.ccal-toggle input { accent-color: var(--txt-3); margin: 0; }
+.ccal-clear { font: inherit; font-size: 11px; color: var(--txt-3); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.ccal-clear:hover { color: var(--txt-2); }
+.ccal-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.ccal-chip { font: inherit; font-size: 11px; color: var(--txt-3); background: transparent; border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 9px; cursor: pointer; }
+.ccal-chip:hover { color: var(--txt-2); }
+.ccal-chip.on { color: var(--txt); background: var(--panel-2); }
+/* a state chip carries its Board color as a small swatch, never as its text */
+.ccal-state-chip::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 2px; margin-right: 6px; background: var(--ccal-st, var(--txt-4)); }
+.ccal-work { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); line-height: 1.5; }
+.ccal-quiet { font-size: 12px; color: var(--txt-3); padding: 2px 6px; }
+.ccal-note { font-size: 11px; color: var(--txt-4); padding: 0 6px 2px; }
+
+/* the state colors, once (scoped to this page): a chip's swatch and a line's state word read --ccal-st */
+.ccal .incub { --ccal-st: var(--incub); }
+.ccal .warm { --ccal-st: var(--warm); }
+.ccal .armed { --ccal-st: var(--armed); }
+.ccal .manage { --ccal-st: var(--manage); }
+
+.ccal-sec { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
+.ccal-h { margin: 0 0 2px; font-size: 10px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--txt-3); display: flex; align-items: center; }
+.ccal-h::after { content: ""; flex: 1; height: 1px; background: var(--line); margin-left: 8px; }
+.ccal-ct { font-family: var(--mono); font-weight: 400; letter-spacing: 0.02em; text-transform: none; color: var(--txt-2); white-space: pre; }
+.ccal-bucket { display: flex; flex-direction: column; gap: 1px; margin-top: 4px; }
+.ccal-bh { margin: 0 0 1px; padding: 0 6px; font-size: 11px; font-weight: 600; color: var(--txt-2); }
+.ccal-range { font-family: var(--mono); font-weight: 400; font-size: 10.5px; color: var(--txt-4); white-space: pre; }
+.ccal-bh .ccal-ct { font-size: 10.5px; color: var(--txt-3); }
+
+.ccal-list { list-style: none; margin: 0; padding: 0; }
+.ccal-line { font: inherit; font-size: 12px; width: 100%; display: grid; grid-template-columns: 124px 84px minmax(160px, 460px) 140px minmax(120px, 280px) 84px; justify-content: start; gap: 0 12px; align-items: baseline; padding: 3px 6px; border: 0; border-radius: 4px; background: transparent; color: var(--txt-2); text-align: left; cursor: pointer; }
+.ccal-line:hover { background: var(--panel); color: var(--txt); }
+.ccal-line:focus-visible { outline: 1px solid var(--line-2); outline-offset: -1px; }
+.ccal-date { font-family: var(--mono); font-size: 11px; color: var(--txt-2); white-space: nowrap; }
+.ccal-days { font-family: var(--mono); font-size: 11px; color: var(--txt-3); white-space: nowrap; }
+.ccal-label { color: var(--txt-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ccal-kind, .ccal-when { font-size: 11px; color: var(--txt-4); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ccal-card { color: var(--txt-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ccal-line:hover .ccal-card { color: var(--txt-2); }
+.ccal-st { justify-self: start; font-size: 9.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ccal-st, var(--txt-4)); border: 1px solid var(--line-2); border-radius: 4px; padding: 0 5px; white-space: nowrap; cursor: help; }
+.ccal-st.none { font-weight: 400; letter-spacing: 0; color: var(--txt-4); border-style: dashed; }
+
+/* a card deadline: the call's own clock, not an authored catalyst — its label in italics, a dashed tag */
+.ccal-deadline .ccal-label { font-style: italic; color: var(--txt-3); }
+.ccal-tag { font-size: 9.5px; letter-spacing: 0.02em; color: var(--txt-3); border: 1px dashed var(--line-2); border-radius: 4px; padding: 0 5px; cursor: help; }
+
+/* the passed list: quieter than the calendar, every word one step down */
+.ccal-passed .ccal-date, .ccal-passed .ccal-label { color: var(--txt-3); }
+.ccal-passed .ccal-days { color: var(--txt-4); }
+.ccal-passed:hover .ccal-label { color: var(--txt-2); }
+
+/* undated: one row per card (count, card, state), expandable to its labels */
+.ccal-urow { display: flex; align-items: baseline; gap: 6px; }
+.ccal-urow .ccal-uline { width: auto; grid-template-columns: 28px minmax(160px, 360px) 84px; }
+.ccal-count { font-family: var(--mono); font-size: 11px; color: var(--txt-2); text-align: right; }
+.ccal-expand { font: inherit; font-size: 10.5px; color: var(--txt-4); background: none; border: 0; padding: 0 4px; cursor: pointer; }
+.ccal-expand:hover { color: var(--txt-2); }
+.ccal-ulist { margin: 0 0 4px 40px; }
+.ccal-ucat { grid-template-columns: minmax(160px, 420px) 110px 140px; font-size: 11.5px; padding: 2px 6px; }
+
+@media (max-width: 760px) {
+  .ccal-line { grid-template-columns: 1fr 1fr; gap: 1px 8px; }
+  .ccal-uline, .ccal-ucat { grid-template-columns: 1fr 1fr; }
+  .ccal-ulist { margin-left: 12px; }
+}

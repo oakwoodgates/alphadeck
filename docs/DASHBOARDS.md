@@ -142,4 +142,5 @@ dashboard. Every link carries `?asof=` like the rest of the app.
 | Rotation Map | `rotation-map` | experimental | [`docs/dashboards/rotation-map.md`](dashboards/rotation-map.md) |
 | What Changed | `what-changed` | experimental | [`docs/dashboards/what-changed.md`](dashboards/what-changed.md) |
 | Cross Radar | `cross-radar` | experimental | [`docs/dashboards/cross-radar.md`](dashboards/cross-radar.md) |
+| Catalyst Calendar | `catalyst-calendar` | experimental | [`docs/dashboards/catalyst-calendar.md`](dashboards/catalyst-calendar.md) |
 | Leaders | `leaders` | experimental | [`docs/dashboards/leaders.md`](dashboards/leaders.md) |
