@@ -73,6 +73,7 @@ from domain.market_time import market_now, market_today, market_tz
 from domain.settings import Settings, get_settings
 from domain.thesis import Thesis
 from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
+from ingest.edgar.filing_index import SKIP_REASONS as FILING_INDEX_SKIP_REASONS
 from ingest.edgar.form25 import delisted_class_is_other
 from notify import DigestThesis, HealthEvent, Notifier, TransitionEvent, get_notifier
 from pipeline import onboarding, pass_timings, push_policy
@@ -372,6 +373,58 @@ def _print_fundamentals(results: list[ThesisRunResult], asof: date | None = None
     for r in results:
         if r.fundamentals_error:
             print(f"WARNING: {r.name}: fundamentals refresh failed: {r.fundamentals_error}")
+
+
+def _print_filing_index(results: list[ThesisRunResult]) -> None:
+    """The pass's ONE filing-index line (``ingest_thesis._filing_index_leg``, migration 0070): filings indexed,
+    the names they belong to, the index rows skipped (by reason) and the listed acceptance times set aside
+    (stored without one) — then one ``filing index ERROR:`` line per company whose leg failed. Deduped by
+    company across theses (a company two theses hold is walked twice; the second walk appends nothing). Loud only
+    when nonzero (#7): a night that indexed nothing and failed nothing prints nothing. A failure here is a
+    PASSENGER's — it never withheld a call or made ``ingest_fresh`` false."""
+    appended: dict[UUID, int] = {}
+    set_aside: dict[UUID, int] = {}
+    skips: dict[UUID, dict[str, str]] = {}
+    errors: dict[UUID, str] = {}
+    labels: dict[UUID, str] = {}
+    for r in results:
+        for x in r.ingested:
+            sid = x.security_id
+            labels.setdefault(sid, x.ticker or str(sid))
+            appended[sid] = appended.get(sid, 0) + (getattr(x, "filing_index_appended", 0) or 0)
+            set_aside[sid] = set_aside.get(sid, 0) + (
+                getattr(x, "filing_index_accepted_set_aside", 0) or 0
+            )
+            for key, why in getattr(x, "filing_index_skips", ()) or ():
+                skips.setdefault(sid, {})[key] = why
+            err = getattr(x, "filing_index_error", None)
+            if err:
+                errors.setdefault(sid, err)
+    total = sum(appended.values())
+    names = sum(1 for n in appended.values() if n)
+    skipped = [why for per in skips.values() for why in per.values()]
+    aside = sum(set_aside.values())
+    if total or skipped or aside:
+        by_reason = Counter(
+            next((k for k in FILING_INDEX_SKIP_REASONS if why.startswith(k)), why)
+            for why in skipped
+        )
+        sk = (
+            f" · {len(skipped)} index row(s) skipped ("
+            + ", ".join(f"{k} {v}" for k, v in sorted(by_reason.items()))
+            + ")"
+            if skipped
+            else ""
+        )
+        aw = (
+            f" · {aside} listed acceptance time(s) set aside (not on the filing date within EDGAR's "
+            "hours; stored without one)"
+            if aside
+            else ""
+        )
+        print(f"filing index: +{total} filing(s) indexed for {names} name(s){sk}{aw}")
+    for sid, err in errors.items():
+        print(f"  filing index ERROR: {labels[sid]}: {err}")
 
 
 def _acknowledged_ids(conn: psycopg.Connection) -> set[UUID]:
@@ -1391,6 +1444,8 @@ def _run_daily_pass_locked(
         conn.close()
     if allow_live:
         _print_fundamentals(results, asof)
+    # the filing index (0070) runs on every pass (a cache-only one reads the cached index): its ONE line
+    _print_filing_index(results)
     finished_at = datetime.now(timezone.utc)
     # G5a — THE NEWLY-STALE DIFF, computed BEFORE the artifact is written (ordering is load-bearing: once
     # this run's artifact exists it would be its own "previous" and nothing could ever read as newly stale).

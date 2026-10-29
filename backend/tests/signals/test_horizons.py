@@ -204,6 +204,7 @@ class _RecordingPIT:
         "shares_outstanding_facts": "fact_shares_outstanding",
         "cash_burn_facts": "fact_cash_burn",
         "fund_shares": "fact_fund_shares",
+        "filing_index": "fact_filing_index",
         "theme_conviction_facts": "fact_theme_conviction",
     }
 
