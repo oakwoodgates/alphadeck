@@ -41,6 +41,7 @@ const row = (key: string, over: Partial<FilingStreamRowOut> = {}): FilingStreamR
   accession: "0000876543-26-000010",
   tags: [],
   routine: false,
+  fold: null,
   usd: null,
   links: ["Reactors"],
   role: null,
@@ -57,6 +58,7 @@ const routine = (key: string, ticker: string, over: Partial<FilingStreamRowOut> 
     headline: `Jane Roe (CEO): S sale 3,000 sh @ $5.00 · $15,000 (${ticker})`,
     detail: ["2026-10-26 · S · 3,000 sh @ $5.00 · $15,000"],
     routine: true,
+    fold: "form4",
     usd: -15000,
     ...over,
   });
@@ -135,6 +137,7 @@ const COUNTS = {
   ],
   form4_purchases: 1,
   routine: 2,
+  not_listed: 0,
 } as FilingStreamOut["counts"];
 
 const payload = (over: Partial<FilingStreamOut> = {}): FilingStreamOut => ({
@@ -162,6 +165,8 @@ const payload = (over: Partial<FilingStreamOut> = {}): FilingStreamOut => ({
   ],
   groups: [D1, D2, D3],
   counts: COUNTS,
+  not_listed: [],
+  routine_cap: 200,
   windows: [30, 90, 365],
   cache: "hit",
   compute_ms: 800,
@@ -284,6 +289,65 @@ describe("FilingStream", () => {
     expect(headlines().filter((t) => t?.includes("S sale"))).toHaveLength(2);
     // the work line counted every row all along, folded or not
     expect(screen.getByText(/7 rows in the window:.*3 Form 4s \(1 hold a purchase\)/)).toBeInTheDocument();
+  });
+
+  it("folds each company's prospectus supplements and ownership filings into its own line, and names the rows not listed", async () => {
+    const idx = (key: string, ticker: string, form: string, fold: "prospectus" | "ownership") =>
+      row(key, {
+        ticker,
+        security_id: `s-${ticker}`,
+        kind: "filing",
+        form,
+        headline: `${form} · ${key}.htm`,
+        detail: [],
+        routine: true,
+        fold,
+        links: ["Context"],
+        silent: true,
+      });
+    const day: FilingStreamDayOut = {
+      date: "2026-10-28",
+      routine: 7,
+      rows: [
+        ...D1.rows,
+        idx("p1", "JPM", "424B2", "prospectus"),
+        idx("p2", "JPM", "FWP", "prospectus"),
+        idx("p3", "JPM", "424B2", "prospectus"),
+        idx("o1", "META", "4", "ownership"),
+        idx("o2", "META", "144", "ownership"),
+      ],
+    };
+    setup(
+      payload({
+        groups: [day, D2, D3],
+        not_listed: [{ security_id: "s-JPM", ticker: "JPM", fold: "prospectus", rows: 25835 }],
+        counts: { ...COUNTS, rows: COUNTS.rows + 25840, routine: COUNTS.routine + 25840, not_listed: 25835 },
+      }),
+    );
+    const first = screen.getByRole("region", { name: "Wed, Oct 28, 2026" });
+    const jpm = within(first).getByRole("button", { name: "JPM · 3 prospectus supplements (424B, FWP)" });
+    const meta = within(first).getByRole("button", {
+      name: "META · 2 insider ownership filings (Forms 3/4/5 with no transaction rows stored, 144 notices)",
+    });
+    // the day's Form 4 fold is still ONE line, as before
+    expect(within(first).getByRole("button", { name: /2 routine Form 4 filings/ })).toBeInTheDocument();
+    expect(headlines()).not.toContain("424B2 · p1.htm");
+    // each fold opens on its own
+    await userEvent.click(jpm);
+    expect(jpm).toHaveAttribute("aria-expanded", "true");
+    expect(meta).toHaveAttribute("aria-expanded", "false");
+    expect(headlines()).toContain("424B2 · p1.htm");
+    expect(headlines()).not.toContain("4 · o1.htm");
+    // the cap's honest line, from the server's not_listed
+    expect(
+      screen.getByText(
+        "25,835 routine rows not listed (over 200 of one kind for one company in this window): JPM 25,835 prospectus supplements",
+      ),
+    ).toBeInTheDocument();
+    // one toggle shows every routine row in place (its label says so once more than Form 4s fold)
+    await userEvent.click(screen.getByRole("checkbox", { name: "Show routine rows" }));
+    expect(screen.queryByRole("button", { name: /prospectus supplements/ })).toBeNull();
+    expect(headlines()).toEqual(expect.arrayContaining(["424B2 · p3.htm", "4 · o1.htm", "144 · o2.htm"]));
   });
 
   it("filters by kind, offering only the kinds the window holds", async () => {

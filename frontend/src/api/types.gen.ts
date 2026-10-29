@@ -7867,8 +7867,10 @@ export interface components {
         };
         /**
          * FilingStreamCountsOut
-         * @description What the window holds, folded rows included. ``form4_purchases`` = Form 4s holding a code-P purchase;
-         *     ``routine`` = the rows the fold covers.
+         * @description What the window holds: EVERY row in it, folded or not and listed or not (``rows`` and ``by_kind`` include
+         *     the rows the cap left out of the list). ``form4_purchases`` = Form 4s holding a code-P purchase; ``routine`` =
+         *     the routine rows (folded or not listed); ``not_listed`` = the routine rows the cap left out of the list
+         *     (``FilingStreamOut.not_listed`` says whose).
          */
         FilingStreamCountsOut: {
             /** Rows */
@@ -7879,10 +7881,13 @@ export interface components {
             form4_purchases: number;
             /** Routine */
             routine: number;
+            /** Not Listed */
+            not_listed: number;
         };
         /**
          * FilingStreamDayOut
-         * @description One day of the stream, its rows in stream order; ``routine`` = how many of them the fold covers.
+         * @description One day of the stream, its LISTED rows in stream order (the per-company cap applied); ``routine`` = how many
+         *     of them the fold covers.
          */
         FilingStreamDayOut: {
             /**
@@ -7949,12 +7954,33 @@ export interface components {
             rows: number;
         };
         /**
+         * FilingStreamNotListedOut
+         * @description One company's routine rows of one fold group the cap left out of the window's list: counted, never
+         *     vanished.
+         */
+        FilingStreamNotListedOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Fold */
+            fold: ("form4" | "prospectus" | "ownership") | null;
+            /** Rows */
+            rows: number;
+        };
+        /**
          * FilingStreamOut
          * @description One card's stream for one window, newest day first. ``clock``: ``record`` (the live read) or ``public``
          *     (a past as-of: what was public by the end of that date). ``roster_fallback`` = no roster snapshot by the
          *     as-of: today's roster stands in. ``unresolved`` = tickers of basket rows with no resolved security (they can
-         *     carry no facts: counted, never in the stream). ``cache`` / ``compute_ms`` = whether the 365-day rows came
-         *     from the shared dashboard cache and how long they took when computed.
+         *     carry no facts: counted, never in the stream). ``groups`` = the LISTED rows: per (company, fold group) at most
+         *     ``routine_cap`` routine rows of the window, newest first; a non-routine row is never cut. ``not_listed`` = the
+         *     routine rows left out, per (company, group), largest first (also counted in ``counts``). ``cache`` /
+         *     ``compute_ms`` = whether the 365-day rows came from the shared dashboard cache and how long they took when
+         *     computed.
          */
         FilingStreamOut: {
             /**
@@ -8000,6 +8026,10 @@ export interface components {
             /** Groups */
             groups: components["schemas"]["FilingStreamDayOut"][];
             counts: components["schemas"]["FilingStreamCountsOut"];
+            /** Not Listed */
+            not_listed: components["schemas"]["FilingStreamNotListedOut"][];
+            /** Routine Cap */
+            routine_cap: number;
             /** Windows */
             windows: number[];
             /**
@@ -8018,9 +8048,12 @@ export interface components {
          *     ratified, ``form`` "stored fact"). ``form`` = the form as filed or the row's own label; ``date`` = the
          *     public date it counts from; ``headline`` = one neutral line; ``detail`` = the lines the expanded row shows;
          *     ``url`` = the filing's EDGAR index or the stored source (``null`` = none known); ``tags`` = quiet field
-         *     predicates; ``routine`` = a fold candidate (a Form 4 holding no code-P purchase); ``usd`` = the row's dollar
-         *     size when it has one (a Form 4's purchases minus sales, a dilution's principal). ``links`` / ``role`` /
-         *     ``silent`` = the company's place on the card at the as-of (``null`` in ``links`` = no link).
+         *     predicates; ``routine`` = a fold candidate; ``fold`` = its fold group (``form4``: a Form 4 holding no code-P
+         *     purchase, folded per day; ``prospectus``: a 424B / 424H / 424I / 497 / FWP index row and ``ownership``: an
+         *     index-only Form 3/4/5 or a Form 144 notice, each folded per day and company; ``null`` for a row that is not
+         *     routine); ``usd`` = the
+         *     row's dollar size when it has one (a Form 4's purchases minus sales, a dilution's principal). ``links`` /
+         *     ``role`` / ``silent`` = the company's place on the card at the as-of (``null`` in ``links`` = no link).
          */
         FilingStreamRowOut: {
             /** Key */
@@ -8056,6 +8089,8 @@ export interface components {
             tags: string[];
             /** Routine */
             routine: boolean;
+            /** Fold */
+            fold: ("form4" | "prospectus" | "ownership") | null;
             /** Usd */
             usd: number | null;
             /** Links */
