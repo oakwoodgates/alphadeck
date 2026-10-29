@@ -694,6 +694,30 @@ def test_a_ratified_catalyst_is_dated_by_its_event_date_and_links_only_a_real_so
     assert n.url is None and n.accession is None
 
 
+def test_a_catalyst_nobody_ratified_is_not_worded_as_ratified_but_keeps_its_event_date():
+    f = {
+        "catalyst_type": "contract_award",
+        "label": "DOE award",
+        "source": "doe_usaspending",
+        "source_ref": "DOE-AWARD-77",
+        "valid_from": date(2026, 10, 10),
+    }
+    (feed,) = rows_from_catalysts([{**f, "ratified_by": None}], W)
+    (auto,) = rows_from_catalysts([{**f, "ratified_by": "auto"}], W)
+    (op,) = rows_from_catalysts([{**f, "ratified_by": "operator"}], W)
+    assert feed.detail[-2:] == ("Source: doe_usaspending", "No operator ratification stored")
+    assert auto.detail[-2:] == (
+        "Source: doe_usaspending",
+        "Applied automatically, not operator-ratified",
+    )
+    assert (
+        op.detail[-1] == "Source: doe_usaspending, ratified by operator"
+    )  # unchanged, no extra line
+    for r in (feed, auto, op):  # still a catalyst on its event date, whoever ratified it
+        assert (r.kind, r.form, r.date) == ("catalyst", "catalyst", date(2026, 10, 10))
+    assert not any("ratified by" in line for line in (*feed.detail, *auto.detail))
+
+
 def test_ratified_facts_are_dated_by_the_ratification_and_worded_by_what_they_state():
     stamped = utc(2026, 10, 21, 3, 0)  # 23:00 ET on Oct 20
     cash = {
@@ -722,6 +746,131 @@ def test_ratified_facts_are_dated_by_the_ratification_and_worded_by_what_they_st
         "Source: ratified, ratified by operator",
     )
     assert got[0].url == "https://x.test/10q"
+    # a ratifier other than "operator" is still a ratifier; only empty and "auto" are not
+    (other,) = rows_from_ratified([], [{**shares, "ratified_by": "jane"}], [], W)
+    assert (other.form, other.date) == ("ratified fact", date(2026, 10, 20))
+    assert other.detail[-1] == "Source: ratified, ratified by jane"
+
+
+def stored_shares(**over) -> dict:
+    """A 10-Q cover figure the machine applied: ``ratified_by`` auto, the cover date in ``valid_from``, stored
+    on a later day (an ingest batch)."""
+    return {
+        "shares": Decimal("540600000"),
+        "source": "10-q-cover",
+        "source_ref": "0000876543-26-000044",
+        "ratified_by": "auto",
+        "valid_from": date(2026, 8, 1),
+        "recorded_at": utc(2026, 10, 27, 14, 0),
+        **over,
+    }
+
+
+def test_a_fact_nobody_ratified_is_a_stored_fact_dated_by_its_cover_date_not_its_store_day():
+    (auto,) = rows_from_ratified([], [stored_shares()], [], W)
+    (feed,) = rows_from_ratified([], [stored_shares(ratified_by=None)], [], W)
+    for r in (auto, feed):
+        # the wire kind stays "ratified"; the form says what it is
+        assert (r.kind, r.form) == ("ratified", "stored fact")
+        assert r.date == date(2026, 8, 1)  # the cover date, not the Oct 27 batch
+        assert r.headline == "10-q-cover: shares outstanding 540.6M"  # led by the source as stored
+        assert r.detail[0] == "Stored on 2026-10-27"
+        assert r.detail[1] == "Source: 10-q-cover"  # no "ratified by" for a row nobody ratified
+        assert r.accession == "0000876543-26-000044"
+        assert r.url == filing_index_url("0000876543", "0000876543-26-000044")
+    assert auto.detail[-1] == "Applied automatically, not operator-ratified"
+    assert feed.detail[-1] == "No operator ratification stored"
+    assert len(auto.detail) == 3  # store day, source, ratification: nothing else claimed
+    (upper,) = rows_from_ratified([], [stored_shares(ratified_by=" AUTO ")], [], W)
+    assert upper.form == "stored fact"  # the machine marker, however it is cased
+
+
+def test_a_stored_fact_reads_the_same_in_all_three_tables_and_a_ratified_one_beside_it_does_not_change():
+    stamped = utc(2026, 10, 21, 3, 0)  # 23:00 ET on Oct 20
+    auto = {
+        "cash_usd": Decimal("41200000"),
+        "quarterly_burn_usd": Decimal("8100000"),
+        "segment_label": "nuclear",
+        "mix_pct": Decimal("61"),
+        "source": "10-q-cover",
+        "ratified_by": "auto",
+        "valid_from": date(2026, 6, 30),
+        "recorded_at": stamped,
+    }
+    got = rows_from_ratified([auto], [], [auto], W)
+    assert [(r.form, r.date, r.headline) for r in got] == [
+        ("stored fact", date(2026, 6, 30), "10-q-cover: cash $41.2M · burn $8.1M/qtr"),
+        ("stored fact", date(2026, 6, 30), "10-q-cover: revenue mix: nuclear 61%"),
+    ]
+    both = rows_from_ratified([auto, {**auto, "ratified_by": "operator"}], [], [], W)
+    assert [(r.form, r.date) for r in both] == [
+        ("stored fact", date(2026, 6, 30)),
+        (
+            "ratified fact",
+            date(2026, 10, 20),
+        ),  # the operator's own, dated by the ratification as before
+    ]
+
+
+def test_a_stored_fact_with_gaps_is_still_a_row_and_says_what_it_does_not_know():
+    # no source stated: no lead on the headline
+    (bare,) = rows_from_ratified([], [stored_shares(source=None)], [], W)
+    assert bare.headline == "shares outstanding 540.6M"
+    assert bare.detail[1] == "Source: not stated"
+    # no cover date: it falls back to the day it was stored, and says so
+    (no_cover,) = rows_from_ratified([], [stored_shares(valid_from=None)], [], W)
+    assert no_cover.date == date(2026, 10, 27)
+    assert no_cover.detail[:2] == (
+        "Stored on 2026-10-27",
+        "No cover or filing date stated, so it is dated by the day it was stored",
+    )
+    # no store stamp: the cover date still dates it, and no store day is made up
+    (no_stamp,) = rows_from_ratified([], [stored_shares(recorded_at=None)], [], W)
+    assert no_stamp.date == date(2026, 8, 1)
+    assert not any(line.startswith("Stored on") for line in no_stamp.detail)
+    # neither date: nothing to date it by, so no row (never a guessed day)
+    assert rows_from_ratified([], [stored_shares(valid_from=None, recorded_at=None)], [], W) == []
+    # an operator-ratified fact with no store stamp is still not a row (nothing to date it by)
+    assert (
+        rows_from_ratified([], [stored_shares(ratified_by="operator", recorded_at=None)], [], W)
+        == []
+    )
+
+
+def test_the_company_rows_carry_both_a_stored_and_a_ratified_fact_with_their_own_forms():
+    pit = StubPit(
+        events=[],
+        insider=[],
+        stakes=[],
+        fundamentals=[],
+        splits=[],
+        dilution=[],
+        catalysts=[],
+        cash=[
+            {
+                "cash_usd": 5,
+                "quarterly_burn_usd": 1,
+                "source": "ratified",
+                "ratified_by": "operator",
+                "valid_from": date(2026, 6, 30),
+                "recorded_at": utc(2026, 10, 20, 12),
+            },
+            {
+                "cash_usd": 6,
+                "quarterly_burn_usd": 1,
+                "source": "10-q-cover",
+                "ratified_by": "auto",
+                "valid_from": date(2026, 6, 30),
+                "recorded_at": utc(2026, 10, 27, 12),
+            },
+        ],
+    )
+    rows = rows_for_company(pit, W, clock="public")
+    assert sorted((r.form, r.date) for r in rows) == [
+        ("ratified fact", date(2026, 10, 20)),
+        ("stored fact", date(2026, 6, 30)),
+    ]
+    assert {r.kind for r in rows} == {"ratified"}
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -1512,11 +1661,34 @@ def test_rows_that_can_be_dated_but_state_nothing_else_still_make_a_row():
     assert ca.headline == "catalyst: no label stated" and ca.detail == (
         "Type: catalyst",
         "Source: not stated",
+        "No operator ratification stored",
     )
+    # no ratified_by: a stored fact, dated by the store day when it states no cover date
     (ra,) = rows_from_ratified(
         [{"cash_usd": 5, "quarterly_burn_usd": 1, "recorded_at": utc(2026, 10, 1, 12)}], [], [], W
     )
-    assert ra.detail == ("Source: not stated",)
+    assert (ra.form, ra.date) == ("stored fact", date(2026, 10, 1))
+    assert ra.headline == "cash $5 · burn $1/qtr"
+    assert ra.detail == (
+        "Stored on 2026-10-01",
+        "No cover or filing date stated, so it is dated by the day it was stored",
+        "Source: not stated",
+        "No operator ratification stored",
+    )
+    (op,) = rows_from_ratified(
+        [
+            {
+                "cash_usd": 5,
+                "quarterly_burn_usd": 1,
+                "ratified_by": "operator",
+                "recorded_at": utc(2026, 10, 1, 12),
+            }
+        ],
+        [],
+        [],
+        W,
+    )
+    assert (op.form, op.detail) == ("ratified fact", ("Source: ratified by operator",))
 
 
 def test_the_year_over_year_and_overhang_rules_refuse_a_zero_or_missing_basis():

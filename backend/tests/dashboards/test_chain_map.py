@@ -36,7 +36,7 @@ from dashboards.chain_map import (
     roster_rows,
     side_of,
 )
-from dashboards.filings import KIND_ORDER, FilingRow
+from dashboards.filings import KIND_ORDER, SEC_FILING_KINDS, FilingRow
 from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
 from domain.enums import Authorship, ContextRole
@@ -223,6 +223,25 @@ def test_the_last_filing_is_the_newest_by_date_then_kind_order():
     assert last_filing([], ASOF) is None
     assert last_filing([fr(b, 0)], ASOF).age_days == 0
     assert FILING_DAYS == 365
+
+
+def test_the_last_filing_is_a_filing_never_a_split_a_catalyst_or_a_stored_or_ratified_fact():
+    a = uuid.uuid4()
+    own = [  # rows the system holds, all NEWER than the one real filing below
+        fr(a, 0, "split", "split", "1-for-10 reverse split"),
+        fr(a, 0, "dilution", "dilution", "convertible notes: $350.0M principal"),
+        fr(a, 1, "catalyst", "catalyst", "regulatory: FDA decision"),
+        fr(a, 1, "ratified", "stored fact", "10-q-cover: shares outstanding 540.6M"),
+        fr(a, 2, "ratified", "ratified fact", "shares outstanding 84.2M"),
+    ]
+    real = fr(a, 30, "8k", "8-K", "8-K · 2.02")
+    got = last_filing([*own, real], ASOF)
+    assert (got.age_days, got.form, got.headline) == (30, "8-K", "8-K · 2.02")
+    assert last_filing(own, ASOF) is None  # nothing but the system's own rows: no filing
+    # each SEC kind counts
+    for kind, form in (("stake", "SC 13D"), ("form4", "4"), ("form4a", "4/A"), ("revenue", "10-Q")):
+        assert last_filing([*own, fr(a, 5, kind, form, "x")], ASOF).form == form
+    assert SEC_FILING_KINDS == {"8k", "stake", "form4", "form4a", "revenue"}
 
 
 # ---------------------------------------------------------------------------------------------------------

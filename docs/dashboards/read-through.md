@@ -35,9 +35,9 @@ the row's link.
 |---|---|---|
 | Company | ticker (a chip opening the Cockpit name panel on its first card, `onSelectThesis(thesisId, ticker)`) and the master's name | `master.names_for` / `tickers_for` |
 | Role | the role as a quiet lowercase tag with its operator-approved hover description | `CONTEXT_ROLE_LABEL`, `CONTEXT_ROLE_DESCRIPTION` (`workbench/format.ts`) |
-| Cards | one chip per card: the card's name · the link the company sits in (Context / Bench by label when silent); the chip opens that card | the memberships |
+| Cards | one single-line pill per card: the card's name (cut with an ellipsis when long), then the link the company sits in after it in the quiet style (Context / Bench by label when silent); the pill's hover shows the full name and links; the pill opens that card; the pills wrap as a row of pills and the column keeps a minimum width | the memberships |
 | Business type | the leaf business type derived on read from the master (the operator's re-tag wins), blank when unknown | `security_master.business_type` / `securities.business_type.resolve_business_type` |
-| Last filing | the newest `FilingRow` in the last 365 days before the as-of: its date · form · headline, hover the full line, click the EDGAR link; "none stored in the last year" when none | `filings.read_filing_rows(..., days=365)` |
+| Last filing | the newest SEC filing (an 8-K, 13D/G, Form 4, 4/A or a 10-Q / 10-K revenue print: `filings.SEC_FILING_KINDS`) in the last 365 days before the as-of: its date · form · headline, hover the full line, click the EDGAR link; "none stored in the last year" when none | `filings.read_filing_rows(..., days=365)` |
 | Next dated catalyst | the nearest card-level catalyst with `when_date >= asof` across the row's cards, with its card and days to go; "—" when none | the cards' `Catalyst.when_date` (today's list; see limits) |
 | 1W vs SPY · 1M vs SPY | the company's 1-week and 1-month trailing return minus SPY's, in percentage points; blank when unpriced; grayed with the reason when its price history is flagged | `display_members(["trailing_returns"])` through `per_company`, SPY via `pit.benchmark_prices` (the Leaders pattern); `baskets.price_flags` |
 
@@ -95,8 +95,12 @@ its bars); the first load may take seconds, like the Leaders. The page shows `co
   link it reads through to is a later spine change (deferred to Phase 2).
 - **Catalysts are today's list:** card-level catalysts load live (they are not snapshotted), so a past as-of shows the
   catalysts as entered today.
-- **Last filing = ingested facts only**, with the Filing Stream's limits (no full filing index yet; the Cockpit's
-  insider price screens not applied).
+- **Last filing = ingested filings only**, with the Filing Stream's limits (no full filing index yet; the Cockpit's
+  insider price screens not applied). A split, a catalyst or a ratified or stored fact is never counted as a filing.
+- **The cold read is heavy** (MEASURED 2026-10-29 on dev with a prod data copy: 18.2 s for the live as-of). It is
+  dominated by the 365-day filing read over every role-tagged company, which builds one point-in-time view per company
+  (214 of them on that read). It runs once per as-of per run (the shared cache then serves it in ~40 ms); a shared
+  per-company filing cache is the lever if it matters.
 - **The roster is each card's roster as of the as-of;** links and business types are today's.
 - A flagged price history grays the tape cells and names the reason; the row stays.
 
@@ -109,8 +113,7 @@ any score or ranking beyond sorting by what the data shows; any write.
 
 The build lists here every choice it made that this plan does not spell out, each the operator's to confirm or change.
 The first three are plan details that turned out different against the code; the build fixed them sensibly and says how.
-Nothing below was timed on real data: the page was built against fixtures and a two-company DB test, and the heavy
-read (a year of facts plus bars for every role-tagged company) is the cold first load the plan already warns about.
+The page was built against fixtures and a two-company DB test; the measurements on real data are choice 18.
 
 1. **The tape windows are 7 and 30 trading days, labeled "7D vs SPY" and "30D vs SPY" (plan detail corrected).** The
    plan asks for a 1-week and 1-month return from the `trailing_returns` display member, but that member's windows are
@@ -125,11 +128,14 @@ read (a year of facts plus bars for every role-tagged company) is the cold first
 3. **The cache holds the finished table, not the raw reads (plan detail corrected).** The other research pages cache
    inputs and slice per request. This page has no request parameter but the as-of, so the cached value is the table
    itself, keyed by clock and as-of, as the plan's "holds the whole table" says.
-4. **Last filing is any row the shared reader stores, a split, a catalyst or a ratified fact included.** The plan says
-   "the newest `FilingRow`". Those three are not SEC filings (a ratified fact is dated at the instant the operator
-   ratified it, a catalyst at its event date), so one of them can be the row's newest "filing"; its `form` column says
-   which it is ("split", "catalyst", "ratified fact"). The alternative is to count only SEC forms (8-K, 13D/G, Form 4,
-   4/A, the 10-Q / 10-K revenue print) and leave those three out of the pick. Your call.
+4. **Last filing is an SEC filing only (revised 2026-10-29 after dev with a prod data copy).** The first build took the
+   newest `FilingRow` of any kind, as the plan's wording read. On dev that column was dominated by rows that are not
+   filings: the machine-applied and feed-stored facts (856 `auto` shares rows), whose store date was an ingest batch, and
+   splits and catalysts. The pick now considers only the kinds `8k`, `form4`, `form4a`, `stake` and `revenue`
+   (`filings.SEC_FILING_KINDS`, shared with the Chain Map); a split, a dilution fact, a catalyst and a ratified or stored
+   fact are never picked, whatever their date. A company with only those rows reads "none stored in the last year". The
+   column and the glyph are still called "last filing". Ties on the date still go by the reader's kind order (8-K,
+   13D/G, Form 4, 4/A, revenue).
 5. **A tie on the date goes by the reader's kind order, then accession, form and headline.** So an 8-K beats a Form 4
    filed the same day; the pick never depends on the order the rows arrive in.
 6. **A vs-SPY cell is blank when the company's last close is not SPY's last close.** Not in the plan. The two returns
@@ -172,3 +178,14 @@ read (a year of facts plus bars for every role-tagged company) is the cold first
     `item_label`'s own wording still wins for the seven it knows, and a code in neither (an item the SEC adds later) still
     shows as the bare code. This supersedes choice 1 of the Filing Stream's list and changes its headline for 9.01
     ("9.01 financial statements and exhibits"). `signals/` is untouched.
+18. **Measured on dev with a prod data copy (2026-10-29, 62 live cards).** At the live as-of 2026-10-29 the page serves
+    249 rows for 214 companies (334 role tags, set on 58 of the 62 cards), a 281 KB payload; the cold compute took
+    18.2 s and a cache hit 40 ms. At as-of 2026-09-15 on the public clock it serves 0 rows (10 cards existed then and
+    none carried a role yet) in 245 ms. The cold cost is the 365-day filing read over every role-tagged company, one
+    point-in-time view per company (see the known limits); it runs once per as-of per run.
+19. **The Cards column is a row of single-line pills (found on dev with a prod copy).** A chip read "Defense Software,
+    CHSR & Services · Context" broke over four to six lines in the 280 px cell. Each pill is now one line: the card's name
+    is cut with an ellipsis at a maximum width, the links follow it in the quiet style (cut on their own width), and the
+    pill's hover title carries the whole "Open <card> · <links>" line. The pills wrap as pills inside the cell, the column
+    has a minimum width (240 px; 200 px on a phone), and the table scrolls sideways with the Company column pinned, as
+    before. The pill's text content is unchanged ("Grid · Turbines, Cables"), so a screen reader hears the same line.

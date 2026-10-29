@@ -76,9 +76,15 @@ export function tone(v: number | null | undefined): "pos" | "neg" | null {
 
 // --- the cells ---------------------------------------------------------------------------------------------------
 
-/** A card chip's words: the card, then the links the company sits in there ("Grid · Turbines, Cables"). */
+/** The links the company sits in on a card ("Turbines, Cables"; "No link" for none); empty with no link row. */
+export function chipLinks(c: ReadThroughCardOut): string {
+  return c.links.map((l) => l ?? "No link").join(", ");
+}
+
+/** A card chip's full words: the card, then the links the company sits in there ("Grid · Turbines, Cables"). The
+ *  chip shows the name and the links as two separately truncated parts; this is the whole line, for its hover. */
 export function chipWords(c: ReadThroughCardOut): string {
-  const links = c.links.map((l) => l ?? "No link").join(", ");
+  const links = chipLinks(c);
   return links ? `${c.thesis_name} · ${links}` : c.thesis_name;
 }
 
@@ -357,7 +363,7 @@ export function workLines(d: ReadThroughOut, shown: number): string[] {
       .filter(Boolean)
       .join(" · "),
     `rows by role: ${rolesBy}`,
-    `${d.rows_with_filing.toLocaleString("en-US")} of ${d.rows.length.toLocaleString("en-US")} rows have a filing-derived fact in the last ${d.filing_days} days`,
+    `${d.rows_with_filing.toLocaleString("en-US")} of ${d.rows.length.toLocaleString("en-US")} rows have a filing in the last ${d.filing_days} days`,
   ];
   if (d.spy) {
     lines.push(
@@ -393,7 +399,7 @@ export function rosterWords(n: number): string | null {
 export const LIMITS: readonly string[] = [
   "A role names a part, not a target: a row points at the card, never at specific names. Reading a role company's own disclosures against the names it relates to is a later step.",
   "Catalysts are today's list: card-level catalysts load live (they are not snapshotted), so a past as-of shows the catalysts as entered today.",
-  "Last filing means ingested facts only: forms other than 8-K, Form 4 and 4/A, 13D/G and the 10-Q/10-K revenue series are not stored yet, and the Cockpit's insider price screens are not applied. A split, a catalyst or a ratified fact can be the newest row: its form says which it is.",
+  "Last filing means ingested filings only: forms other than 8-K, Form 4 and 4/A, 13D/G and the 10-Q/10-K revenue series are not stored yet, and the Cockpit's insider price screens are not applied. A split, a catalyst or a ratified or stored fact is never counted as a filing.",
   "The roster is each card's roster as of the as-of; links and business types are today's.",
   "The tape counts trading days of closes (7 and 30), not calendar days. A flagged price history grays the tape cells and names the reason; the row stays.",
 ];

@@ -20,7 +20,7 @@ from app.main import app
 from app.routers.dashboards import read_through as router_mod
 from dashboards.baskets import Membership
 from dashboards.cache import CACHE
-from dashboards.filings import KIND_ORDER, FilingRow
+from dashboards.filings import KIND_ORDER, SEC_FILING_KINDS, FilingRow
 from dashboards.read_through import (
     FILING_DAYS,
     ROLE_ORDER,
@@ -299,8 +299,11 @@ def test_the_last_filing_is_the_newest_row_by_date():
 
 def test_a_tie_on_the_date_goes_by_the_readers_kind_order_then_accession():
     d = date(2026, 10, 27)
-    # the kind order is the reader's: 8-K before 13D/G before Form 4 ... ratified fact
-    for first, later in zip(KIND_ORDER, KIND_ORDER[1:]):
+    # the kind order is the reader's: 8-K before 13D/G before Form 4 before 4/A before the revenue print (the
+    # filing kinds; the others are never picked at all, see the test below)
+    filing_kinds = [k for k in KIND_ORDER if k in SEC_FILING_KINDS]
+    assert filing_kinds == ["8k", "stake", "form4", "form4a", "revenue"]
+    for first, later in zip(filing_kinds, filing_kinds[1:]):
         got = last_filing([fr(SX, later, d), fr(SX, first, d)], ASOF)
         assert got is not None and got.kind == first
     # same kind and day: the lower accession (a stable pick, never an arbitrary one)
@@ -309,6 +312,29 @@ def test_a_tie_on_the_date_goes_by_the_readers_kind_order_then_accession():
     got = last_filing([a, b], ASOF)
     assert got is not None and got.accession == "0000000001-26-000001"
     assert last_filing([b, a], ASOF) == got  # the order the rows arrive in does not matter
+
+
+def test_the_last_filing_is_a_filing_never_a_split_a_catalyst_or_a_stored_or_ratified_fact():
+    own = [  # rows the system holds, all NEWER than the one real filing below
+        fr(SX, "split", date(2026, 10, 28), form="split"),
+        fr(SX, "dilution", date(2026, 10, 28), form="dilution"),
+        fr(SX, "catalyst", date(2026, 10, 27), form="catalyst"),
+        fr(SX, "ratified", date(2026, 10, 27), form="stored fact"),
+        fr(SX, "ratified", date(2026, 10, 26), form="ratified fact"),
+    ]
+    real = fr(SX, "8k", date(2026, 9, 1), form="8-K", headline="8-K · 2.02")
+    got = last_filing([*own, real], ASOF)
+    assert got is not None and (got.kind, got.date, got.days_ago) == ("8k", date(2026, 9, 1), 57)
+    assert last_filing(own, ASOF) is None  # only the system's own rows: no filing, the cell says so
+    # each SEC kind counts, even against newer rows of the system's own
+    for kind in ("stake", "form4", "form4a", "revenue"):
+        got = last_filing([*own, fr(SX, kind, date(2026, 10, 1))], ASOF)
+        assert got is not None and got.kind == kind
+    # it reaches the page's row the same way, and the count of rows with a filing follows
+    page = build(ROSTER, filings={SX: [*own, real], SY: own})
+    assert row_of(page, SX, "payer").last_filing.kind == "8k"
+    assert row_of(page, SY, "payer").last_filing is None
+    assert page.rows_with_filing == 1
 
 
 def test_a_company_with_no_filing_has_none_and_a_row_after_the_asof_is_never_picked():

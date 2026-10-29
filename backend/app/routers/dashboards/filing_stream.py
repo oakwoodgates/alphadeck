@@ -84,7 +84,8 @@ class FilingStreamCardsOut(_Wire):
 
 class FilingStreamRowOut(_Wire):
     """One filing-derived fact. ``kind``: ``8k`` | ``form4`` | ``form4a`` | ``stake`` | ``revenue`` | ``split`` |
-    ``dilution`` | ``catalyst`` | ``ratified``. ``form`` = the form as filed or the row's own label; ``date`` = the
+    ``dilution`` | ``catalyst`` | ``ratified`` (a ratified fact, ``form`` "ratified fact", or a stored fact nobody
+    ratified, ``form`` "stored fact"). ``form`` = the form as filed or the row's own label; ``date`` = the
     public date it counts from; ``headline`` = one neutral line; ``detail`` = the lines the expanded row shows;
     ``url`` = the filing's EDGAR index or the stored source (``null`` = none known); ``tags`` = quiet field
     predicates; ``routine`` = a fold candidate (a Form 4 holding no code-P purchase); ``usd`` = the row's dollar
@@ -267,10 +268,10 @@ def filing_stream_for_card(
     conn: psycopg.Connection = Depends(get_conn),
 ) -> FilingStreamOut:
     """One card's names' filing-derived facts, newest day first: 8-Ks with their items, Form 4s with the filer's
-    own words, Form 4/As, 13D/G stakes, revenue prints, splits, dilution and the operator's ratified facts, each
-    row opening to its EDGAR source. Only facts the ingest stores are listed (not every filing). Display only; a
-    past as-of reads what was public by the end of that date (a fact public after it never appears). 404 when
-    the card is not counted at the as-of."""
+    own words, Form 4/As, 13D/G stakes, revenue prints, splits, dilution, catalysts and the ratified or stored
+    facts, each row opening to its EDGAR source. Only facts the ingest stores are listed (not every filing).
+    Display only; a past as-of reads what was public by the end of that date (a fact public after it never
+    appears). 404 when the card is not counted at the as-of."""
     known_at, clock = serve_view(asof)
     if not any(c.thesis_id == thesis_id for c in _cards(conn, asof, clock).value.cards):
         raise HTTPException(status_code=404, detail="card not counted at this as-of")

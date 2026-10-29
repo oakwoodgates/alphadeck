@@ -15,7 +15,7 @@ import type {
 export type StreamKind = FilingStreamRowOut["kind"];
 
 /** The kinds in a day's order (the server's `KIND_ORDER`): 8-K, 13D/G, Form 4, 4/A, revenue, split, dilution,
- *  catalyst, ratified fact. */
+ *  catalyst, ratified or stored fact. */
 export const KIND_ORDER: readonly StreamKind[] = [
   "8k",
   "stake",
@@ -39,7 +39,7 @@ export const KIND_LABEL: Record<StreamKind, string> = {
   split: "Split",
   dilution: "Dilution",
   catalyst: "Catalyst",
-  ratified: "Ratified fact",
+  ratified: "Ratified and stored facts",
 };
 
 /** The kind's words for the work line: [one, many]. */
@@ -52,7 +52,7 @@ const KIND_WORDS: Record<StreamKind, readonly [string, string]> = {
   split: ["split", "splits"],
   dilution: ["dilution row", "dilution rows"],
   catalyst: ["catalyst", "catalysts"],
-  ratified: ["ratified fact", "ratified facts"],
+  ratified: ["ratified or stored fact", "ratified or stored facts"],
 };
 
 export const DAYS_OPTIONS: readonly { value: StreamDays; label: string }[] = [

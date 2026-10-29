@@ -17,8 +17,12 @@ pair; invariant #1), plus one plain SELECT for the Form 4/A filings:
 - ``split``: ``pit.split_events``, under the split's own publication as the view knows it.
 - ``dilution``: ``pit.dilution_facts``, under ``valid_from`` (the issuance date).
 - ``catalyst``: ``pit.catalyst_facts``, under ``valid_from`` (its event date).
-- ``ratified``: ``pit.cash_burn_facts`` / ``shares_outstanding_facts`` / ``revenue_mix_facts``, under the instant
-  the operator ratified it (the public clock's own instant for those three tables).
+- ``ratified`` (the wire kind of BOTH rows below, told apart by the row's ``form``):
+  ``pit.cash_burn_facts`` / ``shares_outstanding_facts`` / ``revenue_mix_facts``. A row the operator ratified
+  (``ratified_by`` set to anything but ``auto``) is a "ratified fact", under the instant the operator ratified it
+  (the public clock's own instant for those three tables). A row whose ``ratified_by`` is empty or ``auto`` (applied
+  by the machine: a 10-Q cover figure, an automated feed) is a "stored fact", under its ``valid_from`` (its cover or
+  filing date) with the day we stored it in the detail: an ingest batch never reads as a day of ratifications.
 
 The rules, in one place:
 
@@ -28,8 +32,8 @@ The rules, in one place:
   (``issuer self-filing``, ``internal transfer``, ``10b5-1 plan``): it never mutates a row, and a missing field
   asserts nothing (a ``NULL`` ``aff_10b5_1`` is not "no plan"; a ``NULL`` footnote list is not "none stated").
 - **Facts only.** The reader holds what the ingest stores: 8-Ks (with item codes), Form 4s and 4/As, 13D/G
-  stakes, the 10-Q / 10-K revenue series, splits, convertible-note dilution and the operator's ratified facts.
-  Other forms are not stored yet; the page says so.
+  stakes, the 10-Q / 10-K revenue series, splits, convertible-note dilution, catalysts, and the ratified or stored
+  facts. Other forms are not stored yet; the page says so.
 - **Not applied here.** The Cockpit's insider column screens a code-P row against the day's low price and an
   implausible dollar size (they need the price bars and the split scale). The reader does not: it never writes
   "open market", a code-P row with no tag is a purchase and nothing more.
@@ -74,7 +78,7 @@ FilingKind = Literal[
     "8k", "stake", "form4", "form4a", "revenue", "split", "dilution", "catalyst", "ratified"
 ]
 # the order of kinds within a day (the page's words: 8-K, 13D/G, Form 4, 4/A, revenue, split, dilution,
-# catalyst, ratified fact)
+# catalyst, ratified or stored fact)
 KIND_ORDER: tuple[FilingKind, ...] = (
     "8k",
     "stake",
@@ -86,6 +90,10 @@ KIND_ORDER: tuple[FilingKind, ...] = (
     "catalyst",
     "ratified",
 )
+# The kinds that ARE an SEC filing (an 8-K, a 13D/G, a Form 4 or 4/A, a 10-Q / 10-K revenue print), as against the
+# system's own rows (a split, a dilution fact, a catalyst, a ratified or stored fact). "Last filing" on the pages
+# that show one (Read-Throughs, Chain Map) picks among these alone, whatever else the reader stores.
+SEC_FILING_KINDS: frozenset[FilingKind] = frozenset({"8k", "stake", "form4", "form4a", "revenue"})
 
 # The Form 4 transaction codes the page labels; any other code shows as the code itself.
 FORM4_CODE_LABELS: dict[str, str] = {
@@ -116,7 +124,7 @@ class FilingRow:
     """One filing-derived fact for one company, in the shape every filing page shares.
 
     ``form`` = the form as filed ("8-K", "4/A", "SC 13D", "10-Q") or the row's own label ("split", "catalyst",
-    "ratified fact"). ``date`` = the PUBLIC date the row counts from (the day it sorts under). ``headline`` = one
+    "ratified fact", "stored fact"). ``date`` = the PUBLIC date the row counts from (the day it sorts under). ``headline`` = one
     neutral line; ``detail`` = the lines the expanded row shows. ``url`` = the filing's EDGAR index (or the
     stored source), ``None`` when none is known. ``routine`` = a fold candidate (a Form 4 holding no code-P
     purchase). ``usd`` = the row's dollar size when it has one (a Form 4's purchases minus sales, a dilution's
@@ -902,20 +910,46 @@ def rows_from_dilution(facts: Iterable[Mapping[str, Any]], who: Who) -> list[Fil
     return out
 
 
-# --- ratified catalysts and facts ---------------------------------------------------------------------------
+# --- catalysts, and ratified or stored facts ----------------------------------------------------------------
+
+# ``ratified_by`` of a fact the machine applied (the Workbench's auto-confirm of a 10-Q cover figure): not a person
+AUTO_RATIFIER = "auto"
+
+
+def _ratifier(f: Mapping[str, Any]) -> str | None:
+    """Who ratified the row: the stored ``ratified_by`` when it names anyone but the machine, else ``None``.
+    ``None`` covers both a row with no ``ratified_by`` (an automated feed stored it) and ``auto`` (the machine
+    applied it): neither is a ratification, so neither is worded as one."""
+    by = f.get("ratified_by")
+    if not isinstance(by, str):
+        return None
+    by = by.strip()
+    return by if by and by.casefold() != AUTO_RATIFIER else None
+
+
+def _not_ratified_line(f: Mapping[str, Any]) -> str:
+    """The detail line of a row nobody ratified: what the stored ``ratified_by`` says, and no more."""
+    by = f.get("ratified_by")
+    if isinstance(by, str) and by.strip().casefold() == AUTO_RATIFIER:
+        return "Applied automatically, not operator-ratified"
+    return "No operator ratification stored"
 
 
 def _source_line(f: Mapping[str, Any]) -> str:
-    """ "Source: ratified, ratified by operator": only the parts the row states."""
+    """ "Source: ratified, ratified by operator": only the parts the row states (a ratifier only when it names
+    someone: a row nobody ratified says so on its own line, ``_not_ratified_line``)."""
     parts = [str(f["source"])] if f.get("source") else []
-    if f.get("ratified_by"):
-        parts.append(f"ratified by {f['ratified_by']}")
+    ratifier = _ratifier(f)
+    if ratifier:
+        parts.append(f"ratified by {ratifier}")
     return "Source: " + (", ".join(parts) if parts else "not stated")
 
 
 def rows_from_catalysts(facts: Iterable[Mapping[str, Any]], who: Who) -> list[FilingRow]:
-    """One row per ratified catalyst, dated by its event date (``valid_from``; a future-dated one appears once
-    its day passes, the as-of read sees to that). The card-level catalysts are the Catalyst Calendar's.
+    """One row per catalyst, dated by its event date (``valid_from``; a future-dated one appears once its day
+    passes, the as-of read sees to that). A catalyst the operator ratified names the ratifier; one with no
+    ``ratified_by`` (an automated feed) or ``auto`` says it was not operator-ratified, in the detail. The
+    card-level catalysts are the Catalyst Calendar's.
     """
     out = []
     for f in facts:
@@ -930,6 +964,8 @@ def rows_from_catalysts(facts: Iterable[Mapping[str, Any]], who: Who) -> list[Fi
         if horizon:
             detail.append(f"Signal horizon ends {horizon}")
         detail.append(_source_line(f))
+        if _ratifier(f) is None:
+            detail.append(_not_ratified_line(f))
         out.append(
             FilingRow(
                 security_id=who.security_id,
@@ -947,26 +983,61 @@ def rows_from_catalysts(facts: Iterable[Mapping[str, Any]], who: Who) -> list[Fi
 
 
 def _ratified_row(f: Mapping[str, Any], who: Who, headline: str) -> FilingRow | None:
-    """One operator-ratified fact. Its public date is the instant the operator ratified it (``recorded_at``, the
-    public clock's own instant for these tables); the period or cover date it states rides in the detail.
+    """One Workbench fact (cash and burn, shares outstanding, revenue mix), in one of two kinds of row:
+
+    - **ratified fact** (``ratified_by`` names someone but the machine): its public date is the instant the
+      operator ratified it (``recorded_at``, the public clock's own instant for these tables); the period or cover
+      date it states rides in the detail.
+    - **stored fact** (``ratified_by`` empty or ``auto``): nobody ratified it, so it is not worded as ratified and
+      is not dated by when we stored it (an ingest batch would read as a day of ratifications). Its date is its
+      ``valid_from``, the cover or filing date, and the headline is led by its source as stored ("10-q-cover:
+      shares outstanding 540.6M"); the day we stored it rides in the detail. A row that states no ``valid_from``
+      falls back to the day it was stored, and says so.
+
+    Both kinds keep the wire kind ``ratified`` (the row's ``form`` tells them apart).
     """
     stamped = f.get("recorded_at")
-    if not isinstance(stamped, datetime):
+    stored = et_date(stamped) if isinstance(stamped, datetime) else None
+    url = source_url(f.get("source_ref"), who.cik)
+    accession = _accession_of(f.get("source_ref"))
+    if _ratifier(f):
+        if stored is None:
+            return None
+        detail = []
+        if _day(f.get("valid_from")):
+            detail.append(f"Period or cover date: {_day(f.get('valid_from'))}")
+        detail.append(_source_line(f))
+        return FilingRow(
+            security_id=who.security_id,
+            ticker=who.ticker,
+            kind="ratified",
+            form="ratified fact",
+            date=stored,
+            headline=headline,
+            detail=tuple(detail),
+            url=url,
+            accession=accession,
+        )
+    cover = _day(f.get("valid_from"))
+    day = cover or stored
+    if day is None:
         return None
-    detail = []
-    if _day(f.get("valid_from")):
-        detail.append(f"Period or cover date: {_day(f.get('valid_from'))}")
+    detail = [f"Stored on {stored}"] if stored else []
+    if cover is None:
+        detail.append("No cover or filing date stated, so it is dated by the day it was stored")
     detail.append(_source_line(f))
+    detail.append(_not_ratified_line(f))
+    source = str(f["source"]).strip() if f.get("source") else ""
     return FilingRow(
         security_id=who.security_id,
         ticker=who.ticker,
         kind="ratified",
-        form="ratified fact",
-        date=et_date(stamped),
-        headline=headline,
+        form="stored fact",
+        date=day,
+        headline=f"{source}: {headline}" if source else headline,
         detail=tuple(detail),
-        url=source_url(f.get("source_ref"), who.cik),
-        accession=_accession_of(f.get("source_ref")),
+        url=url,
+        accession=accession,
     )
 
 
@@ -976,7 +1047,9 @@ def rows_from_ratified(
     mix: Iterable[Mapping[str, Any]],
     who: Who,
 ) -> list[FilingRow]:
-    """The operator's own ratifications, one row each: cash and burn, shares outstanding, revenue mix."""
+    """The Workbench facts, one row each: cash and burn, shares outstanding, revenue mix. An operator-ratified
+    one is a "ratified fact" and a machine-applied or feed-stored one a "stored fact" (``_ratified_row``).
+    """
     out = []
     for f in cash_burn:
         cash, burn = _f(f.get("cash_usd")), _f(f.get("quarterly_burn_usd"))

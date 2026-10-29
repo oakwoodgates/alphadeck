@@ -10,6 +10,7 @@ import {
   businessTypeOptions,
   cardNames,
   catalystWords,
+  chipLinks,
   chipWords,
   daysWords,
   filingWords,
@@ -211,6 +212,10 @@ describe("the cell words", () => {
     expect(chipWords(card({ links: [null] }))).toBe("Grid · No link");
     expect(chipWords(card({ links: ["Context"], silent: true }))).toBe("Grid · Context");
     expect(chipWords(card({ links: [] }))).toBe("Grid");
+    // the links part alone (the chip shows it after the name, cut on its own)
+    expect(chipLinks(card({ links: ["Turbines", "Cables"] }))).toBe("Turbines, Cables");
+    expect(chipLinks(card({ links: [null] }))).toBe("No link");
+    expect(chipLinks(card({ links: [] }))).toBe("");
   });
 
   it("words the last filing on one line with the full line (and its distance from the as-of) for the hover", () => {
@@ -303,7 +308,7 @@ describe("the work lines", () => {
     expect(lines[3]).toBe(
       "rows by role: Payers 2 · Counter-cases 1 · Direct reads 1 · Participants 0 · Financiers 1 · Benchmarks 0",
     );
-    expect(lines[4]).toBe("3 of 5 rows have a filing-derived fact in the last 365 days");
+    expect(lines[4]).toBe("3 of 5 rows have a filing in the last 365 days");
     expect(lines[5]).toBe("tape: 7 and 30 trading days of closes, the company minus SPY (SPY +1.5% and +4.0%, last close Oct 28, 2026)");
     expect(lines[6]).toBe("1 row has a last close that is not SPY's, so its tape is not compared");
   });

@@ -17,10 +17,11 @@ The rules, in one place. This is our own simple listing, stated here and on the 
   a role and no resolved security can carry nothing here: counted and listed, never a row (invariant #9).
 - **The chip.** One per card the company holds the role on: the card, and the links its rows with that role sit in
   (Context / Bench by their labels when silent; ``None`` = no link).
-- **Last filing.** The newest ``FilingRow`` in the last ``FILING_DAYS`` (365) days through the as-of; ties by the
-  reader's kind order (``filings.KIND_ORDER``: 8-K, 13D/G, Form 4, 4/A, revenue, split, dilution, catalyst,
-  ratified fact), then accession / form / headline. Any kind the reader stores is a candidate, and the row's own
-  form says which it is (a split, a catalyst, a ratified fact are not SEC filings: their ``form`` is their label).
+- **Last filing.** The newest SEC filing in the last ``FILING_DAYS`` (365) days through the as-of: only a
+  ``FilingRow`` whose kind is an 8-K, a 13D/G, a Form 4, a 4/A or a 10-Q / 10-K revenue print
+  (``filings.SEC_FILING_KINDS``). A split, a dilution fact, a catalyst and a ratified or stored fact are rows the
+  system holds, not filings, and are never picked. Ties by the reader's kind order (``filings.KIND_ORDER``: 8-K,
+  13D/G, Form 4, 4/A, revenue), then accession / form / headline.
 - **Next dated catalyst.** The nearest card-level catalyst with ``when_date >= asof`` across the row's cards (the
   as-of day counts); ties by card name then label. A dated catalyst in the past and an undated one are ignored.
   Catalysts load live with the card (they are not snapshotted), so a past as-of shows them as entered today.
@@ -50,7 +51,7 @@ from dashboards.baskets import (
     display_ticker,
     flagged_in_view,
 )
-from dashboards.filings import KIND_ORDER, FilingKind, FilingRow
+from dashboards.filings import KIND_ORDER, SEC_FILING_KINDS, FilingKind, FilingRow
 from domain.thesis import Thesis
 from signals.display.base import DisplaySignal
 
@@ -171,7 +172,7 @@ class ReadThroughInputs:
 
 @dataclass(frozen=True)
 class LastFiling:
-    """The newest filing-derived row of a company in the window. ``days_ago`` = as-of minus its date."""
+    """The newest SEC filing of a company in the window. ``days_ago`` = as-of minus its date."""
 
     kind: FilingKind
     form: str
@@ -183,10 +184,12 @@ class LastFiling:
 
 
 def last_filing(rows: Iterable[FilingRow], asof: date) -> LastFiling | None:
-    """The newest row by date, ties by the reader's kind order, then accession / form / headline. A row dated after
-    the as-of cannot occur on a well-formed clock; one is never picked (#1). ``None`` = no row."""
+    """The newest SEC filing by date (an 8-K, 13D/G, Form 4 or 4/A, or a 10-Q / 10-K revenue print:
+    ``filings.SEC_FILING_KINDS``; never a split, dilution fact, catalyst, or ratified or stored fact), ties by
+    the reader's kind order, then accession / form / headline. A row dated after the as-of cannot occur on a
+    well-formed clock; one is never picked (#1). ``None`` = no such row."""
     best = min(
-        (r for r in rows if r.date <= asof),
+        (r for r in rows if r.kind in SEC_FILING_KINDS and r.date <= asof),
         key=lambda r: (
             -r.date.toordinal(),
             _KIND_RANK[r.kind],
