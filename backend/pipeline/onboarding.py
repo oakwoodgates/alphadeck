@@ -25,9 +25,10 @@ THE SHAPE — four parts, one state table (``security_onboarding``, migration 00
    (``db/write_lock.py``; a held company is skipped this run, never waited for), it runs the legs NOT yet in
    ``legs_done`` — the per-name CHECKPOINT, written after each leg commits, so a crash mid-batch resumes at the
    next leg and the incremental, append-if-changed legs never append a fact twice (the tests COUNT THE TABLES).
-   The HISTORY legs (Form 4 incl. 4/A, 8-K, 13D/G) decide ``done``; the TAIL legs (price, fund shares,
-   fundamentals) run for completeness and never block it (they cost the same cold or warm, and the nightly runs
-   them every night). A history-leg failure re-queues the name; ``Settings.onboard_max_attempts`` failures mark it
+   The HISTORY legs (Form 4 incl. 4/A, 8-K, 13D/G) decide ``done``; the TAIL legs (the filing index, price,
+   fund shares, fundamentals) run for completeness and never block it (they cost the same cold or warm, and the
+   nightly runs them every night; the filing index is display data, migration 0070, read off the same cached
+   submissions). A history-leg failure re-queues the name; ``Settings.onboard_max_attempts`` failures mark it
    ``failed`` (loud on Admin; Retry re-queues it).
 
 3. **The window.** The job REFUSES to start inside the nightly window (``Settings.onboard_window_before_min``
@@ -105,7 +106,7 @@ PASS_KIND = "onboard"
 # The legs, in run order. HISTORY legs decide "warm" (the per-filing walks a cold name pays for); TAIL legs cost
 # the same cold or warm and run for completeness only (the nightly runs them every night anyway).
 HISTORY_LEGS: tuple[str, ...] = ("form4", "form8k", "schedule13")
-TAIL_LEGS: tuple[str, ...] = ("price", "fund_shares", "fundamentals")
+TAIL_LEGS: tuple[str, ...] = ("filing_index", "price", "fund_shares", "fundamentals")
 LEGS: tuple[str, ...] = HISTORY_LEGS + TAIL_LEGS
 
 STATUS_QUEUED = "queued"
@@ -446,10 +447,16 @@ def mark_from_results(
         failed = {leg for r in results_for for leg, _ in getattr(r, "leg_errors", ())}
         if "master" in failed:
             continue
-        # the fast lane is `ingest_thesis`: Form 4 (+4/A), 8-K, 13D/G, price, fund shares — no fundamentals
+        # the filing index (0070) is a PASSENGER in `ingest_thesis`: its failure rides `filing_index_error`,
+        # never `leg_errors` — so it is checkpointed only when no result for the name carries one
+        fi_errors = [err for r in results_for if (err := getattr(r, "filing_index_error", None))]
+        if fi_errors:
+            failed.add("filing_index")
+        # the fast lane is `ingest_thesis`: Form 4 (+4/A), 8-K, 13D/G, the filing index, price, fund shares —
+        # no fundamentals
         ok = [
             leg
-            for leg in ("form4", "form8k", "schedule13", "price", "fund_shares")
+            for leg in ("form4", "form8k", "schedule13", "filing_index", "price", "fund_shares")
             if leg not in failed
         ]
         for leg in ok:
@@ -461,6 +468,8 @@ def mark_from_results(
                 for leg, err in getattr(r, "leg_errors", ())
                 if leg in TAIL_LEGS
             }
+            if fi_errors:
+                tail["filing_index"] = fi_errors[0]
             out[sid] = finish(conn, row, history_failed={}, tail_failed=tail, max_attempts=1)
         else:
             out[sid] = row.status
@@ -643,6 +652,9 @@ def _run_leg(
     if leg == "schedule13":
         appended, reversioned, _, _ = IT._schedule13_leg(conn, client, sec, tenant_id=tenant_id)
         return appended + reversioned
+    if leg == "filing_index":
+        # the display-only index (0070): a raise here is a TAIL-leg failure (recorded, never blocks `done`)
+        return IT._filing_index_leg(conn, client, sec, tenant_id=tenant_id).appended
     if leg == "price":
         bars = timed("price")(ingest_bars_for_security)(
             conn,

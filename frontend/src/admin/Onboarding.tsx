@@ -6,6 +6,7 @@ const LEG_WORD: Record<string, string> = {
   form4: "Form 4",
   form8k: "8-K",
   schedule13: "13D/G",
+  filing_index: "filing index",
   price: "prices",
   fund_shares: "fund shares",
   fundamentals: "fundamentals",

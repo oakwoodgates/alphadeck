@@ -2211,10 +2211,11 @@ export interface paths {
         /**
          * Filing Stream For Card
          * @description One card's names' filing-derived facts, newest day first: 8-Ks with their items, Form 4s with the filer's
-         *     own words, Form 4/As, 13D/G stakes, revenue prints, splits, dilution, catalysts and the ratified or stored
-         *     facts, each row opening to its EDGAR source. Only facts the ingest stores are listed (not every filing).
-         *     Display only; a past as-of reads what was public by the end of that date (a fact public after it never
-         *     appears). 404 when the card is not counted at the as-of.
+         *     own words, Form 4/As, 13D/G stakes, revenue prints, every other form in the company's EDGAR index (its
+         *     recent window: at least a year, or the last 1,000 filings), splits, dilution, catalysts and the ratified or
+         *     stored facts, each row opening to its EDGAR source; a filing shows once, as its richest row. Display only; a
+         *     past as-of reads what was public by the end of that date (a fact public after it never appears). 404 when
+         *     the card is not counted at the as-of.
          */
         get: operations["filing_stream_for_card_dashboards_filing_stream__thesis_id__get"];
         put?: never;
@@ -5923,8 +5924,9 @@ export interface components {
         };
         /**
          * ChainMapFilingOut
-         * @description A company's newest SEC filing in the last ``filing_days`` days (an 8-K, 13D/G, Form 4 or 4/A, or a 10-Q /
-         *     10-K revenue print; never a split, a catalyst or a ratified or stored fact): its public ``date``
+         * @description A company's newest SEC filing in the last ``filing_days`` days (an 8-K, 13D/G, Form 4 or 4/A, a 10-Q / 10-K
+         *     revenue print, or any other form in the EDGAR index; never a split, a catalyst or a ratified or stored fact):
+         *     its public ``date``
          *     (``age_days`` before the as-of), the ``form`` as filed and its one-line ``headline``.
          */
         ChainMapFilingOut: {
@@ -8158,8 +8160,10 @@ export interface components {
         };
         /**
          * FilingStreamCountsOut
-         * @description What the window holds, folded rows included. ``form4_purchases`` = Form 4s holding a code-P purchase;
-         *     ``routine`` = the rows the fold covers.
+         * @description What the window holds: EVERY row in it, folded or not and listed or not (``rows`` and ``by_kind`` include
+         *     the rows the cap left out of the list). ``form4_purchases`` = Form 4s holding a code-P purchase; ``routine`` =
+         *     the routine rows (folded or not listed); ``not_listed`` = the routine rows the cap left out of the list
+         *     (``FilingStreamOut.not_listed`` says whose).
          */
         FilingStreamCountsOut: {
             /** Rows */
@@ -8170,10 +8174,13 @@ export interface components {
             form4_purchases: number;
             /** Routine */
             routine: number;
+            /** Not Listed */
+            not_listed: number;
         };
         /**
          * FilingStreamDayOut
-         * @description One day of the stream, its rows in stream order; ``routine`` = how many of them the fold covers.
+         * @description One day of the stream, its LISTED rows in stream order (the per-company cap applied); ``routine`` = how many
+         *     of them the fold covers.
          */
         FilingStreamDayOut: {
             /**
@@ -8198,7 +8205,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "8k" | "stake" | "form4" | "form4a" | "revenue" | "split" | "dilution" | "catalyst" | "ratified";
+            kind: "8k" | "stake" | "form4" | "form4a" | "revenue" | "filing" | "split" | "dilution" | "catalyst" | "ratified";
             /** Rows */
             rows: number;
         };
@@ -8240,12 +8247,33 @@ export interface components {
             rows: number;
         };
         /**
+         * FilingStreamNotListedOut
+         * @description One company's routine rows of one fold group the cap left out of the window's list: counted, never
+         *     vanished.
+         */
+        FilingStreamNotListedOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Fold */
+            fold: ("form4" | "prospectus" | "ownership") | null;
+            /** Rows */
+            rows: number;
+        };
+        /**
          * FilingStreamOut
          * @description One card's stream for one window, newest day first. ``clock``: ``record`` (the live read) or ``public``
          *     (a past as-of: what was public by the end of that date). ``roster_fallback`` = no roster snapshot by the
          *     as-of: today's roster stands in. ``unresolved`` = tickers of basket rows with no resolved security (they can
-         *     carry no facts: counted, never in the stream). ``cache`` / ``compute_ms`` = whether the 365-day rows came
-         *     from the shared dashboard cache and how long they took when computed.
+         *     carry no facts: counted, never in the stream). ``groups`` = the LISTED rows: per (company, fold group) at most
+         *     ``routine_cap`` routine rows of the window, newest first; a non-routine row is never cut. ``not_listed`` = the
+         *     routine rows left out, per (company, group), largest first (also counted in ``counts``). ``cache`` /
+         *     ``compute_ms`` = whether the 365-day rows came from the shared dashboard cache and how long they took when
+         *     computed.
          */
         FilingStreamOut: {
             /**
@@ -8291,6 +8319,10 @@ export interface components {
             /** Groups */
             groups: components["schemas"]["FilingStreamDayOut"][];
             counts: components["schemas"]["FilingStreamCountsOut"];
+            /** Not Listed */
+            not_listed: components["schemas"]["FilingStreamNotListedOut"][];
+            /** Routine Cap */
+            routine_cap: number;
             /** Windows */
             windows: number[];
             /**
@@ -8303,14 +8335,18 @@ export interface components {
         };
         /**
          * FilingStreamRowOut
-         * @description One filing-derived fact. ``kind``: ``8k`` | ``form4`` | ``form4a`` | ``stake`` | ``revenue`` | ``split`` |
+         * @description One filing-derived fact. ``kind``: ``8k`` | ``form4`` | ``form4a`` | ``stake`` | ``revenue`` | ``filing``
+         *     (any other form in the company's EDGAR index, shown as its form and primary document) | ``split`` |
          *     ``dilution`` | ``catalyst`` | ``ratified`` (a ratified fact, ``form`` "ratified fact", or a stored fact nobody
          *     ratified, ``form`` "stored fact"). ``form`` = the form as filed or the row's own label; ``date`` = the
          *     public date it counts from; ``headline`` = one neutral line; ``detail`` = the lines the expanded row shows;
          *     ``url`` = the filing's EDGAR index or the stored source (``null`` = none known); ``tags`` = quiet field
-         *     predicates; ``routine`` = a fold candidate (a Form 4 holding no code-P purchase); ``usd`` = the row's dollar
-         *     size when it has one (a Form 4's purchases minus sales, a dilution's principal). ``links`` / ``role`` /
-         *     ``silent`` = the company's place on the card at the as-of (``null`` in ``links`` = no link).
+         *     predicates; ``routine`` = a fold candidate; ``fold`` = its fold group (``form4``: a Form 4 holding no code-P
+         *     purchase, folded per day; ``prospectus``: a 424B / 424H / 424I / 497 / FWP index row and ``ownership``: an
+         *     index-only Form 3/4/5 or a Form 144 notice, each folded per day and company; ``null`` for a row that is not
+         *     routine); ``usd`` = the
+         *     row's dollar size when it has one (a Form 4's purchases minus sales, a dilution's principal). ``links`` /
+         *     ``role`` / ``silent`` = the company's place on the card at the as-of (``null`` in ``links`` = no link).
          */
         FilingStreamRowOut: {
             /** Key */
@@ -8326,7 +8362,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "8k" | "stake" | "form4" | "form4a" | "revenue" | "split" | "dilution" | "catalyst" | "ratified";
+            kind: "8k" | "stake" | "form4" | "form4a" | "revenue" | "filing" | "split" | "dilution" | "catalyst" | "ratified";
             /** Form */
             form: string;
             /**
@@ -8346,6 +8382,8 @@ export interface components {
             tags: string[];
             /** Routine */
             routine: boolean;
+            /** Fold */
+            fold: ("form4" | "prospectus" | "ownership") | null;
             /** Usd */
             usd: number | null;
             /** Links */
@@ -11285,7 +11323,8 @@ export interface components {
         /**
          * ReadThroughFilingOut
          * @description The company's newest SEC filing in the last ``filing_days`` days: ``kind`` (``8k`` | ``stake`` | ``form4`` |
-         *     ``form4a`` | ``revenue``; never a split, a catalyst or a ratified or stored fact), ``form`` (the form as
+         *     ``form4a`` | ``revenue`` | ``filing``, any other form in the company's EDGAR index; never a split, a catalyst
+         *     or a ratified or stored fact), ``form`` (the form as
          *     filed), its public ``date`` (``days_ago`` before the as-of), one neutral ``headline``, and ``url`` (the EDGAR
          *     filing index or the stored source; ``null`` = none known).
          */
@@ -11294,7 +11333,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "8k" | "stake" | "form4" | "form4a" | "revenue" | "split" | "dilution" | "catalyst" | "ratified";
+            kind: "8k" | "stake" | "form4" | "form4a" | "revenue" | "filing" | "split" | "dilution" | "catalyst" | "ratified";
             /** Form */
             form: string;
             /**

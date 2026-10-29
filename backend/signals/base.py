@@ -329,6 +329,20 @@ class PointInTimeData:
         version per (security, d), ascending by d."""
         return self._rows("fact_fund_shares", security_id)
 
+    def filing_index(self, security_id: UUID) -> list[dict[str, Any]]:
+        """The company's EDGAR filing index (migration 0070) — every form its submissions index lists, one row
+        per accession (``form`` / ``accession`` / ``filed`` / ``primary_doc`` / ``accepted`` / ``source_ref``),
+        as-of. The research dashboards' Filing Stream reads it (``dashboards/filings.py``).
+
+        Deliberately NOT on the detectors' ``SignalPointInTimeData`` protocol below (the ``fund_shares``
+        precedent): it is DISPLAY data, never a call input, and keeping the accessor off the protocol keeps a
+        detector from quietly growing a dependency on it (#3/#4 — a trigger traces to a computation over the
+        facts a detector declares). It is also kept out of the replay mirror
+        (``db.bitemporal.DISPLAY_ONLY_FACT_TABLES``). Both clocks come from ``_rows``: on the record clock (the
+        live read) a row counts once ``valid_from <= asof AND recorded_at <= known_at``; on the public clock (a
+        history view) from its ``filed`` date (``db.public_clock``)."""
+        return self._rows("fact_filing_index", security_id)
+
     def theme_conviction_facts(self, thesis_id: UUID) -> list[dict[str, Any]]:
         """Thesis-scoped (not co-located): the operator-ratified theme convictions for a thesis (M5b)."""
         return self._thesis_rows("fact_theme_conviction", thesis_id)

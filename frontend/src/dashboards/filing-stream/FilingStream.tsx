@@ -20,7 +20,9 @@ import {
   fmtDay,
   fmtDayHeader,
   foldEntries,
-  foldWords,
+  foldEntryWords,
+  foldGroupOf,
+  foldedByGroup,
   plural,
   unresolvedWords,
   usdHint,
@@ -39,7 +41,8 @@ import {
 // Filing Stream (docs/dashboards/filing-stream.md): ONE card's names' filing-derived facts as a dated stream,
 // newest day first, as they were readable at the as-of. Display only. Every row and count is computed server-side
 // (the shared filing reader); this page picks the card and the window, filters client side (kind, link, name,
-// role, "Counting names only"), folds each day's routine Form 4s into one quiet line, and words the work. No
+// role, "Counting names only"), folds the routine rows into quiet lines (a day's Form 4s; per day and company its
+// prospectus supplements and its insider ownership filings), and words the work. No
 // badges and no color by kind: loudness marks the exception only (#7 / WB#3).
 
 const SLOW = "Reading this card's filings — the first load after a run or a basket edit can take a moment.";
@@ -189,7 +192,11 @@ export default function FilingStream({ asof, onSelectThesis }: DashboardProps) {
   const kindsHere = data ? KIND_ORDER.filter((k) => (data.counts.by_kind.find((c) => c.kind === k)?.rows ?? 0) > 0) : [];
   const hasSilent = data?.names.some((n) => n.silent) ?? false;
   const shown = countRows(filtered);
-  const foldedCount = filtered.reduce((n, d) => n + d.rows.filter((r) => r.routine).length, 0);
+  const folded = foldedByGroup(filtered);
+  // the toggle says what it unfolds: the Form 4s alone, or every routine row when another group is on the page
+  const onlyForm4 = (data?.groups ?? []).every((g) =>
+    g.rows.every((r) => !r.routine || foldGroupOf(r) === "form4"),
+  );
   const filtering = filtersActive(filters);
 
   return (
@@ -343,13 +350,20 @@ export default function FilingStream({ asof, onSelectThesis }: DashboardProps) {
               </label>
             )}
             {data.counts.routine > 0 && (
-              <label className="fs-check" title="Show each day's routine Form 4 filings (none holds a purchase) in place instead of one folded line">
+              <label
+                className="fs-check"
+                title={
+                  onlyForm4
+                    ? "Show each day's routine Form 4 filings (none holds a purchase) in place instead of one folded line"
+                    : "Show every routine row in place instead of its folded line: the routine Form 4s (none holds a purchase), the prospectus supplements and the insider ownership filings with no transaction rows stored"
+                }
+              >
                 <input
                   type="checkbox"
                   checked={filters.showRoutine}
                   onChange={(e) => setFilters((f) => ({ ...f, showRoutine: e.target.checked }))}
                 />
-                Show routine Form 4s
+                {onlyForm4 ? "Show routine Form 4s" : "Show routine rows"}
               </label>
             )}
           </div>
@@ -381,19 +395,20 @@ export default function FilingStream({ asof, onSelectThesis }: DashboardProps) {
                         />
                       );
                       if (entry.type === "row") return line(entry.row);
-                      const isOpen = foldOpen.has(day.date);
+                      const foldKey = `${day.date}|${entry.key}`;
+                      const isOpen = foldOpen.has(foldKey);
                       return (
-                        <li key={`fold-${day.date}`} className="fs-fold-item">
+                        <li key={`fold-${foldKey}`} className="fs-fold-item" data-fold={entry.group}>
                           <button
                             type="button"
                             className="fs-fold"
                             aria-expanded={isOpen}
-                            onClick={() => toggle(foldOpen, day.date, setFoldOpen)}
+                            onClick={() => toggle(foldOpen, foldKey, setFoldOpen)}
                           >
                             <span className="fs-chev" aria-hidden="true">
                               {isOpen ? "▾" : "▸"}
                             </span>
-                            {foldWords(entry.rows.length)}
+                            {foldEntryWords(entry)}
                           </button>
                           {isOpen && <ul className="fs-list fs-folded">{entry.rows.map(line)}</ul>}
                         </li>
@@ -405,7 +420,7 @@ export default function FilingStream({ asof, onSelectThesis }: DashboardProps) {
             </div>
           )}
 
-          {workLines(data, shown, foldedCount, filtering).map((line, i) => (
+          {workLines(data, shown, folded, filtering).map((line, i) => (
             <div key={i} className="dash-note fs-work">
               {line}
             </div>

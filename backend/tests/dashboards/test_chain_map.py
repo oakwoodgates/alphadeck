@@ -238,10 +238,27 @@ def test_the_last_filing_is_a_filing_never_a_split_a_catalyst_or_a_stored_or_rat
     got = last_filing([*own, real], ASOF)
     assert (got.age_days, got.form, got.headline) == (30, "8-K", "8-K · 2.02")
     assert last_filing(own, ASOF) is None  # nothing but the system's own rows: no filing
-    # each SEC kind counts
-    for kind, form in (("stake", "SC 13D"), ("form4", "4"), ("form4a", "4/A"), ("revenue", "10-Q")):
+    # each SEC kind counts — any other form in the EDGAR index (0070) too
+    for kind, form in (
+        ("stake", "SC 13D"),
+        ("form4", "4"),
+        ("form4a", "4/A"),
+        ("revenue", "10-Q"),
+        ("filing", "DEF 14A"),
+    ):
         assert last_filing([*own, fr(a, 5, kind, form, "x")], ASOF).form == form
-    assert SEC_FILING_KINDS == {"8k", "stake", "form4", "form4a", "revenue"}
+    assert SEC_FILING_KINDS == {"8k", "stake", "form4", "form4a", "revenue", "filing"}
+
+
+def test_a_lone_424B5_from_the_EDGAR_index_is_the_last_filing_when_it_is_the_newest():
+    a = uuid.uuid4()
+    rows = [
+        fr(a, 30, "8k", "8-K", "8-K · 2.02"),
+        fr(a, 3, "filing", "424B5", "424B5 · d424b5.htm"),
+        fr(a, 0, "split", "split", "1-for-10 reverse split"),
+    ]
+    got = last_filing(rows, ASOF)
+    assert (got.age_days, got.form, got.headline) == (3, "424B5", "424B5 · d424b5.htm")
 
 
 # ---------------------------------------------------------------------------------------------------------

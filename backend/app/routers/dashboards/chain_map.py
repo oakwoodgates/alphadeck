@@ -77,8 +77,9 @@ class ChainMapCardsOut(_Wire):
 
 
 class ChainMapFilingOut(_Wire):
-    """A company's newest SEC filing in the last ``filing_days`` days (an 8-K, 13D/G, Form 4 or 4/A, or a 10-Q /
-    10-K revenue print; never a split, a catalyst or a ratified or stored fact): its public ``date``
+    """A company's newest SEC filing in the last ``filing_days`` days (an 8-K, 13D/G, Form 4 or 4/A, a 10-Q / 10-K
+    revenue print, or any other form in the EDGAR index; never a split, a catalyst or a ratified or stored fact):
+    its public ``date``
     (``age_days`` before the as-of), the ``form`` as filed and its one-line ``headline``.
     """
 

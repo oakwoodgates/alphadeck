@@ -27,8 +27,9 @@ The rules, in one place. This is a layout, not a model: no edge weights, no clus
   an edge never lands on a link or a name. The page draws the counter-case edge dashed.
 - **The glyphs.** The business type is the master's leaf (the operator's re-tag winning). The 50-day side is the
   sign of ``sma_position``'s ``pct_vs_fast`` (rounded to two places: ``at`` when it rounds to zero). The last
-  filing is the newest SEC filing of the 365 days ending at the as-of (8-K, 13D/G, Form 4, 4/A or a 10-Q / 10-K
-  revenue print: ``filings.SEC_FILING_KINDS``; a split, a catalyst or a ratified or stored fact is never it). A
+  filing is the newest SEC filing of the 365 days ending at the as-of (8-K, 13D/G, Form 4, 4/A, a 10-Q / 10-K
+  revenue print or any other form in the EDGAR index: ``filings.SEC_FILING_KINDS``; a split, a catalyst or a
+  ratified or stored fact is never it). A
   company whose data flags reach its price readings has no 50-day side (its bars are never read) and is named
   with its reason; it stays on the map.
 - **Counts.** Nothing is dropped: every roster company is a node on the chain, on a rail, or in a silent column,
@@ -169,8 +170,9 @@ def side_of(pct: float | None) -> Side50 | None:
 
 
 def last_filing(rows: Sequence[FilingRow], asof: date) -> LastFiling | None:
-    """The newest of a company's SEC filings by date (an 8-K, 13D/G, Form 4 or 4/A, or a 10-Q / 10-K revenue
-    print: ``filings.SEC_FILING_KINDS``; never a split, dilution fact, catalyst, or ratified or stored fact; a row
+    """The newest of a company's SEC filings by date (an 8-K, 13D/G, Form 4 or 4/A, a 10-Q / 10-K revenue print, or
+    any other form in the EDGAR index: ``filings.SEC_FILING_KINDS``; never a split, dilution fact, catalyst, or
+    ratified or stored fact; a row
     dated after the as-of cannot be read and is skipped); among rows of that day the first by kind order, form,
     headline and accession, so the pick never flips.
     """

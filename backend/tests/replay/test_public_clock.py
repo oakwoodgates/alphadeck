@@ -430,8 +430,9 @@ def test_every_fact_table_has_a_clock_so_nothing_is_excluded(db, tmp_path):
     excludes nothing and blinds nothing."""
     m = export_snapshot(db, tmp_path, clock="public")
     assert m["excluded_tables"] == [] and m["blind_detectors"] == []
-    # every MIRROR table (the display-only ones — the term-mentions count, 0071 — never enter a mirror at all:
-    # ``db.bitemporal.DISPLAY_ONLY_FACT_TABLES``, ``tests/pipeline/test_term_mentions.py``)
+    # every MIRROR table (the display-only ones — the filing index, 0070, and the term-mentions count, 0071 — never
+    # enter a mirror at all: ``db.bitemporal.DISPLAY_ONLY_FACT_TABLES``, ``tests/replay/test_display_only_tables.py``,
+    # ``tests/pipeline/test_term_mentions.py``)
     assert set(m["tables"]) == set(FACT_TABLES)
     assert set(_FACT_IDENTITY) - set(FACT_TABLES) == set(DISPLAY_ONLY_FACT_TABLES)
 

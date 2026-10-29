@@ -14,14 +14,15 @@ import type {
 
 export type StreamKind = FilingStreamRowOut["kind"];
 
-/** The kinds in a day's order (the server's `KIND_ORDER`): 8-K, 13D/G, Form 4, 4/A, revenue, split, dilution,
- *  catalyst, ratified or stored fact. */
+/** The kinds in a day's order (the server's `KIND_ORDER`): 8-K, 13D/G, Form 4, 4/A, revenue, other forms from the
+ *  EDGAR index, split, dilution, catalyst, ratified or stored fact. */
 export const KIND_ORDER: readonly StreamKind[] = [
   "8k",
   "stake",
   "form4",
   "form4a",
   "revenue",
+  "filing",
   "split",
   "dilution",
   "catalyst",
@@ -36,6 +37,7 @@ export const KIND_LABEL: Record<StreamKind, string> = {
   form4: "Form 4",
   form4a: "4/A",
   revenue: "Revenue",
+  filing: "Other forms",
   split: "Split",
   dilution: "Dilution",
   catalyst: "Catalyst",
@@ -49,6 +51,7 @@ const KIND_WORDS: Record<StreamKind, readonly [string, string]> = {
   form4: ["Form 4", "Form 4s"],
   form4a: ["4/A", "4/As"],
   revenue: ["revenue print", "revenue prints"],
+  filing: ["other form", "other forms"],
   split: ["split", "splits"],
   dilution: ["dilution row", "dilution rows"],
   catalyst: ["catalyst", "catalysts"],
@@ -199,33 +202,68 @@ export const countRows = (days: readonly FilingStreamDayOut[]) => days.reduce((n
 
 // --- the fold ----------------------------------------------------------------------------------------------------
 
-/** One line of a day: a row, or the day's ONE fold line standing where its first routine row was. */
+/** The server's fold groups (`filings.FOLD_GROUPS`): `form4` = a Form 4 holding no purchase (folded per day),
+ *  `prospectus` = a prospectus supplement (424B, 424H, 424I, 497, FWP) and `ownership` = an insider ownership
+ *  filing with no transaction rows stored (an index-only Form 3/4/5, a 144 notice), each folded per day AND
+ *  company. */
+export type FoldGroup = NonNullable<FilingStreamRowOut["fold"]>;
+
+/** A routine row's group; a routine row the server sent without one is the day's Form 4 fold (today's rule). */
+export const foldGroupOf = (r: Pick<FilingStreamRowOut, "fold">): FoldGroup => r.fold ?? "form4";
+
+/** One line of a day: a row, or a fold line standing where its first row was. `key` is unique within the day:
+ *  `form4` for the day's ONE Form 4 fold, `<group>:<security_id>` for a company's prospectus / ownership fold. */
 export type Entry =
   | { type: "row"; row: FilingStreamRowOut }
-  | { type: "fold"; rows: FilingStreamRowOut[] };
+  | { type: "fold"; group: FoldGroup; key: string; ticker: string; rows: FilingStreamRowOut[] };
 
-/** A day's lines in order. With `showRoutine` off, its routine Form 4 rows collapse into one fold line (the
- *  honest-loudness rule: the common noise goes quiet, nothing is removed); on, every row is a line. */
+/** A day's lines in order. With `showRoutine` off, its routine Form 4 rows collapse into ONE fold line, and each
+ *  company's routine prospectus / ownership rows into one fold line per company and group (the honest-loudness
+ *  rule: the common noise goes quiet, nothing is removed); on, every row is a line. */
 export function foldEntries(rows: readonly FilingStreamRowOut[], showRoutine: boolean): Entry[] {
   if (showRoutine) return rows.map((row) => ({ type: "row", row }));
   const out: Entry[] = [];
-  let fold: Extract<Entry, { type: "fold" }> | null = null;
+  const folds = new Map<string, Extract<Entry, { type: "fold" }>>();
   for (const row of rows) {
     if (!row.routine) {
       out.push({ type: "row", row });
-    } else if (fold) {
+      continue;
+    }
+    const group = foldGroupOf(row);
+    const key = group === "form4" ? "form4" : `${group}:${row.security_id}`;
+    const fold = folds.get(key);
+    if (fold) {
       fold.rows.push(row);
     } else {
-      fold = { type: "fold", rows: [row] };
-      out.push(fold);
+      const made: Extract<Entry, { type: "fold" }> = { type: "fold", group, key, ticker: row.ticker, rows: [row] };
+      folds.set(key, made);
+      out.push(made);
     }
   }
   return out;
 }
 
-/** The fold line's words: no purchase in any of them, said so. */
+/** The Form 4 fold line's words: no purchase in any of them, said so. */
 export const foldWords = (n: number) =>
   `${plural(n, "routine Form 4 filing", "routine Form 4 filings")} (none holds a purchase: sales, grants, exercises, withholding, other codes)`;
+
+const isForm144 = (form: string) => form.trim().toUpperCase().startsWith("144");
+
+/** Any fold line's words: the day's Form 4s as before; a company's prospectus supplements ("JPM · 87 prospectus
+ *  supplements (424B, FWP)"); a company's insider ownership filings, naming only what the line holds ("META · 5
+ *  insider ownership filings (Forms 3/4/5 with no transaction rows stored, 144 notices)"). */
+export function foldEntryWords(e: Extract<Entry, { type: "fold" }>): string {
+  const n = e.rows.length;
+  if (e.group === "form4") return foldWords(n);
+  if (e.group === "prospectus") {
+    return `${e.ticker} · ${plural(n, "prospectus supplement", "prospectus supplements")} (424B, FWP)`;
+  }
+  const what = [
+    e.rows.some((r) => !isForm144(r.form)) ? "Forms 3/4/5 with no transaction rows stored" : null,
+    e.rows.some((r) => isForm144(r.form)) ? "144 notices" : null,
+  ].filter(Boolean);
+  return `${e.ticker} · ${plural(n, "insider ownership filing", "insider ownership filings")} (${what.join(", ")})`;
+}
 
 // --- the show-the-work lines -------------------------------------------------------------------------------------
 
@@ -235,9 +273,53 @@ function cacheWords(d: FilingStreamOut): string {
   return `computed in ${s < 10 ? s.toFixed(1) : Math.round(s)} s — first load since the last run or basket edit`;
 }
 
+/** A fold group's rows in words: [one, many] (the folded line and the not-listed line). */
+const GROUP_ROWS: Record<FoldGroup, readonly [string, string]> = {
+  form4: ["routine Form 4 row", "routine Form 4 rows"],
+  prospectus: ["prospectus supplement row", "prospectus supplement rows"],
+  ownership: ["insider ownership row", "insider ownership rows"],
+};
+const GROUP_NOUN: Record<FoldGroup, readonly [string, string]> = {
+  form4: ["routine Form 4", "routine Form 4s"],
+  prospectus: ["prospectus supplement", "prospectus supplements"],
+  ownership: ["insider ownership filing", "insider ownership filings"],
+};
+const FOLD_ORDER: readonly FoldGroup[] = ["form4", "prospectus", "ownership"];
+
+/** The routine rows the filtered days hold, by fold group (what the fold covers). */
+export function foldedByGroup(days: readonly FilingStreamDayOut[]): Partial<Record<FoldGroup, number>> {
+  const out: Partial<Record<FoldGroup, number>> = {};
+  for (const d of days) {
+    for (const r of d.rows) {
+      if (!r.routine) continue;
+      const g = foldGroupOf(r);
+      out[g] = (out[g] ?? 0) + 1;
+    }
+  }
+  return out;
+}
+
+/** The cap's honest line: the routine rows the server did not list (over `routine_cap` of one kind for one
+ *  company in this window), counted per company and group; `null` when none. */
+export function notListedWords(d: Pick<FilingStreamOut, "not_listed" | "routine_cap">): string | null {
+  const total = d.not_listed.reduce((n, x) => n + x.rows, 0);
+  if (total === 0) return null;
+  const who = d.not_listed.map((x) => {
+    const [one, many] = x.fold ? GROUP_NOUN[x.fold] : ["routine row", "routine rows"];
+    return `${x.ticker} ${plural(x.rows, one, many)}`;
+  });
+  return `${plural(total, "routine row", "routine rows")} not listed (over ${d.routine_cap} of one kind for one company in this window): ${who.join(", ")}`;
+}
+
 /** The quiet lines under the stream: the card and window, the clock, the roster, and the rows by kind (every
- *  row, folded or not). `shown` = rows left after the filters; `folded` = routine rows the fold is covering. */
-export function workLines(d: FilingStreamOut, shown: number, folded: number, filtering: boolean): string[] {
+ *  row, folded or not, listed or not), then the cap's not-listed line when it cut anything. `shown` = rows left
+ *  after the filters; `folded` = routine rows the fold is covering, by group. */
+export function workLines(
+  d: FilingStreamOut,
+  shown: number,
+  folded: Partial<Record<FoldGroup, number>>,
+  filtering: boolean,
+): string[] {
   const resolved = d.names.filter((n) => n.security_id != null).length;
   const kinds = KIND_ORDER.map((k) => {
     const n = d.counts.by_kind.find((c) => c.kind === k)?.rows ?? 0;
@@ -245,6 +327,10 @@ export function workLines(d: FilingStreamOut, shown: number, folded: number, fil
     const words = plural(n, one, many);
     return k === "form4" && n > 0 ? `${words} (${d.counts.form4_purchases} hold a purchase)` : words;
   });
+  const foldedParts = FOLD_ORDER.filter((g) => (folded[g] ?? 0) > 0).map((g) =>
+    plural(folded[g] ?? 0, ...GROUP_ROWS[g]),
+  );
+  const notListed = notListedWords(d);
   return [
     [
       `as of ${fmtDay(d.asof)}`,
@@ -261,10 +347,11 @@ export function workLines(d: FilingStreamOut, shown: number, folded: number, fil
     [
       `${plural(d.counts.rows, "row", "rows")} in the window: ${kinds.join(" · ")}`,
       filtering ? `${shown.toLocaleString("en-US")} shown after the filters` : null,
-      folded > 0 ? `${plural(folded, "routine Form 4 row", "routine Form 4 rows")} folded (counted above)` : null,
+      foldedParts.length > 0 ? `${foldedParts.join(", ")} folded (counted above)` : null,
     ]
       .filter(Boolean)
       .join(" · "),
+    ...(notListed ? [notListed] : []),
   ];
 }
 
@@ -280,7 +367,8 @@ export const ROSTER_PIT_FROM = "2026-09-15";
 
 /** The page's known limits, stated on the page (docs/dashboards/filing-stream.md). */
 export const LIMITS: readonly string[] = [
-  "Ingested facts only: forms other than 8-K, Form 4 and 4/A, 13D/G and the 10-Q/10-K revenue series are not stored yet, so they are not listed.",
+  "Every form in each company's EDGAR index is listed, from its recent window (at least a year, or the last 1,000 filings, whichever reaches further). A form the system does not read into (an S-1, a 424B5, a DEF 14A) shows as its form and primary document under Other forms, nothing quoted from it; each filing shows once, as its richest row.",
+  "Routine rows fold into quiet lines: a day's Form 4s holding no purchase, and per company a day's prospectus supplements (424B, 424H, 424I, 497, FWP) and its insider ownership filings with no transaction rows stored (Forms 3/4/5, 144 notices). At most 200 routine rows of one kind per company are listed in a window, newest first; the rest are counted in the work line and in every count above, never listed. A row that is not routine is never cut.",
   "The Cockpit's day-low and implausible-data insider screens are not applied here: a purchase is shown as a purchase, nothing more. 13D/G stakes are listed as stored, without the call's control screens.",
   "A 4/A is shown as a filing; its standing (applied, kept, pending) is on Admin › Insider amendments. Form 4s come through the Cockpit's resolved read: an applied 4/A's rows replace the original's.",
   "A Form 4 is dated by its SEC acceptance in market time; a split by its own publication as the view knows it, its status as stored. The card-level catalysts are the Catalyst Calendar's.",

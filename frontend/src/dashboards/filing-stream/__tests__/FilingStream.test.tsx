@@ -41,6 +41,7 @@ const row = (key: string, over: Partial<FilingStreamRowOut> = {}): FilingStreamR
   accession: "0000876543-26-000010",
   tags: [],
   routine: false,
+  fold: null,
   usd: null,
   links: ["Reactors"],
   role: null,
@@ -57,6 +58,7 @@ const routine = (key: string, ticker: string, over: Partial<FilingStreamRowOut> 
     headline: `Jane Roe (CEO): S sale 3,000 sh @ $5.00 · $15,000 (${ticker})`,
     detail: ["2026-10-26 · S · 3,000 sh @ $5.00 · $15,000"],
     routine: true,
+    fold: "form4",
     usd: -15000,
     ...over,
   });
@@ -127,6 +129,7 @@ const COUNTS = {
     { kind: "form4", rows: 3 },
     { kind: "form4a", rows: 1 },
     { kind: "revenue", rows: 0 },
+    { kind: "filing", rows: 0 },
     { kind: "split", rows: 0 },
     { kind: "dilution", rows: 1 },
     { kind: "catalyst", rows: 0 },
@@ -134,6 +137,7 @@ const COUNTS = {
   ],
   form4_purchases: 1,
   routine: 2,
+  not_listed: 0,
 } as FilingStreamOut["counts"];
 
 const payload = (over: Partial<FilingStreamOut> = {}): FilingStreamOut => ({
@@ -161,6 +165,8 @@ const payload = (over: Partial<FilingStreamOut> = {}): FilingStreamOut => ({
   ],
   groups: [D1, D2, D3],
   counts: COUNTS,
+  not_listed: [],
+  routine_cap: 200,
   windows: [30, 90, 365],
   cache: "hit",
   compute_ms: 800,
@@ -285,6 +291,65 @@ describe("FilingStream", () => {
     expect(screen.getByText(/7 rows in the window:.*3 Form 4s \(1 hold a purchase\)/)).toBeInTheDocument();
   });
 
+  it("folds each company's prospectus supplements and ownership filings into its own line, and names the rows not listed", async () => {
+    const idx = (key: string, ticker: string, form: string, fold: "prospectus" | "ownership") =>
+      row(key, {
+        ticker,
+        security_id: `s-${ticker}`,
+        kind: "filing",
+        form,
+        headline: `${form} · ${key}.htm`,
+        detail: [],
+        routine: true,
+        fold,
+        links: ["Context"],
+        silent: true,
+      });
+    const day: FilingStreamDayOut = {
+      date: "2026-10-28",
+      routine: 7,
+      rows: [
+        ...D1.rows,
+        idx("p1", "JPM", "424B2", "prospectus"),
+        idx("p2", "JPM", "FWP", "prospectus"),
+        idx("p3", "JPM", "424B2", "prospectus"),
+        idx("o1", "META", "4", "ownership"),
+        idx("o2", "META", "144", "ownership"),
+      ],
+    };
+    setup(
+      payload({
+        groups: [day, D2, D3],
+        not_listed: [{ security_id: "s-JPM", ticker: "JPM", fold: "prospectus", rows: 25835 }],
+        counts: { ...COUNTS, rows: COUNTS.rows + 25840, routine: COUNTS.routine + 25840, not_listed: 25835 },
+      }),
+    );
+    const first = screen.getByRole("region", { name: "Wed, Oct 28, 2026" });
+    const jpm = within(first).getByRole("button", { name: "JPM · 3 prospectus supplements (424B, FWP)" });
+    const meta = within(first).getByRole("button", {
+      name: "META · 2 insider ownership filings (Forms 3/4/5 with no transaction rows stored, 144 notices)",
+    });
+    // the day's Form 4 fold is still ONE line, as before
+    expect(within(first).getByRole("button", { name: /2 routine Form 4 filings/ })).toBeInTheDocument();
+    expect(headlines()).not.toContain("424B2 · p1.htm");
+    // each fold opens on its own
+    await userEvent.click(jpm);
+    expect(jpm).toHaveAttribute("aria-expanded", "true");
+    expect(meta).toHaveAttribute("aria-expanded", "false");
+    expect(headlines()).toContain("424B2 · p1.htm");
+    expect(headlines()).not.toContain("4 · o1.htm");
+    // the cap's honest line, from the server's not_listed
+    expect(
+      screen.getByText(
+        "25,835 routine rows not listed (over 200 of one kind for one company in this window): JPM 25,835 prospectus supplements",
+      ),
+    ).toBeInTheDocument();
+    // one toggle shows every routine row in place (its label says so once more than Form 4s fold)
+    await userEvent.click(screen.getByRole("checkbox", { name: "Show routine rows" }));
+    expect(screen.queryByRole("button", { name: /prospectus supplements/ })).toBeNull();
+    expect(headlines()).toEqual(expect.arrayContaining(["424B2 · p3.htm", "4 · o1.htm", "144 · o2.htm"]));
+  });
+
   it("filters by kind, offering only the kinds the window holds", async () => {
     setup();
     const kinds = screen.getByRole("group", { name: "Kinds" });
@@ -304,6 +369,31 @@ describe("FilingStream", () => {
     expect(screen.getByText(/shown after the filters/)).toBeInTheDocument();
     await userEvent.click(within(kinds).getByRole("button", { name: /^Form 4/ }));
     expect(headlines().some((t) => t?.includes("P purchase"))).toBe(true);
+  });
+
+  it("lists a form from the EDGAR index as its form and document, under an 'Other forms' chip", async () => {
+    const s1 = row("8", {
+      kind: "filing",
+      form: "S-1",
+      headline: "S-1 · s1.htm",
+      detail: [],
+      accession: "0000876543-26-000050",
+      url: "https://www.sec.gov/Archives/edgar/data/876543/000087654326000050/0000876543-26-000050-index.htm",
+    });
+    const day: FilingStreamDayOut = { date: "2026-10-28", routine: 2, rows: [...D1.rows, s1] };
+    const counts = {
+      ...COUNTS,
+      rows: COUNTS.rows + 1,
+      by_kind: COUNTS.by_kind.map((c) => (c.kind === "filing" ? { ...c, rows: 1 } : c)),
+    };
+    setup(payload({ groups: [day, D2, D3], counts }));
+    const kinds = screen.getByRole("group", { name: "Kinds" });
+    const chip = within(kinds).getByRole("button", { name: /^Other forms/ });
+    expect(chip.textContent?.replace(/\s+/g, " ").trim()).toBe("Other forms 1");
+    expect(headlines()).toContain("S-1 · s1.htm");
+    expect(screen.getByText(/1 other form ·/)).toBeInTheDocument(); // the work line counts it
+    await userEvent.click(chip);
+    expect(headlines()).not.toContain("S-1 · s1.htm");
   });
 
   it("filters by link, name, role and 'Counting names only'", async () => {
@@ -382,7 +472,7 @@ describe("FilingStream", () => {
     expect(screen.getByText(/5 roster rows · 3 companies resolved · 1 without a resolved security · 1 in Context or Bench/)).toBeInTheDocument();
     expect(screen.getByText("1 roster name has no resolved security, so no filing can be attached to it: ZZZ.")).toBeInTheDocument();
     expect(screen.getByText(/Today's roster stands in for this card: rosters are point-in-time only from Sep 15, 2026/)).toBeInTheDocument();
-    expect(screen.getByText(/Ingested facts only: forms other than 8-K, Form 4 and 4\/A/)).toBeInTheDocument();
+    expect(screen.getByText(/Every form in each company's EDGAR index is listed/)).toBeInTheDocument();
     expect(screen.getByText(/day-low and implausible-data insider screens are not applied here/)).toBeInTheDocument();
     expect(screen.getByText(/its standing \(applied, kept, pending\) is on Admin › Insider amendments/)).toBeInTheDocument();
   });
