@@ -183,8 +183,7 @@ The page was built against fixtures and a two-company DB test; the measurements 
     18.2 s and a cache hit 40 ms. At as-of 2026-09-15 on the public clock it serves 0 rows (10 cards existed then and
     none carried a role yet) in 245 ms. The cold cost is the 365-day filing read over every role-tagged company, one
     point-in-time view per company (see the known limits); it runs once per as-of per run.
-19. **The Cards column is a row of single-line pills (found on dev with a prod copy).** A chip read "Defense Software,
-    CHSR & Services · Context" broke over four to six lines in the 280 px cell. Each pill is now one line: the card's name
+19. **The Cards column is a row of single-line pills (found on dev with a prod copy).** A chip read "A Long Card Name With Several Words · Context" broke over four to six lines in the 280 px cell. Each pill is now one line: the card's name
     is cut with an ellipsis at a maximum width, the links follow it in the quiet style (cut on their own width), and the
     pill's hover title carries the whole "Open <card> · <links>" line. The pills wrap as pills inside the cell, the column
     has a minimum width (240 px; 200 px on a phone), and the table scrolls sideways with the Company column pinned, as
