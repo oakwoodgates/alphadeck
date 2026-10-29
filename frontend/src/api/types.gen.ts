@@ -2109,6 +2109,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboards/leaders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Leaders
+         * @description Names across every card within 2% of their 52-week high, with relative strength at a 13-week high,
+         *     coiling, with open-market insider buys in the last 30 days, or with RVOL 20D at 1.5 or more; the names on
+         *     several of those lists; and the groups where at least two names had insider buys. One row per company.
+         *     Display only; a past as-of reads what was public by the end of that date.
+         */
+        get: operations["leaders_dashboards_leaders_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/backtest/runs": {
         parameters: {
             query?: never;
@@ -7330,6 +7353,219 @@ export interface components {
             reason: string;
         };
         /**
+         * LeadersCardOut
+         * @description A card a name sits on: its ticker there (the Cockpit's ``?name=`` key) and its links there (``null`` =
+         *     Unsegmented).
+         */
+        LeadersCardOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /** Ticker */
+            ticker: string;
+            /** Links */
+            links: (string | null)[];
+        };
+        /**
+         * LeadersClusterNameOut
+         * @description A name of an insider-cluster group: its open-market buys and distinct buyers in the last 30 days.
+         */
+        LeadersClusterNameOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Name */
+            name: string | null;
+            /** Cards */
+            cards: components["schemas"]["LeadersCardOut"][];
+            /** Buys 30D */
+            buys_30d: number;
+            /** Buyers 30D */
+            buyers_30d: number;
+            /** Cluster */
+            cluster: boolean;
+        };
+        /**
+         * LeadersInsiderGroupOut
+         * @description A group where at least ``group_min_names`` names had open-market buys in the last 30 days. Link view:
+         *     ``link`` (``null`` = Unsegmented) + its card. Card view: the card. Business type / Sector view:
+         *     ``business_type`` / ``supersector`` (``null`` = Unclassified). ``with_buys`` of its ``names`` (each counted
+         *     once) bought, ``share`` = ``with_buys / names``; ``no_insider_data`` of them have no Form 4 ingested;
+         *     ``buys`` = the group's buys.
+         */
+        LeadersInsiderGroupOut: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Link */
+            link: string | null;
+            /** Thesis Id */
+            thesis_id: string | null;
+            /** Thesis Name */
+            thesis_name: string | null;
+            /** Business Type */
+            business_type: string | null;
+            /** Supersector */
+            supersector: string | null;
+            /** Names */
+            names: number;
+            /** With Buys */
+            with_buys: number;
+            /** No Insider Data */
+            no_insider_data: number;
+            /** Share */
+            share: number;
+            /** Buys */
+            buys: number;
+            /** Members */
+            members: components["schemas"]["LeadersClusterNameOut"][];
+        };
+        /**
+         * LeadersListOut
+         * @description One list: its names (``security_ids`` into ``names``, in its default order) and how many companies in
+         *     view its display ``member`` gave no reading (not on the list for want of data, never silently dropped).
+         */
+        LeadersListOut: {
+            /**
+             * Key
+             * @enum {string}
+             */
+            key: "near_high" | "rs_leader" | "coiling" | "insider" | "volume";
+            /** Member */
+            member: string;
+            /** Security Ids */
+            security_ids: string[];
+            /** No Reading */
+            no_reading: number;
+        };
+        /**
+         * LeadersNameOut
+         * @description One company on at least one list (``lists``), each list's value beside it. ``pct_off_high`` = % off the
+         *     52-week closing high (``high_date`` its print date; ``range_bars`` the bars the range stands on, under
+         *     ``full_year_bars`` = not a full year); ``rs_vs`` = the benchmarks its RS is at a 13-week high against;
+         *     ``contraction`` = the vcp member's newest-segment depth over its oldest; ``buys_30d`` / ``buyers_30d`` =
+         *     open-market buys and distinct buyers in the last 30 days (``cluster`` = at least ``cluster_min_buyers``
+         *     buyers); ``rvol20`` = RVOL 20D. ``null`` = no reading.
+         */
+        LeadersNameOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Name */
+            name: string | null;
+            /** Cards */
+            cards: components["schemas"]["LeadersCardOut"][];
+            /** Lists */
+            lists: ("near_high" | "rs_leader" | "coiling" | "insider" | "volume")[];
+            /** Pct Off High */
+            pct_off_high: number | null;
+            /** High 52W */
+            high_52w: number | null;
+            /** High Date */
+            high_date: string | null;
+            /** Range Bars */
+            range_bars: number | null;
+            /** Rs Vs */
+            rs_vs: string[];
+            /** Contraction */
+            contraction: number | null;
+            /** Buys 30D */
+            buys_30d: number | null;
+            /** Buyers 30D */
+            buyers_30d: number | null;
+            /** Cluster */
+            cluster: boolean;
+            /** Rvol20 */
+            rvol20: number | null;
+            /** Ret 7D */
+            ret_7d: number | null;
+            /** Ret 30D */
+            ret_30d: number | null;
+            /** Above 50D */
+            above_50d: boolean | null;
+        };
+        /**
+         * LeadersOut
+         * @description The whole page in one view. ``names`` = every company on at least one list, in the several-lists order
+         *     (the number of lists, then the 30D return); ``several`` = those on ``multi_min_lists`` or more; ``lists`` =
+         *     each list's names in its default order and its no-reading count; ``insider_groups`` by names with buys,
+         *     then share. The counts are the work shown on its quiet line; the rule dials ride along. ``cache`` /
+         *     ``compute_ms`` = whether the heavy read was served from the shared dashboard cache and how long it took
+         *     when it ran.
+         */
+        LeadersOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Group By
+             * @enum {string}
+             */
+            group_by: "link" | "business_type" | "sector" | "card";
+            /** Include Silent */
+            include_silent: boolean;
+            /** Live Cards */
+            live_cards: number;
+            /** Cards Counted */
+            cards_counted: number;
+            /** Cards Not Yet Created */
+            cards_not_yet_created: number;
+            /** Roster Fallback Cards */
+            roster_fallback_cards: number;
+            /** Basket Rows */
+            basket_rows: number;
+            /** Silent Rows Left Out */
+            silent_rows_left_out: number;
+            /** Unresolved Rows */
+            unresolved_rows: number;
+            /** Companies */
+            companies: number;
+            /** Names */
+            names: components["schemas"]["LeadersNameOut"][];
+            /** Several */
+            several: string[];
+            /** Lists */
+            lists: components["schemas"]["LeadersListOut"][];
+            /** Insider Groups */
+            insider_groups: components["schemas"]["LeadersInsiderGroupOut"][];
+            /** Near High Pct */
+            near_high_pct: number;
+            /** Rvol Loud */
+            rvol_loud: number;
+            /** Insider Min Buys */
+            insider_min_buys: number;
+            /** Cluster Min Buyers */
+            cluster_min_buyers: number;
+            /** Group Min Names */
+            group_min_names: number;
+            /** Multi Min Lists */
+            multi_min_lists: number;
+            /** Full Year Bars */
+            full_year_bars: number;
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
          * LocatedPassage
          * @description A deterministically-retrieved passage that backs a fact — the evidence put in front of the operator
          *     (or, later, S5). Retrieval only: a keyword/section match, never a model's reading.
@@ -12349,6 +12585,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CrossRadarOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    leaders_dashboards_leaders_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; nothing published after it is read */
+                asof: string;
+                /** @description add Context and Bench memberships */
+                include_silent?: boolean;
+                /** @description the insider-cluster groups: link | business_type | sector | card */
+                group_by?: "link" | "business_type" | "sector" | "card";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadersOut"];
                 };
             };
             /** @description Validation Error */

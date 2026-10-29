@@ -9,6 +9,7 @@ from fastapi import APIRouter
 from app.routers.dashboards import (
     cross_radar,
     idea_timeline,
+    leaders,
     rotation_map,
     shared_names,
     what_changed,
@@ -24,6 +25,7 @@ _DASHBOARD_ROUTERS: tuple[APIRouter, ...] = (
     rotation_map.router,
     what_changed.router,
     cross_radar.router,
+    leaders.router,
 )
 
 router = APIRouter(prefix="/dashboards", tags=["dashboards"])

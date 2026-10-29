@@ -70,4 +70,13 @@ export const DASHBOARDS: readonly DashboardEntry[] = [
     asofAware: true,
     component: lazy(() => import("./cross-radar/CrossRadar")),
   },
+  {
+    slug: "leaders",
+    label: "Leaders",
+    description:
+      "Names across every card at new highs, leading the market, coiling, or with insider buying, and the groups where insiders cluster.",
+    status: "experimental",
+    asofAware: true,
+    component: lazy(() => import("./leaders/Leaders")),
+  },
 ];
