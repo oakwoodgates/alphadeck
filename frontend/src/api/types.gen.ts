@@ -2153,6 +2153,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboards/landing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Landing
+         * @description Where price closed in each window's range, and whether volume backed the move, by link, business
+         *     type, sector or card: per group and per window (1D / 7D / 30D / 90D trading bars), the median range
+         *     position, the split of names by return x volume (accumulation, thin rally, distribution, rest, flat)
+         *     and the median up/down-day volume, with each group's names. Display only; a past as-of reads what was
+         *     public by the end of that date.
+         */
+        get: operations["landing_dashboards_landing_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/backtest/runs": {
         parameters: {
             query?: never;
@@ -7460,6 +7484,206 @@ export interface components {
          * @enum {string}
          */
         Kind: "insider" | "catalyst" | "theme_conviction" | "technical_breakout" | "laggard" | "squeeze" | "etf_launch" | "etf_flow" | "dilution_risk" | "breakdown" | "insider_sell" | "corporate_risk" | "activist_stake";
+        /**
+         * LandingCardOut
+         * @description A card a name sits on in this group: its ticker there (the Cockpit's ``?name=`` key) and its links
+         *     there (``null`` = Unsegmented).
+         */
+        LandingCardOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /** Ticker */
+            ticker: string;
+            /** Links */
+            links: (string | null)[];
+        };
+        /**
+         * LandingGroupOut
+         * @description One row. Link view: ``link`` (``null`` = Unsegmented) + its card. Card view: the card. Business type /
+         *     Sector view: ``business_type`` / ``supersector`` (``null`` = Unclassified). ``names`` = the companies in
+         *     the group, each counted once; ``priced`` of them have a recent close.
+         */
+        LandingGroupOut: {
+            /** Key */
+            key: string;
+            /** Link */
+            link: string | null;
+            /** Thesis Id */
+            thesis_id: string | null;
+            /** Thesis Name */
+            thesis_name: string | null;
+            /** Business Type */
+            business_type: string | null;
+            /** Supersector */
+            supersector: string | null;
+            /** Names */
+            names: number;
+            /** Priced */
+            priced: number;
+            /** Windows */
+            windows: components["schemas"]["LandingGroupWindowOut"][];
+            /** Members */
+            members: components["schemas"]["LandingNameOut"][];
+        };
+        /**
+         * LandingGroupWindowOut
+         * @description One window of a group: the median range position over the ``range_n`` names with one (``null`` when
+         *     fewer than ``min_priced``), the quadrant split, and the median up/down-day volume over ``up_down_n``
+         *     names (same rule).
+         */
+        LandingGroupWindowOut: {
+            /** Key */
+            key: string;
+            /** Range Median */
+            range_median: number | null;
+            /** Range N */
+            range_n: number;
+            split: components["schemas"]["LandingSplitOut"];
+            /** Up Down Median */
+            up_down_median: number | null;
+            /** Up Down N */
+            up_down_n: number;
+        };
+        /**
+         * LandingNameOut
+         * @description One company in a group. A name ``not_priced`` (``no_tape``: no close by the as-of; ``stale_tape``: its
+         *     last close is more than ``stale_gap_days`` before it) reads no window.
+         */
+        LandingNameOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Cards */
+            cards: components["schemas"]["LandingCardOut"][];
+            /** Priced */
+            priced: boolean;
+            /** Not Priced */
+            not_priced: ("no_tape" | "stale_tape") | null;
+            /** Last Bar */
+            last_bar: string | null;
+            /** Windows */
+            windows: components["schemas"]["LandingNameWindowOut"][];
+        };
+        /**
+         * LandingNameWindowOut
+         * @description One name's reading for one window (``null`` = no reading). ``range_pos`` = where the close sits in the
+         *     window's high-low range (0 = the low, 100 = the high); ``ret`` = the % return over the window;
+         *     ``vol_ratio`` = the window's volume / the prior window of the same length; ``quadrant`` = the return's
+         *     sign x volume rising (``vol_ratio`` above ``rising_mult``) or not; ``up_down`` = up-close-day volume /
+         *     down-close-day volume.
+         */
+        LandingNameWindowOut: {
+            /** Key */
+            key: string;
+            /** Ret */
+            ret: number | null;
+            /** Range Pos */
+            range_pos: number | null;
+            /** Vol Ratio */
+            vol_ratio: number | null;
+            /** Quadrant */
+            quadrant: ("accumulation" | "thin_rally" | "distribution" | "rest" | "flat") | null;
+            /** Up Down */
+            up_down: number | null;
+        };
+        /**
+         * LandingOut
+         * @description The whole page in one view, groups in the default order (the 7D median range position, highest
+         *     first, "—" last). The counts are the work shown on its quiet line; the rule dials ride along. ``cache``
+         *     / ``compute_ms`` = whether the heavy read was served from the shared dashboard cache and how long it took
+         *     when it ran.
+         */
+        LandingOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Group By
+             * @enum {string}
+             */
+            group_by: "link" | "business_type" | "sector" | "card";
+            /** Include Silent */
+            include_silent: boolean;
+            /** Live Cards */
+            live_cards: number;
+            /** Cards Counted */
+            cards_counted: number;
+            /** Cards Not Yet Created */
+            cards_not_yet_created: number;
+            /** Roster Fallback Cards */
+            roster_fallback_cards: number;
+            /** Basket Rows */
+            basket_rows: number;
+            /** Silent Rows Left Out */
+            silent_rows_left_out: number;
+            /** Unresolved Rows */
+            unresolved_rows: number;
+            /** Companies */
+            companies: number;
+            /** Priced Companies */
+            priced_companies: number;
+            /** No Tape Companies */
+            no_tape_companies: number;
+            /** Stale Tape Companies */
+            stale_tape_companies: number;
+            /** Groups */
+            groups: components["schemas"]["LandingGroupOut"][];
+            /** Windows */
+            windows: components["schemas"]["LandingWindowDefOut"][];
+            /** Min Priced */
+            min_priced: number;
+            /** Rising Mult */
+            rising_mult: number;
+            /** Stale Gap Days */
+            stale_gap_days: number;
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * LandingSplitOut
+         * @description How many of the group's names landed in each quadrant in this window; ``unread`` = names with no
+         *     quadrant reading.
+         */
+        LandingSplitOut: {
+            /** Accumulation */
+            accumulation: number;
+            /** Thin Rally */
+            thin_rally: number;
+            /** Distribution */
+            distribution: number;
+            /** Rest */
+            rest: number;
+            /** Flat */
+            flat: number;
+            /** Unread */
+            unread: number;
+        };
+        /**
+         * LandingWindowDefOut
+         * @description A window: its key and its length in trading bars.
+         */
+        LandingWindowDefOut: {
+            /** Key */
+            key: string;
+            /** Bars */
+            bars: number;
+        };
         /**
          * LateNightOut
          * @description One late night (L1, operator Q5 = A): a (thesis, as-of) holding a call-of-record recorded at/after
@@ -12795,6 +13019,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LeadersOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    landing_dashboards_landing_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; no price published after it is read */
+                asof: string;
+                /** @description the rows: link | business_type | sector | card */
+                group_by?: "link" | "business_type" | "sector" | "card";
+                /** @description add Context and Bench memberships (their own rows in the Link view) */
+                include_silent?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LandingOut"];
                 };
             };
             /** @description Validation Error */
