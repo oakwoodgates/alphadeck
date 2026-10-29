@@ -227,15 +227,17 @@ def test_per_company_reads_each_company_once_through_one_view_per_chunk(monkeypa
     seen: list = []
 
     def read(pit, sid):
-        seen.append((id(pit), sid, pit._basket, pit.asof, pit.known_at, pit.clock))
+        # hold the view itself: per_company frees each chunk's view as it moves on, and CPython hands a
+        # freed object's id() to the next one, so an id alone can merge two chunks' views
+        seen.append((pit, sid, pit._basket, pit.asof, pit.known_at, pit.clock))
         return sid.hex
 
     out = per_company(object(), sids, ASOF, known_at, "public", read)
     assert out == {sid: sid.hex for sid in sids}
     assert [s for _, s, *_ in seen] == sids
     views = {}
-    for pit_id, sid, basket, *view in seen:
-        views.setdefault(pit_id, (basket, set()))[1].add(sid)
+    for pit, sid, basket, *view in seen:
+        views.setdefault(id(pit), (basket, set()))[1].add(sid)
         assert view == [ASOF, known_at, "public"]
     assert [b == frozenset(got) for b, got in views.values()] == [True, True, True]  # 2 + 2 + 1
 
