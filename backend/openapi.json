@@ -5313,6 +5313,121 @@
         }
       }
     },
+    "/dashboards/ticker-lookup/resolve": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Ticker Lookup Resolve",
+        "description": "Resolve a typed ticker to its company: the master's exact ticker (upper-cased), else, with ``former=true``,\nthe company a former ticker belonged to. 404 when nothing matches; the suggestions as you type come from the\nWorkbench's company search. Display only.",
+        "operationId": "ticker_lookup_resolve_dashboards_ticker_lookup_resolve_get",
+        "parameters": [
+          {
+            "name": "t",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 24,
+              "description": "the ticker to resolve",
+              "title": "T"
+            },
+            "description": "the ticker to resolve"
+          },
+          {
+            "name": "former",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "also match a FORMER ticker (a company renamed in place), exactly",
+              "default": false,
+              "title": "Former"
+            },
+            "description": "also match a FORMER ticker (a company renamed in place), exactly"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TickerLookupResolveOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboards/ticker-lookup/{security_id}": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Ticker Lookup",
+        "description": "Everything the platform holds about one company at the as-of: its identity and approximate market cap, the\ncounted cards it sits on and its part in each (the recorded call in effect), the triggers the recorded calls\nshow on it over the last 365 days, its tape (the display members' readings), its filings and catalyst facts,\nthe catalysts of its cards and the operator's logged decisions on it. A past as-of reads what was public by the\nend of that date (a roster row added or a filing filed after it never appears). Display only; 404 for an\nunknown id.",
+        "operationId": "ticker_lookup_dashboards_ticker_lookup__security_id__get",
+        "parameters": [
+          {
+            "name": "security_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Security Id"
+            }
+          },
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; nothing public after it is read",
+              "title": "Asof"
+            },
+            "description": "as-of date; nothing public after it is read"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TickerLookupOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/dashboards/track-record": {
       "get": {
         "tags": [
@@ -30607,6 +30722,1742 @@
         ],
         "title": "ThesisSummary",
         "description": "Lightweight list item for the Board (the full thesis comes from GET /theses/{id})."
+      },
+      "TickerLookupCapOut": {
+        "properties": {
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "tier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tier"
+          },
+          "gap": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "close": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close"
+          },
+          "close_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close Date"
+          },
+          "shares": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shares"
+          },
+          "shares_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shares Date"
+          },
+          "ads_ratio": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ads Ratio"
+          },
+          "split_factor": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Split Factor"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "tier",
+          "gap",
+          "note",
+          "close",
+          "close_date",
+          "shares",
+          "shares_date",
+          "ads_ratio",
+          "split_factor"
+        ],
+        "title": "TickerLookupCapOut",
+        "description": "The approximate market cap (latest close times the latest shares fact, the Peer Table's rule). ``gap`` is\nwhy it is blank (``flagged`` = a data flag reaches the price, the reason in ``note``); ``value`` is never zero\nfor a blank."
+      },
+      "TickerLookupCardCatalystOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "when_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "When Date"
+          },
+          "when_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "When Label"
+          },
+          "passed": {
+            "type": "boolean",
+            "title": "Passed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "thesis_name",
+          "label",
+          "kind",
+          "when_date",
+          "when_label",
+          "passed"
+        ],
+        "title": "TickerLookupCardCatalystOut",
+        "description": "A thesis-level catalyst of a card the company counts on (``null`` ``when_date`` = undated)."
+      },
+      "TickerLookupCardNameOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "thesis_name"
+        ],
+        "title": "TickerLookupCardNameOut"
+      },
+      "TickerLookupCardOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/TickerLookupLinkOut"
+            },
+            "type": "array",
+            "title": "Links"
+          },
+          "silent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Silent"
+          },
+          "context_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context Role"
+          },
+          "signed_off": {
+            "type": "boolean",
+            "title": "Signed Off"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State"
+          },
+          "verdict": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verdict"
+          },
+          "recorded_on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recorded On"
+          },
+          "reconstructed": {
+            "type": "boolean",
+            "title": "Reconstructed"
+          },
+          "place": {
+            "$ref": "#/components/schemas/TickerLookupPlaceOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "thesis_name",
+          "ticker",
+          "links",
+          "silent",
+          "context_role",
+          "signed_off",
+          "state",
+          "verdict",
+          "recorded_on",
+          "reconstructed",
+          "place"
+        ],
+        "title": "TickerLookupCardOut",
+        "description": "One counted card the company sits on, its links merged. ``state`` / ``verdict`` / ``recorded_on`` = the\nrecorded call in effect at the as-of (``null`` = none yet); ``silent`` = ``Context`` or ``Bench``."
+      },
+      "TickerLookupCardsOut": {
+        "properties": {
+          "live_cards": {
+            "type": "integer",
+            "title": "Live Cards"
+          },
+          "not_yet_created": {
+            "type": "integer",
+            "title": "Not Yet Created"
+          },
+          "roster_fallback": {
+            "type": "integer",
+            "title": "Roster Fallback"
+          },
+          "counted": {
+            "type": "integer",
+            "title": "Counted"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/TickerLookupCardOut"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "archived": {
+            "items": {
+              "$ref": "#/components/schemas/TickerLookupCardNameOut"
+            },
+            "type": "array",
+            "title": "Archived"
+          },
+          "excluded": {
+            "items": {
+              "$ref": "#/components/schemas/TickerLookupExcludedOut"
+            },
+            "type": "array",
+            "title": "Excluded"
+          }
+        },
+        "type": "object",
+        "required": [
+          "live_cards",
+          "not_yet_created",
+          "roster_fallback",
+          "counted",
+          "rows",
+          "archived",
+          "excluded"
+        ],
+        "title": "TickerLookupCardsOut",
+        "description": "The cards section: ``counted`` = the cards that existed by the as-of (``live_cards`` today, ``not_yet_created``\nleft out, ``roster_fallback`` with today's roster standing in), the rows for the ones the company sits on, the\narchived cards that hold it and the counted cards that exclude it."
+      },
+      "TickerLookupDecisionOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "decision_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Decision Date"
+          },
+          "shares": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shares"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "voided": {
+            "type": "boolean",
+            "title": "Voided"
+          },
+          "voids": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Voids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "thesis_id",
+          "thesis_name",
+          "action",
+          "decision_date",
+          "shares",
+          "price",
+          "reason",
+          "voided",
+          "voids"
+        ],
+        "title": "TickerLookupDecisionOut",
+        "description": "A take / pass / close the operator logged on the company (or the void row striking one). ``voided`` = a void\nrow names it (shown struck through); shares and price are the operator's own fills."
+      },
+      "TickerLookupExcludedOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "thesis_name",
+          "reason"
+        ],
+        "title": "TickerLookupExcludedOut"
+      },
+      "TickerLookupFigureOut": {
+        "properties": {
+          "member": {
+            "type": "string",
+            "title": "Member"
+          },
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "group": {
+            "type": "string",
+            "enum": [
+              "price",
+              "returns",
+              "range",
+              "volume",
+              "strength",
+              "insider",
+              "flow"
+            ],
+            "title": "Group"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "pct",
+                  "usd",
+                  "price",
+                  "count",
+                  "ratio"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "tone": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "pos",
+                  "neg"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tone"
+          },
+          "level": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Level"
+          },
+          "on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "On"
+          }
+        },
+        "type": "object",
+        "required": [
+          "member",
+          "key",
+          "group",
+          "label",
+          "value",
+          "unit",
+          "note",
+          "tone",
+          "level",
+          "on"
+        ],
+        "title": "TickerLookupFigureOut",
+        "description": "One tape figure as the display member states it. ``value`` is ``null`` with the member's ``note`` when it\ncould not compute it. ``level`` / ``on`` = the 52-week high or low it is measured from, and its day."
+      },
+      "TickerLookupFilingDayOut": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/TickerLookupFilingOut"
+            },
+            "type": "array",
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "rows"
+        ],
+        "title": "TickerLookupFilingDayOut"
+      },
+      "TickerLookupFilingOut": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "8k",
+              "stake",
+              "form4",
+              "form4a",
+              "revenue",
+              "filing",
+              "split",
+              "dilution",
+              "catalyst",
+              "ratified"
+            ],
+            "title": "Kind"
+          },
+          "form": {
+            "type": "string",
+            "title": "Form"
+          },
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "headline": {
+            "type": "string",
+            "title": "Headline"
+          },
+          "detail": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Detail"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "accession": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accession"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags"
+          },
+          "routine": {
+            "type": "boolean",
+            "title": "Routine"
+          },
+          "fold": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "form4",
+                  "prospectus",
+                  "ownership"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fold"
+          },
+          "usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Usd"
+          },
+          "ratifier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ratifier"
+          },
+          "ratified_on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ratified On"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "form",
+          "date",
+          "headline",
+          "detail",
+          "url",
+          "accession",
+          "tags",
+          "routine",
+          "fold",
+          "usd",
+          "ratifier",
+          "ratified_on"
+        ],
+        "title": "TickerLookupFilingOut",
+        "description": "One filing-derived row in the shared reader's shape (``dashboards/filings.py``)."
+      },
+      "TickerLookupFilingsOut": {
+        "properties": {
+          "read_days": {
+            "type": "integer",
+            "title": "Read Days"
+          },
+          "days": {
+            "items": {
+              "$ref": "#/components/schemas/TickerLookupFilingDayOut"
+            },
+            "type": "array",
+            "title": "Days"
+          },
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          },
+          "by_kind": {
+            "items": {
+              "$ref": "#/components/schemas/TickerLookupKindCountOut"
+            },
+            "type": "array",
+            "title": "By Kind"
+          },
+          "routine": {
+            "type": "integer",
+            "title": "Routine"
+          },
+          "not_listed": {
+            "items": {
+              "$ref": "#/components/schemas/TickerLookupNotListedOut"
+            },
+            "type": "array",
+            "title": "Not Listed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "read_days",
+          "days",
+          "rows",
+          "by_kind",
+          "routine",
+          "not_listed"
+        ],
+        "title": "TickerLookupFilingsOut",
+        "description": "The filing days (newest first) for the last ``read_days`` days; ``rows`` counts every row in the read, listed\nor not (catalyst facts are under Catalysts); ``not_listed`` = routine rows the per-group cap left out."
+      },
+      "TickerLookupIdentityOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "cik": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cik"
+          },
+          "edgar_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Edgar Url"
+          },
+          "exchange": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exchange"
+          },
+          "business_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Type"
+          },
+          "supersector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supersector"
+          },
+          "royalty": {
+            "type": "boolean",
+            "title": "Royalty"
+          },
+          "origin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origin"
+          },
+          "instrument_kind": {
+            "type": "string",
+            "title": "Instrument Kind"
+          },
+          "price_symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Symbol"
+          },
+          "former_tickers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Former Tickers"
+          },
+          "cap": {
+            "$ref": "#/components/schemas/TickerLookupCapOut"
+          },
+          "adv_usd_20d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Adv Usd 20D"
+          },
+          "adv_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Adv Note"
+          },
+          "flag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flag"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "name",
+          "cik",
+          "edgar_url",
+          "exchange",
+          "business_type",
+          "supersector",
+          "royalty",
+          "origin",
+          "instrument_kind",
+          "price_symbol",
+          "former_tickers",
+          "cap",
+          "adv_usd_20d",
+          "adv_note",
+          "flag"
+        ],
+        "title": "TickerLookupIdentityOut",
+        "description": "Who the company is: the master's identity (``edgar_url`` from its CIK; ``price_symbol`` only when the\nvendor symbol differs from the ticker; ``former_tickers`` oldest first), its approximate market cap, the 20-day\ndollar volume (from the tape, ``adv_note`` when blank) and ``flag``: the data flags reaching its price readings\n(never hidden)."
+      },
+      "TickerLookupKindCountOut": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "8k",
+              "stake",
+              "form4",
+              "form4a",
+              "revenue",
+              "filing",
+              "split",
+              "dilution",
+              "catalyst",
+              "ratified"
+            ],
+            "title": "Kind"
+          },
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "rows"
+        ],
+        "title": "TickerLookupKindCountOut"
+      },
+      "TickerLookupLinkOut": {
+        "properties": {
+          "link": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link"
+          },
+          "thesis_fit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thesis Fit"
+          },
+          "authored_by": {
+            "type": "string",
+            "title": "Authored By"
+          },
+          "signed_off": {
+            "type": "boolean",
+            "title": "Signed Off"
+          },
+          "weight": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weight"
+          }
+        },
+        "type": "object",
+        "required": [
+          "link",
+          "thesis_fit",
+          "authored_by",
+          "signed_off",
+          "weight"
+        ],
+        "title": "TickerLookupLinkOut",
+        "description": "One basket row of the company on a card: its link (``null`` = no link), the thesis-fit prose with who wrote\nit (``system_drafted`` or ``operator_edited``), whether the operator signed the name off and the operator's\n1-5 weight (display only, never a call input)."
+      },
+      "TickerLookupMemberGapOut": {
+        "properties": {
+          "member": {
+            "type": "string",
+            "title": "Member"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "member",
+          "label",
+          "note"
+        ],
+        "title": "TickerLookupMemberGapOut"
+      },
+      "TickerLookupNotListedOut": {
+        "properties": {
+          "fold": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "form4",
+                  "prospectus",
+                  "ownership"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fold"
+          },
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          },
+          "older_than": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Older Than"
+          }
+        },
+        "type": "object",
+        "required": [
+          "fold",
+          "rows",
+          "older_than"
+        ],
+        "title": "TickerLookupNotListedOut"
+      },
+      "TickerLookupOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "clock": {
+            "type": "string",
+            "enum": [
+              "record",
+              "public"
+            ],
+            "title": "Clock"
+          },
+          "identity": {
+            "$ref": "#/components/schemas/TickerLookupIdentityOut"
+          },
+          "cards": {
+            "$ref": "#/components/schemas/TickerLookupCardsOut"
+          },
+          "triggers": {
+            "$ref": "#/components/schemas/TickerLookupTriggersOut"
+          },
+          "tape": {
+            "$ref": "#/components/schemas/TickerLookupTapeOut"
+          },
+          "filings": {
+            "$ref": "#/components/schemas/TickerLookupFilingsOut"
+          },
+          "catalyst_facts": {
+            "items": {
+              "$ref": "#/components/schemas/TickerLookupFilingOut"
+            },
+            "type": "array",
+            "title": "Catalyst Facts"
+          },
+          "card_catalysts": {
+            "items": {
+              "$ref": "#/components/schemas/TickerLookupCardCatalystOut"
+            },
+            "type": "array",
+            "title": "Card Catalysts"
+          },
+          "decisions": {
+            "items": {
+              "$ref": "#/components/schemas/TickerLookupDecisionOut"
+            },
+            "type": "array",
+            "title": "Decisions"
+          },
+          "decisions_voided": {
+            "type": "integer",
+            "title": "Decisions Voided"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "clock",
+          "identity",
+          "cards",
+          "triggers",
+          "tape",
+          "filings",
+          "catalyst_facts",
+          "card_catalysts",
+          "decisions",
+          "decisions_voided",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "TickerLookupOut",
+        "description": "The whole page for one company. ``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was\npublic by the end of that date). ``catalyst_facts`` = the company's own catalyst facts (also rows of the\nfiling reader, listed here once); ``card_catalysts`` = the thesis-level catalysts of the cards it counts on.\n``cache`` / ``compute_ms`` = whether the page came from the shared dashboard cache and how long it took when\ncomputed."
+      },
+      "TickerLookupPlaceOut": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "armed",
+              "watch",
+              "triggers",
+              "none",
+              "not_counted",
+              "no_record"
+            ],
+            "title": "Kind"
+          },
+          "verdict": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verdict"
+          },
+          "grade": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grade"
+          },
+          "strength": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strength"
+          },
+          "live_triggers": {
+            "type": "integer",
+            "title": "Live Triggers"
+          },
+          "turns": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Turns"
+          },
+          "live_risks": {
+            "type": "integer",
+            "title": "Live Risks"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "verdict",
+          "grade",
+          "strength",
+          "live_triggers",
+          "turns",
+          "live_risks"
+        ],
+        "title": "TickerLookupPlaceOut",
+        "description": "The company's part in the recorded call in effect: ``armed`` (verdict, grade, setup strength), ``watch``,\n``triggers`` (live entry triggers; ``turns`` = the keys they turn), ``none``, ``not_counted`` (Context or\nBench) or ``no_record`` (the card has no recorded call yet)."
+      },
+      "TickerLookupResolveOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "matched": {
+            "type": "string",
+            "enum": [
+              "ticker",
+              "former"
+            ],
+            "title": "Matched"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "name",
+          "matched"
+        ],
+        "title": "TickerLookupResolveOut",
+        "description": "A typed ticker resolved to its company. ``matched``: ``ticker`` (the master's current ticker) or\n``former`` (a former ticker the company was renamed from; only when asked for)."
+      },
+      "TickerLookupSourceOut": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "ref": {
+            "type": "string",
+            "title": "Ref"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "detail": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "ref",
+          "url",
+          "detail"
+        ],
+        "title": "TickerLookupSourceOut"
+      },
+      "TickerLookupSparklineOut": {
+        "properties": {
+          "dates": {
+            "items": {
+              "type": "string",
+              "format": "date"
+            },
+            "type": "array",
+            "title": "Dates"
+          },
+          "stock": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Stock"
+          },
+          "iwm": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Iwm"
+          },
+          "bars": {
+            "type": "integer",
+            "title": "Bars"
+          },
+          "iwm_bars": {
+            "type": "integer",
+            "title": "Iwm Bars"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "dates",
+          "stock",
+          "iwm",
+          "bars",
+          "iwm_bars",
+          "note"
+        ],
+        "title": "TickerLookupSparklineOut",
+        "description": "The company's last closes and IWM's on the same sessions, both indexed to 100 at the first session both\nhave a bar (``null`` = no bar that session)."
+      },
+      "TickerLookupTapeOut": {
+        "properties": {
+          "figures": {
+            "items": {
+              "$ref": "#/components/schemas/TickerLookupFigureOut"
+            },
+            "type": "array",
+            "title": "Figures"
+          },
+          "leading": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Leading"
+          },
+          "coiling": {
+            "type": "boolean",
+            "title": "Coiling"
+          },
+          "coiling_detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coiling Detail"
+          },
+          "headline_notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Headline Notes"
+          },
+          "gaps": {
+            "items": {
+              "$ref": "#/components/schemas/TickerLookupMemberGapOut"
+            },
+            "type": "array",
+            "title": "Gaps"
+          },
+          "members_read": {
+            "type": "integer",
+            "title": "Members Read"
+          },
+          "members_without": {
+            "type": "integer",
+            "title": "Members Without"
+          },
+          "figures_blank": {
+            "type": "integer",
+            "title": "Figures Blank"
+          },
+          "sparkline": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TickerLookupSparklineOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "window_end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window End"
+          }
+        },
+        "type": "object",
+        "required": [
+          "figures",
+          "leading",
+          "coiling",
+          "coiling_detail",
+          "headline_notes",
+          "gaps",
+          "members_read",
+          "members_without",
+          "figures_blank",
+          "sparkline",
+          "window_end"
+        ],
+        "title": "TickerLookupTapeOut"
+      },
+      "TickerLookupTriggerOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "recorded_on": {
+            "type": "string",
+            "format": "date",
+            "title": "Recorded On"
+          },
+          "reconstructed": {
+            "type": "boolean",
+            "title": "Reconstructed"
+          },
+          "event_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Date"
+          },
+          "recorded_after_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recorded After Days"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "entry_trigger",
+              "risk_signal"
+            ],
+            "title": "Role"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "grade": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grade"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "turns": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "conviction",
+                  "confirmation"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turns"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/TickerLookupSourceOut"
+            },
+            "type": "array",
+            "title": "Sources"
+          },
+          "live": {
+            "type": "boolean",
+            "title": "Live"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "thesis_name",
+          "ticker",
+          "recorded_on",
+          "reconstructed",
+          "event_date",
+          "recorded_after_days",
+          "role",
+          "kind",
+          "grade",
+          "label",
+          "turns",
+          "sources",
+          "live"
+        ],
+        "title": "TickerLookupTriggerOut",
+        "description": "One trigger the recorded calls show on the company (identity: role, kind, fire date, label). ``recorded_on``\n= the first night in the window the record shows it; ``recorded_after_days`` = how far that trails the fire\ndate; ``turns`` = the key an entry trigger turns; ``live`` = still on the card in effect at the as-of."
+      },
+      "TickerLookupTriggersOut": {
+        "properties": {
+          "window_start": {
+            "type": "string",
+            "format": "date",
+            "title": "Window Start"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/TickerLookupTriggerOut"
+            },
+            "type": "array",
+            "title": "Events"
+          },
+          "cards_read": {
+            "type": "integer",
+            "title": "Cards Read"
+          },
+          "nights_read": {
+            "type": "integer",
+            "title": "Nights Read"
+          },
+          "reconstructed_nights": {
+            "type": "integer",
+            "title": "Reconstructed Nights"
+          },
+          "before_window_live": {
+            "type": "integer",
+            "title": "Before Window Live"
+          }
+        },
+        "type": "object",
+        "required": [
+          "window_start",
+          "events",
+          "cards_read",
+          "nights_read",
+          "reconstructed_nights",
+          "before_window_live"
+        ],
+        "title": "TickerLookupTriggersOut"
       },
       "Tier": {
         "type": "string",

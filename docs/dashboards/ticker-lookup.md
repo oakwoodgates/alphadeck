@@ -127,3 +127,85 @@ The build lists here every choice it made that this plan does not spell out, eac
 change. Pre-decided here for the operator's review: the Workbench search as the suggestion source; exact ticker on
 Enter; `?t=` in the URL; the 365-day trigger window and the 90-day filings default; conviction shown as "weight";
 decisions shown with shares and price.
+
+
+### Built choices to confirm
+
+What the build chose where this plan is silent, each the operator's to confirm or change. Nothing here was
+measured on real data yet: the DB-backed tests and a dev run are still to come, and no compute time is recorded.
+
+**Triggers**
+- **Identity includes the label** (the Trigger Log plan's rule: role, kind, fire date, label). What Changed leaves the
+  label out because a label can carry a number that moves every night (a breakout's volume ratio); on this page such
+  a trigger may list as several rows with one fire date. The rule is one function, `trigger_id` in
+  `backend/dashboards/ticker_lookup.py`: dropping the label from it is a one-line change.
+- **Read from the cards the company sits on at the as-of**, not from every counted card (the whole log's cards are
+  too many `calls` rows for one lookup). A trigger recorded on a card the company has since left is not here; the
+  page's limits say so.
+- **A trigger on the row in effect the night before the window opens counts as recorded before it**: not a row, and
+  counted on the work line when still live (the Trigger Log's rule).
+- **The key a trigger turns** is read from its kind (`DEFAULT_CONFIG.conviction_kinds` / `confirmation_kinds`). The
+  assembler's revenue-screen exception (`revenue_accel_key`) needs the detector, which `TriggerRef` does not carry;
+  its default is `conviction`, which is also what the `catalyst` kind reads, so the two agree today.
+- The role is a glyph (filled = entry trigger, hollow = risk signal); the "now" column reads `live` or a quiet dash.
+
+**Cards**
+- **Place on the card:** armed (with verdict, grade, setup strength) beats watch beats trigger-bearing beats none;
+  a silent name is always "not counted"; a card with no recorded call yet reads "no recorded call yet". A risk signal
+  alone does not make a name trigger-bearing: it shows as a count beside the place.
+- **A company in several links** is one row, links in the card's chain order. Weight and authorship are per link; the
+  weight cell reads "weight 3 of 5" (or "2 and 4 of 5" when the rows differ); "signed off" shows only when every row of
+  the company on the card is signed off.
+- The archived fold lists archived cards that existed by the as-of and hold the company in their roster then
+  (`get_asof`); the exclusions fold lists the counted cards' stored exclusions as they stand today. The archived read
+  is a `SELECT` that narrows to the archived cards whose live roster or any roster snapshot holds the company, then
+  `get_asof` on those, not `list_all(include_archived=True)` (the same answer, without loading every archived card).
+- **The counted cards are their own cache entry** per (clock, as-of) beside the per-company page (the Filing Stream's
+  `("cards", clock)` pattern): `cards_as_of` loads every live card, so only the first lookup after a run or a basket
+  edit pays for it. Unmeasured.
+
+**Identity and the tape**
+- **A flagged price history:** the tape figures stay on the page but gray (the Cockpit's grayed cells), the market
+  cap is withheld (the Peer Table's rule), and a quiet line names the flag. The insider and fund-flow groups read no
+  price and stay.
+- **The market cap rule is imported** from the Peer Table (`dashboards.peer_table.cap_cell`), not copied, so the two
+  pages cannot disagree; the cost is that cutting the Peer Table now breaks this page (copy the rule here first).
+- The tape shows the figures this plan lists and no more (no SMA flips, no 20d/60d volume ratio). RVOL reads "RVOL 8" and
+  "RVOL 20". "Off 52w high" and "above 52w low" carry no sign tone (each always has one sign). The fund-flow group
+  shows only for an ETF. The `$vol 20d` figure appears in Identity and in the Volume group (one figure).
+- **The sparkline** is the price-path member's 90 closes with IWM on the same sessions, both indexed to 100 at the
+  first session both have a bar; a missing IWM bar breaks its line.
+- Instrument kind shows only for an ETF (equity is every other row); the vendor price symbol only when it differs
+  from the ticker; former tickers come from `security_ticker_history`.
+
+**Filings and catalysts**
+- The read carries 365 days; the routine rows are capped at 200 per fold group, newest first (the Filing Stream's
+  number), the rest counted and named on the page. The window toggle (90 / 365) and the day fold are client side.
+- **The company's catalyst facts leave the Filings list** and show once, under Catalysts (the plan lists them in both
+  places; listing a row twice would double its count).
+- Card catalysts come from the cards where the company has a non-silent row, as the operator's list stands today (not
+  point-in-time); "passed" is judged against the as-of.
+
+**Decisions**
+- **A separate `SELECT`, not `read_decisions`:** the Idea Timeline's read has no shares or price columns. The rows
+  naming the company on the counted cards, plus every void row (a void need not carry a security).
+- **A decision counts from its `decision_date` AND, on a past view, only once it was logged by that view's instant**
+  (`recorded_at <= known_at`): `serve_view` keeps the position as of the same instant, and `decisions_repo` reads both
+  axes. The plan names only the date; drop the second gate if you want the date alone.
+- A void row is listed as its own line and strikes the row it names; a void dated after the as-of has struck nothing.
+  A card-level pass (no security) is not listed.
+
+**Search and URL**
+- `GET /resolve?t=` upper-cases and trims; `former=true` adds an exact match on a former ticker
+  (`security_ticker_history.old_ticker`). The suggestions come from the Workbench search, which already matches former
+  tickers by substring; "search former tickers too" finds an exact rename.
+- **Enter:** the exact ticker; else the first suggestion, only when the suggestions are for the text in the box; else
+  the typed text goes to the URL and the page says there is no such company. Arrow keys move through the suggestions;
+  a pick fills the box.
+- `?t=` is upper-cased and set with `replace` (a view dial, like `?asof=`), keeping every other parameter.
+
+**Not followed as written**
+- Section 2 names `thesis_repo.list_all(include_archived=True)` and section 7 `read_decisions(conn, ids)`; the build
+  uses the equivalents above, for the reasons given.
+- The Filing Stream's day grouping is rewritten here (the dashboards import no other dashboard); the Peer Table's
+  `cap_cell` is the one cross-dashboard import.

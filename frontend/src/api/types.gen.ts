@@ -2578,6 +2578,53 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboards/ticker-lookup/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ticker Lookup Resolve
+         * @description Resolve a typed ticker to its company: the master's exact ticker (upper-cased), else, with ``former=true``,
+         *     the company a former ticker belonged to. 404 when nothing matches; the suggestions as you type come from the
+         *     Workbench's company search. Display only.
+         */
+        get: operations["ticker_lookup_resolve_dashboards_ticker_lookup_resolve_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboards/ticker-lookup/{security_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ticker Lookup
+         * @description Everything the platform holds about one company at the as-of: its identity and approximate market cap, the
+         *     counted cards it sits on and its part in each (the recorded call in effect), the triggers the recorded calls
+         *     show on it over the last 365 days, its tape (the display members' readings), its filings and catalyst facts,
+         *     the catalysts of its cards and the operator's logged decisions on it. A past as-of reads what was public by the
+         *     end of that date (a roster row added or a filing filed after it never appears). Display only; 404 for an
+         *     unknown id.
+         */
+        get: operations["ticker_lookup_dashboards_ticker_lookup__security_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dashboards/track-record": {
         parameters: {
             query?: never;
@@ -13748,6 +13795,561 @@ export interface components {
             archived: boolean;
         };
         /**
+         * TickerLookupCapOut
+         * @description The approximate market cap (latest close times the latest shares fact, the Peer Table's rule). ``gap`` is
+         *     why it is blank (``flagged`` = a data flag reaches the price, the reason in ``note``); ``value`` is never zero
+         *     for a blank.
+         */
+        TickerLookupCapOut: {
+            /** Value */
+            value: number | null;
+            /** Tier */
+            tier: string | null;
+            /** Gap */
+            gap: string | null;
+            /** Note */
+            note: string | null;
+            /** Close */
+            close: number | null;
+            /** Close Date */
+            close_date: string | null;
+            /** Shares */
+            shares: number | null;
+            /** Shares Date */
+            shares_date: string | null;
+            /** Ads Ratio */
+            ads_ratio: number | null;
+            /** Split Factor */
+            split_factor: number | null;
+        };
+        /**
+         * TickerLookupCardCatalystOut
+         * @description A thesis-level catalyst of a card the company counts on (``null`` ``when_date`` = undated).
+         */
+        TickerLookupCardCatalystOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /** Label */
+            label: string;
+            /** Kind */
+            kind: string | null;
+            /** When Date */
+            when_date: string | null;
+            /** When Label */
+            when_label: string | null;
+            /** Passed */
+            passed: boolean;
+        };
+        /** TickerLookupCardNameOut */
+        TickerLookupCardNameOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+        };
+        /**
+         * TickerLookupCardOut
+         * @description One counted card the company sits on, its links merged. ``state`` / ``verdict`` / ``recorded_on`` = the
+         *     recorded call in effect at the as-of (``null`` = none yet); ``silent`` = ``Context`` or ``Bench``.
+         */
+        TickerLookupCardOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /** Ticker */
+            ticker: string;
+            /** Links */
+            links: components["schemas"]["TickerLookupLinkOut"][];
+            /** Silent */
+            silent: string | null;
+            /** Context Role */
+            context_role: string | null;
+            /** Signed Off */
+            signed_off: boolean;
+            /** State */
+            state: string | null;
+            /** Verdict */
+            verdict: string | null;
+            /** Recorded On */
+            recorded_on: string | null;
+            /** Reconstructed */
+            reconstructed: boolean;
+            place: components["schemas"]["TickerLookupPlaceOut"];
+        };
+        /**
+         * TickerLookupCardsOut
+         * @description The cards section: ``counted`` = the cards that existed by the as-of (``live_cards`` today, ``not_yet_created``
+         *     left out, ``roster_fallback`` with today's roster standing in), the rows for the ones the company sits on, the
+         *     archived cards that hold it and the counted cards that exclude it.
+         */
+        TickerLookupCardsOut: {
+            /** Live Cards */
+            live_cards: number;
+            /** Not Yet Created */
+            not_yet_created: number;
+            /** Roster Fallback */
+            roster_fallback: number;
+            /** Counted */
+            counted: number;
+            /** Rows */
+            rows: components["schemas"]["TickerLookupCardOut"][];
+            /** Archived */
+            archived: components["schemas"]["TickerLookupCardNameOut"][];
+            /** Excluded */
+            excluded: components["schemas"]["TickerLookupExcludedOut"][];
+        };
+        /**
+         * TickerLookupDecisionOut
+         * @description A take / pass / close the operator logged on the company (or the void row striking one). ``voided`` = a void
+         *     row names it (shown struck through); shares and price are the operator's own fills.
+         */
+        TickerLookupDecisionOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /** Action */
+            action: string;
+            /**
+             * Decision Date
+             * Format: date
+             */
+            decision_date: string;
+            /** Shares */
+            shares: number | null;
+            /** Price */
+            price: number | null;
+            /** Reason */
+            reason: string | null;
+            /** Voided */
+            voided: boolean;
+            /** Voids */
+            voids: string | null;
+        };
+        /** TickerLookupExcludedOut */
+        TickerLookupExcludedOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /** Reason */
+            reason: string | null;
+        };
+        /**
+         * TickerLookupFigureOut
+         * @description One tape figure as the display member states it. ``value`` is ``null`` with the member's ``note`` when it
+         *     could not compute it. ``level`` / ``on`` = the 52-week high or low it is measured from, and its day.
+         */
+        TickerLookupFigureOut: {
+            /** Member */
+            member: string;
+            /** Key */
+            key: string;
+            /**
+             * Group
+             * @enum {string}
+             */
+            group: "price" | "returns" | "range" | "volume" | "strength" | "insider" | "flow";
+            /** Label */
+            label: string;
+            /** Value */
+            value: number | null;
+            /** Unit */
+            unit: ("pct" | "usd" | "price" | "count" | "ratio") | null;
+            /** Note */
+            note: string | null;
+            /** Tone */
+            tone: ("pos" | "neg") | null;
+            /** Level */
+            level: number | null;
+            /** On */
+            on: string | null;
+        };
+        /** TickerLookupFilingDayOut */
+        TickerLookupFilingDayOut: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Rows */
+            rows: components["schemas"]["TickerLookupFilingOut"][];
+        };
+        /**
+         * TickerLookupFilingOut
+         * @description One filing-derived row in the shared reader's shape (``dashboards/filings.py``).
+         */
+        TickerLookupFilingOut: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "8k" | "stake" | "form4" | "form4a" | "revenue" | "filing" | "split" | "dilution" | "catalyst" | "ratified";
+            /** Form */
+            form: string;
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Headline */
+            headline: string;
+            /** Detail */
+            detail: string[];
+            /** Url */
+            url: string | null;
+            /** Accession */
+            accession: string | null;
+            /** Tags */
+            tags: string[];
+            /** Routine */
+            routine: boolean;
+            /** Fold */
+            fold: ("form4" | "prospectus" | "ownership") | null;
+            /** Usd */
+            usd: number | null;
+            /** Ratifier */
+            ratifier: string | null;
+            /** Ratified On */
+            ratified_on: string | null;
+        };
+        /**
+         * TickerLookupFilingsOut
+         * @description The filing days (newest first) for the last ``read_days`` days; ``rows`` counts every row in the read, listed
+         *     or not (catalyst facts are under Catalysts); ``not_listed`` = routine rows the per-group cap left out.
+         */
+        TickerLookupFilingsOut: {
+            /** Read Days */
+            read_days: number;
+            /** Days */
+            days: components["schemas"]["TickerLookupFilingDayOut"][];
+            /** Rows */
+            rows: number;
+            /** By Kind */
+            by_kind: components["schemas"]["TickerLookupKindCountOut"][];
+            /** Routine */
+            routine: number;
+            /** Not Listed */
+            not_listed: components["schemas"]["TickerLookupNotListedOut"][];
+        };
+        /**
+         * TickerLookupIdentityOut
+         * @description Who the company is: the master's identity (``edgar_url`` from its CIK; ``price_symbol`` only when the
+         *     vendor symbol differs from the ticker; ``former_tickers`` oldest first), its approximate market cap, the 20-day
+         *     dollar volume (from the tape, ``adv_note`` when blank) and ``flag``: the data flags reaching its price readings
+         *     (never hidden).
+         */
+        TickerLookupIdentityOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string | null;
+            /** Name */
+            name: string | null;
+            /** Cik */
+            cik: string | null;
+            /** Edgar Url */
+            edgar_url: string | null;
+            /** Exchange */
+            exchange: string | null;
+            /** Business Type */
+            business_type: string | null;
+            /** Supersector */
+            supersector: string | null;
+            /** Royalty */
+            royalty: boolean;
+            /** Origin */
+            origin: string | null;
+            /** Instrument Kind */
+            instrument_kind: string;
+            /** Price Symbol */
+            price_symbol: string | null;
+            /** Former Tickers */
+            former_tickers: string[];
+            cap: components["schemas"]["TickerLookupCapOut"];
+            /** Adv Usd 20D */
+            adv_usd_20d: number | null;
+            /** Adv Note */
+            adv_note: string | null;
+            /** Flag */
+            flag: string | null;
+        };
+        /** TickerLookupKindCountOut */
+        TickerLookupKindCountOut: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "8k" | "stake" | "form4" | "form4a" | "revenue" | "filing" | "split" | "dilution" | "catalyst" | "ratified";
+            /** Rows */
+            rows: number;
+        };
+        /**
+         * TickerLookupLinkOut
+         * @description One basket row of the company on a card: its link (``null`` = no link), the thesis-fit prose with who wrote
+         *     it (``system_drafted`` or ``operator_edited``), whether the operator signed the name off and the operator's
+         *     1-5 weight (display only, never a call input).
+         */
+        TickerLookupLinkOut: {
+            /** Link */
+            link: string | null;
+            /** Thesis Fit */
+            thesis_fit: string | null;
+            /** Authored By */
+            authored_by: string;
+            /** Signed Off */
+            signed_off: boolean;
+            /** Weight */
+            weight: number | null;
+        };
+        /** TickerLookupMemberGapOut */
+        TickerLookupMemberGapOut: {
+            /** Member */
+            member: string;
+            /** Label */
+            label: string;
+            /** Note */
+            note: string;
+        };
+        /** TickerLookupNotListedOut */
+        TickerLookupNotListedOut: {
+            /** Fold */
+            fold: ("form4" | "prospectus" | "ownership") | null;
+            /** Rows */
+            rows: number;
+            /** Older Than */
+            older_than: string | null;
+        };
+        /**
+         * TickerLookupOut
+         * @description The whole page for one company. ``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was
+         *     public by the end of that date). ``catalyst_facts`` = the company's own catalyst facts (also rows of the
+         *     filing reader, listed here once); ``card_catalysts`` = the thesis-level catalysts of the cards it counts on.
+         *     ``cache`` / ``compute_ms`` = whether the page came from the shared dashboard cache and how long it took when
+         *     computed.
+         */
+        TickerLookupOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Clock
+             * @enum {string}
+             */
+            clock: "record" | "public";
+            identity: components["schemas"]["TickerLookupIdentityOut"];
+            cards: components["schemas"]["TickerLookupCardsOut"];
+            triggers: components["schemas"]["TickerLookupTriggersOut"];
+            tape: components["schemas"]["TickerLookupTapeOut"];
+            filings: components["schemas"]["TickerLookupFilingsOut"];
+            /** Catalyst Facts */
+            catalyst_facts: components["schemas"]["TickerLookupFilingOut"][];
+            /** Card Catalysts */
+            card_catalysts: components["schemas"]["TickerLookupCardCatalystOut"][];
+            /** Decisions */
+            decisions: components["schemas"]["TickerLookupDecisionOut"][];
+            /** Decisions Voided */
+            decisions_voided: number;
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * TickerLookupPlaceOut
+         * @description The company's part in the recorded call in effect: ``armed`` (verdict, grade, setup strength), ``watch``,
+         *     ``triggers`` (live entry triggers; ``turns`` = the keys they turn), ``none``, ``not_counted`` (Context or
+         *     Bench) or ``no_record`` (the card has no recorded call yet).
+         */
+        TickerLookupPlaceOut: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "armed" | "watch" | "triggers" | "none" | "not_counted" | "no_record";
+            /** Verdict */
+            verdict: string | null;
+            /** Grade */
+            grade: string | null;
+            /** Strength */
+            strength: number | null;
+            /** Live Triggers */
+            live_triggers: number;
+            /** Turns */
+            turns: string[];
+            /** Live Risks */
+            live_risks: number;
+        };
+        /**
+         * TickerLookupResolveOut
+         * @description A typed ticker resolved to its company. ``matched``: ``ticker`` (the master's current ticker) or
+         *     ``former`` (a former ticker the company was renamed from; only when asked for).
+         */
+        TickerLookupResolveOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Name */
+            name: string | null;
+            /**
+             * Matched
+             * @enum {string}
+             */
+            matched: "ticker" | "former";
+        };
+        /** TickerLookupSourceOut */
+        TickerLookupSourceOut: {
+            /** Source */
+            source: string;
+            /** Ref */
+            ref: string;
+            /** Url */
+            url: string | null;
+            /** Detail */
+            detail: string[];
+        };
+        /**
+         * TickerLookupSparklineOut
+         * @description The company's last closes and IWM's on the same sessions, both indexed to 100 at the first session both
+         *     have a bar (``null`` = no bar that session).
+         */
+        TickerLookupSparklineOut: {
+            /** Dates */
+            dates: string[];
+            /** Stock */
+            stock: (number | null)[];
+            /** Iwm */
+            iwm: (number | null)[];
+            /** Bars */
+            bars: number;
+            /** Iwm Bars */
+            iwm_bars: number;
+            /** Note */
+            note: string | null;
+        };
+        /** TickerLookupTapeOut */
+        TickerLookupTapeOut: {
+            /** Figures */
+            figures: components["schemas"]["TickerLookupFigureOut"][];
+            /** Leading */
+            leading: string[];
+            /** Coiling */
+            coiling: boolean;
+            /** Coiling Detail */
+            coiling_detail: string | null;
+            /** Headline Notes */
+            headline_notes: string[];
+            /** Gaps */
+            gaps: components["schemas"]["TickerLookupMemberGapOut"][];
+            /** Members Read */
+            members_read: number;
+            /** Members Without */
+            members_without: number;
+            /** Figures Blank */
+            figures_blank: number;
+            sparkline: components["schemas"]["TickerLookupSparklineOut"] | null;
+            /** Window End */
+            window_end: string | null;
+        };
+        /**
+         * TickerLookupTriggerOut
+         * @description One trigger the recorded calls show on the company (identity: role, kind, fire date, label). ``recorded_on``
+         *     = the first night in the window the record shows it; ``recorded_after_days`` = how far that trails the fire
+         *     date; ``turns`` = the key an entry trigger turns; ``live`` = still on the card in effect at the as-of.
+         */
+        TickerLookupTriggerOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /** Ticker */
+            ticker: string;
+            /**
+             * Recorded On
+             * Format: date
+             */
+            recorded_on: string;
+            /** Reconstructed */
+            reconstructed: boolean;
+            /** Event Date */
+            event_date: string | null;
+            /** Recorded After Days */
+            recorded_after_days: number | null;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "entry_trigger" | "risk_signal";
+            /** Kind */
+            kind: string;
+            /** Grade */
+            grade: string | null;
+            /** Label */
+            label: string;
+            /** Turns */
+            turns: ("conviction" | "confirmation") | null;
+            /** Sources */
+            sources: components["schemas"]["TickerLookupSourceOut"][];
+            /** Live */
+            live: boolean;
+        };
+        /** TickerLookupTriggersOut */
+        TickerLookupTriggersOut: {
+            /**
+             * Window Start
+             * Format: date
+             */
+            window_start: string;
+            /** Events */
+            events: components["schemas"]["TickerLookupTriggerOut"][];
+            /** Cards Read */
+            cards_read: number;
+            /** Nights Read */
+            nights_read: number;
+            /** Reconstructed Nights */
+            reconstructed_nights: number;
+            /** Before Window Live */
+            before_window_live: number;
+        };
+        /**
          * Tier
          * @enum {string}
          */
@@ -17772,6 +18374,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SharedNamesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ticker_lookup_resolve_dashboards_ticker_lookup_resolve_get: {
+        parameters: {
+            query: {
+                /** @description the ticker to resolve */
+                t: string;
+                /** @description also match a FORMER ticker (a company renamed in place), exactly */
+                former?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TickerLookupResolveOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ticker_lookup_dashboards_ticker_lookup__security_id__get: {
+        parameters: {
+            query: {
+                /** @description as-of date; nothing public after it is read */
+                asof: string;
+            };
+            header?: never;
+            path: {
+                security_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TickerLookupOut"];
                 };
             };
             /** @description Validation Error */
