@@ -5420,7 +5420,7 @@
           "dashboards"
         ],
         "summary": "Trigger Log Page",
-        "description": "Every entry trigger and risk signal the recorded calls show firing across the cards in the window, newest\nrecorded night first: each trigger once (the same trigger on many nights is one row, dated the first night\nthe record shows it), with its fire date, role and key, source, the card's state that night beside the night\nbefore, whether it is still live, the sessions since and the name's as-traded return since against IWM.\nDisplay only, with no aggregate over the rows. A past as-of reads the nights recorded on or before it and\nthe bars public by the end of that date.",
+        "description": "Every entry trigger and risk signal the recorded calls show firing across the cards in the window, newest\nrecorded night first, for the role(s) asked: each trigger once (the same security, kind and fire date is one\nrow however its label changed night to night, dated the first night the record shows it and carrying that\nnight's label), with its fire date, role and key, source, the card's state that night beside the night\nbefore, whether it is still live, the sessions since and the name's as-traded return since against IWM.\nDisplay only, with no aggregate over the rows. A past as-of reads the nights recorded on or before it and\nthe bars public by the end of that date.",
         "operationId": "trigger_log_page_dashboards_trigger_log_get",
         "parameters": [
           {
@@ -5445,6 +5445,23 @@
               "default": 90
             },
             "description": "the window: the last 30 | 90 | 180 days"
+          },
+          {
+            "name": "role",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "entry",
+                "risk",
+                "both"
+              ],
+              "type": "string",
+              "description": "which role to load: entry (the default) | risk | both. Risk signals are the bulk of the record, so each choice is its own read; counts.other_role_rows says how many rows the other role holds",
+              "default": "entry",
+              "title": "Role"
+            },
+            "description": "which role to load: entry (the default) | risk | both. Risk signals are the bulk of the record, so each choice is its own read; counts.other_role_rows says how many rows the other role holds"
           }
         ],
         "responses": {
@@ -31649,6 +31666,10 @@
             "type": "integer",
             "title": "Risk Rows"
           },
+          "other_role_rows": {
+            "type": "integer",
+            "title": "Other Role Rows"
+          },
           "carried_live": {
             "type": "integer",
             "title": "Carried Live"
@@ -31680,13 +31701,14 @@
           "nights_unreadable",
           "entry_rows",
           "risk_rows",
+          "other_role_rows",
           "carried_live",
           "names_unpriced",
           "names_flagged",
           "rows_no_ticker"
         ],
         "title": "TriggerLogCountsOut",
-        "description": "The work shown on the quiet line: counts of what was read and listed, never a statistic over the rows'\nreturns. ``cards_quiet`` = cards with a call by the as-of but no night in the window; ``carried_live`` = live\ntriggers first recorded before the window (not listed); ``names_*`` = distinct names."
+        "description": "The work shown on the quiet line: counts of what was read and listed, never a statistic over the rows'\nreturns. ``entry_rows`` / ``risk_rows`` = rows listed by role (zero for a role not loaded);\n``other_role_rows`` = the rows the role(s) NOT loaded would list (0 when ``role`` is ``both``);\n``cards_quiet`` = cards with a call by the as-of but no night in the window; ``carried_live`` = live\ntriggers of the loaded role(s) first recorded before the window (not listed); ``names_*`` = distinct names."
       },
       "TriggerLogDays": {
         "type": "integer",
@@ -31753,6 +31775,15 @@
             "format": "date",
             "title": "Window Start"
           },
+          "role": {
+            "type": "string",
+            "enum": [
+              "entry",
+              "risk",
+              "both"
+            ],
+            "title": "Role"
+          },
           "clock": {
             "type": "string",
             "enum": [
@@ -31806,6 +31837,7 @@
           "asof",
           "window_days",
           "window_start",
+          "role",
           "clock",
           "rows",
           "counts",
@@ -31816,7 +31848,7 @@
           "compute_ms"
         ],
         "title": "TriggerLogOut",
-        "description": "The whole page at the as-of. ``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was\npublic by the end of that date). The window is ``window_start`` to ``asof``, inclusive; ``rows`` are\nnewest recorded night first, then ticker. There is no aggregate over the rows (the Track Record page slices\noutcomes by market-cap tier). ``cache`` / ``compute_ms`` = whether the read came from the shared dashboard\ncache and how long it took when computed."
+        "description": "The whole page at the as-of. ``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was\npublic by the end of that date). ``role`` = which role(s) ``rows`` hold: ``entry`` (the default), ``risk`` or\n``both``. The window is ``window_start`` to ``asof``, inclusive; ``rows`` are\nnewest recorded night first, then ticker. There is no aggregate over the rows (the Track Record page slices\noutcomes by market-cap tier). ``cache`` / ``compute_ms`` = whether the read came from the shared dashboard\ncache and how long it took when computed."
       },
       "TriggerLogRowOut": {
         "properties": {
@@ -31888,6 +31920,10 @@
           "label": {
             "type": "string",
             "title": "Label"
+          },
+          "label_changes": {
+            "type": "integer",
+            "title": "Label Changes"
           },
           "event_date": {
             "anyOf": [
@@ -31992,6 +32028,7 @@
           "grade",
           "turns",
           "label",
+          "label_changes",
           "event_date",
           "recorded_on",
           "week",
@@ -32007,7 +32044,7 @@
           "sources"
         ],
         "title": "TriggerLogRowOut",
-        "description": "One trigger on one card, dated by the first night in the window the record shows it. ``event_date`` = the\nfire date (``null`` = undated); ``recorded_days_after`` = days from the fire date to the recorded night when\nthe fire date is earlier; ``week`` = the Monday of the recorded night's week; ``turns`` = the key an entry\ntrigger turns (``null`` for a risk signal or a kind neither key takes); ``from_state`` / ``to_state`` = the\ncard's recorded state on the previous recorded night and on this one (``new_card`` = no earlier row);\n``live`` = the same trigger is on the card in effect at the as-of (``null`` = that card could not be read);\n``newest`` = the recorded night is the as-of's own night; ``sessions_since`` = the sessions the since-return\nspans on IWM's calendar (``null`` = none); ``reconstructed`` = written by ``pipeline.backfill`` (reported,\nnever scored)."
+        "description": "One trigger on one card, dated by the first night in the window the record shows it. The same security,\nkind and fire date within a role is one row whatever its label did night to night: ``label`` = the label of the\nfirst recorded night, ``label_changes`` = how many distinct other labels the record showed for it from that\nnight on (a label can carry that night's numbers). ``event_date`` = the\nfire date (``null`` = undated); ``recorded_days_after`` = days from the fire date to the recorded night when\nthe fire date is earlier; ``week`` = the Monday of the recorded night's week; ``turns`` = the key an entry\ntrigger turns (``null`` for a risk signal or a kind neither key takes); ``from_state`` / ``to_state`` = the\ncard's recorded state on the previous recorded night and on this one (``new_card`` = no earlier row);\n``live`` = the same trigger is on the card in effect at the as-of (``null`` = that card could not be read);\n``newest`` = the recorded night is the as-of's own night; ``sessions_since`` = the sessions the since-return\nspans on IWM's calendar (``null`` = none); ``reconstructed`` = written by ``pipeline.backfill`` (reported,\nnever scored)."
       },
       "TriggerLogSessionsOut": {
         "properties": {

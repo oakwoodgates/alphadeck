@@ -2613,8 +2613,9 @@ export interface paths {
         /**
          * Trigger Log Page
          * @description Every entry trigger and risk signal the recorded calls show firing across the cards in the window, newest
-         *     recorded night first: each trigger once (the same trigger on many nights is one row, dated the first night
-         *     the record shows it), with its fire date, role and key, source, the card's state that night beside the night
+         *     recorded night first, for the role(s) asked: each trigger once (the same security, kind and fire date is one
+         *     row however its label changed night to night, dated the first night the record shows it and carrying that
+         *     night's label), with its fire date, role and key, source, the card's state that night beside the night
          *     before, whether it is still live, the sessions since and the name's as-traded return since against IWM.
          *     Display only, with no aggregate over the rows. A past as-of reads the nights recorded on or before it and
          *     the bars public by the end of that date.
@@ -14138,8 +14139,10 @@ export interface components {
         /**
          * TriggerLogCountsOut
          * @description The work shown on the quiet line: counts of what was read and listed, never a statistic over the rows'
-         *     returns. ``cards_quiet`` = cards with a call by the as-of but no night in the window; ``carried_live`` = live
-         *     triggers first recorded before the window (not listed); ``names_*`` = distinct names.
+         *     returns. ``entry_rows`` / ``risk_rows`` = rows listed by role (zero for a role not loaded);
+         *     ``other_role_rows`` = the rows the role(s) NOT loaded would list (0 when ``role`` is ``both``);
+         *     ``cards_quiet`` = cards with a call by the as-of but no night in the window; ``carried_live`` = live
+         *     triggers of the loaded role(s) first recorded before the window (not listed); ``names_*`` = distinct names.
          */
         TriggerLogCountsOut: {
             /** Cards Counted */
@@ -14166,6 +14169,8 @@ export interface components {
             entry_rows: number;
             /** Risk Rows */
             risk_rows: number;
+            /** Other Role Rows */
+            other_role_rows: number;
             /** Carried Live */
             carried_live: number;
             /** Names Unpriced */
@@ -14200,7 +14205,8 @@ export interface components {
         /**
          * TriggerLogOut
          * @description The whole page at the as-of. ``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was
-         *     public by the end of that date). The window is ``window_start`` to ``asof``, inclusive; ``rows`` are
+         *     public by the end of that date). ``role`` = which role(s) ``rows`` hold: ``entry`` (the default), ``risk`` or
+         *     ``both``. The window is ``window_start`` to ``asof``, inclusive; ``rows`` are
          *     newest recorded night first, then ticker. There is no aggregate over the rows (the Track Record page slices
          *     outcomes by market-cap tier). ``cache`` / ``compute_ms`` = whether the read came from the shared dashboard
          *     cache and how long it took when computed.
@@ -14218,6 +14224,11 @@ export interface components {
              * Format: date
              */
             window_start: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "entry" | "risk" | "both";
             /**
              * Clock
              * @enum {string}
@@ -14241,7 +14252,10 @@ export interface components {
         };
         /**
          * TriggerLogRowOut
-         * @description One trigger on one card, dated by the first night in the window the record shows it. ``event_date`` = the
+         * @description One trigger on one card, dated by the first night in the window the record shows it. The same security,
+         *     kind and fire date within a role is one row whatever its label did night to night: ``label`` = the label of the
+         *     first recorded night, ``label_changes`` = how many distinct other labels the record showed for it from that
+         *     night on (a label can carry that night's numbers). ``event_date`` = the
          *     fire date (``null`` = undated); ``recorded_days_after`` = days from the fire date to the recorded night when
          *     the fire date is earlier; ``week`` = the Monday of the recorded night's week; ``turns`` = the key an entry
          *     trigger turns (``null`` for a risk signal or a kind neither key takes); ``from_state`` / ``to_state`` = the
@@ -14279,6 +14293,8 @@ export interface components {
             turns: ("conviction" | "confirmation") | null;
             /** Label */
             label: string;
+            /** Label Changes */
+            label_changes: number;
             /** Event Date */
             event_date: string | null;
             /**
@@ -17810,6 +17826,8 @@ export interface operations {
                 asof: string;
                 /** @description the window: the last 30 | 90 | 180 days */
                 days?: components["schemas"]["TriggerLogDays"];
+                /** @description which role to load: entry (the default) | risk | both. Risk signals are the bulk of the record, so each choice is its own read; counts.other_role_rows says how many rows the other role holds */
+                role?: "entry" | "risk" | "both";
             };
             header?: never;
             path?: never;

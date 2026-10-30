@@ -24,8 +24,12 @@ Record page's job, `docs/dashboards/track-record.md`; this page lists).
   [as-of − window, as-of] (window 30 · **90** · 180 days), each night's winning row (the highest `seq`), plus the one
   row in effect the night before the window opens (so the first night's state change can be read). Reconstructed
   nights count as nights and are marked.
-- **A trigger's identity** is (`security_id`, `kind`, `event_date`, `label`) across the card's nights; the same
-  trigger on twelve nights is ONE row. It is read from three places on each night's card: `triggers_fired` (an entry
+- **A trigger's identity** is (`security_id`, `kind`, `event_date`) within its role (entry or risk), across the
+  card's nights; the same trigger on twelve nights is ONE row. **The label is not part of it** (2026-10-29,
+  measured on the dev stack: a label can carry that night's numbers, so the same fire date under a new label is
+  the same trigger). The row shows the label of its FIRST recorded night and carries `label_changes` = how many
+  distinct other labels the record showed for it from that night through the window's end (hover: "label changed N
+  times", only when N > 0). It is read from three places on each night's card: `triggers_fired` (an entry
   trigger), `risk_signals` (a risk signal), and each `armed_members[]` / `watch_members[]` entry's `triggers`
   (member-level entry triggers; the same identity merges with the card-level one).
 - **Its recorded night** = the first night in the window the record shows it. A trigger first recorded BEFORE the
@@ -54,6 +58,12 @@ before the as-of (`pit.price_history`), with IWM over the same span (`pit.benchm
 since, or on the flagged-price list (`baskets.price_flags`, rule 5), reads "unpriced" / "flagged: <reason>" and keeps
 its row.
 
+**Role loaded (a selector, beside the window):** `entry` (the default) · `risk` · `both`. Risk signals are the
+bulk of the record, so each choice is its own read (`GET /dashboards/trigger-log?role=`), never a client-side
+filter of one big payload; the work line says which role is loaded and how many rows the other role holds (counted
+from the same walk of the nights, never built, priced or sent). With `both` loaded the Role chips below filter
+client side as before.
+
 **Grouping (a selector):** by **week** (default; the recorded night's Monday-started week, newest first; each group
 header counts its rows by role), by kind, or by card. **Filters** (chips, each restating the count): role, kind,
 grade, card, "live only", "state changed only". **Default order within a group:** recorded night newest first, then
@@ -80,8 +90,8 @@ fixed: "no aggregate here: medians by tier are on the Track Record page".
 
 ## Cache
 
-`dashboards.cache.cached(conn, "trigger-log", (window_days, clock), asof, ...)` holds the window's rows with
-their since-returns; grouping, filters and sorts are client side. The cache clears on a new run or a basket edit
+`dashboards.cache.cached(conn, "trigger-log", (window_days, role, clock), asof, ...)` holds the window's rows of
+the role loaded with their since-returns; grouping, filters and sorts are client side. The cache clears on a new run or a basket edit
 (rule 7). The read is the log's jsonb for the window (the log appends only on change, so far fewer rows than nights)
 plus bars for the names touched; MEASURE and record it here.
 
@@ -89,11 +99,12 @@ plus bars for the names touched; MEASURE and record it here.
 
 - `backend/dashboards/trigger_log.py`, pure: `trigger_events(nights)` (the identity merge, first night, role, key,
   the state pair, live), `sessions_since`, the since-return, the week grouping key, the counts.
-- `backend/app/routers/dashboards/trigger_log.py`: `GET /dashboards/trigger-log?asof=&days=90` (every row + the
+- `backend/app/routers/dashboards/trigger_log.py`: `GET /dashboards/trigger-log?asof=&days=90&role=entry` (every row of the role + the
   counts). `known_at, clock = serve_view(asof)` threads into the `calls` read, the bars and the benchmark. Wire models
   in the module (rule 8).
-- `backend/tests/dashboards/test_trigger_log.py`: one identity across several nights is one row dated the first night;
-  a member-level and a card-level copy merge; the fire date note; role and key per kind (the revenue exception); the
+- `backend/tests/dashboards/test_trigger_log.py`: one identity across several nights (and several labels) is one row
+  dated the first night with the first night's label and a `label_changes` count; each role is its own read and the
+  other role's rows are counted; a member-level and a card-level copy merge; the fire date note; role and key per kind (the revenue exception); the
   state pair including "new card" and the night-before row outside the window; `live` against the card in effect; a
   trigger first recorded before the window is not a row but is counted; the since-return and the IWM span; a flagged
   name keeps its row; and, DB-backed, **a night recorded after the as-of is not read** and **the window at a past
@@ -110,6 +121,8 @@ plus bars for the names touched; MEASURE and record it here.
   the log and is not here.
 - **The recorded night is when the system saw it**, which can trail the fire date (the note says by how much).
 - **A trigger first recorded before the window is not listed**, however live.
+- **One row per trigger, whatever its label did:** the same security, kind and fire date is one row showing the
+  first night's label; the hover on the label says how many times the record changed it.
 - **No aggregate on this page** (rule 6: the Track Record slices by tier).
 - **As-traded closes, no dividends.**
 
@@ -122,7 +135,8 @@ data; any write.
 
 The build lists here every choice it made that this plan does not spell out, each the operator's to confirm or
 change. Pre-decided here for the operator's review: the 90-day default window; the identity (security, kind, fire
-date, label); the first recorded night as the row's date; the week grouping by default; IWM as the comparison and the
+date; the label left out on 2026-10-29, see "MEASURED" below); the entry triggers as the default role; the first
+recorded night as the row's date; the week grouping by default; IWM as the comparison and the
 session calendar; the one accent on last night's rows.
 
 ### Built choices to confirm
@@ -135,10 +149,11 @@ checks named under "To verify on the dev stack" are the orchestrator's.
 
 1. **The window is inclusive at both ends:** `[as-of − days, as-of]` in calendar days. The "one row in effect
    before the window" is the newest row dated before the window's first day (`asof < as-of − days`).
-2. **The role is part of the identity** (a five-part key), so an entry trigger and a risk signal that somehow
-   shared the other four fields never merge and hide one. Today no kind appears in both roles, so no row changes.
+2. **The role is part of the identity** (a four-part key since the label left it), so an entry trigger and a risk
+   signal that somehow shared the other fields never merge and hide one. Today no kind appears in both roles, so no row changes.
 3. **The first copy stands for a merged trigger:** the card-level `triggers_fired` copy, else an armed member's, else
-   a watch member's, else the risk signal. Its grade, label and sources are the row's.
+   a watch member's, else the risk signal. Its grade, label and sources are the row's. A later copy's label counts
+   into `label_changes` when it differs from the standing one, the same night included.
 4. **"First recorded before the window" means "the one row before the window shows it."** That row is all the log
    the page reads of the past, so an identity it shows is never a row, even if it lapsed inside the window and came
    back; a trigger that lapsed before that row and returned inside the window is listed (new to the record we read).
@@ -206,15 +221,59 @@ checks named under "To verify on the dev stack" are the orchestrator's.
     `evidence-ledger` / 180. The other trading pages add their own lines to the same two arrays, so the integration
     merge will conflict there: resolve by keeping every slug in `order` order.
 
+**The label left the identity, and the role loads on demand (2026-10-29, after the dev walk below)**
+
+29. **The role is a query parameter, not a client filter.** `role` = `entry` (the default) | `risk` | `both`; each is
+    its own read and its own cache entry `(window_days, role, clock)`; any other value is a 422. The role not loaded
+    is walked once more over the nights already read only to COUNT its rows (`counts.other_role_rows`), so it adds no
+    query; its rows are never built, priced or sent, and only the loaded role's names are priced.
+30. **`label_changes` counts the distinct OTHER labels** the record showed for the identity from its first night
+    through the window's end: a label that goes A, B, A counts 1 (not 2), and another copy's label on the first
+    night counts. The hover reads "label changed N times" (only when N > 0). A label the record shows before the
+    window, on an identity first recorded before it, is not a row and counts nowhere.
+31. **`carried_live` counts the loaded role only** (the live triggers first recorded before the window that the
+    rows of the role loaded would otherwise have shown).
+32. **The controls:** a "Load" group (Entry triggers · Risk signals · Both) beside the Window group, each choice its
+    own fetch while the previous view stays on screen. The Role filter chips stay (they render only when both roles
+    are in the payload, WB#3).
+33. **The work line** names the role loaded and the other role's row count ("entry triggers loaded · N risk signals
+    not loaded"; "no risk signals in the window" when it holds none), and the empty state names the role.
+34. **The row key no longer includes the label** (a short hash of thesis, security, role, kind and fire date), so a
+    row keeps its key across a label change.
+
 **To verify on the dev stack (prod data copy)**
 
-- **Label churn:** the plan's identity includes the label, while What Changed leaves it out because some labels carry
-  numbers that move nightly. Reading the detectors, a breakout's label is computed from its own event bar, so it is
-  stable for one fire date; a breakdown's may not be. Check, on the dev copy, how many (card, security, kind, fire
-  date) groups show more than one label inside a window: each such group is several rows today.
+- **Label churn: DONE (2026-10-29), see "MEASURED" below.** The first identity included the label; the dev copy
+  showed it multiplied rows (a breakdown's label embeds the night's close), so the label left the identity.
 - **Cold cost and the cache:** the plan asked to MEASURE the read (the window's `calls` jsonb plus bars for the names
   touched) and record it here. **Not measured:** the page prints the cache state and the cold `compute_ms` on its
   last quiet line; record both numbers for the 30, 90 and 180 windows from the dev stack.
 - **Flags on the live view:** the build's DB tests ran at past as-ofs only, and I did not run a live as-of on real
   data. The Chain Wave test notes that a synthetic tape ending at today's as-of reads as a stopped feed, so check on
   the dev copy that a live as-of shows no unexpected "flagged" rows.
+
+### MEASURED (dev, prod copy, 2026-10-29)
+
+The orchestrator's walk on the dev stack (a prod data copy), as-of 2026-10-29, window 90 days, BEFORE this change
+(identity = security, kind, fire date, label; both roles in one read). These numbers are the orchestrator's,
+recorded here as the brief gave them; the build re-measured nothing.
+
+- **The read:** 23,526 rows, 18,588 of them risk signals; payload 25.3 MB; cold compute 37,848 ms; a cache HIT still
+  3.3 s (serializing that payload); in the browser the page never finished rendering.
+- **Label churn:** 1,675 of 11,536 (card, security, kind, fire date) groups carried more than one label. A
+  `breakdown` risk signal's label embeds the night's close ("Structural break: close 127.19 closed below the
+  200-day base" the first night, "close 127.30 ..." the next), up to 56 labels for one signal; `technical_breakout`
+  groups up to 4; `corporate_risk` up to 9.
+- **Causes:** (1) the label in the identity multiplied rows, since a label can carry the night's numbers; (2) risk
+  signals swamp the entry triggers (18,588 of 23,526 rows).
+- **The change:** the label leaves the identity (the row shows the first night's label and a `label_changes`
+  count) and the role loads on demand (`role=entry` by default).
+
+**AFTER (the orchestrator fills these in from the dev stack, same as-of 2026-10-29 and window 90 days):**
+
+- `role=entry` (the default): rows ____ · payload ____ MB · cold compute ____ ms · cache hit ____ ms
+- `role=risk`: rows ____ · payload ____ MB · cold compute ____ ms · cache hit ____ ms
+- `role=both`: rows ____ · payload ____ MB · cold compute ____ ms · cache hit ____ ms
+- rows with `label_changes` > 0: ____ of ____ (largest `label_changes` ____)
+- the page renders in the browser: ____
+

@@ -241,12 +241,85 @@ describe("the filters", () => {
 describe("the window", () => {
   it("threads the as-of and the window to the read, and switches the window", async () => {
     show(page(), "2026-10-28");
-    expect(h.useTriggerLog).toHaveBeenLastCalledWith("2026-10-28", 90);
+    expect(h.useTriggerLog).toHaveBeenLastCalledWith("2026-10-28", 90, "entry");
     expect(chip("90 days")).toHaveAttribute("aria-pressed", "true");
     await userEvent.click(chip("180 days"));
-    expect(h.useTriggerLog).toHaveBeenLastCalledWith("2026-10-28", 180);
+    expect(h.useTriggerLog).toHaveBeenLastCalledWith("2026-10-28", 180, "entry");
     await userEvent.click(chip("30 days"));
-    expect(h.useTriggerLog).toHaveBeenLastCalledWith("2026-10-28", 30);
+    expect(h.useTriggerLog).toHaveBeenLastCalledWith("2026-10-28", 30, "entry");
+  });
+});
+
+describe("the role loaded", () => {
+  it("loads the entry triggers first and puts each role to the read as its own request", async () => {
+    show(page(), "2026-10-28");
+    const group = screen.getByRole("group", { name: "Load" });
+    expect(within(group).getAllByRole("button").map((b) => b.textContent)).toEqual([
+      "Entry triggers",
+      "Risk signals",
+      "Both",
+    ]);
+    expect(within(group).getByRole("button", { name: "Entry triggers" })).toHaveAttribute("aria-pressed", "true");
+    expect(h.useTriggerLog).toHaveBeenLastCalledWith("2026-10-28", 90, "entry");
+
+    await userEvent.click(within(group).getByRole("button", { name: "Risk signals" }));
+    expect(h.useTriggerLog).toHaveBeenLastCalledWith("2026-10-28", 90, "risk");
+    expect(within(group).getByRole("button", { name: "Risk signals" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(group).getByRole("button", { name: "Entry triggers" })).toHaveAttribute("aria-pressed", "false");
+
+    await userEvent.click(within(group).getByRole("button", { name: "Both" }));
+    expect(h.useTriggerLog).toHaveBeenLastCalledWith("2026-10-28", 90, "both");
+    // the window keeps its choice across a role change
+    await userEvent.click(chip("180 days"));
+    expect(h.useTriggerLog).toHaveBeenLastCalledWith("2026-10-28", 180, "both");
+  });
+
+  it("says which role is loaded and how many rows the other role holds", () => {
+    const entry = ROWS.filter((r) => r.role === "entry_trigger");
+    show(page(entry, { role: "entry", counts: { ...page(entry).counts, other_role_rows: 18588 } }));
+    expect(
+      screen.getByText(/3 triggers listed · entry triggers loaded · 18,588 risk signals not loaded/),
+    ).toBeInTheDocument();
+  });
+
+  it("says the other role holds nothing when it holds nothing", () => {
+    const risk = ROWS.filter((r) => r.role === "risk_signal");
+    show(page(risk, { role: "risk" }));
+    expect(screen.getByText(/1 trigger listed · risk signals loaded · no entry triggers in the window/)).toBeInTheDocument();
+  });
+
+  it("reads the rows by role when both are loaded", () => {
+    show(page());
+    expect(screen.getByText(/4 triggers listed · 3 entry triggers · 1 risk signal/)).toBeInTheDocument();
+    expect(screen.queryByText(/not loaded/)).toBeNull();
+  });
+
+  it("names the role in the empty state", () => {
+    show(page([], { role: "risk", window_days: 30 }));
+    expect(screen.getByText(/No risk signal was first recorded in the last 30 days/)).toBeInTheDocument();
+  });
+
+  it("keeps the previous view up and says it is reading while another role loads", () => {
+    h.useTriggerLog.mockReturnValue(ok(page(), { isFetching: true })); // the data is for both; the page asks entry
+    render(<TriggerLog asof="2026-10-28" onSelectThesis={select} />);
+    expect(screen.getAllByTestId("tl-row")).toHaveLength(4);
+    expect(screen.getByText(/Reading the recorded calls/)).toBeInTheDocument();
+  });
+});
+
+describe("the label", () => {
+  it("hovers how many times the record changed it, only when it did", () => {
+    const changed = row("c1", { label: "Structural break: close 127.19", label_changes: 2, kind: "breakdown", role: "risk_signal" });
+    show(page([changed, R1]));
+    const cell = screen.getByText("Structural break: close 127.19");
+    expect(cell).toHaveAttribute("title", "Structural break: close 127.19\nlabel changed 2 times");
+    // a label the record never changed has just itself on hover
+    expect(screen.getByText("Open-market buy, 1,000 sh")).toHaveAttribute("title", "Open-market buy, 1,000 sh");
+  });
+
+  it("says 1 time, not 1 times", () => {
+    show(page([row("c2", { label: "Breakout", label_changes: 1 })]));
+    expect(screen.getByText("Breakout")).toHaveAttribute("title", "Breakout\nlabel changed 1 time");
   });
 });
 
@@ -261,6 +334,7 @@ describe("the work line, the notes and the limits", () => {
     expect(screen.getByText("no aggregate here: medians by tier are on the Track Record page")).toBeInTheDocument();
     expect(screen.getByText(/The record shows live triggers only/)).toBeInTheDocument();
     expect(screen.getByText(/A trigger first recorded before the window is not listed, however live/)).toBeInTheDocument();
+    expect(screen.getByText(/One row per trigger: the same security, kind and fire date is one row/)).toBeInTheDocument();
     expect(screen.getByText("As-traded closes, no dividends.")).toBeInTheDocument();
   });
 
@@ -295,7 +369,7 @@ describe("the empty, slow and failed states", () => {
 
   it("says so when nothing was first recorded in the window, still printing the work and limits", () => {
     show(page([], { window_days: 30 }));
-    expect(screen.getByText(/No trigger was first recorded in the last 30 days/)).toBeInTheDocument();
+    expect(screen.getByText(/No trigger was first recorded in the last 30 days/)).toBeInTheDocument(); // both loaded
     expect(screen.getByText(/The record shows live triggers only/)).toBeInTheDocument();
   });
 

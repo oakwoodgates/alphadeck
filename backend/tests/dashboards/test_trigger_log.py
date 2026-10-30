@@ -1,5 +1,7 @@
 """Trigger Log (``docs/dashboards/trigger-log.md``): the pure compute on hand-built ``CallCard``s (one identity
-across nights is one row dated the first night, a member-level and a card-level copy merge, the fire-date note,
+across nights is one row dated the first night whatever its label did, with the first night's label and a count
+of the other labels it showed; the role loaded and the other role's rows counted; a member-level and a
+card-level copy merge, the fire-date note,
 role and key per kind with the revenue exception, the state pair with "new card" and the row before the window,
 ``live`` against the card in effect, a trigger first recorded before the window counted but not listed, the
 since-return and its IWM span, a flagged name keeping its row, the sources, the order, no aggregate), the router
@@ -159,9 +161,10 @@ def assemble(
     master: dict | None = None,
     ciks: dict | None = None,
     scope: Scope = Scope(1, 0, 0),
+    role: str = "both",
 ) -> TriggerLog:
     return trigger_log(
-        collect(cards),
+        collect(cards, role=role),
         asof=asof,
         window_days=window_days,
         scope=scope,
@@ -186,19 +189,71 @@ def test_one_identity_across_several_nights_is_one_row_dated_the_first_night():
     assert [(e.recorded_on, e.security_id, e.label) for e in got] == [(d(5), A, "buy")]
 
 
-def test_the_label_is_part_of_the_identity_so_a_changed_label_is_another_row():
-    """The plan's identity is (security, kind, fire date, label): the same fire date under a new label is a
-    new row (What Changed leaves the label out; this page keeps it, so the row says what the record said).
+def test_the_label_is_not_part_of_the_identity_one_trigger_under_several_labels_is_one_row():
+    """A label can carry that night's numbers (a breakdown names the night's close): the same security, kind and
+    fire date under a new label each night is ONE row, dated the first night, with the first night's label.
     """
+    labels = ("close 127.19 closed below the base", "close 127.30 closed below the base")
     cn = nights_of(
         None,
-        night(cc(asof=d(5), triggers=(trig(A, "buy, 1,000 sh"),))),
-        night(cc(asof=d(6), triggers=(trig(A, "buy, 2,000 sh"),))),
+        night(cc(asof=d(5), risks=(trig(A, labels[0], Kind.BREAKDOWN, on=d(4)),))),
+        night(cc(asof=d(6), risks=(trig(A, labels[1], Kind.BREAKDOWN, on=d(4)),))),
+        night(
+            cc(
+                asof=d(7),
+                risks=(trig(A, "close 126.80 closed below the base", Kind.BREAKDOWN, on=d(4)),),
+            )
+        ),
     )
-    assert [(e.recorded_on, e.label) for e in events(cn)] == [
-        (d(5), "buy, 1,000 sh"),
-        (d(6), "buy, 2,000 sh"),
-    ]
+    (e,) = events(cn)
+    assert (e.recorded_on, e.label, e.label_changes) == (d(5), labels[0], 2)
+    assert e.role == "risk_signal"
+
+
+def test_label_changes_counts_the_distinct_other_labels_not_the_nights():
+    steady = trig(A, "buy")
+    flips = [trig(B, label, Kind.TECHNICAL_BREAKOUT) for label in ("a", "b", "a", "b")]
+    cn = nights_of(
+        None,
+        *(night(cc(asof=d(5 + i), triggers=(steady, flips[i]))) for i in range(4)),
+    )
+    by = {e.security_id: e for e in events(cn)}
+    assert by[A].label_changes == 0  # four nights, one label
+    assert (by[B].label, by[B].label_changes) == ("a", 1)  # a, b, a, b: one other label
+
+
+def test_a_second_copy_with_another_label_on_the_same_night_counts_and_the_first_copy_stands():
+    card_level = trig(A, "buy, card copy", grade=Grade.CORE)
+    member_copy = trig(A, "buy, member copy", grade=Grade.FLIP)
+    cn = nights_of(
+        None,
+        night(cc(State.ARMED, asof=d(5), triggers=(card_level,), armed=(mem(A, member_copy),))),
+    )
+    (e,) = events(cn)
+    assert (e.label, e.label_changes, e.grade) == ("buy, card copy", 1, Grade.CORE)
+
+
+def test_a_carried_in_identity_under_a_new_label_is_still_not_a_row():
+    """The row before the window shows the trigger under one label; the window shows it under another. It was
+    first recorded before the window either way, so it is carried in, not listed."""
+    old = trig(A, "close 100.00", Kind.BREAKDOWN, on=d(1, 9))
+    same = trig(A, "close 101.00", Kind.BREAKDOWN, on=d(1, 9))
+    got, carried = card_events(
+        nights_of(
+            night(cc(asof=d(15, 9), risks=(old,))),
+            night(cc(asof=d(22), risks=(same,))),
+        )
+    )
+    assert got == [] and carried == 1
+
+
+def test_the_row_key_is_the_identity_whatever_the_label():
+    def keys(label: str) -> set[str]:
+        cn = nights_of(None, night(cc(asof=d(5), triggers=(trig(A, label), trig(B, label)))))
+        return {r.key for r in assemble([cn]).rows}
+
+    assert len(keys("buy")) == 2
+    assert keys("buy") == keys("buy, 2,000 sh")  # the label is not in it
 
 
 @pytest.mark.parametrize(
@@ -328,6 +383,74 @@ def test_a_trigger_that_lapses_and_returns_inside_the_window_is_one_row_dated_th
         night(cc(asof=d(7), triggers=(buy,))),
     )
     assert [e.recorded_on for e in events(cn)] == [d(5)]
+
+
+# ---------------------------------------------------------------------------------------------------------
+# 1b. the role loaded
+# ---------------------------------------------------------------------------------------------------------
+
+
+def mixed_nights() -> CardNights:
+    """One entry trigger and two risk signals recorded across two nights, the row before the window showing one
+    of each (both still on the card in effect)."""
+    old_entry = trig(A, "old buy", on=d(1, 9))
+    old_risk = trig(A, "old dilution", Kind.DILUTION_RISK, on=d(2, 9))
+    return nights_of(
+        night(cc(asof=d(15, 9), triggers=(old_entry,), risks=(old_risk,))),
+        night(
+            cc(
+                asof=d(5),
+                triggers=(old_entry, trig(B, "buy")),
+                risks=(old_risk, trig(B, "close 9.10", Kind.BREAKDOWN, on=d(4))),
+            )
+        ),
+        night(
+            cc(
+                asof=d(6),
+                triggers=(old_entry, trig(B, "buy")),
+                risks=(
+                    old_risk,
+                    trig(B, "close 9.20", Kind.BREAKDOWN, on=d(4)),
+                    trig(A, "x", Kind.CORPORATE_RISK),
+                ),
+            )
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    "role, kept, other",
+    [
+        ("entry", {"entry_trigger"}, 2),
+        ("risk", {"risk_signal"}, 1),
+        ("both", {"entry_trigger", "risk_signal"}, 0),
+    ],
+)
+def test_only_the_role_loaded_is_built_and_the_other_roles_rows_are_counted(role, kept, other):
+    got = collect([mixed_nights()], role=role)
+    assert got.role == role
+    assert {e.role for e in got.events} == kept
+    assert got.other_role_rows == other
+    # the rows of the two roles add up to what both would list
+    both = collect([mixed_nights()], role="both")
+    assert len(got.events) + got.other_role_rows == len(both.events) == 3
+
+
+def test_the_carried_in_count_follows_the_role_loaded():
+    carried = {
+        role: collect([mixed_nights()], role=role).carried_live
+        for role in ("entry", "risk", "both")
+    }
+    assert carried == {"entry": 1, "risk": 1, "both": 2}
+
+
+def test_the_page_says_which_role_it_holds_and_lists_only_that_role():
+    log = assemble([mixed_nights()], role="entry")
+    assert log.role == "entry"
+    assert [r.role for r in log.rows] == ["entry_trigger"]
+    assert (log.counts.entry_rows, log.counts.risk_rows, log.counts.other_role_rows) == (1, 0, 2)
+    both = assemble([mixed_nights()], role="both")
+    assert (both.counts.entry_rows, both.counts.risk_rows, both.counts.other_role_rows) == (1, 2, 0)
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -727,13 +850,13 @@ def test_the_rows_are_newest_night_first_then_ticker():
     cn = nights_of(
         None,
         night(cc(asof=d(5), triggers=(trig(B, "early b"),))),
-        night(cc(asof=d(6), triggers=(trig(B, "late b"), trig(A, "late a")))),
+        night(cc(asof=d(6), triggers=(trig(B, "late b", on=d(21)), trig(A, "late a")))),
     )
     assert [r.label for r in assemble([cn]).rows] == ["late a", "late b", "early b"]
 
 
 def test_every_row_has_its_own_key_and_a_week():
-    cn = nights_of(None, night(cc(asof=d(5), triggers=(trig(A), trig(A, "other")))))
+    cn = nights_of(None, night(cc(asof=d(5), triggers=(trig(A), trig(A, "other", on=d(21))))))
     rows = assemble([cn]).rows
     assert len({r.key for r in rows}) == 2
     assert all(r.week == week_start(d(5)) for r in rows)
@@ -803,8 +926,9 @@ def test_the_page_states_no_aggregate():
 # ---------------------------------------------------------------------------------------------------------
 
 
-def sample_log(window_days: int = 90) -> TriggerLog:
-    """Two nights, two triggers, priced on a two-bar tape, as the stubbed read returns it."""
+def sample_log(window_days: int = 90, role: str = "entry") -> TriggerLog:
+    """Two nights, two entry triggers and a risk signal, priced on a two-bar tape, as the stubbed read returns
+    it for the role asked."""
     t1 = trig(
         A, "buy", on=d(22), sources=[Provenance(source="form4", ref=ACC, detail={"shares": 1000})]
     )
@@ -816,16 +940,18 @@ def sample_log(window_days: int = 90) -> TriggerLog:
         grade=Grade.FLIP,
         sources=[Provenance(source="price", ref=f"price:{B}:2026-10-28")],
     )
+    t3 = trig(B, "close 19.00", Kind.BREAKDOWN, on=d(28))
     cn = nights_of(
         night(cc(State.WARMING, asof=d(1))),
         night(cc(State.ARMED, asof=d(27), triggers=(t1,))),
-        night(cc(State.ARMED, asof=T, triggers=(t1, t2))),
+        night(cc(State.ARMED, asof=T, triggers=(t1, t2), risks=(t3,))),
     )
     return assemble(
         [cn],
         window_days=window_days,
         closes={A: {d(27): 10.0, T: 11.0}, B: {T: 20.0}},
         bench={d(27): 100.0, T: 101.0},
+        role=role,
     )
 
 
@@ -833,9 +959,9 @@ def sample_log(window_days: int = 90) -> TriggerLog:
 def stub_client(monkeypatch):
     seen: dict = {"reads": []}
 
-    def fake_read(conn, asof, window_days, known_at, clock):
-        seen["reads"].append((asof, window_days, known_at, clock))
-        return sample_log(window_days)
+    def fake_read(conn, asof, window_days, role, known_at, clock):
+        seen["reads"].append((asof, window_days, known_at, clock, role))
+        return sample_log(window_days, role)
 
     CACHE.clear()
     monkeypatch.setattr(router_mod, "read_log", fake_read)
@@ -857,14 +983,36 @@ def test_the_router_serves_repeat_requests_off_one_cached_read(stub_client):
         == "hit"
     )
     assert len(seen["reads"]) == 1
-    asof, window, known_at, clock = seen["reads"][0]
+    asof, window, known_at, clock, role = seen["reads"][0]
     assert (asof, window, clock) == (PAST, 90, "public") and known_at is not None
+    assert role == "entry" and first["role"] == "entry"  # nothing asked: the entry triggers
 
     # another window is another read; the live as-of is the unchanged live view
     client.get("/dashboards/trigger-log", params={"asof": PAST.isoformat(), "days": 30})
     assert [r[1] for r in seen["reads"]] == [90, 30]
     client.get("/dashboards/trigger-log", params={"asof": market_today().isoformat()})
-    assert seen["reads"][-1][2:] == (None, "record")
+    assert seen["reads"][-1][2:4] == (None, "record")
+
+
+def test_each_role_is_its_own_cached_read_and_the_default_is_the_entry_triggers(stub_client):
+    client, seen = stub_client
+    url = "/dashboards/trigger-log"
+    params = {"asof": PAST.isoformat()}
+    default = client.get(url, params=params).json()
+    entry = client.get(url, params={**params, "role": "entry"}).json()
+    assert (default["role"], entry["cache"]) == ("entry", "hit")  # the default IS the entry read
+    risk = client.get(url, params={**params, "role": "risk"}).json()
+    both = client.get(url, params={**params, "role": "both"}).json()
+    assert [r[4] for r in seen["reads"]] == ["entry", "risk", "both"]
+    assert client.get(url, params={**params, "role": "risk"}).json()["cache"] == "hit"
+    assert [(b["role"], len(b["rows"])) for b in (default, risk, both)] == [
+        ("entry", 2),
+        ("risk", 1),
+        ("both", 3),
+    ]
+    # the counts say how many rows the other role holds
+    assert [b["counts"]["other_role_rows"] for b in (default, risk, both)] == [1, 2, 0]
+    assert risk["rows"][0]["kind"] == "breakdown" and risk["rows"][0]["role"] == "risk_signal"
 
 
 def test_the_router_wire_shape(stub_client):
@@ -908,6 +1056,8 @@ def test_the_router_wire_shape(stub_client):
     assert buy["sources"][0]["url"].startswith("https://www.sec.gov/Archives/edgar/data/876543/")
     assert buy["sources"][0]["detail"] == ["shares: 1000"]
 
+    assert buy["label_changes"] == 0 and bo["label_changes"] == 0
+    assert body["role"] == "entry" and body["counts"]["other_role_rows"] == 1
     assert body["window_start"] == "2026-07-30" and body["counts"]["entry_rows"] == 2
     assert body["sessions"] == {
         "source": "benchmarks",
@@ -922,6 +1072,12 @@ def test_the_router_rejects_an_unknown_window_and_a_missing_asof(stub_client):
     client, seen = stub_client
     assert (
         client.get("/dashboards/trigger-log", params={"asof": "2026-10-28", "days": 45}).status_code
+        == 422
+    )
+    assert (
+        client.get(
+            "/dashboards/trigger-log", params={"asof": "2026-10-28", "role": "all"}
+        ).status_code
         == 422
     )
     assert client.get("/dashboards/trigger-log").status_code == 422
@@ -1068,13 +1224,13 @@ class World:
         db.commit()
 
 
-def _get(db, asof: date, days: int = 90, **patch) -> dict:
+def _get(db, asof: date, days: int = 90, role: str | None = None) -> dict:
+    """The page at a past as-of; ``role`` None sends no role (the server's default, the entry triggers)."""
     CACHE.clear()
     app.dependency_overrides[get_conn] = lambda: db
+    params = {"asof": asof.isoformat(), "days": days, **({"role": role} if role else {})}
     try:
-        r = TestClient(app).get(
-            "/dashboards/trigger-log", params={"asof": asof.isoformat(), "days": days}
-        )
+        r = TestClient(app).get("/dashboards/trigger-log", params=params)
     finally:
         app.dependency_overrides.clear()
         CACHE.clear()
@@ -1138,6 +1294,74 @@ def test_db_the_window_at_a_past_asof_ends_there(db):
     assert _labels(early) == [("2026-04-14", "8-day breakout")]
     assert early["counts"]["nights_read"] == 1
     assert w.tid is not None
+
+
+def test_db_the_role_asked_for_is_what_loads_and_only_its_names_are_priced(db, monkeypatch):
+    """A night adds two risk signals, one on a name no entry trigger fired on. The default read lists the entry
+    triggers and counts the risk rows it left out; the risk read lists only those and prices only their names;
+    both lists all, and every role's rows add up."""
+    w = World(db)
+    sc = _security(db, "CCC", CIK)
+    for day, close in w.close[w.sa].items():
+        _bar(db, sc, day, close, datetime.combine(day, time.min, tzinfo=UTC))
+    dil = trig(w.sb, "dilution", Kind.DILUTION_RISK, date(2026, 5, 19))
+    brk = trig(sc, "close 9.10", Kind.BREAKDOWN, date(2026, 5, 19))
+    _insert_call(
+        db,
+        w.tid,
+        cc(
+            State.ARMED,
+            asof=date(2026, 5, 20),
+            triggers=(w.x, w.y, w.z, w.w),
+            risks=(dil, brk),
+            tid=w.tid,
+        ),
+    )
+    db.commit()
+    asked: list[set[UUID]] = []
+    real = router_mod._closes
+
+    def spy(conn, sids, *a, **k):
+        asked.append(set(sids))
+        return real(conn, sids, *a, **k)
+
+    monkeypatch.setattr(router_mod, "_closes", spy)
+
+    entry = _get(db, PAST)  # nothing asked: the entry triggers
+    assert entry["role"] == "entry"
+    assert {r["role"] for r in entry["rows"]} == {"entry_trigger"} and len(entry["rows"]) == 3
+    assert (entry["counts"]["risk_rows"], entry["counts"]["other_role_rows"]) == (0, 2)
+    assert asked[-1] == {w.sa, w.sb}  # the risk-only name was never priced
+
+    risk = _get(db, PAST, role="risk")
+    assert risk["role"] == "risk"
+    assert {r["label"] for r in risk["rows"]} == {"dilution", "close 9.10"}
+    assert (risk["counts"]["entry_rows"], risk["counts"]["other_role_rows"]) == (0, 3)
+    assert asked[-1] == {w.sb, sc}  # only the risk names were priced
+    assert {r["ticker"] for r in risk["rows"]} == {
+        "BBB",
+        "CCC",
+    }  # CCC is not on the card: the master's
+
+    both = _get(db, PAST, role="both")
+    assert len(both["rows"]) == 5 and both["counts"]["other_role_rows"] == 0
+    assert len(entry["rows"]) + len(risk["rows"]) == len(both["rows"])
+
+
+def test_db_one_trigger_under_several_labels_is_one_row_dated_the_first_night(db):
+    """The insider buy shows under a new label on each later night: still ONE row, dated May 12 under its first
+    label, and the page says the record showed two other labels."""
+    w = World(db)
+    for day, label in ((date(2026, 5, 13), "buy, 2,000 sh"), (date(2026, 5, 14), "buy, 3,000 sh")):
+        z = trig(w.sb, label, Kind.INSIDER, date(2026, 5, 7))
+        _insert_call(db, w.tid, cc(State.ARMED, asof=day, triggers=(w.x, w.y, z, w.w), tid=w.tid))
+    db.commit()
+    body = _get(db, PAST)
+    buys = [r for r in body["rows"] if r["kind"] == "insider" and r["ticker"] == "BBB"]
+    assert len(buys) == 1
+    (buy,) = buys
+    assert (buy["recorded_on"], buy["label"], buy["label_changes"]) == ("2026-05-12", "buy", 2)
+    assert all(r["label_changes"] == 0 for r in body["rows"] if r is not buy)
 
 
 def test_db_the_highest_seq_of_a_night_stands_and_the_rows_say_where_they_came_from(db):

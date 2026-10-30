@@ -17,11 +17,16 @@ The rules, in one place:
   only on change, so a night without a row is one where nothing changed. A reconstructed night
   (``pipeline.backfill``) counts as a night and is marked. A row whose card no longer validates is counted
   (``nights_unreadable``), never a 500 and never silently skipped.
-- **A trigger's identity** is ``(security, kind, event date, label)``, within its role, across a card's nights:
-  the same trigger on twelve nights is ONE row. It is read from three places on each night's card:
-  ``triggers_fired`` (an entry trigger), ``risk_signals`` (a risk signal), and each ``armed_members[]`` /
-  ``watch_members[]`` entry's ``triggers`` (member-level entry triggers; the same identity merges with the
-  card-level one, the first copy in that order standing for it).
+- **A trigger's identity** is ``(security, kind, event date)``, within its role, across a card's nights: the
+  same trigger on twelve nights is ONE row. The label is NOT part of it (2026-10-29): a label can carry that
+  night's numbers (a breakdown's names the night's close), so the same fire date under a new label is the same
+  trigger. The row shows the label of its FIRST recorded night and ``label_changes`` = how many distinct other
+  labels the record showed for it from that night through the window's end (another copy the same night counts).
+  It is read from three places on each night's card: ``triggers_fired`` (an entry trigger), ``risk_signals`` (a
+  risk signal), and each ``armed_members[]`` / ``watch_members[]`` entry's ``triggers`` (member-level entry
+  triggers; the same identity merges with the card-level one, the first copy in that order standing for it).
+- **The role loaded** is the page's choice: ``entry`` (the default), ``risk`` or ``both``. Each is its own read:
+  the other role is walked only to COUNT its rows (``other_role_rows``), never built, priced or sent.
 - **Its recorded night** is the first night in the window the record shows it. An identity the row before the
   window already shows was first recorded BEFORE the window: it is not a row (the Hot Board holds it while it
   is live) and the page counts those still live (``carried_live``).
@@ -74,9 +79,22 @@ Role = Literal["entry_trigger", "risk_signal"]
 KeyName = Literal["conviction", "confirmation"]
 SinceStatus = Literal["priced", "unpriced", "flagged"]
 
+# Which role(s) one read loads. Risk signals are the bulk of the record (the dev walk on a prod copy, 2026-10-29,
+# 90 days, recorded in the plan: 18,588 of 23,526 rows before the label left the identity), so the entry
+# triggers load by default.
+RoleChoice = Literal["entry", "risk", "both"]
+ROLE_CHOICES: tuple[RoleChoice, ...] = ("entry", "risk", "both")
+DEFAULT_ROLE: RoleChoice = "entry"
+_LOADED: dict[RoleChoice, frozenset[Role]] = {
+    "entry": frozenset({"entry_trigger"}),
+    "risk": frozenset({"risk_signal"}),
+    "both": frozenset({"entry_trigger", "risk_signal"}),
+}
+_OTHER: dict[RoleChoice, RoleChoice | None] = {"entry": "risk", "risk": "entry", "both": None}
+
 # the identity of one trigger on a card (the role is part of it, so an entry trigger and a risk signal that
-# somehow shared the other four fields would never merge and hide one)
-Identity = tuple[Role, UUID, Kind, date | None, str]
+# somehow shared the other fields would never merge and hide one). The label is not: see the module docstring.
+Identity = tuple[Role, UUID, Kind, date | None]
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -130,7 +148,8 @@ class TriggerEvent:
     role: Role
     kind: Kind
     event_date: date | None
-    label: str
+    label: str  # the label of the first recorded night
+    label_changes: int  # distinct other labels the record showed from that night on
     grade: Grade | None
     key: KeyName | None
     recorded_on: date
@@ -146,9 +165,11 @@ class TriggerEvent:
 
 @dataclass(frozen=True)
 class Collected:
-    """The events of every counted card and what was read to find them."""
+    """The events of every counted card (of the role(s) loaded) and what was read to find them."""
 
     events: tuple[TriggerEvent, ...]
+    role: RoleChoice
+    other_role_rows: int  # rows the role(s) NOT loaded would list (0 when both are)
     cards_counted: int
     cards_with_nights: int  # at least one night in the window
     cards_no_call: int  # no row at or before the as-of at all
@@ -185,7 +206,7 @@ def key_of(ref: TriggerRef, role: Role, cfg: CallConfig = DEFAULT_CONFIG) -> Key
 
 
 def identity_of(role: Role, ref: TriggerRef) -> Identity:
-    return (role, ref.security_id, ref.kind, ref.event_date, ref.label)
+    return (role, ref.security_id, ref.kind, ref.event_date)
 
 
 def _refs(card: CallCard) -> Iterable[tuple[Role, TriggerRef]]:
@@ -200,80 +221,119 @@ def _refs(card: CallCard) -> Iterable[tuple[Role, TriggerRef]]:
         yield "risk_signal", t
 
 
-def identities(card: CallCard) -> dict[Identity, tuple[Role, TriggerRef]]:
-    """The card's triggers by identity; a re-listed identity (a member-level copy of a card-level trigger)
-    keeps its first copy."""
-    out: dict[Identity, tuple[Role, TriggerRef]] = {}
+def copies(card: CallCard) -> dict[Identity, list[TriggerRef]]:
+    """The card's triggers by identity, every copy of one (a member-level copy of a card-level trigger, or the
+    same fire date under another label) in the order ``_refs`` lists them: the first stands for the identity.
+    """
+    out: dict[Identity, list[TriggerRef]] = {}
     for role, ref in _refs(card):
-        out.setdefault(identity_of(role, ref), (role, ref))
+        out.setdefault(identity_of(role, ref), []).append(ref)
     return out
 
 
-def card_events(cn: CardNights, cfg: CallConfig = DEFAULT_CONFIG) -> tuple[list[TriggerEvent], int]:
-    """One card's events and how many live triggers were first recorded before the window.
+@dataclass(frozen=True)
+class _First:
+    """Where one identity was first recorded in the window: its night, the card's state then and the night
+    before it in the walk, and the copy that stands for it."""
+
+    night: Night
+    from_state: State | None
+    to_state: State
+    new_card: bool
+    ref: TriggerRef
+
+
+def card_events(
+    cn: CardNights, cfg: CallConfig = DEFAULT_CONFIG, role: RoleChoice = "both"
+) -> tuple[list[TriggerEvent], int]:
+    """One card's events of the role(s) loaded and how many of those live triggers were first recorded before
+    the window.
 
     Walks the nights oldest first, remembering every identity already shown (the row before the window seeds
-    it): an identity seen for the first time on a night is an event dated that night. The previous night is
-    the one just before it in the walk (the row before the window, for the first)."""
-    seen: set[Identity] = set()
-    carried: set[Identity] = set()
-    if cn.before is not None and cn.before.card is not None:
-        carried = set(identities(cn.before.card))
-        seen = set(carried)
+    it): an identity seen for the first time on a night is an event dated that night, with the label of its
+    first copy; every other label the record then shows for it counts into ``label_changes``. The previous
+    night is the one just before it in the walk (the row before the window, for the first)."""
+    wanted = _LOADED[role]
+    before_ids = set(copies(cn.before.card)) if cn.before is not None and cn.before.card else set()
+    carried = {i for i in before_ids if i[0] in wanted}
 
     # the card in effect at the as-of: the newest night, else the row before the window
     in_effect = cn.nights[-1] if cn.nights else cn.before
     live_ids: set[Identity] | None = (
-        set(identities(in_effect.card)) if in_effect is not None and in_effect.card else None
+        set(copies(in_effect.card)) if in_effect is not None and in_effect.card else None
     )
 
-    events: list[TriggerEvent] = []
+    firsts: dict[Identity, _First] = {}
+    later: dict[Identity, set[str]] = {}
     prior = cn.before
     for night in cn.nights:
         if night.card is None:
             prior = night
             continue
-        for ident, (role, ref) in identities(night.card).items():
-            if ident in seen:
+        for ident, refs in copies(night.card).items():
+            if ident[0] not in wanted or ident in before_ids:
                 continue
-            seen.add(ident)
-            events.append(
-                TriggerEvent(
-                    thesis_id=cn.thesis_id,
-                    thesis_name=cn.thesis_name,
-                    security_id=ref.security_id,
-                    role=role,
-                    kind=ref.kind,
-                    event_date=ref.event_date,
-                    label=ref.label,
-                    grade=ref.grade,
-                    key=key_of(ref, role, cfg),
-                    recorded_on=night.asof,
-                    reconstructed=night.reconstructed,
-                    from_state=prior.card.state if prior is not None and prior.card else None,
-                    to_state=night.card.state,
-                    new_card=prior is None,
-                    live=None if live_ids is None else ident in live_ids,
-                    sources=tuple(ref.sources),
+            first = firsts.get(ident)
+            if first is None:
+                first = firsts[ident] = _First(
+                    night,
+                    prior.card.state if prior is not None and prior.card else None,
+                    night.card.state,
+                    prior is None,
+                    refs[0],
                 )
-            )
+            others = {r.label for r in refs} - {first.ref.label}
+            if others:
+                later.setdefault(ident, set()).update(others)
         prior = night
+
+    events = [
+        TriggerEvent(
+            thesis_id=cn.thesis_id,
+            thesis_name=cn.thesis_name,
+            security_id=ident[1],
+            role=ident[0],
+            kind=ident[2],
+            event_date=ident[3],
+            label=f.ref.label,
+            label_changes=len(later.get(ident, ())),
+            grade=f.ref.grade,
+            key=key_of(f.ref, ident[0], cfg),
+            recorded_on=f.night.asof,
+            reconstructed=f.night.reconstructed,
+            from_state=f.from_state,
+            to_state=f.to_state,
+            new_card=f.new_card,
+            live=None if live_ids is None else ident in live_ids,
+            sources=tuple(f.ref.sources),
+        )
+        for ident, f in firsts.items()
+    ]
     carried_live = len(carried & live_ids) if live_ids is not None else 0
     return events, carried_live
 
 
-def collect(cards: Sequence[CardNights], cfg: CallConfig = DEFAULT_CONFIG) -> Collected:
-    """Every counted card's events, in card order, with the counts of what was read."""
+def collect(
+    cards: Sequence[CardNights], cfg: CallConfig = DEFAULT_CONFIG, role: RoleChoice = "both"
+) -> Collected:
+    """Every counted card's events of the role(s) loaded, in card order, with the counts of what was read.
+    The role not loaded is walked once more only to count its rows (``other_role_rows``)."""
     events: list[TriggerEvent] = []
     carried_live = 0
+    other_rows = 0
+    other = _OTHER[role]
     for cn in cards:
-        got, carried = card_events(cn, cfg)
+        got, carried = card_events(cn, cfg, role)
         events += got
         carried_live += carried
+        if other is not None:
+            other_rows += len(card_events(cn, cfg, other)[0])
     window_nights = [n for cn in cards for n in cn.nights]
     before_unreadable = sum(1 for cn in cards if cn.before is not None and cn.before.card is None)
     return Collected(
         events=tuple(events),
+        role=role,
+        other_role_rows=other_rows,
         cards_counted=len(cards),
         cards_with_nights=sum(1 for cn in cards if cn.nights),
         cards_no_call=sum(1 for cn in cards if cn.before is None and not cn.nights),
@@ -401,6 +461,7 @@ class LogRow:
     grade: Grade | None
     turns: KeyName | None
     label: str
+    label_changes: int
     event_date: date | None
     recorded_on: date
     week: date
@@ -454,6 +515,7 @@ class Counts:
     nights_unreadable: int
     entry_rows: int
     risk_rows: int
+    other_role_rows: int
     carried_live: int
     names_unpriced: int
     names_flagged: int
@@ -465,6 +527,7 @@ class TriggerLog:
     asof: date
     window_days: int
     window_start: date
+    role: RoleChoice
     rows: tuple[LogRow, ...]
     counts: Counts
     sessions: SessionsUsed
@@ -517,7 +580,7 @@ def source_of(p: Provenance, cik: str | None) -> Source:
 
 def row_key(e: TriggerEvent) -> str:
     """A short stable id for one trigger on one card (unique within a response)."""
-    raw = f"{e.thesis_id}|{e.security_id}|{e.role}|{e.kind.value}|{e.event_date}|{e.label}"
+    raw = f"{e.thesis_id}|{e.security_id}|{e.role}|{e.kind.value}|{e.event_date}"
     return hashlib.sha1(raw.encode()).hexdigest()[:16]
 
 
@@ -590,6 +653,7 @@ def trigger_log(
                 grade=e.grade,
                 turns=e.key,
                 label=e.label,
+                label_changes=e.label_changes,
                 event_date=e.event_date,
                 recorded_on=e.recorded_on,
                 week=week_start(e.recorded_on),
@@ -614,6 +678,7 @@ def trigger_log(
         asof=asof,
         window_days=window_days,
         window_start=window_start(asof, window_days),
+        role=collected.role,
         rows=tuple(rows),
         counts=Counts(
             cards_counted=collected.cards_counted,
@@ -630,6 +695,7 @@ def trigger_log(
             nights_unreadable=collected.nights_unreadable,
             entry_rows=sum(1 for r in rows if r.role == "entry_trigger"),
             risk_rows=sum(1 for r in rows if r.role == "risk_signal"),
+            other_role_rows=collected.other_role_rows,
             carried_live=collected.carried_live,
             names_unpriced=len(unpriced),
             names_flagged=len(flagged_names),

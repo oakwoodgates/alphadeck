@@ -7,6 +7,7 @@ import {
   DAYS_OPTIONS,
   DEFAULT_DAYS,
   DEFAULT_FILTERS,
+  DEFAULT_ROLE,
   GRADE_LABEL,
   GROUP_BYS,
   LIMITS,
@@ -14,14 +15,17 @@ import {
   RECONSTRUCTED_TITLE,
   ROLE_GLYPH,
   ROLE_LABEL,
+  ROLE_OPTIONS,
   cacheWords,
   dimValues,
+  emptyWords,
   facetCounts,
   filterRows,
   filtersActive,
   fireNote,
   groupRows,
   kindWords,
+  labelTitle,
   liveWords,
   pct,
   plural,
@@ -42,7 +46,13 @@ import {
   type Row,
   type Toggle,
 } from "./logView";
-import { useTriggerLog, type TriggerLogDays, type TriggerLogNameOut, type TriggerLogOut } from "./useTriggerLog";
+import {
+  useTriggerLog,
+  type TriggerLogDays,
+  type TriggerLogNameOut,
+  type TriggerLogOut,
+  type TriggerLogRole,
+} from "./useTriggerLog";
 
 // Trigger Log (docs/dashboards/trigger-log.md): every entry trigger and risk signal the RECORDED calls show firing
 // across the cards in a window, one row per trigger (the same trigger on twelve nights is one row, dated the
@@ -175,7 +185,7 @@ function TriggerRow({ row, onSelectThesis }: { row: Row; onSelectThesis: Dashboa
       <div role="cell" className="tl-c tl-c-grade" data-label="grade">
         {grade ?? <span className="tl-quiet">—</span>}
       </div>
-      <div role="cell" className="tl-c tl-c-label" title={row.label}>
+      <div role="cell" className="tl-c tl-c-label" title={labelTitle(row)}>
         {row.label}
       </div>
       <div role="cell" className="tl-c tl-c-src" data-label="source">
@@ -302,16 +312,17 @@ function toggled<T>(set: ReadonlySet<T>, value: T): Set<T> {
 
 export default function TriggerLog({ asof, onSelectThesis }: DashboardProps) {
   const [days, setDays] = useState<TriggerLogDays>(DEFAULT_DAYS);
+  const [role, setRole] = useState<TriggerLogRole>(DEFAULT_ROLE);
   const [groupBy, setGroupBy] = useState<GroupBy>("week");
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
-  const q = useTriggerLog(asof, days);
+  const q = useTriggerLog(asof, days, role);
   const data: TriggerLogOut | undefined = q.data;
   const rows = useMemo(() => data?.rows ?? [], [data]);
 
   const filtered = useMemo(() => filterRows(rows, filters), [rows, filters]);
   const groups = useMemo(() => groupRows(filtered, groupBy), [filtered, groupBy]);
   const filtering = filtersActive(filters);
-  const stale = data != null && (data.asof !== asof || data.window_days !== days);
+  const stale = data != null && (data.asof !== asof || data.window_days !== days || data.role !== role);
 
   const cards = useMemo(
     () => dimValues(rows, "card").map((id) => ({ id, name: rows.find((r) => r.thesis_id === id)?.thesis_name ?? id })),
@@ -340,6 +351,21 @@ export default function TriggerLog({ asof, onSelectThesis }: DashboardProps) {
               className={`tl-chipbtn${days === o.value ? " on" : ""}`}
               aria-pressed={days === o.value}
               onClick={() => setDays(o.value)}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+        <div className="tl-seg" role="group" aria-label="Load">
+          <span className="tl-seg-label">Load</span>
+          {ROLE_OPTIONS.map((o) => (
+            <button
+              key={o.value}
+              type="button"
+              className={`tl-chipbtn${role === o.value ? " on" : ""}`}
+              aria-pressed={role === o.value}
+              title={o.title}
+              onClick={() => setRole(o.value)}
             >
               {o.label}
             </button>
@@ -444,9 +470,7 @@ export default function TriggerLog({ asof, onSelectThesis }: DashboardProps) {
           {data.counts.cards_counted === 0 ? (
             <div className="dash-note tl-empty">No card existed by this as-of.</div>
           ) : rows.length === 0 ? (
-            <div className="dash-note tl-empty">
-              No trigger was first recorded in the last {data.window_days} days (see the limits below).
-            </div>
+            <div className="dash-note tl-empty">{emptyWords(data)}</div>
           ) : filtered.length === 0 ? (
             <div className="dash-note tl-empty">No trigger passes the filters.</div>
           ) : (

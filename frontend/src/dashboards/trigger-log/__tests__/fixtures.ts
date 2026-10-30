@@ -16,6 +16,7 @@ export const row = (key: string, over: Partial<TriggerLogRowOut> = {}): TriggerL
   grade: "core",
   turns: "conviction",
   label: "Open-market buy, 1,000 sh",
+  label_changes: 0,
   event_date: "2026-10-22",
   recorded_on: "2026-10-27",
   week: "2026-10-26",
@@ -102,10 +103,13 @@ export const R4 = row("r4", {
 
 export const ROWS = [R1, R2, R3, R4];
 
+/** The default payload holds both roles (`role: "both"`, so the other role holds nothing); a test of one role's
+ *  read passes `role` and `counts.other_role_rows` over it. */
 export const page = (rows: TriggerLogOut["rows"] = ROWS, over: Partial<TriggerLogOut> = {}): TriggerLogOut => ({
   asof: "2026-10-28",
   window_days: 90,
   window_start: "2026-07-30",
+  role: "both",
   clock: "public",
   rows,
   counts: {
@@ -121,6 +125,7 @@ export const page = (rows: TriggerLogOut["rows"] = ROWS, over: Partial<TriggerLo
     nights_unreadable: 0,
     entry_rows: rows.filter((r) => r.role === "entry_trigger").length,
     risk_rows: rows.filter((r) => r.role === "risk_signal").length,
+    other_role_rows: 0,
     carried_live: 2,
     names_unpriced: 1,
     names_flagged: 1,

@@ -5,7 +5,7 @@ plain SELECTs: each night's winning row, and the one row in effect before the wi
 ``call_for_thesis``), the master's tickers and issuer CIKs, the data flags that reach a price reading and the
 as-traded bars of the names a trigger fired on plus IWM's, all through the request's one ``serve_view(asof)``
 pair, then hands them to the pure compute in ``dashboards/trigger_log.py``. The whole read is computed once per
-(window, clock, as-of) in the shared dashboard cache (``dashboards/cache.py``, ``docs/DASHBOARDS.md`` rule 7);
+(window, role, clock, as-of) in the shared dashboard cache (``dashboards/cache.py``, ``docs/DASHBOARDS.md`` rule 7);
 grouping, filters and sorts are the page's own. Its wire models live here, not in ``app/schemas_api.py`` (rule 8).
 """
 
@@ -27,9 +27,11 @@ from dashboards.baskets import cards_as_of, per_company, price_flags
 from dashboards.cache import cached
 from dashboards.trigger_log import (
     BENCHMARK,
+    DEFAULT_ROLE,
     CardNights,
     Night,
     Role,
+    RoleChoice,
     Scope,
     SinceStatus,
     TriggerLog,
@@ -104,7 +106,10 @@ class TriggerLogSinceOut(_Wire):
 
 
 class TriggerLogRowOut(_Wire):
-    """One trigger on one card, dated by the first night in the window the record shows it. ``event_date`` = the
+    """One trigger on one card, dated by the first night in the window the record shows it. The same security,
+    kind and fire date within a role is one row whatever its label did night to night: ``label`` = the label of the
+    first recorded night, ``label_changes`` = how many distinct other labels the record showed for it from that
+    night on (a label can carry that night's numbers). ``event_date`` = the
     fire date (``null`` = undated); ``recorded_days_after`` = days from the fire date to the recorded night when
     the fire date is earlier; ``week`` = the Monday of the recorded night's week; ``turns`` = the key an entry
     trigger turns (``null`` for a risk signal or a kind neither key takes); ``from_state`` / ``to_state`` = the
@@ -124,6 +129,7 @@ class TriggerLogRowOut(_Wire):
     grade: Grade | None
     turns: Literal["conviction", "confirmation"] | None
     label: str
+    label_changes: int
     event_date: date | None
     recorded_on: date
     week: date
@@ -161,8 +167,11 @@ class TriggerLogSessionsOut(_Wire):
 
 class TriggerLogCountsOut(_Wire):
     """The work shown on the quiet line: counts of what was read and listed, never a statistic over the rows'
-    returns. ``cards_quiet`` = cards with a call by the as-of but no night in the window; ``carried_live`` = live
-    triggers first recorded before the window (not listed); ``names_*`` = distinct names."""
+    returns. ``entry_rows`` / ``risk_rows`` = rows listed by role (zero for a role not loaded);
+    ``other_role_rows`` = the rows the role(s) NOT loaded would list (0 when ``role`` is ``both``);
+    ``cards_quiet`` = cards with a call by the as-of but no night in the window; ``carried_live`` = live
+    triggers of the loaded role(s) first recorded before the window (not listed); ``names_*`` = distinct names.
+    """
 
     cards_counted: int
     cards_with_nights: int
@@ -176,6 +185,7 @@ class TriggerLogCountsOut(_Wire):
     nights_unreadable: int
     entry_rows: int
     risk_rows: int
+    other_role_rows: int
     carried_live: int
     names_unpriced: int
     names_flagged: int
@@ -184,7 +194,8 @@ class TriggerLogCountsOut(_Wire):
 
 class TriggerLogOut(_Wire):
     """The whole page at the as-of. ``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was
-    public by the end of that date). The window is ``window_start`` to ``asof``, inclusive; ``rows`` are
+    public by the end of that date). ``role`` = which role(s) ``rows`` hold: ``entry`` (the default), ``risk`` or
+    ``both``. The window is ``window_start`` to ``asof``, inclusive; ``rows`` are
     newest recorded night first, then ticker. There is no aggregate over the rows (the Track Record page slices
     outcomes by market-cap tier). ``cache`` / ``compute_ms`` = whether the read came from the shared dashboard
     cache and how long it took when computed."""
@@ -192,6 +203,7 @@ class TriggerLogOut(_Wire):
     asof: date
     window_days: int
     window_start: date
+    role: Literal["entry", "risk", "both"]
     clock: Literal["record", "public"]
     rows: list[TriggerLogRowOut]
     counts: TriggerLogCountsOut
@@ -287,14 +299,18 @@ def read_log(
     conn: psycopg.Connection,
     asof: date,
     window_days: int,
+    role: RoleChoice,
     known_at: datetime | None,
     clock: Literal["record", "public"],
 ) -> TriggerLog:
     """The cached read: the counted cards and their rosters at the as-of, each card's recorded nights in the
-    window, then the tape of the names a trigger fired on (a flagged name is not priced) and IWM's.
+    window, then the tape of the names a trigger of the loaded role(s) fired on (a flagged name is not priced)
+    and IWM's.
     """
     got = cards_as_of(conn, asof, known_at)
-    collected = collect(read_nights(conn, [(t.id, t.name) for t in got.cards], asof, window_days))
+    collected = collect(
+        read_nights(conn, [(t.id, t.name) for t in got.cards], asof, window_days), role=role
+    )
     sids = sorted({e.security_id for e in collected.events}, key=str)
     flagged = price_flags(conn, sids, asof, known_at=known_at, clock=clock)
     return trigger_log(
@@ -325,18 +341,28 @@ def trigger_log_page(
     days: TriggerLogDays = Query(
         TriggerLogDays.D90, description="the window: the last 30 | 90 | 180 days"
     ),
+    role: RoleChoice = Query(
+        DEFAULT_ROLE,
+        description="which role to load: entry (the default) | risk | both. Risk signals are the bulk of the "
+        "record, so each choice is its own read; counts.other_role_rows says how many rows the other role holds",
+    ),
     conn: psycopg.Connection = Depends(get_conn),
 ) -> TriggerLogOut:
     """Every entry trigger and risk signal the recorded calls show firing across the cards in the window, newest
-    recorded night first: each trigger once (the same trigger on many nights is one row, dated the first night
-    the record shows it), with its fire date, role and key, source, the card's state that night beside the night
+    recorded night first, for the role(s) asked: each trigger once (the same security, kind and fire date is one
+    row however its label changed night to night, dated the first night the record shows it and carrying that
+    night's label), with its fire date, role and key, source, the card's state that night beside the night
     before, whether it is still live, the sessions since and the name's as-traded return since against IWM.
     Display only, with no aggregate over the rows. A past as-of reads the nights recorded on or before it and
     the bars public by the end of that date."""
     known_at, clock = serve_view(asof)
     window = int(days)
     got = cached(
-        conn, SLUG, (window, clock), asof, lambda: read_log(conn, asof, window, known_at, clock)
+        conn,
+        SLUG,
+        (window, role, clock),
+        asof,
+        lambda: read_log(conn, asof, window, role, known_at, clock),
     )
     return TriggerLogOut.model_validate(
         {**asdict(got.value), "clock": clock, "cache": got.status, "compute_ms": got.compute_ms}

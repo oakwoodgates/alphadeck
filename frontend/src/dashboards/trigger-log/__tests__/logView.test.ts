@@ -10,8 +10,11 @@ import {
   filtersActive,
   fireNote,
   groupRows,
+  labelTitle,
   liveWords,
   pct,
+  emptyWords,
+  roleLoadedWords,
   roleWords,
   sourceView,
   stateChanged,
@@ -250,6 +253,32 @@ describe("the work lines", () => {
     expect(text).toContain("1 card on today's roster (no snapshot by then)");
     expect(text).toContain("1 with no call recorded yet");
     expect(text).toContain("no session calendar: no bars at this as-of");
+  });
+
+  it("words the role loaded and what the other role holds", () => {
+    const entry = page(ROWS, { role: "entry", counts: { ...data.counts, other_role_rows: 18588 } });
+    expect(roleLoadedWords(entry)).toEqual(["entry triggers loaded", "18,588 risk signals not loaded"]);
+    expect(roleLoadedWords(page(ROWS, { role: "entry", counts: { ...data.counts, other_role_rows: 1 } }))).toEqual([
+      "entry triggers loaded",
+      "1 risk signal not loaded",
+    ]);
+    expect(roleLoadedWords(page(ROWS, { role: "risk" }))).toEqual(["risk signals loaded", "no entry triggers in the window"]);
+    expect(roleLoadedWords(data)).toEqual(["3 entry triggers · 1 risk signal"]);
+    expect(workLines(entry, 4, false).join("\n")).toContain("entry triggers loaded · 18,588 risk signals not loaded");
+  });
+
+  it("words the empty state by role", () => {
+    expect(emptyWords(page([], { role: "entry", window_days: 90 }))).toBe(
+      "No entry trigger was first recorded in the last 90 days (see the limits below).",
+    );
+    expect(emptyWords(page([], { role: "risk", window_days: 30 }))).toContain("No risk signal was first recorded");
+    expect(emptyWords(page([], { role: "both" }))).toContain("No trigger was first recorded");
+  });
+
+  it("hovers a label with how many times it changed, only when it did", () => {
+    expect(labelTitle(row("a", { label: "L", label_changes: 0 }))).toBe("L");
+    expect(labelTitle(row("a", { label: "L", label_changes: 1 }))).toBe("L\nlabel changed 1 time");
+    expect(labelTitle(row("a", { label: "L", label_changes: 56 }))).toBe("L\nlabel changed 56 times");
   });
 
   it("words the live read and the cache", () => {

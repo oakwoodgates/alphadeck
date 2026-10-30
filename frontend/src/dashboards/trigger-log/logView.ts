@@ -1,5 +1,11 @@
 import { fmtDate } from "../../util/format";
-import type { TriggerLogDays, TriggerLogOut, TriggerLogRowOut, TriggerLogSourceOut } from "./useTriggerLog";
+import type {
+  TriggerLogDays,
+  TriggerLogOut,
+  TriggerLogRole,
+  TriggerLogRowOut,
+  TriggerLogSourceOut,
+} from "./useTriggerLog";
 
 // The Trigger Log's pure view logic (docs/dashboards/trigger-log.md): the grouping (by week, kind or card), the
 // filters and their per-chip counts, and the words the page uses. Every row and count is computed server-side;
@@ -27,6 +33,15 @@ export const DAYS_OPTIONS: readonly { value: TriggerLogDays; label: string }[] =
 ];
 export const DEFAULT_DAYS: TriggerLogDays = 90;
 
+/** Which role(s) one read loads. Risk signals are the bulk of the record, so each choice is its own read and the
+ *  entry triggers load first. */
+export const ROLE_OPTIONS: readonly { value: TriggerLogRole; label: string; title: string }[] = [
+  { value: "entry", label: "Entry triggers", title: "Load the entry triggers: the default" },
+  { value: "risk", label: "Risk signals", title: "Load the risk signals: the bulk of the record, so they load on request" },
+  { value: "both", label: "Both", title: "Load both roles together: the larger read" },
+];
+export const DEFAULT_ROLE: TriggerLogRole = "entry";
+
 export const ROLE_LABEL: Record<Role, string> = { entry_trigger: "entry trigger", risk_signal: "risk signal" };
 /** The role is a glyph, not a color: a filled diamond for an entry trigger, an open one for a risk signal. */
 export const ROLE_GLYPH: Record<Role, string> = { entry_trigger: "◆", risk_signal: "◇" };
@@ -43,6 +58,7 @@ export const LIMITS: readonly string[] = [
   "The record shows live triggers only: a trigger that fired and lapsed between two recorded nights never reached the log and is not here.",
   "The recorded night is when the system saw it, which can trail the fire date (the note says by how much).",
   "A trigger first recorded before the window is not listed, however live.",
+  "One row per trigger: the same security, kind and fire date is one row however its label changed (hover a label to see how many times); the row shows the first night's label.",
   "As-traded closes, no dividends.",
 ];
 
@@ -169,6 +185,12 @@ export type Group = {
 
 export const kindWords = (kind: string) => kind.replace(/_/g, " ");
 
+/** The hover on a label: the label itself, and how many times the record changed it after the first night (only
+ *  when it did). */
+export function labelTitle(r: Row): string {
+  return r.label_changes > 0 ? `${r.label}\nlabel changed ${plural(r.label_changes, "time", "times")}` : r.label;
+}
+
 /** "Week of Oct 26": the Monday the server grouped on. */
 export const weekLabel = (week: string) => `Week of ${fmtDate(week)}`;
 
@@ -293,6 +315,22 @@ export function clockWords(data: TriggerLogOut): string {
     : "live read";
 }
 
+/** Which role the read holds and what the other role holds: "entry triggers loaded · 18,588 risk signals not
+ *  loaded". With both loaded it is the rows by role. */
+export function roleLoadedWords(data: TriggerLogOut): string[] {
+  const c = data.counts;
+  if (data.role === "both") return [roleWords(c.entry_rows, c.risk_rows)];
+  const loaded = data.role === "entry" ? "entry triggers" : "risk signals";
+  const [one, many] = data.role === "entry" ? ["risk signal", "risk signals"] : ["entry trigger", "entry triggers"];
+  return [`${loaded} loaded`, c.other_role_rows > 0 ? `${plural(c.other_role_rows, one, many)} not loaded` : `no ${many} in the window`];
+}
+
+/** The empty state of a window that holds no row of the role loaded. */
+export function emptyWords(data: TriggerLogOut): string {
+  const what = data.role === "entry" ? "entry trigger" : data.role === "risk" ? "risk signal" : "trigger";
+  return `No ${what} was first recorded in the last ${data.window_days} days (see the limits below).`;
+}
+
 /** The work, one quiet line per thought: what was read, what is listed, what the tape rests on. `shown` is the rows
  *  after the filters. */
 export function workLines(data: TriggerLogOut, shown: number, filtering: boolean): string[] {
@@ -326,7 +364,7 @@ export function workLines(data: TriggerLogOut, shown: number, filtering: boolean
   lines.push(
     [
       filtering ? `Showing ${shown.toLocaleString("en-US")} of ${plural(total, "trigger", "triggers")}` : `${plural(total, "trigger", "triggers")} listed`,
-      roleWords(c.entry_rows, c.risk_rows),
+      ...roleLoadedWords(data),
       c.carried_live > 0
         ? `${plural(c.carried_live, "live trigger", "live triggers")} first recorded before the window (not listed)`
         : null,
