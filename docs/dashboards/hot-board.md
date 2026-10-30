@@ -27,6 +27,13 @@ the LLM. Its ranking is a formula the page prints; it is not a verdict on any id
   trigger in `triggers_fired` (one key turned; the row says which key); "Watch names" adds each Armed card's
   `watch_members` (confirmation only); "Managing" adds each Managing card's held and armed members. Every toggle's
   count shows on the toggle. Incubating cards and cards with no recorded call are counted on the work line.
+- **Two reads of one candidate set (operator decision, 2026-10-30).** The candidate set (armed, warming, watch and
+  managing rows) is listed once, from the recorded cards alone. The page's default read (`rows=armed`) runs the tape
+  for the **armed** rows and carries the other three kinds only as COUNTS off those same recorded cards (no display
+  member, data-flag read, arm-night walk or cap runs for a name that is only counted); the toggles show those counts.
+  The first time a toggle that adds rows is checked, the page asks for the full read (`rows=all`: every candidate
+  row with its tape, the rows the page carried before this change) once, and everything after that is client side.
+  The work line says which read is loaded.
 - A name whose `security_id` is not on the roster snapshot (`thesis_repo.get_asof`) still has its row (the master's
   ticker, `master.tickers_for`); a name with no ticker shows its id and is counted.
 
@@ -97,34 +104,46 @@ member that joined later is not a row then.
 
 ## The quiet "show the work" line
 
-The as-of; the clock; cards counted / Armed / Warming / Managing / Incubating / no call yet; rows shown and what the
+The as-of; the clock; **which read is loaded** (the armed names alone, with what waits behind the toggles, or every
+candidate row); cards counted / Armed / Warming / Managing / Incubating / no call yet; rows shown and what the
 toggles add; names without a reading (per member), flagged (opens to the tickers), without a bar since the arm night;
 the session calendar; the entry rule; the heat formula in force; the cache state and `compute_ms`.
 
 ## Cache
 
-`dashboards.cache.cached(conn, "hot-board", (clock,), asof, ...)` holds every candidate row (Armed, Warming,
-watch, Managing) with its call fields, clocks, since-arm returns, tape readings and cap; the toggles, filters,
-sorts and heat derive on the client from that one read. The cache clears on a new run or a basket edit (rule 7).
-Expected cold cost: the display members for about 100 to 200 names (about 16 ms a name, `docs/DISPLAY_SIGNALS.md`)
-plus their bars; MEASURE and record it here.
+`dashboards.cache.cached(conn, "hot-board", (rows, clock), asof, ...)` holds, per read, the rows that read carries
+with their call fields, clocks, since-arm returns, tape readings and cap, plus the counts of every kind. Two entries
+per as-of: `rows=armed` (the armed rows; the page's default read) and `rows=all` (every candidate row: Armed,
+Warming, watch, Managing; read only after the first toggle). The toggles, filters, sorts and heat derive on the client
+from whichever read is loaded. The `all` read is its own cold compute (it is not sliced out of, or into, the armed
+entry). The cache clears on a new run or a basket edit (rule 7). Expected cold cost: the display members for the names
+the read carries (about 16 ms a name, `docs/DISPLAY_SIGNALS.md`) plus their bars; the numbers measured for the
+one-read version are under "MEASURED, BEFORE the on-demand change" below, and the numbers for the two reads are
+recorded there once measured.
 
 ## Backend and frontend
 
 - `backend/dashboards/hot_board.py`, pure: the row set from the cards in effect (armed, warming, watch, managing),
+  `read_candidates(cands, rows)` (the subset a read runs the tape for) and `count_candidates` (every kind's count),
   `arm_night(run_rows, security_id)`, the since-arm return, the tape readings per member key, `heat(rows)` (the
   percentiles, the mean, the missing rule), the counts.
-- `backend/app/routers/dashboards/hot_board.py`: `GET /dashboards/hot-board?asof=` (every candidate row + the counts).
-  `known_at, clock = serve_view(asof)` threads into the `calls` read, `baskets.per_company`, the bars and the
+- `backend/app/routers/dashboards/hot_board.py`: `GET /dashboards/hot-board?asof=&rows=armed|all` (`armed` is the
+  default: the armed rows + the counts of every kind; `all`: every candidate row + the counts; any other `rows` is a
+  422). `known_at, clock = serve_view(asof)` threads into the `calls` read, `baskets.per_company`, the bars and the
   benchmark. Wire models in the module (rule 8).
 - `backend/tests/dashboards/test_hot_board.py`: the row sets (an Armed card's members; a Warming card's trigger
   names with the key named; watch; managing); the arm night per member (a member that joined the run later); heat
   percentiles on hand-built rows (ties, a missing part → "—" last, recomputed on a subset); the since-arm return and
-  the IWM span; a flagged name keeps its row with grayed tape; and, DB-backed, **a card armed after the as-of has no
-  rows** and **a member added after the as-of is not a row then**; the router off one cached read.
+  the IWM span; a flagged name keeps its row with grayed tape; the two reads (the default carries the armed rows plus
+  the other kinds' counts and runs no tape, flag read, ticker read or arm-night walk for a counted-only name; `rows=all`
+  is the full set; an armed row is the same row in both; an invalid `rows` is a 422; the two cache keys differ);
+  and, DB-backed, **a card armed after the as-of has no rows** and **a member added after the as-of is not a row
+  then**; the router off one cached read per `(rows, clock)`.
 - `frontend/src/dashboards/hot-board/`: `entry.ts` (slug `hot-board`, order 190, `asofAware: true`), `HotBoard.tsx`
   (the table; a pure `heat.ts` mirroring the backend's percentile rule for the client-side recompute, tested against
-  the same fixtures; sparklines as inline SVG), `useHotBoard.ts`, `hot-board.css`, tests.
+  the same fixtures; sparklines as inline SVG), `useHotBoard.ts` (the armed read, and the full read held back until a
+  toggle needs it), `hot-board.css`, tests (the toggle fetching the full read exactly once is counted against a real
+  query client in `__tests__/HotBoard.reads.test.tsx`).
 - **Layout:** §Look. The arm-run walk is also the Entry Windows page's: whichever lands second folds both copies
   into one shared `backend/dashboards/arm_runs.py` at integration (the reviewer's job, not the builder's).
 
@@ -235,16 +254,54 @@ written. Each is the operator's to confirm or change.
 **Not measured**
 
 22. **The cold cost is NOT MEASURED by the builder** (the local database holds only the demo seed and the stack's
-    Postgres is prod's). The orchestrator records it from dev with a prod copy. The read does one `per_company` pass
-    over the distinct securities of the candidate rows (all four kinds), eight display members each, plus one
-    data-flag read and one IWM read.
+    Postgres is prod's). The orchestrator records it from dev with a prod copy. A read does one `per_company` pass
+    over the distinct securities of the rows it carries (the armed names for `rows=armed`, all four kinds for
+    `rows=all`), eight display members each, plus one data-flag read and one IWM read. The builder did not measure the
+    cost of the on-demand change either: the tests count which securities each read is asked for, not milliseconds.
 
-### MEASURED (dev with a prod data copy, 2026-10-29, after the nightly pass)
+**The on-demand read (operator decision, 2026-10-30: the open question under the first measurement, accepted)**
+
+23. **The default read carries the armed rows and counts the rest; `rows=all` is today's read.** `GET
+    /dashboards/hot-board?asof=&rows=armed` (the default) returns the armed rows with their tape and
+    `candidate_counts` (`armed`, `warming`, `watch`, `managing`: the rows the recorded cards in effect list, counted
+    with no display member, flag read, ticker read or arm-night walk for a name that is only counted); `rows=all`
+    returns every candidate row with its tape, each row byte-for-byte the row the page carried before this change; any
+    other `rows` value is a 422. The wire gains `rows_loaded` (which read this is) and `candidate_counts`. The cache
+    key is `(rows, clock)` per as-of: the two reads are two entries and the `all` read is its own cold compute, so the
+    armed names' tape is computed once per read that carries them (a slice of the armed entry would save that, and
+    would couple the two entries).
+24. **How the page asks.** The toggles show their counts from the default read. The first time a checked toggle adds
+    rows, the page requests `rows=all` once for that as-of (10-minute client cache, like the default read) and keeps
+    the armed rows on screen meanwhile, with "reading the warming, watch and managing rows…"; a failed full read says
+    so and leaves the armed rows (unchecking every toggle and checking one again retries). Unchecking every toggle
+    returns to the armed read (the full one stays cached, so checking a toggle again costs nothing). Moving the as-of
+    reads the full rows for the new as-of only while a visible, checked toggle adds rows there. Heat is still
+    recomputed among the rows shown; the toggle's hover says the rows load on first use; the work line says which read
+    is loaded.
+25. **What follows the read:** the work line's flagged names (and the "N names left out for a flagged price history"
+    note) and its no-ticker count describe the rows the loaded read carries, so a flagged name that sits only on a
+    warming, watch or managing row appears there once the full read loads. The arm-night walk reads the calls log only
+    for the cards that have an armed or managing row in the read (the full read no longer reads the log of an Armed
+    card with watch members alone; no row changes).
+
+### MEASURED, BEFORE the on-demand change (dev with a prod data copy, 2026-10-29, after the nightly pass)
+
+These are the numbers for the one-read version (every candidate row in one request, the toggles free).
 
 - Live as-of: 95 Armed rows shown by default; the one read carries 488 candidate rows (the Warming toggle adds 122,
   the watch toggle 271), 1.1 MB, cold compute 19,586 ms, cache hit 70 ms; 5 names flagged (rows kept, tape grayed).
 - Past as-of 2026-09-15 on the public clock: 133 candidate rows, 298 KB, cold 5,858 ms, 1 flagged.
 - The 95 rows ranked by heat render with every column and filter at desktop width; the phone check waits for the
   re-measure after the Trigger Log fix (the backend was busy computing another page during the first phone load).
-- Open question for the operator: the read carries every toggle's rows so the toggles cost nothing; a page that
-  loaded Warming and watch rows on demand would cut the payload and the cold compute by about half.
+- The open question these numbers raised (load the Warming and watch rows on demand, for about half the payload and
+  the cold compute) was accepted by the operator on 2026-10-30; see items 23 to 25.
+
+### MEASURED, AFTER the on-demand change
+- Live as-of 2026-10-30: the default read (`rows=armed`) 95 rows, 257 KB, cold compute 8,485 ms, cache hit 100 ms, with
+  the toggle counts carried (122 Warming, 271 watch, 0 Managing); the full read on first toggle use (`rows=all`) 488
+  rows, 1.1 MB, cold 19,794 ms, hit 300 ms. The morning visit now waits 8.5 s cold instead of 19.6 s, and the
+  post-nightly warm-up (its own change) makes it a hit.
+
+
+Not yet measured: the orchestrator records the default read's payload and cold compute, and the `rows=all` read's,
+from dev with a prod data copy, on the same live and past as-ofs as above.

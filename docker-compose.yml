@@ -236,6 +236,13 @@ services:
       # twice (MEASURED on dev: ~9 min at 4 workers for 659 pages; it grows with the edition).
       EDITIONS_NIGHTLY: ${ALPHADECK_EDITIONS_NIGHTLY:-1}
       EDITIONS_TIMEOUT_S: ${ALPHADECK_EDITIONS_TIMEOUT_S:-3600}
+      # The dashboards' cache warm-up (daily_cron.sh `warm_dashboards`, LAST in the nightly wake): GETs each heavy
+      # dashboard's default view from the API once, so the next visit is a cache hit. Its kill switch (0 = off, an
+      # env-only cron deploy), the API's address from this container (the compose service name) and the hard
+      # timeout around one run. Numeric fallback, the same reason as RETRY_DELAY_S above. Read-only: GETs only.
+      ALPHADECK_WARM_DASHBOARDS: ${ALPHADECK_WARM_DASHBOARDS:-1}
+      ALPHADECK_WARM_BASE_URL: ${ALPHADECK_WARM_BASE_URL:-http://backend:8000}
+      WARM_DASHBOARDS_TIMEOUT_S: ${ALPHADECK_WARM_DASHBOARDS_TIMEOUT_S:-1800}
       # The sidecar's THIRD schedule: the weekly company-list refresh (`python -m pipeline.populate_master --live
       # --apply`; daily_cron.sh `master_refresh_loop`): its kill switch (0 = off, an env-only cron deploy), the day
       # (`date +%u`, 6 = Saturday) and time (market TZ) it fires, and the hard timeout around one run. The job

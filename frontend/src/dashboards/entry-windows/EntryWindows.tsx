@@ -33,11 +33,14 @@ import {
   DEFAULT_SORT,
   HOLD_TAG,
   SORT_OPTIONS,
+  cardHoldClosing,
   catalystWords,
   fmtDay,
   holdWords,
   intoWords,
   leftWords,
+  memberEntryLines,
+  memberHoldLines,
   memberSinceWords,
   plural,
   rowWords,
@@ -331,6 +334,11 @@ function RowView({
             {leftWords(row)}
           </div>
           <div className="ew-sub">{row.arm_until ? `to ${fmtDay(row.arm_until)}` : ""}</div>
+          {memberEntryLines(row).map((line, i) => (
+            <div key={i} className="ew-sub" data-testid="ew-member-entry">
+              {line}
+            </div>
+          ))}
         </td>
         <td className="ew-fig ew-hold" data-label="Hold horizon">
           <div className="ew-main" data-testid="ew-hold-days">
@@ -338,8 +346,13 @@ function RowView({
           </div>
           <div className="ew-sub">
             {row.exit_by ? `to ${fmtDay(row.exit_by)}` : ""}
-            {row.lapsing && <span className="ew-tag"> {HOLD_TAG}</span>}
+            {cardHoldClosing(row) && <span className="ew-tag"> {HOLD_TAG}</span>}
           </div>
+          {memberHoldLines(row).map((line, i) => (
+            <div key={i} className="ew-sub" data-testid="ew-member-hold">
+              {line}
+            </div>
+          ))}
         </td>
         <td className="ew-fig ew-since" data-label="Since the arm night">
           <div className={`ew-main ${s.tone}`}>
@@ -546,11 +559,11 @@ function Page({
         <li>Medians are equal-weight over the names with a bar; returns are as-traded closes, with no dividends.</li>
         <li>
           The entry rule is the first close on or after the arm night, the night's own close: one the operator could not
-          have taken. The Track Record page has the next-session toggle.
+          have taken. The Track Record page opens on the next session's close.
         </li>
         <li>
-          Loudness marks the exception: the one accent on this page is a card whose own flag says at most two sessions
-          are left in its entry window.
+          Loudness marks the exception: the one accent on this page marks a card in which any armed name's entry window
+          has at most two sessions left. A name whose window differs from the card's is named under the figure.
         </li>
       </ul>
     </div>

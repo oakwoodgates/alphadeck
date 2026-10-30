@@ -56,6 +56,13 @@ import { useHotBoard, type HotRowOut } from "./useHotBoard";
 // page picks the rows (the toggles and the filters), recomputes the heat among the rows it shows (heat.ts), sorts and
 // words them. Loudness marks the exception: the sign tone only on a signed return, the Board's state color only on a
 // state chip, ONE accent for an entry window with at most two sessions left (#7 / WB#3).
+//
+// Two reads. The default read carries the armed rows with their tape and only the COUNTS of the warming, watch and
+// managing names, so the toggles can show "+N" without the cost of their tape. The first time a toggle is checked
+// the page asks for the full read (`rows=all`) once; from then on the toggles, filters, sorts and heat are client
+// side as before. Unchecking every toggle returns to the armed read, and the full read stays cached for the next check.
+
+const NO_COUNTS = { warming: 0, watch: 0, managing: 0 };
 
 type Column = { key: SortKey | null; label: string; title: string; num?: boolean; cls?: string };
 
@@ -86,7 +93,7 @@ const COLUMNS: readonly Column[] = [
 ];
 
 const SLOW =
-  "Reading every counted card's recorded call and the tape of each name on a row — the first load after a run or a basket edit can take a moment.";
+  "Reading every counted card's recorded call and the tape of each armed name — the first load after a run or a basket edit can take a moment.";
 
 function SortTh({ col, sort, onSort }: { col: Column; sort: Sort; onSort: (key: SortKey) => void }) {
   const cls = col.num ? "hb-num" : undefined;
@@ -256,10 +263,19 @@ export default function HotBoard({ asof, onSelectThesis }: DashboardProps) {
   const [toggles, setToggles] = useState<Toggles>(DEFAULT_TOGGLES);
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [sort, setSort] = useState<Sort>(DEFAULT_SORT);
-  const q = useHotBoard(asof);
-  const data = q.data;
+  // the default read: the armed rows with their tape, and the other kinds as counts
+  const q = useHotBoard(asof, "armed");
+  // the full read waits for a checked toggle that adds rows; it is requested once, then cached
+  const armedCounts = q.data ? toggleCounts(q.data.candidate_counts) : NO_COUNTS;
+  const needAll = TOGGLE_KINDS.some((k) => toggles[k] && armedCounts[k] > 0);
+  const full = useHotBoard(asof, "all", needAll);
+  // the full read counts only for THIS as-of (a placeholder is the previous as-of's); until it lands, the armed
+  // read stays on screen
+  const fullData = needAll && !full.isPlaceholderData ? full.data : undefined;
+  const data = fullData ?? q.data;
+  const pendingRest = needAll && fullData === undefined;
 
-  const counts = useMemo(() => toggleCounts(data?.rows ?? []), [data]);
+  const counts = useMemo(() => (data ? toggleCounts(data.candidate_counts) : NO_COUNTS), [data]);
   const onShow = useMemo(() => rowsOnShow(data?.rows ?? [], toggles), [data, toggles]);
   const controls = useMemo(() => filterControls(onShow), [onShow]);
   const shown = useMemo(() => onShow.filter((r) => rowMatches(r, filters)), [onShow, filters]);
@@ -276,7 +292,9 @@ export default function HotBoard({ asof, onSelectThesis }: DashboardProps) {
   if (!data) return <div className="dash-note">{SLOW}</div>;
 
   const filtering = filtersActive(filters);
-  const stale = q.isFetching && data.asof !== asof;
+  const fetching = q.isFetching || (needAll && full.isFetching);
+  const stale = fetching && data.asof !== asof;
+  const restFailed = pendingRest && !full.isFetching && full.error != null;
   const lines = workLines(data, shown, counts, toggles, scored);
   const toggleOn = TOGGLE_KINDS.filter((k) => counts[k] > 0);
 
@@ -286,7 +304,7 @@ export default function HotBoard({ asof, onSelectThesis }: DashboardProps) {
         {toggleOn.length > 0 && (
           <span className="hb-field" role="group" aria-label="Add rows">
             {toggleOn.map((k) => (
-              <label key={k} className="hb-check" title={TOGGLE_TITLE[k]}>
+              <label key={k} className="hb-check" title={data.rows_loaded === "all" ? TOGGLE_TITLE[k] : `${TOGGLE_TITLE[k]}. Loads the rows the first time one of these is checked.`}>
                 <input
                   type="checkbox"
                   checked={toggles[k]}
@@ -384,7 +402,16 @@ export default function HotBoard({ asof, onSelectThesis }: DashboardProps) {
             back to heat
           </button>
         )}
-        {(q.isFetching || stale) && <span className="dash-note">{stale ? SLOW : "updating…"}</span>}
+        {(fetching || stale) && (
+          <span className="dash-note">
+            {stale ? SLOW : pendingRest && !q.isFetching ? "reading the warming, watch and managing rows…" : "updating…"}
+          </span>
+        )}
+        {restFailed && (
+          <span className="dash-note">
+            Could not load the other rows; the armed names stay on screen. Uncheck the toggles and check one again to retry.
+          </span>
+        )}
       </div>
 
       <div className="dash-note hb-work" data-testid="hb-count">

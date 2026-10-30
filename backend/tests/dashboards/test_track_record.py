@@ -681,6 +681,30 @@ def test_the_table_reads_the_picked_comparison_and_the_picked_entry_rule():
     assert table_rows([r], entry="next_session")[2].cells["h20"].n == 1
 
 
+def test_the_table_and_the_opening_default_to_the_next_sessions_entry():
+    """Operator decision 2026-10-30: the entry a call recorded at 22:30 ET could be acted on at is the default, the
+    arm night's own close (the Scoreboard's) the other choice."""
+    r = row_of(CapTier.SMALL)
+    # the next session's close is five points below: IWM's 0.04 leaves an excess of 0.01 there, 0.06 on the arm night
+    nxt = Span("counted", ret=0.05, iwm=0.04, spy=0.0)
+    spans = {**r.next_session.spans, "h20": nxt}
+    r = RecordRow(**{**r.__dict__, "next_session": EntryRead(date(2026, 6, 4), 10.5, spans)})
+    assert table_rows([r])[2].cells["h20"].median == pytest.approx(
+        0.01
+    )  # no entry named: the next session
+    assert table_rows([r], entry="next_session")[2].cells["h20"].median == pytest.approx(0.01)
+    assert table_rows([r], entry="arm_night")[2].cells["h20"].median == pytest.approx(0.06)
+    spy = tape(weekdays(date(2026, 6, 1), 3), 400.0)
+    page = assemble(
+        [r], flagged=[], market=market_of(spy, []), bench=benchmarks_of(spy, []), cards=1
+    )
+    small = next(t for t in page.opening if t.key == "small")
+    assert small.cells["h20"].median == pytest.approx(
+        0.01
+    )  # the opening table is the next session's reading
+    assert page.opening == table_rows([r], entry="next_session")
+
+
 def test_the_counts_say_what_every_cell_rests_on():
     rows = [
         row_of(CapTier.MICRO),
@@ -1152,7 +1176,8 @@ def test_the_exit_by_column_reconciles_with_the_scoreboards_forward_return_to_th
 
 def test_the_next_session_entry_rides_the_same_row(db, pinned_today, world):
     closes = world["closes"]
-    row = _get(db, asof="2026-06-24").json()["rows"][0]
+    body = _get(db, asof="2026-06-24").json()
+    row = body["rows"][0]
     assert (
         row["arm_night"]["entry_date"] == "2026-06-03"
         and row["next_session"]["entry_date"] == "2026-06-04"
@@ -1160,6 +1185,10 @@ def test_the_next_session_entry_rides_the_same_row(db, pinned_today, world):
     nxt = row["next_session"]["spans"]["h5"]
     assert nxt["end_date"] == "2026-06-11"
     assert nxt["ret"] == pytest.approx(closes[date(2026, 6, 11)] / closes[date(2026, 6, 4)] - 1)
+    # the opening table is the default reading: the next session's entry, not the arm night's
+    pooled = {t["key"]: t for t in body["opening"]}[POOLED]["cells"]["h5"]
+    assert pooled["n"] == 1 and pooled["name_median"] == pytest.approx(nxt["ret"])
+    assert pooled["name_median"] != pytest.approx(row["arm_night"]["spans"]["h5"]["ret"])
 
 
 def test_a_live_asof_is_the_unchanged_record_read(db, pinned_today):

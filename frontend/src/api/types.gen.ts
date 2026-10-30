@@ -2330,9 +2330,10 @@ export interface paths {
          * Hot Board
          * @description Every name the recorded calls in effect at the as-of show Armed, one row each, with the tape beside it:
          *     the call's own fields, the arm night and the session clocks, the return since the arm night against IWM, the
-         *     display members' readings and the approximate cap. Warming, watch and managing names ride along as candidate
-         *     rows for the page's toggles. Display only: it reads the calls log and never the live call; the heat ranking is
-         *     computed on the page from the rows it shows. A past as-of reads what was public by the end of that date.
+         *     display members' readings and the approximate cap. The default read carries the armed rows and only the COUNTS
+         *     of the warming, watch and managing names (no tape runs for them); `rows=all` carries all four kinds as rows for
+         *     the page's toggles. Display only: it reads the calls log and never the live call; the heat ranking is computed
+         *     on the page from the rows it shows. A past as-of reads what was public by the end of that date.
          */
         get: operations["hot_board_dashboards_hot_board_get"];
         put?: never;
@@ -2432,6 +2433,29 @@ export interface paths {
          *     only; a past as-of reads what was public by the end of that date.
          */
         get: operations["leaders_dashboards_leaders_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboards/market-map": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Market Map
+         * @description Every company on the cards as a heat-map tile: per company the 1d / 7d / 30d / 90d / year-to-date / 1Y
+         *     returns, the 20-day dollar volume and the approximate market cap with the share count it rests on, with the
+         *     cards and links it sits on and SPY's and IWM's own returns. A company whose data flags reach its price
+         *     readings is left out and listed. Display only; a past as-of reads what was public by the end of that date.
+         */
+        get: operations["market_map_dashboards_market_map_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2755,7 +2779,7 @@ export interface paths {
         /**
          * Track Record
          * @description What the tape did after each arm episode the Scoreboard records, by market-cap tier at the event: one row per
-         *     episode with its cap tier and liquidity band, and, for the arm-night entry and the next session's, the return at
+         *     episode with its cap tier and liquidity band, and, for the next session's entry and the arm night's, the return at
          *     5, 10, 20 and 60 sessions of the name's own bars and to the episode's own exit_by, with IWM's and SPY's returns
          *     over the same dates. The Scoreboard's own episodes and honesty filters: a censored start, an ingest-flagged
          *     episode and a company with a flagged price history are left out of every cell and counted. Reads the record
@@ -8227,6 +8251,34 @@ export interface components {
             reason: string;
         };
         /**
+         * EntryWindowsMemberClockOut
+         * @description An armed name whose own flag is true, with its own entry clock. ``headline`` = the name whose clocks the card
+         *     carries (``armed_members[0]``). ``sessions_left`` = the Mon-Fri days after the as-of through the NAME's own
+         *     ``arm_until`` (while that window is open), ``closed_ago`` = the IWM sessions since it closed (``0`` on its last
+         *     day); both ``null`` unless ``entry_window_closing``.
+         */
+        EntryWindowsMemberClockOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string | null;
+            /** Headline */
+            headline: boolean;
+            /** Entry Window Closing */
+            entry_window_closing: boolean;
+            /** Lapsing */
+            lapsing: boolean;
+            /** Arm Until */
+            arm_until: string | null;
+            /** Sessions Left */
+            sessions_left: number | null;
+            /** Closed Ago */
+            closed_ago: number | null;
+        };
+        /**
          * EntryWindowsMemberOut
          * @description An armed name. ``arm_night`` = the first night of the run on which the recorded card names it armed;
          *     ``since`` = its as-traded return in percent from the first close on or after that night (``entry_on``) to the
@@ -8311,7 +8363,9 @@ export interface components {
          *     entry window and the hold horizon (``null`` = no clock). ``sessions_into`` = the IWM sessions after the arm
          *     night through the as-of; ``sessions_left`` = the Mon-Fri days after the as-of through ``arm_until`` (while the
          *     window is open); ``closed_ago`` = the IWM sessions since it closed (``0`` on its last day); ``hold_days`` =
-         *     calendar days from the as-of to ``exit_by`` (negative = passed). The two flags are the headline member's.
+         *     calendar days from the as-of to ``exit_by`` (negative = passed). Each flag is true when ANY armed member's own
+         *     flag is true; ``member_clocks`` lists those members with their own entry clock, since the figures above count to
+         *     the card's (the headline name's) clocks.
          */
         EntryWindowsRowOut: {
             /**
@@ -8360,6 +8414,8 @@ export interface components {
             closed_ago: number | null;
             /** Hold Days */
             hold_days: number | null;
+            /** Member Clocks */
+            member_clocks: components["schemas"]["EntryWindowsMemberClockOut"][];
             /** Catalysts */
             catalysts: components["schemas"]["EntryWindowsCatalystOut"][];
             /** Members */
@@ -9662,14 +9718,17 @@ export interface components {
         };
         /**
          * HotBoardOut
-         * @description Every candidate row of the cards' recorded calls in effect at the as-of (the page derives the toggles, filters,
-         *     sorts and heat from this one read) and the counts its quiet line shows. ``cards_*`` = the counted cards by their
-         *     recorded state (``cards_no_call`` = nothing recorded by then); ``calendar_*`` = IWM's bar calendar the
-         *     ``sessions_since`` count reads; ``price_window_start`` = the earliest bar the view reads (``null`` = unbounded);
-         *     ``no_ticker_rows`` = rows whose security has no ticker anywhere (shown under its id); ``flagged`` = the
-         *     companies on a row with a flagged price history. ``clock``: ``record`` (the live read) or ``public`` (a past
-         *     as-of: what was public by the end of that date). ``cache`` / ``compute_ms`` = whether the read came from the
-         *     shared dashboard cache and how long it took when computed.
+         * @description The candidate rows of the cards' recorded calls in effect at the as-of that this read carries (the page derives
+         *     the toggles, filters, sorts and heat from them) and the counts its quiet line shows. ``rows_loaded`` says which:
+         *     ``armed`` (the default read: the armed rows alone, with their tape) or ``all`` (every kind, with its tape).
+         *     ``candidate_counts`` = every kind's rows on the recorded cards whichever read this is, so the toggles can show
+         *     "+N" before the rest is loaded. ``cards_*`` = the counted cards by their recorded state (``cards_no_call`` =
+         *     nothing recorded by then); ``calendar_*`` = IWM's bar calendar the ``sessions_since`` count reads;
+         *     ``price_window_start`` = the earliest bar the view reads (``null`` = unbounded); ``no_ticker_rows`` = rows whose
+         *     security has no ticker anywhere (shown under its id); ``flagged`` = the companies on a row with a flagged price
+         *     history. ``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was public by the end of that
+         *     date). ``cache`` / ``compute_ms`` = whether the read came from the shared dashboard cache and how long it took
+         *     when computed.
          */
         HotBoardOut: {
             /**
@@ -9717,6 +9776,12 @@ export interface components {
             price_window_start: string | null;
             /** No Ticker Rows */
             no_ticker_rows: number;
+            /**
+             * Rows Loaded
+             * @enum {string}
+             */
+            rows_loaded: "armed" | "all";
+            candidate_counts: components["schemas"]["HotCandidateCountsOut"];
             /** Rows */
             rows: components["schemas"]["HotRowOut"][];
             /** Flagged */
@@ -9728,6 +9793,22 @@ export interface components {
             cache: "hit" | "computed";
             /** Compute Ms */
             compute_ms: number;
+        };
+        /**
+         * HotCandidateCountsOut
+         * @description How many candidate rows of each kind the cards' recorded calls in effect list, whatever the read carries
+         *     (counted off the recorded cards: no display member runs for a row that is only counted). The default read's
+         *     toggles show the non-armed ones as their "+N".
+         */
+        HotCandidateCountsOut: {
+            /** Armed */
+            armed: number;
+            /** Warming */
+            warming: number;
+            /** Watch */
+            watch: number;
+            /** Managing */
+            managing: number;
         };
         /**
          * HotCapOut
@@ -11453,6 +11534,174 @@ export interface components {
             excerpt: string;
             /** Offset */
             offset?: number | null;
+        };
+        /**
+         * MapCardOut
+         * @description A counted card that has a drawn company.
+         */
+        MapCardOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Name */
+            name: string;
+        };
+        /**
+         * MapCompanyOut
+         * @description One company's readings at the as-of. ``returns`` holds the six windows (``ret_1d`` ... ``ret_90d``, ``ytd``,
+         *     ``ret_1y``; percent, trading bars for the trailing ones), ``null`` where there is no reading, with the reason
+         *     in ``gaps``. ``cap`` = the approximate market cap in USD with its band (``cap_tier``) and the share count it
+         *     rests on (``cap_source``: ``workbench`` = ratified in the Workbench, ``cover`` = the latest count from a
+         *     filing's cover page, not ratified: used only when filed within 200 days of the as-of and at least 10,000
+         *     shares); ``null`` with ``cap_gap`` / ``cap_note`` when there is none (``cap_note`` says why a cover count
+         *     that exists was refused).
+         *     ``dollar_volume`` = the mean of close x volume over the last 20 sessions. ``business_type`` / ``supersector``
+         *     are today's identity; ``silent_only`` = every row of the company is Context or Bench.
+         */
+        MapCompanyOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Name */
+            name: string | null;
+            /** Business Type */
+            business_type: string | null;
+            /** Supersector */
+            supersector: string | null;
+            /** Silent Only */
+            silent_only: boolean;
+            /** Returns */
+            returns: {
+                [key: string]: number | null;
+            };
+            /** Gaps */
+            gaps: {
+                [key: string]: string;
+            };
+            /** Priced */
+            priced: boolean;
+            /** Cap */
+            cap: number | null;
+            /** Cap Tier */
+            cap_tier: ("nano" | "micro" | "small" | "mid" | "large") | null;
+            /** Cap Source */
+            cap_source: ("workbench" | "cover") | null;
+            /** Cap Gap */
+            cap_gap: string | null;
+            /** Cap Note */
+            cap_note: string | null;
+            /** Dollar Volume */
+            dollar_volume: number | null;
+            /** Dollar Volume Note */
+            dollar_volume_note: string | null;
+        };
+        /**
+         * MapFlaggedOut
+         * @description A company left off the map: its data flags reach its price readings at the as-of (the reason the Cockpit
+         *     grays its price cells). ``reason`` = the flags' labels.
+         */
+        MapFlaggedOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Reason */
+            reason: string;
+            /** Silent Only */
+            silent_only: boolean;
+        };
+        /**
+         * MapMembershipOut
+         * @description One basket row of a drawn company: its card, the ticker it carries there (the Cockpit's ``?name=`` key),
+         *     its link (``null`` = Unsegmented) and whether the row is Context or Bench (``silent``: it never counts
+         *     toward a call; the page shows it only when asked).
+         */
+        MapMembershipOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Link */
+            link: string | null;
+            /** Silent */
+            silent: boolean;
+        };
+        /**
+         * MarketMapOut
+         * @description The whole page in one payload. ``companies`` holds every drawable company's readings, ``memberships`` the
+         *     cards and links each sits on; the page builds every grouping from them. ``spy`` / ``iwm`` = the benchmark's own
+         *     returns for the same six windows (``null`` = no tape at the as-of). The counts are the work shown on the
+         *     page's quiet line. ``cache`` / ``compute_ms`` = whether the heavy read was served from the shared dashboard
+         *     cache and how long it took when it ran.
+         */
+        MarketMapOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /** Live Cards */
+            live_cards: number;
+            /** Cards Counted */
+            cards_counted: number;
+            /** Cards Not Yet Created */
+            cards_not_yet_created: number;
+            /** Roster Fallback Cards */
+            roster_fallback_cards: number;
+            /** Basket Rows */
+            basket_rows: number;
+            /** Silent Rows */
+            silent_rows: number;
+            /** Unresolved Rows */
+            unresolved_rows: number;
+            /** Unresolved Silent Rows */
+            unresolved_silent_rows: number;
+            /** Companies Total */
+            companies_total: number;
+            /** Cards */
+            cards: components["schemas"]["MapCardOut"][];
+            /** Memberships */
+            memberships: components["schemas"]["MapMembershipOut"][];
+            /** Companies */
+            companies: components["schemas"]["MapCompanyOut"][];
+            /** Flagged */
+            flagged: components["schemas"]["MapFlaggedOut"][];
+            /** Spy */
+            spy: {
+                [key: string]: number | null;
+            } | null;
+            /** Iwm */
+            iwm: {
+                [key: string]: number | null;
+            } | null;
+            /** Windows */
+            windows: string[];
+            /** Dollar Volume Bars */
+            dollar_volume_bars: number;
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
         };
         /**
          * MemberCallOut
@@ -15819,7 +16068,7 @@ export interface components {
         /**
          * TrackRecordOut
          * @description The Track Record at the as-of: every episode's row (newest arm first), the counts, the companies left out for a
-         *     flagged price history and the opening table (IWM, the arm-night entry, by cap tier, every armed member; the page
+         *     flagged price history and the opening table (IWM, the next-session entry, by cap tier, every armed member; the page
          *     recomputes any other reading from ``rows`` with the same arithmetic). ``edition`` and the two policies are the
          *     Scoreboard's own (``annotated_policy`` / ``late_policy``: ``included`` | ``excluded`` | ``n/a`` for a stored
          *     edition, which has no such rows). ``edition`` is the one READ (the record when the request named none);
@@ -19323,6 +19572,8 @@ export interface operations {
             query: {
                 /** @description as-of date; only what was recorded and public by then is read */
                 asof: string;
+                /** @description which candidate rows to carry: `armed` (the default) the armed names with their tape, plus the counts of the warming, watch and managing names the recorded cards list; `all` every candidate row with its tape */
+                rows?: "armed" | "all";
             };
             header?: never;
             path?: never;
@@ -19465,6 +19716,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LeadersOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    market_map_dashboards_market_map_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; no price or share count published after it is read */
+                asof: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketMapOut"];
                 };
             };
             /** @description Validation Error */

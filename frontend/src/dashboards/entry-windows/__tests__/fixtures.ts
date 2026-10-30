@@ -1,5 +1,6 @@
 import type {
   EntryWindowsCountsOut,
+  EntryWindowsMemberClockOut,
   EntryWindowsMemberOut,
   EntryWindowsOut,
   EntryWindowsRowOut,
@@ -45,6 +46,19 @@ export const member = (over: Partial<EntryWindowsMemberOut> = {}): EntryWindowsM
   ...over,
 });
 
+/** A flagged armed name's own clock (the quiet default: neither flag, no entry figure). */
+export const memberClock = (over: Partial<EntryWindowsMemberClockOut> = {}): EntryWindowsMemberClockOut => ({
+  security_id: "s-aaa",
+  ticker: "AAA",
+  headline: false,
+  entry_window_closing: false,
+  lapsing: false,
+  arm_until: null,
+  sessions_left: null,
+  closed_ago: null,
+  ...over,
+});
+
 export const row = (over: Partial<EntryWindowsRowOut> = {}): EntryWindowsRowOut => ({
   thesis_id: "t-a",
   thesis_name: "Card A",
@@ -63,6 +77,7 @@ export const row = (over: Partial<EntryWindowsRowOut> = {}): EntryWindowsRowOut 
   sessions_left: 3,
   closed_ago: null,
   hold_days: 18,
+  member_clocks: [],
   catalysts: [
     { label: "readout", kind: "clinical_readout", when_date: "2026-10-29", past: false },
     { label: "earnings", kind: "earnings", when_date: "2026-10-22", past: true },
@@ -87,9 +102,41 @@ export const CLOSING = row({
   sessions_into: 2,
   entry_window_closing: true,
   lapsing: true,
+  member_clocks: [
+    memberClock({
+      security_id: "s-ccc",
+      ticker: "CCC",
+      headline: true,
+      entry_window_closing: true,
+      lapsing: true,
+      arm_until: "2026-10-28",
+      sessions_left: 1,
+    }),
+  ],
   catalysts: [],
   members: [member({ security_id: "s-ccc", ticker: "CCC", arm_night: "2026-10-23" })],
   spark: null,
+});
+/** Card P: the headline name's window runs to Fri 10-30 (3 sessions left); its second name's own window ends Wed
+ *  10-28 (1 session left) and its hold clock is closing. The accent is the second name's. */
+export const PAIR = row({
+  thesis_id: "t-p",
+  thesis_name: "Card P",
+  arm_until: "2026-10-30",
+  sessions_left: 3,
+  entry_window_closing: true,
+  lapsing: true,
+  member_clocks: [
+    memberClock({
+      security_id: "s-bbb",
+      ticker: "BBB",
+      headline: false,
+      entry_window_closing: true,
+      lapsing: true,
+      arm_until: "2026-10-28",
+      sessions_left: 1,
+    }),
+  ],
 });
 /** Card C: the entry window closed three sessions ago. */
 export const CLOSED = row({

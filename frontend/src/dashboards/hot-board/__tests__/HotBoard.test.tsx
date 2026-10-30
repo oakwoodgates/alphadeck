@@ -4,12 +4,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import HotBoard from "../HotBoard";
 import type { HotBoardOut } from "../useHotBoard";
-import { ASOF, CARD_A, CARD_B, MIXED, cell, clocks, payload, row, sample, tape } from "./fixtures";
+import { ASOF, CARD_A, CARD_B, MIXED, armedRead, cell, clocks, payload, row, sample, tape } from "./fixtures";
 
-// The Hot Board body with its one hook stubbed: the table in heat order (the server's rows, the heat recomputed
+// The Hot Board body with its hook stubbed: the table in heat order (the server's rows, the heat recomputed
 // among the rows shown), the toggles and filters that change it, every sort, the flagged name that keeps its row,
 // the chips opening the Cockpit, the state chip and the one accent, the work lines, the stated formula, and the
-// empty / slow / error states. The hook's request has its own test.
+// empty / slow / error states. The hook's request has its own test; the page's two reads (the armed read, then the
+// full read the first time a toggle is checked) are counted against a real query client in HotBoard.reads.test.tsx.
 
 const h = vi.hoisted(() => ({ hook: vi.fn() }));
 vi.mock("../useHotBoard", async (orig) => ({ ...(await orig<typeof import("../useHotBoard")>()), useHotBoard: h.hook }));
@@ -18,12 +19,22 @@ const ok = (data: unknown, extra: Record<string, unknown> = {}) => ({
   data,
   isLoading: false,
   isFetching: false,
+  isPlaceholderData: false,
   error: null,
   ...extra,
 });
 
-function setup(data: HotBoardOut | undefined = payload(), extra: Record<string, unknown> = {}) {
-  h.hook.mockReturnValue(ok(data, extra));
+/** `data` is the FULL read; the stub serves its armed rows as the default read and, once a toggle enables it, the
+ *  full read itself (or `fullRead`, a stand-in for a pending or failed one). */
+function setup(
+  data: HotBoardOut | undefined = payload(),
+  extra: Record<string, unknown> = {},
+  fullRead?: Record<string, unknown>,
+) {
+  h.hook.mockImplementation((_asof: string, rows: string = "armed", enabled: boolean = true) => {
+    if (rows === "armed") return ok(data && armedRead(data), extra);
+    return enabled ? (fullRead ?? ok(data, extra)) : ok(undefined);
+  });
   const onSelectThesis = vi.fn();
   const view = render(<HotBoard asof={ASOF} onSelectThesis={onSelectThesis} />);
   return { onSelectThesis, ...view };
@@ -193,6 +204,72 @@ describe("HotBoard — the toggles", () => {
   });
 });
 
+describe("HotBoard — the two reads", () => {
+  it("shows the toggles' counts from the armed read before the other rows are loaded, and says which read is loaded", () => {
+    setup();
+    // the armed read carries the four armed rows and counts the rest
+    expect(tickers()).toEqual(["AAA", "CCC", "BBB", "FLG"]);
+    expect(screen.getByLabelText(/Warming names/).closest("label")).toHaveTextContent("+1");
+    expect(screen.getByLabelText(/Watch names/).closest("label")).toHaveTextContent("+1");
+    expect(screen.getByLabelText(/Managing/).closest("label")).toHaveTextContent("+1");
+    expect(screen.getByLabelText(/Watch names/).closest("label")).toHaveAttribute("title", expect.stringContaining("Loads the rows the first time"));
+    expect(
+      screen.getByText("read loaded: the armed names alone; 1 warming · 1 watch · 1 managing wait behind their toggles and load the first time one is used"),
+    ).toBeInTheDocument();
+    expect(h.hook).not.toHaveBeenCalledWith(ASOF, "all", true);
+  });
+
+  it("asks for the full read when a toggle is first checked, then shows its rows and says the full read is loaded", async () => {
+    setup();
+    await userEvent.click(screen.getByLabelText(/Watch names/));
+    expect(h.hook).toHaveBeenCalledWith(ASOF, "all", true);
+    expect(tickers()).toContain("WTC");
+    expect(screen.getByText("read loaded: every candidate row (4 armed · 1 warming · 1 watch · 1 managing)")).toBeInTheDocument();
+    expect(screen.getByLabelText(/Watch names/).closest("label")).not.toHaveAttribute("title", expect.stringContaining("Loads the rows"));
+    // the heat is among the rows shown, as before
+    expect(screen.getByTestId("hb-count")).toHaveTextContent("5 rows");
+  });
+
+  it("keeps the armed rows on screen, checked, while the full read is on its way", async () => {
+    setup(payload(), {}, ok(undefined, { isFetching: true }));
+    await userEvent.click(screen.getByLabelText(/Managing/));
+    expect(screen.getByLabelText(/Managing/)).toBeChecked();
+    expect(tickers()).toEqual(["AAA", "CCC", "BBB", "FLG"]);
+    expect(screen.getByText("reading the warming, watch and managing rows…")).toBeInTheDocument();
+    // not claimed as rows added
+    expect(screen.queryByText(/the armed names plus/)).toBeNull();
+    // and it can be undone: unchecking returns to the armed read alone
+    await userEvent.click(screen.getByLabelText(/Managing/));
+    expect(h.hook).toHaveBeenLastCalledWith(ASOF, "all", false);
+    expect(screen.queryByText("reading the warming, watch and managing rows…")).toBeNull();
+  });
+
+  it("says so when the full read fails, and the armed rows stay", async () => {
+    setup(payload(), {}, ok(undefined, { error: new Error("boom") }));
+    await userEvent.click(screen.getByLabelText(/Warming names/));
+    expect(screen.getByText(/Could not load the other rows; the armed names stay on screen/)).toBeInTheDocument();
+    expect(tickers()).toEqual(["AAA", "CCC", "BBB", "FLG"]);
+  });
+
+  it("does not ask for the full read for a checked toggle that adds nothing at this as-of", async () => {
+    // a read that counts only a Warming name: check it, then move to an as-of whose read counts none
+    const first = payload(Object.values(sample()).filter((r) => r.kind === "armed" || r.kind === "warming"));
+    const second = payload(Object.values(sample()).filter((r) => r.kind === "armed"), { asof: "2026-10-21" });
+    let current = first;
+    h.hook.mockImplementation((_asof: string, rows: string = "armed", enabled: boolean = true) =>
+      rows === "armed" ? ok(armedRead(current)) : enabled ? ok(current) : ok(undefined),
+    );
+    const { rerender } = render(<HotBoard asof={ASOF} onSelectThesis={vi.fn()} />);
+    await userEvent.click(screen.getByLabelText(/Warming names/));
+    expect(h.hook).toHaveBeenCalledWith(ASOF, "all", true);
+    current = second;
+    h.hook.mockClear();
+    rerender(<HotBoard asof="2026-10-21" onSelectThesis={vi.fn()} />);
+    expect(h.hook).not.toHaveBeenCalledWith("2026-10-21", "all", true);
+    expect(screen.queryByLabelText(/Warming names/)).toBeNull();
+  });
+});
+
 describe("HotBoard — the filters", () => {
   it("offers only the controls that discriminate and restates the row count", async () => {
     setup();
@@ -316,9 +393,11 @@ describe("HotBoard — the empty, slow and error states", () => {
     expect(screen.getByText("updating…")).toBeInTheDocument();
   });
 
-  it("asks the hook for the as-of it was handed", () => {
+  it("asks the hook for the armed read at the as-of it was handed, and holds the full read back", () => {
     setup();
-    expect(h.hook).toHaveBeenCalledWith(ASOF);
+    expect(h.hook).toHaveBeenCalledWith(ASOF, "armed");
+    expect(h.hook).toHaveBeenCalledWith(ASOF, "all", false);
+    expect(h.hook).not.toHaveBeenCalledWith(ASOF, "all", true);
   });
 });
 

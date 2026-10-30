@@ -53,8 +53,8 @@ const COMPARISONS: { value: Comparison; label: string; title: string }[] = [
   { value: "raw", label: "raw", title: "The name's own return, with no comparison" },
 ];
 const ENTRIES: { value: EntryRule; label: string; title: string }[] = [
-  { value: "arm_night", label: "Arm night", title: "Entry at the first close on or after the arm date: the Scoreboard's own" },
-  { value: "next_session", label: "Next session", title: "Entry at the first close after the arm date: the first one a trader could act on" },
+  { value: "next_session", label: "Next session", title: "Entry at the first close after the arm date: the first one a trader could act on (the default)" },
+  { value: "arm_night", label: "Arm night", title: "Entry at the first close on or after the arm date: the Scoreboard's own, which reconciles its forward return" },
 ];
 
 function Seg<T extends string>({
@@ -229,7 +229,7 @@ export default function TrackRecord({ asof, onSelectThesis }: DashboardProps) {
   const data = q.data;
   const [slice, setSlice] = useState<SliceBy>("tier");
   const [comparison, setComparison] = useState<Comparison>("iwm");
-  const [entry, setEntry] = useState<EntryRule>("arm_night");
+  const [entry, setEntry] = useState<EntryRule>("next_session");
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [showThin, setShowThin] = useState(false);
   const [picked, setPicked] = useState<{ row: string; horizon: Horizon } | null>(null);

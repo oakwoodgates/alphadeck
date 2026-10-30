@@ -142,6 +142,14 @@
 #   (only after a FINISHED nightly pass; exit 75 while the call-of-record lock or its own lock, id 4, is held),
 #   is bounded by EDITIONS_TIMEOUT_S, and is fail-open here: one log line, never the end of the loop. The cron
 #   image carries the `.[replay]` extra it needs (duckdb + pyarrow; docker-compose.yml's cron build args).
+# - WARMS THE DASHBOARDS' CACHE AFTER THAT (2026-10-30). The dashboards' in-process cache is cleared by every new
+#   cron run, so the operator's first visit paid each heavy page's cold compute (MEASURED on a prod copy: 7 to 96
+#   s a page). Last in the nightly wake, `warm_dashboards` fires `python -m pipeline.warm_dashboards --night
+#   <the last expected night>`: ONE GET per heavy page's default view against the running API (GETs only, no DB,
+#   no write), for the as-of the NEXT visit sends (the day after the pass, plus the Monday after a weekend), so
+#   the morning visit is a cache hit. Bounded by WARM_DASHBOARDS_TIMEOUT_S, fail-open (one log line, never the
+#   loop, never the pass's status or exit code), off with ALPHADECK_WARM_DASHBOARDS=0 (an env-only cron deploy).
+#   docs/FEED_LOOP.md §the dashboard cache warm-up.
 # - RUNS A THIRD SCHEDULE: THE WEEKLY COMPANY-LIST REFRESH (2026-10-24). `master_refresh_loop` fires
 #   `python -m pipeline.populate_master --live --apply --run-kind cron` every Saturday 09:00 (MASTER_REFRESH_DOW /
 #   MASTER_REFRESH_AT, container TZ), in the background like onboard_loop: SEC's current company file onto the
@@ -224,6 +232,11 @@ ONBOARD_TIMEOUT_S="${ONBOARD_TIMEOUT_S:-2700}"
 EDITIONS_TIMEOUT_S="${EDITIONS_TIMEOUT_S:-3600}"
 [ "${EDITIONS_TIMEOUT_S}" -ge 1 ] 2>/dev/null || EDITIONS_TIMEOUT_S=3600
 EDITIONS_NIGHTLY="${EDITIONS_NIGHTLY:-1}"
+# The dashboards' cache warm-up (`warm_dashboards`, below): the hard `timeout` around one run (seconds; its own
+# budget is 1200 s between requests plus up to 300 s for the one in flight, so 1800 only stops a HUNG run). Its
+# kill switch is ALPHADECK_WARM_DASHBOARDS=0 (read at the call, below, and again by the CLI). Same guard as SLICE_S.
+WARM_DASHBOARDS_TIMEOUT_S="${WARM_DASHBOARDS_TIMEOUT_S:-1800}"
+[ "${WARM_DASHBOARDS_TIMEOUT_S}" -ge 1 ] 2>/dev/null || WARM_DASHBOARDS_TIMEOUT_S=1800
 # The company-list refresh — the THIRD schedule (`master_refresh_loop`, below): weekly, on day MASTER_REFRESH_DOW
 # (`date +%u`: 1 = Monday .. 7 = Sunday; default 6 = Saturday) at MASTER_REFRESH_AT in the container TZ (the
 # market's; default 09:00 — far outside the nightly window), each run bounded by MASTER_REFRESH_TIMEOUT_S. A run
@@ -483,6 +496,33 @@ editions_nightly() {
     75) echo "daily-cron: editions nightly REFUSED for ${1} (a pass or another editions job holds its lock) (continuing)" ;;
     124) echo "daily-cron: editions nightly TIMED OUT after ${EDITIONS_TIMEOUT_S}s for ${1} (continuing; the next night catches up)" ;;
     *) echo "daily-cron: editions nightly FAILED (exit ${_en_rc}) for ${1} (continuing; the next night catches up)" ;;
+  esac
+  return 0
+}
+
+# warm_dashboards NIGHT -> the dashboards' cache warm-up (2026-10-30): one `python -m pipeline.warm_dashboards
+# --night NIGHT`, which GETs each heavy dashboard's default view once from the running API so the next visit is a
+# cache hit (the cache is in the API process and is emptied by every cron run; see the header). It sits LAST in the
+# nightly wake, after the backup and the editions page, in this SCHEDULING layer: never inside run_daily_pass, so
+# the Admin "Run daily now" never fires it, and it runs after the heartbeat has already closed the night. NIGHT is
+# the last expected night; the job warms the as-of the NEXT visit sends (the day after it, plus the Monday after a
+# weekend), not NIGHT itself. It reads over HTTP only (base URL: ALPHADECK_WARM_BASE_URL, default the compose
+# service `backend`), so it needs no DB and writes nothing but its own run artifact (`data/warm_dashboards`).
+# Bounded by `timeout` (WARM_DASHBOARDS_TIMEOUT_S), FAIL-OPEN and ALWAYS returns 0: a failure, a timeout or a page
+# that errored is one log line (the CLI logs one line per page), never the end of the loop and never a change to
+# the pass's status or exit code. ALPHADECK_WARM_DASHBOARDS=0 turns it OFF (the CLI checks the switch too, so a
+# hand run honors it).
+warm_dashboards() {
+  if [ "${ALPHADECK_WARM_DASHBOARDS:-1}" = 0 ]; then
+    echo "daily-cron: ALPHADECK_WARM_DASHBOARDS=0 — the dashboard cache warm-up is OFF"
+    return 0
+  fi
+  timeout -k 30 "${WARM_DASHBOARDS_TIMEOUT_S}" python -m pipeline.warm_dashboards --night "$1"
+  _wd_rc=$?
+  case "${_wd_rc}" in
+    0) ;;
+    124) echo "daily-cron: dashboard warm-up TIMED OUT after ${WARM_DASHBOARDS_TIMEOUT_S}s for night $1 (continuing; the first visit computes cold)" ;;
+    *) echo "daily-cron: dashboard warm-up FAILED (exit ${_wd_rc}) for night $1 (continuing; the first visit computes cold)" ;;
   esac
   return 0
 }
@@ -798,5 +838,9 @@ while :; do
     # Editions S5 — the Scoreboard editions' nightly page, AFTER the backup (so the dump never waits on it and
     # never captures a half-run), in this scheduling layer (never run_daily_pass). Fail-open; see the function.
     editions_nightly "${target}"
+    # The dashboards' cache warm-up, LAST: after the pass, the backup and the editions page, so the cache it fills
+    # is the generation the morning visit reads (nothing after this moves it). NIGHT is the last expected night
+    # (`_last`, read above), the one the pass or the catch-up just recorded. Fail-open; see the function.
+    warm_dashboards "${_last}"
   fi
 done

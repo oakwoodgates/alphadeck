@@ -486,8 +486,8 @@ export function workLines(data: TrackRecordOut, entry: EntryRule, comparison: Co
 
   lines.push(
     entry === "arm_night"
-      ? "Entry: the arm night's close, the Scoreboard's own (a call recorded at 22:30 ET could not be acted on at it)."
-      : "Entry: the next session's close, the first one after the arm night (the first a trader could act on).",
+      ? "Entry: the arm night's close, the Scoreboard's own (a call recorded at 22:30 ET could not be acted on at it; the default is the next session's close)."
+      : "Entry: the next session's close, the first one after the arm night (the first a trader could act on; the default).",
   );
   const missing = data.benchmarks_missing.length > 0 ? ` ${data.benchmarks_missing.join(" and ")} has no bar at this as-of, so its comparison is blank.` : "";
   lines.push(
@@ -506,6 +506,7 @@ export function workLines(data: TrackRecordOut, entry: EntryRule, comparison: Co
 
 /** The fixed notes under the work lines (the plan's known limits): stated on the page, not buried. */
 export const LIMITS: readonly string[] = [
+  "The entry is a close, not a fill. The default is the next session's close, the first one after the arm night: a call recorded at 22:30 ET could be acted on then. The arm night's close, the Scoreboard's own entry, is one toggle away; no one could have taken it, but it reconciles with the Scoreboard's forward return.",
   "Market cap is approximate and measured the session before the arm date: that session's as-traded close times the last share count dated before it. Liquidity is the 20-day average dollar volume before it.",
   "Horizons are sessions of the name's own bars, never calendar days. Returns are as-traded closes: no dividends and no survivorship fix, so a name whose bars end before a horizon is counted as path ended and is in no cell there.",
   "A cell under 10 episodes is too small to read: it prints its n only. The pooled row is every counted episode and is listed last.",

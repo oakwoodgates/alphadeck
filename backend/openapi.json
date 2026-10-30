@@ -4614,7 +4614,7 @@
           "dashboards"
         ],
         "summary": "Hot Board",
-        "description": "Every name the recorded calls in effect at the as-of show Armed, one row each, with the tape beside it:\nthe call's own fields, the arm night and the session clocks, the return since the arm night against IWM, the\ndisplay members' readings and the approximate cap. Warming, watch and managing names ride along as candidate\nrows for the page's toggles. Display only: it reads the calls log and never the live call; the heat ranking is\ncomputed on the page from the rows it shows. A past as-of reads what was public by the end of that date.",
+        "description": "Every name the recorded calls in effect at the as-of show Armed, one row each, with the tape beside it:\nthe call's own fields, the arm night and the session clocks, the return since the arm night against IWM, the\ndisplay members' readings and the approximate cap. The default read carries the armed rows and only the COUNTS\nof the warming, watch and managing names (no tape runs for them); `rows=all` carries all four kinds as rows for\nthe page's toggles. Display only: it reads the calls log and never the live call; the heat ranking is computed\non the page from the rows it shows. A past as-of reads what was public by the end of that date.",
         "operationId": "hot_board_dashboards_hot_board_get",
         "parameters": [
           {
@@ -4628,6 +4628,22 @@
               "title": "Asof"
             },
             "description": "as-of date; only what was recorded and public by then is read"
+          },
+          {
+            "name": "rows",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "armed",
+                "all"
+              ],
+              "type": "string",
+              "description": "which candidate rows to carry: `armed` (the default) the armed names with their tape, plus the counts of the warming, watch and managing names the recorded cards list; `all` every candidate row with its tape",
+              "default": "armed",
+              "title": "Rows"
+            },
+            "description": "which candidate rows to carry: `armed` (the default) the armed names with their tape, plus the counts of the warming, watch and managing names the recorded cards list; `all` every candidate row with its tape"
           }
         ],
         "responses": {
@@ -4880,6 +4896,52 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/LeadersOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboards/market-map": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Market Map",
+        "description": "Every company on the cards as a heat-map tile: per company the 1d / 7d / 30d / 90d / year-to-date / 1Y\nreturns, the 20-day dollar volume and the approximate market cap with the share count it rests on, with the\ncards and links it sits on and SPY's and IWM's own returns. A company whose data flags reach its price\nreadings is left out and listed. Display only; a past as-of reads what was public by the end of that date.",
+        "operationId": "market_map_dashboards_market_map_get",
+        "parameters": [
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; no price or share count published after it is read",
+              "title": "Asof"
+            },
+            "description": "as-of date; no price or share count published after it is read"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketMapOut"
                 }
               }
             }
@@ -5697,7 +5759,7 @@
           "dashboards"
         ],
         "summary": "Track Record",
-        "description": "What the tape did after each arm episode the Scoreboard records, by market-cap tier at the event: one row per\nepisode with its cap tier and liquidity band, and, for the arm-night entry and the next session's, the return at\n5, 10, 20 and 60 sessions of the name's own bars and to the episode's own exit_by, with IWM's and SPY's returns\nover the same dates. The Scoreboard's own episodes and honesty filters: a censored start, an ingest-flagged\nepisode and a company with a flagged price history are left out of every cell and counted. Reads the record\n(Edition 0) unless an edition is named. Display only; a past as-of reads what was public by the end of that\ndate, and a horizon that has not arrived by then is not counted.",
+        "description": "What the tape did after each arm episode the Scoreboard records, by market-cap tier at the event: one row per\nepisode with its cap tier and liquidity band, and, for the next session's entry and the arm night's, the return at\n5, 10, 20 and 60 sessions of the name's own bars and to the episode's own exit_by, with IWM's and SPY's returns\nover the same dates. The Scoreboard's own episodes and honesty filters: a censored start, an ingest-flagged\nepisode and a company with a flagged price history are left out of every cell and counted. Reads the record\n(Edition 0) unless an edition is named. Display only; a past as-of reads what was public by the end of that\ndate, and a horizon that has not arrived by then is not counted.",
         "operationId": "track_record_dashboards_track_record_get",
         "parameters": [
           {
@@ -17094,6 +17156,85 @@
         "title": "EntryWindowsFlaggedOut",
         "description": "A name left out of every number for a flagged price history (the reason the Cockpit grays its price\ncells)."
       },
+      "EntryWindowsMemberClockOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "headline": {
+            "type": "boolean",
+            "title": "Headline"
+          },
+          "entry_window_closing": {
+            "type": "boolean",
+            "title": "Entry Window Closing"
+          },
+          "lapsing": {
+            "type": "boolean",
+            "title": "Lapsing"
+          },
+          "arm_until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arm Until"
+          },
+          "sessions_left": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sessions Left"
+          },
+          "closed_ago": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed Ago"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "headline",
+          "entry_window_closing",
+          "lapsing",
+          "arm_until",
+          "sessions_left",
+          "closed_ago"
+        ],
+        "title": "EntryWindowsMemberClockOut",
+        "description": "An armed name whose own flag is true, with its own entry clock. ``headline`` = the name whose clocks the card\ncarries (``armed_members[0]``). ``sessions_left`` = the Mon-Fri days after the as-of through the NAME's own\n``arm_until`` (while that window is open), ``closed_ago`` = the IWM sessions since it closed (``0`` on its last\nday); both ``null`` unless ``entry_window_closing``."
+      },
       "EntryWindowsMemberOut": {
         "properties": {
           "security_id": {
@@ -17424,6 +17565,13 @@
             ],
             "title": "Hold Days"
           },
+          "member_clocks": {
+            "items": {
+              "$ref": "#/components/schemas/EntryWindowsMemberClockOut"
+            },
+            "type": "array",
+            "title": "Member Clocks"
+          },
           "catalysts": {
             "items": {
               "$ref": "#/components/schemas/EntryWindowsCatalystOut"
@@ -17471,13 +17619,14 @@
           "sessions_left",
           "closed_ago",
           "hold_days",
+          "member_clocks",
           "catalysts",
           "members",
           "since",
           "spark"
         ],
         "title": "EntryWindowsRowOut",
-        "description": "One Armed (``state`` ``armed``) or Managing card. ``arm_night`` = the first night of the card's current\nrecorded Armed run; ``in_effect`` = the recorded night whose card the row shows; ``reconstructed`` = the arm\nnight's row was written by ``pipeline.backfill`` (reported, never scored). ``arm_until`` / ``exit_by`` = the\nentry window and the hold horizon (``null`` = no clock). ``sessions_into`` = the IWM sessions after the arm\nnight through the as-of; ``sessions_left`` = the Mon-Fri days after the as-of through ``arm_until`` (while the\nwindow is open); ``closed_ago`` = the IWM sessions since it closed (``0`` on its last day); ``hold_days`` =\ncalendar days from the as-of to ``exit_by`` (negative = passed). The two flags are the headline member's."
+        "description": "One Armed (``state`` ``armed``) or Managing card. ``arm_night`` = the first night of the card's current\nrecorded Armed run; ``in_effect`` = the recorded night whose card the row shows; ``reconstructed`` = the arm\nnight's row was written by ``pipeline.backfill`` (reported, never scored). ``arm_until`` / ``exit_by`` = the\nentry window and the hold horizon (``null`` = no clock). ``sessions_into`` = the IWM sessions after the arm\nnight through the as-of; ``sessions_left`` = the Mon-Fri days after the as-of through ``arm_until`` (while the\nwindow is open); ``closed_ago`` = the IWM sessions since it closed (``0`` on its last day); ``hold_days`` =\ncalendar days from the as-of to ``exit_by`` (negative = passed). Each flag is true when ANY armed member's own\nflag is true; ``member_clocks`` lists those members with their own entry clock, since the figures above count to\nthe card's (the headline name's) clocks."
       },
       "EntryWindowsSinceOut": {
         "properties": {
@@ -20561,6 +20710,17 @@
             "type": "integer",
             "title": "No Ticker Rows"
           },
+          "rows_loaded": {
+            "type": "string",
+            "enum": [
+              "armed",
+              "all"
+            ],
+            "title": "Rows Loaded"
+          },
+          "candidate_counts": {
+            "$ref": "#/components/schemas/HotCandidateCountsOut"
+          },
           "rows": {
             "items": {
               "$ref": "#/components/schemas/HotRowOut"
@@ -20608,13 +20768,44 @@
           "calendar_last",
           "price_window_start",
           "no_ticker_rows",
+          "rows_loaded",
+          "candidate_counts",
           "rows",
           "flagged",
           "cache",
           "compute_ms"
         ],
         "title": "HotBoardOut",
-        "description": "Every candidate row of the cards' recorded calls in effect at the as-of (the page derives the toggles, filters,\nsorts and heat from this one read) and the counts its quiet line shows. ``cards_*`` = the counted cards by their\nrecorded state (``cards_no_call`` = nothing recorded by then); ``calendar_*`` = IWM's bar calendar the\n``sessions_since`` count reads; ``price_window_start`` = the earliest bar the view reads (``null`` = unbounded);\n``no_ticker_rows`` = rows whose security has no ticker anywhere (shown under its id); ``flagged`` = the\ncompanies on a row with a flagged price history. ``clock``: ``record`` (the live read) or ``public`` (a past\nas-of: what was public by the end of that date). ``cache`` / ``compute_ms`` = whether the read came from the\nshared dashboard cache and how long it took when computed."
+        "description": "The candidate rows of the cards' recorded calls in effect at the as-of that this read carries (the page derives\nthe toggles, filters, sorts and heat from them) and the counts its quiet line shows. ``rows_loaded`` says which:\n``armed`` (the default read: the armed rows alone, with their tape) or ``all`` (every kind, with its tape).\n``candidate_counts`` = every kind's rows on the recorded cards whichever read this is, so the toggles can show\n\"+N\" before the rest is loaded. ``cards_*`` = the counted cards by their recorded state (``cards_no_call`` =\nnothing recorded by then); ``calendar_*`` = IWM's bar calendar the ``sessions_since`` count reads;\n``price_window_start`` = the earliest bar the view reads (``null`` = unbounded); ``no_ticker_rows`` = rows whose\nsecurity has no ticker anywhere (shown under its id); ``flagged`` = the companies on a row with a flagged price\nhistory. ``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was public by the end of that\ndate). ``cache`` / ``compute_ms`` = whether the read came from the shared dashboard cache and how long it took\nwhen computed."
+      },
+      "HotCandidateCountsOut": {
+        "properties": {
+          "armed": {
+            "type": "integer",
+            "title": "Armed"
+          },
+          "warming": {
+            "type": "integer",
+            "title": "Warming"
+          },
+          "watch": {
+            "type": "integer",
+            "title": "Watch"
+          },
+          "managing": {
+            "type": "integer",
+            "title": "Managing"
+          }
+        },
+        "type": "object",
+        "required": [
+          "armed",
+          "warming",
+          "watch",
+          "managing"
+        ],
+        "title": "HotCandidateCountsOut",
+        "description": "How many candidate rows of each kind the cards' recorded calls in effect list, whatever the read carries\n(counted off the recorded cards: no display member runs for a row that is only counted). The default read's\ntoggles show the non-armed ones as their \"+N\"."
       },
       "HotCapOut": {
         "properties": {
@@ -25024,6 +25215,446 @@
         ],
         "title": "LocatedPassage",
         "description": "A deterministically-retrieved passage that backs a fact \u2014 the evidence put in front of the operator\n(or, later, S5). Retrieval only: a keyword/section match, never a model's reading."
+      },
+      "MapCardOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "name"
+        ],
+        "title": "MapCardOut",
+        "description": "A counted card that has a drawn company."
+      },
+      "MapCompanyOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "business_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Type"
+          },
+          "supersector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supersector"
+          },
+          "silent_only": {
+            "type": "boolean",
+            "title": "Silent Only"
+          },
+          "returns": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "object",
+            "title": "Returns"
+          },
+          "gaps": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Gaps"
+          },
+          "priced": {
+            "type": "boolean",
+            "title": "Priced"
+          },
+          "cap": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cap"
+          },
+          "cap_tier": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "nano",
+                  "micro",
+                  "small",
+                  "mid",
+                  "large"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cap Tier"
+          },
+          "cap_source": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "workbench",
+                  "cover"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cap Source"
+          },
+          "cap_gap": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cap Gap"
+          },
+          "cap_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cap Note"
+          },
+          "dollar_volume": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dollar Volume"
+          },
+          "dollar_volume_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dollar Volume Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "name",
+          "business_type",
+          "supersector",
+          "silent_only",
+          "returns",
+          "gaps",
+          "priced",
+          "cap",
+          "cap_tier",
+          "cap_source",
+          "cap_gap",
+          "cap_note",
+          "dollar_volume",
+          "dollar_volume_note"
+        ],
+        "title": "MapCompanyOut",
+        "description": "One company's readings at the as-of. ``returns`` holds the six windows (``ret_1d`` ... ``ret_90d``, ``ytd``,\n``ret_1y``; percent, trading bars for the trailing ones), ``null`` where there is no reading, with the reason\nin ``gaps``. ``cap`` = the approximate market cap in USD with its band (``cap_tier``) and the share count it\nrests on (``cap_source``: ``workbench`` = ratified in the Workbench, ``cover`` = the latest count from a\nfiling's cover page, not ratified: used only when filed within 200 days of the as-of and at least 10,000\nshares); ``null`` with ``cap_gap`` / ``cap_note`` when there is none (``cap_note`` says why a cover count\nthat exists was refused).\n``dollar_volume`` = the mean of close x volume over the last 20 sessions. ``business_type`` / ``supersector``\nare today's identity; ``silent_only`` = every row of the company is Context or Bench."
+      },
+      "MapFlaggedOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "silent_only": {
+            "type": "boolean",
+            "title": "Silent Only"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "reason",
+          "silent_only"
+        ],
+        "title": "MapFlaggedOut",
+        "description": "A company left off the map: its data flags reach its price readings at the as-of (the reason the Cockpit\ngrays its price cells). ``reason`` = the flags' labels."
+      },
+      "MapMembershipOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "link": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link"
+          },
+          "silent": {
+            "type": "boolean",
+            "title": "Silent"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "thesis_id",
+          "ticker",
+          "link",
+          "silent"
+        ],
+        "title": "MapMembershipOut",
+        "description": "One basket row of a drawn company: its card, the ticker it carries there (the Cockpit's ``?name=`` key),\nits link (``null`` = Unsegmented) and whether the row is Context or Bench (``silent``: it never counts\ntoward a call; the page shows it only when asked)."
+      },
+      "MarketMapOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "live_cards": {
+            "type": "integer",
+            "title": "Live Cards"
+          },
+          "cards_counted": {
+            "type": "integer",
+            "title": "Cards Counted"
+          },
+          "cards_not_yet_created": {
+            "type": "integer",
+            "title": "Cards Not Yet Created"
+          },
+          "roster_fallback_cards": {
+            "type": "integer",
+            "title": "Roster Fallback Cards"
+          },
+          "basket_rows": {
+            "type": "integer",
+            "title": "Basket Rows"
+          },
+          "silent_rows": {
+            "type": "integer",
+            "title": "Silent Rows"
+          },
+          "unresolved_rows": {
+            "type": "integer",
+            "title": "Unresolved Rows"
+          },
+          "unresolved_silent_rows": {
+            "type": "integer",
+            "title": "Unresolved Silent Rows"
+          },
+          "companies_total": {
+            "type": "integer",
+            "title": "Companies Total"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/MapCardOut"
+            },
+            "type": "array",
+            "title": "Cards"
+          },
+          "memberships": {
+            "items": {
+              "$ref": "#/components/schemas/MapMembershipOut"
+            },
+            "type": "array",
+            "title": "Memberships"
+          },
+          "companies": {
+            "items": {
+              "$ref": "#/components/schemas/MapCompanyOut"
+            },
+            "type": "array",
+            "title": "Companies"
+          },
+          "flagged": {
+            "items": {
+              "$ref": "#/components/schemas/MapFlaggedOut"
+            },
+            "type": "array",
+            "title": "Flagged"
+          },
+          "spy": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spy"
+          },
+          "iwm": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Iwm"
+          },
+          "windows": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Windows"
+          },
+          "dollar_volume_bars": {
+            "type": "integer",
+            "title": "Dollar Volume Bars"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "live_cards",
+          "cards_counted",
+          "cards_not_yet_created",
+          "roster_fallback_cards",
+          "basket_rows",
+          "silent_rows",
+          "unresolved_rows",
+          "unresolved_silent_rows",
+          "companies_total",
+          "cards",
+          "memberships",
+          "companies",
+          "flagged",
+          "spy",
+          "iwm",
+          "windows",
+          "dollar_volume_bars",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "MarketMapOut",
+        "description": "The whole page in one payload. ``companies`` holds every drawable company's readings, ``memberships`` the\ncards and links each sits on; the page builds every grouping from them. ``spy`` / ``iwm`` = the benchmark's own\nreturns for the same six windows (``null`` = no tape at the as-of). The counts are the work shown on the\npage's quiet line. ``cache`` / ``compute_ms`` = whether the heavy read was served from the shared dashboard\ncache and how long it took when it ran."
       },
       "MemberCallOut": {
         "properties": {
@@ -36252,7 +36883,7 @@
           "compute_ms"
         ],
         "title": "TrackRecordOut",
-        "description": "The Track Record at the as-of: every episode's row (newest arm first), the counts, the companies left out for a\nflagged price history and the opening table (IWM, the arm-night entry, by cap tier, every armed member; the page\nrecomputes any other reading from ``rows`` with the same arithmetic). ``edition`` and the two policies are the\nScoreboard's own (``annotated_policy`` / ``late_policy``: ``included`` | ``excluded`` | ``n/a`` for a stored\nedition, which has no such rows). ``edition`` is the one READ (the record when the request named none);\n``newest_edition`` is the newest PUBLISHED edition (``null`` when none is), which the page offers beside the\nrecord. ``market_source`` = whose bar dates are the market's session clock;\n``benchmarks_missing`` = a benchmark with no bar at the as-of; ``stale_days`` = how far a name's tape may sit\nbehind the market before an unreached horizon reads path ended; ``min_n`` = the smallest n a cell may be read\nat. ``cards`` = cards with a recorded call, ``cards_unreadable`` = cards whose record could not be read.\n``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was public by the end of that date).\n``cache`` / ``compute_ms`` = whether the read came from the shared dashboard cache and how long it took."
+        "description": "The Track Record at the as-of: every episode's row (newest arm first), the counts, the companies left out for a\nflagged price history and the opening table (IWM, the next-session entry, by cap tier, every armed member; the page\nrecomputes any other reading from ``rows`` with the same arithmetic). ``edition`` and the two policies are the\nScoreboard's own (``annotated_policy`` / ``late_policy``: ``included`` | ``excluded`` | ``n/a`` for a stored\nedition, which has no such rows). ``edition`` is the one READ (the record when the request named none);\n``newest_edition`` is the newest PUBLISHED edition (``null`` when none is), which the page offers beside the\nrecord. ``market_source`` = whose bar dates are the market's session clock;\n``benchmarks_missing`` = a benchmark with no bar at the as-of; ``stale_days`` = how far a name's tape may sit\nbehind the market before an unreached horizon reads path ended; ``min_n`` = the smallest n a cell may be read\nat. ``cards`` = cards with a recorded call, ``cards_unreadable`` = cards whose record could not be read.\n``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was public by the end of that date).\n``cache`` / ``compute_ms`` = whether the read came from the shared dashboard cache and how long it took."
       },
       "TrackRowOut": {
         "properties": {
