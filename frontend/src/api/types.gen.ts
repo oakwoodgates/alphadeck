@@ -2591,8 +2591,9 @@ export interface paths {
          *     episode with its cap tier and liquidity band, and, for the arm-night entry and the next session's, the return at
          *     5, 10, 20 and 60 sessions of the name's own bars and to the episode's own exit_by, with IWM's and SPY's returns
          *     over the same dates. The Scoreboard's own episodes and honesty filters: a censored start, an ingest-flagged
-         *     episode and a company with a flagged price history are left out of every cell and counted. Display only; a past
-         *     as-of reads what was public by the end of that date, and a horizon that has not arrived by then is not counted.
+         *     episode and a company with a flagged price history are left out of every cell and counted. Reads the record
+         *     (Edition 0) unless an edition is named. Display only; a past as-of reads what was public by the end of that
+         *     date, and a horizon that has not arrived by then is not counted.
          */
         get: operations["track_record_dashboards_track_record_get"];
         put?: never;
@@ -13858,7 +13859,7 @@ export interface components {
         };
         /**
          * TrackEditionOut
-         * @description The Scoreboard edition read: 0 = the original record (the calls log); N >= 1 = a stored re-run.
+         * @description A Scoreboard edition: 0 = the original record (the calls log); N >= 1 = a stored re-run.
          */
         TrackEditionOut: {
             /** Number */
@@ -13918,7 +13919,9 @@ export interface components {
          *     flagged price history and the opening table (IWM, the arm-night entry, by cap tier, every armed member; the page
          *     recomputes any other reading from ``rows`` with the same arithmetic). ``edition`` and the two policies are the
          *     Scoreboard's own (``annotated_policy`` / ``late_policy``: ``included`` | ``excluded`` | ``n/a`` for a stored
-         *     edition, which has no such rows). ``market_source`` = whose bar dates are the market's session clock;
+         *     edition, which has no such rows). ``edition`` is the one READ (the record when the request named none);
+         *     ``newest_edition`` is the newest PUBLISHED edition (``null`` when none is), which the page offers beside the
+         *     record. ``market_source`` = whose bar dates are the market's session clock;
          *     ``benchmarks_missing`` = a benchmark with no bar at the as-of; ``stale_days`` = how far a name's tape may sit
          *     behind the market before an unreached horizon reads path ended; ``min_n`` = the smallest n a cell may be read
          *     at. ``cards`` = cards with a recorded call, ``cards_unreadable`` = cards whose record could not be read.
@@ -13937,6 +13940,7 @@ export interface components {
              */
             clock: "record" | "public";
             edition: components["schemas"]["TrackEditionOut"];
+            newest_edition: components["schemas"]["TrackEditionOut"] | null;
             /**
              * Annotated Policy
              * @enum {string}
@@ -17786,8 +17790,8 @@ export interface operations {
             query: {
                 /** @description as-of date; nothing published after it is read */
                 asof: string;
-                /** @description which Scoreboard EDITION to read: 0 = the original record (the calls log); N >= 1 = the stored re-run Edition N (404 if it does not exist); omitted = the newest published edition, the Scoreboard's own default */
-                edition?: number | null;
+                /** @description which Scoreboard EDITION to read: 0 (the default) = the original record (the calls log); N >= 1 = the stored re-run Edition N (404 if it does not exist). Unlike the Scoreboard, a request that names no edition reads the record, not the newest published edition, while the editions nightly is paused; the response's `newest_edition` names the newest published one */
+                edition?: number;
                 /** @description the Scoreboard's annotated-night reading: true = keep rows annotated `exclude` (phantom arms); false = set them aside; omitted = the server setting. The response names the reading used */
                 include_annotated?: boolean | null;
                 /** @description the Scoreboard's late-night reading: true = keep rows recorded after their night's next EDGAR open; false = set them aside; omitted = the server setting. The response names the reading used */

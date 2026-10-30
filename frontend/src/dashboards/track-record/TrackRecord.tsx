@@ -219,8 +219,13 @@ const LEFT_OUT: { reason: NonNullable<TrackRowOut["left_out"]>; words: string; h
   { reason: "ingest_flagged", words: "ingest flagged", hint: "The arm rested on a flagged ingest run; the Scoreboard leaves it out of its metrics too." },
 ];
 
+type EditionPick = "record" | "newest";
+
 export default function TrackRecord({ asof, onSelectThesis }: DashboardProps) {
-  const q = useTrackRecord(asof);
+  // The Scoreboard edition read: 0 = the record (the default while editions are paused), N = a stored re-run. Each
+  // is its own server read, so it is a request parameter; everything else on the page is picked client side.
+  const [edition, setEdition] = useState(0);
+  const q = useTrackRecord(asof, edition);
   const data = q.data;
   const [slice, setSlice] = useState<SliceBy>("tier");
   const [comparison, setComparison] = useState<Comparison>("iwm");
@@ -259,10 +264,30 @@ export default function TrackRecord({ asof, onSelectThesis }: DashboardProps) {
     setPicked(null);
     setLimit(LIST_STEP);
   };
+  // A selector with one option cannot discriminate (WB#3): the edition control shows only once an edition is published.
+  const newest = data.newest_edition ?? null;
+  const editionOptions: { value: EditionPick; label: string; title: string }[] = newest
+    ? [
+        { value: "record", label: "The record", title: "The calls log as recorded each night: the Scoreboard's Edition 0" },
+        {
+          value: "newest",
+          label: `Edition ${newest.number} (newest published)`,
+          title: `${newest.label}: a stored re-run of the call rules, read from its frozen pages`,
+        },
+      ]
+    : [];
+  const pickEdition = (v: EditionPick) => {
+    setEdition(v === "record" || !newest ? 0 : newest.number);
+    setPicked(null);
+    setLimit(LIST_STEP);
+  };
 
   return (
     <div className="tr">
       <div className="tr-controls">
+        {newest && (
+          <Seg label="Edition" value={edition === 0 ? "record" : "newest"} options={editionOptions} onPick={pickEdition} />
+        )}
         <Seg label="Slice" value={slice} options={SLICES} onPick={(v) => reset({ slice: v })} />
         <Seg label="Compare" value={comparison} options={COMPARISONS} onPick={(v) => reset({ comparison: v })} />
         <Seg label="Entry" value={entry} options={ENTRIES} onPick={(v) => reset({ entry: v })} />

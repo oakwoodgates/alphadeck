@@ -17,6 +17,7 @@ from uuid import UUID
 
 import pytest
 from fastapi.testclient import TestClient
+from psycopg.rows import dict_row
 
 from app.deps import get_conn
 from app.main import app
@@ -60,11 +61,12 @@ from dashboards.track_record import (
 )
 from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
+from domain.call import CallCard
 from domain.market_cap import CapTier
 from domain.market_time import market_today
 from domain.splits import ListedSplit, listed_from_row
 from domain.thesis import BasketMember, Thesis
-from repositories import thesis_repo
+from repositories import editions_repo, thesis_repo
 from tests.calls.factories import insider_event, make_thesis
 from tests.scoreboard.helpers import keys_fired, record_day
 
@@ -747,7 +749,7 @@ URL = "/dashboards/track-record"
 
 @pytest.fixture
 def stub_client(monkeypatch):
-    seen: dict = {"reads": [], "editions": []}
+    seen: dict = {"reads": [], "editions": [], "newest": None}
     days = weekdays(date(2026, 6, 1), 40)
     bars = [Bar(d, 10.0 + i, 100_000.0) for i, d in enumerate(days)]
 
@@ -779,6 +781,7 @@ def stub_client(monkeypatch):
     CACHE.clear()
     monkeypatch.setattr(router_mod, "read_record", fake_read)
     monkeypatch.setattr(router_mod, "_resolve_edition", fake_resolve)
+    monkeypatch.setattr(router_mod, "_newest_edition", lambda conn, tenant: seen["newest"])
     monkeypatch.setattr(CACHE, "_token_fn", lambda conn: "gen-1")
     app.dependency_overrides[get_conn] = lambda: object()
     yield TestClient(app), seen
@@ -792,6 +795,9 @@ def test_the_router_serves_one_cached_read_on_the_requests_view_keyed_by_the_rea
     assert (first["cache"], first["clock"]) == ("computed", "public")
     ((asof, known_at, clock, edition, ex_annotated, ex_late),) = seen["reads"]
     assert asof == ASOF and clock == "public" and known_at is not None and edition is None
+    assert seen["editions"] == [
+        0
+    ]  # a request that names no edition asks for the record, not the newest
     again = client.get(URL, params={"asof": "2026-07-24"}).json()
     assert again["cache"] == "hit" and len(seen["reads"]) == 1
     # the Scoreboard's own honesty readings are separate reads
@@ -814,6 +820,7 @@ def test_the_router_wire_shape(stub_client):
         and body["min_n"] == MIN_N
     )
     assert body["edition"] == {"number": 0, "label": "the original record"}
+    assert body["newest_edition"] is None  # nothing published
     assert body["annotated_policy"] in ("included", "excluded")
     assert body["late_policy"] in ("included", "excluded")
     assert (
@@ -850,6 +857,24 @@ def test_an_edition_argument_is_resolved_by_the_scoreboards_own_rule_and_skips_t
     assert body["edition"] == {"number": 2, "label": "first re-run"}
     assert (body["annotated_policy"], body["late_policy"]) == ("n/a", "n/a")
     assert seen["reads"][-1][3] is edition and seen["reads"][-1][4:] == (False, False)
+
+
+def test_with_editions_published_a_request_that_names_none_still_reads_the_record(stub_client):
+    """The editions nightly is paused (the operator's hold), so the default is Edition 0, the calls log. The newest
+    published edition rides the response for the page's selector; naming an edition reads that one.
+    """
+    client, seen = stub_client
+    seen["newest"] = type("E", (), {"number": 3, "label": "third re-run"})()
+    body = client.get(URL, params={"asof": "2026-07-24"}).json()
+    assert body["edition"] == {"number": 0, "label": "the original record"}
+    assert body["newest_edition"] == {"number": 3, "label": "third re-run"}
+    assert seen["editions"] == [0] and seen["reads"][-1][3] is None
+    # an explicit 0 is the same read (one cache entry), and an explicit N asks the Scoreboard's rule for N
+    again = client.get(URL, params={"asof": "2026-07-24", "edition": 0}).json()
+    assert again["cache"] == "hit" and seen["editions"] == [0, 0]
+    client.get(URL, params={"asof": "2026-07-24", "edition": 3})
+    assert seen["editions"] == [0, 0, 3]
+    assert client.get(URL, params={"asof": "2026-07-24", "edition": -1}).status_code == 422
 
 
 def test_the_router_requires_an_asof(stub_client):
@@ -1156,3 +1181,43 @@ def test_a_live_asof_is_the_unchanged_record_read(db, pinned_today):
 
 def test_an_unknown_edition_is_a_404_like_the_scoreboards(db, pinned_today):
     assert _get(db, asof="2026-06-24", edition=7).status_code == 404
+
+
+def test_the_record_is_the_default_with_an_edition_published_and_the_newest_rides_the_response(
+    db, pinned_today, world
+):
+    """Edition 1 is published (a page of the world's card). A request that names no edition reads the RECORD
+    (Edition 0, the calls log), and `newest_edition` names Edition 1; naming it reads the stored edition.
+    """
+    with db.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            "SELECT card FROM calls WHERE thesis_id = %s ORDER BY asof DESC, seq DESC LIMIT 1",
+            (world["card"].id,),
+        )
+        page = CallCard.model_validate(cur.fetchone()["card"])
+    cut = datetime(2026, 6, 25, 2, 0, tzinfo=timezone.utc)
+    editions_repo.publish_edition(
+        db,
+        tenant_id=DEFAULT_TENANT_ID,
+        number=1,
+        label="first re-run",
+        causes=["initial"],
+        engine={"fingerprint": "f" * 64, "config_hash": "c" * 64, "code_sha": "abc1234def"},
+        data_known_by=cut,
+        pages=[page],
+        entries=[],
+        computed_at=cut,
+    )
+    db.commit()
+
+    default = _get(db, asof="2026-06-24")
+    assert default.status_code == 200
+    body = default.json()
+    assert body["edition"] == {"number": 0, "label": "the original record"}
+    assert body["newest_edition"] == {"number": 1, "label": "first re-run"}
+    assert body["counts"]["episodes"] == 1  # the record's episode
+
+    named = _get(db, asof="2026-06-24", edition=1).json()
+    assert named["edition"] == {"number": 1, "label": "first re-run"}
+    assert named["newest_edition"] == {"number": 1, "label": "first re-run"}
+    assert (named["annotated_policy"], named["late_policy"]) == ("n/a", "n/a")

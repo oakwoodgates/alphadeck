@@ -25,8 +25,9 @@ tier. Display only: it never feeds a call, never writes, never calls the LLM, an
   `app/routers/scoreboard.py` already imports (the lean prod image has no `duckdb`; the Scoreboard route proves
   these modules load without it).
 - **Honesty filters are the Scoreboard's**, with the same query parameters: `include_annotated` and `include_late`
-  (defaults from `scoreboard_exclude_annotated` / `scoreboard_exclude_late`), `edition` (None = the newest
-  published edition, 0 = the calls log). Reconstructed nights are never events. The Scoreboard's eligibility rule
+  (defaults from `scoreboard_exclude_annotated` / `scoreboard_exclude_late`), `edition` (**omitted = 0, the calls
+  log** while the editions nightly is paused; N = a stored edition; unlike the Scoreboard, which defaults to the
+  newest published one). Reconstructed nights are never events. The Scoreboard's eligibility rule
   holds too: a `censored_start` episode (armed on the card's first recorded night) and an `ingest_flagged` one are
   counted on the work line and left out of every cell.
 - **The as-of caps everything** (invariant #1): an episode with `arm_date` after the as-of is not an event; a
@@ -153,7 +154,8 @@ Any "works" verdict or score; any cross-tabulation of two slice dimensions; posi
 
 The build lists here every choice it made that this plan does not spell out, each the operator's to confirm or
 change. Pre-decided here for the operator's review: the Scoreboard's episodes and honesty filters as the events;
-sessions 5 / 10 / 20 / 60 plus exit_by as the horizons; IWM as the default comparison with SPY and raw selectable;
+the record (edition 0) as the default view while the editions nightly is paused, with a selector to the newest
+published edition (2026-10-29); sessions 5 / 10 / 20 / 60 plus exit_by as the horizons; IWM as the default comparison with SPY and raw selectable;
 the arm-night close as the default entry with a next-session toggle; the three PROPOSED liquidity bands; n < 10
 prints n only; the pooled row last.
 
@@ -203,9 +205,8 @@ dollars is "under $1M" (a real measurement); under 20 volume-bearing bars is unp
 
 **Which episodes.**
 - Archived cards are included (the Scoreboard's default). The route takes the Scoreboard's `edition`,
-  `include_annotated` and `include_late` and resolves the edition with the Scoreboard's own function (the newest
-  published edition by default, 404 on an unknown one). The page has no selector for them; its first work line states
-  the reading in force.
+  `include_annotated` and `include_late` and resolves the edition with the Scoreboard's own function (404 on an
+  unknown one). The page has a selector for the edition only (below); its first work line states the reading in force.
 - An episode left out is counted once, in this order: flagged price history, censored start, ingest flag. A left-out
   row carries identity only (nothing is read for it).
 - **A stopped price feed is a flagged price history** by the shared rule (`baskets.price_flags` includes
@@ -234,3 +235,42 @@ dollars is "under $1M" (a real measurement); under 20 volume-bearing bars is unp
   chunked 40 companies per point-in-time view (an episode can sit anywhere in a name's history).
 - The cache key is the plan's tuple with the RESOLVED values: the edition number, then whether annotated and late
   nights are included (fixed for a stored edition, which has none of those rows), then the clock.
+
+**The edition: the record by default while the editions nightly is paused (2026-10-29, after the dev walk below).**
+- **The route's `edition` defaults to 0**, the calls log, when the caller passes nothing (`Query(0, ge=0)`). It is
+  the Scoreboard's own resolver (`_resolve_edition`) that still answers a named N, with its 404. The Scoreboard route
+  itself is unchanged: it still defaults to the newest published edition.
+- **The response carries `newest_edition`** (`{number, label}`, `null` when nothing is published): the newest
+  PUBLISHED edition by `editions_repo.newest`, one small read outside the cache. It is deliberately not the
+  Scoreboard's `_default_edition`, which a server setting (`scoreboard_default_edition`) can pin to another edition:
+  the page's selector says "newest published", and this is that. With no override set the two are the same edition.
+- **The page's selector** "Edition: The record · Edition N (newest published)" refetches with `edition=`. The record
+  is pressed by default; the control renders only when an edition is published (one option cannot discriminate,
+  WB#3). Picking an edition clears a picked cell; the slice, comparison, entry and filter choices stay. Each edition
+  is its own server read and its own cache entry.
+- **The work line says which is in force.** For the record it reads "edition 0: the original record (the default;
+  editions are paused)"; for a stored edition "edition N: <label>". "Editions are paused" is the operator's hold on
+  the editions nightly (2026-10-26), stated as a fact about the system and not computed from the data: **when the
+  editions nightly resumes, flip the route's default back to the Scoreboard's resolver and drop that clause in
+  `recordView.ts::editionWords` in the same change.**
+- `include_annotated` and `include_late` are unchanged.
+
+### MEASURED (dev, prod copy, 2026-10-29)
+
+The orchestrator's walk on the dev stack (a prod data copy), as-of 2026-10-29, BEFORE this change (the page defaulted
+to the newest published edition). These numbers are the orchestrator's, recorded here as the brief gave them; the
+build re-measured nothing.
+
+- **Edition 1** (cut 2026-10-23; the editions nightly is OFF by the operator's hold, so it is also the newest): 11
+  cards, 501 episodes, 439 counted.
+- **The record** (`edition=0`, the calls log): 46 cards, 469 episodes, 240 counted, h20 148 counted.
+- **Cost:** cold compute 12.0 s (Edition 1) and 14.8 s (the record); a cache hit 50 ms; payload 884 KB.
+- **Why the change:** the default view covered 11 of the 46 cards the record covers, from a frozen cut, so a
+  reader opening the page saw the older and smaller picture without asking for it.
+
+**AFTER (the orchestrator fills these in from the dev stack, same as-of 2026-10-29):**
+
+- no `edition` (now the record): cards ____ · episodes ____ · counted ____ · h20 counted ____ · `newest_edition` ____
+- `edition=1`: cards ____ · episodes ____ · counted ____
+- cold compute ____ ms · cache hit ____ ms · payload ____ KB
+

@@ -1,7 +1,8 @@
 """The Track Record by Cap Tier dashboard's API (``docs/dashboards/track-record.md``): what the tape did after each
 Armed call, by market-cap tier at the event, at fixed horizons, against IWM and SPY, with n and the hit rate in every
-cell. It READS the Scoreboard's own arm episodes (``scoreboard.record.scoreboard_records``, the same edition and the
-same honesty policies the Scoreboard route takes) and, for the companies on those episodes, each one's bars, share
+cell. It READS the Scoreboard's own arm episodes (``scoreboard.record.scoreboard_records``, the same editions and the
+same honesty policies the Scoreboard route takes; unlike the Scoreboard, a request that names no edition reads the
+RECORD, Edition 0, while the editions nightly is paused) and, for the companies on those episodes, each one's bars, share
 facts and split list through the point-in-time view the Cockpit builds, the benchmarks' bars and which companies have
 a data flag that reaches their price readings (``dashboards.baskets.price_flags``). The request's one
 ``serve_view(asof)`` pair (``known_at`` + ``clock``) is threaded into every one of those reads. The pure compute is
@@ -211,7 +212,7 @@ class TrackFlaggedOut(_Wire):
 
 
 class TrackEditionOut(_Wire):
-    """The Scoreboard edition read: 0 = the original record (the calls log); N >= 1 = a stored re-run."""
+    """A Scoreboard edition: 0 = the original record (the calls log); N >= 1 = a stored re-run."""
 
     number: int
     label: str
@@ -222,7 +223,9 @@ class TrackRecordOut(_Wire):
     flagged price history and the opening table (IWM, the arm-night entry, by cap tier, every armed member; the page
     recomputes any other reading from ``rows`` with the same arithmetic). ``edition`` and the two policies are the
     Scoreboard's own (``annotated_policy`` / ``late_policy``: ``included`` | ``excluded`` | ``n/a`` for a stored
-    edition, which has no such rows). ``market_source`` = whose bar dates are the market's session clock;
+    edition, which has no such rows). ``edition`` is the one READ (the record when the request named none);
+    ``newest_edition`` is the newest PUBLISHED edition (``null`` when none is), which the page offers beside the
+    record. ``market_source`` = whose bar dates are the market's session clock;
     ``benchmarks_missing`` = a benchmark with no bar at the as-of; ``stale_days`` = how far a name's tape may sit
     behind the market before an unreached horizon reads path ended; ``min_n`` = the smallest n a cell may be read
     at. ``cards`` = cards with a recorded call, ``cards_unreadable`` = cards whose record could not be read.
@@ -233,6 +236,7 @@ class TrackRecordOut(_Wire):
     asof: date
     clock: Literal["record", "public"]
     edition: TrackEditionOut
+    newest_edition: TrackEditionOut | None
     annotated_policy: Literal["included", "excluded", "n/a"]
     late_policy: Literal["included", "excluded", "n/a"]
     horizons: list[str]
@@ -404,15 +408,23 @@ def read_record(
 # --- the route -----------------------------------------------------------------------------------------------
 
 
+def _newest_edition(conn: psycopg.Connection, tenant: UUID) -> Edition | None:
+    """The newest PUBLISHED edition (what the page offers beside the record); ``None`` = nothing is published.
+    Not ``_default_edition``: the Scoreboard's default can be pinned by its server setting, and the page's
+    selector says "newest published"."""
+    return editions_repo.newest(conn, tenant_id=tenant)
+
+
 @router.get("", response_model=TrackRecordOut)
 def track_record(
     asof: date = Query(..., description="as-of date; nothing published after it is read"),
-    edition: int | None = Query(
-        None,
+    edition: int = Query(
+        0,
         ge=0,
-        description="which Scoreboard EDITION to read: 0 = the original record (the calls log); N >= 1 = the "
-        "stored re-run Edition N (404 if it does not exist); omitted = the newest published edition, the "
-        "Scoreboard's own default",
+        description="which Scoreboard EDITION to read: 0 (the default) = the original record (the calls log); "
+        "N >= 1 = the stored re-run Edition N (404 if it does not exist). Unlike the Scoreboard, a request that "
+        "names no edition reads the record, not the newest published edition, while the editions nightly is "
+        "paused; the response's `newest_edition` names the newest published one",
     ),
     include_annotated: bool | None = Query(
         None,
@@ -431,11 +443,14 @@ def track_record(
     episode with its cap tier and liquidity band, and, for the arm-night entry and the next session's, the return at
     5, 10, 20 and 60 sessions of the name's own bars and to the episode's own exit_by, with IWM's and SPY's returns
     over the same dates. The Scoreboard's own episodes and honesty filters: a censored start, an ingest-flagged
-    episode and a company with a flagged price history are left out of every cell and counted. Display only; a past
-    as-of reads what was public by the end of that date, and a horizon that has not arrived by then is not counted.
+    episode and a company with a flagged price history are left out of every cell and counted. Reads the record
+    (Edition 0) unless an edition is named. Display only; a past as-of reads what was public by the end of that
+    date, and a horizon that has not arrived by then is not counted.
     """
     known_at, clock = serve_view(asof)
-    chosen = _resolve_edition(conn, current_tenant, edition)  # the Scoreboard's own default and 404
+    chosen = _resolve_edition(
+        conn, current_tenant, edition
+    )  # 0 = the record; the Scoreboard's own 404
     if chosen is None:
         exclude_annotated = resolve_exclude_annotated(
             None if include_annotated is None else not include_annotated
@@ -444,6 +459,7 @@ def track_record(
     else:  # a stored edition has no reconstructed, annotated or late rows: the readings do not apply
         exclude_annotated = exclude_late = False
     number = chosen.number if chosen is not None else 0
+    newest = _newest_edition(conn, current_tenant)  # one small read, outside the cache
     got = cached(
         conn,
         SLUG,
@@ -460,6 +476,9 @@ def track_record(
                 "number": number,
                 "label": chosen.label if chosen is not None else editions_repo.EDITION_0_LABEL,
             },
+            "newest_edition": (
+                None if newest is None else {"number": newest.number, "label": newest.label}
+            ),
             "annotated_policy": (
                 "n/a" if chosen is not None else "excluded" if exclude_annotated else "included"
             ),

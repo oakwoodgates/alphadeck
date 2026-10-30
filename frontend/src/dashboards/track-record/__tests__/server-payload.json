@@ -5,6 +5,7 @@
   "number": 0,
   "label": "the original record"
  },
+ "newest_edition": null,
  "annotated_policy": "excluded",
  "late_policy": "excluded",
  "horizons": [

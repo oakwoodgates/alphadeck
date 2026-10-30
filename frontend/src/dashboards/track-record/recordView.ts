@@ -432,6 +432,13 @@ export function liquidityWords(r: TrackRowOut): { text: string; title: string } 
   };
 }
 
+/** Which edition the read is, and for the record why it is the default: the editions nightly is paused, so a page
+ *  that names no edition reads the calls log. */
+export function editionWords(data: TrackRecordOut): string {
+  const e = data.edition;
+  return e.number === 0 ? `edition 0: ${e.label} (the default; editions are paused)` : `edition ${e.number}: ${e.label}`;
+}
+
 /** The quiet "show the work" lines above the table: the as-of, the clock, the edition and the honesty policies in
  *  force, what the cells rest on and what is left out, how each horizon reads for the entry rule in force, the
  *  entry rule, the comparison, the market clock and the cache. */
@@ -441,7 +448,7 @@ export function workLines(data: TrackRecordOut, entry: EntryRule, comparison: Co
   const clock = data.clock === "public" ? "public clock: only what was public by the end of that date" : "live read";
   const policies =
     data.annotated_policy === "n/a" ? "" : ` · annotated nights ${data.annotated_policy} · late nights ${data.late_policy}`;
-  lines.push(`as of ${data.asof} · ${clock} · edition ${data.edition.number}: ${data.edition.label}${policies}`);
+  lines.push(`as of ${data.asof} · ${clock} · ${editionWords(data)}${policies}`);
 
   const out = [
     c.left_out_flagged > 0 ? `${c.left_out_flagged.toLocaleString("en-US")} flagged price history` : "",

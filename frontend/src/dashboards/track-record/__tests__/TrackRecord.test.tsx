@@ -114,7 +114,7 @@ describe("TrackRecord — the toggles re-table the page with no request", () => 
     expect(tableKeys()).toEqual(["under_1m", "1m_10m", "10m_plus", "unpinned", "pooled"]);
     expect(screen.getAllByRole("columnheader")[0].textContent).toBe("Liquidity at the event");
     expect(screen.getAllByTestId("tr-table-row").at(-1)?.querySelector("th")?.textContent).toBe("all liquidity bands (pooled)");
-    expect(h.hook).toHaveBeenCalledWith("2026-07-24"); // the same read: the toggle is not a parameter
+    expect(h.hook).toHaveBeenCalledWith("2026-07-24", 0); // the same read: the toggle is not a parameter
   });
 
   it("switches the comparison to SPY and to the raw return", async () => {
@@ -276,12 +276,59 @@ describe("TrackRecord — what is left out is counted and kept visible", () => {
   });
 });
 
+describe("TrackRecord — the edition", () => {
+  const withNewest = () => payload({ newest_edition: { number: 1, label: "first re-run" } });
+
+  it("reads the record by default and says why it is the default", () => {
+    setup();
+    expect(h.hook).toHaveBeenLastCalledWith("2026-07-24", 0);
+    expect(screen.getByText(/edition 0: the original record \(the default; editions are paused\)/)).toBeInTheDocument();
+  });
+
+  it("draws no edition control while no edition is published (it could not discriminate)", () => {
+    setup(); // the server fixture publishes none
+    expect(screen.queryByRole("group", { name: "Edition" })).toBeNull();
+  });
+
+  it("offers the record and the newest published edition, and a pick refetches with that edition", async () => {
+    setup(withNewest());
+    const group = screen.getByRole("group", { name: "Edition" });
+    expect(within(group).getAllByRole("button").map((b) => b.textContent)).toEqual([
+      "The record",
+      "Edition 1 (newest published)",
+    ]);
+    expect(within(group).getByRole("button", { name: "The record" })).toHaveAttribute("aria-pressed", "true");
+
+    await userEvent.click(within(group).getByRole("button", { name: "Edition 1 (newest published)" }));
+    expect(h.hook).toHaveBeenLastCalledWith("2026-07-24", 1);
+    expect(within(group).getByRole("button", { name: "Edition 1 (newest published)" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(group).getByRole("button", { name: "The record" })).toHaveAttribute("aria-pressed", "false");
+
+    await userEvent.click(within(group).getByRole("button", { name: "The record" }));
+    expect(h.hook).toHaveBeenLastCalledWith("2026-07-24", 0);
+  });
+
+  it("states the edition in force on the work line when a stored edition is read", () => {
+    setup(payload({ edition: { number: 1, label: "first re-run" }, newest_edition: { number: 1, label: "first re-run" } }));
+    expect(screen.getByText(/edition 1: first re-run · annotated nights excluded/)).toBeInTheDocument();
+    expect(screen.queryByText(/editions are paused/)).toBeNull();
+  });
+
+  it("clears a picked cell when the edition changes under it", async () => {
+    setup(withNewest());
+    await userEvent.click(within(cell("small", "h20")).getByRole("button"));
+    expect(screen.getByRole("button", { name: "show every episode" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Edition 1 (newest published)" }));
+    expect(screen.queryByRole("button", { name: "show every episode" })).toBeNull();
+  });
+});
+
 describe("TrackRecord — the quiet work lines and the states", () => {
   it("states the as-of, the clock, what the cells rest on, the entry rule and the comparison", () => {
     setup();
     for (const text of [
       /as of 2026-07-24 · public clock/,
-      /edition 0: the original record · annotated nights excluded · late nights excluded/,
+      /edition 0: the original record \(the default; editions are paused\) · annotated nights excluded · late nights excluded/,
       /20 arm episodes on 2 cards · 17 in the cells · left out: 1 flagged price history, 1 censored start, 1 ingest flagged/,
       /1 with an unpinned cap · 1 with unpinned liquidity \(counted, never dropped\)/,
       /10 sessions 9 counted, 8 maturing/,

@@ -5319,7 +5319,7 @@
           "dashboards"
         ],
         "summary": "Track Record",
-        "description": "What the tape did after each arm episode the Scoreboard records, by market-cap tier at the event: one row per\nepisode with its cap tier and liquidity band, and, for the arm-night entry and the next session's, the return at\n5, 10, 20 and 60 sessions of the name's own bars and to the episode's own exit_by, with IWM's and SPY's returns\nover the same dates. The Scoreboard's own episodes and honesty filters: a censored start, an ingest-flagged\nepisode and a company with a flagged price history are left out of every cell and counted. Display only; a past\nas-of reads what was public by the end of that date, and a horizon that has not arrived by then is not counted.",
+        "description": "What the tape did after each arm episode the Scoreboard records, by market-cap tier at the event: one row per\nepisode with its cap tier and liquidity band, and, for the arm-night entry and the next session's, the return at\n5, 10, 20 and 60 sessions of the name's own bars and to the episode's own exit_by, with IWM's and SPY's returns\nover the same dates. The Scoreboard's own episodes and honesty filters: a censored start, an ingest-flagged\nepisode and a company with a flagged price history are left out of every cell and counted. Reads the record\n(Edition 0) unless an edition is named. Display only; a past as-of reads what was public by the end of that\ndate, and a horizon that has not arrived by then is not counted.",
         "operationId": "track_record_dashboards_track_record_get",
         "parameters": [
           {
@@ -5339,19 +5339,13 @@
             "in": "query",
             "required": false,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "integer",
-                  "minimum": 0
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "which Scoreboard EDITION to read: 0 = the original record (the calls log); N >= 1 = the stored re-run Edition N (404 if it does not exist); omitted = the newest published edition, the Scoreboard's own default",
+              "type": "integer",
+              "minimum": 0,
+              "description": "which Scoreboard EDITION to read: 0 (the default) = the original record (the calls log); N >= 1 = the stored re-run Edition N (404 if it does not exist). Unlike the Scoreboard, a request that names no edition reads the record, not the newest published edition, while the editions nightly is paused; the response's `newest_edition` names the newest published one",
+              "default": 0,
               "title": "Edition"
             },
-            "description": "which Scoreboard EDITION to read: 0 = the original record (the calls log); N >= 1 = the stored re-run Edition N (404 if it does not exist); omitted = the newest published edition, the Scoreboard's own default"
+            "description": "which Scoreboard EDITION to read: 0 (the default) = the original record (the calls log); N >= 1 = the stored re-run Edition N (404 if it does not exist). Unlike the Scoreboard, a request that names no edition reads the record, not the newest published edition, while the editions nightly is paused; the response's `newest_edition` names the newest published one"
           },
           {
             "name": "include_annotated",
@@ -30970,7 +30964,7 @@
           "label"
         ],
         "title": "TrackEditionOut",
-        "description": "The Scoreboard edition read: 0 = the original record (the calls log); N >= 1 = a stored re-run."
+        "description": "A Scoreboard edition: 0 = the original record (the calls log); N >= 1 = a stored re-run."
       },
       "TrackEntryOut": {
         "properties": {
@@ -31086,6 +31080,16 @@
           "edition": {
             "$ref": "#/components/schemas/TrackEditionOut"
           },
+          "newest_edition": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrackEditionOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "annotated_policy": {
             "type": "string",
             "enum": [
@@ -31191,6 +31195,7 @@
           "asof",
           "clock",
           "edition",
+          "newest_edition",
           "annotated_policy",
           "late_policy",
           "horizons",
@@ -31208,7 +31213,7 @@
           "compute_ms"
         ],
         "title": "TrackRecordOut",
-        "description": "The Track Record at the as-of: every episode's row (newest arm first), the counts, the companies left out for a\nflagged price history and the opening table (IWM, the arm-night entry, by cap tier, every armed member; the page\nrecomputes any other reading from ``rows`` with the same arithmetic). ``edition`` and the two policies are the\nScoreboard's own (``annotated_policy`` / ``late_policy``: ``included`` | ``excluded`` | ``n/a`` for a stored\nedition, which has no such rows). ``market_source`` = whose bar dates are the market's session clock;\n``benchmarks_missing`` = a benchmark with no bar at the as-of; ``stale_days`` = how far a name's tape may sit\nbehind the market before an unreached horizon reads path ended; ``min_n`` = the smallest n a cell may be read\nat. ``cards`` = cards with a recorded call, ``cards_unreadable`` = cards whose record could not be read.\n``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was public by the end of that date).\n``cache`` / ``compute_ms`` = whether the read came from the shared dashboard cache and how long it took."
+        "description": "The Track Record at the as-of: every episode's row (newest arm first), the counts, the companies left out for a\nflagged price history and the opening table (IWM, the arm-night entry, by cap tier, every armed member; the page\nrecomputes any other reading from ``rows`` with the same arithmetic). ``edition`` and the two policies are the\nScoreboard's own (``annotated_policy`` / ``late_policy``: ``included`` | ``excluded`` | ``n/a`` for a stored\nedition, which has no such rows). ``edition`` is the one READ (the record when the request named none);\n``newest_edition`` is the newest PUBLISHED edition (``null`` when none is), which the page offers beside the\nrecord. ``market_source`` = whose bar dates are the market's session clock;\n``benchmarks_missing`` = a benchmark with no bar at the as-of; ``stale_days`` = how far a name's tape may sit\nbehind the market before an unreached horizon reads path ended; ``min_n`` = the smallest n a cell may be read\nat. ``cards`` = cards with a recorded call, ``cards_unreadable`` = cards whose record could not be read.\n``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was public by the end of that date).\n``cache`` / ``compute_ms`` = whether the read came from the shared dashboard cache and how long it took."
       },
       "TrackRowOut": {
         "properties": {
