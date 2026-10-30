@@ -274,3 +274,105 @@ def test_next_weekly_epoch_is_the_next_saturday_0900(now, expected):
     )
     assert out.returncode == 0, out.stderr
     assert out.stdout.strip() == expected
+
+
+# --- the FOURTH schedule: the weekly term-mentions count (pipeline.term_mentions) -------------------------------
+
+
+def test_the_SIDECAR_runs_the_term_mentions_count_weekly_after_the_company_list():
+    code = [ln.strip() for ln in _script().splitlines() if not ln.strip().startswith("#")]
+    runs = [ln for ln in code if "python -m pipeline.term_mentions" in ln]
+    assert runs == [
+        'timeout -k 60 "${TERM_MENTIONS_TIMEOUT_S}" python -m pipeline.term_mentions --weekly --apply '
+        '--run-kind cron "$@"'
+    ]
+    start = code.index("term_mentions_loop &")
+    assert start > code.index("master_refresh_loop &")  # after the boot block, beside the refresh
+    assert start < code.index("while :; do", start)  # ... and before the nightly loop
+    assert "term_mentions_run --if-stale-days 7" in code
+    assert (
+        'wait_until "$(next_weekly_epoch "$(date +%s)" "${TERM_MENTIONS_DOW}" "${TERM_MENTIONS_AT}")"'
+        in code
+    )
+    assert 'if [ "${TERM_MENTIONS}" != 0 ]; then' in code  # the kill switch
+    compose = (_BACKEND.parent / "docker-compose.yml").read_text(encoding="utf-8")
+    found = {}
+    for var in (
+        "TERM_MENTIONS",
+        "TERM_MENTIONS_DOW",
+        "TERM_MENTIONS_AT",
+        "TERM_MENTIONS_TIMEOUT_S",
+    ):
+        c = re.search(rf"\n\s+{var}: \$\{{ALPHADECK_{var}:-([0-9:]+)\}}", compose)
+        s = re.search(rf'\n{var}="\$\{{{var}:-([0-9:]+)\}}"', _script())
+        assert c and s and c.group(1) == s.group(1), var
+        found[var] = c.group(1)
+    assert found == {
+        "TERM_MENTIONS": "1",
+        "TERM_MENTIONS_DOW": "6",
+        "TERM_MENTIONS_AT": "10:00",
+        "TERM_MENTIONS_TIMEOUT_S": "3600",
+    }
+    # Saturday 10:00 starts after the 09:00 company-list refresh has ended, even at its full bound
+    refresh_bound = re.search(
+        r'MASTER_REFRESH_TIMEOUT_S="\$\{MASTER_REFRESH_TIMEOUT_S:-(\d+)\}"', _script()
+    )
+    assert 9 * 3600 + int(refresh_bound.group(1)) + 60 <= 10 * 3600  # + its `timeout -k 60`
+
+
+@pytest.mark.skipif(_BASH is None, reason="needs bash + GNU date")
+@pytest.mark.parametrize(
+    "now, dow, at, expected",
+    [
+        (
+            "2026-10-21 12:00",
+            "6",
+            "10:00",
+            "2026-10-24 10:00",
+        ),  # a Wednesday -> that Saturday 10:00
+        (
+            "2026-10-24 09:30",
+            "6",
+            "10:00",
+            "2026-10-24 10:00",
+        ),  # after the refresh's 09:00, before 10:00
+        (
+            "2026-10-24 10:00",
+            "6",
+            "10:00",
+            "2026-10-31 10:00",
+        ),  # AT 10:00 -> strictly after: next week
+        (
+            "2026-10-24 12:00",
+            "7",
+            "08:15",
+            "2026-10-25 08:15",
+        ),  # its own day and time, not the refresh's
+        (
+            "2026-10-24 08:00",
+            "",
+            "",
+            "2026-10-24 09:00",
+        ),  # no args -> the refresh's MASTER_REFRESH_*
+    ],
+)
+def test_next_weekly_epoch_takes_its_own_day_and_time(now, dow, at, expected):
+    src = _script()
+    fn = src[
+        src.index("next_weekly_epoch() {") : src.index("\n}\n", src.index("next_weekly_epoch() {"))
+        + 3
+    ]
+    args = f' "{dow}" "{at}"' if dow else ""
+    prog = (
+        f"MASTER_REFRESH_DOW=6\nMASTER_REFRESH_AT=09:00\n{fn}\n"
+        f'e=$(date -d "{now}" +%s)\ndate -d "@$(next_weekly_epoch "$e"{args})" "+%Y-%m-%d %H:%M"\n'
+    )
+    out = subprocess.run(
+        [_BASH, "-c", prog],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env={**os.environ, "TZ": "America/New_York"},
+    )
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == expected

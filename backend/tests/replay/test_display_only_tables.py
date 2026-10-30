@@ -1,5 +1,5 @@
 """The DISPLAY-ONLY fact tables (``db.bitemporal.DISPLAY_ONLY_FACT_TABLES`` — today the filing index, migration
-0070) stay OUT of the replay mirror. ``connect_mirror`` requires a parquet file for every table in
+0070, and the term-mentions count, migration 0071) stay OUT of the replay mirror. ``connect_mirror`` requires a parquet file for every table in
 ``replay.export.FACT_TABLES``, so a display table registered there would make every frozen mirror written before
 it (the backtest archives, the editions run dirs) fail to open — for rows no replay reader uses. DB-backed.
 """
@@ -16,7 +16,7 @@ _INDEX = "fact_filing_index"
 
 
 def test_the_registry_keeps_the_index_live_readable_and_out_of_the_mirror_set():
-    assert DISPLAY_ONLY_FACT_TABLES == frozenset({_INDEX})
+    assert DISPLAY_ONLY_FACT_TABLES == frozenset({_INDEX, "fact_term_mentions"})
     assert _INDEX in _FACT_IDENTITY and _INDEX in PUBLIC_TIME  # the live PIT reads it, both clocks
     assert _INDEX not in FACT_TABLES
     assert FACT_TABLES == tuple(t for t in _FACT_IDENTITY if t not in DISPLAY_ONLY_FACT_TABLES)

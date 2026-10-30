@@ -17,6 +17,7 @@ import pytest
 
 import signals.base as sb
 from db.bitemporal import _FACT_IDENTITY, as_of, as_of_many
+from db.public_clock import SCOPE_COL
 from db.session import DEFAULT_TENANT_ID
 from domain.config import DEFAULT_CONFIG
 from pipeline.seed import HIMS_SECURITY_ID, NNE_ID
@@ -33,7 +34,9 @@ from tests.pit_fixtures import (
     seed_benchmark_bars,
 )
 
-SECURITY_TABLES = [t for t in _FACT_IDENTITY if t != "fact_theme_conviction"]
+# every security-scoped fact table (the thesis-scoped ones — the theme conviction, the term-mentions count —
+# have no security_id to batch on)
+SECURITY_TABLES = [t for t in _FACT_IDENTITY if SCOPE_COL[t] == "security_id"]
 # every security-scoped PIT accessor -> the table it reads
 ACCESSORS = {
     "insider_txns": "fact_insider_txn",

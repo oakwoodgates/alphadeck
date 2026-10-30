@@ -65,8 +65,11 @@ LOCK_ID_CALL_OF_RECORD = 1
 # an exclusive editions lock there would stall every company writer and every repair, so it took the next free
 # id. The editions job only ever PROBES id 1 (``describe_holder``), never takes it. 5 = the weekly company-list
 # refresh (``pipeline.populate_master --apply``; holder ``master-refresh``), which likewise only PROBES id 1.
+# 6 = the weekly EDGAR term-mentions count (``pipeline.term_mentions --apply``; holder ``term-mentions``), which
+# likewise only PROBES id 1 and never takes the fact-writer gate (id 2): it writes display data only.
 LOCK_ID_EDITIONS = 4
 LOCK_ID_MASTER_REFRESH = 5
+LOCK_ID_TERM_MENTIONS = 6
 
 # The exit code a CLI uses when another process holds the lock (EX_TEMPFAIL, sysexits.h: "a temporary
 # failure; the user is invited to retry"). DISTINCT from 1 ("this night has no record") on purpose: this

@@ -148,6 +148,14 @@
 #   master (a rename updates the company's row IN PLACE, so every fact stays attached) plus the fund list. The job
 #   refuses inside the nightly window, holds its own lock (advisory id 5) and yields to a running pass; a refused
 #   run retries hourly a few times; fail-open (one log line). docs/FEED_LOOP.md §the company list.
+# - RUNS A FOURTH SCHEDULE: THE WEEKLY TERM-MENTIONS COUNT (2026-10-29). `term_mentions_loop` fires
+#   `python -m pipeline.term_mentions --weekly --apply --run-kind cron` every Saturday 10:00 (TERM_MENTIONS_DOW /
+#   TERM_MENTIONS_AT, container TZ — after the 09:00 company-list refresh, which is bounded at 900 s), in the
+#   background like master_refresh_loop: one EDGAR full-text count per card SIGNAL term for the current month and
+#   the one before (plus any month a term added since is missing), display data for the Narrative Adoption Curve
+#   dashboard. A no-op until the operator has run the first backfill by hand. The job refuses inside the nightly
+#   window, holds its own lock (advisory id 6), yields to a running pass and stops between terms when one starts;
+#   a refused / stopped run retries hourly a few times; fail-open (one log line). docs/FEED_LOOP.md §term mentions.
 # - The as-of dates come from this shell's `date` in the container TZ, which compose pins to the market TZ
 #   (the same "today" `market_today()` derives) — keep those two in step.
 # - Inherits the container env directly (DATABASE_URL / ALPHADECK_USER_AGENT / TZ), so unlike a cron daemon
@@ -232,6 +240,23 @@ MASTER_REFRESH_RETRY_S="${MASTER_REFRESH_RETRY_S:-3600}"
 [ "${MASTER_REFRESH_RETRY_S}" -ge 1 ] 2>/dev/null || MASTER_REFRESH_RETRY_S=3600
 MASTER_REFRESH_RETRIES="${MASTER_REFRESH_RETRIES:-6}"
 [ "${MASTER_REFRESH_RETRIES}" -ge 0 ] 2>/dev/null || MASTER_REFRESH_RETRIES=6
+# The term-mentions count — the FOURTH schedule (`term_mentions_loop`, below): weekly, on day TERM_MENTIONS_DOW
+# (`date +%u`; default 6 = Saturday) at TERM_MENTIONS_AT in the container TZ (default 10:00 — after the 09:00
+# company-list refresh, whose run is bounded at 900 s), each run bounded by TERM_MENTIONS_TIMEOUT_S (default an
+# hour; a weekly run is ~1,500 requests — MEASURED 1,492 by the dry run on 2026-10-29 — minutes at the SEC budget — this only stops a HUNG run). A run REFUSED or
+# STOPPED (exit 75: the window, another run, a running pass) is retried every TERM_MENTIONS_RETRY_S, at most
+# TERM_MENTIONS_RETRIES times, then waits for the next week. TERM_MENTIONS=0 turns it OFF (an env-only cron
+# deploy). Same non-numeric guards as SLICE_S; an out-of-range day reads as Saturday.
+TERM_MENTIONS="${TERM_MENTIONS:-1}"
+TERM_MENTIONS_DOW="${TERM_MENTIONS_DOW:-6}"
+case "${TERM_MENTIONS_DOW}" in [1-7]) ;; *) TERM_MENTIONS_DOW=6 ;; esac
+TERM_MENTIONS_AT="${TERM_MENTIONS_AT:-10:00}"
+TERM_MENTIONS_TIMEOUT_S="${TERM_MENTIONS_TIMEOUT_S:-3600}"
+[ "${TERM_MENTIONS_TIMEOUT_S}" -ge 1 ] 2>/dev/null || TERM_MENTIONS_TIMEOUT_S=3600
+TERM_MENTIONS_RETRY_S="${TERM_MENTIONS_RETRY_S:-3600}"
+[ "${TERM_MENTIONS_RETRY_S}" -ge 1 ] 2>/dev/null || TERM_MENTIONS_RETRY_S=3600
+TERM_MENTIONS_RETRIES="${TERM_MENTIONS_RETRIES:-6}"
+[ "${TERM_MENTIONS_RETRIES}" -ge 0 ] 2>/dev/null || TERM_MENTIONS_RETRIES=6
 
 # --- schedule math (pure over their arguments; GNU date) ------------------------------------------------
 
@@ -491,15 +516,18 @@ onboard_loop() {
   done
 }
 
-# next_weekly_epoch EPOCH -> the epoch of the next MASTER_REFRESH_DOW at MASTER_REFRESH_AT strictly AFTER EPOCH
-# (container TZ). Pure over its argument + the two settings, like the schedule math above.
+# next_weekly_epoch EPOCH [DOW AT] -> the epoch of the next DOW (`date +%u`) at AT strictly AFTER EPOCH (container
+# TZ). DOW / AT default to MASTER_REFRESH_DOW / MASTER_REFRESH_AT (the company-list refresh); the term-mentions
+# loop passes its own. Pure over its arguments + those two settings, like the schedule math above.
 next_weekly_epoch() {
+  _nw_dow="${2:-${MASTER_REFRESH_DOW}}"
+  _nw_at="${3:-${MASTER_REFRESH_AT}}"
   _nw_day=$(date -d "@$1" +%F)
   _nw_i=0
   while [ "${_nw_i}" -le 7 ]; do
     _nw_cand=$(date -d "${_nw_day} + ${_nw_i} day" +%F)
-    if [ "$(date -d "${_nw_cand}" +%u)" = "${MASTER_REFRESH_DOW}" ]; then
-      _nw_e=$(date -d "${_nw_cand} ${MASTER_REFRESH_AT}" +%s)
+    if [ "$(date -d "${_nw_cand}" +%u)" = "${_nw_dow}" ]; then
+      _nw_e=$(date -d "${_nw_cand} ${_nw_at}" +%s)
       if [ "${_nw_e}" -gt "$1" ]; then
         echo "${_nw_e}"
         return 0
@@ -547,6 +575,48 @@ master_refresh_loop() {
       [ "${_mr_try}" -le "${MASTER_REFRESH_RETRIES}" ] || break
       echo "master-refresh: retry ${_mr_try} of ${MASTER_REFRESH_RETRIES} in ${MASTER_REFRESH_RETRY_S}s"
       wait_until "$(( $(date +%s) + MASTER_REFRESH_RETRY_S ))"
+    done
+  done
+}
+
+# term_mentions_run ARGS... -> ONE bounded `python -m pipeline.term_mentions --weekly --apply --run-kind cron`,
+# returning its exit status (75 = refused or stopped). One log line on anything but success; the job prints its
+# own summary line (and one line per failed term-month).
+term_mentions_run() {
+  timeout -k 60 "${TERM_MENTIONS_TIMEOUT_S}" python -m pipeline.term_mentions --weekly --apply --run-kind cron "$@"
+  _tm_rc=$?
+  case "${_tm_rc}" in
+    0) ;;
+    75) echo "term-mentions: REFUSED or STOPPED (the nightly window, another run or a running pass) — the terms already written are kept" ;;
+    124) echo "term-mentions: TIMED OUT after ${TERM_MENTIONS_TIMEOUT_S}s and was stopped (one transaction per term: the terms already written are kept)" ;;
+    *) echo "term-mentions: FAILED (exit ${_tm_rc}) (continuing; the next schedule retries)" ;;
+  esac
+  return "${_tm_rc}"
+}
+
+# term_mentions_loop -> THE FOURTH SCHEDULE: the weekly EDGAR term-mentions count (`python -m pipeline.term_mentions
+# --weekly --apply`): per card SIGNAL term, the current month and the one before re-counted (plus any month a term
+# added since is missing) — display data only (the Narrative Adoption Curve dashboard). In the background of this
+# sidecar, like master_refresh_loop, and deliberately dumb: the job is a no-op until the operator's first backfill
+# (an empty table), refuses inside the nightly window, holds its OWN lock (advisory id 6), yields to a running pass
+# (a pg_locks probe; it never takes the call-of-record lock) and stops between terms when one starts. At start it
+# runs once with `--if-stale-days 7` (a no-op unless the newest applied run is over a week old — a Saturday the
+# box missed; never before the first backfill), then fires every TERM_MENTIONS_DOW at TERM_MENTIONS_AT. A refused /
+# stopped run retries TERM_MENTIONS_RETRY_S later, at most TERM_MENTIONS_RETRIES times. Fail-open: a failed run is
+# one log line, never the end of the loop.
+term_mentions_loop() {
+  echo "term-mentions: weekly on day ${TERM_MENTIONS_DOW} (date +%u) at ${TERM_MENTIONS_AT} (${TZ:-UTC}) — each run bounded at ${TERM_MENTIONS_TIMEOUT_S}s"
+  term_mentions_run --if-stale-days 7
+  while :; do
+    wait_until "$(next_weekly_epoch "$(date +%s)" "${TERM_MENTIONS_DOW}" "${TERM_MENTIONS_AT}")"
+    _tm_try=0
+    while :; do
+      term_mentions_run && break
+      [ "$?" = 75 ] || break
+      _tm_try=$(( _tm_try + 1 ))
+      [ "${_tm_try}" -le "${TERM_MENTIONS_RETRIES}" ] || break
+      echo "term-mentions: retry ${_tm_try} of ${TERM_MENTIONS_RETRIES} in ${TERM_MENTIONS_RETRY_S}s"
+      wait_until "$(( $(date +%s) + TERM_MENTIONS_RETRY_S ))"
     done
   done
 }
@@ -631,6 +701,12 @@ if [ "${MASTER_REFRESH}" != 0 ]; then
   master_refresh_loop &
 else
   echo "master-refresh: MASTER_REFRESH=0 — the weekly company-list refresh is OFF in this sidecar"
+fi
+# THE FOURTH SCHEDULE — the weekly term-mentions count, likewise after the boot block and in the background.
+if [ "${TERM_MENTIONS}" != 0 ]; then
+  term_mentions_loop &
+else
+  echo "term-mentions: TERM_MENTIONS=0 — the weekly term-mentions count is OFF in this sidecar"
 fi
 
 while :; do

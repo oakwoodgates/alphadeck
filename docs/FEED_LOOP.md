@@ -2211,6 +2211,14 @@ The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
   (exit 75) retries `MASTER_REFRESH_RETRY_S` (3600 s) later, at most `MASTER_REFRESH_RETRIES` (6) times.
   `MASTER_REFRESH=0` (compose `ALPHADECK_MASTER_REFRESH`) is the kill switch, an env-only cron deploy. The
   section "The company list" below has the job.
+- **A fourth schedule: the weekly term-mentions count (2026-10-29)** `[BUILT]`. Beside `master_refresh_loop`,
+  the sidecar starts `term_mentions_loop` in the BACKGROUND: `timeout -k 60 TERM_MENTIONS_TIMEOUT_S python -m
+  pipeline.term_mentions --weekly --apply --run-kind cron` every `TERM_MENTIONS_DOW` (default **6 = Saturday**)
+  at `TERM_MENTIONS_AT` (default **10:00** market time — after the 09:00 company-list refresh, whose run is
+  bounded at 900 s), through the same `next_weekly_epoch` (now taking a day and a time). At start it runs once
+  with `--if-stale-days 7`; a REFUSED or STOPPED run (exit 75) retries `TERM_MENTIONS_RETRY_S` (3600 s) later,
+  at most `TERM_MENTIONS_RETRIES` (6) times. `TERM_MENTIONS=0` (compose `ALPHADECK_TERM_MENTIONS`) is the kill
+  switch. The section "Term mentions" below has the job.
 
 - **On by default.** The `cron` service comes up with the normal `docker compose up` (no profile flag), so the
   deployed stack notifies itself with no extra command to remember. Skip it for one run with
@@ -2533,6 +2541,61 @@ the same line (`master_refresh`, from the newest applied artifact; louder only o
 company SEC now lists as GFUZ), and the promote's identity guard reads a stored basket label that is the bound
 row's former ticker as `renamed` — ALIGNED to the current ticker like a sibling, never a 422 (a basket saved
 before the rename still saves).
+
+### Term mentions — the weekly EDGAR full-text count (2026-10-29)  `[BUILT]`
+
+**What it is.** The data the Narrative Adoption Curve dashboard reads (`docs/dashboards/narrative-adoption.md`):
+for every live card and every **SIGNAL** term in its term set (the operator's seeds; BROAD terms are never
+counted), ONE EDGAR full-text search per calendar month, stored in `fact_term_mentions` (migration **0071**,
+append-only, thesis-scoped, `valid_from` = the month's last day): the documents that matched the phrase, split
+into **reports** (10-K / 10-Q / 20-F / 40-F / 6-K), **events** (8-K), **issuance** (S-1 / S-3 / F-1 / F-3 /
+S-11 and their MEF / ASR variants, 424B*, FWP) and **other** (the four always sum to the documents), the
+distinct filer CIKs (`filers`, "at least" — `filers_sampled` — when the reply does not show every filer) and
+`new_filers` (CIKs no earlier stored month of that card-term had; NULL for a term's first stored month).
+**Display only:** no detector reads it (`PointInTimeData.term_mentions` is off the detectors' protocol), it is
+kept out of the replay mirror (`db.bitemporal.DISPLAY_ONLY_FACT_TABLES`), it never places a name and no LLM is
+involved.
+
+**The job:** `python -m pipeline.term_mentions` — **dry run by default** (no SEC request, nothing written: it
+prints the plan per term, the requests the backfill needs NOW and the steady-state weekly count after it).
+`--backfill --apply` fetches every month of the window (`--months`, default 36) not yet stored for a card-term
+(resumable: a stored month is never re-fetched); `--weekly --apply` does the same missing-month fill (a term
+added to a card later gets its window) PLUS re-fetches the current month and the one before (a filing accepted
+late settles the prior month). `--thesis` scopes, `--no-live` is cache only. Requests go through `EdgarClient`
+on the **recurring lane** (`RECURRING_CACHE_TTL_S`: the declared User-Agent, the global SEC budget, the 429
+pause) under their own cache prefix `efts_month/`, ONE per (term, month) across cards (a term two cards share,
+compared case-insensitively, is fetched once and stored under each card's own spelling), a term's months
+fetched by a small pool. Each run writes one summary line (`term-mentions: weekly · N cards · T SIGNAL terms (U
+distinct) · R requests (C from cache) · A rows appended · S unchanged · F failed · D deferred`), one line per
+failed term-month, and `data/term_mentions/<started>.json` (the plan, the counts, the network attempts, the
+failed and deferred lists, the status).
+
+**Cost.** The backfill is DISTINCT SIGNAL terms × 36 requests; the weekly run after it is distinct terms × 2 plus
+any missing months. MEASURED by the dry run (`python -m pipeline.term_mentions --backfill`, no SEC request) on a
+copy of dev's 62 live cards on 2026-10-29: 775 SIGNAL terms, 746 distinct, so the backfill needs **26,856
+requests** (the plan's PROPOSED 27,900 counted the 29 shared terms twice) and each weekly run after it **1,492**
+(PROPOSED 1,550). No month-ranged reply was cached, so every backfill request goes to SEC: about 53 minutes if the
+recurring lane runs alone at the 8.5/s budget, about twice that sharing it (PROPOSED; the first backfill's run
+artifact measures it). The dry run prints both numbers for the cards as they stand. **The first backfill is the operator's call:**
+`--weekly` on an EMPTY table (for the tenant) is a no-op line, so the Saturday loop can never start it on its
+own.
+
+**Honesty rules.** `documents` is EFTS's exact total, or — when the total is capped (`relation: gte`, 10,000) —
+the form aggregation's own total, which is not capped (MEASURED equal to the exact total on all 126 cached exact
+replies). A failed request (after the client's retries; SEC's 2xx error reply included) leaves the month
+unstored, or its older version standing, and is LISTED — never a zero row; a reply whose counts cannot be stated
+(a capped total with no aggregation, named groups above the total) fails the same way. When a month that is NOT
+stored fails, that card-term's later months that came back are DEFERRED (held back, listed), so `new_filers` is
+never computed across a gap. **Store-on-diff:** a re-fetched month appends a new version only when a value
+changed, so a re-run appends nothing (proven by counting the table); a stored month whose `new_filers` changes
+because an EARLIER month was filled after it is re-derived from the stored CIK sets (a new version, no request).
+
+**The locks + the window.** `--apply` REFUSES (exit 75, nothing written) inside the nightly window, while another
+run holds its own advisory lock (`LOCK_ID_TERM_MENTIONS = 6`, holder `term-mentions`), or while a pass holds the
+call-of-record lock (a probe, never taken). It re-checks the window and the probe between terms and STOPS
+cleanly (exit 75, status `stopped`, the rest listed deferred; each term's rows are one transaction, so the terms
+already written are kept). It takes no fact-writer gate and writes no `data_repair` journal row: this is ordinary
+display data flow, not a repair, so it never starts a Scoreboard editions repair trial.
 
 ### Backfilling a missed night — `pipeline.backfill`  `[BUILT]`
 

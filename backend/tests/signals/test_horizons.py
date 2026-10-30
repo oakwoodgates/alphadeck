@@ -206,6 +206,7 @@ class _RecordingPIT:
         "fund_shares": "fact_fund_shares",
         "filing_index": "fact_filing_index",
         "theme_conviction_facts": "fact_theme_conviction",
+        "term_mentions": "fact_term_mentions",
     }
 
     def __init__(self, inner: PointInTimeData) -> None:
