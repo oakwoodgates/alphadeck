@@ -190,3 +190,14 @@ operator's to confirm or change. Nothing below is a measurement.
     way. The page never shows another kind, so no row, count or note moves. A kind name the reader does not have
     raises, so a typo cannot read as "no rows". The new post-narrowing cold time is to be measured on dev with a prod
     copy and recorded in the Cache section.
+
+### MEASURED (dev with a prod data copy, 2026-10-29, after the nightly pass)
+
+- Before the narrowed read: 30 days 90 purchases on 46 names (1,150 names read, 1,960 Form 4 filings read, 37 cluster
+  rows on 12 names), 152 KB, cold compute 67,706 ms; 90 days 417 purchases on 180 names, 698 KB, 71,998 ms; the past
+  as-of 2026-09-15 (10 cards counted) 127 purchases, 32,419 ms. Cache hits under 10 ms.
+- After narrowing the reader to the Form 4 kinds (`kinds=FORM4_KINDS`): the same rows, 30 days cold 37,268 ms, 90 days
+  42,841 ms. The rest of the cold read is the Form 4 grouping itself over 1,150 names plus bars for the names with a
+  purchase; the post-nightly cache warm-up is the follow-up that hides it.
+- Renders at desktop and phone width: the filing-week groups, the size / role / cap / card filters with their counts,
+  the cluster word as the one accent, the trigger chips and the "filed N days after the trade" notes.
