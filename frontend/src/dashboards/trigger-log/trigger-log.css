@@ -1,0 +1,136 @@
+/* Trigger Log (docs/dashboards/trigger-log.md) — its own sheet, imported by the component, never index.css
+   (docs/DASHBOARDS.md rule 8). The trading set's tape look (docs/dashboards/hot-board.md §Look): dense rows, mono
+   figures, a sticky header with the group headers sticky under it, no cards, a hairline between rows, the work
+   line quiet under the table. Loudness marks the exception only (#7 / WB#3): entry triggers and risk signals share
+   one gray (the role is a glyph); the Board's state colors sit on a state word only; the sign tone (the app's
+   positive and negative mixed 55% into gray, the Rotation Quadrant's recipe) sits on the signed since-return only;
+   the page's ONE accent is a row recorded on the as-of's own night, in --leader (a blue no lifecycle state owns).
+   Nothing is bold but the ticker. */
+
+.tl {
+  --tl-pos: color-mix(in srgb, var(--pos) 55%, var(--txt-3));
+  --tl-neg: color-mix(in srgb, var(--neg) 55%, var(--txt-3));
+  --tl-accent: var(--leader);
+  --tl-cols: 58px 132px 58px minmax(56px, 104px) 112px 84px 40px minmax(180px, 1fr) 80px 140px 70px 62px 130px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tl-controls, .tl-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
+.tl-seg, .tl-field { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.tl-seg-label { font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); margin-right: 2px; }
+.tl-chipbtn { font: inherit; font-size: 11px; color: var(--txt-3); background: transparent; border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 9px; cursor: pointer; }
+.tl-chipbtn:hover { color: var(--txt-2); }
+.tl-chipbtn.on { color: var(--txt); background: var(--panel-2); }
+.tl-select { font: inherit; font-size: 11.5px; color: var(--txt-2); background: transparent; border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 7px; max-width: 280px; }
+.tl-select option { background: var(--panel); color: var(--txt-2); }
+.tl-n { font-family: var(--mono); font-size: 9.5px; font-weight: 400; color: var(--txt-4); font-variant-numeric: tabular-nums; }
+.tl-chipbtn .tl-n { color: inherit; opacity: 0.7; }
+.tl-clear { font: inherit; font-size: 11px; color: var(--txt-3); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 3px; }
+.tl-clear:hover { color: var(--txt-2); }
+.tl-empty { padding: 14px 0; }
+
+/* the table: its own scroll box, so the sticky header and group headers stick inside it */
+.tl-scroll { max-height: 72vh; overflow: auto; border-top: 1px solid var(--line); }
+.tl-table { min-width: 1330px; font-size: 11.5px; color: var(--txt-2); font-variant-numeric: tabular-nums; }
+.tl-head, .tl-row { display: grid; grid-template-columns: var(--tl-cols); align-items: center; gap: 0 8px; padding: 0 8px; }
+.tl-head { position: sticky; top: 0; z-index: 3; min-height: 26px; background: var(--bg); border-bottom: 1px solid var(--line); }
+.tl-h { font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); font-weight: 600; white-space: nowrap; }
+.tl-gh { position: sticky; top: 26px; z-index: 2; background: var(--bg); border-bottom: 1px solid var(--line); padding: 0 8px; }
+.tl-gh-cell { display: flex; align-items: baseline; gap: 10px; min-height: 26px; padding-top: 5px; font-size: 12px; font-weight: 400; color: var(--txt-2); letter-spacing: 0.02em; }
+.tl-cardname { font: inherit; color: var(--txt-2); background: none; border: 0; padding: 0; cursor: pointer; }
+.tl-cardname:hover { color: var(--txt); text-decoration: underline; text-underline-offset: 3px; }
+
+/* a row: about 26 px, a hairline under it, a quiet hover */
+.tl-row { min-height: 26px; border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent); border-left: 2px solid transparent; }
+.tl-row:hover { background: color-mix(in srgb, var(--panel) 70%, transparent); }
+/* the one accent: recorded on the as-of's own night */
+.tl-row.newest { border-left-color: var(--tl-accent); }
+.tl-row.newest .tl-c-night { color: var(--tl-accent); }
+.tl-c { min-width: 0; padding: 3px 0; line-height: 1.4; }
+.tl-c-night, .tl-c-fired, .tl-c-sess, .tl-c-since, .tl-c-turns, .tl-c-grade, .tl-c-live { font-family: var(--mono); font-size: 10.5px; white-space: nowrap; }
+.tl-c-fired, .tl-c-since { white-space: normal; }
+.tl-h.tl-c-sess { text-align: right; }
+.tl-c-sess { text-align: right; }
+.tl-c-turns, .tl-c-grade, .tl-c-live, .tl-c-kind { color: var(--txt-3); }
+.tl-c-kind { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tl-c-label { overflow-wrap: anywhere; color: var(--txt-2); }
+.tl-c-card { overflow: hidden; }
+.tl-chip { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; font-size: 10px; color: var(--txt-3); border: 1px solid var(--line-2); border-radius: 6px; padding: 0 6px; }
+.tl-tk { font-family: var(--mono); font-size: 11px; font-weight: 700; color: var(--txt-2); background: none; border: 0; padding: 0; cursor: pointer; }
+.tl-tk:hover { color: var(--txt); text-decoration: underline; text-underline-offset: 3px; }
+.tl-role { color: var(--txt-3); }
+.tl-quiet { color: var(--txt-3); }
+.tl-note { display: block; color: var(--txt-4); font-size: 9.5px; line-height: 1.2; }
+.tl-rc { margin-left: 3px; color: var(--txt-3); cursor: help; }
+.tl-arrow { color: var(--txt-4); }
+.tl-live.on, .tl-c-live.on { color: var(--txt-2); }
+
+/* the Board's state colors, on a state word only */
+.tl-st { font-family: var(--mono); font-size: 10.5px; }
+.tl-st.incub { color: var(--incub); }
+.tl-st.warm { color: var(--warm); }
+.tl-st.armed { color: var(--armed); }
+.tl-st.manage { color: var(--manage); }
+
+/* sources: a quiet link, the bar date as plain text */
+.tl-c-src { font-family: var(--mono); font-size: 10px; display: flex; flex-wrap: wrap; gap: 0 8px; }
+.tl-link, .tl-link:visited, .tl-link:active { color: var(--txt-3); text-decoration: none; white-space: nowrap; }
+.tl-link:hover { color: var(--txt); text-decoration: underline; text-underline-offset: 3px; }
+.tl-bar { color: var(--txt-3); white-space: nowrap; cursor: help; }
+
+/* the sign tone: only on the signed since-return */
+.tl-ret.pos { color: var(--tl-pos); }
+.tl-ret.neg { color: var(--tl-neg); }
+.tl-ret.flat { color: var(--txt-2); }
+.tl-bench { color: var(--txt-4); font-size: 9.5px; }
+
+/* the work line and what is set aside */
+.tl-work { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
+.tl-fixed { color: var(--txt-3); }
+.tl-limits { margin: 4px 0 0; padding-left: 16px; font-size: 10.5px; line-height: 1.5; color: var(--txt-4); }
+.tl-fold { font: inherit; font-size: 10.5px; color: var(--txt-3); background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
+.tl-fold:hover, .tl-fold[aria-expanded="true"] { color: var(--txt-2); }
+.tl-chev { display: inline-block; width: 12px; color: var(--txt-4); font-size: 10px; }
+.tl-names { list-style: none; margin: 2px 0 0 12px; padding: 0 0 0 10px; border-left: 1px solid var(--line); }
+.tl-chipbtn:focus-visible, .tl-tk:focus-visible, .tl-fold:focus-visible, .tl-cardname:focus-visible, .tl-clear:focus-visible, .tl-link:focus-visible { outline: 1px solid var(--line-2); outline-offset: 2px; border-radius: 2px; }
+
+/* a phone: the table drops its sideways scroll and each row folds into lines: the night, ticker, kind and since on
+   the first; the fire date and the card on the second; the label on the third; the source and the state folded
+   under it; the rest last. The column header row is left off, so a cell whose meaning is not in its words carries
+   its label in front of it (``data-label``). */
+@media (max-width: 760px) {
+  .tl-scroll { max-height: none; overflow: visible; }
+  .tl-table { min-width: 0; }
+  .tl-head { display: none; }
+  .tl-gh { top: 0; }
+  .tl-row {
+    grid-template-columns: 58px 62px minmax(0, 1fr) auto;
+    grid-template-areas:
+      "night tk kind since"
+      "fired fired card card"
+      "label label label label"
+      "src src state state"
+      "live sess grade turns";
+    row-gap: 1px;
+    padding-top: 3px;
+    padding-bottom: 3px;
+  }
+  .tl-c[data-label]::before { content: attr(data-label) ": "; font-family: var(--sans); font-size: 9.5px; color: var(--txt-4); }
+  .tl-c-kind { white-space: normal; }
+  .tl-c-night { grid-area: night; }
+  .tl-c-fired { grid-area: fired; }
+  .tl-c-tk { grid-area: tk; }
+  .tl-c-card { grid-area: card; }
+  .tl-c-kind { grid-area: kind; }
+  .tl-c-turns { grid-area: turns; }
+  .tl-c-grade { grid-area: grade; }
+  .tl-c-label { grid-area: label; }
+  .tl-c-src { grid-area: src; }
+  .tl-c-state { grid-area: state; }
+  .tl-c-live { grid-area: live; }
+  .tl-c-sess { grid-area: sess; text-align: left; }
+  .tl-c-since { grid-area: since; text-align: right; }
+  .tl-select { max-width: 200px; }
+}

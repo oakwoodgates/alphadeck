@@ -5267,6 +5267,63 @@
         }
       }
     },
+    "/dashboards/trigger-log": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Trigger Log Page",
+        "description": "Every entry trigger and risk signal the recorded calls show firing across the cards in the window, newest\nrecorded night first: each trigger once (the same trigger on many nights is one row, dated the first night\nthe record shows it), with its fire date, role and key, source, the card's state that night beside the night\nbefore, whether it is still live, the sessions since and the name's as-traded return since against IWM.\nDisplay only, with no aggregate over the rows. A past as-of reads the nights recorded on or before it and\nthe bars public by the end of that date.",
+        "operationId": "trigger_log_page_dashboards_trigger_log_get",
+        "parameters": [
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; no night recorded after it and no bar public after it is read",
+              "title": "Asof"
+            },
+            "description": "as-of date; no night recorded after it and no bar public after it is read"
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/TriggerLogDays",
+              "description": "the window: the last 30 | 90 | 180 days",
+              "default": 90
+            },
+            "description": "the window: the last 30 | 90 | 180 days"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TriggerLogOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/dashboards/what-changed": {
       "get": {
         "tags": [
@@ -29602,6 +29659,606 @@
         ],
         "title": "TriageSessionPut",
         "description": "The autosave body: the FE's ENTIRE editor working state serialized to one opaque JSON blob. ``state`` is\n``dict`` \u2014 the backend NEVER interprets it (the FE owns and shapes it); ``schema_version`` is the FE's, so a\nfuture breaking shape change is decidable on restore. A session is NOT a fact: this write persists zero spine\nrows (``test_session_put_writes_no_spine_rows``)."
+      },
+      "TriggerLogCountsOut": {
+        "properties": {
+          "cards_counted": {
+            "type": "integer",
+            "title": "Cards Counted"
+          },
+          "cards_with_nights": {
+            "type": "integer",
+            "title": "Cards With Nights"
+          },
+          "cards_quiet": {
+            "type": "integer",
+            "title": "Cards Quiet"
+          },
+          "cards_no_call": {
+            "type": "integer",
+            "title": "Cards No Call"
+          },
+          "live_cards": {
+            "type": "integer",
+            "title": "Live Cards"
+          },
+          "not_yet_created": {
+            "type": "integer",
+            "title": "Not Yet Created"
+          },
+          "roster_fallback": {
+            "type": "integer",
+            "title": "Roster Fallback"
+          },
+          "nights_read": {
+            "type": "integer",
+            "title": "Nights Read"
+          },
+          "nights_reconstructed": {
+            "type": "integer",
+            "title": "Nights Reconstructed"
+          },
+          "nights_unreadable": {
+            "type": "integer",
+            "title": "Nights Unreadable"
+          },
+          "entry_rows": {
+            "type": "integer",
+            "title": "Entry Rows"
+          },
+          "risk_rows": {
+            "type": "integer",
+            "title": "Risk Rows"
+          },
+          "carried_live": {
+            "type": "integer",
+            "title": "Carried Live"
+          },
+          "names_unpriced": {
+            "type": "integer",
+            "title": "Names Unpriced"
+          },
+          "names_flagged": {
+            "type": "integer",
+            "title": "Names Flagged"
+          },
+          "rows_no_ticker": {
+            "type": "integer",
+            "title": "Rows No Ticker"
+          }
+        },
+        "type": "object",
+        "required": [
+          "cards_counted",
+          "cards_with_nights",
+          "cards_quiet",
+          "cards_no_call",
+          "live_cards",
+          "not_yet_created",
+          "roster_fallback",
+          "nights_read",
+          "nights_reconstructed",
+          "nights_unreadable",
+          "entry_rows",
+          "risk_rows",
+          "carried_live",
+          "names_unpriced",
+          "names_flagged",
+          "rows_no_ticker"
+        ],
+        "title": "TriggerLogCountsOut",
+        "description": "The work shown on the quiet line: counts of what was read and listed, never a statistic over the rows'\nreturns. ``cards_quiet`` = cards with a call by the as-of but no night in the window; ``carried_live`` = live\ntriggers first recorded before the window (not listed); ``names_*`` = distinct names."
+      },
+      "TriggerLogDays": {
+        "type": "integer",
+        "enum": [
+          30,
+          90,
+          180
+        ],
+        "title": "TriggerLogDays",
+        "description": "The window: the last 30, 90 or 180 days."
+      },
+      "TriggerLogNameOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "reason"
+        ],
+        "title": "TriggerLogNameOut",
+        "description": "A name the page set aside from the tape, never from the list: ``reason`` = the flags' labels for a flagged\none, ``null`` for an unpriced one. ``ticker`` is ``null`` when neither the roster nor the master has one."
+      },
+      "TriggerLogOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "window_days": {
+            "type": "integer",
+            "title": "Window Days"
+          },
+          "window_start": {
+            "type": "string",
+            "format": "date",
+            "title": "Window Start"
+          },
+          "clock": {
+            "type": "string",
+            "enum": [
+              "record",
+              "public"
+            ],
+            "title": "Clock"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/TriggerLogRowOut"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/TriggerLogCountsOut"
+          },
+          "sessions": {
+            "$ref": "#/components/schemas/TriggerLogSessionsOut"
+          },
+          "unpriced": {
+            "items": {
+              "$ref": "#/components/schemas/TriggerLogNameOut"
+            },
+            "type": "array",
+            "title": "Unpriced"
+          },
+          "flagged": {
+            "items": {
+              "$ref": "#/components/schemas/TriggerLogNameOut"
+            },
+            "type": "array",
+            "title": "Flagged"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "window_days",
+          "window_start",
+          "clock",
+          "rows",
+          "counts",
+          "sessions",
+          "unpriced",
+          "flagged",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "TriggerLogOut",
+        "description": "The whole page at the as-of. ``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was\npublic by the end of that date). The window is ``window_start`` to ``asof``, inclusive; ``rows`` are\nnewest recorded night first, then ticker. There is no aggregate over the rows (the Track Record page slices\noutcomes by market-cap tier). ``cache`` / ``compute_ms`` = whether the read came from the shared dashboard\ncache and how long it took when computed."
+      },
+      "TriggerLogRowOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "entry_trigger",
+              "risk_signal"
+            ],
+            "title": "Role"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/Kind"
+          },
+          "grade": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Grade"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "turns": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "conviction",
+                  "confirmation"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turns"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "event_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Date"
+          },
+          "recorded_on": {
+            "type": "string",
+            "format": "date",
+            "title": "Recorded On"
+          },
+          "week": {
+            "type": "string",
+            "format": "date",
+            "title": "Week"
+          },
+          "recorded_days_after": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recorded Days After"
+          },
+          "reconstructed": {
+            "type": "boolean",
+            "title": "Reconstructed"
+          },
+          "from_state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/State"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "to_state": {
+            "$ref": "#/components/schemas/State"
+          },
+          "new_card": {
+            "type": "boolean",
+            "title": "New Card"
+          },
+          "live": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Live"
+          },
+          "newest": {
+            "type": "boolean",
+            "title": "Newest"
+          },
+          "sessions_since": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sessions Since"
+          },
+          "since": {
+            "$ref": "#/components/schemas/TriggerLogSinceOut"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/TriggerLogSourceOut"
+            },
+            "type": "array",
+            "title": "Sources"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "thesis_id",
+          "thesis_name",
+          "security_id",
+          "ticker",
+          "role",
+          "kind",
+          "grade",
+          "turns",
+          "label",
+          "event_date",
+          "recorded_on",
+          "week",
+          "recorded_days_after",
+          "reconstructed",
+          "from_state",
+          "to_state",
+          "new_card",
+          "live",
+          "newest",
+          "sessions_since",
+          "since",
+          "sources"
+        ],
+        "title": "TriggerLogRowOut",
+        "description": "One trigger on one card, dated by the first night in the window the record shows it. ``event_date`` = the\nfire date (``null`` = undated); ``recorded_days_after`` = days from the fire date to the recorded night when\nthe fire date is earlier; ``week`` = the Monday of the recorded night's week; ``turns`` = the key an entry\ntrigger turns (``null`` for a risk signal or a kind neither key takes); ``from_state`` / ``to_state`` = the\ncard's recorded state on the previous recorded night and on this one (``new_card`` = no earlier row);\n``live`` = the same trigger is on the card in effect at the as-of (``null`` = that card could not be read);\n``newest`` = the recorded night is the as-of's own night; ``sessions_since`` = the sessions the since-return\nspans on IWM's calendar (``null`` = none); ``reconstructed`` = written by ``pipeline.backfill`` (reported,\nnever scored)."
+      },
+      "TriggerLogSessionsOut": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "benchmarks",
+              "companies",
+              "none"
+            ],
+            "title": "Source"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          },
+          "first": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First"
+          },
+          "last": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "count",
+          "first",
+          "last"
+        ],
+        "title": "TriggerLogSessionsOut",
+        "description": "The session calendar the sessions-since counts on: IWM's bar dates ending at the as-of (``source`` =\n``benchmarks``; ``companies`` / ``none`` when IWM has no bar)."
+      },
+      "TriggerLogSinceOut": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "priced",
+              "unpriced",
+              "flagged"
+            ],
+            "title": "Status"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "entry_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Date"
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Date"
+          },
+          "ret": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ret"
+          },
+          "bench_ret": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bench Ret"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "reason",
+          "entry_date",
+          "end_date",
+          "ret",
+          "bench_ret"
+        ],
+        "title": "TriggerLogSinceOut",
+        "description": "The name's as-traded return from the first close on or after the recorded night to the last close on or\nbefore the as-of, with IWM on the same two dates. ``priced`` = both bars exist; ``unpriced`` = no bar since the\nrecorded night; ``flagged`` = the name's price history is on the flagged-price list (``reason``, never\npriced). ``bench_ret`` is ``null`` when IWM has no bar on one of those two dates. Returns are fractions (0.05 = +5%)."
+      },
+      "TriggerLogSourceOut": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ref"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "bar_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bar Date"
+          },
+          "detail": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "ref",
+          "url",
+          "bar_date",
+          "detail"
+        ],
+        "title": "TriggerLogSourceOut",
+        "description": "A place a trigger points at. ``source`` = the kind as stored (``form4``, ``price``, ``xbrl``), ``ref`` =\nits reference, ``url`` = a link (an accession through the EDGAR index with the issuer's CIK, or a stored\nURL; ``null`` = none known), ``bar_date`` = the bar a ``price:`` reference names (text, never a link),\n``detail`` = the computation's inputs as stored, one ``key: value`` line each."
       },
       "TriggerRefOut": {
         "properties": {

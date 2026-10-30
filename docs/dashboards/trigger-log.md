@@ -124,3 +124,97 @@ The build lists here every choice it made that this plan does not spell out, eac
 change. Pre-decided here for the operator's review: the 90-day default window; the identity (security, kind, fire
 date, label); the first recorded night as the row's date; the week grouping by default; IWM as the comparison and the
 session calendar; the one accent on last night's rows.
+
+### Built choices to confirm
+
+Every choice the build made that the plan does not spell out, each the operator's to confirm or change. Nothing
+below was measured on prod data: the build environment had no prod copy, so the page's own `compute_ms` and the
+checks named under "To verify on the dev stack" are the orchestrator's.
+
+**What a row is**
+
+1. **The window is inclusive at both ends:** `[as-of − days, as-of]` in calendar days. The "one row in effect
+   before the window" is the newest row dated before the window's first day (`asof < as-of − days`).
+2. **The role is part of the identity** (a five-part key), so an entry trigger and a risk signal that somehow
+   shared the other four fields never merge and hide one. Today no kind appears in both roles, so no row changes.
+3. **The first copy stands for a merged trigger:** the card-level `triggers_fired` copy, else an armed member's, else
+   a watch member's, else the risk signal. Its grade, label and sources are the row's.
+4. **"First recorded before the window" means "the one row before the window shows it."** That row is all the log
+   the page reads of the past, so an identity it shows is never a row, even if it lapsed inside the window and came
+   back; a trigger that lapsed before that row and returned inside the window is listed (new to the record we read).
+   A trigger that lapses and returns inside the window is one row dated its first night.
+5. **The count of live triggers first recorded before the window** (`carried_live`) counts both roles: every
+   identity the row before the window shows that is still on the card in effect at the as-of.
+6. **No Context / Bench filtering:** a recorded call never carries a silent name's trigger (`voting_thesis` removes
+   it at the assembly seam), so there is nothing to filter; a name the roster has since moved to Context keeps its
+   past rows.
+7. **A night whose stored card no longer validates** is counted on the work line ("N unreadable, not listed"), never
+   a 500. If the row before the window is the unreadable one, the first night's state cell reads `? → armed`, not
+   "new card"; if the card in effect at the as-of is the unreadable one, `live` is unknown ("—") for every row.
+
+**Role, key, state, live**
+
+8. **The key is read with today's `DEFAULT_CONFIG`,** not the config in force the night the call was recorded.
+9. **An entry trigger whose kind is in neither key set** (a squeeze, say) turns no key and reads "no key".
+10. **The revenue-acceleration exception is recognized by its provenance,** because the assembler keys it on the
+    detector name, which never reaches the wire: a catalyst whose source is `xbrl` with `metric: revenue`. A test pins
+    the metric against the detector's own constant and the source against `COMPUTED_CONVICTION_SOURCES`.
+11. **"State changed only" means the previous recorded night's state is known and differs.** A new card began; it did
+    not change.
+12. **`live` is "still on the card in effect at the as-of"** (the newest night in the window, else the row before it).
+    Off the card reads "off the card", not "lapsed" (a re-dated trigger also leaves the card).
+
+**The tape**
+
+13. **Sessions since** = the sessions between the entry bar's session and the last session on or before the as-of, on
+    IWM's calendar: the number of daily steps the return spans (0 = the same session; none = "—").
+14. **IWM is read on the name's own two dates** (its entry bar's date and its end bar's date), by exact date. If IWM
+    has no bar on either, "IWM" shows nothing: never a shifted span.
+15. **An entry bar that is also the end bar** (recorded on the as-of's own session) is a priced 0.0%, not unpriced.
+16. **A flagged name's bars are never read** (it keeps its row; the cell reads "flagged: <reason>").
+17. **The sign tone sits on the name's own return only;** IWM beside it stays gray.
+18. **Bars are read over the window** (`lookback_days = days`), which holds every entry bar (the recorded night is
+    never before the window's first day).
+
+**The page**
+
+19. **The one accent is exact equality:** `recorded night == the as-of date`. On the live view, before tonight's pass,
+    last night's rows are dated yesterday, so nothing is accented until the pass runs. The alternative is "the newest
+    recorded night on or before the as-of" (accents last night all day): say so and it is one comparison.
+20. **Filters:** role, kind and grade are chip sets (any of a dimension's chips, all across dimensions); **card is a
+    picker, not chips** (a card list can run to dozens); "live only" and "state changed only" are chips. Each chip
+    restates how many rows it shows with every OTHER filter applied; the page restates "N of M" when any filter is on.
+    A control with fewer than two values in the payload does not render (WB#3).
+21. **Group order:** weeks newest first, kinds and cards A→Z; inside a group the server's order (recorded night
+    newest first, then ticker, no-ticker last, then card, role, kind, label, fire date). A group header counts its
+    rows by role and leaves a zero out.
+22. **A reconstructed night is a dagger (†)** on the recorded night, with the explanation on hover and a line on the
+    work line; the page footnote counts them.
+23. **The fire-date note is its own small line under the date** ("recorded 5 days after"); no note when the fire date
+    is the recorded night, later than it, or absent ("undated").
+24. **Tickers:** the roster at the as-of (first basket row of the company wins), else the master's; a name with
+    neither shows "—", opens the Cockpit by its security id and is counted on the work line.
+25. **Phone:** below 760 px the column header goes and each row folds into five lines (night · ticker · kind · since;
+    fire date · card; label; source · state; live · sessions · grade · turns), with a quiet label in front of a cell
+    whose words do not carry its meaning. The table sits in its own scroll box (at most 72% of the viewport tall) so
+    its sticky header and group headers hold; a desktop narrower than about 1,330 px scrolls it sideways.
+26. **API:** `asof` is required (the shell always sends it); `days` is the enum 30 | 90 | 180 (422 otherwise); returns
+    are fractions; each row has a short stable `key` (a hash of its identity) and its `week` (the Monday).
+27. **The description is the plan's, word for word ("the last 90 days")** though the window picker offers 30 and 180
+    too; 90 is the default.
+28. **`registry.test.ts` pins the slug list and the order list;** this build appends `trigger-log` / 210 after
+    `evidence-ledger` / 180. The other trading pages add their own lines to the same two arrays, so the integration
+    merge will conflict there: resolve by keeping every slug in `order` order.
+
+**To verify on the dev stack (prod data copy)**
+
+- **Label churn:** the plan's identity includes the label, while What Changed leaves it out because some labels carry
+  numbers that move nightly. Reading the detectors, a breakout's label is computed from its own event bar, so it is
+  stable for one fire date; a breakdown's may not be. Check, on the dev copy, how many (card, security, kind, fire
+  date) groups show more than one label inside a window: each such group is several rows today.
+- **Cold cost and the cache:** the plan asked to MEASURE the read (the window's `calls` jsonb plus bars for the names
+  touched) and record it here. **Not measured:** the page prints the cache state and the cold `compute_ms` on its
+  last quiet line; record both numbers for the 30, 90 and 180 windows from the dev stack.
+- **Flags on the live view:** the build's DB tests ran at past as-ofs only, and I did not run a live as-of on real
+  data. The Chain Wave test notes that a synthetic tape ending at today's as-of reads as a stopped feed, so check on
+  the dev copy that a live as-of shows no unexpected "flagged" rows.

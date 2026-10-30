@@ -2554,6 +2554,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboards/trigger-log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Trigger Log Page
+         * @description Every entry trigger and risk signal the recorded calls show firing across the cards in the window, newest
+         *     recorded night first: each trigger once (the same trigger on many nights is one row, dated the first night
+         *     the record shows it), with its fire date, role and key, source, the card's state that night beside the night
+         *     before, whether it is still live, the sessions since and the name's as-traded return since against IWM.
+         *     Display only, with no aggregate over the rows. A past as-of reads the nights recorded on or before it and
+         *     the bars public by the end of that date.
+         */
+        get: operations["trigger_log_page_dashboards_trigger_log_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dashboards/what-changed": {
         parameters: {
             query?: never;
@@ -13463,6 +13488,241 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /**
+         * TriggerLogCountsOut
+         * @description The work shown on the quiet line: counts of what was read and listed, never a statistic over the rows'
+         *     returns. ``cards_quiet`` = cards with a call by the as-of but no night in the window; ``carried_live`` = live
+         *     triggers first recorded before the window (not listed); ``names_*`` = distinct names.
+         */
+        TriggerLogCountsOut: {
+            /** Cards Counted */
+            cards_counted: number;
+            /** Cards With Nights */
+            cards_with_nights: number;
+            /** Cards Quiet */
+            cards_quiet: number;
+            /** Cards No Call */
+            cards_no_call: number;
+            /** Live Cards */
+            live_cards: number;
+            /** Not Yet Created */
+            not_yet_created: number;
+            /** Roster Fallback */
+            roster_fallback: number;
+            /** Nights Read */
+            nights_read: number;
+            /** Nights Reconstructed */
+            nights_reconstructed: number;
+            /** Nights Unreadable */
+            nights_unreadable: number;
+            /** Entry Rows */
+            entry_rows: number;
+            /** Risk Rows */
+            risk_rows: number;
+            /** Carried Live */
+            carried_live: number;
+            /** Names Unpriced */
+            names_unpriced: number;
+            /** Names Flagged */
+            names_flagged: number;
+            /** Rows No Ticker */
+            rows_no_ticker: number;
+        };
+        /**
+         * TriggerLogDays
+         * @description The window: the last 30, 90 or 180 days.
+         * @enum {integer}
+         */
+        TriggerLogDays: 30 | 90 | 180;
+        /**
+         * TriggerLogNameOut
+         * @description A name the page set aside from the tape, never from the list: ``reason`` = the flags' labels for a flagged
+         *     one, ``null`` for an unpriced one. ``ticker`` is ``null`` when neither the roster nor the master has one.
+         */
+        TriggerLogNameOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string | null;
+            /** Reason */
+            reason: string | null;
+        };
+        /**
+         * TriggerLogOut
+         * @description The whole page at the as-of. ``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was
+         *     public by the end of that date). The window is ``window_start`` to ``asof``, inclusive; ``rows`` are
+         *     newest recorded night first, then ticker. There is no aggregate over the rows (the Track Record page slices
+         *     outcomes by market-cap tier). ``cache`` / ``compute_ms`` = whether the read came from the shared dashboard
+         *     cache and how long it took when computed.
+         */
+        TriggerLogOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /** Window Days */
+            window_days: number;
+            /**
+             * Window Start
+             * Format: date
+             */
+            window_start: string;
+            /**
+             * Clock
+             * @enum {string}
+             */
+            clock: "record" | "public";
+            /** Rows */
+            rows: components["schemas"]["TriggerLogRowOut"][];
+            counts: components["schemas"]["TriggerLogCountsOut"];
+            sessions: components["schemas"]["TriggerLogSessionsOut"];
+            /** Unpriced */
+            unpriced: components["schemas"]["TriggerLogNameOut"][];
+            /** Flagged */
+            flagged: components["schemas"]["TriggerLogNameOut"][];
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * TriggerLogRowOut
+         * @description One trigger on one card, dated by the first night in the window the record shows it. ``event_date`` = the
+         *     fire date (``null`` = undated); ``recorded_days_after`` = days from the fire date to the recorded night when
+         *     the fire date is earlier; ``week`` = the Monday of the recorded night's week; ``turns`` = the key an entry
+         *     trigger turns (``null`` for a risk signal or a kind neither key takes); ``from_state`` / ``to_state`` = the
+         *     card's recorded state on the previous recorded night and on this one (``new_card`` = no earlier row);
+         *     ``live`` = the same trigger is on the card in effect at the as-of (``null`` = that card could not be read);
+         *     ``newest`` = the recorded night is the as-of's own night; ``sessions_since`` = the sessions the since-return
+         *     spans on IWM's calendar (``null`` = none); ``reconstructed`` = written by ``pipeline.backfill`` (reported,
+         *     never scored).
+         */
+        TriggerLogRowOut: {
+            /** Key */
+            key: string;
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string | null;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "entry_trigger" | "risk_signal";
+            kind: components["schemas"]["Kind"];
+            grade: components["schemas"]["Grade"] | null;
+            /** Turns */
+            turns: ("conviction" | "confirmation") | null;
+            /** Label */
+            label: string;
+            /** Event Date */
+            event_date: string | null;
+            /**
+             * Recorded On
+             * Format: date
+             */
+            recorded_on: string;
+            /**
+             * Week
+             * Format: date
+             */
+            week: string;
+            /** Recorded Days After */
+            recorded_days_after: number | null;
+            /** Reconstructed */
+            reconstructed: boolean;
+            from_state: components["schemas"]["State"] | null;
+            to_state: components["schemas"]["State"];
+            /** New Card */
+            new_card: boolean;
+            /** Live */
+            live: boolean | null;
+            /** Newest */
+            newest: boolean;
+            /** Sessions Since */
+            sessions_since: number | null;
+            since: components["schemas"]["TriggerLogSinceOut"];
+            /** Sources */
+            sources: components["schemas"]["TriggerLogSourceOut"][];
+        };
+        /**
+         * TriggerLogSessionsOut
+         * @description The session calendar the sessions-since counts on: IWM's bar dates ending at the as-of (``source`` =
+         *     ``benchmarks``; ``companies`` / ``none`` when IWM has no bar).
+         */
+        TriggerLogSessionsOut: {
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "benchmarks" | "companies" | "none";
+            /** Count */
+            count: number;
+            /** First */
+            first: string | null;
+            /** Last */
+            last: string | null;
+        };
+        /**
+         * TriggerLogSinceOut
+         * @description The name's as-traded return from the first close on or after the recorded night to the last close on or
+         *     before the as-of, with IWM on the same two dates. ``priced`` = both bars exist; ``unpriced`` = no bar since the
+         *     recorded night; ``flagged`` = the name's price history is on the flagged-price list (``reason``, never
+         *     priced). ``bench_ret`` is ``null`` when IWM has no bar on one of those two dates. Returns are fractions (0.05 = +5%).
+         */
+        TriggerLogSinceOut: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "priced" | "unpriced" | "flagged";
+            /** Reason */
+            reason: string | null;
+            /** Entry Date */
+            entry_date: string | null;
+            /** End Date */
+            end_date: string | null;
+            /** Ret */
+            ret: number | null;
+            /** Bench Ret */
+            bench_ret: number | null;
+        };
+        /**
+         * TriggerLogSourceOut
+         * @description A place a trigger points at. ``source`` = the kind as stored (``form4``, ``price``, ``xbrl``), ``ref`` =
+         *     its reference, ``url`` = a link (an accession through the EDGAR index with the issuer's CIK, or a stored
+         *     URL; ``null`` = none known), ``bar_date`` = the bar a ``price:`` reference names (text, never a link),
+         *     ``detail`` = the computation's inputs as stored, one ``key: value`` line each.
+         */
+        TriggerLogSourceOut: {
+            /** Source */
+            source: string;
+            /** Ref */
+            ref: string | null;
+            /** Url */
+            url: string | null;
+            /** Bar Date */
+            bar_date: string | null;
+            /** Detail */
+            detail: string[];
+        };
         /** TriggerRefOut */
         TriggerRefOut: {
             /** Label */
@@ -16813,6 +17073,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SharedNamesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    trigger_log_page_dashboards_trigger_log_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; no night recorded after it and no bar public after it is read */
+                asof: string;
+                /** @description the window: the last 30 | 90 | 180 days */
+                days?: components["schemas"]["TriggerLogDays"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TriggerLogOut"];
                 };
             };
             /** @description Validation Error */
