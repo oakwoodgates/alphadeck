@@ -225,3 +225,9 @@ each. The first two are the places the plan's wording could not be followed as w
     its range with 100 always shown, a tick label that would sit on another dropped).
 18. **On a phone** the panels scale down with the width (no sideways scroll for them) and only the term table scrolls
     sideways, inside its own wrapper.
+
+### MEASURED (dev with a prod data copy, 2026-10-29, after the nightly pass and the one-time backfill)
+
+- The picker: 62 cards, 161 ms. One card with 12 SIGNAL terms (7 BROAD terms left out): 42 KB, cold compute 358 ms,
+  cache hit under 10 ms; 35 of 36 months counted (the as-of's own month not closed), none sampled, none read early,
+  last counted month 2026-09. Past as-of 2026-09-15 on the public clock: 34 months counted, last 2026-08, 1,686 ms.

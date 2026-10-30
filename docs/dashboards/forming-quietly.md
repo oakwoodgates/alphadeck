@@ -183,3 +183,9 @@ orchestrator to measure on dev with a prod copy.
 The plan's expected cost is about 16 ms a name over the Warming and Incubating rosters, plus one breadth read per row card
 and one term-month read per row card. The build has not measured it: record the cold `compute_ms` and the name count from
 the page's own work line on dev with a prod copy here.
+
+### MEASURED (dev with a prod data copy, 2026-10-29, after the nightly pass)
+
+- Live as-of: 19 rows (the Warming cards and the Incubating cards lit by a quiet signal), 157 KB, cold compute
+  11,997 ms (three display members over the rows' rosters plus one breadth read per row card), cache hit under 10 ms.
+  Past as-of 2026-09-15 on the public clock: 4 rows, 17 KB, 1,314 ms.
