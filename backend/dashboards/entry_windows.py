@@ -36,7 +36,9 @@ The rules, in one place:
   session the line steps from (``dashboards/series.py``), ending at the as-of's session.
 - **The clocks.** ``arm_until`` (the entry window) and ``exit_by`` (the hold horizon) are the recorded card's; both
   bars start at the arm night. A missing clock is ``None``, drawn as no bar. The two flags (``entry_window_closing``,
-  ``lapsing``) are the headline member's (``armed_members[0]``, the member whose clocks the card carries).
+  ``lapsing``) are true when ANY armed member's own flag is true (operator decision 2026-10-30), so the page's one
+  accent marks a card whose second name's window is closing, not only the headline name's; a card with no armed
+  member records neither.
 - **The axis.** One for the page: from five sessions before the earliest arm night to the latest of the as-of and
   every clock.
 """
@@ -582,7 +584,6 @@ def entry_windows(
                 )
             )
         left, closed = entry_clock(calendar, asof, card.arm_until)
-        head = card.armed_members[0] if card.armed_members else None
         rows_out.append(
             Row(
                 thesis_id=tid,
@@ -596,8 +597,8 @@ def entry_windows(
                 arm_until=card.arm_until,
                 exit_by=card.exit_by,
                 confidence=card.confidence,
-                entry_window_closing=bool(head and head.entry_window_closing),
-                lapsing=bool(head and head.lapsing),
+                entry_window_closing=any(m.entry_window_closing for m in card.armed_members),
+                lapsing=any(m.lapsing for m in card.armed_members),
                 sessions_into=sessions_between(calendar, arm_night, asof) if calendar else None,
                 sessions_left=left,
                 closed_ago=closed,

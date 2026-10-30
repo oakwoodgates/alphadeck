@@ -494,7 +494,7 @@ def test_only_armed_and_managing_cards_are_rows_and_every_other_card_is_counted(
     )
 
 
-def test_a_row_carries_the_arm_night_the_clocks_the_sessions_and_the_headline_flags():
+def test_a_row_carries_the_arm_night_the_clocks_the_sessions_and_the_flags():
     got, (t_grid, _) = page()
     row = next(r for r in got.rows if r.thesis_id == t_grid)
     assert (row.arm_night, row.in_effect, row.run_nights) == (d(20), d(23), 2)
@@ -506,6 +506,35 @@ def test_a_row_carries_the_arm_night_the_clocks_the_sessions_and_the_headline_fl
     assert row.hold_days == 18
     assert (row.entry_window_closing, row.lapsing, row.reconstructed) == (True, False, False)
     assert [(t.label, t.past) for t in row.catalysts] == [("passed", True), ("readout", False)]
+
+
+def test_a_rows_flags_are_true_when_any_armed_member_s_flag_is_true():
+    """Operator decision 2026-10-30: the second name's window closing marks the card, not only the headline's."""
+    ds = weekdays(d(12), ASOF)
+
+    def one(*members: MemberCall):
+        t = uuid.uuid4()
+        got, _ = page(
+            cards=[(t, "Pair")],
+            nights={t: [nr(d(20), State.ARMED)]},
+            recorded={(t, d(20)): card(tid=t, asof=d(20), armed_members=list(members))},
+            closes={A: tape(ds, [10.0] * 12), B: tape(ds, [20.0] * 12)},
+        )
+        (row,) = got.rows
+        return row
+
+    # the headline (A) is quiet; B alone closing marks the card
+    row = one(mem(A), mem(B, entry_window_closing=True))
+    assert (row.entry_window_closing, row.lapsing) == (True, False)
+    # B alone lapsing (the hold clock) marks the other flag the same way
+    row = one(mem(A), mem(B, lapsing=True))
+    assert (row.entry_window_closing, row.lapsing) == (False, True)
+    # both flags, on different members
+    row = one(mem(A, lapsing=True), mem(B, entry_window_closing=True))
+    assert (row.entry_window_closing, row.lapsing) == (True, True)
+    # no armed member carries either flag: neither is set
+    row = one(mem(A), mem(B))
+    assert (row.entry_window_closing, row.lapsing) == (False, False)
 
 
 def test_each_armed_member_has_its_own_arm_night_its_triggers_and_its_own_return():

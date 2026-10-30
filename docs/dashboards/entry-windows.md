@@ -46,10 +46,10 @@ does, one row per Armed card. Display only: it never feeds a call, never writes,
 - **Sessions into the window:** the sessions from the arm night to the as-of, counted on the **benchmark's bars**
   (IWM's session calendar from `dashboards/series.py`), the as-of's own session included when it has printed.
 - **Sessions left to `arm_until`:** the sessions strictly after the as-of through `arm_until`, on the same calendar;
-  at or past the end the cell reads "entry window closed N sessions ago". The card's `entry_window_closing` flag is
-  the one accent on the page (below).
-- **Days to `exit_by`:** calendar days from the as-of; past it, "hold horizon passed"; the card's `lapsing` flag as a
-  quiet tag.
+  at or past the end the cell reads "entry window closed N sessions ago". The row's `entry_window_closing` flag (any
+  armed member's) is the one accent on the page (below).
+- **Days to `exit_by`:** calendar days from the as-of; past it, "hold horizon passed"; the row's `lapsing` flag (any
+  armed member's) as a quiet tag.
 - **Since the arm night:** per armed name, the as-traded return from the **first close on or after the arm night**
   (the Scoreboard's entry rule, `scoreboard/`) to the last close on or before the as-of (`pit.price_history`); the
   row shows the **median over the priced armed names** ("median of 3"), **IWM and SPY over the same span**
@@ -69,9 +69,9 @@ most recently closed first). Alternatives: arm night (newest first), days to `ex
 
 The trading set's **tape look**: dense rows, tabular numerals in the mono font, a sticky header, no cards or chrome.
 The window bars are two grays; the as-of line is the only line color; a row whose `entry_window_closing` is true
-(the card's own flag: at most two sessions left) carries the page's ONE accent on its "sessions left" cell (rule 3:
-loudness marks the exception). The sign tone (the Rotation Quadrant's muted pair) only on the signed "since the arm
-night" values. Neutral wording throughout.
+(true when any armed member's own flag is: at most two sessions left in its window) carries the page's ONE accent on
+its "sessions left" cell (rule 3: loudness marks the exception). The sign tone (the Rotation Quadrant's muted pair)
+only on the signed "since the arm night" values. Neutral wording throughout.
 
 ## Past as-of
 
@@ -149,8 +149,10 @@ lives in `backend/dashboards/entry_windows.py` (the rules are written at the top
 2. **A card Armed with no armed name recorded** is still a row, with no chips ("no armed name recorded"). There is no
    fallback to `armed_security_id`.
 3. **The two flags** (`entry_window_closing`, `lapsing`) exist on `MemberCall` only; `CallCard` has no card-level one.
-   Built: the row carries the headline member's (`armed_members[0]`, the member whose clocks the card carries), read
-   from the recorded card in effect. The accent therefore follows that one member.
+   Built: the row's flag is true when ANY armed member's own flag is true, read from the recorded card in effect
+   (operator decision 2026-10-30; the first build carried the headline member's alone, `armed_members[0]`). The
+   accent therefore marks a card whose second name's window is closing too. The "sessions left" cell still counts to
+   the card's own `arm_until` (the headline member's clock), so a marked card can read more than two sessions there.
 
 **Sessions**
 

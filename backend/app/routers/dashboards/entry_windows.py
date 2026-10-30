@@ -141,7 +141,8 @@ class EntryWindowsRowOut(_Wire):
     entry window and the hold horizon (``null`` = no clock). ``sessions_into`` = the IWM sessions after the arm
     night through the as-of; ``sessions_left`` = the Mon-Fri days after the as-of through ``arm_until`` (while the
     window is open); ``closed_ago`` = the IWM sessions since it closed (``0`` on its last day); ``hold_days`` =
-    calendar days from the as-of to ``exit_by`` (negative = passed). The two flags are the headline member's.
+    calendar days from the as-of to ``exit_by`` (negative = passed). Each flag is true when ANY armed member's own
+    flag is true.
     """
 
     thesis_id: UUID

@@ -17493,7 +17493,7 @@
           "spark"
         ],
         "title": "EntryWindowsRowOut",
-        "description": "One Armed (``state`` ``armed``) or Managing card. ``arm_night`` = the first night of the card's current\nrecorded Armed run; ``in_effect`` = the recorded night whose card the row shows; ``reconstructed`` = the arm\nnight's row was written by ``pipeline.backfill`` (reported, never scored). ``arm_until`` / ``exit_by`` = the\nentry window and the hold horizon (``null`` = no clock). ``sessions_into`` = the IWM sessions after the arm\nnight through the as-of; ``sessions_left`` = the Mon-Fri days after the as-of through ``arm_until`` (while the\nwindow is open); ``closed_ago`` = the IWM sessions since it closed (``0`` on its last day); ``hold_days`` =\ncalendar days from the as-of to ``exit_by`` (negative = passed). The two flags are the headline member's."
+        "description": "One Armed (``state`` ``armed``) or Managing card. ``arm_night`` = the first night of the card's current\nrecorded Armed run; ``in_effect`` = the recorded night whose card the row shows; ``reconstructed`` = the arm\nnight's row was written by ``pipeline.backfill`` (reported, never scored). ``arm_until`` / ``exit_by`` = the\nentry window and the hold horizon (``null`` = no clock). ``sessions_into`` = the IWM sessions after the arm\nnight through the as-of; ``sessions_left`` = the Mon-Fri days after the as-of through ``arm_until`` (while the\nwindow is open); ``closed_ago`` = the IWM sessions since it closed (``0`` on its last day); ``hold_days`` =\ncalendar days from the as-of to ``exit_by`` (negative = passed). Each flag is true when ANY armed member's own\nflag is true."
       },
       "EntryWindowsSinceOut": {
         "properties": {
