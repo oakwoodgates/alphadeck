@@ -97,8 +97,9 @@ values for the window in force. A relative return (a benchmark set) uses the sam
   ratified in the Workbench" or "share count from the filing cover (not ratified)". A company with neither is drawn at
   the smallest weight in view with a dashed edge; its info box says "no market cap: drawn at the smallest size".
   MEASURED on dev (prod copy, 2026-10-30) BEFORE the gate: caps 870 Workbench / 173 cover / 416 none of 1,459 drawn
-  (about 71% with a cap). The gate moves some of the 173 to none; the count after it awaits the dev re-measure (the
-  work line shows it: "caps: N Workbench / N filing cover / N none").
+  (about 71% with a cap). AFTER the gate: 870 Workbench / 131 cover / 458 none of 1,459 drawn (about 69% with a cap;
+  43 cover counts refused: 40 too old, 3 placeholders). In the default view (Context and Bench off): 689 / 89 / 358 of
+  1,136. The work line shows it: "caps: N Workbench / N filing cover / N none".
 - **Dollar volume 20D:** needs 20 sessions; a company with fewer is drawn at the smallest weight, dashed.
 - **Equal:** every tile weighs 1.
 - A company appears once per group it belongs to: once per card-and-link membership in `Card › Link`, once per card in
@@ -161,10 +162,9 @@ flagged names; the window's color scale; the benchmark; "business type and secto
 
 ## Known limits (stated on the page too)
 
-- **Caps are approximate** and about 29% of the companies had none before the cover count's recency gate (416 of 1,459
-  drawn: no Workbench share count and no usable quarterly cover count); the gate moves some cover-count companies to
-  none, and the figure after it awaits the dev re-measure. Filling share counts for every basket company is a separate
-  data job.
+- **Caps are approximate** and about 31% of the companies have none (458 of 1,459 drawn, MEASURED 2026-10-30: no
+  Workbench share count and no recent, usable quarterly cover count). Filling share counts for every basket company is
+  a separate data job.
 - **Business type and sector are today's** at any as-of.
 - **The card views repeat a company once per card or link,** so their areas are the cards' structure, not the market.
 - **The color scale is fixed per window**, not relative to the day; a quiet day is a gray map.
@@ -217,7 +217,7 @@ Choices the build made that the plan above does not spell out (2026-10-30). Each
 
 The build agent does not touch the dev stack; the dev numbers below were measured by the reviewer.
 
-- **On dev with a prod copy, MEASURED (2026-10-30):** cold compute 62.6 s; cache hit 0.12 s; payload 1,013,283 bytes of raw JSON (the gzipped size is not measured on real data; 151,565 bytes on the synthetic payload below); the Rotation Map's cold read in the same session 51.8 s (the Market Map costs about 20% more than the Rotation Map).
+- **On dev with a prod copy, MEASURED (2026-10-30):** cold compute 62.6 s and, on a second cold run after the gate, 81.5 s (the dev host's load varies); cache hit 0.12 to 0.21 s; payload 1,015,615 bytes of raw JSON, 201,353 bytes gzipped through dev's nginx; the Rotation Map's cold read in the same session 51.8 s. A past as-of (2026-07-15): 6 cards existed, 84 companies drawn, cold 8.0 s. The cold read is in the same range as the Theme Leaderboard's (69 to 96 s), so the post-nightly cache warm-up follow-up applies to this page too.
 - **Caps before the recency gate, MEASURED:** 870 Workbench / 173 cover / 416 none of 1,459 drawn. The unfiltered cover count was wrong for companies that stopped tagging it: Visa's latest cover row is from 2010 (cap $193B), Mastercard's from 2010 ($78B), FOXA's from 2019 and QVCG's the value 1 (cap $0), MOBX's from 2023.
 - **The gate validated, MEASURED:** of the 855 companies with both a Workbench and a cover count, the gated cover count is within 5% of the Workbench count for 807, within 25% for 34 more and further off for 14; all 14 are a split between the two counts' dates or new shares issued.
 
