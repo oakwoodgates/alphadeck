@@ -159,3 +159,13 @@ The build made these choices that the plan above does not spell out. Each is the
     with a production copy). What the read does, per request: four display members plus the price, shares and split reads for
     the cap, once per counting name (a name only on Context or Bench is never read); one `breadth_for` view per card (a second
     read of each name's last 250 days of bars); one term-mention read per card; the data-flag read; IWM's bars.
+
+### MEASURED (dev with a prod data copy, 2026-10-29, after the nightly pass)
+
+- Live as-of: 62 cards, 51 KB, cold compute 96,032 ms (four display members over every counting name across the 62
+  cards plus one breadth read per card), cache hit under 50 ms. Past as-of 2026-09-15 on the public clock: 10 cards,
+  10 KB, cold 33,352 ms.
+- The cold read is the heaviest in the app (the Peer Table's all-cards read measured 69 s, the Trigger Log 33 s). The
+  cache clears on every new run, so the first visit after a nightly waits for it. A post-nightly cache warm-up (the
+  cron hitting each heavy dashboard once after the pass) is the follow-up that fixes this for every such page at once;
+  a lighter read (fewer members, or the Rotation Map's readings shared) is the per-page option.
