@@ -286,3 +286,24 @@ from their arm nights (the Hot Board's bar read, without its eight members); sec
 cold read near Insider Buying's; the warm-up makes the morning visit a hit. MEASURE on dev with a prod copy and record
 the cold `compute_ms`, the payload and the counts here (the page's own work line prints the counts and `compute_ms`). The
 build ran on neutral fixtures only and has measured nothing.
+
+### MEASURED (dev with a prod data copy taken after the 2026-10-29 nightly, read 2026-10-30 afternoon)
+
+- **Live as-of 2026-10-30** (the night of 2026-10-29 against 2026-10-28; 62 counted cards: 43 Armed, 18 Warming, 1
+  Incubating, 0 Managing; 3 cards ingest-not-fresh): 257 KB, cold compute **35,683 ms** (the Form 4 read over 1,150
+  voting names is most of it, as the plan expected: Insider Buying's 30-day read measured 37 s), cache hit **27 ms**.
+  Section 1: 58 cards with a change, **405 lines** (126 triggers re-dated, 123 risk signals new, 70 triggers new, 37
+  names new on watch, 19 names newly armed, 12 triggers gone, 6 windows closing, 6 names no longer armed, 4 state
+  moves, 1 key on, 1 key off; 28 accent lines, 0 warm; the longest card 26 lines). Positions: none (no Managing card on
+  prod). Due this week: 12 items (6 entry windows ending, 5 catalysts, 1 exit-by). Insider buys filed in the span: 5
+  purchases on 5 names (4 became triggers, 0 clusters; 50 filings read, 45 folded as routine). The tape: 95 armed rows,
+  78 names, 77 priced, 1 unpriced, 0 flagged; 5 rises and 5 falls shown. Forming: 18 Warming, 1 Incubating, 0 keys
+  turned last night.
+- **Past as-of 2026-09-15** on the public clock (10 counted cards then; the night of 2026-09-15 against 2026-09-14):
+  97 KB, cold **17,002 ms**; section 1: 8 cards, 167 lines; 1 item due; 6 purchases (4 clusters, 4 triggers); 20 tape
+  rows on 19 names.
+- **The line count is the finding.** Two consecutive nights differ by about 400 What Changed lines, and 249 of them are
+  trigger re-dates and new risk signals: the common nightly churn, true of nearly every Armed card. On the morning page
+  those lines are folded per card into one quiet count line that opens on click (honest loudness, Workbench principle
+  3: the common noise collapses, the exception stays a line); the state moves, keys, names armed or no longer armed and
+  the clocks stay lines. The server payload is unchanged (nothing is dropped), so the cache and the numbers above hold.
