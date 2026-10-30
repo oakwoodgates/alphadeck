@@ -15,6 +15,11 @@ The rules, in one place:
   trigger turns (``trigger_key``: the call config's own kind sets). A MANAGING card, behind a toggle: one row per
   ``armed_members`` entry, the held name first (``managing``). An INCUBATING card, and a card with no recorded call
   at the as-of, are counted and have no row. A name on two cards is two rows.
+- **Two reads of one candidate set** (``read_candidates``). ``candidates(...)`` lists EVERY candidate row from the
+  recorded cards alone (no tape). The page's default read (``rows="armed"``) runs the arm nights and the tape for the
+  ``armed`` rows only and carries the other kinds as COUNTS (``count_candidates``, off the same recorded cards: no
+  display member runs for a row that is only counted); the on-demand read (``rows="all"``) runs them for every row.
+  Both go through the one ``assemble``, so a row of the armed read is the same row in the full read.
 - **The arm night** (``arm_night``): the first night of the member's CURRENT recorded run on its card. Walk the log
   rows back from the night in effect, one winning row per night (the highest ``seq``, the Idea Timeline's rule),
   while that night's state belongs to the run (``ARMED_RUN`` for an Armed card, ``MANAGING_RUN`` for a Managing one
@@ -80,6 +85,9 @@ MEMBERS: tuple[str, ...] = (
 )
 
 RowKind = Literal["armed", "warming", "watch", "managing"]
+RowsRead = Literal[
+    "armed", "all"
+]  # which candidate rows a read carries (the router's ``rows`` parameter)
 KeyName = Literal["conviction", "confirmation"]
 SinceGap = Literal["no_arm_night", "flagged", "before_window", "no_bar"]
 
@@ -269,6 +277,32 @@ def candidates(names: Mapping[UUID, str], recorded: Mapping[UUID, Recorded]) -> 
         if rec is not None:
             out += card_candidates(tid, names[tid], rec.card)
     return out
+
+
+def read_candidates(cands: Sequence[Candidate], rows: RowsRead) -> list[Candidate]:
+    """The candidates a read runs the arm nights and the tape for, in their order: the ``armed`` rows alone for
+    ``rows="armed"`` (the default read), every row for ``"all"``. The one place the two reads differ; everything
+    after it takes the subset it is handed."""
+    return [c for c in cands if c.kind == "armed"] if rows == "armed" else list(cands)
+
+
+@dataclass(frozen=True)
+class CandidateCounts:
+    """How many candidate rows of each kind the recorded cards in effect list, whatever the read carries: the
+    toggles' "+N". Counted off the recorded cards, so no display member runs for a row that is only counted.
+    """
+
+    armed: int = 0
+    warming: int = 0
+    watch: int = 0
+    managing: int = 0
+
+
+def count_candidates(cands: Iterable[Candidate]) -> CandidateCounts:
+    n = {"armed": 0, "warming": 0, "watch": 0, "managing": 0}
+    for c in cands:
+        n[c.kind] += 1
+    return CandidateCounts(**n)
 
 
 def card_state_counts(
@@ -706,6 +740,12 @@ class HotBoard:
         date | None
     )  # the earliest bar the point-in-time view reads (None = unbounded)
     no_ticker_rows: int  # rows whose name has no ticker anywhere: shown under their id
+    rows_loaded: (
+        RowsRead  # which candidate rows ``rows`` carries: the armed ones alone, or every kind
+    )
+    candidate_counts: (
+        CandidateCounts  # every kind's rows on the recorded cards, whatever ``rows`` carries
+    )
     rows: tuple[HotRow, ...]
     flagged: tuple[FlaggedCompany, ...]
 
@@ -767,10 +807,14 @@ def assemble(
     cards_not_yet_created: int,
     roster_fallback_cards: int,
     cards_counted: int,
+    rows_loaded: RowsRead = "all",
+    candidate_counts: CandidateCounts | None = None,
 ) -> HotBoard:
-    """The whole payload from the candidates and everything read for them. A name whose security is not on the
-    card's roster at the as-of still has its row (the master's ticker, else its id: counted in ``no_ticker_rows``);
-    a company with no tape (not read) keeps its row with blank cells."""
+    """The whole payload from the candidates and everything read for them. ``cands`` are the rows this read carries
+    (``read_candidates``); ``candidate_counts`` are every kind's rows on the recorded cards (counted from ``cands``
+    when not given, which is right for the full read). A name whose security is not on the card's roster at the
+    as-of still has its row (the master's ticker, else its id: counted in ``no_ticker_rows``); a company with no
+    tape (not read) keeps its row with blank cells."""
     armed_on: dict[UUID, list[CardRef]] = {}
     for c in cands:
         if c.kind == "armed":
@@ -845,6 +889,10 @@ def assemble(
         calendar_last=calendar[-1] if calendar else None,
         price_window_start=window_start,
         no_ticker_rows=no_ticker,
+        rows_loaded=rows_loaded,
+        candidate_counts=(
+            candidate_counts if candidate_counts is not None else count_candidates(cands)
+        ),
         rows=tuple(rows),
         flagged=tuple(
             FlaggedCompany(sid, tk, reason)

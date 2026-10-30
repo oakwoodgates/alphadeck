@@ -1,6 +1,6 @@
 import { verdictLabel } from "../../util/format";
 import type { Heat } from "./heat";
-import type { CapTier, HotBoardOut, HotRowOut, HotTriggerOut, RowKind } from "./useHotBoard";
+import type { CapTier, HotBoardOut, HotCandidateCountsOut, HotRowOut, HotTriggerOut, RowKind } from "./useHotBoard";
 
 // The Hot Board's pure view helpers (docs/dashboards/hot-board.md): which rows the toggles and filters show, the
 // sorts, and the words and numbers of every cell. Every figure (the call's fields, the clocks, the return since the
@@ -250,11 +250,12 @@ export type Toggles = { warming: boolean; watch: boolean; managing: boolean };
 export const DEFAULT_TOGGLES: Toggles = { warming: false, watch: false, managing: false };
 export const TOGGLE_KINDS = ["warming", "watch", "managing"] as const;
 
-/** How many rows each toggle adds (shown on the toggle). */
-export function toggleCounts(rows: readonly HotRowOut[]): Record<(typeof TOGGLE_KINDS)[number], number> {
-  const n = { warming: 0, watch: 0, managing: 0 };
-  for (const r of rows) if (r.kind !== "armed") n[r.kind] += 1;
-  return n;
+export type ToggleKind = (typeof TOGGLE_KINDS)[number];
+
+/** How many rows each toggle adds (shown on the toggle). They come from the read's `candidate_counts`, counted off
+ *  the recorded cards, so the default read (the armed rows alone) can show them before the other rows are loaded. */
+export function toggleCounts(counts: HotCandidateCountsOut): Record<ToggleKind, number> {
+  return { warming: counts.warming, watch: counts.watch, managing: counts.managing };
 }
 
 /** The rows the toggles show: every armed row, plus the kinds switched on. */
@@ -475,12 +476,26 @@ export function noReadingLine(rows: readonly HotRowOut[]): string | null {
   return got.length ? `rows without a reading: ${got.join(" · ")}` : null;
 }
 
-/** The "show the work" lines: the as-of and clock, the cards by state, the rows and what the toggles add, the
- *  blanks, the calendar and the entry rule. */
+/** Which read is loaded: the armed names alone (the other kinds wait behind their toggles and load the first time
+ *  one is used), or every candidate row. */
+export function readLine(data: HotBoardOut, counts: Record<ToggleKind, number>): string {
+  const n = (v: number) => v.toLocaleString("en-US");
+  const c = data.candidate_counts;
+  if (data.rows_loaded === "all") {
+    return `read loaded: every candidate row (${n(c.armed)} armed · ${n(c.warming)} warming · ${n(c.watch)} watch · ${n(c.managing)} managing)`;
+  }
+  const waiting = TOGGLE_KINDS.filter((k) => counts[k] > 0).map((k) => `${n(counts[k])} ${KIND_TAG[k]}`);
+  return waiting.length
+    ? `read loaded: the armed names alone; ${waiting.join(" · ")} wait behind their toggles and load the first time one is used`
+    : "read loaded: the armed names; no warming, watch or managing names are listed on the recorded cards";
+}
+
+/** The "show the work" lines: the as-of and clock, which read is loaded, the cards by state, the rows and what the
+ *  toggles add, the blanks, the calendar and the entry rule. */
 export function workLines(
   data: HotBoardOut,
   shown: readonly HotRowOut[],
-  counts: Record<(typeof TOGGLE_KINDS)[number], number>,
+  counts: Record<ToggleKind, number>,
   toggles: Toggles,
   scored: number,
 ): string[] {
@@ -488,7 +503,8 @@ export function workLines(
   const cards =
     `${plural(data.cards_counted, "card", "cards")} counted: ${data.cards_armed} armed · ${data.cards_warming} warming · ` +
     `${data.cards_managing} managing · ${data.cards_incubating} incubating · ${data.cards_no_call} no call yet`;
-  const added = TOGGLE_KINDS.filter((k) => toggles[k]).map((k) => `${counts[k]} ${KIND_TAG[k]}`);
+  // a toggle adds rows only once the full read is loaded: until then it is a pending request, not rows shown
+  const added = data.rows_loaded === "all" ? TOGGLE_KINDS.filter((k) => toggles[k]).map((k) => `${counts[k]} ${KIND_TAG[k]}`) : [];
   const rowsLine =
     `${plural(shown.length, "row", "rows")} shown` +
     (added.length ? ` (the armed names plus ${added.join(" and ")})` : "") +
@@ -499,6 +515,7 @@ export function workLines(
   const recon = shown.filter((r) => r.clocks.arm_reconstructed).length;
   const lines = [
     `as of ${data.asof}, read on ${clock}`,
+    readLine(data, counts),
     cards,
     rowsLine,
     noReadingLine(shown),

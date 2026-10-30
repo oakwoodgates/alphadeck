@@ -4614,7 +4614,7 @@
           "dashboards"
         ],
         "summary": "Hot Board",
-        "description": "Every name the recorded calls in effect at the as-of show Armed, one row each, with the tape beside it:\nthe call's own fields, the arm night and the session clocks, the return since the arm night against IWM, the\ndisplay members' readings and the approximate cap. Warming, watch and managing names ride along as candidate\nrows for the page's toggles. Display only: it reads the calls log and never the live call; the heat ranking is\ncomputed on the page from the rows it shows. A past as-of reads what was public by the end of that date.",
+        "description": "Every name the recorded calls in effect at the as-of show Armed, one row each, with the tape beside it:\nthe call's own fields, the arm night and the session clocks, the return since the arm night against IWM, the\ndisplay members' readings and the approximate cap. The default read carries the armed rows and only the COUNTS\nof the warming, watch and managing names (no tape runs for them); `rows=all` carries all four kinds as rows for\nthe page's toggles. Display only: it reads the calls log and never the live call; the heat ranking is computed\non the page from the rows it shows. A past as-of reads what was public by the end of that date.",
         "operationId": "hot_board_dashboards_hot_board_get",
         "parameters": [
           {
@@ -4628,6 +4628,22 @@
               "title": "Asof"
             },
             "description": "as-of date; only what was recorded and public by then is read"
+          },
+          {
+            "name": "rows",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "armed",
+                "all"
+              ],
+              "type": "string",
+              "description": "which candidate rows to carry: `armed` (the default) the armed names with their tape, plus the counts of the warming, watch and managing names the recorded cards list; `all` every candidate row with its tape",
+              "default": "armed",
+              "title": "Rows"
+            },
+            "description": "which candidate rows to carry: `armed` (the default) the armed names with their tape, plus the counts of the warming, watch and managing names the recorded cards list; `all` every candidate row with its tape"
           }
         ],
         "responses": {
@@ -20561,6 +20577,17 @@
             "type": "integer",
             "title": "No Ticker Rows"
           },
+          "rows_loaded": {
+            "type": "string",
+            "enum": [
+              "armed",
+              "all"
+            ],
+            "title": "Rows Loaded"
+          },
+          "candidate_counts": {
+            "$ref": "#/components/schemas/HotCandidateCountsOut"
+          },
           "rows": {
             "items": {
               "$ref": "#/components/schemas/HotRowOut"
@@ -20608,13 +20635,44 @@
           "calendar_last",
           "price_window_start",
           "no_ticker_rows",
+          "rows_loaded",
+          "candidate_counts",
           "rows",
           "flagged",
           "cache",
           "compute_ms"
         ],
         "title": "HotBoardOut",
-        "description": "Every candidate row of the cards' recorded calls in effect at the as-of (the page derives the toggles, filters,\nsorts and heat from this one read) and the counts its quiet line shows. ``cards_*`` = the counted cards by their\nrecorded state (``cards_no_call`` = nothing recorded by then); ``calendar_*`` = IWM's bar calendar the\n``sessions_since`` count reads; ``price_window_start`` = the earliest bar the view reads (``null`` = unbounded);\n``no_ticker_rows`` = rows whose security has no ticker anywhere (shown under its id); ``flagged`` = the\ncompanies on a row with a flagged price history. ``clock``: ``record`` (the live read) or ``public`` (a past\nas-of: what was public by the end of that date). ``cache`` / ``compute_ms`` = whether the read came from the\nshared dashboard cache and how long it took when computed."
+        "description": "The candidate rows of the cards' recorded calls in effect at the as-of that this read carries (the page derives\nthe toggles, filters, sorts and heat from them) and the counts its quiet line shows. ``rows_loaded`` says which:\n``armed`` (the default read: the armed rows alone, with their tape) or ``all`` (every kind, with its tape).\n``candidate_counts`` = every kind's rows on the recorded cards whichever read this is, so the toggles can show\n\"+N\" before the rest is loaded. ``cards_*`` = the counted cards by their recorded state (``cards_no_call`` =\nnothing recorded by then); ``calendar_*`` = IWM's bar calendar the ``sessions_since`` count reads;\n``price_window_start`` = the earliest bar the view reads (``null`` = unbounded); ``no_ticker_rows`` = rows whose\nsecurity has no ticker anywhere (shown under its id); ``flagged`` = the companies on a row with a flagged price\nhistory. ``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was public by the end of that\ndate). ``cache`` / ``compute_ms`` = whether the read came from the shared dashboard cache and how long it took\nwhen computed."
+      },
+      "HotCandidateCountsOut": {
+        "properties": {
+          "armed": {
+            "type": "integer",
+            "title": "Armed"
+          },
+          "warming": {
+            "type": "integer",
+            "title": "Warming"
+          },
+          "watch": {
+            "type": "integer",
+            "title": "Watch"
+          },
+          "managing": {
+            "type": "integer",
+            "title": "Managing"
+          }
+        },
+        "type": "object",
+        "required": [
+          "armed",
+          "warming",
+          "watch",
+          "managing"
+        ],
+        "title": "HotCandidateCountsOut",
+        "description": "How many candidate rows of each kind the cards' recorded calls in effect list, whatever the read carries\n(counted off the recorded cards: no display member runs for a row that is only counted). The default read's\ntoggles show the non-armed ones as their \"+N\"."
       },
       "HotCapOut": {
         "properties": {

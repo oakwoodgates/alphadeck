@@ -5,9 +5,11 @@ the master's tickers, names and issuer CIKs, then, for the names on a row only, 
 the same point-in-time view the Cockpit builds (``baskets.per_company``: the request's one ``serve_view(asof)`` pair
 is threaded into every read, the data-flag read and the benchmark's bars), and hands everything to the pure compute in
 ``dashboards/hot_board.py``, where every rule lives. It never calls ``call_for_thesis``: the rows are the RECORD.
-The whole read is cached per (clock, as-of) in the shared dashboard cache (``dashboards/cache.py``, ``docs/DASHBOARDS.md``
-rule 7); the toggles, filters, sorts and heat are the page's. Its wire models live here, not in ``app/schemas_api.py``
-(rule 8)."""
+Two reads of one candidate set: ``rows=armed`` (the default) runs the tape for the armed rows alone and carries the
+other kinds as counts off the recorded cards; ``rows=all`` runs it for every row (the page asks for it the first time
+a toggle is used). Each read is cached per (rows, clock, as-of) in the shared dashboard cache (``dashboards/cache.py``,
+``docs/DASHBOARDS.md`` rule 7); the toggles, filters, sorts and heat are the page's. Its wire models live here, not in
+``app/schemas_api.py`` (rule 8)."""
 
 from __future__ import annotations
 
@@ -44,13 +46,16 @@ from dashboards.hot_board import (
     LogRow,
     Recorded,
     RowKind,
+    RowsRead,
     SinceGap,
     arm_nights,
     assemble,
     candidates,
     card_state_counts,
     company_tape,
+    count_candidates,
     earliest_arm_night,
+    read_candidates,
 )
 from dashboards.peer_table import CompanyReads, Gap, cap_cell
 from dashboards.series import session_calendar
@@ -237,15 +242,29 @@ class HotFlaggedOut(_Wire):
     reason: str
 
 
+class HotCandidateCountsOut(_Wire):
+    """How many candidate rows of each kind the cards' recorded calls in effect list, whatever the read carries
+    (counted off the recorded cards: no display member runs for a row that is only counted). The default read's
+    toggles show the non-armed ones as their "+N"."""
+
+    armed: int
+    warming: int
+    watch: int
+    managing: int
+
+
 class HotBoardOut(_Wire):
-    """Every candidate row of the cards' recorded calls in effect at the as-of (the page derives the toggles, filters,
-    sorts and heat from this one read) and the counts its quiet line shows. ``cards_*`` = the counted cards by their
-    recorded state (``cards_no_call`` = nothing recorded by then); ``calendar_*`` = IWM's bar calendar the
-    ``sessions_since`` count reads; ``price_window_start`` = the earliest bar the view reads (``null`` = unbounded);
-    ``no_ticker_rows`` = rows whose security has no ticker anywhere (shown under its id); ``flagged`` = the
-    companies on a row with a flagged price history. ``clock``: ``record`` (the live read) or ``public`` (a past
-    as-of: what was public by the end of that date). ``cache`` / ``compute_ms`` = whether the read came from the
-    shared dashboard cache and how long it took when computed."""
+    """The candidate rows of the cards' recorded calls in effect at the as-of that this read carries (the page derives
+    the toggles, filters, sorts and heat from them) and the counts its quiet line shows. ``rows_loaded`` says which:
+    ``armed`` (the default read: the armed rows alone, with their tape) or ``all`` (every kind, with its tape).
+    ``candidate_counts`` = every kind's rows on the recorded cards whichever read this is, so the toggles can show
+    "+N" before the rest is loaded. ``cards_*`` = the counted cards by their recorded state (``cards_no_call`` =
+    nothing recorded by then); ``calendar_*`` = IWM's bar calendar the ``sessions_since`` count reads;
+    ``price_window_start`` = the earliest bar the view reads (``null`` = unbounded); ``no_ticker_rows`` = rows whose
+    security has no ticker anywhere (shown under its id); ``flagged`` = the companies on a row with a flagged price
+    history. ``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was public by the end of that
+    date). ``cache`` / ``compute_ms`` = whether the read came from the shared dashboard cache and how long it took
+    when computed."""
 
     asof: date
     clock: Literal["record", "public"]
@@ -265,6 +284,8 @@ class HotBoardOut(_Wire):
     calendar_last: date | None
     price_window_start: date | None
     no_ticker_rows: int
+    rows_loaded: RowsRead
+    candidate_counts: HotCandidateCountsOut
     rows: list[HotRowOut]
     flagged: list[HotFlaggedOut]
     cache: Literal["hit", "computed"]
@@ -388,19 +409,22 @@ def read_board(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    rows: RowsRead = "all",
 ) -> HotBoard:
-    """The heavy read the cache holds: the candidate rows of every counted card's recorded call, with their
-    clocks, since-arm returns, tape readings and caps. Reads only; the request's ``known_at`` + ``clock`` ride into
-    the roster read, the data-flag read, the benchmark's bars and every company's view."""
+    """The heavy read the cache holds: the candidate rows this read carries (``rows``: the armed ones alone, or every
+    counted card's recorded call's), with their clocks, since-arm returns, tape readings and caps, plus every kind's
+    row COUNT from the same recorded cards. The candidate set is listed once, from the recorded cards; the arm
+    nights, the data-flag read and the tape run for the chosen subset only, so a row that is only counted costs no
+    display member. Reads only; the request's ``known_at`` + ``clock`` ride into the roster read, the data-flag
+    read, the benchmark's bars and every company's view."""
     counted = cards_as_of(conn, asof, known_at)
     names = {t.id: t.name for t in counted.cards}
     recorded = read_recorded(conn, list(names), asof)
-    runs = read_runs(
-        conn,
-        [t for t, r in recorded.items() if r.card.state in (State.ARMED, State.MANAGING)],
-        asof,
-    )
-    cands: list[Candidate] = candidates(names, recorded)
+    all_cands: list[Candidate] = candidates(names, recorded)
+    cands = read_candidates(all_cands, rows)
+    # the arm-night walk reads the log rows of the cards that have an armed or managing row in THIS read
+    walked = {c.thesis_id for c in cands if c.kind in ("armed", "managing")}
+    runs = read_runs(conn, [t for t in recorded if t in walked], asof)
     arms: dict[tuple[UUID, UUID], ArmNight | None] = arm_nights(cands, runs)
     sids = sorted({c.security_id for c in cands}, key=str)
     since_from = earliest_arm_night(arms)
@@ -460,6 +484,8 @@ def read_board(
         cards_not_yet_created=counted.not_yet_created,
         roster_fallback_cards=counted.roster_fallback,
         cards_counted=len(counted.cards),
+        rows_loaded=rows,
+        candidate_counts=count_candidates(all_cands),
     )
 
 
@@ -471,18 +497,29 @@ def hot_board(
     asof: date = Query(
         ..., description="as-of date; only what was recorded and public by then is read"
     ),
+    rows: RowsRead = Query(
+        "armed",
+        description=(
+            "which candidate rows to carry: `armed` (the default) the armed names with their tape, plus the counts "
+            "of the warming, watch and managing names the recorded cards list; `all` every candidate row with its tape"
+        ),
+    ),
     conn: psycopg.Connection = Depends(get_conn),
 ) -> HotBoardOut:
     """Every name the recorded calls in effect at the as-of show Armed, one row each, with the tape beside it:
     the call's own fields, the arm night and the session clocks, the return since the arm night against IWM, the
-    display members' readings and the approximate cap. Warming, watch and managing names ride along as candidate
-    rows for the page's toggles. Display only: it reads the calls log and never the live call; the heat ranking is
-    computed on the page from the rows it shows. A past as-of reads what was public by the end of that date.
+    display members' readings and the approximate cap. The default read carries the armed rows and only the COUNTS
+    of the warming, watch and managing names (no tape runs for them); `rows=all` carries all four kinds as rows for
+    the page's toggles. Display only: it reads the calls log and never the live call; the heat ranking is computed
+    on the page from the rows it shows. A past as-of reads what was public by the end of that date.
     """
     known_at, clock = serve_view(asof)
-    # the clock is part of the key: the same date read live today and on the public clock tomorrow are two
-    # reads (a new run clears the cache anyway; this holds even on a night with no run)
-    got = cached(conn, SLUG, (clock,), asof, lambda: read_board(conn, asof, known_at, clock))
+    # the rows read and the clock are the key: `armed` and `all` are two reads, and the same date read live today
+    # and on the public clock tomorrow are two reads (a new run clears the cache anyway; this holds even on a
+    # night with no run)
+    got = cached(
+        conn, SLUG, (rows, clock), asof, lambda: read_board(conn, asof, known_at, clock, rows)
+    )
     return HotBoardOut.model_validate(
         {**_payload(got.value), "cache": got.status, "compute_ms": got.compute_ms},
     )

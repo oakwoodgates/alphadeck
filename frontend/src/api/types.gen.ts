@@ -2330,9 +2330,10 @@ export interface paths {
          * Hot Board
          * @description Every name the recorded calls in effect at the as-of show Armed, one row each, with the tape beside it:
          *     the call's own fields, the arm night and the session clocks, the return since the arm night against IWM, the
-         *     display members' readings and the approximate cap. Warming, watch and managing names ride along as candidate
-         *     rows for the page's toggles. Display only: it reads the calls log and never the live call; the heat ranking is
-         *     computed on the page from the rows it shows. A past as-of reads what was public by the end of that date.
+         *     display members' readings and the approximate cap. The default read carries the armed rows and only the COUNTS
+         *     of the warming, watch and managing names (no tape runs for them); `rows=all` carries all four kinds as rows for
+         *     the page's toggles. Display only: it reads the calls log and never the live call; the heat ranking is computed
+         *     on the page from the rows it shows. A past as-of reads what was public by the end of that date.
          */
         get: operations["hot_board_dashboards_hot_board_get"];
         put?: never;
@@ -9662,14 +9663,17 @@ export interface components {
         };
         /**
          * HotBoardOut
-         * @description Every candidate row of the cards' recorded calls in effect at the as-of (the page derives the toggles, filters,
-         *     sorts and heat from this one read) and the counts its quiet line shows. ``cards_*`` = the counted cards by their
-         *     recorded state (``cards_no_call`` = nothing recorded by then); ``calendar_*`` = IWM's bar calendar the
-         *     ``sessions_since`` count reads; ``price_window_start`` = the earliest bar the view reads (``null`` = unbounded);
-         *     ``no_ticker_rows`` = rows whose security has no ticker anywhere (shown under its id); ``flagged`` = the
-         *     companies on a row with a flagged price history. ``clock``: ``record`` (the live read) or ``public`` (a past
-         *     as-of: what was public by the end of that date). ``cache`` / ``compute_ms`` = whether the read came from the
-         *     shared dashboard cache and how long it took when computed.
+         * @description The candidate rows of the cards' recorded calls in effect at the as-of that this read carries (the page derives
+         *     the toggles, filters, sorts and heat from them) and the counts its quiet line shows. ``rows_loaded`` says which:
+         *     ``armed`` (the default read: the armed rows alone, with their tape) or ``all`` (every kind, with its tape).
+         *     ``candidate_counts`` = every kind's rows on the recorded cards whichever read this is, so the toggles can show
+         *     "+N" before the rest is loaded. ``cards_*`` = the counted cards by their recorded state (``cards_no_call`` =
+         *     nothing recorded by then); ``calendar_*`` = IWM's bar calendar the ``sessions_since`` count reads;
+         *     ``price_window_start`` = the earliest bar the view reads (``null`` = unbounded); ``no_ticker_rows`` = rows whose
+         *     security has no ticker anywhere (shown under its id); ``flagged`` = the companies on a row with a flagged price
+         *     history. ``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was public by the end of that
+         *     date). ``cache`` / ``compute_ms`` = whether the read came from the shared dashboard cache and how long it took
+         *     when computed.
          */
         HotBoardOut: {
             /**
@@ -9717,6 +9721,12 @@ export interface components {
             price_window_start: string | null;
             /** No Ticker Rows */
             no_ticker_rows: number;
+            /**
+             * Rows Loaded
+             * @enum {string}
+             */
+            rows_loaded: "armed" | "all";
+            candidate_counts: components["schemas"]["HotCandidateCountsOut"];
             /** Rows */
             rows: components["schemas"]["HotRowOut"][];
             /** Flagged */
@@ -9728,6 +9738,22 @@ export interface components {
             cache: "hit" | "computed";
             /** Compute Ms */
             compute_ms: number;
+        };
+        /**
+         * HotCandidateCountsOut
+         * @description How many candidate rows of each kind the cards' recorded calls in effect list, whatever the read carries
+         *     (counted off the recorded cards: no display member runs for a row that is only counted). The default read's
+         *     toggles show the non-armed ones as their "+N".
+         */
+        HotCandidateCountsOut: {
+            /** Armed */
+            armed: number;
+            /** Warming */
+            warming: number;
+            /** Watch */
+            watch: number;
+            /** Managing */
+            managing: number;
         };
         /**
          * HotCapOut
@@ -19323,6 +19349,8 @@ export interface operations {
             query: {
                 /** @description as-of date; only what was recorded and public by then is read */
                 asof: string;
+                /** @description which candidate rows to carry: `armed` (the default) the armed names with their tape, plus the counts of the warming, watch and managing names the recorded cards list; `all` every candidate row with its tape */
+                rows?: "armed" | "all";
             };
             header?: never;
             path?: never;

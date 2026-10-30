@@ -29,6 +29,7 @@ from dashboards.hot_board import (
     MANAGING_RUN,
     ArmNight,
     Candidate,
+    CandidateCounts,
     Clocks,
     CompanyTape,
     HeatInput,
@@ -43,9 +44,11 @@ from dashboards.hot_board import (
     clocks,
     closed_ago,
     company_tape,
+    count_candidates,
     earliest_arm_night,
     heat,
     percentiles,
+    read_candidates,
     rs_leading,
     run_states,
     sessions_left,
@@ -93,7 +96,7 @@ FIXTURES = (
 )
 
 ASOF = date(2026, 10, 28)  # a Wednesday
-A, B, C, D = (uuid.uuid4() for _ in range(4))
+A, B, C, D, E = (uuid.uuid4() for _ in range(5))
 T1, T2, T3 = (uuid.uuid4() for _ in range(3))
 NAMES = {T1: "Card A", T2: "Card B", T3: "Card C"}
 
@@ -368,6 +371,69 @@ def test_arm_nights_are_read_for_armed_and_managing_rows_only():
     assert earliest_arm_night(
         {(T1, A): ArmNight(d(27), False), (T2, A): ArmNight(d(21), True), (T3, B): None}
     ) == {A: d(21)}
+
+
+# ---------------------------------------------------------------------------------------------------------
+# 2b. the two reads of one candidate set (the armed read and the on-demand full read)
+# ---------------------------------------------------------------------------------------------------------
+
+T4 = uuid.uuid4()
+
+
+def _mixed_cards():
+    """An Armed card (A and B armed, C watch), a Warming card (a trigger on D), a Managing card (E held) and a
+    second Armed card that also arms A: every candidate kind, one name armed on two cards."""
+    names = {T1: "Card A", T2: "Card B", T3: "Card C", T4: "Card D"}
+    recorded = {
+        T1: rec(
+            cc(
+                State.ARMED,
+                tid=T1,
+                armed_members=[mem(A), mem(B)],
+                watch_members=[mem(C)],
+            )
+        ),
+        T2: rec(cc(State.WARMING, tid=T2, triggers_fired=[trig(D)])),
+        T3: rec(cc(State.MANAGING, tid=T3, armed_members=[mem(E, verdict=Verdict.MANAGING)])),
+        T4: rec(cc(State.ARMED, tid=T4, armed_members=[mem(A)])),
+    }
+    return names, recorded, E
+
+
+def test_the_armed_read_takes_the_armed_rows_alone_and_the_full_read_every_row_in_order():
+    names, recorded, E = _mixed_cards()
+    cands = candidates(names, recorded)
+    assert _by_card(cands) == [
+        ("Card A", "armed", A),
+        ("Card A", "armed", B),
+        ("Card A", "watch", C),
+        ("Card B", "warming", D),
+        ("Card C", "managing", E),
+        ("Card D", "armed", A),
+    ]
+    armed = read_candidates(cands, "armed")
+    assert _by_card(armed) == [
+        ("Card A", "armed", A),
+        ("Card A", "armed", B),
+        ("Card D", "armed", A),
+    ]
+    everything = read_candidates(cands, "all")
+    assert everything == cands and everything is not cands  # the same rows, in the same order
+    # the securities the tape would run for: the armed read touches neither the warming, the watch nor the
+    # managing name
+    assert {c.security_id for c in armed} == {A, B}
+    assert {c.security_id for c in everything} == {A, B, C, D, E}
+
+
+def test_the_counts_of_the_other_rows_come_from_the_recorded_cards_whichever_read():
+    names, recorded, _ = _mixed_cards()
+    cands = candidates(names, recorded)
+    want = CandidateCounts(armed=3, warming=1, watch=1, managing=1)
+    assert count_candidates(cands) == want
+    # counting needs no tape and no arm night: the candidates alone
+    assert count_candidates([]) == CandidateCounts(0, 0, 0, 0)
+    # a read that carries fewer rows still states every kind's count (the toggles' "+N")
+    assert count_candidates(read_candidates(cands, "armed")) == CandidateCounts(armed=3)
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -987,12 +1053,54 @@ def test_watch_and_warming_rows_have_no_arm_night_and_so_no_age_or_return():
     assert by["warming"].keys == ("confirmation",)
 
 
+def test_an_armed_read_row_is_the_same_row_in_the_full_read_and_the_counts_name_the_rest():
+    """The two reads share ``assemble``: the armed read is the full read less the rows of the other kinds (each
+    armed row identical, including the 'also armed on' chip), carrying the other kinds as counts."""
+    names, recorded, E = _mixed_cards()
+    cands = candidates(names, recorded)
+    arms = {(T1, A): ArmNight(d(20), False), (T1, B): ArmNight(d(21), False)}
+    arms[(T3, E)] = ArmNight(d(19), False)
+    arms[(T4, A)] = ArmNight(d(26), True)
+    tapes = {sid: _ok_tape() for sid in (A, B, C, D, E)}
+    full = _board(cands, arms=arms, tapes=tapes)
+    armed = _board(
+        read_candidates(cands, "armed"),
+        arms=arms,
+        tapes={sid: t for sid, t in tapes.items() if sid in (A, B)},
+        rows_loaded="armed",
+        candidate_counts=count_candidates(cands),
+    )
+    assert (armed.rows_loaded, full.rows_loaded) == ("armed", "all")
+    assert armed.rows == tuple(r for r in full.rows if r.kind == "armed")
+    assert [r.kind for r in full.rows] == [
+        "armed",
+        "armed",
+        "watch",
+        "warming",
+        "managing",
+        "armed",
+    ]
+    # a name armed on two cards points at the other card in BOTH reads
+    assert [(r.thesis_name, [c.thesis_name for c in r.also_armed]) for r in armed.rows] == [
+        ("Card A", ["Card D"]),
+        ("Card A", []),
+        ("Card D", ["Card A"]),
+    ]
+    # the armed read states every kind's count: the toggles' "+N" without a row to show
+    want = CandidateCounts(armed=3, warming=1, watch=1, managing=1)
+    assert armed.candidate_counts == want and full.candidate_counts == want
+    # a full read counts its own rows when not told otherwise
+    assert _board(cands, tapes=tapes).candidate_counts == want
+
+
 # ---------------------------------------------------------------------------------------------------------
 # 8. the router (the heavy read stubbed; then the real read_board with its DB reads stubbed)
 # ---------------------------------------------------------------------------------------------------------
 
 
-def _hand_board():
+def _hand_board(rows="armed"):
+    """An Armed card with one armed member and one watch member, read as the router reads it: the armed read keeps
+    the armed row and counts the watch one; the full read has both."""
     recorded = {
         T1: rec(
             cc(
@@ -1000,26 +1108,31 @@ def _hand_board():
                 armed_members=[
                     mem(A, verdict=Verdict.STARTER_ENTRY, entry_grade=Grade.FLIP, confidence=0.4)
                 ],
+                watch_members=[mem(C)],
             )
         )
     }
+    cands = candidates({T1: "Card A"}, recorded)
     return _board(
-        candidates({T1: "Card A"}, recorded),
+        read_candidates(cands, rows),
         arms={(T1, A): ArmNight(d(27), True)},
-        tapes={A: _ok_tape()},
-        roster_tickers={(T1, A): "AAA"},
+        tapes={A: _ok_tape(), C: _ok_tape()},
+        roster_tickers={(T1, A): "AAA", (T1, C): "CCC"},
         company_names={A: "Alpha Co"},
+        rows_loaded=rows,
+        candidate_counts=count_candidates(cands),
     )
 
 
 @pytest.fixture
 def stub_client(monkeypatch):
-    seen: dict = {"reads": 0}
+    seen: dict = {"reads": 0, "rows": []}
 
-    def fake_read(conn, asof, known_at, clock):
+    def fake_read(conn, asof, known_at, clock, rows="all"):
         seen["reads"] += 1
         seen["view"] = (asof, known_at, clock)
-        return _hand_board()
+        seen["rows"].append(rows)
+        return _hand_board(rows)
 
     CACHE.clear()
     monkeypatch.setattr(router_mod, "read_board", fake_read)
@@ -1066,6 +1179,9 @@ def test_the_router_wire_shape(stub_client):
     assert row["tape"]["rvol20"] == {"value": 1.5, "note": None}
     assert row["cap"]["value"] == 5e8 and "heat" not in row  # the page ranks the rows it shows
     assert body["flagged"] == [] and isinstance(body["compute_ms"], int)
+    # the default read: the armed row with its tape, the watch name only as a count
+    assert body["rows_loaded"] == "armed"
+    assert body["candidate_counts"] == {"armed": 1, "warming": 0, "watch": 1, "managing": 0}
 
 
 def test_the_router_requires_an_asof(stub_client):
@@ -1073,39 +1189,82 @@ def test_the_router_requires_an_asof(stub_client):
     assert client.get("/dashboards/hot-board").status_code == 422
 
 
-def test_read_board_threads_one_view_into_every_read_and_never_reads_the_live_call(monkeypatch):
-    """``read_board`` itself (the DB reads stubbed): the roster, the flags, the benchmark's bars and every company's
-    view all get the request's one ``(known_at, clock)``; the log is read once for the cards, once for the armed
-    ones' runs."""
-    card = cc(
-        State.ARMED,
-        armed_members=[mem(A, arm_until=d(30)), mem(B)],
-        watch_members=[mem(C)],
-    )
-    seen: dict = {"roster": [], "recorded": [], "runs": [], "flags": [], "company": [], "bench": []}
-    thesis = Thesis(
-        id=T1,
-        name="Card A",
-        narrative="x",
-        segments=[Segment(label="Core")],
-        basket=[BasketMember(ticker="AAA", role="x", security_id=A, segment="Core")],
-    )
+def test_the_default_read_is_the_armed_read_and_rows_all_carries_every_candidate(stub_client):
+    client, seen = stub_client
+    default = client.get("/dashboards/hot-board", params={"asof": "2026-06-01"}).json()
+    armed = client.get(
+        "/dashboards/hot-board", params={"asof": "2026-06-01", "rows": "armed"}
+    ).json()
+    full = client.get("/dashboards/hot-board", params={"asof": "2026-06-01", "rows": "all"}).json()
+    # no `rows` is `rows=armed`: one read, the second request served from its cache entry
+    assert seen["rows"] == ["armed", "all"] and armed["cache"] == "hit"
+    assert default["rows"] == armed["rows"] and default["rows_loaded"] == "armed"
+    assert [r["ticker"] for r in default["rows"]] == ["AAA"]
+    assert [r["ticker"] for r in full["rows"]] == ["AAA", "CCC"] and full["rows_loaded"] == "all"
+    # the full read is the armed read plus the other kinds' rows: every shared row is the same row
+    assert full["rows"][0] == default["rows"][0]
+    assert full["rows"][1]["kind"] == "watch" and full["rows"][1]["clocks"]["arm_night"] is None
+    # whichever read it is, it states every kind's count
+    assert full["candidate_counts"] == default["candidate_counts"]
+
+
+def test_an_unknown_rows_value_is_a_422_and_reads_nothing(stub_client):
+    client, seen = stub_client
+    for bad in ("everything", "warming", "", "ALL"):
+        r = client.get("/dashboards/hot-board", params={"asof": "2026-06-01", "rows": bad})
+        assert r.status_code == 422, bad
+    assert seen["reads"] == 0
+
+
+def test_the_two_reads_are_cached_apart_by_rows_and_by_clock(stub_client):
+    client, seen = stub_client
+    asof = {"asof": "2026-06-01"}
+    client.get("/dashboards/hot-board", params=asof)
+    client.get("/dashboards/hot-board", params={**asof, "rows": "all"})
+    assert seen["reads"] == 2  # the armed entry did not answer the full read
+    client.get("/dashboards/hot-board", params=asof)
+    client.get("/dashboards/hot-board", params={**asof, "rows": "all"})
+    assert seen["reads"] == 2  # each now answers from its own entry
+    # the keys: (rows, clock), per as-of
+    keys = {k for k in CACHE._entries}
+    assert ("hot-board", ("armed", "public"), date(2026, 6, 1)) in keys
+    assert ("hot-board", ("all", "public"), date(2026, 6, 1)) in keys
+    assert len(keys) == 2
+
+
+def _stubbed_read(monkeypatch, theses, recorded, runs, params, *, flagged=None, tickers=None):
+    """The real ``read_board`` through the route with its DB reads stubbed: the roster, the calls-log reads, the
+    data flags, the benchmark's bars, the per-company tape and the master. Returns the body and what each read was
+    asked for. ``flagged`` = ``{security_id: reason}`` for the data-flag read; ``tickers`` = the master's.
+    """
+    flagged = flagged or {}
+    tickers = tickers or {A: "AAA", B: "BBB", C: "CCC", D: "DDD", E: "EEE"}
+    seen: dict = {
+        "roster": [],
+        "recorded": [],
+        "runs": [],
+        "flags": [],
+        "company": [],
+        "bench": [],
+        "tickers": [],
+        "ciks": [],
+    }
 
     def fake_cards(conn, asof, known_at):
         seen["roster"].append((asof, known_at))
-        return CardsAsOf(2, [thesis], 1, 1)
+        return CardsAsOf(len(theses) + 1, list(theses), 1, 1)
 
     def fake_recorded(conn, ids, asof):
         seen["recorded"].append((ids, asof))
-        return {T1: rec(card)}
+        return {t: r for t, r in recorded.items() if t in ids}
 
     def fake_runs(conn, ids, asof):
         seen["runs"].append((ids, asof))
-        return {T1: [log(d(28), ids=(A, B)), log(d(27), ids=(A,))]}
+        return {t: runs[t] for t in ids if t in runs}
 
     def fake_flags(conn, ids, asof, *, known_at, clock):
         seen["flags"].append((set(ids), asof, known_at, clock))
-        return {B: "mixed-scale price history"}
+        return {s: why for s, why in flagged.items() if s in ids}
 
     class FakePit:
         def benchmark_prices(self, symbol, lookback_days=None):
@@ -1120,12 +1279,20 @@ def test_read_board_threads_one_view_into_every_read_and_never_reads_the_live_ca
         seen["company"].append((list(sids), asof, known_at, clock))
         return {
             sid: CompanyTape(
-                Tape(flag="mixed-scale price history") if sid == B else Tape(),
+                Tape(flag=flagged[sid]) if sid in flagged else Tape(),
                 CapCell(gap="no_price"),
                 tuple(b for b in BARS) if sid == A else (),
             )
             for sid in sids
         }
+
+    def fake_tickers(conn, ids, **kw):
+        seen["tickers"].append(set(ids))
+        return {s: tickers[s] for s in ids if s in tickers}
+
+    def fake_ciks(conn, ids, **kw):
+        seen["ciks"].append(set(ids))
+        return {}
 
     CACHE.clear()
     monkeypatch.setattr(router_mod, "cards_as_of", fake_cards)
@@ -1135,20 +1302,52 @@ def test_read_board_threads_one_view_into_every_read_and_never_reads_the_live_ca
     monkeypatch.setattr(router_mod, "price_flags", fake_flags)
     monkeypatch.setattr(router_mod, "per_company", fake_per_company)
     monkeypatch.setattr(router_mod, "display_members", lambda names, who: {})
-    monkeypatch.setattr(
-        router_mod.master, "tickers_for", lambda conn, ids, **kw: {A: "AAA", B: "BBB", C: "CCC"}
-    )
+    monkeypatch.setattr(router_mod.master, "tickers_for", fake_tickers)
     monkeypatch.setattr(
         router_mod.master, "identity_for", lambda conn, ids, **kw: {A: {"name": "Alpha Co"}}
     )
-    monkeypatch.setattr(router_mod.master, "ciks_for", lambda conn, ids, **kw: {})
+    monkeypatch.setattr(router_mod.master, "ciks_for", fake_ciks)
     monkeypatch.setattr(CACHE, "_token_fn", lambda conn: "gen-1")
     app.dependency_overrides[get_conn] = lambda: object()
     try:
-        body = TestClient(app).get("/dashboards/hot-board", params={"asof": "2026-10-28"}).json()
+        body = TestClient(app).get("/dashboards/hot-board", params=params).json()
     finally:
         app.dependency_overrides.clear()
         CACHE.clear()
+    return body, seen
+
+
+def _one_card():
+    """One Armed card: A and B armed, C a watch member; B has a flagged price history."""
+    card = cc(
+        State.ARMED,
+        armed_members=[mem(A, arm_until=d(30)), mem(B)],
+        watch_members=[mem(C)],
+    )
+    thesis = Thesis(
+        id=T1,
+        name="Card A",
+        narrative="x",
+        segments=[Segment(label="Core")],
+        basket=[BasketMember(ticker="AAA", role="x", security_id=A, segment="Core")],
+    )
+    runs = {T1: [log(d(28), ids=(A, B)), log(d(27), ids=(A,))]}
+    return [thesis], {T1: rec(card)}, runs, {B: "mixed-scale price history"}
+
+
+def test_read_board_threads_one_view_into_every_read_and_never_reads_the_live_call(monkeypatch):
+    """``read_board`` itself (the DB reads stubbed), the full read (``rows=all``, what the page did before the
+    on-demand change): the roster, the flags, the benchmark's bars and every company's view all get the request's
+    one ``(known_at, clock)``; the log is read once for the cards, once for the armed ones' runs."""
+    theses, recorded, runs, flagged = _one_card()
+    body, seen = _stubbed_read(
+        monkeypatch,
+        theses,
+        recorded,
+        runs,
+        {"asof": "2026-10-28", "rows": "all"},
+        flagged=flagged,
+    )
 
     asof, known_at = seen["roster"][0]
     assert asof == ASOF and known_at is not None
@@ -1176,6 +1375,104 @@ def test_read_board_threads_one_view_into_every_read_and_never_reads_the_live_ca
     # the calendar is IWM's bars (its last bar is the as-of), the sessions since the arm night count from it
     assert body["calendar_source"] == "benchmarks" and body["calendar_last"] == "2026-10-28"
     assert rows["AAA"]["clocks"]["sessions_since"] == 1
+    assert body["rows_loaded"] == "all"
+    assert body["candidate_counts"] == {"armed": 2, "warming": 0, "watch": 1, "managing": 0}
+
+
+def test_the_default_read_runs_no_tape_for_a_name_that_is_only_counted(monkeypatch):
+    """The same card, the default read: the armed names get their tape and flags, the watch name is a count and
+    nothing is read for it (no flag read, no per-company view, no master ticker); the view is still the request's.
+    """
+    theses, recorded, runs, flagged = _one_card()
+    body, seen = _stubbed_read(
+        monkeypatch, theses, recorded, runs, {"asof": "2026-10-28"}, flagged=flagged
+    )
+    asof, known_at = seen["roster"][0]
+    assert seen["flags"][0][0] == {A, B} and seen["flags"][0][1:] == (ASOF, known_at, "public")
+    assert seen["company"][0][0] == sorted([A, B], key=str)
+    assert seen["company"][0][1:] == (ASOF, known_at, "public")
+    assert seen["tickers"] == [{A, B}] and seen["recorded"] == [([T1], ASOF)]
+    assert seen["runs"] == [([T1], ASOF)]
+    assert [(r["ticker"], r["kind"]) for r in body["rows"]] == [("AAA", "armed"), ("BBB", "armed")]
+    assert body["rows_loaded"] == "armed"
+    assert body["candidate_counts"] == {"armed": 2, "warming": 0, "watch": 1, "managing": 0}
+    assert body["flagged"] == [
+        {"security_id": str(B), "ticker": "BBB", "reason": "mixed-scale price history"}
+    ]
+
+
+def _mixed_stubs():
+    names, recorded, _ = _mixed_cards()
+    theses = [
+        Thesis(
+            id=t,
+            name=n,
+            narrative="x",
+            segments=[Segment(label="Core")],
+            basket=[],
+        )
+        for t, n in names.items()
+    ]
+    runs = {
+        T1: [log(d(28), ids=(A, B)), log(d(27), ids=(A,))],
+        T3: [log(d(28), State.MANAGING, ids=(E,)), log(d(27), State.ARMED, ids=(E,))],
+        T4: [log(d(28), ids=(A,))],
+    }
+    return theses, recorded, runs
+
+
+def test_the_armed_read_is_the_full_reads_armed_rows_and_its_counts_name_every_other_kind(
+    monkeypatch,
+):
+    """Four cards (Armed with a watch name, Warming, Managing, a second Armed): the default read touches only the
+    armed names' securities and walks only the Armed cards' runs, the full read touches every row's; every armed
+    row, and every field that is not a row, is identical between the two."""
+    theses, recorded, runs = _mixed_stubs()
+    armed, seen_armed = _stubbed_read(monkeypatch, theses, recorded, runs, {"asof": "2026-10-28"})
+    full, seen_full = _stubbed_read(
+        monkeypatch, theses, recorded, runs, {"asof": "2026-10-28", "rows": "all"}
+    )
+
+    # what each read was asked for
+    assert seen_armed["runs"] == [([T1, T4], ASOF)]
+    assert seen_full["runs"] == [([T1, T3, T4], ASOF)]
+    assert seen_armed["company"][0][0] == sorted([A, B], key=str)
+    assert seen_full["company"][0][0] == sorted([A, B, C, D, E], key=str)
+    assert seen_armed["flags"][0][0] == {A, B} and seen_full["flags"][0][0] == {A, B, C, D, E}
+    assert seen_armed["tickers"] == [{A, B}] and seen_full["tickers"] == [{A, B, C, D, E}]
+    for name in ("Card B", "Card C"):  # the Warming and Managing cards are counted, not read
+        assert name not in {r["thesis_name"] for r in armed["rows"]}
+
+    # what each carried
+    assert [(r["thesis_name"], r["ticker"], r["kind"]) for r in armed["rows"]] == [
+        ("Card A", "AAA", "armed"),
+        ("Card A", "BBB", "armed"),
+        ("Card D", "AAA", "armed"),
+    ]
+    assert [(r["thesis_name"], r["ticker"], r["kind"]) for r in full["rows"]] == [
+        ("Card A", "AAA", "armed"),
+        ("Card A", "BBB", "armed"),
+        ("Card A", "CCC", "watch"),
+        ("Card B", "DDD", "warming"),
+        ("Card C", "EEE", "managing"),
+        ("Card D", "AAA", "armed"),
+    ]
+    assert (armed["rows_loaded"], full["rows_loaded"]) == ("armed", "all")
+    want = {"armed": 3, "warming": 1, "watch": 1, "managing": 1}
+    assert armed["candidate_counts"] == want and full["candidate_counts"] == want
+    assert [r for r in full["rows"] if r["kind"] == "armed"] == armed["rows"]
+    # the arm night is each card's own for the same name
+    assert [r["clocks"]["arm_night"] for r in armed["rows"]] == [
+        "2026-10-27",
+        "2026-10-28",
+        "2026-10-28",
+    ]
+    # nothing else on the page differs between the reads
+    skip = {"rows", "rows_loaded", "cache", "compute_ms"}
+    assert {k: v for k, v in armed.items() if k not in skip} == {
+        k: v for k, v in full.items() if k not in skip
+    }
+    assert armed["cards_warming"] == 1 and armed["cards_managing"] == 1
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -1258,11 +1555,12 @@ def _record(db, tid: UUID, night: date, state: State, armed: list[UUID], **kw) -
     calls_repo.append(db, card, DEFAULT_TENANT_ID, **kw)
 
 
-def _get(db, asof: date) -> dict:
+def _get(db, asof: date, rows: str | None = None) -> dict:
     CACHE.clear()
     app.dependency_overrides[get_conn] = lambda: db
     try:
-        r = TestClient(app).get("/dashboards/hot-board", params={"asof": asof.isoformat()})
+        params = {"asof": asof.isoformat(), **({} if rows is None else {"rows": rows})}
+        r = TestClient(app).get("/dashboards/hot-board", params=params)
     finally:
         app.dependency_overrides.clear()
         CACHE.clear()
@@ -1375,3 +1673,51 @@ def test_db_an_archived_card_and_an_empty_log_give_an_honest_empty_page(db):
     body = _get(db, date(2026, 9, 16))
     assert body["rows"] == [] and body["cards_counted"] == 1 and body["cards_no_call"] == 1
     assert body["calendar_source"] == "none" and body["calendar_sessions"] == 0
+    assert body["candidate_counts"] == {"armed": 0, "warming": 0, "watch": 0, "managing": 0}
+
+
+def test_db_the_default_read_counts_the_warming_and_watch_names_and_rows_all_reads_them(db):
+    """Through the real calls log and price tape: an Armed card (AAA armed, BBB a watch member) and a Warming card
+    (a live trigger on CCC). The default read carries AAA with its tape and counts the other two; ``rows=all``
+    carries all three with theirs, and AAA's row is the same row in both."""
+    aaa, bbb, ccc = _security(db, "AAA"), _security(db, "BBB"), _security(db, "CCC")
+    iwm = _security(db, "IWM", etf=True)
+    for sid, base in ((aaa, 20.0), (bbb, 40.0), (ccc, 60.0), (iwm, 200.0)):
+        _tape(db, sid, base)
+    card_a = _card(db, "Card A", [("AAA", aaa), ("BBB", bbb)])
+    card_b = _card(db, "Card B", [("CCC", ccc)])
+    night = date(2026, 9, 15)
+    armed = cc(
+        State.ARMED,
+        tid=card_a,
+        asof=night,
+        armed_members=[
+            mem(aaa, verdict=Verdict.CORE_ENTRY, entry_grade=Grade.CORE, confidence=0.5)
+        ],
+        watch_members=[mem(bbb)],
+    )
+    warming = cc(State.WARMING, tid=card_b, asof=night, triggers_fired=[trig(ccc)])
+    calls_repo.append(db, armed, DEFAULT_TENANT_ID)
+    calls_repo.append(db, warming, DEFAULT_TENANT_ID)
+    db.commit()
+
+    asof = date(2026, 9, 16)
+    default = _get(db, asof)
+    full = _get(db, asof, "all")
+
+    assert (default["rows_loaded"], full["rows_loaded"]) == ("armed", "all")
+    assert [(r["ticker"], r["kind"]) for r in default["rows"]] == [("AAA", "armed")]
+    assert default["candidate_counts"] == {"armed": 1, "warming": 1, "watch": 1, "managing": 0}
+    assert full["candidate_counts"] == default["candidate_counts"]
+    assert [(r["ticker"], r["kind"]) for r in full["rows"]] == [
+        ("AAA", "armed"),
+        ("BBB", "watch"),
+        ("CCC", "warming"),
+    ]
+    assert (
+        full["rows"][0] == default["rows"][0]
+    )  # the armed row, tape and all, is the same in both reads
+    # the other kinds' rows in the full read carry a real tape (their closes are on file)
+    assert all(len(r["tape"]["spark"]) > 0 for r in full["rows"])
+    assert full["rows"][1]["tape"]["ret_7d"]["value"] is not None
+    assert default["cards_armed"] == full["cards_armed"] == 1 and default["cards_warming"] == 1
