@@ -1,0 +1,127 @@
+/* Daily Digest (docs/dashboards/daily-digest.md) — its own sheet, imported by the component, never index.css
+   (docs/DASHBOARDS.md rule 8). The trading set's TAPE look at low energy (invariant #7, inverse loudness): one column
+   of six blocks, dense lines, tabular numerals in the mono font for every figure, a hairline between rows, the quiet
+   work lines at the foot. Everything sits in the gray scale except THREE things: the Board's Armed color on exactly
+   the lines the server marks `accent` (a card that entered Armed, a name newly armed, an entry window closing within
+   3 days), the warm tone on the lines it marks `warm` (a card that left Armed, an exit-by reached), and the sign
+   tone (the app's --pos / --neg mixed 55% into gray, the Rotation Quadrant's recipe) on a signed return. Warming is
+   in the plain text color and Incubating in the grays, last; no badge, no chip color, no sound. Colors are the app's
+   tokens only. On a phone the blocks stack and each table row stacks under its name. */
+
+.dd {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 1100px;
+  --dd-pos: color-mix(in srgb, var(--pos) 55%, var(--txt-3));
+  --dd-neg: color-mix(in srgb, var(--neg) 55%, var(--txt-3));
+  /* the page's two tones, named once: used ONLY by the .dd-tone-accent / .dd-tone-warm rules below */
+  --dd-accent: var(--armed);
+  --dd-warm: var(--warm);
+}
+
+.dd-framing { margin: 0; font-size: 11.5px; line-height: 1.5; color: var(--txt-4); max-width: 760px; }
+.dd-night { margin: 4px 0 0; font-size: 13px; color: var(--txt); }
+.dd-after { margin: 0; font-size: 11.5px; color: var(--txt-3); }
+
+/* a section: a hairline header with its title (a link to the full page) and its count */
+.dd-sec { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
+.dd-h { margin: 0 0 2px; font-size: 10px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--txt-3); display: flex; align-items: baseline; gap: 0; }
+.dd-h::after { content: ""; flex: 1; height: 1px; background: var(--line); margin-left: 8px; order: 5; align-self: center; }
+.dd-title { color: var(--txt-2); text-decoration: none; }
+a.dd-title:hover { color: var(--txt); }
+.dd-ct { font-family: var(--mono); font-weight: 400; letter-spacing: 0.02em; text-transform: none; color: var(--txt-3); white-space: pre; }
+.dd-side { margin-left: 12px; font-weight: 400; letter-spacing: 0.04em; text-transform: none; font-size: 10.5px; color: var(--txt-4); text-decoration: none; order: 6; }
+.dd-side:hover { color: var(--txt-2); }
+.dd-side + .dd-side { margin-left: 8px; }
+.dd-empty { margin: 0; font-size: 12px; color: var(--txt-3); }
+.dd-note { margin: 0; font-size: 11px; color: var(--txt-3); }
+.dd-gray { color: var(--txt-3); }
+
+/* section 1: a card block, its headline (the state move) beside its name, its lines under it */
+.dd-card { display: flex; flex-direction: column; gap: 1px; padding: 3px 0 5px; }
+.dd-card-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 10px; padding: 0 6px; }
+.dd-cardname { font: inherit; font-size: 12.5px; color: var(--txt); background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
+.dd-cardname:hover { text-decoration: underline; text-underline-offset: 2px; }
+.dd-move { font-size: 12px; color: var(--txt-2); }
+.dd-mark { margin-left: 2px; font-size: 9.5px; letter-spacing: 0.02em; color: var(--txt-4); border: 1px dashed var(--line-2); border-radius: 4px; padding: 0 5px; cursor: help; }
+.dd-lines { list-style: none; margin: 0; padding: 0; }
+.dd-li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 10px; }
+.dd-line { font: inherit; font-size: 12px; display: grid; grid-template-columns: 64px 1fr; gap: 0 12px; align-items: baseline; padding: 2px 6px; border: 0; border-radius: 4px; background: transparent; color: var(--txt-2); text-align: left; cursor: pointer; }
+.dd-line:hover { background: var(--panel); color: var(--txt); }
+.dd-line:focus-visible { outline: 1px solid var(--line-2); outline-offset: -1px; }
+.dd-tk { font-family: var(--mono); font-weight: 700; color: var(--txt-2); white-space: nowrap; }
+.dd-tk-btn { font-size: 11.5px; background: none; border: 0; padding: 0; cursor: pointer; }
+.dd-tk-btn:hover { color: var(--txt); }
+.dd-what { color: var(--txt-3); }
+.dd-line:hover .dd-what { color: var(--txt-2); }
+.dd-src { font-family: var(--mono); font-size: 10px; color: var(--txt-4); text-decoration: none; }
+a.dd-src:hover { color: var(--txt-2); text-decoration: underline; }
+
+/* an Incubating card: the grays, last */
+.dd-card.tier-incubating .dd-cardname,
+.dd-card.tier-incubating .dd-move,
+.dd-card.tier-incubating .dd-tk,
+.dd-card.tier-incubating .dd-what { color: var(--txt-3); }
+
+/* THE TWO TONES. Only a line the server marks carries either (see the test that reads this sheet). */
+.dd .dd-tone-accent, .dd .dd-tone-accent .dd-what, .dd .dd-move.dd-tone-accent { color: var(--dd-accent); }
+.dd .dd-tone-warm, .dd .dd-tone-warm .dd-what, .dd .dd-move.dd-tone-warm { color: var(--dd-warm); }
+
+/* the sign tone: a signed return, nothing else (under .dd so it outranks the figure's own gray, whatever the order) */
+.dd .dd-pos { color: var(--dd-pos); }
+.dd .dd-neg { color: var(--dd-neg); }
+
+/* section 3: a due line is a date, a card, what it is */
+.dd-due-line { grid-template-columns: 150px minmax(120px, 220px) 1fr; }
+.dd-when { font-family: var(--mono); color: var(--txt-3); white-space: nowrap; }
+.dd-today .dd-when { color: var(--txt); font-weight: 600; }
+.dd-cardcol { color: var(--txt-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* sections 2 and 5: the short tables */
+.dd-scroll { overflow-x: auto; border-top: 1px solid var(--line); }
+table.dd-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 11.5px; font-variant-numeric: tabular-nums; }
+table.dd-table th { text-align: left; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); font-weight: 600; padding: 5px 14px 5px 0; border-bottom: 1px solid var(--line-2); white-space: nowrap; vertical-align: bottom; }
+table.dd-table td { padding: 5px 14px 5px 0; border-bottom: 1px solid var(--line); vertical-align: top; color: var(--txt-3); font-family: var(--mono); }
+table.dd-table tbody tr:hover td { background: color-mix(in srgb, var(--panel) 60%, transparent); }
+table.dd-table .dd-num { text-align: right; }
+.dd-card-td { min-width: 150px; max-width: 240px; }
+.dd-fig { color: var(--txt-2); }
+.dd-fig.dd-gray { color: var(--txt-3); }
+.dd-sub { display: block; font-size: 10px; color: var(--txt-4); }
+td .dd-sub, .dd-chips .dd-sub { white-space: normal; }
+.dd-help { cursor: help; border-bottom: 1px dotted var(--txt-4); }
+.dd-check { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--txt-3); cursor: pointer; align-self: flex-start; }
+.dd-check input { accent-color: var(--txt-3); }
+.dd-n { font-family: var(--mono); font-size: 10.5px; color: var(--txt-4); }
+
+/* section 4: a buy is two short lines */
+.dd-buys { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.dd-buy { padding: 4px 6px; border-bottom: 1px solid var(--line); }
+.dd-buy-main { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 12px; font-size: 12px; color: var(--txt-2); }
+.dd-buy-sub { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 12px; font-size: 11px; color: var(--txt-3); }
+.dd-chips { display: inline-flex; flex-wrap: wrap; gap: 0 8px; }
+.dd-chip { font: inherit; font-size: 11px; color: var(--txt-3); background: none; border: 0; border-bottom: 1px solid var(--line-2); padding: 0; cursor: pointer; }
+.dd-chip:hover { color: var(--txt-2); }
+.dd-size { font-family: var(--mono); color: var(--txt-2); }
+.dd-word { color: var(--txt-2); cursor: help; }
+
+/* section 6: one quiet line */
+.dd-forming { margin: 0; font-size: 12px; color: var(--txt-2); }
+
+/* the foot: what the page rests on, then what it cannot say */
+.dd-foot { display: flex; flex-direction: column; gap: 2px; margin-top: 14px; }
+.dd-work { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
+.dd-limits { margin: 4px 0 0; padding-left: 16px; font-size: 10.5px; line-height: 1.5; color: var(--txt-4); max-width: 1000px; }
+
+@media (max-width: 720px) {
+  .dd-line, .dd-due-line { grid-template-columns: 1fr; gap: 1px; }
+  .dd-scroll { overflow-x: visible; }
+  table.dd-table, table.dd-table tbody, table.dd-table tr, table.dd-table td { display: block; width: 100%; }
+  table.dd-table thead { display: none; }
+  table.dd-table tr { padding: 5px 0; border-bottom: 1px solid var(--line); }
+  table.dd-table td { border: 0; padding: 1px 0; text-align: left; }
+  table.dd-table td::before { content: attr(data-label); display: inline-block; min-width: 92px; font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--txt-4); }
+  table.dd-table td.dd-num { text-align: left; }
+  .dd-card-td { max-width: none; }
+}

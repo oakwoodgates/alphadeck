@@ -92,6 +92,8 @@ PAGES: tuple[tuple[str, Params], ...] = (
     # the scopes read; the default scope and `all` follow it, named by its reply (_peer_table_follow_ups)
     ("peer-table/scopes", {}),
     ("insider-tracker", {"days": 30, "silent": False}),
+    # the morning page: one read holds every section (its cold cost is mostly Insider Buying's Form 4 read), no param
+    ("daily-digest", {}),
     ("trigger-log", {"days": 90, "role": "entry"}),
     (
         "hot-board",

@@ -214,6 +214,69 @@ Pre-decided here for the operator's review:
    since P are a count.
 7. **The accent** marks a card entering Armed, a name newly armed and a window closing within 3 days; nothing else.
 
+### Built choices to confirm
+
+The build (2026-10-30) made these choices that the plan above does not spell out, each the operator's to confirm or change.
+Nothing in this list was measured against prod data: the build ran on neutral fixtures, and the timing under "Cost" below is
+for the orchestrator to measure on dev with a prod copy.
+
+1. **No P means no baseline, and two sections say so.** With no earlier recorded night (the record's first night, or none),
+   section 1 shows no line (not a "new card" line for every card) and section 4 has no span; both say "No earlier night to
+   compare." The other four sections still read (they need no baseline).
+2. **Which group a card sits in, in section 1.** The plan names three groups for four states. Built: the first group holds a
+   card that is, or was at P, **Armed or Managing** (a Managing card holds a position on an armed name, so its changes sit
+   with Armed, not below Warming); then Warming; then Incubating, last. A card that moved Warming to Incubating is Incubating
+   (gray); one that moved Armed to Warming is in the first group. Inside a group, cards by name. The grouping is the server's
+   alone (`digestView.ts` does not regroup it).
+3. **The tone rule, exactly.** Accent: a state move to Armed, a **new card born Armed**, a name newly armed, an entry window
+   closing within 3 days. Warm: a state move from Armed (but not Armed to Managing, a position entered is not a card that
+   left Armed), an exit-by reached. A Managing-to-Armed move is the accent (the position closed, the card is Armed again).
+   The same facts in other sections carry no tone: an "entry window ends" item in the this-week list, a tape row with its
+   window closing, and a position's hold clock are all plain, so the accent stays on exactly the lines of section 1.
+4. **A trigger line's source** is found by the trigger's identity (role, security, kind, event date) in the card the line was
+   read from (the baseline card for "no longer firing") and linked by the Evidence Ledger's rule with the issuer's CIK; a
+   price reference has no link and shows as text; a trigger that states no source shows none.
+5. **Positions are the cards whose recorded state in effect is Managing**, each with `decisions_repo.effective_position`
+   at the as-of and the view's instant (a fill logged after the as-of is not a position then; the card keeps its line
+   saying "no position logged as of this date", with its clocks, risks and kill criteria). The position model carries no
+   shares, so the fill's shares come from the take row the position came from (the latest non-voided take of that day on
+   that name as the log stood at the view's instant); a seed-era position has none. Shares times price shows only when both
+   were logged.
+6. **The since-fill basis.** The logged price is the start unless a split in force at the as-of has its first session after
+   the fill date (the bars are on the view's scale, the logged price on the old one): then the first close on or after the
+   fill date stands in and the line says why. A fill dated after the last close is "unpriced" (no close since the fill); with
+   the first-close start, a fill dated before the price window is "unpriced". With the logged price, IWM runs from its first
+   close on or after the fill date to its close on the name's last-close date; with the first-close start, IWM is read on
+   that close's date and the last-close date (Trigger Log's `since_move`).
+7. **The last session is exactly the calendar's last two sessions** (`series.session_calendar`, as the Hot Board's clocks use
+   it): a name needs a close on BOTH, and one missing either reads "unpriced" with the date it lacks, never a longer span
+   under the "last session" label. The same return is used for the held names in section 2 and the armed names in section 5.
+8. **The hold clock** counts sessions left by the Hot Board's `sessions_left` (Mon-Fri, holidays count) and, once passed, the
+   calendar's sessions after the exit-by through the as-of (the Hot Board's `closed_ago`). The exit-by date itself reads "its
+   last day" with 0 left.
+9. **Risk signals** on a position are the card's distinct (kind, security, event date) signals, not its labels; "new last
+   night" is how many of them section 1 lists as new risk signals on that card (0 with no P). Kill criteria and catalysts are
+   read as they stand today (they are edited in place, no history), and the page says so.
+10. **Catalysts passed since P** are the dated catalysts after P and before the as-of that the Calendar still lists as passed
+    (strictly after P: one dated P itself is not "since P"); the Calendar's whole passed count is beside it. Nothing with no P.
+11. **Insider buys: the filings read are cut to N.** The cluster rule sees filings from P less 30 days through N, never a
+    filing after N, so a morning after N (a weekend, before the pass) does not let a later buyer make a row a cluster. The
+    reader takes `days`, not a start date, so the read is `days = as-of - (P - 30 days)`; the recorded nights read for
+    "became a trigger" are those in (P, N]. Context and Bench roster rows left out are counted on the work line.
+12. **The tape cut runs over distinct names.** A name on two cards is two rows (the Hot Board's rule) and ONE name in the
+    cut: rises are the positive last-session returns (largest five), falls the negative ones (largest five), ties by ticker;
+    every row of a cut name is flagged. A flat name is neither. Rows come largest rise to largest fall, then the names with no
+    return by ticker; the toggle shows every row in that order, and renders only when the cut leaves rows behind it.
+13. **The page links** to a full page carry `?asof=` for a day other than today and leave a live visit's URL clean (an absent
+    param already reads today; the page cannot tell an absent param from today's). Positions has no full page to open, so its
+    header is plain; Entry Windows sits beside the Hot Board link in the tape's header.
+14. **A flagged price history** keeps its tape row and its position line with the flag's reason in the price cells, is left out
+    of n, the cut and the figures, and is listed once under the page's flagged note.
+15. **Marks.** A card whose row in effect carries `ingest_fresh = false` reads "ingest not fresh" and a reconstructed row "R",
+    on its section-1 card header and its position line (not on every line, a gray tag by the name).
+16. **Cache and warm-up.** The whole payload is one cache entry per (clock, as-of); `("daily-digest", {})` sits after Insider
+    Buying in the warm-up's `PAGES` (its cold read is mostly the same Form 4 read).
+
 ### Cost (PROPOSED, not measured)
 
 Section 1 is two SELECTs over the `calls` log (What Changed's reads); section 3 is a read of the cards' catalysts;
@@ -221,4 +284,5 @@ section 4 is the Form 4 read over the counted names from P − 30 days (Insider 
 this one spans about a month too, so expect the same order); section 5 reads closes for about a hundred armed names
 from their arm nights (the Hot Board's bar read, without its eight members); section 2 a handful of names. Expect the
 cold read near Insider Buying's; the warm-up makes the morning visit a hit. MEASURE on dev with a prod copy and record
-the cold `compute_ms`, the payload and the counts here.
+the cold `compute_ms`, the payload and the counts here (the page's own work line prints the counts and `compute_ms`). The
+build ran on neutral fixtures only and has measured nothing.
