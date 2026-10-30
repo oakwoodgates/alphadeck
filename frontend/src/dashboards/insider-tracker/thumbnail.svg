@@ -1,12 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200">
-<path fill="none" stroke="#9aa3b0" stroke-width="3.5" stroke-linecap="round" d="M17.8 20h40.5M17.8 112h40.5"/>
-<path fill="none" stroke="#1e232c" d="M66 20L304 20M66 112L304 112M16 47L304 47M16 65L304 65M16 83L304 83M16 101L304 101M16 139L304 139M16 157L304 157M16 175L304 175"/>
-<path fill="none" stroke="#9aa3b0" stroke-width="4" stroke-linecap="round" d="M18 38h18M18 56h18M18 74h18M18 92h18M18 130h18M18 148h18M18 166h18"/>
-<path fill="none" stroke="#3c4450" stroke-width="3" stroke-linecap="round" d="M47.5 38h17M47.5 56h17M47.5 74h17M47.5 92h17M47.5 130h17M47.5 148h17M47.5 166h17"/>
-<path fill="none" stroke="#5a6470" stroke-width="6" stroke-linecap="round" d="M79 38h64M79 56h110M79 74h38M79 92h78M79 130h52M79 148h94M79 166h30"/>
-<path fill="none" stroke="#5a6470" stroke-width="4.8" stroke-linecap="round" opacity="0.9" d="M206 38h.01M206 74h.01M206 130h.01M206 166h.01"/>
-<path fill="none" stroke="#46d07f" stroke-width="3" stroke-linecap="round" opacity="0.7" d="M275.5 38h15M275.5 56h15M275.5 92h15M275.5 130h15M275.5 166h15"/>
-<path fill="none" stroke="#8ab4ff" stroke-width="4.8" stroke-linecap="round" opacity="0.9" d="M206 56h.01M213 56h.01M220 56h.01M206 92h.01M213 92h.01M206 148h.01M213 148h.01M220 148h.01M227 148h.01"/>
-<path fill="none" stroke="#8ab4ff" stroke-width="3" stroke-linecap="round" d="M239.5 56h19M239.5 92h19M239.5 148h19"/>
-<path fill="none" stroke="#ff5a6a" stroke-width="3" stroke-linecap="round" opacity="0.7" d="M275.5 74h15M275.5 148h15"/>
+<path fill="none" stroke="#9aa3b0" stroke-width="3.5" stroke-linecap="round" d="M17.8 20h40.5M17.8 118h40.5"/>
+<path fill="none" stroke="#1e232c" d="M66 20L304 20M66 118L304 118"/>
+<path fill="none" stroke="#9aa3b0" stroke-width="4" stroke-linecap="round" d="M18 38h20M18 58h20M18 78h20M18 98h20M18 136h20M18 156h20M18 176h20"/>
+<path fill="none" stroke="#5a6470" stroke-width="10" stroke-linecap="round" d="M55 38h102M55 58h26M55 78h186M55 98h56M55 136h48M55 156h158M55 176h14"/>
+<path fill="none" stroke="#8ab4ff" stroke-width="4.8" stroke-linecap="round" opacity="0.9" d="M174 38h.01M181 38h.01M188 38h.01M258 78h.01M265 78h.01M230 156h.01M237 156h.01M244 156h.01M251 156h.01"/>
+<path fill="none" stroke="#8ab4ff" stroke-width="3" stroke-linecap="round" d="M200.5 38h19M277.5 78h19M263.5 156h19"/>
+<path fill="none" stroke="#5a6470" stroke-width="4.8" stroke-linecap="round" opacity="0.9" d="M98 58h.01M128 98h.01M120 136h.01M86 176h.01"/>
 </svg>

@@ -44,7 +44,9 @@ export type DashboardEntry = {
  *  (the drawing on the /dashboards index). The registry fills `thumbnail`; an `entry.ts` never writes it, so
  *  it stays typed `DashboardEntry`. */
 export type RegisteredDashboard = DashboardEntry & {
-  /** The URL of `frontend/src/dashboards/<slug>/thumbnail.svg` (a data URL when Vite inlines it). */
+  /** The URL of `frontend/src/dashboards/<slug>/thumbnail.svg`: its hashed file under /assets in a build (the
+   *  build keeps each thumbnail as its own file, `assetsInlineLimit` in vite.config.ts); its served path in dev
+   *  and under Vitest. */
   readonly thumbnail: string;
 };
 
@@ -93,8 +95,9 @@ export function buildRegistry(
 }
 
 // Every <slug>/entry.ts and <slug>/thumbnail.svg, collected at build time (Vite; Vitest too). The thumbnails
-// are URLs, not components: nothing imports one, and a small drawing is inlined into the bundle as a data
-// URL. Order = menu order; see docs/DASHBOARDS.md.
+// are URLs, not components: nothing imports one. The build keeps each as its own small file (`assetsInlineLimit`
+// in vite.config.ts), so the drawings stay out of the main chunk; dev and Vitest give the file's served path.
+// Order = menu order; see docs/DASHBOARDS.md.
 export const DASHBOARDS: readonly RegisteredDashboard[] = buildRegistry(
   import.meta.glob("./*/entry.ts", { eager: true }),
   import.meta.glob<string>("./*/thumbnail.svg", { query: "?url", import: "default", eager: true }),

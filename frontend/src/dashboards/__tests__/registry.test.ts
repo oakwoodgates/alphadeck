@@ -79,7 +79,7 @@ describe("the dashboard registry — the real entries", () => {
   });
 
   it("gives every real entry its OWN folder's thumbnail, as a URL", () => {
-    // Under Vitest the URL is the file's path; a production build serves a data URL or a hashed asset instead.
+    // Under Vitest the URL is the file's path; a production build serves a hashed file under /assets instead.
     for (const d of DASHBOARDS) expect(d.thumbnail, `${d.slug} thumbnail`).toMatch(new RegExp(`/${d.slug}/thumbnail\\.svg$`));
   });
 

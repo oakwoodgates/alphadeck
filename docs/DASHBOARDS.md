@@ -228,8 +228,7 @@ grid, the as-of line through the windows.
 1. Write the plan, `docs/dashboards/<slug>.md`: what it shows, as-of or "now", its loudness, which
    names count (Context and Bench included or not), how groups are combined, what a thin-data name
    does, and whether it needs the shared cache. The plan names, in one line, what the thumbnail draws
-   (see "Thumbnails"), so the operator signs it off with the plan. The operator signs off the plan before
-   the build.
+   (see "Thumbnails"); the operator signs off the plan, thumbnail line included, before the build.
 2. Backend compute: `backend/dashboards/<slug>.py`. Reads only; threads `serve_view(asof)` into every
    read (rule 2).
 3. Backend router: `backend/app/routers/dashboards/<slug>.py` with a module-level
@@ -248,8 +247,8 @@ grid, the as-of line through the windows.
 
 ## Remove a dashboard: the checklist
 
-1. Delete `frontend/src/dashboards/<slug>/` (its `entry.ts` and `thumbnail.svg` go with it). If `HOME_DASHBOARD` names it,
-   point that line at another slug first.
+1. Delete `frontend/src/dashboards/<slug>/` (its `entry.ts` and `thumbnail.svg` go with it). If
+   `HOME_DASHBOARD` names it, point that line at another slug first.
 2. Delete `backend/dashboards/<slug>.py` (or its subpackage), `backend/app/routers/dashboards/<slug>.py`
    and `backend/tests/dashboards/test_<slug>.py`.
 3. Delete `docs/dashboards/<slug>.md`.

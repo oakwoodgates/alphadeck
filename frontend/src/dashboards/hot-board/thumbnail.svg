@@ -1,15 +1,18 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200">
-<path fill="none" stroke="#3c4450" stroke-width="2.5" stroke-linecap="round" d="M17.3 22h3.5M35.3 22h17.5M65.3 22h23.5M123.3 22h15.5M177.3 22h11.5M205.3 22h11.5M233.3 22h17.5M277.3 22h13.5"/>
+<path fill="none" stroke="#3c4450" stroke-width="2.5" stroke-linecap="round" d="M17.3 22h3.5M31.3 22h17.5M79.3 22h15.5M279.3 22h11.5"/>
 <path fill="none" stroke="#2a313c" d="M16 31L304 31"/>
-<path fill="none" stroke="#1e232c" d="M16 52L304 52M16 70L304 70M16 88L304 88M16 106L304 106M16 124L304 124M16 142L304 142M16 160L304 160M16 178L304 178"/>
-<path fill="#3c4450" opacity="1" d="M122 39h44v8h-44zM122 57h38v8h-38zM122 75h34v8h-34zM122 93h28v8h-28z"/>
-<path fill="#3c4450" opacity="0.5" d="M122 111h22v8h-22zM122 129h18v8h-18zM122 147h14v8h-14zM122 165h10v8h-10z"/>
-<path fill="none" stroke="#3c4450" stroke-width="3" stroke-linecap="round" d="M17.5 43h3M65.5 43h27M277.5 43h11M17.5 61h3M65.5 61h39M17.5 79h3M65.5 79h35M277.5 79h11M17.5 97h3M65.5 97h31M277.5 97h11M17.5 115h3M65.5 115h27M277.5 115h11M17.5 133h3M65.5 133h39M277.5 133h11M17.5 151h3M65.5 151h35M277.5 151h11M17.5 169h3M65.5 169h31M277.5 169h11"/>
-<path fill="none" stroke="#9aa3b0" stroke-width="4.5" stroke-linecap="round" d="M36.3 43h13.5M36.3 61h16.5M36.3 79h19.5M36.3 97h13.5M36.3 115h16.5M36.3 133h19.5M36.3 151h13.5M36.3 169h16.5"/>
-<path fill="none" stroke="#9aa3b0" stroke-width="3" stroke-linecap="round" d="M158.5 43h8M158.5 61h8M158.5 79h8M158.5 97h8"/>
-<path fill="none" stroke="#46d07f" stroke-width="3" stroke-linecap="round" opacity="0.7" d="M177.5 43h13M205.5 43h13M205.5 61h13M177.5 79h13M177.5 97h13M205.5 97h13M205.5 115h13M177.5 133h13M205.5 133h13M177.5 151h13M205.5 169h13"/>
-<path fill="none" stroke="#5a6470" stroke-linejoin="round" d="M232 39L236 41L240 40L244 44L248 43L252 46L256 47M232 65L236 63L240 64L244 60L248 61L252 58L256 57M232 75L236 77L240 76L244 80L248 79L252 82L256 83M232 101L236 99L240 100L244 96L248 97L252 94L256 93M232 111L236 113L240 112L244 116L248 115L252 118L256 119M232 137L236 135L240 136L244 132L248 133L252 130L256 129M232 147L236 149L240 148L244 152L248 151L252 154L256 155M232 173L236 171L240 172L244 168L248 169L252 166L256 165"/>
-<path fill="none" stroke="#ff5a6a" stroke-width="3" stroke-linecap="round" opacity="0.7" d="M177.5 61h13M205.5 79h13M177.5 115h13M205.5 151h13M177.5 169h13"/>
-<path fill="none" stroke="#ff5733" stroke-width="3" stroke-linecap="round" d="M277.5 61h11"/>
-<path fill="none" stroke="#5a6470" stroke-width="3" stroke-linecap="round" d="M158.5 115h8M158.5 133h8M158.5 151h8M158.5 169h8"/>
+<path fill="none" stroke="#1e232c" d="M16 53.5L304 53.5M16 72.5L304 72.5M16 91.5L304 91.5M16 110.5L304 110.5M16 129.5L304 129.5M16 148.5L304 148.5M16 167.5L304 167.5M16 186.5L304 186.5"/>
+<path fill="none" stroke="#5a6470" stroke-width="11" stroke-linecap="round" opacity="1" d="M83.5 44h179"/>
+<path fill="none" stroke="#5a6470" stroke-width="11" stroke-linecap="round" opacity="0.9" d="M83.5 63h155"/>
+<path fill="none" stroke="#5a6470" stroke-width="11" stroke-linecap="round" opacity="0.8" d="M83.5 82h129"/>
+<path fill="none" stroke="#5a6470" stroke-width="11" stroke-linecap="round" opacity="0.6" d="M83.5 101h101"/>
+<path fill="none" stroke="#5a6470" stroke-width="11" stroke-linecap="round" opacity="0.5" d="M83.5 120h77"/>
+<path fill="none" stroke="#5a6470" stroke-width="11" stroke-linecap="round" opacity="0.4" d="M83.5 139h55"/>
+<path fill="none" stroke="#5a6470" stroke-width="11" stroke-linecap="round" opacity="0.3" d="M83.5 158h35"/>
+<path fill="none" stroke="#5a6470" stroke-width="11" stroke-linecap="round" opacity="0.2" d="M83.5 177h19"/>
+<path fill="none" stroke="#3c4450" stroke-width="3" stroke-linecap="round" d="M17.5 44h3M279.5 44h11M17.5 63h3M17.5 82h3M279.5 82h11M17.5 101h3M279.5 101h11M17.5 120h3M279.5 120h11M17.5 139h3M279.5 139h11M17.5 158h3M279.5 158h11M17.5 177h3M279.5 177h11"/>
+<path fill="none" stroke="#9aa3b0" stroke-width="4.5" stroke-linecap="round" d="M32.3 44h13.5M32.3 63h16.5M32.3 82h19.5M32.3 101h13.5M32.3 120h16.5M32.3 139h19.5M32.3 158h13.5M32.3 177h16.5"/>
+<path fill="none" stroke="#9aa3b0" stroke-width="3" stroke-linecap="round" opacity="0.9" d="M252.5 44h8M228.5 63h8M202.5 82h8M174.5 101h8M150.5 120h8"/>
+<path fill="none" stroke="#ff5733" stroke-width="3" stroke-linecap="round" d="M279.5 63h11"/>
+<path fill="none" stroke="#9aa3b0" stroke-width="3" stroke-linecap="round" opacity="0.6" d="M128.5 139h8M108.5 158h8M92.5 177h8"/>
 </svg>
