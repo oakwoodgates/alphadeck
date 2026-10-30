@@ -10,6 +10,7 @@ import type { components } from "../../api/types.gen";
 export type EntryWindowsOut = components["schemas"]["EntryWindowsOut"];
 export type EntryWindowsRowOut = components["schemas"]["EntryWindowsRowOut"];
 export type EntryWindowsMemberOut = components["schemas"]["EntryWindowsMemberOut"];
+export type EntryWindowsMemberClockOut = components["schemas"]["EntryWindowsMemberClockOut"];
 export type EntryWindowsTriggerOut = components["schemas"]["EntryWindowsTriggerOut"];
 export type EntryWindowsSourceOut = components["schemas"]["EntryWindowsSourceOut"];
 export type EntryWindowsCatalystOut = components["schemas"]["EntryWindowsCatalystOut"];

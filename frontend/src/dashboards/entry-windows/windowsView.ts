@@ -1,6 +1,7 @@
 import { leftOutWords } from "../FlaggedNote";
 import type {
   EntryWindowsCatalystOut,
+  EntryWindowsMemberClockOut,
   EntryWindowsMemberOut,
   EntryWindowsOut,
   EntryWindowsRowOut,
@@ -43,13 +44,39 @@ export function tone(v: number | null | undefined): "pos" | "neg" | "" {
 export const intoWords = (row: EntryWindowsRowOut): string =>
   row.sessions_into == null ? "—" : row.sessions_into.toLocaleString("en-US");
 
-/** The entry window's cell: sessions left while it is open, "closed N sessions ago" after, its last day between. */
-export function leftWords(row: EntryWindowsRowOut): string {
-  if (row.arm_until == null) return "no entry clock";
-  if (row.sessions_left != null) return plural(row.sessions_left, "session left", "sessions left");
-  if (row.closed_ago == null) return "—";
-  if (row.closed_ago === 0) return "last day of the entry window";
-  return `entry window closed ${plural(row.closed_ago, "session", "sessions")} ago`;
+/** One entry clock in words: sessions left while it is open, "closed N sessions ago" after, its last day between. */
+function clockWords(armUntil: string | null, left: number | null, closedAgo: number | null): string {
+  if (armUntil == null) return "no entry clock";
+  if (left != null) return plural(left, "session left", "sessions left");
+  if (closedAgo == null) return "—";
+  if (closedAgo === 0) return "last day of the entry window";
+  return `entry window closed ${plural(closedAgo, "session", "sessions")} ago`;
+}
+
+/** The entry window's cell: the CARD's clock (the headline name's `arm_until`). */
+export const leftWords = (row: EntryWindowsRowOut): string => clockWords(row.arm_until, row.sessions_left, row.closed_ago);
+
+const tickerOf = (c: EntryWindowsMemberClockOut) => c.ticker ?? "?";
+
+/** The quiet lines under the entry figure: one per armed name whose own entry window is closing and whose clock is
+ *  not the card's own (the same `arm_until` is the figure above, already). "BBB · 1 session left · to Oct 28". */
+export function memberEntryLines(row: EntryWindowsRowOut): string[] {
+  return row.member_clocks
+    .filter((c) => c.entry_window_closing && c.arm_until !== row.arm_until)
+    .map(
+      (c) =>
+        `${tickerOf(c)} · ${clockWords(c.arm_until, c.sessions_left, c.closed_ago)}${c.arm_until ? ` · to ${fmtDay(c.arm_until)}` : ""}`,
+    );
+}
+
+/** Does the card's own hold clock (the headline name's) say "hold clock closing"? */
+export const cardHoldClosing = (row: EntryWindowsRowOut): boolean => row.member_clocks.some((c) => c.headline && c.lapsing);
+
+/** The quiet lines under the hold figure: one per armed name whose own hold clock is closing, unless the card's
+ *  figure already says so. "BBB · hold clock closing". */
+export function memberHoldLines(row: EntryWindowsRowOut): string[] {
+  if (cardHoldClosing(row)) return [];
+  return row.member_clocks.filter((c) => c.lapsing).map((c) => `${tickerOf(c)} · ${HOLD_TAG}`);
 }
 
 /** Days to the hold horizon, or why there is none. */
@@ -62,7 +89,7 @@ export function holdWords(row: EntryWindowsRowOut): string {
 
 export const HOLD_TAG = "hold clock closing";
 export const CLOSING_TITLE =
-  "The card's own flag: at most 2 trading sessions are left in its entry window (Mon-Fri days; a market holiday counts as a session)";
+  "The accent marks any armed name's entry window at 2 trading sessions or fewer (Mon-Fri days; a market holiday counts as a session). A name whose window differs from the card's is named under the figure";
 
 export type SinceCell = {
   /** The median over the priced names, "—" with none. */

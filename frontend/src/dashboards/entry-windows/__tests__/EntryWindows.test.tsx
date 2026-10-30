@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import EntryWindows from "../EntryWindows";
 import type { EntryWindowsOut } from "../useEntryWindows";
-import { ASOF, CLOSED, CLOSING, MANAGING, NO_CLOCKS, counts, payload, row } from "./fixtures";
+import { ASOF, CLOSED, CLOSING, MANAGING, NO_CLOCKS, PAIR, counts, payload, row } from "./fixtures";
 
 // The Entry Windows body with its hook stubbed: the Armed rows with Managing behind a toggle that counts them,
 // the default order (closing soonest first), the one accent on a card's own entry_window_closing flag, the
@@ -89,6 +89,36 @@ describe("EntryWindows — the rows", () => {
     const c = rowOf("Card C");
     expect(c).toHaveTextContent("no priced name");
     expect(c).toHaveTextContent("1 flagged (of 1) out of the median");
+  });
+});
+
+describe("EntryWindows — a second name's own clock", () => {
+  it("keeps the card's figure and names the second name's window and hold clock under it", () => {
+    setup(payload({ rows: [PAIR, row()], counts: counts({ armed: 2, managing: 0 }) }));
+    const p = rowOf("Card P");
+    // the card's own figure is unchanged and still carries the accent: the flag is any name's
+    const left = within(p).getByTestId("ew-left");
+    expect(left).toHaveTextContent("3 sessions left");
+    expect(left).toHaveClass("closing");
+    expect(left.getAttribute("title")).toContain("any armed name's entry window");
+    expect(within(p).getByTestId("ew-member-entry")).toHaveTextContent("BBB · 1 session left · to Oct 28");
+    // the card's own hold clock is not closing, so the card says nothing; the second name's is named
+    expect(within(p).getByTestId("ew-hold-days")).toHaveTextContent("18 days");
+    expect(within(p).getByTestId("ew-member-hold")).toHaveTextContent("BBB · hold clock closing");
+    expect(within(p).getAllByText(/hold clock closing/)).toHaveLength(1);
+  });
+
+  it("draws no name line when no armed name is closing, or when the closing window is the card's own", () => {
+    setup();
+    expect(screen.queryAllByTestId("ew-member-entry")).toHaveLength(0);
+    expect(screen.queryAllByTestId("ew-member-hold")).toHaveLength(0);
+    // Card B's own (headline) window is the one closing: its figure says so, with the card's hold tag and no repeat
+    const b = rowOf("Card B");
+    expect(within(b).getByTestId("ew-left")).toHaveClass("closing");
+    expect(within(b).getByText(/hold clock closing/)).toBeInTheDocument();
+    expect(within(b).queryByTestId("ew-member-entry")).toBeNull();
+    expect(within(b).queryByTestId("ew-member-hold")).toBeNull();
+    expect(within(rowOf("Card A")).queryByText(/hold clock closing/)).toBeNull();
   });
 });
 

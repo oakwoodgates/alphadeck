@@ -39,6 +39,12 @@ The rules, in one place:
   ``lapsing``) are true when ANY armed member's own flag is true (operator decision 2026-10-30), so the page's one
   accent marks a card whose second name's window is closing, not only the headline name's; a card with no armed
   member records neither.
+- **The member clocks.** The row's own figures count to the CARD's ``arm_until`` / ``exit_by`` (the headline
+  member's, ``armed_members[0]``), so a row marked by another name carries that name's own clock: one ``MemberClock``
+  per armed member (each once) whose own ``entry_window_closing`` or ``lapsing`` is true, with the sessions left
+  (or the sessions since it closed) counted to the MEMBER's own ``arm_until`` by the same rule as the card's
+  figure, and ``headline`` = it is ``armed_members[0]``. The page shows a name under the figure only when its clock
+  says something the card's figure does not.
 - **The axis.** One for the page: from five sessions before the earliest arm night to the latest of the as-of and
   every clock.
 """
@@ -191,6 +197,51 @@ def entry_clock(
     if arm_until > asof:
         return weekdays_between(asof, arm_until), None
     return None, sessions_between(calendar, arm_until, asof)
+
+
+@dataclass(frozen=True)
+class MemberClock:
+    """An armed member whose own ``entry_window_closing`` or ``lapsing`` is true, with its own entry clock.
+    ``sessions_left`` / ``closed_ago`` are ``entry_clock`` counted to the MEMBER's ``arm_until`` (both ``None`` unless
+    ``entry_window_closing``, and with no ``arm_until``); ``headline`` = ``armed_members[0]``, the member whose
+    clocks the card carries."""
+
+    security_id: UUID
+    ticker: str | None
+    headline: bool
+    entry_window_closing: bool
+    lapsing: bool
+    arm_until: date | None
+    sessions_left: int | None
+    closed_ago: int | None
+
+
+def member_clocks(
+    armed_members: Sequence[MemberCall],
+    tickers: Mapping[UUID, str | None],
+    calendar: Sequence[date],
+    asof: date,
+) -> tuple[MemberClock, ...]:
+    """The members of the recorded card with either flag true, in the recorded (ranked) order, each name once (its
+    first flagged entry)."""
+    out: dict[UUID, MemberClock] = {}
+    for i, m in enumerate(armed_members):
+        if not (m.entry_window_closing or m.lapsing) or m.security_id in out:
+            continue
+        left, closed = (
+            entry_clock(calendar, asof, m.arm_until) if m.entry_window_closing else (None, None)
+        )
+        out[m.security_id] = MemberClock(
+            security_id=m.security_id,
+            ticker=tickers.get(m.security_id),
+            headline=i == 0,
+            entry_window_closing=m.entry_window_closing,
+            lapsing=m.lapsing,
+            arm_until=m.arm_until if m.entry_window_closing else None,
+            sessions_left=left,
+            closed_ago=closed,
+        )
+    return tuple(out.values())
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -437,6 +488,7 @@ class Row:
     sessions_left: int | None
     closed_ago: int | None
     hold_days: int | None
+    member_clocks: tuple[MemberClock, ...]
     catalysts: tuple[CatalystTick, ...]
     members: tuple[MemberRow, ...]
     since: Since
@@ -603,6 +655,7 @@ def entry_windows(
                 sessions_left=left,
                 closed_ago=closed,
                 hold_days=(card.exit_by - asof).days if card.exit_by is not None else None,
+                member_clocks=member_clocks(card.armed_members, tickers, calendar, asof),
                 catalysts=catalysts_in_window(
                     card.catalyst_surface,
                     arm_night,

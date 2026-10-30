@@ -17110,6 +17110,85 @@
         "title": "EntryWindowsFlaggedOut",
         "description": "A name left out of every number for a flagged price history (the reason the Cockpit grays its price\ncells)."
       },
+      "EntryWindowsMemberClockOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "headline": {
+            "type": "boolean",
+            "title": "Headline"
+          },
+          "entry_window_closing": {
+            "type": "boolean",
+            "title": "Entry Window Closing"
+          },
+          "lapsing": {
+            "type": "boolean",
+            "title": "Lapsing"
+          },
+          "arm_until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arm Until"
+          },
+          "sessions_left": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sessions Left"
+          },
+          "closed_ago": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed Ago"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "headline",
+          "entry_window_closing",
+          "lapsing",
+          "arm_until",
+          "sessions_left",
+          "closed_ago"
+        ],
+        "title": "EntryWindowsMemberClockOut",
+        "description": "An armed name whose own flag is true, with its own entry clock. ``headline`` = the name whose clocks the card\ncarries (``armed_members[0]``). ``sessions_left`` = the Mon-Fri days after the as-of through the NAME's own\n``arm_until`` (while that window is open), ``closed_ago`` = the IWM sessions since it closed (``0`` on its last\nday); both ``null`` unless ``entry_window_closing``."
+      },
       "EntryWindowsMemberOut": {
         "properties": {
           "security_id": {
@@ -17440,6 +17519,13 @@
             ],
             "title": "Hold Days"
           },
+          "member_clocks": {
+            "items": {
+              "$ref": "#/components/schemas/EntryWindowsMemberClockOut"
+            },
+            "type": "array",
+            "title": "Member Clocks"
+          },
           "catalysts": {
             "items": {
               "$ref": "#/components/schemas/EntryWindowsCatalystOut"
@@ -17487,13 +17573,14 @@
           "sessions_left",
           "closed_ago",
           "hold_days",
+          "member_clocks",
           "catalysts",
           "members",
           "since",
           "spark"
         ],
         "title": "EntryWindowsRowOut",
-        "description": "One Armed (``state`` ``armed``) or Managing card. ``arm_night`` = the first night of the card's current\nrecorded Armed run; ``in_effect`` = the recorded night whose card the row shows; ``reconstructed`` = the arm\nnight's row was written by ``pipeline.backfill`` (reported, never scored). ``arm_until`` / ``exit_by`` = the\nentry window and the hold horizon (``null`` = no clock). ``sessions_into`` = the IWM sessions after the arm\nnight through the as-of; ``sessions_left`` = the Mon-Fri days after the as-of through ``arm_until`` (while the\nwindow is open); ``closed_ago`` = the IWM sessions since it closed (``0`` on its last day); ``hold_days`` =\ncalendar days from the as-of to ``exit_by`` (negative = passed). Each flag is true when ANY armed member's own\nflag is true."
+        "description": "One Armed (``state`` ``armed``) or Managing card. ``arm_night`` = the first night of the card's current\nrecorded Armed run; ``in_effect`` = the recorded night whose card the row shows; ``reconstructed`` = the arm\nnight's row was written by ``pipeline.backfill`` (reported, never scored). ``arm_until`` / ``exit_by`` = the\nentry window and the hold horizon (``null`` = no clock). ``sessions_into`` = the IWM sessions after the arm\nnight through the as-of; ``sessions_left`` = the Mon-Fri days after the as-of through ``arm_until`` (while the\nwindow is open); ``closed_ago`` = the IWM sessions since it closed (``0`` on its last day); ``hold_days`` =\ncalendar days from the as-of to ``exit_by`` (negative = passed). Each flag is true when ANY armed member's own\nflag is true; ``member_clocks`` lists those members with their own entry clock, since the figures above count to\nthe card's (the headline name's) clocks."
       },
       "EntryWindowsSinceOut": {
         "properties": {

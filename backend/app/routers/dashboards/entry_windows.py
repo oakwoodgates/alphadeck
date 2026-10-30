@@ -134,6 +134,22 @@ class EntryWindowsSparkOut(_Wire):
     iwm: list[float] | None
 
 
+class EntryWindowsMemberClockOut(_Wire):
+    """An armed name whose own flag is true, with its own entry clock. ``headline`` = the name whose clocks the card
+    carries (``armed_members[0]``). ``sessions_left`` = the Mon-Fri days after the as-of through the NAME's own
+    ``arm_until`` (while that window is open), ``closed_ago`` = the IWM sessions since it closed (``0`` on its last
+    day); both ``null`` unless ``entry_window_closing``."""
+
+    security_id: UUID
+    ticker: str | None
+    headline: bool
+    entry_window_closing: bool
+    lapsing: bool
+    arm_until: date | None
+    sessions_left: int | None
+    closed_ago: int | None
+
+
 class EntryWindowsRowOut(_Wire):
     """One Armed (``state`` ``armed``) or Managing card. ``arm_night`` = the first night of the card's current
     recorded Armed run; ``in_effect`` = the recorded night whose card the row shows; ``reconstructed`` = the arm
@@ -142,7 +158,8 @@ class EntryWindowsRowOut(_Wire):
     night through the as-of; ``sessions_left`` = the Mon-Fri days after the as-of through ``arm_until`` (while the
     window is open); ``closed_ago`` = the IWM sessions since it closed (``0`` on its last day); ``hold_days`` =
     calendar days from the as-of to ``exit_by`` (negative = passed). Each flag is true when ANY armed member's own
-    flag is true.
+    flag is true; ``member_clocks`` lists those members with their own entry clock, since the figures above count to
+    the card's (the headline name's) clocks.
     """
 
     thesis_id: UUID
@@ -162,6 +179,7 @@ class EntryWindowsRowOut(_Wire):
     sessions_left: int | None
     closed_ago: int | None
     hold_days: int | None
+    member_clocks: list[EntryWindowsMemberClockOut]
     catalysts: list[EntryWindowsCatalystOut]
     members: list[EntryWindowsMemberOut]
     since: EntryWindowsSinceOut

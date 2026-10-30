@@ -8228,6 +8228,34 @@ export interface components {
             reason: string;
         };
         /**
+         * EntryWindowsMemberClockOut
+         * @description An armed name whose own flag is true, with its own entry clock. ``headline`` = the name whose clocks the card
+         *     carries (``armed_members[0]``). ``sessions_left`` = the Mon-Fri days after the as-of through the NAME's own
+         *     ``arm_until`` (while that window is open), ``closed_ago`` = the IWM sessions since it closed (``0`` on its last
+         *     day); both ``null`` unless ``entry_window_closing``.
+         */
+        EntryWindowsMemberClockOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string | null;
+            /** Headline */
+            headline: boolean;
+            /** Entry Window Closing */
+            entry_window_closing: boolean;
+            /** Lapsing */
+            lapsing: boolean;
+            /** Arm Until */
+            arm_until: string | null;
+            /** Sessions Left */
+            sessions_left: number | null;
+            /** Closed Ago */
+            closed_ago: number | null;
+        };
+        /**
          * EntryWindowsMemberOut
          * @description An armed name. ``arm_night`` = the first night of the run on which the recorded card names it armed;
          *     ``since`` = its as-traded return in percent from the first close on or after that night (``entry_on``) to the
@@ -8313,7 +8341,8 @@ export interface components {
          *     night through the as-of; ``sessions_left`` = the Mon-Fri days after the as-of through ``arm_until`` (while the
          *     window is open); ``closed_ago`` = the IWM sessions since it closed (``0`` on its last day); ``hold_days`` =
          *     calendar days from the as-of to ``exit_by`` (negative = passed). Each flag is true when ANY armed member's own
-         *     flag is true.
+         *     flag is true; ``member_clocks`` lists those members with their own entry clock, since the figures above count to
+         *     the card's (the headline name's) clocks.
          */
         EntryWindowsRowOut: {
             /**
@@ -8362,6 +8391,8 @@ export interface components {
             closed_ago: number | null;
             /** Hold Days */
             hold_days: number | null;
+            /** Member Clocks */
+            member_clocks: components["schemas"]["EntryWindowsMemberClockOut"][];
             /** Catalysts */
             catalysts: components["schemas"]["EntryWindowsCatalystOut"][];
             /** Members */
