@@ -316,8 +316,9 @@ build ran on neutral fixtures only and has measured nothing.
 - **Past as-of 2026-09-15** on the public clock (10 counted cards then; the night of 2026-09-15 against 2026-09-14):
   97 KB, cold **17,002 ms**; section 1: 8 cards, 167 lines; 1 item due; 6 purchases (4 clusters, 4 triggers); 20 tape
   rows on 19 names.
-- **The line count is the finding.** Two consecutive nights differ by about 400 What Changed lines, and 249 of them are
-  trigger re-dates and new risk signals: the common nightly churn, true of nearly every Armed card. On the morning page
+- **The line count is the finding.** Two consecutive nights differ by about 400 What Changed lines, and 368 of them are
+  the five churn kinds (triggers re-dated, new or gone, new risk signals, names new on watch): the common nightly churn,
+  true of nearly every Armed card. On the morning page
   those lines are folded per card into one quiet count line that opens on click (honest loudness, Workbench principle
   3: the common noise collapses, the exception stays a line); the state moves, keys, names armed or no longer armed and
   the clocks stay lines. The server payload is unchanged (nothing is dropped), so the cache and the numbers above hold.
