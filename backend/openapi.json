@@ -32370,6 +32370,10 @@
             "type": "string",
             "title": "Label"
           },
+          "label_changes": {
+            "type": "integer",
+            "title": "Label Changes"
+          },
           "turns": {
             "anyOf": [
               {
@@ -32410,12 +32414,13 @@
           "kind",
           "grade",
           "label",
+          "label_changes",
           "turns",
           "sources",
           "live"
         ],
         "title": "TickerLookupTriggerOut",
-        "description": "One trigger the recorded calls show on the company (identity: role, kind, fire date, label). ``recorded_on``\n= the first night in the window the record shows it; ``recorded_after_days`` = how far that trails the fire\ndate; ``turns`` = the key an entry trigger turns; ``live`` = still on the card in effect at the as-of."
+        "description": "One trigger the recorded calls show on the company (identity: role, kind, fire date; the label is not part\nof it). ``recorded_on`` = the first night in the window the record shows it; ``label`` = its label that night\nand ``label_changes`` = how many distinct other labels the record showed for it from then through the\nas-of; ``recorded_after_days`` = how far that trails the fire date; ``turns`` = the key an entry trigger\nturns; ``live`` = still on the card in effect at the as-of."
       },
       "TickerLookupTriggersOut": {
         "properties": {

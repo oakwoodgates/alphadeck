@@ -14,6 +14,7 @@ import {
   foldEntries,
   foldWords,
   keyWords,
+  labelTitle,
   notListedWords,
   placeWords,
   ratifiedWords,
@@ -133,6 +134,12 @@ describe("the triggers", () => {
 
   it("counts entry, risk and live rows", () => {
     expect(triggerCounts([trigger(), riskTrigger()])).toEqual({ entry: 1, risk: 1, live: 1 });
+  });
+
+  it("hovers how many times the record changed a label, only when it did", () => {
+    expect(labelTitle(trigger({ label: "L", label_changes: 0 }))).toBe("L");
+    expect(labelTitle(trigger({ label: "L", label_changes: 1 }))).toBe("L\nlabel changed 1 time");
+    expect(labelTitle(trigger({ label: "L", label_changes: 56 }))).toBe("L\nlabel changed 56 times");
   });
 });
 

@@ -44,7 +44,10 @@ calls the LLM. Nothing here is new data; every section is a reader another page 
    N cards" (`Thesis.exclusions` naming this security, with the reason).
 3. **The record's triggers on this name:** every entry trigger and risk signal the `calls` log shows on this
    security across the counted cards in the last 365 days, the Trigger Log's identity and dating rules
-   (`docs/dashboards/trigger-log.md` §What a row is): recorded night, fire date, card, role, kind, grade, label,
+   (`docs/dashboards/trigger-log.md` §What a row is): an identity is (role, kind, fire date) for this security, the
+   label NOT part of it, so one trigger is ONE row however its label changed night to night. Each row shows its
+   recorded night (the first night the record shows it), fire date, card, role, kind, grade, the label of that first
+   night (hover: "label changed N times" when the record showed N distinct other labels for it, `label_changes`),
    source link (`dashboards/filings.py::source_url`), live at the as-of. Newest first.
 4. **Tape:** the display members at the as-of (`signals/display/`, all registered members through one
    `PointInTimeData` with `display_bounds()`; `etf_flow` only for an ETF), as a compact grid of the Cockpit's own
@@ -135,10 +138,15 @@ What the build chose where this plan is silent, each the operator's to confirm o
 measured on real data yet: the DB-backed tests and a dev run are still to come, and no compute time is recorded.
 
 **Triggers**
-- **Identity includes the label** (the Trigger Log plan's rule: role, kind, fire date, label). What Changed leaves the
-  label out because a label can carry a number that moves every night (a breakout's volume ratio); on this page such
-  a trigger may list as several rows with one fire date. The rule is one function, `trigger_id` in
-  `backend/dashboards/ticker_lookup.py`: dropping the label from it is a one-line change.
+- **Identity leaves the label out** (the Trigger Log's rule since 2026-10-29: role, security, kind, fire date; this
+  page first built it with the label in, then aligned). A label can carry a number that moves every night (a
+  breakdown's names that night's close), so the same fire date under a new label is the same trigger. MEASURED for
+  the Trigger Log on a prod copy (not re-measured on this page): 1,675 of 11,536 (card, security, kind, fire date)
+  groups carried more than one label, up to 56 labels for one signal. The row shows the label of its first recorded
+  night and `label_changes` = the distinct other labels the record showed for it from that night through the
+  window's end (another copy the same night counts); the hover reads "label changed N times" when N > 0. The rule is
+  one function, `trigger_id` in `backend/dashboards/ticker_lookup.py`. It also sets the place cell's counts: a
+  relabeled trigger is one live trigger (or one risk signal), not several.
 - **Read from the cards the company sits on at the as-of**, not from every counted card (the whole log's cards are
   too many `calls` rows for one lookup). A trigger recorded on a card the company has since left is not here; the
   page's limits say so.

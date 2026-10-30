@@ -75,6 +75,7 @@ export const trigger = (over: Partial<LookupTrigger> = {}): LookupTrigger => ({
   kind: "insider",
   grade: "core",
   label: "CEO bought 12,000 shares",
+  label_changes: 0,
   turns: "conviction",
   sources: [{ source: "form4", ref: "0000876543-26-000010", url: EDGAR, detail: ["usd: 12000.0"] }],
   live: true,

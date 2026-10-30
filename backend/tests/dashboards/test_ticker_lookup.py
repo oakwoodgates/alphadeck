@@ -1,8 +1,10 @@
 """Ticker Lookup (``docs/dashboards/ticker-lookup.md``): the pure compute on hand-built cards, calls, decisions,
 filings and display readings (the cards section: two links merged, the Context / Bench tag, the context role, the
 place on the card in effect: armed, watch, trigger-bearing, none, not counted, no record; the archived and
-excluded folds; the trigger identity merge scoped to one company: one row per identity dated its first night, a
-member-level and a card-level copy merging, the winning row per night, the night before the window, ``live``; the
+excluded folds; the trigger identity merge scoped to one company: one row per (role, kind, fire date) dated its
+first night with its first night's label, the label NOT part of the identity (``label_changes`` counts the other
+labels), a member-level and a card-level copy merging, the winning row per night, the night before the window,
+``live``; the
 decisions filter and its strikes; the catalysts; the filings grouping and routine cap; the tape grid read off the
 REAL display members' computes, so a renamed metric key fails here), the router off one cached read, and, DB-backed,
 the exact-ticker resolve and a page at past as-ofs where a basket row added after the as-of, a filing filed after
@@ -278,6 +280,21 @@ def test_the_place_is_armed_with_the_members_verdict_grade_and_setup_strength():
     assert (place.live_triggers, place.turns) == (1, ("conviction",))  # one identity, merged
 
 
+def test_the_place_counts_a_trigger_once_however_its_label_reads():
+    relabeled = cc(
+        triggers_fired=[
+            trig(kind=Kind.INSIDER, label="buy 12,000 sh"),
+            trig(kind=Kind.INSIDER, label="buy"),
+        ],
+        risk_signals=[
+            trig(kind=Kind.BREAKDOWN, label="close 1.10"),
+            trig(kind=Kind.BREAKDOWN, label="close 1.20"),
+        ],
+    )
+    place = place_of(night(relabeled), SID, False)
+    assert (place.live_triggers, place.live_risks) == (1, 1)
+
+
 def test_the_place_is_watch_for_a_confirmation_only_member():
     watch = cc(watch_members=[mem(triggers=[trig()])], triggers_fired=[trig()])
     place = place_of(night(watch), SID, False)
@@ -443,21 +460,108 @@ def test_a_member_level_and_a_card_level_copy_merge_into_one_row():
     assert [(e.recorded_on, e.role) for e in got.events] == [(date(2026, 10, 25), "entry_trigger")]
 
 
-def test_only_this_company_is_read_and_a_different_label_or_fire_date_is_another_row():
+def test_only_this_company_is_read_and_a_different_fire_date_is_another_row_but_a_label_is_not():
     c = cc(
         triggers_fired=[
             trig(label="A", on=date(2026, 10, 20)),
-            trig(label="A", on=date(2026, 10, 21)),  # another fire date
-            trig(label="B", on=date(2026, 10, 20)),  # another label
-            trig(OTHER, label="A", on=date(2026, 10, 20)),  # another company
+            trig(label="A", on=date(2026, 10, 21)),  # another fire date: another row
+            trig(label="B", on=date(2026, 10, 20)),  # another label: the same trigger
+            trig(OTHER, label="A", on=date(2026, 10, 20)),  # another company: not read
         ]
     )
     got = log(nights_of(c))
-    assert sorted((e.label, e.event_date) for e in got.events) == [
-        ("A", date(2026, 10, 20)),
-        ("A", date(2026, 10, 21)),
-        ("B", date(2026, 10, 20)),
+    assert sorted((e.label, e.event_date, e.label_changes) for e in got.events) == [
+        ("A", date(2026, 10, 20), 1),
+        ("A", date(2026, 10, 21), 0),
     ]
+
+
+def test_the_label_is_not_part_of_the_identity_one_trigger_under_several_labels_is_one_row():
+    """A label can carry that night's numbers (a breakdown names the night's close): the same role, kind and fire
+    date under a new label each night is ONE row, dated the first night, with the first night's label.
+    """
+    first = "close 127.19 closed below the base"
+    fired = date(2026, 10, 23)
+    nights = nights_of(
+        cc(
+            asof=date(2026, 10, 24),
+            risk_signals=[trig(kind=Kind.BREAKDOWN, label=first, on=fired)],
+        ),
+        cc(
+            asof=date(2026, 10, 25),
+            risk_signals=[
+                trig(kind=Kind.BREAKDOWN, label="close 127.30 closed below the base", on=fired)
+            ],
+        ),
+        cc(
+            asof=date(2026, 10, 26),
+            risk_signals=[
+                trig(kind=Kind.BREAKDOWN, label="close 126.80 closed below the base", on=fired)
+            ],
+        ),
+    )
+    (e,) = log(nights).events
+    assert (e.recorded_on, e.role, e.kind, e.event_date) == (
+        date(2026, 10, 24),
+        "risk_signal",
+        "breakdown",
+        fired,
+    )
+    assert (e.label, e.label_changes, e.live) == (first, 2, True)
+
+
+def test_label_changes_counts_the_distinct_other_labels_not_the_nights():
+    steady = trig(kind=Kind.INSIDER, label="buy", on=date(2026, 10, 20))
+    nights = nights_of(
+        *(
+            cc(
+                asof=date(2026, 10, 21 + i),
+                triggers_fired=[steady, trig(label=("a", "b", "a", "b")[i])],
+            )
+            for i in range(4)
+        )
+    )
+    by = {e.kind: e for e in log(nights).events}
+    assert by["insider"].label_changes == 0  # four nights, one label
+    assert (by["technical_breakout"].label, by["technical_breakout"].label_changes) == ("a", 1)
+
+
+def test_a_second_copy_with_another_label_on_the_same_night_counts_and_the_first_copy_stands():
+    c = cc(
+        State.ARMED,
+        armed_members=[mem(triggers=[trig(kind=Kind.INSIDER, label="buy, member copy")])],
+        triggers_fired=[trig(kind=Kind.INSIDER, label="buy, card copy")],
+    )
+    (e,) = log(nights_of(c)).events
+    assert (e.label, e.label_changes) == ("buy, card copy", 1)  # the card-level list is read first
+
+
+def test_a_label_shown_after_a_gap_still_counts_into_the_one_row():
+    nights = nights_of(
+        cc(asof=date(2026, 10, 20), triggers_fired=[trig(kind=Kind.INSIDER, label="one")]),
+        cc(asof=date(2026, 10, 21)),  # lapsed
+        cc(asof=date(2026, 10, 22), triggers_fired=[trig(kind=Kind.INSIDER, label="two")]),
+    )
+    (e,) = log(nights).events
+    assert (e.recorded_on, e.label, e.label_changes) == (date(2026, 10, 20), "one", 1)
+
+
+def test_an_identity_carried_in_under_a_new_label_is_not_a_row_and_is_counted_live():
+    fired = date(2026, 2, 27)
+    prior = {
+        T1: night(
+            cc(
+                asof=date(2026, 3, 1),
+                risk_signals=[trig(kind=Kind.BREAKDOWN, label="close 100.00", on=fired)],
+            )
+        )
+    }
+    inside = cc(
+        asof=date(2026, 3, 5),
+        risk_signals=[trig(kind=Kind.BREAKDOWN, label="close 101.00", on=fired)],
+    )
+    got = log(nights_of(inside), prior)
+    assert got.events == () and got.before_window_live == 1
 
 
 def test_a_night_stands_at_its_winning_row_so_a_trigger_on_a_superseded_row_is_not_a_row():
@@ -582,6 +686,12 @@ def test_refs_on_reads_every_place_a_trigger_can_sit_once_per_identity():
     entry, risk = refs_on(c, SID)
     assert len(entry) == 1 and len(risk) == 1
     assert len(refs_on(c, OTHER)[0]) == 1
+    # every copy of an identity is kept, in the order read, so a label change can be counted
+    assert [len(copies) for copies in entry.values()] == [3]
+    renamed = cc(triggers_fired=[trig(label="x"), trig(label="y")])
+    assert [[r.label for r in copies] for copies in refs_on(renamed, SID)[0].values()] == [
+        ["x", "y"]
+    ]
 
 
 def test_no_cards_means_no_triggers_and_zero_counts():
@@ -1143,6 +1253,7 @@ def test_the_router_wire_shape(stub_client):
     assert row["thesis_name"] == "Card A" and [k["link"] for k in row["links"]] == ["Core", "Rest"]
     assert row["place"]["kind"] == "armed" and row["place"]["verdict"] == "core_entry"
     assert body["triggers"]["events"][0]["label"] == "8-day breakout"
+    assert body["triggers"]["events"][0]["label_changes"] == 0
     assert body["triggers"]["events"][0]["turns"] == "confirmation"
     assert body["tape"]["sparkline"]["bars"] == 90 and len(body["tape"]["figures"]) > 15
     assert [r["headline"] for r in body["filings"]["days"][0]["rows"]] == ["an 8-K"]

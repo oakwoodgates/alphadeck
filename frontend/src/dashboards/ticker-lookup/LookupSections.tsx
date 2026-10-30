@@ -20,6 +20,7 @@ import {
   foldEntries,
   foldWords,
   keyWords,
+  labelTitle,
   notListedWords,
   placeWords,
   plural,
@@ -274,7 +275,9 @@ function TriggerLine({ e, onSelectThesis }: { e: LookupTrigger; onSelectThesis: 
       </td>
       <td>{e.kind.replace(/_/g, " ")}</td>
       <td className="tl-quiet">{e.grade ?? "—"}</td>
-      <td className="tl-label">{e.label}</td>
+      <td className="tl-label" title={labelTitle(e)}>
+        {e.label}
+      </td>
       <td className="tl-quiet">{keyWords(e)}</td>
       <td className="tl-src">
         {e.sources.length === 0
@@ -341,7 +344,7 @@ export function TriggersSection({ d, onSelectThesis }: { d: TickerLookupOut; onS
             <tbody>
               {t.events.map((e, i) => (
                 <TriggerLine
-                  key={`${e.thesis_id}|${e.role}|${e.kind}|${e.event_date}|${e.label}|${i}`}
+                  key={`${e.thesis_id}|${e.role}|${e.kind}|${e.event_date}|${i}`}
                   e={e}
                   onSelectThesis={onSelectThesis}
                 />

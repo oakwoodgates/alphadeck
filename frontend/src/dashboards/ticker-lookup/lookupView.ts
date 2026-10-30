@@ -209,6 +209,12 @@ export function firedWords(e: Pick<LookupTrigger, "event_date" | "recorded_after
   return `${fmtDay(e.event_date)}${note}`;
 }
 
+/** The hover on a label: the label itself (the first recorded night's), and how many distinct other labels the
+ *  record showed for the trigger after it (only when it showed any). */
+export function labelTitle(e: Pick<LookupTrigger, "label" | "label_changes">): string {
+  return e.label_changes > 0 ? `${e.label}\nlabel changed ${plural(e.label_changes, "time", "times")}` : e.label;
+}
+
 /** A source in one piece: a link's label when it has a URL, the bar date for a `price:` reference, else its
  *  reference as stored. */
 export function sourceLabel(s: Pick<LookupSource, "source" | "ref" | "url">): string {
@@ -443,7 +449,7 @@ export function notListedWords(f: Pick<TickerLookupOut["filings"], "not_listed">
 /** The page's known limits, stated on the page (docs/dashboards/ticker-lookup.md). */
 export const LIMITS: readonly string[] = [
   "One company at a time. A company on no counted card shows its identity, tape and filings only.",
-  "The record's triggers are the live ones the calls log kept: a trigger that lapsed between two recorded nights is not here. They are read from the cards the company sits on at the as-of, over the last 365 days; one first recorded before that window is counted, not listed.",
+  "The record's triggers are the live ones the calls log kept: a trigger that lapsed between two recorded nights is not here. They are read from the cards the company sits on at the as-of, over the last 365 days; one first recorded before that window is counted, not listed. One row per trigger (role, kind and fire date): a label that changed night to night is still one row, showing the first night's label (hover it to see how many times it changed).",
   "The market cap is approximate: the latest close times the latest shares fact, with the ADS ratio and any split applied. A data flag on the price withholds it.",
   "Decisions are the operator's own fills, shown as logged; a decision counts from its date and, on a past view, only once it was logged by the end of that day.",
   "The catalysts of a card are the operator's list as stored today, not as they stood on the as-of; passed dates are marked against the as-of.",

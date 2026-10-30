@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import TickerLookup from "../TickerLookup";
 import type { TickerLookupOut } from "../useTickerLookup";
-import { CARD_A, CARD_B, SID, payload, silentRow } from "./fixtures";
+import { CARD_A, CARD_B, SID, payload, silentRow, trigger } from "./fixtures";
 
 // The Ticker Lookup body with its reads stubbed: the search box (suggestions as you type, Enter takes an exact
 // ticker first then the first suggestion, `/` focuses it, the ticker rides the URL beside ?asof=), the not-found
@@ -187,6 +187,28 @@ describe("TickerLookup — the sections", () => {
     expect(rows[1]).toHaveAttribute("data-live", "false");
     await userEvent.click(entry.getByRole("button", { name: "Card A" }));
     expect(onSelectThesis).toHaveBeenCalledWith(CARD_A, "TLA");
+  });
+
+  it("hovers a trigger's label with how many times the record changed it, only when it did", () => {
+    const base = payload();
+    setup(
+      payload({
+        triggers: {
+          ...base.triggers,
+          events: [
+            trigger({ label: "Structural break: close 127.19", label_changes: 2, kind: "breakdown", role: "risk_signal" }),
+            trigger({ label: "Breakout", label_changes: 1 }),
+            trigger({ label: "CEO bought 12,000 shares", label_changes: 0 }),
+          ],
+        },
+      }),
+    );
+    expect(screen.getByText("Structural break: close 127.19")).toHaveAttribute(
+      "title",
+      "Structural break: close 127.19\nlabel changed 2 times",
+    );
+    expect(screen.getByText("Breakout")).toHaveAttribute("title", "Breakout\nlabel changed 1 time");
+    expect(screen.getByText("CEO bought 12,000 shares")).toHaveAttribute("title", "CEO bought 12,000 shares");
   });
 
   it("says when the record shows no trigger on the company", () => {

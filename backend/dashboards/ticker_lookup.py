@@ -21,14 +21,18 @@ The rules, in one place:
   ``(asof, seq)`` on or before it, the What Changed read): ``armed`` (the member's verdict, grade and setup
   strength), ``watch`` (a confirmation-only member), ``triggers`` (live entry triggers on the name, with the key
   each turns), ``none``, ``not_counted`` (a silent name) or ``no_record`` (the card has no recorded call yet).
-- **A trigger's identity** (the Trigger Log's rule, ``docs/dashboards/trigger-log.md``): its role, security, kind,
-  fire date and label, across the card's nights; the same trigger on twelve nights is ONE row. It is read from the
-  card's ``triggers_fired`` (entry), ``risk_signals`` and every armed or watch member's own ``triggers``. Its
-  recorded night is the first night in the window the record shows it, off each night's winning row (the highest
-  ``seq``); a trigger already on the row in effect the night before the window opens was recorded before it and is
-  not a row (the page counts the live ones). ``turns`` is the key the trigger's kind turns by
-  ``DEFAULT_CONFIG.conviction_kinds`` / ``confirmation_kinds``. ``live`` = the same identity is on the card in
-  effect at the as-of.
+- **A trigger's identity** (the Trigger Log's rule, ``docs/dashboards/trigger-log.md``): its role, security, kind
+  and fire date, across the card's nights; the same trigger on twelve nights is ONE row. The label is NOT part of
+  it (2026-10-30): a label can carry that night's numbers (a breakdown's names the night's close), so the same fire
+  date under a new label is the same trigger. The row shows the label of its FIRST recorded night and
+  ``label_changes`` = how many distinct other labels the record showed for it from that night through the
+  window's end (another copy the same night counts). It is read from the card's ``triggers_fired`` (entry),
+  ``risk_signals`` and every armed or watch member's own ``triggers`` (the first copy of an identity, in that
+  order, stands for it). Its recorded night is the first night in the window the record shows it, off each
+  night's winning row (the highest ``seq``); a trigger already on the row in effect the night before the window
+  opens was recorded before it and is not a row (the page counts the live ones). ``turns`` is the key the
+  trigger's kind turns by ``DEFAULT_CONFIG.conviction_kinds`` / ``confirmation_kinds``. ``live`` = the same
+  identity is on the card in effect at the as-of.
 - **The tape** is the display members' own readings (``signals/display/``), picked by their metric keys into a
   fixed grid; a member with no reading shows its note and is counted. The ETF flow member is read for an ETF only.
 - **Filings** are the shared reader's rows for the company (``dashboards/filings.py``), grouped by day, newest
@@ -112,22 +116,24 @@ def in_effect(nights: Sequence[RecordedNight], prior: RecordedNight | None) -> R
 # the triggers on one company
 # ---------------------------------------------------------------------------------------------------------
 
-# role, kind, fire date, label: the Trigger Log's identity for one company (the security is the page's)
-TriggerId = tuple[str, str, date | None, str]
+# role, kind, fire date: the Trigger Log's identity for one company (the security is the page's). The label is
+# not part of it: see the module note.
+TriggerId = tuple[str, str, date | None]
 
 
 def trigger_id(role: TriggerRole, ref: TriggerRef) -> TriggerId:
-    return (role, ref.kind.value, ref.event_date, ref.label)
+    return (role, ref.kind.value, ref.event_date)
 
 
 def refs_on(
     card: CallCard, sid: UUID
-) -> tuple[dict[TriggerId, TriggerRef], dict[TriggerId, TriggerRef]]:
-    """``(entry triggers, risk signals)`` the card lists on the company, each by identity (a repeat keeps its
-    first entry): the card's ``triggers_fired`` and every armed / watch member's own ``triggers`` for the entry
-    side, ``risk_signals`` for the risk side."""
-    entry: dict[TriggerId, TriggerRef] = {}
-    risk: dict[TriggerId, TriggerRef] = {}
+) -> tuple[dict[TriggerId, list[TriggerRef]], dict[TriggerId, list[TriggerRef]]]:
+    """``(entry triggers, risk signals)`` the card lists on the company, each by identity with EVERY copy of it
+    in the order read (the first stands for the identity; a repeat or a copy under another label is kept, so the
+    label changes can be counted): the card's ``triggers_fired`` and every armed / watch member's own ``triggers``
+    for the entry side, ``risk_signals`` for the risk side."""
+    entry: dict[TriggerId, list[TriggerRef]] = {}
+    risk: dict[TriggerId, list[TriggerRef]] = {}
     pools: list[Sequence[TriggerRef]] = [
         card.triggers_fired,
         *(m.triggers for m in card.armed_members),
@@ -136,10 +142,10 @@ def refs_on(
     for pool in pools:
         for t in pool:
             if t.security_id == sid:
-                entry.setdefault(trigger_id("entry_trigger", t), t)
+                entry.setdefault(trigger_id("entry_trigger", t), []).append(t)
     for t in card.risk_signals:
         if t.security_id == sid:
-            risk.setdefault(trigger_id("risk_signal", t), t)
+            risk.setdefault(trigger_id("risk_signal", t), []).append(t)
     return entry, risk
 
 
@@ -183,7 +189,8 @@ class TriggerEvent:
     role: TriggerRole
     kind: str
     grade: str | None
-    label: str
+    label: str  # the label of the first recorded night
+    label_changes: int  # distinct other labels the record showed for it from that night on
     turns: TurnsKey | None  # the key an entry trigger turns; None for a risk signal
     sources: tuple[SourceRef, ...]
     live: bool  # the same identity is on the card in effect at the as-of
@@ -235,6 +242,7 @@ def _event(
     night: RecordedNight,
     cik: str | None,
     live: bool,
+    label_changes: int,
 ) -> TriggerEvent:
     fired, seen = ref.event_date, night.asof
     return TriggerEvent(
@@ -249,6 +257,7 @@ def _event(
         kind=ref.kind.value,
         grade=ref.grade.value if ref.grade is not None else None,
         label=ref.label,
+        label_changes=label_changes,
         turns=turns_key(ref.kind) if role == "entry_trigger" else None,
         sources=tuple(
             SourceRef(p.source, p.ref, source_url(p.ref, cik), detail_lines(p.detail))
@@ -286,19 +295,28 @@ def trigger_log(
         live_e, live_r = refs_on(effect.card, sid) if effect is not None else ({}, {})
         live_ids = {*live_e, *live_r}
         before_live += len(pre & live_ids)
-        seen: set[TriggerId] = set()
+        # each identity's first night and the copy that stands for it, and the other labels shown from then on
+        firsts: dict[TriggerId, tuple[RecordedNight, TriggerRole, TriggerRef]] = {}
+        later: dict[TriggerId, set[str]] = {}
         for night in won:
             entry, risk = refs_on(night.card, sid)
-            sides: list[tuple[TriggerRole, dict[TriggerId, TriggerRef]]] = [
+            sides: list[tuple[TriggerRole, dict[TriggerId, list[TriggerRef]]]] = [
                 ("entry_trigger", entry),
                 ("risk_signal", risk),
             ]
-            for role, refs in sides:
-                for tid, ref in refs.items():
-                    if tid in pre or tid in seen:
+            for role, found in sides:
+                for tid, copies in found.items():
+                    if tid in pre:
                         continue
-                    seen.add(tid)
-                    events.append(_event(ref, role, meta, night, cik, tid in live_ids))
+                    if tid not in firsts:
+                        firsts[tid] = (night, role, copies[0])
+                    others = {c.label for c in copies} - {firsts[tid][2].label}
+                    if others:
+                        later.setdefault(tid, set()).update(others)
+        for tid, (night, role, ref) in firsts.items():
+            events.append(
+                _event(ref, role, meta, night, cik, tid in live_ids, len(later.get(tid, ())))
+            )
     events.sort(
         key=lambda e: (
             -e.recorded_on.toordinal(),
@@ -406,7 +424,7 @@ def place_of(night: RecordedNight | None, sid: UUID, silent: bool) -> Place:
     card = night.card
     entry, risk = refs_on(card, sid)
     turns = sorted(
-        {k for t in entry.values() if (k := turns_key(t.kind)) is not None},
+        {k for copies in entry.values() if (k := turns_key(copies[0].kind)) is not None},
         key=("conviction", "confirmation").index,
     )
     common: dict[str, Any] = {

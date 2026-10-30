@@ -479,9 +479,11 @@ class TickerLookupSourceOut(_Wire):
 
 
 class TickerLookupTriggerOut(_Wire):
-    """One trigger the recorded calls show on the company (identity: role, kind, fire date, label). ``recorded_on``
-    = the first night in the window the record shows it; ``recorded_after_days`` = how far that trails the fire
-    date; ``turns`` = the key an entry trigger turns; ``live`` = still on the card in effect at the as-of.
+    """One trigger the recorded calls show on the company (identity: role, kind, fire date; the label is not part
+    of it). ``recorded_on`` = the first night in the window the record shows it; ``label`` = its label that night
+    and ``label_changes`` = how many distinct other labels the record showed for it from then through the
+    as-of; ``recorded_after_days`` = how far that trails the fire date; ``turns`` = the key an entry trigger
+    turns; ``live`` = still on the card in effect at the as-of.
     """
 
     thesis_id: UUID
@@ -495,6 +497,7 @@ class TickerLookupTriggerOut(_Wire):
     kind: str
     grade: str | None
     label: str
+    label_changes: int
     turns: Literal["conviction", "confirmation"] | None
     sources: list[TickerLookupSourceOut]
     live: bool

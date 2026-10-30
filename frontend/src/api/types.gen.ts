@@ -14288,9 +14288,11 @@ export interface components {
         };
         /**
          * TickerLookupTriggerOut
-         * @description One trigger the recorded calls show on the company (identity: role, kind, fire date, label). ``recorded_on``
-         *     = the first night in the window the record shows it; ``recorded_after_days`` = how far that trails the fire
-         *     date; ``turns`` = the key an entry trigger turns; ``live`` = still on the card in effect at the as-of.
+         * @description One trigger the recorded calls show on the company (identity: role, kind, fire date; the label is not part
+         *     of it). ``recorded_on`` = the first night in the window the record shows it; ``label`` = its label that night
+         *     and ``label_changes`` = how many distinct other labels the record showed for it from then through the
+         *     as-of; ``recorded_after_days`` = how far that trails the fire date; ``turns`` = the key an entry trigger
+         *     turns; ``live`` = still on the card in effect at the as-of.
          */
         TickerLookupTriggerOut: {
             /**
@@ -14324,6 +14326,8 @@ export interface components {
             grade: string | null;
             /** Label */
             label: string;
+            /** Label Changes */
+            label_changes: number;
             /** Turns */
             turns: ("conviction" | "confirmation") | null;
             /** Sources */
