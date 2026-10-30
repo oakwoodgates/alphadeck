@@ -146,3 +146,95 @@ The build lists here every choice it made that this plan does not spell out, eac
 change. Pre-decided here for the operator's review: Armed members as the default rows with Warming, watch and
 Managing behind toggles; the four heat parts with equal weights; percentiles among the rows shown; IWM as the
 comparison and the session calendar; the one accent on `entry_window_closing`; the flagged name keeps its row.
+
+### Built choices to confirm
+
+The build (`backend/dashboards/hot_board.py`, `backend/app/routers/dashboards/hot_board.py`,
+`frontend/src/dashboards/hot-board/`) made these choices where this plan is silent or could not be followed as
+written. Each is the operator's to confirm or change.
+
+**A plan line that could not be followed as written**
+
+1. **"RS vs IWM" is the 30-day return minus IWM's, not `rs_iwm`.** `relative_strength.rs_iwm` is the name's close
+   divided by IWM's close, a price-LEVEL ratio: a $400 stock reads a bigger number than a $5 one for the same move, so
+   ranking it would rank share price. The "leading" heat part and the "vs IWM 30D" column use the Peer Table's tape
+   rule against IWM instead: the name's `ret_30d` minus IWM's `ret_30d` (IWM by the same pure rule,
+   `trailing_returns.compute` over `pit.benchmark_prices`), in percentage points, blank when the two last closes are not
+   the same day. The headline `leading` stays as a quiet "RS" mark beside the figure (hover: which benchmark, SPY and/or
+   IWM, the 13-week high is against).
+2. **Sessions left to `arm_until` are counted Mon to Fri, not on IWM's bars.** A future session has no IWM bar. The
+   count is the call path's own (`calls.assembler.sessions_left`, `domain.trading_days`: a market holiday counts as a
+   session), so the page's number and the card's `entry_window_closing` flag always agree. "Closed N ago" and "sessions
+   since the arm night" are counted on IWM's bar calendar, as planned.
+3. **The "card's `entry_window_closing` and `lapsing` flags" are the member's own** (`MemberCall`); `CallCard` has
+   neither. `arm_until` and `exit_by` are the member's, falling back to the card's when the member has none.
+
+**The heat**
+
+4. **The percentile is the mid-rank over n - 1:** `(below + (equal - 1) / 2) / (n - 1)`. The best of n rows is 1, the
+   worst 0, a tie shares the average of the ranks it spans, a lone row (or rows all equal) is 0.5. Heat is the mean of
+   the four times 100, kept unrounded and shown as a whole number.
+5. **A row joins the pool of every part it has a reading for,** even when another part keeps it from a score. So a
+   Warming or watch row (no arm night, no "fresh") still ranks the armed rows' loud and leading parts while its toggle
+   is on, and a flagged row still ranks "fresh". That follows the plan's wording ("among the shown rows with a
+   reading"); the alternative (only rows that can be scored join) is a one-line change in `heat.ts` and `heat()`.
+6. **The backend's `heat()` is the reference, not the payload.** The wire carries each row's four readings and no heat
+   (the page recomputes it on the rows shown). The backend and `heat.ts` are tested against ONE shared fixture file,
+   `frontend/src/dashboards/hot-board/__tests__/heat-fixtures.json`, read by both test suites.
+
+**Who is a row, and the arm night**
+
+7. **A member's arm night is the start of its CURRENT unbroken streak:** walk the nights back from the one in effect
+   while the night's state is in the run AND the member is in that night's `armed_members`. A member that dropped out of
+   the list and came back has its arm night at the return, not at its first appearance in the run. (The plan's wording,
+   "the first night of the run on which it appears", reads either way; this is the one place the choice matters for
+   "fresh".)
+8. **A Managing card's run also walks back over its Armed nights** (it was armed before the position was entered); an
+   Armed card's run stops at a Managing night. A Warming or watch row has no arm night, so no clocks, no return since
+   the arm night and no heat.
+9. **Warming rows: which key** comes from the call config's own kind sets (`DEFAULT_CONFIG.conviction_kinds` and
+   `confirmation_kinds`), per trigger; a name with both shows "conviction + confirmation key". The dormant
+   revenue-acceleration exception (keyed on a detector the wire does not carry) is not followed.
+10. **Watch rows come only from an Armed card,** and not for a name already armed on that card. A Managing card's watch
+    members are not rows.
+11. **"Also armed on N other cards"** counts the OTHER cards on which the same security is an Armed row, and shows on
+    any row of that name (a watch or Warming row of a name armed elsewhere carries it too); the hover names the cards.
+12. **An arm night before the earliest bar the point-in-time view reads** (`display_bounds()`, about 450 days) gets no
+    session count and no return ("before the window"), counted on the page's lines, because the first close on or after
+    it would not exist.
+13. **IWM "over the same span"** is IWM's first close on or after the arm night to IWM's last close on or before the
+    as-of, independent of the name's own dates (they differ only when the name's tape is stale).
+14. **A reconstructed arm night** shows an "R" and is counted on the work line; the Idea Timeline's `exclude`
+    annotations are not applied (they bear on the Scoreboard).
+
+**Flagged names**
+
+15. **A flagged price history keeps its row;** every price-derived cell (RVOL, vs 50d, off high, vs IWM, 7D, 30D, $vol,
+    the return since the arm night, the sparkline, the cap) reads "flagged" with the reason in its hover, and it has no
+    heat. The insider counts stay (a Form 4 count is not a price reading), as the Peer Table keeps them.
+
+**The page**
+
+16. **Controls render only when they discriminate** (Workbench principle 3): a toggle appears only when it adds at least
+    one row (with its count), a filter chip group only when the rows on offer differ on it, and "Entry window open only"
+    only when some rows are open and some are not. "Open" = `arm_until` on or after the as-of.
+17. **Sorts:** a text column starts A to Z, a figure biggest first, a blank last in either direction, ties by ticker; a
+    closed entry window sorts below every open one (more sessions since it ended = lower). The sparkline column is a
+    picture and does not sort.
+18. **The state chip** (the Board's state color) appears only on rows a toggle added (warming, managing); an Armed row
+    carries none, since it would be true of every row. The one accent is `entry_window_closing` on the "sessions left"
+    cell.
+19. **Columns beyond the plan's list:** the company's name is in the ticker's hover; the "Risk" cell is the count with
+    the kinds on hover; "Setup strength" is the call's `confidence` as 0.00 to 1.00 text.
+20. **Coupling:** the cap reuses `dashboards/peer_table.py` (`cap_cell`, `CapCell`, `CompanyReads`, `Gap`,
+    `metric_of`) by import, not a second copy of the rule. Cutting the Peer Table therefore needs those moved to a shared
+    module first (the reviewer's fold, like the arm-run walk).
+21. **The sparkline** is the `price_path` series rounded to 4 decimals, drawn as a 72 by 16 inline SVG path, broken on a
+    blank slot.
+
+**Not measured**
+
+22. **The cold cost is NOT MEASURED by the builder** (the local database holds only the demo seed and the stack's
+    Postgres is prod's). The orchestrator records it from dev with a prod copy. The read does one `per_company` pass
+    over the distinct securities of the candidate rows (all four kinds), eight display members each, plus one
+    data-flag read and one IWM read.

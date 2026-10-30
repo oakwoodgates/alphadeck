@@ -4562,6 +4562,52 @@
         }
       }
     },
+    "/dashboards/hot-board": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Hot Board",
+        "description": "Every name the recorded calls in effect at the as-of show Armed, one row each, with the tape beside it:\nthe call's own fields, the arm night and the session clocks, the return since the arm night against IWM, the\ndisplay members' readings and the approximate cap. Warming, watch and managing names ride along as candidate\nrows for the page's toggles. Display only: it reads the calls log and never the live call; the heat ranking is\ncomputed on the page from the rows it shows. A past as-of reads what was public by the end of that date.",
+        "operationId": "hot_board_dashboards_hot_board_get",
+        "parameters": [
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; only what was recorded and public by then is read",
+              "title": "Asof"
+            },
+            "description": "as-of date; only what was recorded and public by then is read"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HotBoardOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/dashboards/idea-timeline": {
       "get": {
         "tags": [
@@ -18373,6 +18419,938 @@
         "type": "object",
         "title": "HealthResponse",
         "description": "The ``/health`` body. ``status`` is ``\"ok\"`` or ``\"degraded\"``; ``degraded`` maps each degraded\nsubsystem to a short reason (empty when healthy). The compose healthcheck only needs the HTTP 200 \u2014\n``degraded`` is a body flag an operator or agent can SEE, never a failed check (fail-open)."
+      },
+      "HotBoardOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "clock": {
+            "type": "string",
+            "enum": [
+              "record",
+              "public"
+            ],
+            "title": "Clock"
+          },
+          "benchmark": {
+            "type": "string",
+            "title": "Benchmark"
+          },
+          "live_cards": {
+            "type": "integer",
+            "title": "Live Cards"
+          },
+          "cards_counted": {
+            "type": "integer",
+            "title": "Cards Counted"
+          },
+          "cards_not_yet_created": {
+            "type": "integer",
+            "title": "Cards Not Yet Created"
+          },
+          "roster_fallback_cards": {
+            "type": "integer",
+            "title": "Roster Fallback Cards"
+          },
+          "cards_armed": {
+            "type": "integer",
+            "title": "Cards Armed"
+          },
+          "cards_warming": {
+            "type": "integer",
+            "title": "Cards Warming"
+          },
+          "cards_managing": {
+            "type": "integer",
+            "title": "Cards Managing"
+          },
+          "cards_incubating": {
+            "type": "integer",
+            "title": "Cards Incubating"
+          },
+          "cards_no_call": {
+            "type": "integer",
+            "title": "Cards No Call"
+          },
+          "calendar_source": {
+            "type": "string",
+            "enum": [
+              "benchmarks",
+              "companies",
+              "none"
+            ],
+            "title": "Calendar Source"
+          },
+          "calendar_sessions": {
+            "type": "integer",
+            "title": "Calendar Sessions"
+          },
+          "calendar_first": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Calendar First"
+          },
+          "calendar_last": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Calendar Last"
+          },
+          "price_window_start": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Window Start"
+          },
+          "no_ticker_rows": {
+            "type": "integer",
+            "title": "No Ticker Rows"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/HotRowOut"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "flagged": {
+            "items": {
+              "$ref": "#/components/schemas/HotFlaggedOut"
+            },
+            "type": "array",
+            "title": "Flagged"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "clock",
+          "benchmark",
+          "live_cards",
+          "cards_counted",
+          "cards_not_yet_created",
+          "roster_fallback_cards",
+          "cards_armed",
+          "cards_warming",
+          "cards_managing",
+          "cards_incubating",
+          "cards_no_call",
+          "calendar_source",
+          "calendar_sessions",
+          "calendar_first",
+          "calendar_last",
+          "price_window_start",
+          "no_ticker_rows",
+          "rows",
+          "flagged",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "HotBoardOut",
+        "description": "Every candidate row of the cards' recorded calls in effect at the as-of (the page derives the toggles, filters,\nsorts and heat from this one read) and the counts its quiet line shows. ``cards_*`` = the counted cards by their\nrecorded state (``cards_no_call`` = nothing recorded by then); ``calendar_*`` = IWM's bar calendar the\n``sessions_since`` count reads; ``price_window_start`` = the earliest bar the view reads (``null`` = unbounded);\n``no_ticker_rows`` = rows whose security has no ticker anywhere (shown under its id); ``flagged`` = the\ncompanies on a row with a flagged price history. ``clock``: ``record`` (the live read) or ``public`` (a past\nas-of: what was public by the end of that date). ``cache`` / ``compute_ms`` = whether the read came from the\nshared dashboard cache and how long it took when computed."
+      },
+      "HotCapOut": {
+        "properties": {
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "tier": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CapTier"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "gap": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "flagged",
+                  "no_price",
+                  "no_reading",
+                  "no_shares",
+                  "ads_unread",
+                  "no_cap",
+                  "no_revenue",
+                  "no_prior_year",
+                  "no_burn",
+                  "no_convert",
+                  "no_mix",
+                  "no_form4",
+                  "no_spy",
+                  "ends_differ"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "close": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close"
+          },
+          "close_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close Date"
+          },
+          "shares": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shares"
+          },
+          "shares_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shares Date"
+          },
+          "ads_ratio": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ads Ratio"
+          },
+          "split_factor": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Split Factor"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "tier",
+          "gap",
+          "note",
+          "close",
+          "close_date",
+          "shares",
+          "shares_date",
+          "ads_ratio",
+          "split_factor"
+        ],
+        "title": "HotCapOut",
+        "description": "The approximate market cap (USD) and its tier: the latest close times the latest shares fact, the\nWorkbench's rule (the Peer Table's ``cap_cell``). ``gap`` says why it is blank."
+      },
+      "HotCardRefOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "thesis_name"
+        ],
+        "title": "HotCardRefOut"
+      },
+      "HotCellOut": {
+        "properties": {
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "note"
+        ],
+        "title": "HotCellOut",
+        "description": "A number, or ``note`` = the reason it is blank (the display member's own words where it gave some). Blank\nis never zero."
+      },
+      "HotClocksOut": {
+        "properties": {
+          "arm_night": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arm Night"
+          },
+          "arm_reconstructed": {
+            "type": "boolean",
+            "title": "Arm Reconstructed"
+          },
+          "sessions_since": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sessions Since"
+          },
+          "arm_until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arm Until"
+          },
+          "sessions_left": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sessions Left"
+          },
+          "closed_ago": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed Ago"
+          },
+          "exit_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit By"
+          },
+          "days_to_exit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days To Exit"
+          }
+        },
+        "type": "object",
+        "required": [
+          "arm_night",
+          "arm_reconstructed",
+          "sessions_since",
+          "arm_until",
+          "sessions_left",
+          "closed_ago",
+          "exit_by",
+          "days_to_exit"
+        ],
+        "title": "HotClocksOut",
+        "description": "A row's clocks at the as-of. ``arm_night`` = the first night of the member's current recorded run\n(``arm_reconstructed`` = that night was rebuilt by ``pipeline.backfill``); ``sessions_since`` = sessions after it\nthrough the as-of on IWM's bar calendar; ``sessions_left`` = Mon-Fri sessions after the as-of through\n``arm_until`` (``null`` once it has passed, when ``closed_ago`` = the sessions since it ended); ``days_to_exit`` =\ncalendar days from the as-of to ``exit_by`` (negative = passed)."
+      },
+      "HotFlaggedOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "reason"
+        ],
+        "title": "HotFlaggedOut",
+        "description": "A company on a row whose data flags reach its price readings at the as-of: its row stays, its price cells\nname ``reason`` (the flags' labels) and it has no heat."
+      },
+      "HotRowOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "armed",
+              "warming",
+              "watch",
+              "managing"
+            ],
+            "title": "Kind"
+          },
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "also_armed": {
+            "items": {
+              "$ref": "#/components/schemas/HotCardRefOut"
+            },
+            "type": "array",
+            "title": "Also Armed"
+          },
+          "verdict": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Verdict"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "entry_grade": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Grade"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "keys": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "conviction",
+                "confirmation"
+              ]
+            },
+            "type": "array",
+            "title": "Keys"
+          },
+          "triggers": {
+            "items": {
+              "$ref": "#/components/schemas/HotTriggerOut"
+            },
+            "type": "array",
+            "title": "Triggers"
+          },
+          "risk_kinds": {
+            "items": {
+              "$ref": "#/components/schemas/Kind"
+            },
+            "type": "array",
+            "title": "Risk Kinds"
+          },
+          "clocks": {
+            "$ref": "#/components/schemas/HotClocksOut"
+          },
+          "entry_window_closing": {
+            "type": "boolean",
+            "title": "Entry Window Closing"
+          },
+          "lapsing": {
+            "type": "boolean",
+            "title": "Lapsing"
+          },
+          "since_arm": {
+            "$ref": "#/components/schemas/HotSinceArmOut"
+          },
+          "tape": {
+            "$ref": "#/components/schemas/HotTapeOut"
+          },
+          "cap": {
+            "$ref": "#/components/schemas/HotCapOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "kind",
+          "thesis_id",
+          "thesis_name",
+          "security_id",
+          "ticker",
+          "name",
+          "also_armed",
+          "verdict",
+          "entry_grade",
+          "confidence",
+          "keys",
+          "triggers",
+          "risk_kinds",
+          "clocks",
+          "entry_window_closing",
+          "lapsing",
+          "since_arm",
+          "tape",
+          "cap"
+        ],
+        "title": "HotRowOut",
+        "description": "One (card, name). ``kind``: ``armed`` (the card's armed members: the default rows), ``warming`` (a name with a\nlive entry trigger on a Warming card; ``keys`` names the key each trigger turns), ``watch`` (an Armed card's\nconfirmation-only member) or ``managing`` (a Managing card's held and armed members). ``also_armed`` = the other\ncards on which the same security is an armed row. ``confidence`` = setup strength, an experimental relative\nindicator, not a probability. ``risk_kinds`` = one entry per risk signal on the card that names this security.\n``ticker`` is the card's roster ticker (the Cockpit's ``?name=`` key), else the master's, else the security id."
+      },
+      "HotSinceArmOut": {
+        "properties": {
+          "entry_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Date"
+          },
+          "entry_close": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Close"
+          },
+          "last_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Date"
+          },
+          "last_close": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Close"
+          },
+          "ret_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ret Pct"
+          },
+          "iwm_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Iwm Pct"
+          },
+          "gap": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "no_arm_night",
+                  "flagged",
+                  "before_window",
+                  "no_bar"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap"
+          }
+        },
+        "type": "object",
+        "required": [
+          "entry_date",
+          "entry_close",
+          "last_date",
+          "last_close",
+          "ret_pct",
+          "iwm_pct",
+          "gap"
+        ],
+        "title": "HotSinceArmOut",
+        "description": "The name's as-traded return from the first close on or after the arm night (``entry_*``) to its last close\non or before the as-of (``last_*``), and IWM's over the same dates. ``gap`` says why ``ret_pct`` is blank:\n``no_arm_night`` (not an armed row), ``flagged``, ``before_window`` (the arm night is before the earliest bar\nthe view reads) or ``no_bar``."
+      },
+      "HotSourceOut": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "ref": {
+            "type": "string",
+            "title": "Ref"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "ref",
+          "url"
+        ],
+        "title": "HotSourceOut",
+        "description": "One place a trigger points at: ``source`` = the kind of source as stored (\"form4\", \"price\", \"xbrl\", a form),\n``ref`` = its reference, ``url`` = a link to it by the Evidence Ledger's rule (``null`` = none known)."
+      },
+      "HotTapeOut": {
+        "properties": {
+          "flag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flag"
+          },
+          "rvol20": {
+            "$ref": "#/components/schemas/HotCellOut"
+          },
+          "vs_50d": {
+            "$ref": "#/components/schemas/HotCellOut"
+          },
+          "off_high": {
+            "$ref": "#/components/schemas/HotCellOut"
+          },
+          "vs_iwm": {
+            "$ref": "#/components/schemas/HotCellOut"
+          },
+          "rs_leading": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rs Leading"
+          },
+          "rs_leading_vs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Rs Leading Vs"
+          },
+          "ret_7d": {
+            "$ref": "#/components/schemas/HotCellOut"
+          },
+          "ret_30d": {
+            "$ref": "#/components/schemas/HotCellOut"
+          },
+          "buys_30d": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Buys 30D"
+          },
+          "buyers_30d": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Buyers 30D"
+          },
+          "adv_usd_20d": {
+            "$ref": "#/components/schemas/HotCellOut"
+          },
+          "spark": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Spark"
+          }
+        },
+        "type": "object",
+        "required": [
+          "flag",
+          "rvol20",
+          "vs_50d",
+          "off_high",
+          "vs_iwm",
+          "rs_leading",
+          "rs_leading_vs",
+          "ret_7d",
+          "ret_30d",
+          "buys_30d",
+          "buyers_30d",
+          "adv_usd_20d",
+          "spark"
+        ],
+        "title": "HotTapeOut",
+        "description": "One company's display-member readings at the as-of. ``flag`` = the data flags' labels when they reach its\nprice readings (every price-derived cell is then blank and says so; the insider counts stay). ``vs_iwm`` = the\n30-trading-day return minus IWM's, in percentage points (``null`` when the two last closes are not the same\nday). ``rs_leading`` = relative strength at a fresh 13-week high (``rs_leading_vs`` = against which benchmark;\n``null`` = no 13-week verdict yet). ``buys_30d`` / ``buyers_30d`` = open-market buys and distinct buyers in\nthe last 30 days (``null`` = no Form 4 ingested). Units: percent for the returns and the two distances, RVOL as\na ratio, dollar volume in USD. ``spark`` = the last 90 closes (``null`` = no bar; a thin tape is left-padded)."
+      },
+      "HotTriggerOut": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/Kind"
+          },
+          "grade": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Grade"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "event_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Date"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/HotSourceOut"
+            },
+            "type": "array",
+            "title": "Sources"
+          }
+        },
+        "type": "object",
+        "required": [
+          "label",
+          "kind",
+          "grade",
+          "event_date",
+          "sources"
+        ],
+        "title": "HotTriggerOut",
+        "description": "A fired entry trigger. ``event_date`` = its FIRE date (the market event: an insider trade date, a breakout\nbar), not the night the platform recorded it."
       },
       "IdeaTimelineCatalystOut": {
         "properties": {

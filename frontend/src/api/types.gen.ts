@@ -2295,6 +2295,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboards/hot-board": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Hot Board
+         * @description Every name the recorded calls in effect at the as-of show Armed, one row each, with the tape beside it:
+         *     the call's own fields, the arm night and the session clocks, the return since the arm night against IWM, the
+         *     display members' readings and the approximate cap. Warming, watch and managing names ride along as candidate
+         *     rows for the page's toggles. Display only: it reads the calls log and never the live call; the heat ranking is
+         *     computed on the page from the rows it shows. A past as-of reads what was public by the end of that date.
+         */
+        get: operations["hot_board_dashboards_hot_board_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dashboards/idea-timeline": {
         parameters: {
             query?: never;
@@ -8803,6 +8827,300 @@ export interface components {
             degraded?: {
                 [key: string]: string;
             };
+        };
+        /**
+         * HotBoardOut
+         * @description Every candidate row of the cards' recorded calls in effect at the as-of (the page derives the toggles, filters,
+         *     sorts and heat from this one read) and the counts its quiet line shows. ``cards_*`` = the counted cards by their
+         *     recorded state (``cards_no_call`` = nothing recorded by then); ``calendar_*`` = IWM's bar calendar the
+         *     ``sessions_since`` count reads; ``price_window_start`` = the earliest bar the view reads (``null`` = unbounded);
+         *     ``no_ticker_rows`` = rows whose security has no ticker anywhere (shown under its id); ``flagged`` = the
+         *     companies on a row with a flagged price history. ``clock``: ``record`` (the live read) or ``public`` (a past
+         *     as-of: what was public by the end of that date). ``cache`` / ``compute_ms`` = whether the read came from the
+         *     shared dashboard cache and how long it took when computed.
+         */
+        HotBoardOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Clock
+             * @enum {string}
+             */
+            clock: "record" | "public";
+            /** Benchmark */
+            benchmark: string;
+            /** Live Cards */
+            live_cards: number;
+            /** Cards Counted */
+            cards_counted: number;
+            /** Cards Not Yet Created */
+            cards_not_yet_created: number;
+            /** Roster Fallback Cards */
+            roster_fallback_cards: number;
+            /** Cards Armed */
+            cards_armed: number;
+            /** Cards Warming */
+            cards_warming: number;
+            /** Cards Managing */
+            cards_managing: number;
+            /** Cards Incubating */
+            cards_incubating: number;
+            /** Cards No Call */
+            cards_no_call: number;
+            /**
+             * Calendar Source
+             * @enum {string}
+             */
+            calendar_source: "benchmarks" | "companies" | "none";
+            /** Calendar Sessions */
+            calendar_sessions: number;
+            /** Calendar First */
+            calendar_first: string | null;
+            /** Calendar Last */
+            calendar_last: string | null;
+            /** Price Window Start */
+            price_window_start: string | null;
+            /** No Ticker Rows */
+            no_ticker_rows: number;
+            /** Rows */
+            rows: components["schemas"]["HotRowOut"][];
+            /** Flagged */
+            flagged: components["schemas"]["HotFlaggedOut"][];
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * HotCapOut
+         * @description The approximate market cap (USD) and its tier: the latest close times the latest shares fact, the
+         *     Workbench's rule (the Peer Table's ``cap_cell``). ``gap`` says why it is blank.
+         */
+        HotCapOut: {
+            /** Value */
+            value: number | null;
+            tier: components["schemas"]["CapTier"] | null;
+            /** Gap */
+            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
+            /** Note */
+            note: string | null;
+            /** Close */
+            close: number | null;
+            /** Close Date */
+            close_date: string | null;
+            /** Shares */
+            shares: number | null;
+            /** Shares Date */
+            shares_date: string | null;
+            /** Ads Ratio */
+            ads_ratio: number | null;
+            /** Split Factor */
+            split_factor: number | null;
+        };
+        /** HotCardRefOut */
+        HotCardRefOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+        };
+        /**
+         * HotCellOut
+         * @description A number, or ``note`` = the reason it is blank (the display member's own words where it gave some). Blank
+         *     is never zero.
+         */
+        HotCellOut: {
+            /** Value */
+            value: number | null;
+            /** Note */
+            note: string | null;
+        };
+        /**
+         * HotClocksOut
+         * @description A row's clocks at the as-of. ``arm_night`` = the first night of the member's current recorded run
+         *     (``arm_reconstructed`` = that night was rebuilt by ``pipeline.backfill``); ``sessions_since`` = sessions after it
+         *     through the as-of on IWM's bar calendar; ``sessions_left`` = Mon-Fri sessions after the as-of through
+         *     ``arm_until`` (``null`` once it has passed, when ``closed_ago`` = the sessions since it ended); ``days_to_exit`` =
+         *     calendar days from the as-of to ``exit_by`` (negative = passed).
+         */
+        HotClocksOut: {
+            /** Arm Night */
+            arm_night: string | null;
+            /** Arm Reconstructed */
+            arm_reconstructed: boolean;
+            /** Sessions Since */
+            sessions_since: number | null;
+            /** Arm Until */
+            arm_until: string | null;
+            /** Sessions Left */
+            sessions_left: number | null;
+            /** Closed Ago */
+            closed_ago: number | null;
+            /** Exit By */
+            exit_by: string | null;
+            /** Days To Exit */
+            days_to_exit: number | null;
+        };
+        /**
+         * HotFlaggedOut
+         * @description A company on a row whose data flags reach its price readings at the as-of: its row stays, its price cells
+         *     name ``reason`` (the flags' labels) and it has no heat.
+         */
+        HotFlaggedOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * HotRowOut
+         * @description One (card, name). ``kind``: ``armed`` (the card's armed members: the default rows), ``warming`` (a name with a
+         *     live entry trigger on a Warming card; ``keys`` names the key each trigger turns), ``watch`` (an Armed card's
+         *     confirmation-only member) or ``managing`` (a Managing card's held and armed members). ``also_armed`` = the other
+         *     cards on which the same security is an armed row. ``confidence`` = setup strength, an experimental relative
+         *     indicator, not a probability. ``risk_kinds`` = one entry per risk signal on the card that names this security.
+         *     ``ticker`` is the card's roster ticker (the Cockpit's ``?name=`` key), else the master's, else the security id.
+         */
+        HotRowOut: {
+            /** Key */
+            key: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "armed" | "warming" | "watch" | "managing";
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Name */
+            name: string | null;
+            /** Also Armed */
+            also_armed: components["schemas"]["HotCardRefOut"][];
+            verdict: components["schemas"]["Verdict"] | null;
+            entry_grade: components["schemas"]["Grade"] | null;
+            /** Confidence */
+            confidence: number | null;
+            /** Keys */
+            keys: ("conviction" | "confirmation")[];
+            /** Triggers */
+            triggers: components["schemas"]["HotTriggerOut"][];
+            /** Risk Kinds */
+            risk_kinds: components["schemas"]["Kind"][];
+            clocks: components["schemas"]["HotClocksOut"];
+            /** Entry Window Closing */
+            entry_window_closing: boolean;
+            /** Lapsing */
+            lapsing: boolean;
+            since_arm: components["schemas"]["HotSinceArmOut"];
+            tape: components["schemas"]["HotTapeOut"];
+            cap: components["schemas"]["HotCapOut"];
+        };
+        /**
+         * HotSinceArmOut
+         * @description The name's as-traded return from the first close on or after the arm night (``entry_*``) to its last close
+         *     on or before the as-of (``last_*``), and IWM's over the same dates. ``gap`` says why ``ret_pct`` is blank:
+         *     ``no_arm_night`` (not an armed row), ``flagged``, ``before_window`` (the arm night is before the earliest bar
+         *     the view reads) or ``no_bar``.
+         */
+        HotSinceArmOut: {
+            /** Entry Date */
+            entry_date: string | null;
+            /** Entry Close */
+            entry_close: number | null;
+            /** Last Date */
+            last_date: string | null;
+            /** Last Close */
+            last_close: number | null;
+            /** Ret Pct */
+            ret_pct: number | null;
+            /** Iwm Pct */
+            iwm_pct: number | null;
+            /** Gap */
+            gap: ("no_arm_night" | "flagged" | "before_window" | "no_bar") | null;
+        };
+        /**
+         * HotSourceOut
+         * @description One place a trigger points at: ``source`` = the kind of source as stored ("form4", "price", "xbrl", a form),
+         *     ``ref`` = its reference, ``url`` = a link to it by the Evidence Ledger's rule (``null`` = none known).
+         */
+        HotSourceOut: {
+            /** Source */
+            source: string;
+            /** Ref */
+            ref: string;
+            /** Url */
+            url: string | null;
+        };
+        /**
+         * HotTapeOut
+         * @description One company's display-member readings at the as-of. ``flag`` = the data flags' labels when they reach its
+         *     price readings (every price-derived cell is then blank and says so; the insider counts stay). ``vs_iwm`` = the
+         *     30-trading-day return minus IWM's, in percentage points (``null`` when the two last closes are not the same
+         *     day). ``rs_leading`` = relative strength at a fresh 13-week high (``rs_leading_vs`` = against which benchmark;
+         *     ``null`` = no 13-week verdict yet). ``buys_30d`` / ``buyers_30d`` = open-market buys and distinct buyers in
+         *     the last 30 days (``null`` = no Form 4 ingested). Units: percent for the returns and the two distances, RVOL as
+         *     a ratio, dollar volume in USD. ``spark`` = the last 90 closes (``null`` = no bar; a thin tape is left-padded).
+         */
+        HotTapeOut: {
+            /** Flag */
+            flag: string | null;
+            rvol20: components["schemas"]["HotCellOut"];
+            vs_50d: components["schemas"]["HotCellOut"];
+            off_high: components["schemas"]["HotCellOut"];
+            vs_iwm: components["schemas"]["HotCellOut"];
+            /** Rs Leading */
+            rs_leading: boolean | null;
+            /** Rs Leading Vs */
+            rs_leading_vs: string[];
+            ret_7d: components["schemas"]["HotCellOut"];
+            ret_30d: components["schemas"]["HotCellOut"];
+            /** Buys 30D */
+            buys_30d: number | null;
+            /** Buyers 30D */
+            buyers_30d: number | null;
+            adv_usd_20d: components["schemas"]["HotCellOut"];
+            /** Spark */
+            spark: (number | null)[];
+        };
+        /**
+         * HotTriggerOut
+         * @description A fired entry trigger. ``event_date`` = its FIRE date (the market event: an insider trade date, a breakout
+         *     bar), not the night the platform recorded it.
+         */
+        HotTriggerOut: {
+            /** Label */
+            label: string;
+            kind: components["schemas"]["Kind"];
+            grade: components["schemas"]["Grade"] | null;
+            /** Event Date */
+            event_date: string | null;
+            /** Sources */
+            sources: components["schemas"]["HotSourceOut"][];
         };
         /** IdeaTimelineCatalystOut */
         IdeaTimelineCatalystOut: {
@@ -16703,6 +17021,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MultiplesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    hot_board_dashboards_hot_board_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; only what was recorded and public by then is read */
+                asof: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HotBoardOut"];
                 };
             };
             /** @description Validation Error */

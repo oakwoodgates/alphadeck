@@ -1,0 +1,77 @@
+{
+  "note": "The Hot Board's heat on hand-built rows (docs/dashboards/hot-board.md). The backend (backend/tests/dashboards/test_hot_board.py) and the page (heat.test.ts) both assert these same cases, so the two implementations of the rule cannot drift. Each part is the row's percentile (the mid-rank over n - 1) among the rows with that reading; the score is the mean of the four x 100, null when any part is missing. Compared to 1e-9.",
+  "cases": [
+    {
+      "name": "four rows, all readings distinct",
+      "rows": [
+        { "key": "A", "sessions_since": 0, "rvol20": 2.0, "vs_iwm": 8.0, "since_arm_pct": 1.0 },
+        { "key": "B", "sessions_since": 2, "rvol20": 1.0, "vs_iwm": 3.0, "since_arm_pct": 4.0 },
+        { "key": "C", "sessions_since": 5, "rvol20": 3.0, "vs_iwm": -2.0, "since_arm_pct": -1.0 },
+        { "key": "D", "sessions_since": 1, "rvol20": 0.5, "vs_iwm": 12.0, "since_arm_pct": 10.0 }
+      ],
+      "expected": {
+        "A": { "fresh": 1.0, "loud": 0.6666666666666666, "leading": 0.6666666666666666, "unextended": 0.6666666666666666, "score": 75.0 },
+        "B": { "fresh": 0.3333333333333333, "loud": 0.3333333333333333, "leading": 0.3333333333333333, "unextended": 0.3333333333333333, "score": 33.33333333333333 },
+        "C": { "fresh": 0.0, "loud": 1.0, "leading": 0.0, "unextended": 1.0, "score": 50.0 },
+        "D": { "fresh": 0.6666666666666666, "loud": 0.0, "leading": 1.0, "unextended": 0.0, "score": 41.66666666666667 }
+      }
+    },
+    {
+      "name": "ties share the average of the ranks they span",
+      "rows": [
+        { "key": "A", "sessions_since": 1, "rvol20": 2.0, "vs_iwm": 5.0, "since_arm_pct": 2.0 },
+        { "key": "B", "sessions_since": 1, "rvol20": 2.0, "vs_iwm": 1.0, "since_arm_pct": 2.0 },
+        { "key": "C", "sessions_since": 3, "rvol20": 1.0, "vs_iwm": 1.0, "since_arm_pct": 0.0 }
+      ],
+      "expected": {
+        "A": { "fresh": 0.75, "loud": 0.75, "leading": 1.0, "unextended": 0.25, "score": 68.75 },
+        "B": { "fresh": 0.75, "loud": 0.75, "leading": 0.25, "unextended": 0.25, "score": 50.0 },
+        "C": { "fresh": 0.0, "loud": 0.0, "leading": 0.25, "unextended": 1.0, "score": 31.25 }
+      }
+    },
+    {
+      "name": "a missing part leaves the row without heat, and its other readings still rank the others",
+      "rows": [
+        { "key": "A", "sessions_since": 0, "rvol20": 2.0, "vs_iwm": 4.0, "since_arm_pct": 1.0 },
+        { "key": "B", "sessions_since": 1, "rvol20": null, "vs_iwm": 2.0, "since_arm_pct": 3.0 },
+        { "key": "C", "sessions_since": 2, "rvol20": 1.0, "vs_iwm": 6.0, "since_arm_pct": -2.0 },
+        { "key": "D", "sessions_since": null, "rvol20": 3.0, "vs_iwm": 1.0, "since_arm_pct": null }
+      ],
+      "expected": {
+        "A": { "fresh": 1.0, "loud": 0.5, "leading": 0.6666666666666666, "unextended": 0.5, "score": 66.66666666666667 },
+        "B": { "fresh": 0.5, "loud": null, "leading": 0.3333333333333333, "unextended": 0.0, "score": null },
+        "C": { "fresh": 0.0, "loud": 0.0, "leading": 1.0, "unextended": 1.0, "score": 50.0 },
+        "D": { "fresh": null, "loud": 1.0, "leading": 0.0, "unextended": null, "score": null }
+      }
+    },
+    {
+      "name": "a lone row has nothing to compare with and sits at the middle",
+      "rows": [{ "key": "A", "sessions_since": 4, "rvol20": 1.2, "vs_iwm": -3.0, "since_arm_pct": 7.5 }],
+      "expected": { "A": { "fresh": 0.5, "loud": 0.5, "leading": 0.5, "unextended": 0.5, "score": 50.0 } }
+    },
+    {
+      "name": "rows that are all equal share the middle",
+      "rows": [
+        { "key": "A", "sessions_since": 2, "rvol20": 1.0, "vs_iwm": 0.0, "since_arm_pct": 0.0 },
+        { "key": "B", "sessions_since": 2, "rvol20": 1.0, "vs_iwm": 0.0, "since_arm_pct": 0.0 },
+        { "key": "C", "sessions_since": 2, "rvol20": 1.0, "vs_iwm": 0.0, "since_arm_pct": 0.0 }
+      ],
+      "expected": {
+        "A": { "fresh": 0.5, "loud": 0.5, "leading": 0.5, "unextended": 0.5, "score": 50.0 },
+        "B": { "fresh": 0.5, "loud": 0.5, "leading": 0.5, "unextended": 0.5, "score": 50.0 },
+        "C": { "fresh": 0.5, "loud": 0.5, "leading": 0.5, "unextended": 0.5, "score": 50.0 }
+      }
+    },
+    {
+      "name": "recomputed on a subset (the first case's A and C alone): the percentiles are among the rows shown",
+      "rows": [
+        { "key": "A", "sessions_since": 0, "rvol20": 2.0, "vs_iwm": 8.0, "since_arm_pct": 1.0 },
+        { "key": "C", "sessions_since": 5, "rvol20": 3.0, "vs_iwm": -2.0, "since_arm_pct": -1.0 }
+      ],
+      "expected": {
+        "A": { "fresh": 1.0, "loud": 0.0, "leading": 1.0, "unextended": 0.0, "score": 50.0 },
+        "C": { "fresh": 0.0, "loud": 1.0, "leading": 0.0, "unextended": 1.0, "score": 50.0 }
+      }
+    }
+  ]
+}
