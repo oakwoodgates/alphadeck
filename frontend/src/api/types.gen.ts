@@ -2440,6 +2440,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboards/market-map": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Market Map
+         * @description Every company on the cards as a heat-map tile: per company the 1d / 7d / 30d / 90d / year-to-date / 1Y
+         *     returns, the 20-day dollar volume and the approximate market cap with the share count it rests on, with the
+         *     cards and links it sits on and SPY's and IWM's own returns. A company whose data flags reach its price
+         *     readings is left out and listed. Display only; a past as-of reads what was public by the end of that date.
+         */
+        get: operations["market_map_dashboards_market_map_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dashboards/narrative-adoption/cards": {
         parameters: {
             query?: never;
@@ -11455,6 +11478,174 @@ export interface components {
             offset?: number | null;
         };
         /**
+         * MapCardOut
+         * @description A counted card that has a drawn company.
+         */
+        MapCardOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Name */
+            name: string;
+        };
+        /**
+         * MapCompanyOut
+         * @description One company's readings at the as-of. ``returns`` holds the six windows (``ret_1d`` ... ``ret_90d``, ``ytd``,
+         *     ``ret_1y``; percent, trading bars for the trailing ones), ``null`` where there is no reading, with the reason
+         *     in ``gaps``. ``cap`` = the approximate market cap in USD with its band (``cap_tier``) and the share count it
+         *     rests on (``cap_source``: ``workbench`` = ratified in the Workbench, ``cover`` = the latest count from a
+         *     filing's cover page, not ratified: used only when filed within 200 days of the as-of and at least 10,000
+         *     shares); ``null`` with ``cap_gap`` / ``cap_note`` when there is none (``cap_note`` says why a cover count
+         *     that exists was refused).
+         *     ``dollar_volume`` = the mean of close x volume over the last 20 sessions. ``business_type`` / ``supersector``
+         *     are today's identity; ``silent_only`` = every row of the company is Context or Bench.
+         */
+        MapCompanyOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Name */
+            name: string | null;
+            /** Business Type */
+            business_type: string | null;
+            /** Supersector */
+            supersector: string | null;
+            /** Silent Only */
+            silent_only: boolean;
+            /** Returns */
+            returns: {
+                [key: string]: number | null;
+            };
+            /** Gaps */
+            gaps: {
+                [key: string]: string;
+            };
+            /** Priced */
+            priced: boolean;
+            /** Cap */
+            cap: number | null;
+            /** Cap Tier */
+            cap_tier: ("nano" | "micro" | "small" | "mid" | "large") | null;
+            /** Cap Source */
+            cap_source: ("workbench" | "cover") | null;
+            /** Cap Gap */
+            cap_gap: string | null;
+            /** Cap Note */
+            cap_note: string | null;
+            /** Dollar Volume */
+            dollar_volume: number | null;
+            /** Dollar Volume Note */
+            dollar_volume_note: string | null;
+        };
+        /**
+         * MapFlaggedOut
+         * @description A company left off the map: its data flags reach its price readings at the as-of (the reason the Cockpit
+         *     grays its price cells). ``reason`` = the flags' labels.
+         */
+        MapFlaggedOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Reason */
+            reason: string;
+            /** Silent Only */
+            silent_only: boolean;
+        };
+        /**
+         * MapMembershipOut
+         * @description One basket row of a drawn company: its card, the ticker it carries there (the Cockpit's ``?name=`` key),
+         *     its link (``null`` = Unsegmented) and whether the row is Context or Bench (``silent``: it never counts
+         *     toward a call; the page shows it only when asked).
+         */
+        MapMembershipOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Link */
+            link: string | null;
+            /** Silent */
+            silent: boolean;
+        };
+        /**
+         * MarketMapOut
+         * @description The whole page in one payload. ``companies`` holds every drawable company's readings, ``memberships`` the
+         *     cards and links each sits on; the page builds every grouping from them. ``spy`` / ``iwm`` = the benchmark's own
+         *     returns for the same six windows (``null`` = no tape at the as-of). The counts are the work shown on the
+         *     page's quiet line. ``cache`` / ``compute_ms`` = whether the heavy read was served from the shared dashboard
+         *     cache and how long it took when it ran.
+         */
+        MarketMapOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /** Live Cards */
+            live_cards: number;
+            /** Cards Counted */
+            cards_counted: number;
+            /** Cards Not Yet Created */
+            cards_not_yet_created: number;
+            /** Roster Fallback Cards */
+            roster_fallback_cards: number;
+            /** Basket Rows */
+            basket_rows: number;
+            /** Silent Rows */
+            silent_rows: number;
+            /** Unresolved Rows */
+            unresolved_rows: number;
+            /** Unresolved Silent Rows */
+            unresolved_silent_rows: number;
+            /** Companies Total */
+            companies_total: number;
+            /** Cards */
+            cards: components["schemas"]["MapCardOut"][];
+            /** Memberships */
+            memberships: components["schemas"]["MapMembershipOut"][];
+            /** Companies */
+            companies: components["schemas"]["MapCompanyOut"][];
+            /** Flagged */
+            flagged: components["schemas"]["MapFlaggedOut"][];
+            /** Spy */
+            spy: {
+                [key: string]: number | null;
+            } | null;
+            /** Iwm */
+            iwm: {
+                [key: string]: number | null;
+            } | null;
+            /** Windows */
+            windows: string[];
+            /** Dollar Volume Bars */
+            dollar_volume_bars: number;
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
          * MemberCallOut
          * @description One basket member's call in the per-member ranked menu (M5 Part A). `armed_members` is ranked
          *     (the headline is [0]); `watch_members` are confirmation-only ("moving, no conviction yet").
@@ -19465,6 +19656,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LeadersOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    market_map_dashboards_market_map_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; no price or share count published after it is read */
+                asof: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketMapOut"];
                 };
             };
             /** @description Validation Error */
